@@ -646,6 +646,7 @@ describe("PreparePhase", () => {
   it("cubre estados de análisis, navegación de tabs y limpieza de texto seleccionada", () => {
     const callbacks = {
       onCancelProfile: vi.fn(),
+      onCancelPrepare: vi.fn(),
       onRemoveDuplicates: vi.fn(),
       onRemoveNearDuplicates: vi.fn(),
       onRemoveEmptyRows: vi.fn(),
@@ -703,6 +704,43 @@ describe("PreparePhase", () => {
     />);
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(callbacks.onCancelProfile).toHaveBeenCalledOnce();
+
+    cleanup();
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "idle" }}
+      changeStatus={{ kind: "working", action: "duplicates" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      {...callbacks}
+    />);
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(callbacks.onCancelPrepare).toHaveBeenCalledOnce();
+
+    cleanup();
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "idle" }}
+      changeStatus={{ kind: "working", action: "duplicates", cancelRequested: true }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      {...callbacks}
+    />);
+    expect(screen.getByRole("button", { name: "Cancelando…" })).toBeDisabled();
+
+    cleanup();
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "idle" }}
+      changeStatus={{ kind: "cancelled", message: "Preparación cancelada." }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      {...callbacks}
+    />);
+    expect(screen.getByText("Preparación cancelada.")).toBeInTheDocument();
 
     cleanup();
     render(<PreparePhase

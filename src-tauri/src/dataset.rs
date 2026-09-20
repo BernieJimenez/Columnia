@@ -2160,31 +2160,48 @@ where
     })
 }
 
+#[cfg(test)]
 fn publish_candidate(
+    dataset: &mut LoadedDataset,
+    candidate: DataFrame,
+    label: &str,
+) -> Result<DatasetPreview, String> {
+    publish_candidate_with_cancellation(dataset, candidate, label, None)
+}
+
+fn publish_candidate_with_cancellation(
     dataset: &mut LoadedDataset,
     mut candidate: DataFrame,
     label: &str,
+    cancellation: Option<&PrepareCancellation>,
 ) -> Result<DatasetPreview, String> {
-    let audit_active = dataset
-        .frame
-        .get_column_names()
-        .iter()
-        .any(|name| name.as_str() == "_cambios");
-    if audit_active && label != "Activar trazabilidad por fila" {
-        append_audit_label(&mut candidate, label)?;
+    let publish = || {
+        let audit_active = dataset
+            .frame
+            .get_column_names()
+            .iter()
+            .any(|name| name.as_str() == "_cambios");
+        if audit_active && label != "Activar trazabilidad por fila" {
+            append_audit_label(&mut candidate, label)?;
+        }
+        let preview = loaded_dataset_preview(dataset, &candidate)?;
+        dataset.history.record(&candidate, label)?;
+        // La fuente original solo representa el cursor actual antes de una
+        // mutación. Después de publicar una candidata, las consultas deben usar
+        // el snapshot/historial o el frame transformado, nunca el archivo viejo.
+        dataset.source_path = None;
+        dataset.history.source_snapshot_path = None;
+        dataset.row_count = candidate.height();
+        dataset.frame = candidate;
+        dataset.source_backed = false;
+        dataset.profile = None;
+        Ok(preview)
+    };
+    if let Some(cancellation) = cancellation {
+        cancellation.commit(publish)
+    } else {
+        publish()
     }
-    let preview = loaded_dataset_preview(dataset, &candidate)?;
-    dataset.history.record(&candidate, label)?;
-    // La fuente original solo representa el cursor actual antes de una
-    // mutación. Después de publicar una candidata, las consultas deben usar
-    // el snapshot/historial o el frame transformado, nunca el archivo viejo.
-    dataset.source_path = None;
-    dataset.history.source_snapshot_path = None;
-    dataset.row_count = candidate.height();
-    dataset.frame = candidate;
-    dataset.source_backed = false;
-    dataset.profile = None;
-    Ok(preview)
 }
 
 fn append_audit_label(frame: &mut DataFrame, label: &str) -> Result<(), String> {
@@ -2272,6 +2289,62 @@ pub struct DatasetState {
     export_generation: AtomicU64,
     query_generation: AtomicU64,
     snapshot_comparison_generation: AtomicU64,
+    prepare_generation: AtomicU64,
+    prepare_commit_lock: Mutex<()>,
+}
+
+#[derive(Clone)]
+struct PrepareCancellation {
+    app: Option<AppHandle>,
+    generation: u64,
+}
+
+impl PrepareCancellation {
+    fn begin(app: &AppHandle) -> Self {
+        let generation = app.state::<DatasetState>().begin_prepare();
+        Self {
+            app: Some(app.clone()),
+            generation,
+        }
+    }
+
+    #[cfg(test)]
+    fn disabled() -> Self {
+        Self {
+            app: None,
+            generation: 0,
+        }
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.app.as_ref().is_some_and(|app| {
+            app.state::<DatasetState>()
+                .prepare_was_cancelled(self.generation)
+        })
+    }
+
+    fn ensure(&self) -> Result<(), String> {
+        ensure_not_cancelled(self.is_cancelled())
+    }
+
+    fn commit<T>(&self, operation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+        if let Some(app) = &self.app {
+            let state = app.state::<DatasetState>();
+            let _guard = state
+                .prepare_commit_lock
+                .lock()
+                .map_err(|_| "La publicación de la preparación quedó bloqueada.".to_owned())?;
+            self.ensure()?;
+            operation()
+        } else {
+            operation()
+        }
+    }
+
+    fn callback(&self) -> impl Fn() -> bool + Send + 'static {
+        let cancellation = self.clone();
+        move || cancellation.is_cancelled()
+    }
 }
 
 impl DatasetState {
@@ -2324,6 +2397,12 @@ impl DatasetState {
             .wrapping_add(1)
     }
 
+    fn begin_prepare(&self) -> u64 {
+        self.prepare_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
     fn load_was_cancelled(&self, generation: u64) -> bool {
         self.load_generation.load(Ordering::SeqCst) != generation
     }
@@ -2348,6 +2427,10 @@ impl DatasetState {
         self.snapshot_comparison_generation.load(Ordering::SeqCst) != generation
     }
 
+    fn prepare_was_cancelled(&self, generation: u64) -> bool {
+        self.prepare_generation.load(Ordering::SeqCst) != generation
+    }
+
     fn remember_last_export(&self, path: PathBuf) {
         if let Ok(mut last_export_path) = self.last_export_path.lock() {
             *last_export_path = Some(path);
@@ -2363,6 +2446,14 @@ impl DatasetState {
     }
 
     fn cancel(&self, operation: &str) -> Result<(), String> {
+        if operation == "prepare" {
+            let _guard = self
+                .prepare_commit_lock
+                .lock()
+                .map_err(|_| "La cancelación de preparación quedó bloqueada.".to_owned())?;
+            self.prepare_generation.fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
         let generation = match operation {
             "load" => &self.load_generation,
             "profile" => &self.profile_generation,
@@ -2489,7 +2580,7 @@ impl DatasetState {
     pub(crate) fn project_test_record(&self, frame: DataFrame, label: &str) -> Result<(), String> {
         let mut current = self.current.lock().map_err(|_| "lock".to_owned())?;
         let dataset = current.as_mut().ok_or_else(|| "missing".to_owned())?;
-        publish_candidate(dataset, frame, label).map(|_| ())
+        publish_candidate_with_cancellation(dataset, frame, label, None).map(|_| ())
     }
 
     pub(crate) fn project_test_undo(&self) -> Result<DataFrame, String> {
@@ -3257,19 +3348,27 @@ struct SourceBackedConflictResolutionRequest {
 
 struct SourceBackedJoinOutputGuard {
     path: PathBuf,
+    keep_on_drop: bool,
 }
 
 impl SourceBackedJoinOutputGuard {
     fn new(path: &Path) -> Self {
         Self {
             path: path.to_owned(),
+            keep_on_drop: false,
         }
+    }
+
+    fn keep(&mut self) {
+        self.keep_on_drop = true;
     }
 }
 
 impl Drop for SourceBackedJoinOutputGuard {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        if !self.keep_on_drop {
+            let _ = fs::remove_file(&self.path);
+        }
     }
 }
 
@@ -9280,7 +9379,9 @@ fn publish_source_backed_query(
     query: &str,
     label: &str,
     force_publish: bool,
+    cancellation: PrepareCancellation,
 ) -> Result<Option<DatasetMutation>, String> {
+    cancellation.ensure()?;
     let original_source_path = dataset
         .source_path
         .clone()
@@ -9295,27 +9396,34 @@ fn publish_source_backed_query(
             .map_err(|error| format!("No se pudo preparar la salida source-backed: {error}"))?;
     let output_path = temporary.path().to_owned();
     drop(temporary);
-    if crate::duckdb_query::materialize_file_query_to_parquet(
+    let _output_guard = SourceBackedJoinOutputGuard::new(&output_path);
+    match crate::duckdb_query::materialize_file_query_to_parquet_with_cancel(
         source_path,
         source_format,
         query,
         &output_path,
-    )
-    .is_err()
-    {
-        let _ = fs::remove_file(&output_path);
-        return Ok(None);
+        cancellation.callback(),
+    ) {
+        Ok(()) => {}
+        Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
+        Err(_) => {
+            let _ = fs::remove_file(&output_path);
+            return Ok(None);
+        }
     }
 
+    cancellation.ensure()?;
     let output_size = fs::metadata(&output_path)
         .map_err(|error| format!("No se pudo verificar la salida source-backed: {error}"))?
         .len();
     let output_schema = read_parquet_schema_frame(&output_path)?;
+    cancellation.ensure()?;
     let output_row_count = crate::duckdb_query::count_file_rows(
         &output_path,
         crate::duckdb_query::DuckDbFileFormat::Parquet,
-        || false,
+        cancellation.callback(),
     )?;
+    cancellation.ensure()?;
     if output_row_count > dataset.row_count {
         let _ = fs::remove_file(&output_path);
         return Err(
@@ -9344,6 +9452,7 @@ fn publish_source_backed_query(
             "No se pudo leer la vista previa de la limpieza source-backed",
         )?
     };
+    cancellation.ensure()?;
     let (_, source_size_after, _) = validate_dataset_file(&original_source_path)?;
     if source_size_before != source_size_after {
         let _ = fs::remove_file(&output_path);
@@ -9365,37 +9474,36 @@ fn publish_source_backed_query(
         &output_schema,
         &page,
     )?;
-    if !initialize_source_backed_history(dataset, source_path, source_format)? {
-        let _ = fs::remove_file(&output_path);
-        return Ok(None);
-    }
-    dataset.history.record_parquet(&output_path, label)?;
-    if !dataset.history.snapshots_enabled {
-        let _ = fs::remove_file(&output_path);
-        return Ok(None);
-    }
-    let current_path = dataset
-        .history
-        .entries
-        .last()
-        .map(|entry| entry.path.clone())
-        .ok_or_else(|| "No se pudo publicar la limpieza source-backed.".to_owned())?;
-    let current_size = fs::metadata(&current_path)
-        .map_err(|error| format!("No se pudo verificar el historial source-backed: {error}"))?
-        .len();
-    let _ = fs::remove_file(&output_path);
-    dataset.source_path = Some(current_path);
-    dataset.file_size_bytes = current_size;
-    dataset.row_count = output_row_count;
-    dataset.frame = output_schema;
-    dataset.source_backed = true;
-    dataset.history.source_snapshot_path = None;
-    dataset.history.current_label = label.to_owned();
-    dataset.profile = None;
-    Ok(Some(DatasetMutation {
-        dataset: preview,
-        affected_row_count,
-    }))
+    cancellation.commit(|| {
+        if !initialize_source_backed_history(dataset, source_path, source_format)? {
+            return Ok(None);
+        }
+        dataset.history.record_parquet(&output_path, label)?;
+        if !dataset.history.snapshots_enabled {
+            return Ok(None);
+        }
+        let current_path = dataset
+            .history
+            .entries
+            .last()
+            .map(|entry| entry.path.clone())
+            .ok_or_else(|| "No se pudo publicar la limpieza source-backed.".to_owned())?;
+        let current_size = fs::metadata(&current_path)
+            .map_err(|error| format!("No se pudo verificar el historial source-backed: {error}"))?
+            .len();
+        dataset.source_path = Some(current_path);
+        dataset.file_size_bytes = current_size;
+        dataset.row_count = output_row_count;
+        dataset.frame = output_schema;
+        dataset.source_backed = true;
+        dataset.history.source_snapshot_path = None;
+        dataset.history.current_label = label.to_owned();
+        dataset.profile = None;
+        Ok(Some(DatasetMutation {
+            dataset: preview,
+            affected_row_count,
+        }))
+    })
 }
 
 fn publish_source_backed_result_output(
@@ -9850,9 +9958,19 @@ fn resolve_source_backed_conflicts(
     Ok(preview)
 }
 
+#[cfg(test)]
 fn remove_empty_rows_source_backed(
     dataset: &mut LoadedDataset,
 ) -> Result<Option<DatasetMutation>, String> {
+    let cancellation = PrepareCancellation::disabled();
+    remove_empty_rows_source_backed_with_cancellation(dataset, &cancellation)
+}
+
+fn remove_empty_rows_source_backed_with_cancellation(
+    dataset: &mut LoadedDataset,
+    cancellation: &PrepareCancellation,
+) -> Result<Option<DatasetMutation>, String> {
+    cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
@@ -9867,6 +9985,7 @@ fn remove_empty_rows_source_backed(
         &query,
         "Eliminar filas completamente vacías",
         false,
+        cancellation.clone(),
     )
 }
 
@@ -9884,6 +10003,7 @@ fn source_backed_removable_columns(
     source_path: &Path,
     source_format: crate::duckdb_query::DuckDbFileFormat,
     cleanup: SourceBackedColumnCleanup,
+    cancellation: &PrepareCancellation,
 ) -> Result<Vec<String>, String> {
     if dataset.row_count == 0 || dataset.frame.width() <= 1 {
         return Ok(Vec::new());
@@ -9905,7 +10025,7 @@ fn source_backed_removable_columns(
             source_path,
             source_format,
             &columns,
-            || false,
+            cancellation.callback(),
         )?)
     } else {
         None
@@ -9915,7 +10035,7 @@ fn source_backed_removable_columns(
             source_path,
             source_format,
             &columns,
-            || false,
+            cancellation.callback(),
         )?)
     } else {
         None
@@ -9958,9 +10078,19 @@ fn source_backed_removable_columns(
     Ok(candidates)
 }
 
+#[cfg(test)]
 fn remove_duplicates_source_backed(
     dataset: &mut LoadedDataset,
 ) -> Result<Option<DatasetMutation>, String> {
+    let cancellation = PrepareCancellation::disabled();
+    remove_duplicates_source_backed_with_cancellation(dataset, &cancellation)
+}
+
+fn remove_duplicates_source_backed_with_cancellation(
+    dataset: &mut LoadedDataset,
+    cancellation: &PrepareCancellation,
+) -> Result<Option<DatasetMutation>, String> {
+    cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
@@ -9974,12 +10104,23 @@ fn remove_duplicates_source_backed(
         &query,
         "Eliminar filas duplicadas",
         false,
+        cancellation.clone(),
     )
 }
 
+#[cfg(test)]
 fn remove_near_duplicates_source_backed(
     dataset: &mut LoadedDataset,
 ) -> Result<Option<DatasetMutation>, String> {
+    let cancellation = PrepareCancellation::disabled();
+    remove_near_duplicates_source_backed_with_cancellation(dataset, &cancellation)
+}
+
+fn remove_near_duplicates_source_backed_with_cancellation(
+    dataset: &mut LoadedDataset,
+    cancellation: &PrepareCancellation,
+) -> Result<Option<DatasetMutation>, String> {
+    cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
@@ -9993,22 +10134,40 @@ fn remove_near_duplicates_source_backed(
         &query,
         "Eliminar filas duplicadas parecidas",
         false,
+        cancellation.clone(),
     )
 }
 
+#[cfg(test)]
 fn remove_columns_source_backed(
     dataset: &mut LoadedDataset,
     cleanup: SourceBackedColumnCleanup,
     label: &str,
 ) -> Result<Option<ColumnRemovalResult>, String> {
+    let cancellation = PrepareCancellation::disabled();
+    remove_columns_source_backed_with_cancellation(dataset, cleanup, label, &cancellation)
+}
+
+fn remove_columns_source_backed_with_cancellation(
+    dataset: &mut LoadedDataset,
+    cleanup: SourceBackedColumnCleanup,
+    label: &str,
+    cancellation: &PrepareCancellation,
+) -> Result<Option<ColumnRemovalResult>, String> {
+    cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
-    let removed_columns =
-        match source_backed_removable_columns(dataset, &source_path, source_format, cleanup) {
-            Ok(columns) => columns,
-            Err(_) => return Ok(None),
-        };
+    let removed_columns = match source_backed_removable_columns(
+        dataset,
+        &source_path,
+        source_format,
+        cleanup,
+        cancellation,
+    ) {
+        Ok(columns) => columns,
+        Err(_) => return Ok(None),
+    };
     if removed_columns.is_empty() {
         return Ok(Some(ColumnRemovalResult {
             dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
@@ -10029,8 +10188,15 @@ fn remove_columns_source_backed(
         .collect::<Vec<_>>();
     let projection = source_backed_projection(&remaining_columns, label)?;
     let query = format!("SELECT {projection} FROM dataset");
-    let Some(mutation) =
-        publish_source_backed_query(dataset, &source_path, source_format, &query, label, true)?
+    let Some(mutation) = publish_source_backed_query(
+        dataset,
+        &source_path,
+        source_format,
+        &query,
+        label,
+        true,
+        cancellation.clone(),
+    )?
     else {
         return Ok(None);
     };
@@ -10072,9 +10238,19 @@ fn source_backed_mask_projection(
         .join(", "))
 }
 
+#[cfg(test)]
 fn mask_personal_values_source_backed(
     dataset: &mut LoadedDataset,
 ) -> Result<Option<PersonalDataMaskResult>, String> {
+    let cancellation = PrepareCancellation::disabled();
+    mask_personal_values_source_backed_with_cancellation(dataset, &cancellation)
+}
+
+fn mask_personal_values_source_backed_with_cancellation(
+    dataset: &mut LoadedDataset,
+    cancellation: &PrepareCancellation,
+) -> Result<Option<PersonalDataMaskResult>, String> {
+    cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
@@ -10097,7 +10273,7 @@ fn mask_personal_values_source_backed(
         source_format,
         &personal_columns,
         REDACTED_VALUE,
-        || false,
+        cancellation.callback(),
     ) {
         Ok(counts) => counts,
         Err(_) => return Ok(None),
@@ -10124,6 +10300,7 @@ fn mask_personal_values_source_backed(
         &query,
         "Proteger valores personales detectados",
         true,
+        cancellation.clone(),
     )?
     else {
         return Ok(None);
@@ -10165,9 +10342,19 @@ fn source_backed_rename_projection(
         .join(", "))
 }
 
+#[cfg(test)]
 fn normalize_column_names_source_backed(
     dataset: &mut LoadedDataset,
 ) -> Result<Option<ColumnNormalizationResult>, String> {
+    let cancellation = PrepareCancellation::disabled();
+    normalize_column_names_source_backed_with_cancellation(dataset, &cancellation)
+}
+
+fn normalize_column_names_source_backed_with_cancellation(
+    dataset: &mut LoadedDataset,
+    cancellation: &PrepareCancellation,
+) -> Result<Option<ColumnNormalizationResult>, String> {
+    cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
@@ -10189,6 +10376,7 @@ fn normalize_column_names_source_backed(
         &query,
         "Normalizar nombres de columnas",
         true,
+        cancellation.clone(),
     )?
     else {
         return Ok(None);
@@ -10200,9 +10388,19 @@ fn normalize_column_names_source_backed(
     }))
 }
 
+#[cfg(test)]
 fn enable_row_audit_source_backed(
     dataset: &mut LoadedDataset,
 ) -> Result<Option<DatasetMutation>, String> {
+    let cancellation = PrepareCancellation::disabled();
+    enable_row_audit_source_backed_with_cancellation(dataset, &cancellation)
+}
+
+fn enable_row_audit_source_backed_with_cancellation(
+    dataset: &mut LoadedDataset,
+    cancellation: &PrepareCancellation,
+) -> Result<Option<DatasetMutation>, String> {
+    cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
@@ -10235,6 +10433,7 @@ fn enable_row_audit_source_backed(
         &query,
         "Activar trazabilidad por fila",
         true,
+        cancellation.clone(),
     )
 }
 
@@ -10339,13 +10538,14 @@ fn source_backed_text_suggested_types(
     source_path: &Path,
     source_format: crate::duckdb_query::DuckDbFileFormat,
     columns: &[String],
+    cancellation: &PrepareCancellation,
 ) -> Option<HashMap<String, &'static str>> {
     let expressions = source_backed_text_type_expressions(columns);
     let stats = crate::duckdb_query::count_file_text_type_stats(
         source_path,
         source_format,
         &expressions,
-        || false,
+        cancellation.callback(),
     )
     .ok()?;
     Some(
@@ -10483,6 +10683,7 @@ fn source_backed_boolean_candidate_columns(
     dataset: &LoadedDataset,
     source_path: &Path,
     source_format: crate::duckdb_query::DuckDbFileFormat,
+    cancellation: &PrepareCancellation,
 ) -> Option<Vec<String>> {
     let columns = dataset
         .frame
@@ -10507,7 +10708,7 @@ fn source_backed_boolean_candidate_columns(
         source_path,
         source_format,
         &normalized,
-        || false,
+        cancellation.callback(),
     )
     .ok()?;
     Some(
@@ -10575,11 +10776,27 @@ fn source_backed_text_cleaning_projection(
     Ok((projection.join(", "), expressions))
 }
 
+#[cfg(test)]
 fn source_backed_text_cleaning(
     dataset: &mut LoadedDataset,
     selected_columns: Option<&[String]>,
     mode: TextCleaningMode,
 ) -> Result<Option<TextCleaningResult>, String> {
+    source_backed_text_cleaning_with_cancellation(
+        dataset,
+        selected_columns,
+        mode,
+        PrepareCancellation::disabled(),
+    )
+}
+
+fn source_backed_text_cleaning_with_cancellation(
+    dataset: &mut LoadedDataset,
+    selected_columns: Option<&[String]>,
+    mode: TextCleaningMode,
+    cancellation: PrepareCancellation,
+) -> Result<Option<TextCleaningResult>, String> {
+    cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
@@ -10587,9 +10804,12 @@ fn source_backed_text_cleaning(
         if selected_columns.is_some() {
             return Ok(None);
         }
-        let Some(columns) =
-            source_backed_boolean_candidate_columns(dataset, &source_path, source_format)
-        else {
+        let Some(columns) = source_backed_boolean_candidate_columns(
+            dataset,
+            &source_path,
+            source_format,
+            &cancellation,
+        ) else {
             return Ok(None);
         };
         columns
@@ -10608,7 +10828,7 @@ fn source_backed_text_cleaning(
             &source_path,
             source_format,
             &unsafe_predicates,
-            || false,
+            cancellation.callback(),
         ) {
             Ok((_, counts)) => counts,
             Err(_) => return Ok(None),
@@ -10618,9 +10838,12 @@ fn source_backed_text_cleaning(
         }
     }
     let suggested_types = if matches!(mode, TextCleaningMode::NullifyInvalidTypes) {
-        let Some(suggested_types) =
-            source_backed_text_suggested_types(&source_path, source_format, &selected_columns)
-        else {
+        let Some(suggested_types) = source_backed_text_suggested_types(
+            &source_path,
+            source_format,
+            &selected_columns,
+            &cancellation,
+        ) else {
             return Ok(None);
         };
         suggested_types
@@ -10655,7 +10878,7 @@ fn source_backed_text_cleaning(
             &source_path,
             source_format,
             &expressions,
-            || false,
+            cancellation.callback(),
         ) {
             Ok(counts) => counts,
             Err(_) => return Ok(None),
@@ -10679,8 +10902,15 @@ fn source_backed_text_cleaning(
         }));
     }
     let query = format!("SELECT {projection} FROM dataset");
-    let Some(mutation) =
-        publish_source_backed_query(dataset, &source_path, source_format, &query, label, true)?
+    let Some(mutation) = publish_source_backed_query(
+        dataset,
+        &source_path,
+        source_format,
+        &query,
+        label,
+        true,
+        cancellation.clone(),
+    )?
     else {
         return Ok(None);
     };
@@ -10692,9 +10922,19 @@ fn source_backed_text_cleaning(
     }))
 }
 
+#[cfg(test)]
 fn source_backed_numeric_cast(
     dataset: &mut LoadedDataset,
 ) -> Result<Option<TextCleaningResult>, String> {
+    let cancellation = PrepareCancellation::disabled();
+    source_backed_numeric_cast_with_cancellation(dataset, &cancellation)
+}
+
+fn source_backed_numeric_cast_with_cancellation(
+    dataset: &mut LoadedDataset,
+    cancellation: &PrepareCancellation,
+) -> Result<Option<TextCleaningResult>, String> {
+    cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
@@ -10717,7 +10957,7 @@ fn source_backed_numeric_cast(
         &source_path,
         source_format,
         &columns,
-        || false,
+        cancellation.callback(),
     ) {
         Ok(stats) => stats,
         Err(_) => return Ok(None),
@@ -10778,7 +11018,7 @@ fn source_backed_numeric_cast(
             &source_path,
             source_format,
             &predicates,
-            || false,
+            cancellation.callback(),
         ) {
             Ok(counts) => counts,
             Err(_) => return Ok(None),
@@ -10831,6 +11071,7 @@ fn source_backed_numeric_cast(
         &query,
         "Convertir números detectados",
         true,
+        cancellation.clone(),
     )?
     else {
         return Ok(None);
@@ -10878,9 +11119,19 @@ fn source_backed_inferred_date_expression(
     Some(format!("COALESCE({parsed})"))
 }
 
+#[cfg(test)]
 fn source_backed_date_parsing(
     dataset: &mut LoadedDataset,
 ) -> Result<Option<TextCleaningResult>, String> {
+    let cancellation = PrepareCancellation::disabled();
+    source_backed_date_parsing_with_cancellation(dataset, &cancellation)
+}
+
+fn source_backed_date_parsing_with_cancellation(
+    dataset: &mut LoadedDataset,
+    cancellation: &PrepareCancellation,
+) -> Result<Option<TextCleaningResult>, String> {
+    cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
@@ -10902,11 +11153,12 @@ fn source_backed_date_parsing(
 
     let mut candidates = Vec::<(String, String, usize)>::new();
     for name in &columns {
-        let sample = match crate::duckdb_query::sample_file_column_values(
+        let sample = match crate::duckdb_query::sample_file_column_values_with_cancel(
             &source_path,
             source_format,
             name,
             50,
+            cancellation.callback(),
         ) {
             Ok(sample) => sample,
             Err(_) => return Ok(None),
@@ -10950,7 +11202,7 @@ fn source_backed_date_parsing(
         &source_path,
         source_format,
         &candidate_expressions,
-        || false,
+        cancellation.callback(),
     ) {
         Ok(stats) => stats,
         Err(_) => return Ok(None),
@@ -10983,7 +11235,7 @@ fn source_backed_date_parsing(
             &source_path,
             source_format,
             &predicates,
-            || false,
+            cancellation.callback(),
         ) {
             Ok(counts) => counts,
             Err(_) => return Ok(None),
@@ -11036,6 +11288,7 @@ fn source_backed_date_parsing(
         &query,
         "Interpretar fechas detectadas",
         true,
+        cancellation.clone(),
     )?
     else {
         return Ok(None);
@@ -11086,10 +11339,21 @@ fn source_backed_imputation_projection(
         .join(", ")
 }
 
+#[cfg(test)]
 fn source_backed_imputation(
     dataset: &mut LoadedDataset,
     categorical_only: bool,
 ) -> Result<Option<TextCleaningResult>, String> {
+    let cancellation = PrepareCancellation::disabled();
+    source_backed_imputation_with_cancellation(dataset, categorical_only, &cancellation)
+}
+
+fn source_backed_imputation_with_cancellation(
+    dataset: &mut LoadedDataset,
+    categorical_only: bool,
+    cancellation: &PrepareCancellation,
+) -> Result<Option<TextCleaningResult>, String> {
+    cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
@@ -11133,7 +11397,7 @@ fn source_backed_imputation(
         &source_path,
         source_format,
         &typed_columns,
-        || false,
+        cancellation.callback(),
     ) {
         Ok(stats) => stats,
         Err(_) => return Ok(None),
@@ -11182,7 +11446,7 @@ fn source_backed_imputation(
         &source_path,
         source_format,
         &predicates,
-        || false,
+        cancellation.callback(),
     ) {
         Ok(counts) => counts,
         Err(_) => return Ok(None),
@@ -11199,8 +11463,15 @@ fn source_backed_imputation(
     let projection =
         source_backed_imputation_projection(&dataset.frame, &replacements, &numeric_types, label);
     let query = format!("SELECT {projection} FROM dataset");
-    let Some(mutation) =
-        publish_source_backed_query(dataset, &source_path, source_format, &query, label, true)?
+    let Some(mutation) = publish_source_backed_query(
+        dataset,
+        &source_path,
+        source_format,
+        &query,
+        label,
+        true,
+        cancellation.clone(),
+    )?
     else {
         return Ok(None);
     };
@@ -11234,11 +11505,23 @@ fn source_backed_direct_outlier_condition(name: &str, lower: f64, upper: f64) ->
     )
 }
 
+#[cfg(test)]
 fn source_backed_direct_outlier(
     dataset: &mut LoadedDataset,
     action: OutlierAction,
     label: &str,
 ) -> Result<Option<TextCleaningResult>, String> {
+    let cancellation = PrepareCancellation::disabled();
+    source_backed_direct_outlier_with_cancellation(dataset, action, label, &cancellation)
+}
+
+fn source_backed_direct_outlier_with_cancellation(
+    dataset: &mut LoadedDataset,
+    action: OutlierAction,
+    label: &str,
+    cancellation: &PrepareCancellation,
+) -> Result<Option<TextCleaningResult>, String> {
+    cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
@@ -11275,7 +11558,7 @@ fn source_backed_direct_outlier(
         &source_path,
         source_format,
         &typed_columns,
-        || false,
+        cancellation.callback(),
     ) {
         Ok(stats) => stats,
         Err(_) => return Ok(None),
@@ -11326,7 +11609,7 @@ fn source_backed_direct_outlier(
             &source_path,
             source_format,
             &predicates,
-            || false,
+            cancellation.callback(),
         ) {
             Ok(counts) => counts,
             Err(_) => return Ok(None),
@@ -11407,8 +11690,15 @@ fn source_backed_direct_outlier(
         String::new()
     };
     let query = format!("SELECT {projection} FROM dataset{where_clause}");
-    let Some(mutation) =
-        publish_source_backed_query(dataset, &source_path, source_format, &query, label, true)?
+    let Some(mutation) = publish_source_backed_query(
+        dataset,
+        &source_path,
+        source_format,
+        &query,
+        label,
+        true,
+        cancellation.clone(),
+    )?
     else {
         return Ok(None);
     };
@@ -11420,6 +11710,7 @@ fn source_backed_direct_outlier(
     }))
 }
 
+#[cfg(test)]
 fn source_backed_safe_corrections(
     dataset: &mut LoadedDataset,
     trim_text: bool,
@@ -11427,6 +11718,26 @@ fn source_backed_safe_corrections(
     normalize_sentinels: bool,
     remove_duplicates: bool,
 ) -> Result<Option<SafeCorrectionsResult>, String> {
+    let cancellation = PrepareCancellation::disabled();
+    source_backed_safe_corrections_with_cancellation(
+        dataset,
+        trim_text,
+        normalize_column_names,
+        normalize_sentinels,
+        remove_duplicates,
+        &cancellation,
+    )
+}
+
+fn source_backed_safe_corrections_with_cancellation(
+    dataset: &mut LoadedDataset,
+    trim_text: bool,
+    normalize_column_names: bool,
+    normalize_sentinels: bool,
+    remove_duplicates: bool,
+    cancellation: &PrepareCancellation,
+) -> Result<Option<SafeCorrectionsResult>, String> {
+    cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
@@ -11478,7 +11789,7 @@ fn source_backed_safe_corrections(
             &source_path,
             source_format,
             &text_expressions,
-            || false,
+            cancellation.callback(),
         ) {
             Ok(counts) => counts,
             Err(_) => return Ok(None),
@@ -11555,6 +11866,7 @@ fn source_backed_safe_corrections(
         &query,
         "Aplicar correcciones recomendadas",
         force_publish,
+        cancellation.clone(),
     )?
     else {
         return Ok(None);
@@ -26532,7 +26844,9 @@ pub async fn pick_quality_rules_migration(
 
 #[tauri::command]
 pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -26542,15 +26856,24 @@ pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = remove_duplicates_source_backed(dataset)? {
+            if let Some(result) =
+                remove_duplicates_source_backed_with_cancellation(dataset, &cancellation)?
+            {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count) = remove_duplicate_rows(&dataset.frame)?;
+        cancellation.ensure()?;
 
         let preview = if affected_row_count > 0 {
-            publish_candidate(dataset, cleaned, "Eliminar filas duplicadas")?
+            publish_candidate_with_cancellation(
+                dataset,
+                cleaned,
+                "Eliminar filas duplicadas",
+                Some(&cancellation),
+            )?
         } else {
             loaded_dataset_preview(dataset, &dataset.frame)?
         };
@@ -26566,7 +26889,9 @@ pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String
 
 #[tauri::command]
 pub async fn remove_near_duplicates(app: AppHandle) -> Result<DatasetMutation, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -26576,15 +26901,24 @@ pub async fn remove_near_duplicates(app: AppHandle) -> Result<DatasetMutation, S
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = remove_near_duplicates_source_backed(dataset)? {
+            if let Some(result) =
+                remove_near_duplicates_source_backed_with_cancellation(dataset, &cancellation)?
+            {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count) = remove_near_duplicate_rows(&dataset.frame)?;
+        cancellation.ensure()?;
 
         let preview = if affected_row_count > 0 {
-            publish_candidate(dataset, cleaned, "Eliminar filas duplicadas parecidas")?
+            publish_candidate_with_cancellation(
+                dataset,
+                cleaned,
+                "Eliminar filas duplicadas parecidas",
+                Some(&cancellation),
+            )?
         } else {
             loaded_dataset_preview(dataset, &dataset.frame)?
         };
@@ -26600,7 +26934,9 @@ pub async fn remove_near_duplicates(app: AppHandle) -> Result<DatasetMutation, S
 
 #[tauri::command]
 pub async fn remove_empty_rows(app: AppHandle) -> Result<DatasetMutation, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -26610,14 +26946,23 @@ pub async fn remove_empty_rows(app: AppHandle) -> Result<DatasetMutation, String
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = remove_empty_rows_source_backed(dataset)? {
+            if let Some(result) =
+                remove_empty_rows_source_backed_with_cancellation(dataset, &cancellation)?
+            {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count) = remove_empty_rows_from_frame(&dataset.frame)?;
+        cancellation.ensure()?;
         let preview = if affected_row_count > 0 {
-            publish_candidate(dataset, cleaned, "Eliminar filas completamente vacías")?
+            publish_candidate_with_cancellation(
+                dataset,
+                cleaned,
+                "Eliminar filas completamente vacías",
+                Some(&cancellation),
+            )?
         } else {
             loaded_dataset_preview(dataset, &dataset.frame)?
         };
@@ -26632,7 +26977,9 @@ pub async fn remove_empty_rows(app: AppHandle) -> Result<DatasetMutation, String
 
 #[tauri::command]
 pub async fn enable_row_audit(app: AppHandle) -> Result<DatasetMutation, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -26642,14 +26989,23 @@ pub async fn enable_row_audit(app: AppHandle) -> Result<DatasetMutation, String>
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = enable_row_audit_source_backed(dataset)? {
+            if let Some(result) =
+                enable_row_audit_source_backed_with_cancellation(dataset, &cancellation)?
+            {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (candidate, added) = add_audit_column_to_frame(&dataset.frame)?;
+        cancellation.ensure()?;
         let preview = if added {
-            publish_candidate(dataset, candidate, "Activar trazabilidad por fila")?
+            publish_candidate_with_cancellation(
+                dataset,
+                candidate,
+                "Activar trazabilidad por fila",
+                Some(&cancellation),
+            )?
         } else {
             loaded_dataset_preview(dataset, &dataset.frame)?
         };
@@ -26664,7 +27020,9 @@ pub async fn enable_row_audit(app: AppHandle) -> Result<DatasetMutation, String>
 
 #[tauri::command]
 pub async fn remove_constant_columns(app: AppHandle) -> Result<ColumnRemovalResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -26674,20 +27032,28 @@ pub async fn remove_constant_columns(app: AppHandle) -> Result<ColumnRemovalResu
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = remove_columns_source_backed(
+            if let Some(result) = remove_columns_source_backed_with_cancellation(
                 dataset,
                 SourceBackedColumnCleanup::Constant,
                 "Eliminar columnas constantes",
+                &cancellation,
             )? {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_constant_columns_from_frame(&dataset.frame)?;
+        cancellation.ensure()?;
         let preview = if removed_columns.is_empty() {
             loaded_dataset_preview(dataset, &dataset.frame)?
         } else {
-            publish_candidate(dataset, cleaned, "Eliminar columnas constantes")?
+            publish_candidate_with_cancellation(
+                dataset,
+                cleaned,
+                "Eliminar columnas constantes",
+                Some(&cancellation),
+            )?
         };
         Ok(ColumnRemovalResult {
             dataset: preview,
@@ -26701,7 +27067,9 @@ pub async fn remove_constant_columns(app: AppHandle) -> Result<ColumnRemovalResu
 
 #[tauri::command]
 pub async fn remove_empty_columns(app: AppHandle) -> Result<ColumnRemovalResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -26711,20 +27079,28 @@ pub async fn remove_empty_columns(app: AppHandle) -> Result<ColumnRemovalResult,
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = remove_columns_source_backed(
+            if let Some(result) = remove_columns_source_backed_with_cancellation(
                 dataset,
                 SourceBackedColumnCleanup::Empty,
                 "Eliminar columnas completamente vacías",
+                &cancellation,
             )? {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_empty_columns_from_frame(&dataset.frame)?;
+        cancellation.ensure()?;
         let preview = if removed_columns.is_empty() {
             loaded_dataset_preview(dataset, &dataset.frame)?
         } else {
-            publish_candidate(dataset, cleaned, "Eliminar columnas completamente vacías")?
+            publish_candidate_with_cancellation(
+                dataset,
+                cleaned,
+                "Eliminar columnas completamente vacías",
+                Some(&cancellation),
+            )?
         };
         Ok(ColumnRemovalResult {
             dataset: preview,
@@ -26738,7 +27114,9 @@ pub async fn remove_empty_columns(app: AppHandle) -> Result<ColumnRemovalResult,
 
 #[tauri::command]
 pub async fn remove_high_null_columns(app: AppHandle) -> Result<ColumnRemovalResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -26748,20 +27126,28 @@ pub async fn remove_high_null_columns(app: AppHandle) -> Result<ColumnRemovalRes
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = remove_columns_source_backed(
+            if let Some(result) = remove_columns_source_backed_with_cancellation(
                 dataset,
                 SourceBackedColumnCleanup::HighNull,
                 "Eliminar columnas con alta nulidad",
+                &cancellation,
             )? {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_high_null_columns_from_frame(&dataset.frame)?;
+        cancellation.ensure()?;
         let preview = if removed_columns.is_empty() {
             loaded_dataset_preview(dataset, &dataset.frame)?
         } else {
-            publish_candidate(dataset, cleaned, "Eliminar columnas con alta nulidad")?
+            publish_candidate_with_cancellation(
+                dataset,
+                cleaned,
+                "Eliminar columnas con alta nulidad",
+                Some(&cancellation),
+            )?
         };
         Ok(ColumnRemovalResult {
             dataset: preview,
@@ -26777,7 +27163,9 @@ pub async fn remove_high_null_columns(app: AppHandle) -> Result<ColumnRemovalRes
 
 #[tauri::command]
 pub async fn remove_identifier_columns(app: AppHandle) -> Result<ColumnRemovalResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -26787,20 +27175,28 @@ pub async fn remove_identifier_columns(app: AppHandle) -> Result<ColumnRemovalRe
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = remove_columns_source_backed(
+            if let Some(result) = remove_columns_source_backed_with_cancellation(
                 dataset,
                 SourceBackedColumnCleanup::Identifier,
                 "Retirar columnas identificadoras",
+                &cancellation,
             )? {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_identifier_columns_from_frame(&dataset.frame)?;
+        cancellation.ensure()?;
         let preview = if removed_columns.is_empty() {
             loaded_dataset_preview(dataset, &dataset.frame)?
         } else {
-            publish_candidate(dataset, cleaned, "Retirar columnas identificadoras")?
+            publish_candidate_with_cancellation(
+                dataset,
+                cleaned,
+                "Retirar columnas identificadoras",
+                Some(&cancellation),
+            )?
         };
         Ok(ColumnRemovalResult {
             dataset: preview,
@@ -26816,7 +27212,9 @@ pub async fn remove_identifier_columns(app: AppHandle) -> Result<ColumnRemovalRe
 
 #[tauri::command]
 pub async fn remove_personal_columns(app: AppHandle) -> Result<ColumnRemovalResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -26826,22 +27224,30 @@ pub async fn remove_personal_columns(app: AppHandle) -> Result<ColumnRemovalResu
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(mut result) = remove_columns_source_backed(
+            if let Some(mut result) = remove_columns_source_backed_with_cancellation(
                 dataset,
                 SourceBackedColumnCleanup::Personal,
                 "Retirar datos personales detectados",
+                &cancellation,
             )? {
                 result.removed_columns.clear();
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_personal_columns_from_frame(&dataset.frame)?;
+        cancellation.ensure()?;
         let removed_column_count = removed_columns.len();
         let preview = if removed_columns.is_empty() {
             loaded_dataset_preview(dataset, &dataset.frame)?
         } else {
-            publish_candidate(dataset, cleaned, "Retirar datos personales detectados")?
+            publish_candidate_with_cancellation(
+                dataset,
+                cleaned,
+                "Retirar datos personales detectados",
+                Some(&cancellation),
+            )?
         };
         Ok(ColumnRemovalResult {
             dataset: preview,
@@ -26858,7 +27264,9 @@ pub async fn remove_personal_columns(app: AppHandle) -> Result<ColumnRemovalResu
 
 #[tauri::command]
 pub async fn mask_personal_values(app: AppHandle) -> Result<PersonalDataMaskResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -26868,15 +27276,24 @@ pub async fn mask_personal_values(app: AppHandle) -> Result<PersonalDataMaskResu
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = mask_personal_values_source_backed(dataset)? {
+            if let Some(result) =
+                mask_personal_values_source_backed_with_cancellation(dataset, &cancellation)?
+            {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (masked, changed_cell_count, changed_column_count) =
             mask_personal_values_from_frame(&dataset.frame)?;
+        cancellation.ensure()?;
         let preview = if changed_cell_count > 0 {
-            publish_candidate(dataset, masked, "Proteger valores personales detectados")?
+            publish_candidate_with_cancellation(
+                dataset,
+                masked,
+                "Proteger valores personales detectados",
+                Some(&cancellation),
+            )?
         } else {
             loaded_dataset_preview(dataset, &dataset.frame)?
         };
@@ -26892,7 +27309,9 @@ pub async fn mask_personal_values(app: AppHandle) -> Result<PersonalDataMaskResu
 
 #[tauri::command]
 pub async fn normalize_column_names(app: AppHandle) -> Result<ColumnNormalizationResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -26902,19 +27321,28 @@ pub async fn normalize_column_names(app: AppHandle) -> Result<ColumnNormalizatio
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = normalize_column_names_source_backed(dataset)? {
+            if let Some(result) =
+                normalize_column_names_source_backed_with_cancellation(dataset, &cancellation)?
+            {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (names, renames) = normalized_column_names(&dataset.frame);
+        cancellation.ensure()?;
 
         let preview = if !renames.is_empty() {
             let mut candidate = dataset.frame.clone();
             candidate
                 .set_column_names(&names)
                 .map_err(|error| format!("No se pudieron normalizar las columnas: {error}"))?;
-            publish_candidate(dataset, candidate, "Normalizar nombres de columnas")?
+            publish_candidate_with_cancellation(
+                dataset,
+                candidate,
+                "Normalizar nombres de columnas",
+                Some(&cancellation),
+            )?
         } else {
             loaded_dataset_preview(dataset, &dataset.frame)?
         };
@@ -26933,7 +27361,9 @@ fn apply_text_cleaning(
     app: AppHandle,
     selected_columns: Option<Vec<String>>,
     mode: TextCleaningMode,
+    cancellation: PrepareCancellation,
 ) -> Result<TextCleaningResult, String> {
+    cancellation.ensure()?;
     let state = app.state::<DatasetState>();
     let mut current = state
         .current
@@ -26943,15 +27373,20 @@ fn apply_text_cleaning(
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
     if dataset.source_backed {
-        if let Some(result) =
-            source_backed_text_cleaning(dataset, selected_columns.as_deref(), mode)?
-        {
+        if let Some(result) = source_backed_text_cleaning_with_cancellation(
+            dataset,
+            selected_columns.as_deref(),
+            mode,
+            cancellation.clone(),
+        )? {
             return Ok(result);
         }
     }
+    cancellation.ensure()?;
     materialize_loaded_dataset(dataset)?;
     let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
         clean_text_columns(&dataset.frame, selected_columns.as_deref(), mode)?;
+    cancellation.ensure()?;
 
     let label = match mode {
         TextCleaningMode::Trim => "Recortar espacios",
@@ -26962,7 +27397,7 @@ fn apply_text_cleaning(
         TextCleaningMode::NullifyInvalidTypes => "Apartar tipos incompatibles",
     };
     let preview = if changed_cell_count > 0 {
-        publish_candidate(dataset, cleaned, label)?
+        publish_candidate_with_cancellation(dataset, cleaned, label, Some(&cancellation))?
     } else {
         loaded_dataset_preview(dataset, &dataset.frame)?
     };
@@ -26975,7 +27410,11 @@ fn apply_text_cleaning(
     })
 }
 
-fn apply_date_parsing(app: AppHandle) -> Result<TextCleaningResult, String> {
+fn apply_date_parsing(
+    app: AppHandle,
+    cancellation: PrepareCancellation,
+) -> Result<TextCleaningResult, String> {
+    cancellation.ensure()?;
     let state = app.state::<DatasetState>();
     let mut current = state
         .current
@@ -26985,15 +27424,23 @@ fn apply_date_parsing(app: AppHandle) -> Result<TextCleaningResult, String> {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
     if dataset.source_backed {
-        if let Some(result) = source_backed_date_parsing(dataset)? {
+        if let Some(result) = source_backed_date_parsing_with_cancellation(dataset, &cancellation)?
+        {
             return Ok(result);
         }
     }
+    cancellation.ensure()?;
     materialize_loaded_dataset(dataset)?;
     let (parsed, affected_row_count, changed_cell_count, changed_columns) =
         parse_inferred_date_columns(&dataset.frame)?;
+    cancellation.ensure()?;
     let preview = if changed_cell_count > 0 {
-        publish_candidate(dataset, parsed, "Interpretar fechas detectadas")?
+        publish_candidate_with_cancellation(
+            dataset,
+            parsed,
+            "Interpretar fechas detectadas",
+            Some(&cancellation),
+        )?
     } else {
         loaded_dataset_preview(dataset, &dataset.frame)?
     };
@@ -27006,7 +27453,11 @@ fn apply_date_parsing(app: AppHandle) -> Result<TextCleaningResult, String> {
     })
 }
 
-fn apply_numeric_cast(app: AppHandle) -> Result<TextCleaningResult, String> {
+fn apply_numeric_cast(
+    app: AppHandle,
+    cancellation: PrepareCancellation,
+) -> Result<TextCleaningResult, String> {
+    cancellation.ensure()?;
     let state = app.state::<DatasetState>();
     let mut current = state
         .current
@@ -27016,15 +27467,23 @@ fn apply_numeric_cast(app: AppHandle) -> Result<TextCleaningResult, String> {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
     if dataset.source_backed {
-        if let Some(result) = source_backed_numeric_cast(dataset)? {
+        if let Some(result) = source_backed_numeric_cast_with_cancellation(dataset, &cancellation)?
+        {
             return Ok(result);
         }
     }
+    cancellation.ensure()?;
     materialize_loaded_dataset(dataset)?;
     let (cast, affected_row_count, changed_cell_count, changed_columns) =
         cast_inferred_numeric_columns(&dataset.frame)?;
+    cancellation.ensure()?;
     let preview = if changed_cell_count > 0 {
-        publish_candidate(dataset, cast, "Convertir números detectados")?
+        publish_candidate_with_cancellation(
+            dataset,
+            cast,
+            "Convertir números detectados",
+            Some(&cancellation),
+        )?
     } else {
         loaded_dataset_preview(dataset, &dataset.frame)?
     };
@@ -27039,8 +27498,9 @@ fn apply_numeric_cast(app: AppHandle) -> Result<TextCleaningResult, String> {
 
 #[tauri::command]
 pub async fn trim_text_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
-        apply_text_cleaning(app, None, TextCleaningMode::Trim)
+        apply_text_cleaning(app, None, TextCleaningMode::Trim, cancellation)
     })
     .await
     .map_err(|error| format!("La limpieza de espacios se interrumpió: {error}"))?
@@ -27052,11 +27512,13 @@ pub async fn normalize_text_values(
     columns: Vec<String>,
     remove_accents: bool,
 ) -> Result<TextCleaningResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
         apply_text_cleaning(
             app,
             Some(columns),
             TextCleaningMode::Normalize { remove_accents },
+            cancellation,
         )
     })
     .await
@@ -27065,22 +27527,25 @@ pub async fn normalize_text_values(
 
 #[tauri::command]
 pub async fn parse_date_values(app: AppHandle) -> Result<TextCleaningResult, String> {
-    tauri::async_runtime::spawn_blocking(move || apply_date_parsing(app))
+    let cancellation = PrepareCancellation::begin(&app);
+    tauri::async_runtime::spawn_blocking(move || apply_date_parsing(app, cancellation))
         .await
         .map_err(|error| format!("La interpretación de fechas se interrumpió: {error}"))?
 }
 
 #[tauri::command]
 pub async fn cast_numeric_values(app: AppHandle) -> Result<TextCleaningResult, String> {
-    tauri::async_runtime::spawn_blocking(move || apply_numeric_cast(app))
+    let cancellation = PrepareCancellation::begin(&app);
+    tauri::async_runtime::spawn_blocking(move || apply_numeric_cast(app, cancellation))
         .await
         .map_err(|error| format!("La conversión numérica se interrumpió: {error}"))?
 }
 
 #[tauri::command]
 pub async fn normalize_sentinel_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
-        apply_text_cleaning(app, None, TextCleaningMode::Sentinels)
+        apply_text_cleaning(app, None, TextCleaningMode::Sentinels, cancellation)
     })
     .await
     .map_err(|error| format!("La normalización de valores centinela se interrumpió: {error}"))?
@@ -27088,8 +27553,9 @@ pub async fn normalize_sentinel_values(app: AppHandle) -> Result<TextCleaningRes
 
 #[tauri::command]
 pub async fn normalize_boolean_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
-        apply_text_cleaning(app, None, TextCleaningMode::Booleans)
+        apply_text_cleaning(app, None, TextCleaningMode::Booleans, cancellation)
     })
     .await
     .map_err(|error| format!("La normalización de booleanos se interrumpió: {error}"))?
@@ -27097,8 +27563,9 @@ pub async fn normalize_boolean_values(app: AppHandle) -> Result<TextCleaningResu
 
 #[tauri::command]
 pub async fn fix_encoding_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
-        apply_text_cleaning(app, None, TextCleaningMode::FixEncoding)
+        apply_text_cleaning(app, None, TextCleaningMode::FixEncoding, cancellation)
     })
     .await
     .map_err(|error| format!("La corrección de codificación se interrumpió: {error}"))?
@@ -27106,8 +27573,14 @@ pub async fn fix_encoding_values(app: AppHandle) -> Result<TextCleaningResult, S
 
 #[tauri::command]
 pub async fn nullify_invalid_type_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
-        apply_text_cleaning(app, None, TextCleaningMode::NullifyInvalidTypes)
+        apply_text_cleaning(
+            app,
+            None,
+            TextCleaningMode::NullifyInvalidTypes,
+            cancellation,
+        )
     })
     .await
     .map_err(|error| format!("La corrección de tipos incompatibles se interrumpió: {error}"))?
@@ -27115,7 +27588,9 @@ pub async fn nullify_invalid_type_values(app: AppHandle) -> Result<TextCleaningR
 
 #[tauri::command]
 pub async fn impute_missing_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -27125,15 +27600,24 @@ pub async fn impute_missing_values(app: AppHandle) -> Result<TextCleaningResult,
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = source_backed_imputation(dataset, false)? {
+            if let Some(result) =
+                source_backed_imputation_with_cancellation(dataset, false, &cancellation)?
+            {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
             impute_missing_values_in_frame(&dataset.frame)?;
+        cancellation.ensure()?;
         let preview = if changed_cell_count > 0 {
-            publish_candidate(dataset, cleaned, "Imputación conservadora")?
+            publish_candidate_with_cancellation(
+                dataset,
+                cleaned,
+                "Imputación conservadora",
+                Some(&cancellation),
+            )?
         } else {
             loaded_dataset_preview(dataset, &dataset.frame)?
         };
@@ -27150,7 +27634,9 @@ pub async fn impute_missing_values(app: AppHandle) -> Result<TextCleaningResult,
 
 #[tauri::command]
 pub async fn impute_categorical_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -27160,15 +27646,24 @@ pub async fn impute_categorical_values(app: AppHandle) -> Result<TextCleaningRes
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = source_backed_imputation(dataset, true)? {
+            if let Some(result) =
+                source_backed_imputation_with_cancellation(dataset, true, &cancellation)?
+            {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
             impute_categorical_values_in_frame(&dataset.frame)?;
+        cancellation.ensure()?;
         let preview = if changed_cell_count > 0 {
-            publish_candidate(dataset, cleaned, "Imputación categórica")?
+            publish_candidate_with_cancellation(
+                dataset,
+                cleaned,
+                "Imputación categórica",
+                Some(&cancellation),
+            )?
         } else {
             loaded_dataset_preview(dataset, &dataset.frame)?
         };
@@ -27185,7 +27680,9 @@ pub async fn impute_categorical_values(app: AppHandle) -> Result<TextCleaningRes
 
 #[tauri::command]
 pub async fn impute_outlier_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -27195,19 +27692,27 @@ pub async fn impute_outlier_values(app: AppHandle) -> Result<TextCleaningResult,
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = source_backed_direct_outlier(
+            if let Some(result) = source_backed_direct_outlier_with_cancellation(
                 dataset,
                 OutlierAction::Impute,
                 "Imputación de outliers",
+                &cancellation,
             )? {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
             impute_outlier_values_in_frame(&dataset.frame)?;
+        cancellation.ensure()?;
         let preview = if changed_cell_count > 0 {
-            publish_candidate(dataset, cleaned, "Imputación de outliers")?
+            publish_candidate_with_cancellation(
+                dataset,
+                cleaned,
+                "Imputación de outliers",
+                Some(&cancellation),
+            )?
         } else {
             loaded_dataset_preview(dataset, &dataset.frame)?
         };
@@ -27226,7 +27731,9 @@ fn apply_direct_outlier_mode(
     app: AppHandle,
     mode: OutlierMode,
     label: &'static str,
+    cancellation: PrepareCancellation,
 ) -> Result<TextCleaningResult, String> {
+    cancellation.ensure()?;
     let state = app.state::<DatasetState>();
     let mut current = state
         .current
@@ -27236,22 +27743,25 @@ fn apply_direct_outlier_mode(
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
     if dataset.source_backed {
-        if let Some(result) = source_backed_direct_outlier(
+        if let Some(result) = source_backed_direct_outlier_with_cancellation(
             dataset,
             match mode {
                 OutlierMode::Cap => OutlierAction::Cap,
                 OutlierMode::Drop => OutlierAction::Drop,
             },
             label,
+            &cancellation,
         )? {
             return Ok(result);
         }
     }
+    cancellation.ensure()?;
     materialize_loaded_dataset(dataset)?;
     let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
         apply_outlier_mode(&dataset.frame, mode)?;
+    cancellation.ensure()?;
     let preview = if changed_cell_count > 0 || affected_row_count > 0 {
-        publish_candidate(dataset, cleaned, label)?
+        publish_candidate_with_cancellation(dataset, cleaned, label, Some(&cancellation))?
     } else {
         loaded_dataset_preview(dataset, &dataset.frame)?
     };
@@ -27265,8 +27775,14 @@ fn apply_direct_outlier_mode(
 
 #[tauri::command]
 pub async fn cap_outlier_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
-        apply_direct_outlier_mode(app, OutlierMode::Cap, "Limitar outliers con IQR")
+        apply_direct_outlier_mode(
+            app,
+            OutlierMode::Cap,
+            "Limitar outliers con IQR",
+            cancellation,
+        )
     })
     .await
     .map_err(|error| format!("La limitación de outliers se interrumpió: {error}"))?
@@ -27274,8 +27790,14 @@ pub async fn cap_outlier_values(app: AppHandle) -> Result<TextCleaningResult, St
 
 #[tauri::command]
 pub async fn drop_outlier_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
-        apply_direct_outlier_mode(app, OutlierMode::Drop, "Eliminar filas atípicas")
+        apply_direct_outlier_mode(
+            app,
+            OutlierMode::Drop,
+            "Eliminar filas atípicas",
+            cancellation,
+        )
     })
     .await
     .map_err(|error| format!("La eliminación de outliers se interrumpió: {error}"))?
@@ -27291,7 +27813,9 @@ pub async fn apply_safe_corrections(
 ) -> Result<SafeCorrectionsResult, String> {
     let normalize_sentinels = normalize_sentinels.unwrap_or(false);
     let remove_duplicates = remove_duplicates.unwrap_or(false);
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -27301,16 +27825,18 @@ pub async fn apply_safe_corrections(
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) = source_backed_safe_corrections(
+            if let Some(result) = source_backed_safe_corrections_with_cancellation(
                 dataset,
                 trim_text,
                 normalize_column_names,
                 normalize_sentinels,
                 remove_duplicates,
+                &cancellation,
             )? {
                 return Ok(result);
             }
         }
+        cancellation.ensure()?;
         materialize_loaded_dataset(dataset)?;
 
         let (candidate, affected_row_count, changed_cell_count, removed_row_count, renames) =
@@ -27321,11 +27847,17 @@ pub async fn apply_safe_corrections(
                 normalize_sentinels,
                 remove_duplicates,
             )?;
+        cancellation.ensure()?;
         let renamed_column_count = renames.len();
 
         let preview = if changed_cell_count > 0 || renamed_column_count > 0 || removed_row_count > 0
         {
-            publish_candidate(dataset, candidate, "Aplicar correcciones recomendadas")?
+            publish_candidate_with_cancellation(
+                dataset,
+                candidate,
+                "Aplicar correcciones recomendadas",
+                Some(&cancellation),
+            )?
         } else {
             loaded_dataset_preview(dataset, &dataset.frame)?
         };
@@ -27345,7 +27877,9 @@ pub async fn apply_safe_corrections(
 
 #[tauri::command]
 pub async fn undo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -27354,7 +27888,7 @@ pub async fn undo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
-        undo_dataset(dataset)
+        undo_dataset_with_cancellation(dataset, Some(&cancellation))
     })
     .await
     .map_err(|error| format!("No se pudo deshacer el cambio: {error}"))?
@@ -27364,7 +27898,11 @@ fn restore_source_backed_history_cursor(
     dataset: &mut LoadedDataset,
     target: usize,
     message: &str,
+    cancellation: Option<&PrepareCancellation>,
 ) -> Result<HistoryResult, String> {
+    if let Some(cancellation) = cancellation {
+        cancellation.ensure()?;
+    }
     let entry = dataset
         .history
         .entries
@@ -27410,26 +27948,44 @@ fn restore_source_backed_history_cursor(
         &page,
     )?;
 
-    dataset.history.cursor = target;
-    dataset.history.current_label = label;
-    dataset.history.source_snapshot_path = None;
-    dataset.row_count = row_count;
-    dataset.frame = schema;
-    dataset.profile = None;
-    if was_source_backed {
-        dataset.source_path = Some(snapshot_path);
-        dataset.file_size_bytes = snapshot_size;
-        dataset.source_backed = true;
-    }
+    let publish = || {
+        dataset.history.cursor = target;
+        dataset.history.current_label = label;
+        dataset.history.source_snapshot_path = None;
+        dataset.row_count = row_count;
+        dataset.frame = schema;
+        dataset.profile = None;
+        if was_source_backed {
+            dataset.source_path = Some(snapshot_path);
+            dataset.file_size_bytes = snapshot_size;
+            dataset.source_backed = true;
+        }
 
-    Ok(HistoryResult {
-        dataset: preview,
-        history: dataset.history.state(),
-        message: message.to_owned(),
-    })
+        Ok(HistoryResult {
+            dataset: preview,
+            history: dataset.history.state(),
+            message: message.to_owned(),
+        })
+    };
+    if let Some(cancellation) = cancellation {
+        cancellation.commit(publish)
+    } else {
+        publish()
+    }
 }
 
+#[cfg(test)]
 fn undo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
+    undo_dataset_with_cancellation(dataset, None)
+}
+
+fn undo_dataset_with_cancellation(
+    dataset: &mut LoadedDataset,
+    cancellation: Option<&PrepareCancellation>,
+) -> Result<HistoryResult, String> {
+    if let Some(cancellation) = cancellation {
+        cancellation.ensure()?;
+    }
     if !dataset.history.state().can_undo {
         return Err("No hay un cambio disponible para deshacer.".to_owned());
     }
@@ -27439,25 +27995,35 @@ fn undo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
             dataset,
             target,
             "Se deshizo el último cambio.",
+            cancellation,
         );
     }
     let previous = dataset.history.restore(target)?;
     let preview = loaded_dataset_preview(dataset, &previous)?;
-    dataset.row_count = previous.height();
-    dataset.frame = previous;
-    dataset.source_backed = false;
-    dataset.history.cursor = target;
-    dataset.profile = None;
-    Ok(HistoryResult {
-        dataset: preview,
-        history: dataset.history.state(),
-        message: "Se deshizo el último cambio.".to_owned(),
-    })
+    let publish = || {
+        dataset.row_count = previous.height();
+        dataset.frame = previous;
+        dataset.source_backed = false;
+        dataset.history.cursor = target;
+        dataset.profile = None;
+        Ok(HistoryResult {
+            dataset: preview,
+            history: dataset.history.state(),
+            message: "Se deshizo el último cambio.".to_owned(),
+        })
+    };
+    if let Some(cancellation) = cancellation {
+        cancellation.commit(publish)
+    } else {
+        publish()
+    }
 }
 
 #[tauri::command]
 pub async fn redo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -27466,13 +28032,24 @@ pub async fn redo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
-        redo_dataset(dataset)
+        redo_dataset_with_cancellation(dataset, Some(&cancellation))
     })
     .await
     .map_err(|error| format!("No se pudo rehacer el cambio: {error}"))?
 }
 
+#[cfg(test)]
 fn redo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
+    redo_dataset_with_cancellation(dataset, None)
+}
+
+fn redo_dataset_with_cancellation(
+    dataset: &mut LoadedDataset,
+    cancellation: Option<&PrepareCancellation>,
+) -> Result<HistoryResult, String> {
+    if let Some(cancellation) = cancellation {
+        cancellation.ensure()?;
+    }
     if !dataset.history.state().can_redo {
         return Err("No hay un cambio disponible para rehacer.".to_owned());
     }
@@ -27482,20 +28059,28 @@ fn redo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
             dataset,
             target,
             "Se rehízo el último cambio.",
+            cancellation,
         );
     }
     let next = dataset.history.restore(target)?;
     let preview = loaded_dataset_preview(dataset, &next)?;
-    dataset.row_count = next.height();
-    dataset.frame = next;
-    dataset.source_backed = false;
-    dataset.history.cursor = target;
-    dataset.profile = None;
-    Ok(HistoryResult {
-        dataset: preview,
-        history: dataset.history.state(),
-        message: "Se rehízo el último cambio.".to_owned(),
-    })
+    let publish = || {
+        dataset.row_count = next.height();
+        dataset.frame = next;
+        dataset.source_backed = false;
+        dataset.history.cursor = target;
+        dataset.profile = None;
+        Ok(HistoryResult {
+            dataset: preview,
+            history: dataset.history.state(),
+            message: "Se rehízo el último cambio.".to_owned(),
+        })
+    };
+    if let Some(cancellation) = cancellation {
+        cancellation.commit(publish)
+    } else {
+        publish()
+    }
 }
 
 #[tauri::command]
@@ -33451,10 +34036,14 @@ struct SourceBackedProjectionQueries {
     calculation_validation: Option<String>,
 }
 
-fn apply_source_backed_projection_recipe(
+fn apply_source_backed_projection_recipe_with_cancellation(
     dataset: &mut LoadedDataset,
     recipe: &TransformRecipe,
+    cancellation: Option<&PrepareCancellation>,
 ) -> Result<TransformRecipeResult, String> {
+    if let Some(cancellation) = cancellation {
+        cancellation.ensure()?;
+    }
     let source_reference = dataset
         .source_path
         .as_deref()
@@ -33548,6 +34137,9 @@ fn apply_source_backed_projection_recipe(
             &schema,
             &page_frame,
         )?;
+        if let Some(cancellation) = cancellation {
+            cancellation.ensure()?;
+        }
         return Ok(TransformRecipeResult {
             dataset: preview,
             renamed_column_count: plan.renamed_column_count,
@@ -33640,12 +34232,24 @@ fn apply_source_backed_projection_recipe(
             })?;
     let output_path = temporary.path().to_owned();
     drop(temporary);
-    if let Err(error) = crate::duckdb_query::materialize_file_query_to_parquet(
-        &source_path,
-        source_format,
-        &queries.output,
-        &output_path,
-    ) {
+    let mut output_guard = SourceBackedJoinOutputGuard::new(&output_path);
+    let materialize_result = if let Some(cancellation) = cancellation {
+        crate::duckdb_query::materialize_file_query_to_parquet_with_cancel(
+            &source_path,
+            source_format,
+            &queries.output,
+            &output_path,
+            cancellation.callback(),
+        )
+    } else {
+        crate::duckdb_query::materialize_file_query_to_parquet(
+            &source_path,
+            source_format,
+            &queries.output,
+            &output_path,
+        )
+    };
+    if let Err(error) = materialize_result {
         let _ = fs::remove_file(&output_path);
         return Err(error);
     }
@@ -33727,6 +34331,9 @@ fn apply_source_backed_projection_recipe(
             source_scan(&source_path, &extension)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
             "No se pudo leer la vista previa source-backed",
         )?;
+        if let Some(cancellation) = cancellation {
+            cancellation.ensure()?;
+        }
         let preview = dataset_preview_from_schema_and_page(
             &dataset.file_name,
             dataset.file_size_bytes,
@@ -33768,44 +34375,53 @@ fn apply_source_backed_projection_recipe(
         &page_frame,
     )?;
     let previous_source_path = dataset.source_path.clone();
-    dataset.source_path = Some(output_path);
-    dataset.file_size_bytes = output_size;
-    dataset.row_count = output_row_count;
-    dataset.frame = output_schema;
-    dataset.source_backed = true;
-    dataset.history.source_snapshot_path = None;
-    dataset.profile = None;
-    dataset.history.current_label = "Aplicar receta de transformación".to_owned();
-    if previous_source_path.as_deref().and_then(Path::parent)
-        == Some(dataset.history.directory.path())
-    {
-        if let Some(previous_source_path) = previous_source_path {
-            let _ = fs::remove_file(previous_source_path);
+    let publish = || {
+        dataset.source_path = Some(output_path.clone());
+        dataset.file_size_bytes = output_size;
+        dataset.row_count = output_row_count;
+        dataset.frame = output_schema;
+        dataset.source_backed = true;
+        dataset.history.source_snapshot_path = None;
+        dataset.profile = None;
+        dataset.history.current_label = "Aplicar receta de transformación".to_owned();
+        if previous_source_path.as_deref().and_then(Path::parent)
+            == Some(dataset.history.directory.path())
+        {
+            if let Some(previous_source_path) = previous_source_path {
+                let _ = fs::remove_file(previous_source_path);
+            }
         }
-    }
-    Ok(TransformRecipeResult {
-        dataset: preview,
-        renamed_column_count: plan.renamed_column_count,
-        converted_column_count: plan.converted_column_count,
-        parsed_date_column_count: plan.parsed_date_column_count,
-        removed_row_count,
-        calculated_column_count: plan.calculated_column_count,
-        replaced_cell_count,
-        dropped_column_count: plan.dropped_column_count,
-        split_column_count,
-        merged_column_count,
-        dropped_source_column_count,
-        adjusted_outlier_cell_count,
-        outlier_removed_row_count,
-        outlier_column_count: plan.outlier_treatments.len(),
-        group_count,
-        aggregated_column_count,
-        collapsed_row_count,
-        normalized_contact_cell_count,
-        normalized_contact_column_count,
-        extracted_column_count,
-        changed,
-    })
+        Ok(TransformRecipeResult {
+            dataset: preview,
+            renamed_column_count: plan.renamed_column_count,
+            converted_column_count: plan.converted_column_count,
+            parsed_date_column_count: plan.parsed_date_column_count,
+            removed_row_count,
+            calculated_column_count: plan.calculated_column_count,
+            replaced_cell_count,
+            dropped_column_count: plan.dropped_column_count,
+            split_column_count,
+            merged_column_count,
+            dropped_source_column_count,
+            adjusted_outlier_cell_count,
+            outlier_removed_row_count,
+            outlier_column_count: plan.outlier_treatments.len(),
+            group_count,
+            aggregated_column_count,
+            collapsed_row_count,
+            normalized_contact_cell_count,
+            normalized_contact_column_count,
+            extracted_column_count,
+            changed,
+        })
+    };
+    let result = if let Some(cancellation) = cancellation {
+        cancellation.commit(publish)?
+    } else {
+        publish()?
+    };
+    output_guard.keep();
+    Ok(result)
 }
 
 fn apply_eager_recipe_to_frame(
@@ -35251,14 +35867,32 @@ fn apply_recipe_to_dataset(
     dataset: &mut LoadedDataset,
     recipe: &TransformRecipe,
 ) -> Result<TransformRecipeResult, String> {
+    apply_recipe_to_dataset_with_cancellation(dataset, recipe, None)
+}
+
+fn apply_recipe_to_dataset_with_cancellation(
+    dataset: &mut LoadedDataset,
+    recipe: &TransformRecipe,
+    cancellation: Option<&PrepareCancellation>,
+) -> Result<TransformRecipeResult, String> {
+    if let Some(cancellation) = cancellation {
+        cancellation.ensure()?;
+    }
     validate_recipe_structure(recipe)?;
     if dataset.source_backed
         && source_backed_projection_recipe_supported(&dataset.frame, recipe)
         && source_backed_iso8601_values_are_supported(dataset, recipe)?
     {
-        return apply_source_backed_projection_recipe(dataset, recipe);
+        return apply_source_backed_projection_recipe_with_cancellation(
+            dataset,
+            recipe,
+            cancellation,
+        );
     }
     materialize_loaded_dataset(dataset)?;
+    if let Some(cancellation) = cancellation {
+        cancellation.ensure()?;
+    }
     let (
         candidate,
         renamed_column_count,
@@ -35282,6 +35916,9 @@ fn apply_recipe_to_dataset(
         normalized_contact_column_count,
         extracted_column_count,
     ) = apply_recipe_to_frame(&dataset.frame, recipe)?;
+    if let Some(cancellation) = cancellation {
+        cancellation.ensure()?;
+    }
     let changed = renamed_column_count
         + converted_column_count
         + parsed_date_column_count
@@ -35302,7 +35939,12 @@ fn apply_recipe_to_dataset(
     // Build every fallible response value before publishing the candidate. This keeps the
     // transaction atomic even if, for example, the source file disappeared after loading.
     let preview = if changed {
-        publish_candidate(dataset, candidate, "Aplicar receta de transformación")?
+        publish_candidate_with_cancellation(
+            dataset,
+            candidate,
+            "Aplicar receta de transformación",
+            cancellation,
+        )?
     } else {
         loaded_dataset_preview(dataset, &dataset.frame)?
     };
@@ -35337,7 +35979,9 @@ pub async fn apply_transform_recipe(
     recipe: TransformRecipe,
 ) -> Result<TransformRecipeResult, String> {
     validate_recipe_structure(&recipe)?;
+    let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
         let state = app.state::<DatasetState>();
         let mut current = state
             .current
@@ -35346,7 +35990,7 @@ pub async fn apply_transform_recipe(
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
-        apply_recipe_to_dataset(dataset, &recipe)
+        apply_recipe_to_dataset_with_cancellation(dataset, &recipe, Some(&cancellation))
     })
     .await
     .map_err(|error| format!("La receta estructural se interrumpió: {error}"))?

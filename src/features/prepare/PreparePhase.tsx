@@ -23,6 +23,7 @@ interface PreparePhaseProps {
   recipeDraft: SavedRecipe | null;
   recipeSession: number;
   onCancelProfile: () => void;
+  onCancelPrepare?: () => void;
   onRemoveDuplicates: () => void;
   onRemoveNearDuplicates?: () => void;
   onRemoveEmptyRows: () => void;
@@ -73,6 +74,7 @@ export function PreparePhase({
   recipeDraft,
   recipeSession,
   onCancelProfile,
+  onCancelPrepare,
   onRemoveNearDuplicates = () => undefined,
   onRemoveEmptyRows,
   onRemoveConstantColumns,
@@ -250,7 +252,7 @@ export function PreparePhase({
         datasetRevision={datasetRevision}
         busy={changing || profileStatus.kind === "loading"}
       />
-      <ChangeFeedback status={changeStatus} />
+      <ChangeFeedback status={changeStatus} onCancel={onCancelPrepare} />
       {planComparison && (
         <section className="revision-comparison__result prepare-plan__result" aria-label="Resultado de la última preparación">
           <p role="status">

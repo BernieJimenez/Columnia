@@ -17,6 +17,7 @@ import {
   normalizeTextValues,
   parseDateValues,
   castNumericValues,
+  cancelOperation,
   maskPersonalValues,
   removeConstantColumns,
   removeEmptyRows,
@@ -51,17 +52,41 @@ export function usePrepareController({
   const [changeStatus, setChangeStatus] = useState<ChangeStatus>({ kind: "idle" });
   const [historyStatus, setHistoryStatus] = useState(EMPTY_HISTORY);
   const operationInFlight = useRef(false);
+  const cancelRequested = useRef(false);
 
   function runExclusive<TArgs extends unknown[]>(operation: (...args: TArgs) => Promise<void>) {
     return async (...args: TArgs) => {
       if (operationInFlight.current) return;
       operationInFlight.current = true;
+      cancelRequested.current = false;
       try {
         await operation(...args);
       } finally {
         operationInFlight.current = false;
+        cancelRequested.current = false;
       }
     };
+  }
+
+  function cancelCurrent() {
+    if (!operationInFlight.current || cancelRequested.current) return;
+    cancelRequested.current = true;
+    setChangeStatus((current) => current.kind === "working"
+      ? { ...current, cancelRequested: true }
+      : current);
+    void cancelOperation("prepare").catch(() => {
+      cancelRequested.current = false;
+      setChangeStatus((current) => current.kind === "working"
+        ? { ...current, cancelRequested: false }
+        : current);
+    });
+  }
+
+  function changeFailureStatus(error: unknown): ChangeStatus {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("cancelada por el usuario")
+      ? { kind: "cancelled", message: "Preparación cancelada. El dataset anterior sigue activo." }
+      : { kind: "error", message };
   }
 
   async function refreshHistory() {
@@ -92,7 +117,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -112,7 +137,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -132,7 +157,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -152,7 +177,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -172,7 +197,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -192,7 +217,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -212,7 +237,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -232,7 +257,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -258,7 +283,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -279,7 +304,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -300,7 +325,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -323,7 +348,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -344,7 +369,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -369,7 +394,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -390,7 +415,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -411,7 +436,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -438,7 +463,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -459,7 +484,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -480,7 +505,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -503,7 +528,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -535,7 +560,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -574,7 +599,7 @@ export function usePrepareController({
       await refreshHistory();
       if (changed) onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -600,7 +625,7 @@ export function usePrepareController({
       await refreshHistory();
       onDeliveryInvalidated();
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
@@ -615,13 +640,14 @@ export function usePrepareController({
       onDeliveryInvalidated();
       setChangeStatus({ kind: "applied", message: result.message });
     } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setChangeStatus(changeFailureStatus(error));
     }
   }
 
   return {
     changeStatus,
     historyStatus,
+    cancelCurrent,
     resetChangeStatus,
     refreshHistory,
     applyDuplicateRemoval: runExclusive(applyDuplicateRemoval),

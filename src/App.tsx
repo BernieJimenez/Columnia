@@ -1513,6 +1513,7 @@ export function App() {
                 recipeDraft={recipeDraft}
                 recipeSession={recipeSession}
                 onCancelProfile={() => cancelActiveOperation("profile")}
+                onCancelPrepare={prepare.cancelCurrent}
                 onRemoveDuplicates={prepare.applyDuplicateRemoval}
                 onRemoveNearDuplicates={prepare.applyNearDuplicateRemoval}
                 onRemoveEmptyRows={prepare.applyEmptyRowRemoval}

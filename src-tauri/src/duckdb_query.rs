@@ -442,6 +442,35 @@ pub(crate) fn materialize_file_query_to_parquet(
         .map_err(|error| format!("DuckDB no pudo publicar la receta source-backed: {error}"))
 }
 
+pub(crate) fn materialize_file_query_to_parquet_with_cancel<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    query: &str,
+    destination: &Path,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el espacio temporal para la receta source-backed: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        let destination = destination
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace('\'', "''");
+        let statement = format!(
+            "SET preserve_insertion_order = true; COPY ({query}) TO '{destination}' (FORMAT PARQUET)"
+        );
+        connection
+            .execute_batch(&statement)
+            .map_err(|error| format!("DuckDB no pudo publicar la receta source-backed: {error}"))
+    })
+}
+
 pub(crate) struct DuckDbFileSourcesQuery<'a> {
     pub(crate) current_path: &'a Path,
     pub(crate) current_format: DuckDbFileFormat,
@@ -1017,43 +1046,47 @@ where
     })
 }
 
-pub(crate) fn sample_file_column_values(
+pub(crate) fn sample_file_column_values_with_cancel<C>(
     source_path: &Path,
     source_format: DuckDbFileFormat,
     column: &str,
     limit: usize,
-) -> Result<Vec<String>, String> {
+    is_cancelled: C,
+) -> Result<Vec<String>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
     if limit == 0 {
         return Ok(Vec::new());
     }
-    let connection = Connection::open_in_memory().map_err(|error| {
-        format!("No se pudo iniciar DuckDB para muestrear la columna source-backed: {error}")
-    })?;
-    let resource_directory = tempfile::tempdir()
-        .map_err(|error| format!("No se pudo preparar el muestreo source-backed: {error}"))?;
-    configure_duckdb_resources(&connection, resource_directory.path())?;
-    register_file_view(&connection, "dataset", source_path, source_format, None)?;
-    let identifier = quote_identifier(column);
-    let query = format!(
-        "SELECT CAST({identifier} AS VARCHAR) FROM dataset WHERE {identifier} IS NOT NULL LIMIT {limit}"
-    );
-    let mut statement = connection
-        .prepare(&query)
-        .map_err(|error| format!("DuckDB no pudo preparar el muestreo source-backed: {error}"))?;
-    let mut rows = statement
-        .query([])
-        .map_err(|error| format!("DuckDB no pudo muestrear la columna source-backed: {error}"))?;
-    let mut values = Vec::new();
-    while let Some(row) = rows
-        .next()
-        .map_err(|error| format!("DuckDB no pudo leer la muestra source-backed: {error}"))?
-    {
-        values.push(
-            row.get::<_, String>(0)
-                .map_err(|error| format!("DuckDB no pudo leer un valor de la muestra: {error}"))?,
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir()
+            .map_err(|error| format!("No se pudo preparar el muestreo source-backed: {error}"))?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        let identifier = quote_identifier(column);
+        let query = format!(
+            "SELECT CAST({identifier} AS VARCHAR) FROM dataset WHERE {identifier} IS NOT NULL LIMIT {limit}"
         );
-    }
-    Ok(values)
+        let mut statement = connection.prepare(&query).map_err(|error| {
+            format!("DuckDB no pudo preparar el muestreo source-backed: {error}")
+        })?;
+        let mut rows = statement.query([]).map_err(|error| {
+            format!("DuckDB no pudo muestrear la columna source-backed: {error}")
+        })?;
+        let mut values = Vec::new();
+        while let Some(row) = rows
+            .next()
+            .map_err(|error| format!("DuckDB no pudo leer la muestra source-backed: {error}"))?
+        {
+            values.push(
+                row.get::<_, String>(0).map_err(|error| {
+                    format!("DuckDB no pudo leer un valor de la muestra: {error}")
+                })?,
+            );
+        }
+        Ok(values)
+    })
 }
 
 pub(crate) struct FileDateParseStats {

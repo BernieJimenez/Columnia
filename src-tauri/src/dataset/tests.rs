@@ -7416,6 +7416,7 @@ fn invalidates_only_the_requested_operation_generation() {
     let temporal_generation = state.begin_temporal();
     let export_generation = state.begin_export();
     let query_generation = state.begin_query();
+    let prepare_generation = state.begin_prepare();
     state
         .cancel("profile")
         .expect("el perfil debe poder cancelarse");
@@ -7425,12 +7426,16 @@ fn invalidates_only_the_requested_operation_generation() {
     state
         .cancel("query")
         .expect("la consulta debe poder cancelarse");
+    state
+        .cancel("prepare")
+        .expect("la preparación debe poder cancelarse");
 
     assert!(!state.load_was_cancelled(load_generation));
     assert!(state.profile_was_cancelled(profile_generation));
     assert!(state.temporal_was_cancelled(temporal_generation));
     assert!(!state.export_was_cancelled(export_generation));
     assert!(state.query_was_cancelled(query_generation));
+    assert!(state.prepare_was_cancelled(prepare_generation));
     assert!(state.cancel("unknown").is_err());
 }
 

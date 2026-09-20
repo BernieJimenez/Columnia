@@ -9,9 +9,11 @@ export type ChangeStatus =
   | { kind: "idle" }
   | {
       kind: "working";
-       action: "safe" | "duplicates" | "near_duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "identifier_columns" | "personal_columns" | "personal_mask" | "sentinels" | "booleans" | "encoding" | "invalid_types" | "impute" | "categorical_impute" | "parse_dates" | "cast_numeric" | "outlier_impute" | "outlier_cap" | "outlier_drop" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
+      action: "safe" | "duplicates" | "near_duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "identifier_columns" | "personal_columns" | "personal_mask" | "sentinels" | "booleans" | "encoding" | "invalid_types" | "impute" | "categorical_impute" | "parse_dates" | "cast_numeric" | "outlier_impute" | "outlier_cap" | "outlier_drop" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
+      cancelRequested?: boolean;
     }
   | { kind: "applied"; message: string }
+  | { kind: "cancelled"; message: string }
   | { kind: "error"; message: string };
 
 export type RecipeFileStatus =

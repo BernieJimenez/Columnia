@@ -86,16 +86,25 @@ function formatHistoryBytes(bytes: number): string {
   return `${value.toLocaleString("es", { maximumFractionDigits: 1 })} ${units[unitIndex]}`;
 }
 
-export function ChangeFeedback({ status }: { status: ChangeStatus }) {
+export function ChangeFeedback({ status, onCancel }: { status: ChangeStatus; onCancel?: () => void }) {
   if (status.kind === "idle" || status.kind === "applied") return null;
 
   if (status.kind === "working") {
     const message = changeProgressMessage(status.action);
     return (
-      <p className="notice" role="status">
-        {message}
-      </p>
+      <div className="notice change-feedback__working" role="status">
+        <span>{status.cancelRequested ? "Cancelando preparación…" : message}</span>
+        {onCancel && (
+          <button type="button" onClick={onCancel} disabled={status.cancelRequested}>
+            {status.cancelRequested ? "Cancelando…" : "Cancelar"}
+          </button>
+        )}
+      </div>
     );
+  }
+
+  if (status.kind === "cancelled") {
+    return <p className="notice" role="status">{status.message}</p>;
   }
 
   if (status.kind === "error") {

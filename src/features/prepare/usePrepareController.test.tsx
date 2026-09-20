@@ -85,13 +85,42 @@ function ControllerHarness({
     })}>Receta</button>
     <button type="button" onClick={controller.undoChange}>Deshacer controlador</button>
     <button type="button" onClick={controller.redoChange}>Rehacer controlador</button>
+    <button type="button" onClick={controller.cancelCurrent}>Cancelar preparación</button>
     <button type="button" onClick={controller.resetChangeStatus}>Limpiar estado</button>
-    <output>{controller.changeStatus.kind === "applied" ? controller.changeStatus.message : controller.changeStatus.kind}</output>
+    <output data-testid="change-status">{controller.changeStatus.kind === "applied" || controller.changeStatus.kind === "cancelled" ? controller.changeStatus.message : controller.changeStatus.kind}</output>
+    <span data-testid="cancel-requested">
+      {controller.changeStatus.kind === "working" && controller.changeStatus.cancelRequested ? "sí" : "no"}
+    </span>
     <span data-testid="history-index">{controller.historyStatus.currentIndex}</span>
   </>;
 }
 
 describe("usePrepareController", () => {
+  it("solicita cancelar la preparación y muestra el resultado cancelado sin publicar una candidata", async () => {
+    let rejectRemoval!: (error: Error) => void;
+    const pendingRemoval = new Promise<Awaited<ReturnType<typeof bridge.removeDuplicates>>>((_, reject) => {
+      rejectRemoval = reject;
+    });
+    const removeSpy = vi.spyOn(bridge, "removeDuplicates").mockReturnValue(pendingRemoval);
+    const cancelSpy = vi.spyOn(bridge, "cancelOperation").mockResolvedValue();
+    const onDatasetChanged = vi.fn();
+    render(<ControllerHarness
+      onDatasetChanged={onDatasetChanged}
+      onProfileInvalidated={vi.fn()}
+      onDeliveryInvalidated={vi.fn()}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Duplicar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar preparación" }));
+    expect(cancelSpy).toHaveBeenCalledWith("prepare");
+    expect(screen.getByTestId("cancel-requested")).toHaveTextContent("sí");
+
+    rejectRemoval(new Error("Operación cancelada por el usuario."));
+    await waitFor(() => expect(screen.getByTestId("change-status")).toHaveTextContent("Preparación cancelada."));
+    expect(onDatasetChanged).not.toHaveBeenCalled();
+    expect(removeSpy).toHaveBeenCalledOnce();
+  });
+
   it("publica la corrección, invalida perfil/entrega y refresca historial", async () => {
     vi.spyOn(bridge, "removeDuplicates").mockResolvedValue({ dataset, affectedRowCount: 1 });
     vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
