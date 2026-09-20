@@ -9,9 +9,9 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-20
 
-La última base de producto verificada es `master` en `bda5bf0`, versión
-`0.167.0`; el árbol estaba limpio en ese commit antes de esta actualización del contexto. La
-cola operativa vigente está en
+La base de partida de esta revisión fue `master` en `d65a428`, versión
+`0.167.0`; desde ese corte se están verificando cambios de producto descritos
+abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
 resume el estado; esas fuentes definen los criterios de cierre.
@@ -19,30 +19,33 @@ resume el estado; esas fuentes definen los criterios de cierre.
 En el código local están implementadas la importación CSV/TSV con convenciones
 explícitas de fecha y número, las políticas reutilizables de excepciones de
 conversión, y la cancelación compartida de JOIN, consolidación y resolución
-manual de conflictos en Review. La resolución de conflictos valida y prepara un
-candidato privado; la publicación de Review es staged y reversible, y la
-comparación y el historial se conservan si cancelar gana antes del commit.
-DuckDB puede interrumpir consultas source-backed activas. Los parsers eager
-CSV/Parquet/Excel, el JOIN eager de Polars y el selector nativo son
-no cooperativos/modal: una cancelación puede esperar a que termine esa llamada,
-aunque no publica una revisión parcial. Aún falta una acción para excluir un
-conflicto completo y filas duplicadas se diagnostican aparte.
+manual de conflictos en Review. Además de elegir valores por celda o una fila
+completa, se puede excluir explícitamente la fila activa de una clave conflictiva;
+no se agrega la versión comparada. La ruta eager y la ruta source-backed DuckDB
+conservan orden y tipos, y publican el candidato staged con historial reversible.
+La comparación y el historial se conservan si cancelar gana antes del commit;
+una regresión integrada verifica también la cancelación source-backed justo en
+el gate de publicación. Filas duplicadas se diagnostican aparte. DuckDB puede
+interrumpir consultas source-backed activas. Los parsers eager CSV/Parquet/Excel,
+el JOIN eager de Polars y el selector nativo son no cooperativos/modal: una
+cancelación puede esperar a que termine esa llamada, aunque no publica una
+revisión parcial.
 
 Verificación más reciente: `npm test` 425/425, `npm run test:e2e` 21/21,
 `npm run build`, `npm run ipc:check`, `npm run docs:check`, `cargo fmt --check` y
-`cargo check --tests` pasan. El filtro Rust `review_` recompilado pasa 10/10.
-La suite Rust completa pasó 488, con 0 fallidas y 5 ignoradas. Las E2E usan el
-bridge simulado y las pruebas Rust de Windows necesitaron un manifiesto Common
-Controls v6 temporal; ninguna de esas pruebas equivale a aceptación nativa
-completa con datos de trabajo reales.
+`cargo check --tests` pasan. La suite Rust completa pasó 490 pruebas, con 0
+fallidas y 5 ignoradas. Las E2E usan el bridge simulado
+y las pruebas Rust de Windows necesitaron un manifiesto Common Controls v6
+temporal; ninguna de esas pruebas equivale a aceptación nativa completa con
+datos de trabajo reales.
 
 Siguen abiertos los criterios con evidencia que no se puede fabricar localmente:
 la beta de tres participantes y su resumen sanitizado; accesibilidad manual con
 lector de pantalla/alto contraste; round-trip contra SQL Server real; y un
 candidato binario/canal autorizado probado en VM limpia. RV04 conserva además
-la exclusión de conflictos completos y la mejora de cancelación dentro de las
-llamadas eager. RV14 requiere seleccionar y validar la herramienta BI a partir
-de beta. No sustituir estas evidencias por fixtures o resultados sintéticos.
+la mejora de cancelación dentro de las llamadas eager. RV14 requiere seleccionar
+y validar la herramienta BI a partir de beta. No sustituir estas evidencias por
+fixtures o resultados sintéticos.
 
 ### Registro histórico de verificación — corte 2026-09-12
 
@@ -213,7 +216,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-20; estado de producto verificado sobre `bda5bf0`; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-20; verificación posterior a la base `d65a428`; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `0.167.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -223,8 +226,8 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | Estado al 2026-09-20: 425 frontend; 21 E2E sintéticas; 488 Rust completas (0 fallidas, 5 ignoradas); build, IPC, documentación, formato y `cargo check --tests` pasan. Véase la nota de alcance en el estado operativo: no equivale a beta, round-trip SQL Server ni aceptación nativa completa. |
-| Última revisión de este documento | 2026-09-20 sobre `bda5bf0`; la cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Pruebas observadas | Estado al 2026-09-20: 425 frontend; 21 E2E sintéticas; 490 Rust completas (0 fallidas, 5 ignoradas); build, IPC, documentación, formato y `cargo check --tests` pasan. Véase la nota de alcance en el estado operativo: no equivale a beta, round-trip SQL Server ni aceptación nativa completa. |
+| Última revisión de este documento | 2026-09-20, posterior a la base de partida `d65a428`; la cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 

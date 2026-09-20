@@ -1041,12 +1041,18 @@ describe("ReviewPhase", () => {
             matchedKeyCount: 1,
             currentOnlyKeyCount: 0,
             comparedOnlyKeyCount: 0,
-            conflictingKeyCount: 1,
+            conflictingKeyCount: 2,
             duplicateKeyCount: 0,
-            conflicts: [{
-              key: ["51"],
-              cells: [{ column: "nota", current: null, compared: "ok" }],
-            }],
+            conflicts: [
+              {
+                key: ["51"],
+                cells: [{ column: "nota", current: null, compared: "ok" }],
+              },
+              {
+                key: ["52"],
+                cells: [{ column: "nota", current: "anterior", compared: "nuevo" }],
+              },
+            ],
             conflictOffset: 0,
             conflictsTruncated: false,
             canConsolidate: false,
@@ -1069,11 +1075,15 @@ describe("ReviewPhase", () => {
 
     const resolveButton = screen.getByRole("button", { name: "Resolver conflictos" });
     expect(resolveButton).toBeDisabled();
-    fireEvent.click(screen.getByRole("radio", { name: "Usar comparado en nota" }));
+    fireEvent.click(screen.getAllByRole("radio", { name: "Usar comparado en nota" })[0]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Excluir la fila activa de la clave 52" }));
     expect(resolveButton).toBeEnabled();
+    expect(screen.getByText("1 fila activa se excluirá del resultado.", { selector: ".notice" })).toBeInTheDocument();
+    expect(screen.getAllByRole("radio", { name: "Conservar activo en nota" })[1]).toBeDisabled();
     fireEvent.click(resolveButton);
     expect(onResolveConflicts).toHaveBeenCalledWith([
-      { conflictIndex: 0, column: "nota", source: "compared" },
+      { action: "exclude", conflictIndex: 1 },
+      { action: "useSource", conflictIndex: 0, column: "nota", source: "compared" },
     ]);
   });
 

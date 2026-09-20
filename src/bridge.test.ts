@@ -326,10 +326,10 @@ describe("desktop bridge", () => {
   it("resuelve conflictos por clave con decisiones serializables", async () => {
     vi.mocked(invoke).mockResolvedValue({ fileName: "Resuelto · datos.csv" });
 
-    await resolveDatasetConflicts([{ conflictIndex: 0, source: "compared" }]);
+    await resolveDatasetConflicts([{ action: "useSource", conflictIndex: 0, source: "compared" }]);
 
     expect(invoke).toHaveBeenCalledWith("resolve_dataset_conflicts", {
-      decisions: [{ conflictIndex: 0, source: "compared" }],
+      decisions: [{ action: "useSource", conflictIndex: 0, source: "compared" }],
     });
   });
 

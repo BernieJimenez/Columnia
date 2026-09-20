@@ -5669,6 +5669,131 @@ fn cancelled_review_source_backed_publication_keeps_history_and_cleans_output() 
 }
 
 #[test]
+fn cancelled_source_backed_conflict_resolution_keeps_history_and_comparison() {
+    let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
+    let compared = df!["id" => &["1", "2"], "city" => &["La Vega", "Santiago"]]
+        .expect("la comparación debe construirse");
+    let (comparison_directory, compared_path) =
+        persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
+    let (schema, _, row_count) = source_backed_load(&current_path, "csv", || false)
+        .expect("la fuente activa debe abrirse source-backed");
+    let current_size_bytes = fs::metadata(&current_path)
+        .expect("la fuente debe conservar sus metadatos")
+        .len();
+    let history = HistoryManager::deferred().expect("el historial debe inicializarse");
+    let state = DatasetState::default();
+    *state
+        .current
+        .lock()
+        .expect("el dataset debe estar disponible") = Some(LoadedDataset {
+        source_path: Some(current_path.clone()),
+        file_name: "current.csv".to_owned(),
+        file_size_bytes: current_size_bytes,
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history,
+    });
+    let context = {
+        let current = state
+            .current
+            .lock()
+            .expect("el dataset debe estar disponible");
+        current_join_context(current.as_ref().expect("el dataset debe existir"))
+            .expect("el contexto source-backed debe estar disponible")
+    };
+    let compared_size_bytes = fs::metadata(&compared_path)
+        .expect("el snapshot debe conservar sus metadatos")
+        .len();
+    *state
+        .comparison
+        .lock()
+        .expect("la comparación debe estar disponible") = Some(PendingComparison {
+        file_name: "compared.parquet".to_owned(),
+        file_size_bytes: compared_size_bytes,
+        row_count: compared.height(),
+        _directory: comparison_directory,
+        snapshot_path: compared_path.clone(),
+        key_columns: vec!["id".to_owned()],
+    });
+    let expected_stamp = {
+        let current = state
+            .current
+            .lock()
+            .expect("el dataset debe estar disponible");
+        DatasetMutationStamp::capture(current.as_ref().expect("el dataset debe existir"))
+    };
+    let (history_before, history_entries_before) = {
+        let current = state
+            .current
+            .lock()
+            .expect("el dataset debe estar disponible");
+        let dataset = current.as_ref().expect("el dataset debe existir");
+        (
+            dataset.history.state(),
+            dataset
+                .history
+                .entries
+                .iter()
+                .map(|entry| entry.path.clone())
+                .collect::<Vec<_>>(),
+        )
+    };
+    let history_directory = context.history_directory.clone();
+    let history_files_before = directory_entries(&history_directory);
+    let cancellation = ReviewMutationCancellation::cancel_at_commit_for_test();
+
+    let error = resolve_source_backed_conflicts(
+        &state,
+        SourceBackedConflictResolutionRequest {
+            context,
+            compared_path: compared_path.clone(),
+            compared_size_bytes,
+            compared_row_count: compared.height(),
+            compared_schema: read_parquet_schema_frame(&compared_path)
+                .expect("el esquema comparado debe poder leerse"),
+            compared_file_name: "compared.parquet".to_owned(),
+            key_columns: vec!["id".to_owned()],
+            decisions: vec![ConflictResolution::Exclude { conflict_index: 0 }],
+        },
+        &expected_stamp,
+        &compared_path,
+        &cancellation,
+    )
+    .expect_err("una cancelación al publicar debe abortar la resolución source-backed");
+
+    assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+    assert!(cancellation.is_cancelled());
+    let current = state
+        .current
+        .lock()
+        .expect("el dataset debe seguir disponible");
+    let dataset = current.as_ref().expect("el dataset debe conservarse");
+    assert!(expected_stamp.matches(dataset));
+    assert_eq!(dataset.history.state(), history_before);
+    assert_eq!(
+        dataset
+            .history
+            .entries
+            .iter()
+            .map(|entry| entry.path.clone())
+            .collect::<Vec<_>>(),
+        history_entries_before
+    );
+    assert_eq!(directory_entries(&history_directory), history_files_before);
+    drop(current);
+    assert!(state
+        .comparison
+        .lock()
+        .expect("la comparación debe estar disponible")
+        .is_some());
+    assert!(compared_path.exists());
+    assert!(current_path.exists());
+}
+
+#[test]
 fn cancelled_review_eager_conflict_resolution_keeps_dataset_history_and_comparison() {
     let current_frame = df!["id" => &[1_i64, 2], "city" => &["Santo Domingo", "Santiago"]]
         .expect("el dataset activo debe construirse");
@@ -5741,7 +5866,7 @@ fn cancelled_review_eager_conflict_resolution_keeps_dataset_history_and_comparis
         &current_frame,
         &compared_frame,
         &["id".to_owned()],
-        &[ConflictResolution {
+        &[ConflictResolution::UseSource {
             conflict_index: 0,
             column: None,
             source: ConflictSource::Compared,
@@ -5876,7 +6001,6 @@ fn review_eager_publication_is_reversible_and_clears_comparison_on_commit() {
         )
         .expect("la candidata debe apilarse");
     let cancellation = ReviewMutationCancellation::disabled();
-
     let preview = publish_review_eager_candidate(
         &state,
         &expected_stamp,
@@ -6415,19 +6539,34 @@ fn disk_backed_conflict_page_uses_the_current_history_snapshot() {
 #[test]
 fn snapshot_backed_conflict_resolution_publishes_a_reversible_cursor() {
     let compared = df![
-        "id" => &["1", "2"],
-        "city" => &["La Vega", "Santiago"],
-        "total" => &["15", "25"]
+        "id" => &["1", "2", "3"],
+        "city" => &["La Vega", "Santiago", "San Cristóbal"],
+        "total" => &["15", "25", "30"]
     ]
     .expect("la comparación debe construirse");
     let (compared_directory, compared_path) =
         persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
     let current_frame = df![
-        "id" => &["1", "2"],
-        "city" => &["Santo Domingo", "Santiago"],
-        "total" => &["10", "20"]
+        "id" => &["1", "2", "3"],
+        "city" => &["Santo Domingo", "Santiago", "San Cristóbal"],
+        "total" => &["10", "20", "30"]
     ]
     .expect("el dataset activo debe construirse");
+    let resolution_decisions = vec![
+        ConflictResolution::Exclude { conflict_index: 0 },
+        ConflictResolution::UseSource {
+            conflict_index: 1,
+            column: None,
+            source: ConflictSource::Compared,
+        },
+    ];
+    let eager_expected = resolved_conflict_frame(
+        &current_frame,
+        &compared,
+        &["id".to_owned()],
+        &resolution_decisions,
+    )
+    .expect("la ruta eager debe resolver la misma selección");
     let history =
         HistoryManager::new(&current_frame).expect("el historial durable debe inicializarse");
     let state = DatasetState::default();
@@ -6488,23 +6627,7 @@ fn snapshot_backed_conflict_resolution_publishes_a_reversible_cursor() {
             compared_schema,
             compared_file_name: "compared.parquet".to_owned(),
             key_columns: vec!["id".to_owned()],
-            decisions: vec![
-                ConflictResolution {
-                    conflict_index: 0,
-                    column: Some("city".to_owned()),
-                    source: ConflictSource::Compared,
-                },
-                ConflictResolution {
-                    conflict_index: 0,
-                    column: Some("total".to_owned()),
-                    source: ConflictSource::Current,
-                },
-                ConflictResolution {
-                    conflict_index: 1,
-                    column: None,
-                    source: ConflictSource::Compared,
-                },
-            ],
+            decisions: resolution_decisions,
         },
         &expected_stamp,
         &compared_path,
@@ -6527,21 +6650,30 @@ fn snapshot_backed_conflict_resolution_publishes_a_reversible_cursor() {
         .history
         .restore(1)
         .expect("el resultado resuelto debe poder restaurarse");
+    assert_eq!(resolved, eager_expected);
+    assert_eq!(
+        resolved.column("id").unwrap().str().unwrap().get(0),
+        Some("2")
+    );
     assert_eq!(
         resolved.column("city").unwrap().str().unwrap().get(0),
-        Some("La Vega")
-    );
-    assert_eq!(
-        resolved.column("total").unwrap().str().unwrap().get(0),
-        Some("10")
-    );
-    assert_eq!(
-        resolved.column("city").unwrap().str().unwrap().get(1),
         Some("Santiago")
     );
     assert_eq!(
-        resolved.column("total").unwrap().str().unwrap().get(1),
+        resolved.column("total").unwrap().str().unwrap().get(0),
         Some("25")
+    );
+    assert_eq!(
+        resolved.column("id").unwrap().str().unwrap().get(1),
+        Some("3")
+    );
+    assert_eq!(
+        resolved.column("city").unwrap().str().unwrap().get(1),
+        Some("San Cristóbal")
+    );
+    assert_eq!(
+        resolved.column("total").unwrap().str().unwrap().get(1),
+        Some("30")
     );
     drop(active);
     assert!(!compared_path.exists());
@@ -6659,12 +6791,13 @@ fn snapshot_backed_consolidation_publishes_only_new_keys_reversibly() {
 }
 
 #[test]
-fn source_backed_conflict_resolution_publishes_selected_values_reversibly() {
-    let current_path = temporary_csv("id,city,total\n1,Santo Domingo,10\n2,Santiago,20\n");
+fn source_backed_conflict_exclusion_and_resolution_match_eager_and_publish_reversibly() {
+    let current_path =
+        temporary_csv("id,city,total\n1,Santo Domingo,10\n2,Santiago,20\n3,Puerto Plata,30\n");
     let compared = df![
-        "id" => &["1", "2"],
-        "city" => &["La Vega", "Santiago"],
-        "total" => &["15", "25"]
+        "id" => &["1", "2", "3"],
+        "city" => &["La Vega", "Santiago", "Bani"],
+        "total" => &["15", "25", "35"]
     ]
     .expect("la comparación debe construirse");
     let (compared_directory, compared_path) =
@@ -6732,21 +6865,22 @@ fn source_backed_conflict_resolution_publishes_selected_values_reversibly() {
             compared_file_name: "compared.parquet".to_owned(),
             key_columns: vec!["id".to_owned()],
             decisions: vec![
-                ConflictResolution {
+                ConflictResolution::UseSource {
                     conflict_index: 0,
                     column: Some("city".to_owned()),
                     source: ConflictSource::Compared,
                 },
-                ConflictResolution {
+                ConflictResolution::UseSource {
                     conflict_index: 0,
                     column: Some("total".to_owned()),
                     source: ConflictSource::Current,
                 },
-                ConflictResolution {
+                ConflictResolution::UseSource {
                     conflict_index: 1,
                     column: None,
                     source: ConflictSource::Compared,
                 },
+                ConflictResolution::Exclude { conflict_index: 2 },
             ],
         },
         &expected_stamp,
@@ -6773,6 +6907,37 @@ fn source_backed_conflict_resolution_publishes_selected_values_reversibly() {
         .history
         .restore(1)
         .expect("el resultado resuelto debe poder restaurarse");
+    let eager_current = df![
+        "id" => &["1", "2", "3"],
+        "city" => &["Santo Domingo", "Santiago", "Puerto Plata"],
+        "total" => &["10", "20", "30"]
+    ]
+    .expect("el activo eager equivalente debe construirse");
+    let eager_expected = resolved_conflict_frame(
+        &eager_current,
+        &compared,
+        &["id".to_owned()],
+        &[
+            ConflictResolution::UseSource {
+                conflict_index: 0,
+                column: Some("city".to_owned()),
+                source: ConflictSource::Compared,
+            },
+            ConflictResolution::UseSource {
+                conflict_index: 0,
+                column: Some("total".to_owned()),
+                source: ConflictSource::Current,
+            },
+            ConflictResolution::UseSource {
+                conflict_index: 1,
+                column: None,
+                source: ConflictSource::Compared,
+            },
+            ConflictResolution::Exclude { conflict_index: 2 },
+        ],
+    )
+    .expect("la ruta eager equivalente debe resolverse");
+    assert!(resolved.equals_missing(&eager_expected));
     assert_eq!(
         resolved.column("city").unwrap().str().unwrap().get(0),
         Some("La Vega")
@@ -6803,7 +6968,7 @@ fn source_backed_conflict_resolution_publishes_selected_values_reversibly() {
 #[test]
 fn source_backed_conflict_resolution_defers_oversized_decisions_to_the_eager_path() {
     let decisions = (0..=SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS)
-        .map(|conflict_index| ConflictResolution {
+        .map(|conflict_index| ConflictResolution::UseSource {
             conflict_index,
             column: None,
             source: ConflictSource::Current,
@@ -9596,12 +9761,12 @@ fn resolves_key_conflicts_by_column_and_keeps_legacy_row_decisions() {
         &compared,
         &key_columns,
         &[
-            ConflictResolution {
+            ConflictResolution::UseSource {
                 conflict_index: 0,
                 column: Some("city".to_owned()),
                 source: ConflictSource::Compared,
             },
-            ConflictResolution {
+            ConflictResolution::UseSource {
                 conflict_index: 0,
                 column: Some("total".to_owned()),
                 source: ConflictSource::Current,
@@ -9629,7 +9794,7 @@ fn resolves_key_conflicts_by_column_and_keeps_legacy_row_decisions() {
         &current,
         &compared,
         &key_columns,
-        &[ConflictResolution {
+        &[ConflictResolution::UseSource {
             conflict_index: 0,
             column: None,
             source: ConflictSource::Compared,
@@ -9651,17 +9816,190 @@ fn resolves_key_conflicts_by_column_and_keeps_legacy_row_decisions() {
         &compared,
         &key_columns,
         &[
-            ConflictResolution {
+            ConflictResolution::UseSource {
                 conflict_index: 0,
                 column: None,
                 source: ConflictSource::Current,
             },
-            ConflictResolution {
+            ConflictResolution::UseSource {
                 conflict_index: 0,
                 column: None,
                 source: ConflictSource::Compared,
             },
         ],
+    )
+    .is_err());
+}
+
+#[test]
+fn conflict_exclusion_preserves_order_types_and_validates_the_action_contract() {
+    let current = DataFrame::new(
+        4,
+        vec![
+            Series::new("id".into(), &[10_i64, 20, 30, 40]).into_column(),
+            Series::new("label".into(), &["A", "B", "C", "D"]).into_column(),
+            Series::new("amount".into(), &[100_i64, 200, 300, 400]).into_column(),
+        ],
+    )
+    .expect("el frame activo debe ser válido");
+    let compared = DataFrame::new(
+        4,
+        vec![
+            Series::new("id".into(), &[10_i64, 20, 30, 40]).into_column(),
+            Series::new("label".into(), &["A2", "B", "C2", "D"]).into_column(),
+            Series::new("amount".into(), &[101_i64, 200, 301, 400]).into_column(),
+        ],
+    )
+    .expect("el frame comparado debe ser válido");
+    let key_columns = vec!["id".to_owned()];
+    let decisions = [
+        ConflictResolution::Exclude { conflict_index: 0 },
+        ConflictResolution::UseSource {
+            conflict_index: 1,
+            column: Some("label".to_owned()),
+            source: ConflictSource::Compared,
+        },
+        ConflictResolution::UseSource {
+            conflict_index: 1,
+            column: Some("amount".to_owned()),
+            source: ConflictSource::Current,
+        },
+    ];
+    let resolved = resolved_conflict_frame(&current, &compared, &key_columns, &decisions)
+        .expect("la exclusión y la resolución por columna deben ser válidas");
+    assert_eq!(resolved.height(), 3);
+    assert_eq!(resolved.column("id").unwrap().dtype(), &DataType::Int64);
+    assert_eq!(resolved.column("label").unwrap().dtype(), &DataType::String);
+    assert_eq!(resolved.column("amount").unwrap().dtype(), &DataType::Int64);
+    assert_eq!(
+        resolved
+            .column("id")
+            .unwrap()
+            .i64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect::<Vec<_>>(),
+        vec![20, 30, 40]
+    );
+    let labels = resolved.column("label").unwrap().str().unwrap();
+    assert_eq!(labels.get(0), Some("B"));
+    assert_eq!(labels.get(1), Some("C2"));
+    assert_eq!(labels.get(2), Some("D"));
+    assert_eq!(
+        resolved
+            .column("amount")
+            .unwrap()
+            .i64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect::<Vec<_>>(),
+        vec![200, 300, 400]
+    );
+
+    let conflict_only_current = DataFrame::new(
+        2,
+        vec![
+            Series::new("id".into(), &[10_i64, 30]).into_column(),
+            Series::new("label".into(), &["A", "C"]).into_column(),
+            Series::new("amount".into(), &[100_i64, 300]).into_column(),
+        ],
+    )
+    .expect("el frame activo solo con conflictos debe ser válido");
+    let conflict_only_compared = DataFrame::new(
+        2,
+        vec![
+            Series::new("id".into(), &[10_i64, 30]).into_column(),
+            Series::new("label".into(), &["A2", "C2"]).into_column(),
+            Series::new("amount".into(), &[101_i64, 301]).into_column(),
+        ],
+    )
+    .expect("el frame comparado solo con conflictos debe ser válido");
+    let empty = resolved_conflict_frame(
+        &conflict_only_current,
+        &conflict_only_compared,
+        &key_columns,
+        &[
+            ConflictResolution::Exclude { conflict_index: 0 },
+            ConflictResolution::Exclude { conflict_index: 1 },
+        ],
+    )
+    .expect("excluir todos los conflictos debe producir un frame vacío tipado");
+    assert_eq!(empty.height(), 0);
+    assert_eq!(empty.column("id").unwrap().dtype(), &DataType::Int64);
+    assert_eq!(empty.column("label").unwrap().dtype(), &DataType::String);
+    assert_eq!(empty.column("amount").unwrap().dtype(), &DataType::Int64);
+
+    assert!(resolved_conflict_frame(
+        &current,
+        &compared,
+        &key_columns,
+        &[
+            ConflictResolution::Exclude { conflict_index: 0 },
+            ConflictResolution::Exclude { conflict_index: 0 },
+        ],
+    )
+    .is_err());
+    assert!(resolved_conflict_frame(
+        &current,
+        &compared,
+        &key_columns,
+        &[
+            ConflictResolution::Exclude { conflict_index: 0 },
+            ConflictResolution::UseSource {
+                conflict_index: 0,
+                column: Some("label".to_owned()),
+                source: ConflictSource::Current,
+            },
+        ],
+    )
+    .is_err());
+    assert!(resolved_conflict_frame(
+        &current,
+        &compared,
+        &key_columns,
+        &[ConflictResolution::Exclude { conflict_index: 2 }],
+    )
+    .is_err());
+    assert!(resolved_conflict_frame(
+        &current,
+        &compared,
+        &key_columns,
+        &[ConflictResolution::UseSource {
+            conflict_index: 1,
+            column: Some("label".to_owned()),
+            source: ConflictSource::Compared,
+        }],
+    )
+    .is_err());
+    assert!(resolved_conflict_frame(
+        &current,
+        &compared,
+        &key_columns,
+        &[ConflictResolution::UseSource {
+            conflict_index: 0,
+            column: Some("missing".to_owned()),
+            source: ConflictSource::Compared,
+        }],
+    )
+    .is_err());
+
+    let exclude: ConflictResolution =
+        serde_json::from_str(r#"{"action":"exclude","conflictIndex":0}"#)
+            .expect("el contrato debe aceptar la exclusión de un conflicto");
+    assert_eq!(exclude, ConflictResolution::Exclude { conflict_index: 0 });
+    let legacy: ConflictResolution =
+        serde_json::from_str(r#"{"action":"useSource","conflictIndex":1,"source":"compared"}"#)
+            .expect("useSource debe aceptar omitir column para la decisión por fila");
+    assert_eq!(
+        legacy,
+        ConflictResolution::UseSource {
+            conflict_index: 1,
+            column: None,
+            source: ConflictSource::Compared,
+        }
+    );
+    assert!(serde_json::from_str::<ConflictResolution>(
+        r#"{"action":"useSource","conflictIndex":1,"source":"compared","column":"label","extra":true}"#,
     )
     .is_err());
 }
@@ -9776,7 +10114,7 @@ fn paginates_and_resolves_conflicts_beyond_visible_preview_limit() {
     assert_eq!(last_page[0].conflict.key, vec![Some("50".to_owned())]);
 
     let decisions = (0..51)
-        .map(|conflict_index| ConflictResolution {
+        .map(|conflict_index| ConflictResolution::UseSource {
             conflict_index,
             column: Some("value".to_owned()),
             source: ConflictSource::Compared,

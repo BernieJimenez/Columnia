@@ -53,8 +53,7 @@ const SOURCE_BACKED_LOAD_THRESHOLD_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_QUERY_CHARS: usize = 2 * 1024;
 const LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX: &str =
     "No se pudo usar el snapshot Parquet para la consulta local:";
-const SOURCE_BACKED_QUERY_ERROR: &str =
-    "La consulta source-backed no pudo ejecutarse sin materializar el dataset; revisa que la consulta sea compatible con el motor DuckDB y que la fuente siga intacta.";
+const SOURCE_BACKED_QUERY_ERROR: &str = "La consulta source-backed no pudo ejecutarse sin materializar el dataset; revisa que la consulta sea compatible con el motor DuckDB y que la fuente siga intacta.";
 const MAX_CONFLICT_PREVIEW: usize = 50;
 const HIGH_NULL_COLUMN_THRESHOLD_PERCENTAGE: usize = 80;
 const SENTINEL_VALUES: &[&str] = &[
@@ -150,8 +149,7 @@ const LOCAL_QUERY_JOIN_MAX_RESULT_ROWS: usize = 2_000_000;
 const MATERIALIZATION_GUARD_THRESHOLD_BYTES: u64 = 512 * 1024 * 1024;
 const MATERIALIZATION_ESTIMATE_MULTIPLIER: u64 = 4;
 const MATERIALIZATION_RESERVE_BYTES: u64 = 256 * 1024 * 1024;
-const SOURCE_BACKED_CONSOLIDATION_CONFLICT_ERROR: &str =
-    "No se pueden consolidar claves con conflictos o duplicados. Revisa la comparación antes de continuar.";
+const SOURCE_BACKED_CONSOLIDATION_CONFLICT_ERROR: &str = "No se pueden consolidar claves con conflictos o duplicados. Revisa la comparación antes de continuar.";
 const SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS: usize = 8_192;
 const SOURCE_BACKED_RESOLUTION_LIMIT_REACHED: &str =
     "La resolución source-backed superó su límite seguro.";
@@ -610,15 +608,50 @@ pub enum ConflictSource {
     Compared,
 }
 
-type ConflictChoiceMap = HashMap<(usize, Option<String>), ConflictSource>;
+type ConflictChoiceMap = HashMap<(usize, Option<String>), ConflictResolutionChoice>;
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+enum ConflictResolutionChoice {
+    Exclude,
+    UseSource(ConflictSource),
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ConflictResolution {
-    conflict_index: usize,
-    #[serde(default)]
-    column: Option<String>,
-    source: ConflictSource,
+#[serde(
+    tag = "action",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum ConflictResolution {
+    Exclude {
+        conflict_index: usize,
+    },
+    UseSource {
+        conflict_index: usize,
+        source: ConflictSource,
+        #[serde(default)]
+        column: Option<String>,
+    },
+}
+
+impl ConflictResolution {
+    fn choice(&self) -> (usize, Option<String>, ConflictResolutionChoice) {
+        match self {
+            Self::Exclude { conflict_index } => {
+                (*conflict_index, None, ConflictResolutionChoice::Exclude)
+            }
+            Self::UseSource {
+                conflict_index,
+                source,
+                column,
+            } => (
+                *conflict_index,
+                column.clone(),
+                ConflictResolutionChoice::UseSource(*source),
+            ),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -8997,7 +9030,9 @@ where
 
     for writer in normalized_writers.iter_mut().flatten() {
         writer.flush().map_err(|error| {
-            format!("No se pudieron sincronizar las huellas temporales de duplicados parecidos: {error}")
+            format!(
+                "No se pudieron sincronizar las huellas temporales de duplicados parecidos: {error}"
+            )
         })?;
     }
     let (distinct_row_count, distinct_counts) =
@@ -15251,7 +15286,7 @@ fn load_json_records(path: &Path) -> Result<DataFrame, String> {
                         return Err(format!(
                             "La línea JSON {} no contiene un objeto.",
                             index + 2
-                        ))
+                        ));
                     }
                 }
             }
@@ -15260,7 +15295,7 @@ fn load_json_records(path: &Path) -> Result<DataFrame, String> {
         _ => {
             return Err(
                 "El JSON debe ser un arreglo de objetos o contener un objeto por línea.".to_owned(),
-            )
+            );
         }
     };
     json_records_to_frame(&records)
@@ -15352,7 +15387,7 @@ fn json_record_column_names(path: &Path) -> Result<Vec<String>, String> {
                 return Err(format!(
                     "La línea JSON {} no contiene un objeto.",
                     collected.records.saturating_add(1)
-                ))
+                ));
             }
         }
     }
@@ -16126,7 +16161,7 @@ where
         "parquet" => read_parquet_frame(path)?,
         "json" | "jsonl" | "ndjson" => load_json_records(path)?,
         extension if spreadsheet_extensions(extension) => {
-            return Err("Selecciona primero una hoja del libro.".to_owned())
+            return Err("Selecciona primero una hoja del libro.".to_owned());
         }
         _ => unreachable!("la extensión fue validada"),
     };
@@ -16241,7 +16276,9 @@ fn validate_stored_recipe(document: &StoredTransformRecipe) -> Result<(), String
     }
     if let Some(schema) = &document.source_schema {
         if schema.len() > MAX_RECIPE_SOURCE_COLUMNS {
-            return Err(format!("El esquema de origen puede incluir como máximo {MAX_RECIPE_SOURCE_COLUMNS} columnas."));
+            return Err(format!(
+                "El esquema de origen puede incluir como máximo {MAX_RECIPE_SOURCE_COLUMNS} columnas."
+            ));
         }
         let mut names = HashSet::with_capacity(schema.len());
         for column in schema {
@@ -17212,7 +17249,7 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
         _ => {
             return Err(
                 "Las reglas migradas deben ser una lista o un objeto con 'rules'.".to_owned(),
-            )
+            );
         }
     };
 
@@ -20484,7 +20521,7 @@ fn xlsx_cell(column_index: usize, row_index: usize, value: AnyValue<'_>) -> Resu
             format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>")
         }
         AnyValue::Float32(_) | AnyValue::Float64(_) => {
-            return Err("Excel no puede representar valores numéricos no finitos.".to_owned())
+            return Err("Excel no puede representar valores numéricos no finitos.".to_owned());
         }
         AnyValue::String(value) => format!(
             "<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{}</t></is></c>",
@@ -25839,12 +25876,13 @@ where
         if decision_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
             ensure_not_cancelled(is_cancelled())?;
         }
-        let Some(conflict) = conflicts.get(decision.conflict_index) else {
+        let (conflict_index, column, choice) = decision.choice();
+        let Some(conflict) = conflicts.get(conflict_index) else {
             return Err(
                 "La selección de resolución contiene conflictos repetidos o inválidos.".to_owned(),
             );
         };
-        if let Some(column) = decision.column.as_ref() {
+        if let Some(column) = column.as_ref() {
             if !conflict
                 .conflict
                 .cells
@@ -25856,13 +25894,7 @@ where
                 ));
             }
         }
-        if choices
-            .insert(
-                (decision.conflict_index, decision.column.clone()),
-                decision.source,
-            )
-            .is_some()
-        {
+        if choices.insert((conflict_index, column), choice).is_some() {
             return Err(
                 "La selección de resolución contiene conflictos repetidos o inválidos.".to_owned(),
             );
@@ -25877,6 +25909,17 @@ where
             .iter()
             .filter(|((index, _), _)| *index == conflict_index)
             .collect::<Vec<_>>();
+        let excludes = conflict_choices
+            .iter()
+            .any(|(_, choice)| **choice == ConflictResolutionChoice::Exclude);
+        if excludes {
+            if conflict_choices.len() != 1 {
+                return Err(
+                    "La exclusión debe ser la única decisión para cada conflicto.".to_owned(),
+                );
+            }
+            continue;
+        }
         let uses_columns = conflict_choices
             .iter()
             .any(|((_, column), _)| column.is_some());
@@ -25930,24 +25973,23 @@ fn validate_source_backed_conflict_decisions(
     }
 
     let mut choices = ConflictChoiceMap::new();
-    let mut choices_by_conflict = HashMap::<usize, HashMap<Option<String>, ConflictSource>>::new();
+    let mut choices_by_conflict =
+        HashMap::<usize, HashMap<Option<String>, ConflictResolutionChoice>>::new();
     for (decision_index, decision) in decisions.iter().enumerate() {
         if decision_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
             ensure_not_cancelled(is_cancelled())?;
         }
-        let choice_key = (decision.conflict_index, decision.column.clone());
-        if choices
-            .insert(choice_key.clone(), decision.source)
-            .is_some()
-        {
+        let (conflict_index, column, choice) = decision.choice();
+        let choice_key = (conflict_index, column.clone());
+        if choices.insert(choice_key.clone(), choice).is_some() {
             return Err(
                 "La selección de resolución contiene conflictos repetidos o inválidos.".to_owned(),
             );
         }
         if choices_by_conflict
-            .entry(decision.conflict_index)
+            .entry(conflict_index)
             .or_default()
-            .insert(decision.column.clone(), decision.source)
+            .insert(column, choice)
             .is_some()
         {
             return Err(
@@ -25981,6 +26023,22 @@ fn validate_source_backed_conflict_decisions(
                 choices_by_conflict.remove(&conflict_index).ok_or_else(|| {
                     "Debes elegir un origen para cada conflicto detectado.".to_owned()
                 })?;
+            let excludes = conflict_choices
+                .values()
+                .any(|choice| *choice == ConflictResolutionChoice::Exclude);
+            if excludes {
+                if conflict_choices.len() != 1
+                    || !matches!(
+                        conflict_choices.get(&None),
+                        Some(ConflictResolutionChoice::Exclude)
+                    )
+                {
+                    return Err(
+                        "La exclusión debe ser la única decisión para cada conflicto.".to_owned(),
+                    );
+                }
+                return Ok(());
+            }
             for column in conflict_choices.keys().filter_map(|column| column.as_ref()) {
                 if !shape.columns.iter().any(|expected| expected == column) {
                     return Err(format!(
@@ -26102,7 +26160,15 @@ fn source_backed_conflict_resolution_plan(
         .map(|name| name.to_string())
         .collect::<Vec<_>>();
     let mut choices_by_column = HashMap::<String, Vec<(usize, ConflictSource)>>::new();
-    for ((conflict_index, column), source) in choices {
+    let mut excluded_conflicts = Vec::new();
+    for ((conflict_index, column), choice) in choices {
+        if *choice == ConflictResolutionChoice::Exclude {
+            excluded_conflicts.push(*conflict_index);
+            continue;
+        }
+        let ConflictResolutionChoice::UseSource(source) = choice else {
+            unreachable!("exclusion cases are handled above")
+        };
         if let Some(column) = column {
             choices_by_column
                 .entry(column.clone())
@@ -26149,8 +26215,20 @@ fn source_backed_conflict_resolution_plan(
     let compared_count = duckdb_identifier(&compared_count_column);
     let conflict_index = duckdb_identifier(&conflict_index_column);
     let result_order = duckdb_identifier(&result_order_column);
+    excluded_conflicts.sort_unstable();
+    excluded_conflicts.dedup();
+    let conflict_exclusion_filter = if excluded_conflicts.is_empty() {
+        String::new()
+    } else {
+        let excluded = excluded_conflicts
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(" WHERE x.{conflict_index} IS NULL OR x.{conflict_index} NOT IN ({excluded})")
+    };
     let dataset_view_query = format!(
-        "CREATE VIEW dataset AS WITH current_ranked AS (SELECT c.*, COUNT(*) OVER (PARTITION BY {partition}) AS {current_count} FROM __columnia_current AS c), compared_ranked AS (SELECT r.*, COUNT(*) OVER (PARTITION BY {partition}) AS {compared_count} FROM __columnia_compared AS r), conflicts AS (SELECT c.{current_order}, ROW_NUMBER() OVER (ORDER BY c.{current_order}) - 1 AS {conflict_index} FROM current_ranked AS c JOIN compared_ranked AS r ON {key_conditions} WHERE c.{current_count} = 1 AND r.{compared_count} = 1 AND {conflict_predicate}) SELECT {projection}, c.{current_order} AS {result_order} FROM current_ranked AS c LEFT JOIN compared_ranked AS r ON {key_conditions} AND c.{current_count} = 1 AND r.{compared_count} = 1 LEFT JOIN conflicts AS x ON x.{current_order} = c.{current_order}"
+        "CREATE VIEW dataset AS WITH current_ranked AS (SELECT c.*, COUNT(*) OVER (PARTITION BY {partition}) AS {current_count} FROM __columnia_current AS c), compared_ranked AS (SELECT r.*, COUNT(*) OVER (PARTITION BY {partition}) AS {compared_count} FROM __columnia_compared AS r), conflicts AS (SELECT c.{current_order}, ROW_NUMBER() OVER (ORDER BY c.{current_order}) - 1 AS {conflict_index} FROM current_ranked AS c JOIN compared_ranked AS r ON {key_conditions} WHERE c.{current_count} = 1 AND r.{compared_count} = 1 AND {conflict_predicate}) SELECT {projection}, c.{current_order} AS {result_order} FROM current_ranked AS c LEFT JOIN compared_ranked AS r ON {key_conditions} AND c.{current_count} = 1 AND r.{compared_count} = 1 LEFT JOIN conflicts AS x ON x.{current_order} = c.{current_order}{conflict_exclusion_filter}"
     );
     let output_projection = current_columns
         .iter()
@@ -26218,23 +26296,50 @@ where
         .enumerate()
         .map(|(index, conflict)| (conflict.current_row_index, index))
         .collect::<HashMap<_, _>>();
+    let excluded_conflicts = choices
+        .iter()
+        .filter_map(|((conflict_index, _), choice)| {
+            (*choice == ConflictResolutionChoice::Exclude).then_some(*conflict_index)
+        })
+        .collect::<HashSet<_>>();
+    let excluded_rows = conflicts
+        .iter()
+        .enumerate()
+        .filter_map(|(conflict_index, conflict)| {
+            excluded_conflicts
+                .contains(&conflict_index)
+                .then_some(conflict.current_row_index)
+        })
+        .collect::<HashSet<_>>();
+    let mut active_rows = Vec::with_capacity(current.height().saturating_sub(excluded_rows.len()));
+    for row_index in 0..current.height() {
+        if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+            ensure_not_cancelled(is_cancelled())?;
+        }
+        if !excluded_rows.contains(&row_index) {
+            active_rows.push(row_index);
+        }
+    }
     let mut resolved_columns = Vec::with_capacity(current.width());
     for current_column in current.columns() {
         let name = current_column.name().to_string();
         let compared_column = compared
             .column(&name)
             .map_err(|error| format!("No se pudo leer la columna comparada '{name}': {error}"))?;
-        let mut values = Vec::with_capacity(current.height());
-        for row_index in 0..current.height() {
-            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+        let mut values = Vec::with_capacity(active_rows.len());
+        for (active_index, row_index) in active_rows.iter().copied().enumerate() {
+            if active_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
                 ensure_not_cancelled(is_cancelled())?;
             }
             let conflict_index = conflict_rows.get(&row_index).copied();
             let source = conflict_index.and_then(|conflict_index| {
-                choices
+                match choices
                     .get(&(conflict_index, Some(name.clone())))
                     .or_else(|| choices.get(&(conflict_index, None)))
-                    .copied()
+                {
+                    Some(ConflictResolutionChoice::UseSource(source)) => Some(*source),
+                    Some(ConflictResolutionChoice::Exclude) | None => None,
+                }
             });
             let source_row = match (source, conflict_index) {
                 (Some(ConflictSource::Compared), Some(conflict_index)) => conflicts
@@ -26264,7 +26369,7 @@ where
         resolved_columns.push(resolved);
     }
     ensure_not_cancelled(is_cancelled())?;
-    DataFrame::new(current.height(), resolved_columns)
+    DataFrame::new(active_rows.len(), resolved_columns)
         .map_err(|error| format!("No se pudo construir el dataset resuelto: {error}"))
 }
 
@@ -27116,7 +27221,7 @@ pub async fn query_dataset(
                             match result {
                                 Ok(result) => return Ok(result),
                                 Err(error) if error == OPERATION_CANCELLED_MESSAGE => {
-                                    return Err(error)
+                                    return Err(error);
                                 }
                                 Err(_) => {}
                             }
@@ -27151,7 +27256,7 @@ pub async fn query_dataset(
                         ) {
                             Ok(result) => return Ok(result),
                             Err(error) if error == OPERATION_CANCELLED_MESSAGE => {
-                                return Err(error)
+                                return Err(error);
                             }
                             Err(_) => {}
                         }
@@ -30561,7 +30666,9 @@ fn date_parts(column: &Column, operation: CalculatedOperation) -> Result<Vec<Opt
                         AnyValue::Null => None,
                         AnyValue::Int32(value) => Some(value),
                         _ => {
-                            return Err("La fecha no tiene una representación física válida.".into())
+                            return Err(
+                                "La fecha no tiene una representación física válida.".into()
+                            );
                         }
                     };
                     let date = days
@@ -30602,7 +30709,7 @@ fn date_parts(column: &Column, operation: CalculatedOperation) -> Result<Vec<Opt
                         _ => {
                             return Err(
                                 "La fecha y hora no tiene una representación física válida.".into(),
-                            )
+                            );
                         }
                     };
                     let date = raw
@@ -31337,7 +31444,7 @@ fn apply_group_summary(
                     return Err(format!(
                         "La agregación {} requiere que '{name}' sea Int64 o Float64.",
                         aggregation.operation.suffix()
-                    ))
+                    ));
                 }
                 SummaryOperation::Min | SummaryOperation::Max
                     if !matches!(
@@ -31352,7 +31459,7 @@ fn apply_group_summary(
                     return Err(format!(
                         "La agregación {} no admite el tipo de '{name}'.",
                         aggregation.operation.suffix()
-                    ))
+                    ));
                 }
                 _ => {}
             }
@@ -31482,7 +31589,7 @@ fn apply_group_summary(
                                 AnyValue::Float64(_) => {
                                     return Err(format!(
                                         "La columna '{name}' contiene NaN o infinito."
-                                    ))
+                                    ));
                                 }
                                 _ => unreachable!(),
                             }

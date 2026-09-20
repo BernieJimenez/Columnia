@@ -173,6 +173,7 @@ export function ReviewPhase({
         <DatasetComparisonSection
           status={comparisonStatus}
           datasetColumns={datasetColumns}
+          datasetRevision={datasetRevision}
           keyColumns={comparisonKeyColumns}
           onKeyColumnsChange={onComparisonKeyColumnsChange}
           onCompare={onCompare}
@@ -196,6 +197,7 @@ export function ReviewPhase({
 function DatasetComparisonSection({
   status,
   datasetColumns,
+  datasetRevision,
   keyColumns,
   onKeyColumnsChange,
   onCompare,
@@ -213,6 +215,7 @@ function DatasetComparisonSection({
 }: {
   status: ComparisonStatus;
   datasetColumns: DatasetColumn[];
+  datasetRevision: number;
   keyColumns: string[];
   onKeyColumnsChange: (columns: string[]) => void;
   onCompare: () => void;
@@ -229,24 +232,31 @@ function DatasetComparisonSection({
   onCancelReviewMutation: () => void;
 }) {
   const [conflictChoices, setConflictChoices] = useState<Record<string, ConflictSource>>({});
+  const [excludedConflictIndexes, setExcludedConflictIndexes] = useState<Record<number, true>>({});
   const [conflictPageLoading, setConflictPageLoading] = useState(false);
+  const comparisonKeyColumnsKey = JSON.stringify(keyColumns);
   useEffect(() => {
     setConflictChoices({});
-  }, [status.kind, status.kind === "ready" ? status.comparison.comparedFileName : null]);
+    setExcludedConflictIndexes({});
+  }, [
+    status.kind,
+    status.kind === "ready" ? status.comparison.comparedFileName : null,
+    comparisonKeyColumnsKey,
+    datasetRevision,
+  ]);
 
   function conflictChoiceKey(conflictIndex: number, column: string): string {
     return `${conflictIndex}:${column}`;
   }
 
-  const visibleConflictCellCount = status.kind === "ready"
-    ? status.comparison.conflicts.reduce((total, conflict) => total + conflict.cells.length, 0)
-    : 0;
-  const visibleConflictChoiceKeys = status.kind === "ready"
-    ? new Set(status.comparison.conflicts.flatMap((conflict, conflictIndex) =>
-        conflict.cells.map((cell) => conflictChoiceKey(status.comparison.conflictOffset + conflictIndex, cell.column))))
-    : new Set<string>();
-  const selectedVisibleConflictCellCount = Object.keys(conflictChoices)
-    .filter((key) => visibleConflictChoiceKeys.has(key)).length;
+  const visibleConflictResolutions = status.kind === "ready"
+    ? status.comparison.conflicts.map((conflict, conflictIndex) => {
+        const globalConflictIndex = status.comparison.conflictOffset + conflictIndex;
+        return excludedConflictIndexes[globalConflictIndex] === true
+          || conflict.cells.every((cell) => conflictChoices[conflictChoiceKey(globalConflictIndex, cell.column)] !== undefined);
+      })
+    : [];
+  const excludedConflictCount = Object.keys(excludedConflictIndexes).length;
   const reviewMutationBusy = reviewMutationCancellationPending
     || reviewMutationStatus.kind === "running"
     || reviewMutationStatus.kind === "finalizing";
@@ -257,8 +267,51 @@ function DatasetComparisonSection({
   const reviewMutationFinalizing = reviewMutationStatus.kind === "finalizing";
   const reviewMutationCancellationRequested = reviewMutationStatus.kind === "running"
     && reviewMutationStatus.cancellation === "requested";
-  const visibleConflictPageComplete = visibleConflictCellCount > 0 &&
-    selectedVisibleConflictCellCount === visibleConflictCellCount;
+  const visibleConflictPageComplete = visibleConflictResolutions.length > 0
+    && visibleConflictResolutions.every(Boolean);
+
+  function chooseConflictSource(conflictIndex: number, column: string, source: ConflictSource) {
+    setExcludedConflictIndexes((current) => {
+      if (current[conflictIndex] !== true) return current;
+      const next = { ...current };
+      delete next[conflictIndex];
+      return next;
+    });
+    setConflictChoices((current) => ({
+      ...current,
+      [conflictChoiceKey(conflictIndex, column)]: source,
+    }));
+  }
+
+  function chooseConflictExclusion(conflictIndex: number, excluded: boolean) {
+    setExcludedConflictIndexes((current) => {
+      if (excluded) return { ...current, [conflictIndex]: true };
+      if (current[conflictIndex] !== true) return current;
+      const next = { ...current };
+      delete next[conflictIndex];
+      return next;
+    });
+    if (excluded) {
+      const prefix = `${conflictIndex}:`;
+      setConflictChoices((current) => Object.fromEntries(
+        Object.entries(current).filter(([key]) => !key.startsWith(prefix)),
+      ));
+    }
+  }
+
+  function selectedConflictDecisions(): ConflictResolution[] {
+    const exclusions: ConflictResolution[] = Object.keys(excludedConflictIndexes).map((index) => ({
+      action: "exclude",
+      conflictIndex: Number(index),
+    }));
+    const sourceChoices: ConflictResolution[] = Object.entries(conflictChoices).map(([choiceKey, source]) => {
+      const separator = choiceKey.indexOf(":");
+      const conflictIndex = Number(choiceKey.slice(0, separator));
+      const column = choiceKey.slice(separator + 1);
+      return { action: "useSource", conflictIndex, column, source };
+    });
+    return [...exclusions, ...sourceChoices];
+  }
 
   async function requestConflictPage(offset: number) {
     setConflictPageLoading(true);
@@ -449,19 +502,14 @@ function DatasetComparisonSection({
                 <div>
                   <p className="step">Decisión explícita</p>
                   <h4 id="conflict-resolution-title">Resolver conflictos por clave</h4>
-                  <p>Elige el origen de cada celda divergente. No se modifica nada hasta confirmar todas las decisiones.</p>
+                  <p>Elige el origen de cada celda divergente o excluye una clave del resultado. No se modifica nada hasta confirmar todas las decisiones.</p>
                 </div>
                 <button
                   type="button"
                   className="primary-action"
                   onClick={() => activeReviewMutation === "resolveConflicts"
                     ? onCancelReviewMutation()
-                    : onResolveConflicts(Object.entries(conflictChoices).map(([choiceKey, source]) => {
-                      const separator = choiceKey.indexOf(":");
-                      const conflictIndex = Number(choiceKey.slice(0, separator));
-                      const column = choiceKey.slice(separator + 1);
-                      return { conflictIndex, column, source };
-                    }))}
+                    : onResolveConflicts(selectedConflictDecisions())}
                   disabled={reviewMutationBusy
                     ? activeReviewMutation !== "resolveConflicts"
                       || reviewMutationFinalizing
@@ -483,6 +531,11 @@ function DatasetComparisonSection({
                           : "Resolver conflictos"}
                 </button>
               </div>
+              {excludedConflictCount > 0 && (
+                <p className="notice" role="status">
+                  {excludedConflictCount} {excludedConflictCount === 1 ? "fila activa se excluirá" : "filas activas se excluirán"} del resultado.
+                </p>
+              )}
               {activeReviewMutation === "resolveConflicts" && (
                 <p className="notice" role="status" aria-live="polite">
                   {reviewMutationCancellationPending
@@ -501,6 +554,19 @@ function DatasetComparisonSection({
                   <legend>
                     Conflicto {globalConflictIndex + 1} · clave {conflict.key.map((value) => value ?? "null").join(" · ")}
                   </legend>
+                  <div className="conflict-resolution__choices">
+                    <label>
+                      <input
+                        type="checkbox"
+                        aria-label={`Excluir la fila activa de la clave ${conflict.key.map((value) => value ?? "null").join(" · ")}`}
+                        checked={excludedConflictIndexes[globalConflictIndex] === true}
+                        disabled={reviewMutationBusy}
+                        onChange={(event) => chooseConflictExclusion(globalConflictIndex, event.currentTarget.checked)}
+                      />
+                      Excluir la fila activa de esta clave del resultado
+                    </label>
+                  </div>
+                  <p>La fila de esta clave se quitará del dataset activo; no se agrega la versión comparada.</p>
                   <ul>
                     {conflict.cells.map((cell) => {
                       const choiceKey = conflictChoiceKey(globalConflictIndex, cell.column);
@@ -515,8 +581,8 @@ function DatasetComparisonSection({
                                 type="radio"
                                 name={`conflict-${conflictIndex}-${cell.column}`}
                                 checked={conflictChoices[choiceKey] === "current"}
-                                disabled={reviewMutationBusy}
-                                onChange={() => setConflictChoices((current) => ({ ...current, [choiceKey]: "current" }))}
+                                disabled={reviewMutationBusy || excludedConflictIndexes[globalConflictIndex] === true}
+                                onChange={() => chooseConflictSource(globalConflictIndex, cell.column, "current")}
                               />
                               Conservar activo en {cell.column}
                             </label>
@@ -525,8 +591,8 @@ function DatasetComparisonSection({
                                 type="radio"
                                 name={`conflict-${conflictIndex}-${cell.column}`}
                                 checked={conflictChoices[choiceKey] === "compared"}
-                                disabled={reviewMutationBusy}
-                                onChange={() => setConflictChoices((current) => ({ ...current, [choiceKey]: "compared" }))}
+                                disabled={reviewMutationBusy || excludedConflictIndexes[globalConflictIndex] === true}
+                                onChange={() => chooseConflictSource(globalConflictIndex, cell.column, "compared")}
                               />
                               Usar comparado en {cell.column}
                             </label>

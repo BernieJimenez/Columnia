@@ -27,12 +27,15 @@ export interface DatabaseTarget {
   tablePolicy: DatabaseTablePolicy;
 }
 
-export interface ConflictResolution {
-  conflictIndex: number;
-  /** Omit only for compatibility with the legacy whole-row decision. */
-  column?: string;
-  source: ConflictSource;
-}
+export type ConflictResolution =
+  | { action: "exclude"; conflictIndex: number }
+  | {
+      action: "useSource";
+      conflictIndex: number;
+      /** Omit only for compatibility with the legacy whole-row decision. */
+      column?: string;
+      source: ConflictSource;
+    };
 
 export const QUALITY_DATASET_COLUMN = "__dataset__";
 

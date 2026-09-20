@@ -2519,7 +2519,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Usar comparado en valor" }));
     fireEvent.click(screen.getByRole("button", { name: "Resolver conflictos" }));
     await waitFor(() => expect(resolveSpy).toHaveBeenCalledWith([
-      { conflictIndex: 0, column: "valor", source: "compared" },
+      { action: "useSource", conflictIndex: 0, column: "valor", source: "compared" },
     ]));
     expect(screen.getByRole("button", { name: "Cancelar resolución" })).toBeEnabled();
     expect(screen.getByText("Resolviendo conflictos. Puedes cancelar mientras se calcula el resultado.", {
@@ -2543,7 +2543,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Resolver conflictos" }));
     await waitFor(() => expect(resolveSpy).toHaveBeenCalledTimes(2));
     expect(resolveSpy).toHaveBeenLastCalledWith([
-      { conflictIndex: 0, column: "valor", source: "compared" },
+      { action: "useSource", conflictIndex: 0, column: "valor", source: "compared" },
     ]);
     expect(await screen.findByRole("heading", { name: "resuelto.csv" })).toBeInTheDocument();
   });
