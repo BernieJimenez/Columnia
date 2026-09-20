@@ -36,6 +36,10 @@ los artefactos de validación locales.
   materialización y el recorrido por bloques/registros, y conserva la página
   anterior si la cancelación gana la carrera de respuesta.
 
+- La comparación de archivos cuenta snapshots Parquet con DuckDB interruptible
+  y escribe los snapshots eager por bloques, revisando el token entre bloques. El
+  cierre final del escritor y `sync_all` siguen siendo síncronos.
+
 - Las seis auditorías fechadas se fusionan en `AUDITORIA.md`. Tier 9 y el índice
   `roadmap-current.md` reúnen 16 resultados pendientes con valor operativo,
   eliminan duplicados y dejan fuera ampliaciones sin demanda demostrada. El gate

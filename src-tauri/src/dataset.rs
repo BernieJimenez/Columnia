@@ -23129,23 +23129,7 @@ where
 }
 
 fn persist_comparison_snapshot(frame: &DataFrame) -> Result<(tempfile::TempDir, PathBuf), String> {
-    let directory = tempfile::tempdir()
-        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
-    let temporary = tempfile::NamedTempFile::new_in(directory.path())
-        .map_err(|error| format!("No se pudo crear el snapshot comparado: {error}"))?;
-    let mut snapshot = frame.clone();
-    ParquetWriter::new(temporary.as_file())
-        .finish(&mut snapshot)
-        .map_err(|error| format!("No se pudo escribir el snapshot comparado: {error}"))?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|error| format!("No se pudo sincronizar el snapshot comparado: {error}"))?;
-    let destination = directory.path().join("compared.parquet");
-    temporary
-        .persist(&destination)
-        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {}", error.error))?;
-    Ok((directory, destination))
+    persist_comparison_snapshot_with_cancel(frame, &|| false)
 }
 
 fn persist_comparison_source_file(path: &Path) -> Result<(tempfile::TempDir, PathBuf), String> {
@@ -23431,10 +23415,29 @@ where
         .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
     let mut temporary = tempfile::NamedTempFile::new_in(directory.path())
         .map_err(|error| format!("No se pudo crear el snapshot comparado: {error}"))?;
-    let mut snapshot = frame.clone();
-    ParquetWriter::new(temporary.as_file_mut())
-        .finish(&mut snapshot)
-        .map_err(|error| format!("No se pudo escribir el snapshot comparado: {error}"))?;
+    let schema_frame = frame.slice(0, 0);
+    let mut writer = ParquetWriter::new(temporary.as_file_mut())
+        .set_parallel(false)
+        .batched(schema_frame.schema())
+        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
+    let mut offset = 0usize;
+    while offset < frame.height() {
+        ensure_not_cancelled(is_cancelled())?;
+        let row_count = LOCAL_QUERY_BLOCK_ROWS.min(frame.height() - offset);
+        let slice_offset = i64::try_from(offset)
+            .map_err(|_| "El snapshot comparado supera la capacidad del escritor.".to_owned())?;
+        let batch = frame.slice(slice_offset, row_count);
+        ensure_not_cancelled(is_cancelled())?;
+        writer
+            .write_batch(&batch)
+            .map_err(|error| format!("No se pudo escribir el snapshot comparado: {error}"))?;
+        offset += row_count;
+        ensure_not_cancelled(is_cancelled())?;
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    writer
+        .finish()
+        .map_err(|error| format!("No se pudo cerrar el snapshot comparado: {error}"))?;
     ensure_not_cancelled(is_cancelled())?;
     temporary
         .as_file()
@@ -23463,14 +23466,22 @@ where
             let (directory, snapshot_path) =
                 persist_comparison_source_file_with_cancel(path, &is_cancelled)?;
             ensure_not_cancelled(is_cancelled())?;
-            let row_count = parquet_row_count(&snapshot_path)?;
+            let row_count = crate::duckdb_query::count_file_rows(
+                &snapshot_path,
+                crate::duckdb_query::DuckDbFileFormat::Parquet,
+                is_cancelled.clone(),
+            )?;
             (directory, snapshot_path, row_count)
         }
         "json" => {
             let (directory, snapshot_path) =
                 persist_json_comparison_source_file_with_cancel(path, is_cancelled.clone())?;
             ensure_not_cancelled(is_cancelled())?;
-            let row_count = parquet_row_count(&snapshot_path)?;
+            let row_count = crate::duckdb_query::count_file_rows(
+                &snapshot_path,
+                crate::duckdb_query::DuckDbFileFormat::Parquet,
+                is_cancelled.clone(),
+            )?;
             (directory, snapshot_path, row_count)
         }
         "csv" | "tsv" | "txt" => {
@@ -23480,7 +23491,11 @@ where
                 is_cancelled.clone(),
             )?;
             ensure_not_cancelled(is_cancelled())?;
-            let row_count = parquet_row_count(&snapshot_path)?;
+            let row_count = crate::duckdb_query::count_file_rows(
+                &snapshot_path,
+                crate::duckdb_query::DuckDbFileFormat::Parquet,
+                is_cancelled.clone(),
+            )?;
             (directory, snapshot_path, row_count)
         }
         extension if spreadsheet_extensions(extension) => {

@@ -42,8 +42,10 @@ los índices y la comparación Parquet, entre bloques y registros derramados. Du
 interrumpe una conversión source-backed activa. El resultado de comparación solo se
 publica al final, bajo un gate que ordena cancelación y commit. El selector nativo
 es modal y no se puede cerrar desde este control mientras está abierto; XLS/ODS
-conserva la lectura `worksheet_range` monolítica. El conteo y la escritura de un
-snapshot eager comprueban cancelación después de terminar su llamada síncrona. La
+conserva la lectura `worksheet_range` monolítica. El conteo de snapshots Parquet
+usa DuckDB con interrupción; la escritura de snapshots eager produce bloques y
+consulta el token entre ellos. El cierre del escritor y `sync_all` siguen siendo
+llamadas síncronas. La
 paginación de conflictos eager y source-backed comparte el token
 `datasetComparison`; Review permite cancelar su carga y conserva la página previa
 si la cancelación gana. Otros comandos todavía tienen rutas sin token y las rutas
