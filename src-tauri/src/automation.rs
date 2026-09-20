@@ -775,7 +775,7 @@ pub fn quality_migration_report(
         command: "quality-migration-report",
         source_format,
         source_version,
-        artifact_sha256: format!("{:x}", Sha256::digest(&bytes)),
+        artifact_sha256: hex::encode(Sha256::digest(&bytes)),
         total_rules: rules.len(),
         convertible_rules,
         omitted_rules,

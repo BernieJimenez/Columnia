@@ -17922,7 +17922,7 @@ fn load_quality_migration_file(path: &Path) -> Result<QualityMigrationResult, St
     let document = serde_json::from_slice::<JsonValue>(&bytes)
         .map_err(|error| format!("El contrato de calidad no es JSON válido: {error}"))?;
     let mut result = migrate_quality_rules_document(document)?;
-    result.report.artifact_sha256 = Some(format!("{:x}", Sha256::digest(&bytes)));
+    result.report.artifact_sha256 = Some(hex::encode(Sha256::digest(&bytes)));
     Ok(result)
 }
 
@@ -21303,9 +21303,7 @@ fn privacy_safe_frame(
                             Some(match mode {
                                 PrivacyMode::None => value,
                                 PrivacyMode::Mask => REDACTED_VALUE.to_owned(),
-                                PrivacyMode::Hash => {
-                                    format!("{:x}", Sha256::digest(value.as_bytes()))
-                                }
+                                PrivacyMode::Hash => hex::encode(Sha256::digest(value.as_bytes())),
                             })
                         }
                     })
@@ -21837,7 +21835,7 @@ where
             .collect(),
     };
     let dictionary_bytes = bundle_json_bytes(&dictionary, "el diccionario")?;
-    let dictionary_sha256 = format!("{:x}", Sha256::digest(&dictionary_bytes));
+    let dictionary_sha256 = hex::encode(Sha256::digest(&dictionary_bytes));
     let quality_bytes = quality_validation
         .map(|validation| {
             let report = BundleQualityReport {
@@ -21866,7 +21864,7 @@ where
     let quality_manifest = quality_bytes.as_ref().map(|bytes| BundleFileManifest {
         path: "quality-report.json".to_owned(),
         bytes: bytes.len() as u64,
-        sha256: format!("{:x}", Sha256::digest(bytes)),
+        sha256: hex::encode(Sha256::digest(bytes)),
     });
     let recipe_bytes = recipe
         .map(|recipe| bundle_json_bytes(recipe, "la receta"))
@@ -21874,7 +21872,7 @@ where
     let recipe_manifest = recipe_bytes.as_ref().map(|bytes| BundleFileManifest {
         path: "recipe.json".to_owned(),
         bytes: bytes.len() as u64,
-        sha256: format!("{:x}", Sha256::digest(bytes)),
+        sha256: hex::encode(Sha256::digest(bytes)),
     });
     let mut dataset_file = File::open(&dataset_path)
         .map_err(|error| format!("No se pudo leer el dataset temporal del paquete: {error}"))?;
@@ -21904,7 +21902,7 @@ where
     files.push(BundleFileManifest {
         path: BUNDLE_DELIVERY_SUMMARY_FILE.to_owned(),
         bytes: summary_bytes.len() as u64,
-        sha256: format!("{:x}", Sha256::digest(&summary_bytes)),
+        sha256: hex::encode(Sha256::digest(&summary_bytes)),
     });
     let manifest = BundleManifest {
         format: "columnia-bundle".to_owned(),
@@ -22356,7 +22354,7 @@ fn hash_and_rewind(file: &mut File) -> Result<(u64, String), String> {
     }
     file.seek(SeekFrom::Start(0))
         .map_err(|error| format!("No se pudo rebobinar el dataset temporal: {error}"))?;
-    Ok((bytes, format!("{:x}", hasher.finalize())))
+    Ok((bytes, hex::encode(hasher.finalize())))
 }
 
 fn write_bundle<F, C>(
@@ -22406,7 +22404,7 @@ where
             .collect(),
     };
     let dictionary_bytes = bundle_json_bytes(&dictionary, "el diccionario")?;
-    let dictionary_sha256 = format!("{:x}", Sha256::digest(&dictionary_bytes));
+    let dictionary_sha256 = hex::encode(Sha256::digest(&dictionary_bytes));
     let quality_bytes = quality_validation
         .map(|validation| {
             let report = BundleQualityReport {
@@ -22435,7 +22433,7 @@ where
     let quality_manifest = quality_bytes.as_ref().map(|bytes| BundleFileManifest {
         path: "quality-report.json".to_owned(),
         bytes: bytes.len() as u64,
-        sha256: format!("{:x}", Sha256::digest(bytes)),
+        sha256: hex::encode(Sha256::digest(bytes)),
     });
     let recipe_bytes = recipe
         .map(|recipe| bundle_json_bytes(recipe, "la receta"))
@@ -22443,7 +22441,7 @@ where
     let recipe_manifest = recipe_bytes.as_ref().map(|bytes| BundleFileManifest {
         path: "recipe.json".to_owned(),
         bytes: bytes.len() as u64,
-        sha256: format!("{:x}", Sha256::digest(bytes)),
+        sha256: hex::encode(Sha256::digest(bytes)),
     });
     let mut files = vec![
         BundleFileManifest {
@@ -22470,7 +22468,7 @@ where
     files.push(BundleFileManifest {
         path: BUNDLE_DELIVERY_SUMMARY_FILE.to_owned(),
         bytes: summary_bytes.len() as u64,
-        sha256: format!("{:x}", Sha256::digest(&summary_bytes)),
+        sha256: hex::encode(Sha256::digest(&summary_bytes)),
     });
     let manifest = BundleManifest {
         format: "columnia-bundle".to_owned(),

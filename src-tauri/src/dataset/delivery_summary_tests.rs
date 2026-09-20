@@ -101,7 +101,7 @@ fn verify_summary_and_manifest(destination: &Path, private_text: &[&str]) {
     assert_eq!(summary_entry["bytes"], summary_bytes.len() as u64);
     assert_eq!(
         summary_entry["sha256"],
-        format!("{:x}", Sha256::digest(&summary_bytes))
+        hex::encode(Sha256::digest(&summary_bytes))
     );
 
     for member_name in [
@@ -111,7 +111,7 @@ fn verify_summary_and_manifest(destination: &Path, private_text: &[&str]) {
         "recipe.json",
     ] {
         let member_bytes = archive_member(&mut archive, member_name);
-        let expected_hash = format!("{:x}", Sha256::digest(&member_bytes));
+        let expected_hash = hex::encode(Sha256::digest(&member_bytes));
         assert!(
             summary.contains(&expected_hash),
             "falta el hash de {member_name}"

@@ -1994,7 +1994,7 @@ fn hash_file_sha256(path: &Path) -> Result<String, String> {
         }
         hasher.update(&buffer[..read]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex::encode(hasher.finalize()))
 }
 
 fn prepare_store_directory(requested: &Path) -> Result<PathBuf, String> {

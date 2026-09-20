@@ -4580,7 +4580,7 @@ fn source_backed_bundle_includes_validated_recipe_without_materializing_rows() {
         .unwrap();
     let manifest: JsonValue = serde_json::from_str(&manifest_json).unwrap();
     assert_eq!(manifest["recipeFile"], "recipe.json");
-    let expected_hash = format!("{:x}", Sha256::digest(recipe_json.as_bytes()));
+    let expected_hash = hex::encode(Sha256::digest(recipe_json.as_bytes()));
     assert!(manifest["files"]
         .as_array()
         .unwrap()
@@ -9047,7 +9047,7 @@ fn exports_validated_recipe_with_manifest_reference_and_hash() {
         .unwrap();
     let manifest: JsonValue = serde_json::from_str(&manifest_json).unwrap();
     assert_eq!(manifest["recipeFile"], "recipe.json");
-    let expected_hash = format!("{:x}", Sha256::digest(recipe_json.as_bytes()));
+    let expected_hash = hex::encode(Sha256::digest(recipe_json.as_bytes()));
     assert!(manifest["files"]
         .as_array()
         .unwrap()
@@ -9135,8 +9135,8 @@ fn privacy_modes_protect_final_csv_artifact_and_preserve_source_bytes() {
     )
     .expect("la exportación CSV con hash debe funcionar");
     let hashed = fs::read_to_string(&hashed_path).expect("el CSV con hash debe leerse");
-    let email_hash = format!("{:x}", Sha256::digest(b"ana@example.com"));
-    let identifier_hash = format!("{:x}", Sha256::digest(b"42"));
+    let email_hash = hex::encode(Sha256::digest(b"ana@example.com"));
+    let identifier_hash = hex::encode(Sha256::digest(b"42"));
     assert_eq!(hashed_result.protected_columns, vec!["email", "identifier"]);
     assert!(hashed.contains(&email_hash));
     assert!(hashed.contains(&identifier_hash));
@@ -9266,8 +9266,8 @@ fn source_backed_privacy_snapshot_masks_and_hashes_without_materializing_rows() 
     .expect("el hash source-backed debe crear un snapshot");
     assert_eq!(hashed_columns, masked_columns);
     let hashed = read_parquet_frame(&hashed_path).expect("el snapshot hash debe abrir");
-    let expected_email_hash = format!("{:x}", Sha256::digest(b"ana@example.com"));
-    let expected_identifier_hash = format!("{:x}", Sha256::digest(b"42"));
+    let expected_email_hash = hex::encode(Sha256::digest(b"ana@example.com"));
+    let expected_identifier_hash = hex::encode(Sha256::digest(b"42"));
     assert_eq!(
         hashed.column("email").unwrap().str().unwrap().get(0),
         Some(expected_email_hash.as_str())

@@ -170,12 +170,12 @@ impl DeliveryPresetStore {
                 .map_err(|_| "Ya existe un preset con ese nombre.".to_owned())?;
             id
         } else {
-            let count: usize = transaction
+            let count: i64 = transaction
                 .query_row("SELECT COUNT(*) FROM delivery_presets", [], |row| {
                     row.get(0)
                 })
                 .map_err(|_| storage_error())?;
-            if count >= MAX_PRESETS {
+            if count >= MAX_PRESETS as i64 {
                 return Err(format!(
                     "El catálogo admite como máximo {MAX_PRESETS} presets."
                 ));

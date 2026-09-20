@@ -1079,7 +1079,7 @@ export function DatasetPreviewPanel({
           <thead>
             <tr>
               {dataset.columns.map((column) => (
-                <th key={column.name} scope="col">
+                <th key={column.name} scope="col" aria-label={`${column.name} ${column.dataType}`}>
                   <span>{column.name}</span>
                   <small>{column.dataType}</small>
                 </th>
