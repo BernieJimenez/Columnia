@@ -858,6 +858,28 @@ pub(crate) fn validate_import_exception_policy(
     import_schema: &[ImportProfileColumn],
     recipe: Option<&StoredTransformRecipe>,
 ) -> Result<(), String> {
+    let recipe = recipe.ok_or_else(|| {
+        "Las decisiones de conversión requieren una receta reutilizable.".to_owned()
+    })?;
+    validate_import_exception_policy_for_recipe(policy, import_schema, &recipe.recipe)
+}
+
+fn import_exception_schema_for_frame(frame: &DataFrame) -> Vec<ImportProfileColumn> {
+    frame
+        .columns()
+        .iter()
+        .map(|column| ImportProfileColumn {
+            name: column.name().to_string(),
+            data_type: column.dtype().to_string(),
+        })
+        .collect()
+}
+
+fn validate_import_exception_policy_for_recipe(
+    policy: &ImportExceptionPolicy,
+    import_schema: &[ImportProfileColumn],
+    recipe: &TransformRecipe,
+) -> Result<(), String> {
     if policy.version != 1 || policy.baseline != ImportExceptionBaseline::Lexical {
         return Err("La versión o base de la política de excepciones no es compatible.".to_owned());
     }
@@ -886,18 +908,13 @@ pub(crate) fn validate_import_exception_policy(
         }
     }
 
-    let recipe = recipe.ok_or_else(|| {
-        "Las decisiones de conversión requieren una receta reutilizable.".to_owned()
-    })?;
     let expected_columns = recipe
-        .recipe
         .casts
         .iter()
         .filter(|cast| input_columns.contains(cast.column.as_str()))
         .map(|cast| cast.column.as_str())
         .chain(
             recipe
-                .recipe
                 .date_parses
                 .iter()
                 .filter(|parse| input_columns.contains(parse.column.as_str()))
@@ -910,7 +927,6 @@ pub(crate) fn validate_import_exception_policy(
     for decision in &policy.conversions {
         let matches_recipe = match decision {
             ImportExceptionConversion::Cast { column, target, .. } => recipe
-                .recipe
                 .casts
                 .iter()
                 .any(|cast| cast.column == *column && cast.target == *target),
@@ -919,7 +935,7 @@ pub(crate) fn validate_import_exception_policy(
                 format,
                 target,
                 ..
-            } => recipe.recipe.date_parses.iter().any(|parse| {
+            } => recipe.date_parses.iter().any(|parse| {
                 parse.column == *column && parse.format == *format && parse.target == *target
             }),
         };
@@ -15292,6 +15308,16 @@ fn materialize_loaded_dataset(dataset: &mut LoadedDataset) -> Result<(), String>
     if !dataset.source_backed {
         return Ok(());
     }
+    let frame = materialized_dataset_frame(dataset)?;
+    dataset.frame = frame;
+    dataset.source_backed = false;
+    Ok(())
+}
+
+fn materialized_dataset_frame(dataset: &LoadedDataset) -> Result<DataFrame, String> {
+    if !dataset.source_backed {
+        return Ok(dataset.frame.clone());
+    }
     ensure_materialization_budget(dataset.file_size_bytes)?;
     let path = dataset
         .source_path
@@ -15322,9 +15348,7 @@ fn materialize_loaded_dataset(dataset: &mut LoadedDataset) -> Result<(), String>
     if frame.height() != dataset.row_count {
         return Err("El conteo del dataset source-backed cambió durante la lectura.".to_owned());
     }
-    dataset.frame = frame;
-    dataset.source_backed = false;
-    Ok(())
+    Ok(frame)
 }
 
 fn materialization_budget_error(
@@ -29049,6 +29073,207 @@ fn strict_date_column(
     }
 }
 
+fn cast_column_with_invalid_values_nullified(
+    column: &Column,
+    target: RecipeCastTarget,
+) -> Result<(Column, Vec<bool>), String> {
+    let name = column.name().clone();
+    let values = strict_column_text(column)?;
+    let mut invalid_rows = vec![false; values.len()];
+    let converted = match target {
+        RecipeCastTarget::String => {
+            return Ok((strict_cast_column(column, target)?, invalid_rows));
+        }
+        RecipeCastTarget::Integer => {
+            let parsed = values
+                .iter()
+                .enumerate()
+                .map(|(row, value)| match value.as_deref() {
+                    None => None,
+                    Some(value) => match value.trim().parse::<i64>() {
+                        Ok(value) => Some(value),
+                        Err(_) => {
+                            invalid_rows[row] = true;
+                            None
+                        }
+                    },
+                })
+                .collect::<Vec<_>>();
+            Series::new(name, parsed).into_column()
+        }
+        RecipeCastTarget::Decimal => {
+            let parsed = values
+                .iter()
+                .enumerate()
+                .map(|(row, value)| match value.as_deref() {
+                    None => None,
+                    Some(value) => match value
+                        .trim()
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|number| number.is_finite())
+                    {
+                        Some(value) => Some(value),
+                        None => {
+                            invalid_rows[row] = true;
+                            None
+                        }
+                    },
+                })
+                .collect::<Vec<_>>();
+            Series::new(name, parsed).into_column()
+        }
+        RecipeCastTarget::Boolean => {
+            let parsed = values
+                .iter()
+                .enumerate()
+                .map(|(row, value)| match value.as_deref() {
+                    None => None,
+                    Some(value) => match value.trim().to_ascii_lowercase().as_str() {
+                        "true" => Some(true),
+                        "false" => Some(false),
+                        _ => {
+                            invalid_rows[row] = true;
+                            None
+                        }
+                    },
+                })
+                .collect::<Vec<_>>();
+            Series::new(name, parsed).into_column()
+        }
+    };
+    Ok((converted, invalid_rows))
+}
+
+fn date_column_with_invalid_values_nullified(
+    column: &Column,
+    format: RecipeDateFormat,
+    target: RecipeDateTarget,
+) -> Result<(Column, Vec<bool>), String> {
+    let name = column.name().clone();
+    let values = strict_column_text(column)?;
+    let mut invalid_rows = vec![false; values.len()];
+    let parsed = values
+        .iter()
+        .enumerate()
+        .map(|(row, value)| match value.as_deref() {
+            None => None,
+            Some(value) => match parse_recipe_datetime(value, format) {
+                Ok(value) => Some(value),
+                Err(()) => {
+                    invalid_rows[row] = true;
+                    None
+                }
+            },
+        })
+        .collect::<Vec<_>>();
+
+    let converted = match target {
+        RecipeDateTarget::Date => {
+            let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("la época Unix es válida");
+            let days = parsed
+                .into_iter()
+                .map(|value| value.map(|value| (value.date() - epoch).num_days() as i32))
+                .collect::<Vec<_>>();
+            Series::new(name, days)
+                .cast(&polars::prelude::DataType::Date)
+                .map_err(|error| format!("No se pudo crear la columna de fecha: {error}"))?
+                .into_column()
+        }
+        RecipeDateTarget::Datetime => {
+            let milliseconds = parsed
+                .into_iter()
+                .map(|value| value.map(|value| value.and_utc().timestamp_millis()))
+                .collect::<Vec<_>>();
+            Series::new(name, milliseconds)
+                .cast(&polars::prelude::DataType::Datetime(
+                    TimeUnit::Milliseconds,
+                    None,
+                ))
+                .map_err(|error| format!("No se pudo crear la columna de fecha y hora: {error}"))?
+                .into_column()
+        }
+    };
+    Ok((converted, invalid_rows))
+}
+
+fn exclude_invalid_conversion_rows(
+    frame: DataFrame,
+    invalid_rows: &[bool],
+) -> Result<(DataFrame, usize), String> {
+    if invalid_rows.len() != frame.height() {
+        return Err("La máscara de excepciones no coincide con las filas activas.".to_owned());
+    }
+    let keep = invalid_rows
+        .iter()
+        .map(|invalid| !invalid)
+        .collect::<Vec<_>>();
+    let removed = invalid_rows.iter().filter(|invalid| **invalid).count();
+    if removed == 0 {
+        return Ok((frame, 0));
+    }
+    let filtered = frame
+        .filter(&BooleanChunked::from_slice(
+            "invalid_conversion_rows".into(),
+            &keep,
+        ))
+        .map_err(|error| {
+            format!("No se pudieron excluir filas con conversiones inválidas: {error}")
+        })?;
+    Ok((filtered, removed))
+}
+
+fn exception_action_for_cast(
+    policy: Option<&ImportExceptionPolicy>,
+    column: &str,
+    target: RecipeCastTarget,
+) -> Result<InvalidConversionAction, String> {
+    let Some(policy) = policy else {
+        return Ok(InvalidConversionAction::Review);
+    };
+    policy
+        .conversions
+        .iter()
+        .find_map(|conversion| match conversion {
+            ImportExceptionConversion::Cast {
+                column: candidate,
+                target: candidate_target,
+                on_invalid,
+            } if candidate == column && *candidate_target == target => Some(*on_invalid),
+            _ => None,
+        })
+        .ok_or_else(|| format!("La política no contiene una decisión para convertir '{column}'."))
+}
+
+fn exception_action_for_date(
+    policy: Option<&ImportExceptionPolicy>,
+    column: &str,
+    format: RecipeDateFormat,
+    target: RecipeDateTarget,
+) -> Result<InvalidConversionAction, String> {
+    let Some(policy) = policy else {
+        return Ok(InvalidConversionAction::Review);
+    };
+    policy
+        .conversions
+        .iter()
+        .find_map(|conversion| match conversion {
+            ImportExceptionConversion::Date {
+                column: candidate,
+                format: candidate_format,
+                target: candidate_target,
+                on_invalid,
+            } if candidate == column
+                && *candidate_format == format
+                && *candidate_target == target =>
+            {
+                Some(*on_invalid)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| format!("La política no contiene una decisión para interpretar '{column}'."))
+}
+
 fn remapped_name<'a>(name: &'a str, renames: &HashMap<&'a str, &'a str>) -> &'a str {
     renames.get(name).copied().unwrap_or(name)
 }
@@ -35155,6 +35380,14 @@ fn apply_eager_recipe_to_frame(
     source: &DataFrame,
     recipe: &TransformRecipe,
 ) -> Result<RecipeFrameOutcome, String> {
+    apply_eager_recipe_to_frame_with_exception_policy(source, recipe, None)
+}
+
+fn apply_eager_recipe_to_frame_with_exception_policy(
+    source: &DataFrame,
+    recipe: &TransformRecipe,
+    exception_policy: Option<&ImportExceptionPolicy>,
+) -> Result<RecipeFrameOutcome, String> {
     let mut candidate = source.clone();
     let mut rename_sources = HashSet::new();
     let rename_map = recipe
@@ -35279,6 +35512,7 @@ fn apply_eager_recipe_to_frame(
     }
 
     let mut cast_columns = HashSet::new();
+    let mut excluded_invalid_rows = vec![false; source.height()];
     let mut cast_count = 0;
     for cast in &recipe.casts {
         let effective_name = rename_map
@@ -35306,7 +35540,21 @@ fn apply_eager_recipe_to_frame(
                 )
         );
         if !already_target {
-            let converted = strict_cast_column(column, cast.target)?;
+            let action = exception_action_for_cast(exception_policy, &cast.column, cast.target)?;
+            let (converted, invalid_rows) = match action {
+                InvalidConversionAction::Review => (
+                    strict_cast_column(column, cast.target)?,
+                    vec![false; source.height()],
+                ),
+                InvalidConversionAction::Nullify | InvalidConversionAction::ExcludeRow => {
+                    cast_column_with_invalid_values_nullified(column, cast.target)?
+                }
+            };
+            if action == InvalidConversionAction::ExcludeRow {
+                for (excluded, invalid) in excluded_invalid_rows.iter_mut().zip(invalid_rows) {
+                    *excluded |= invalid;
+                }
+            }
             candidate
                 .replace(effective_name, converted)
                 .map_err(|error| format!("No se pudo convertir '{}': {error}", effective_name))?;
@@ -35343,7 +35591,26 @@ fn apply_eager_recipe_to_frame(
                 )
         );
         if !already_target {
-            let converted = strict_date_column(column, parse.format, parse.target)?;
+            let action = exception_action_for_date(
+                exception_policy,
+                &parse.column,
+                parse.format,
+                parse.target,
+            )?;
+            let (converted, invalid_rows) = match action {
+                InvalidConversionAction::Review => (
+                    strict_date_column(column, parse.format, parse.target)?,
+                    vec![false; source.height()],
+                ),
+                InvalidConversionAction::Nullify | InvalidConversionAction::ExcludeRow => {
+                    date_column_with_invalid_values_nullified(column, parse.format, parse.target)?
+                }
+            };
+            if action == InvalidConversionAction::ExcludeRow {
+                for (excluded, invalid) in excluded_invalid_rows.iter_mut().zip(invalid_rows) {
+                    *excluded |= invalid;
+                }
+            }
             candidate
                 .replace(effective_name, converted)
                 .map_err(|error| {
@@ -35356,8 +35623,11 @@ fn apply_eager_recipe_to_frame(
         }
     }
 
-    let (mut candidate, removed_row_count) =
+    let (candidate, exception_removed_row_count) =
+        exclude_invalid_conversion_rows(candidate, &excluded_invalid_rows)?;
+    let (mut candidate, recipe_removed_row_count) =
         apply_recipe_filters(candidate, &recipe.filters, &rename_map)?;
+    let removed_row_count = exception_removed_row_count + recipe_removed_row_count;
     let replaced_cell_count = if let Some(find_replace) = &recipe.find_replace {
         apply_find_replace(&mut candidate, find_replace, &rename_map)?
     } else {
@@ -36602,11 +36872,36 @@ fn apply_recipe_to_dataset_with_cancellation(
     recipe: &TransformRecipe,
     cancellation: Option<&PrepareCancellation>,
 ) -> Result<TransformRecipeResult, String> {
+    apply_recipe_to_dataset_with_policy_and_cancellation(dataset, recipe, None, cancellation)
+}
+
+fn apply_recipe_to_dataset_with_policy_and_cancellation(
+    dataset: &mut LoadedDataset,
+    recipe: &TransformRecipe,
+    exception_policy: Option<&ImportExceptionPolicy>,
+    cancellation: Option<&PrepareCancellation>,
+) -> Result<TransformRecipeResult, String> {
     if let Some(cancellation) = cancellation {
         cancellation.ensure()?;
     }
     validate_recipe_structure(recipe)?;
+    if let Some(policy) = exception_policy {
+        let input_schema = import_exception_schema_for_frame(&dataset.frame);
+        validate_import_exception_policy_for_recipe(policy, &input_schema, recipe)?;
+    }
+    let requires_eager_exception_handling = exception_policy.is_some_and(|policy| {
+        policy
+            .conversions
+            .iter()
+            .any(|conversion| match conversion {
+                ImportExceptionConversion::Cast { on_invalid, .. }
+                | ImportExceptionConversion::Date { on_invalid, .. } => {
+                    *on_invalid != InvalidConversionAction::Review
+                }
+            })
+    });
     if dataset.source_backed
+        && !requires_eager_exception_handling
         && source_backed_projection_recipe_supported(&dataset.frame, recipe)
         && source_backed_iso8601_values_are_supported(dataset, recipe)?
     {
@@ -36616,10 +36911,16 @@ fn apply_recipe_to_dataset_with_cancellation(
             cancellation,
         );
     }
-    materialize_loaded_dataset(dataset)?;
+    let source_frame = if requires_eager_exception_handling && dataset.source_backed {
+        Some(materialized_dataset_frame(dataset)?)
+    } else {
+        materialize_loaded_dataset(dataset)?;
+        None
+    };
     if let Some(cancellation) = cancellation {
         cancellation.ensure()?;
     }
+    let source = source_frame.as_ref().unwrap_or(&dataset.frame);
     let (
         candidate,
         renamed_column_count,
@@ -36642,7 +36943,11 @@ fn apply_recipe_to_dataset_with_cancellation(
         normalized_contact_cell_count,
         normalized_contact_column_count,
         extracted_column_count,
-    ) = apply_recipe_to_frame(&dataset.frame, recipe)?;
+    ) = if requires_eager_exception_handling {
+        apply_eager_recipe_to_frame_with_exception_policy(source, recipe, exception_policy)?
+    } else {
+        apply_recipe_to_frame(source, recipe)?
+    };
     if let Some(cancellation) = cancellation {
         cancellation.ensure()?;
     }
@@ -36704,6 +37009,7 @@ fn apply_recipe_to_dataset_with_cancellation(
 pub async fn apply_transform_recipe(
     app: AppHandle,
     recipe: TransformRecipe,
+    exception_policy: Option<ImportExceptionPolicy>,
 ) -> Result<TransformRecipeResult, String> {
     validate_recipe_structure(&recipe)?;
     let cancellation = PrepareCancellation::begin(&app);
@@ -36717,7 +37023,12 @@ pub async fn apply_transform_recipe(
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
-        apply_recipe_to_dataset_with_cancellation(dataset, &recipe, Some(&cancellation))
+        apply_recipe_to_dataset_with_policy_and_cancellation(
+            dataset,
+            &recipe,
+            exception_policy.as_ref(),
+            Some(&cancellation),
+        )
     })
     .await
     .map_err(|error| format!("La receta estructural se interrumpió: {error}"))?

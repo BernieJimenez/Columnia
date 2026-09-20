@@ -11438,6 +11438,243 @@ fn lazy_recipe_combines_date_parsing_and_casts_on_separate_columns() {
     );
 }
 
+fn exception_policy_for_test(
+    frame: &DataFrame,
+    recipe: &TransformRecipe,
+    cast_action: InvalidConversionAction,
+    date_action: InvalidConversionAction,
+) -> ImportExceptionPolicy {
+    let conversions = recipe
+        .casts
+        .iter()
+        .map(|cast| ImportExceptionConversion::Cast {
+            column: cast.column.clone(),
+            target: cast.target,
+            on_invalid: cast_action,
+        })
+        .chain(
+            recipe
+                .date_parses
+                .iter()
+                .map(|parse| ImportExceptionConversion::Date {
+                    column: parse.column.clone(),
+                    format: parse.format,
+                    target: parse.target,
+                    on_invalid: date_action,
+                }),
+        )
+        .collect();
+    ImportExceptionPolicy {
+        version: 1,
+        baseline: ImportExceptionBaseline::Lexical,
+        schema: import_exception_schema_for_frame(frame),
+        conversions,
+    }
+}
+
+#[test]
+fn reusable_conversion_policy_nullifies_invalid_casts_and_dates_but_preserves_real_nulls() {
+    let frame = DataFrame::new(
+        4,
+        vec![
+            Series::new(
+                "amount".into(),
+                [Some("10"), Some("invalid"), None, Some("5")],
+            )
+            .into_column(),
+            Series::new(
+                "when".into(),
+                [
+                    Some("2024-01-01"),
+                    Some("2024-02-30"),
+                    None,
+                    Some("2024-03-01"),
+                ],
+            )
+            .into_column(),
+        ],
+    )
+    .expect("el frame con excepciones debe ser válido");
+    let recipe = TransformRecipe {
+        casts: vec![RecipeCast {
+            column: "amount".into(),
+            target: RecipeCastTarget::Integer,
+        }],
+        date_parses: vec![RecipeDateParse {
+            column: "when".into(),
+            format: RecipeDateFormat::Ymd,
+            target: RecipeDateTarget::Date,
+        }],
+        ..Default::default()
+    };
+    let policy = exception_policy_for_test(
+        &frame,
+        &recipe,
+        InvalidConversionAction::Nullify,
+        InvalidConversionAction::Nullify,
+    );
+    let path = temporary_csv("amount,when\n10,2024-01-01\ninvalid,2024-02-30\n,\n5,2024-03-01\n");
+    let mut dataset = loaded_dataset(path.clone(), frame.clone());
+
+    let result = apply_recipe_to_dataset_with_policy_and_cancellation(
+        &mut dataset,
+        &recipe,
+        Some(&policy),
+        None,
+    )
+    .expect("la política nullify debe completar la receta");
+
+    assert_eq!(result.dataset.row_count, 4);
+    assert_eq!(result.removed_row_count, 0);
+    assert_eq!(result.dataset.columns[0].data_type, "i64");
+    assert_eq!(result.dataset.columns[1].data_type, "date");
+    assert_eq!(result.dataset.rows[0][0].as_deref(), Some("10"));
+    assert_eq!(result.dataset.rows[1][0], None);
+    assert_eq!(result.dataset.rows[2][0], None);
+    assert_eq!(result.dataset.rows[1][1], None);
+    assert_eq!(result.dataset.rows[2][1], None);
+    assert_eq!(
+        dataset.frame.column("amount").unwrap().null_count(),
+        2,
+        "solo el valor inválido y el nulo real deben resultar nulos"
+    );
+    assert_eq!(dataset.frame.column("when").unwrap().null_count(), 2);
+
+    undo_dataset(&mut dataset).expect("la revisión convertida debe poder deshacerse");
+    assert!(dataset.frame.equals_missing(&frame));
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn reusable_conversion_policy_excludes_rows_only_for_invalid_values_and_counts_them() {
+    let frame = DataFrame::new(
+        4,
+        vec![
+            Series::new(
+                "amount".into(),
+                [Some("1"), Some("invalid"), Some("3"), Some("4")],
+            )
+            .into_column(),
+            Series::new(
+                "when".into(),
+                [
+                    Some("2024-01-01"),
+                    Some("2024-02-02"),
+                    Some("invalid"),
+                    None,
+                ],
+            )
+            .into_column(),
+        ],
+    )
+    .expect("el frame con excepciones debe ser válido");
+    let recipe = TransformRecipe {
+        casts: vec![RecipeCast {
+            column: "amount".into(),
+            target: RecipeCastTarget::Integer,
+        }],
+        date_parses: vec![RecipeDateParse {
+            column: "when".into(),
+            format: RecipeDateFormat::Ymd,
+            target: RecipeDateTarget::Date,
+        }],
+        ..Default::default()
+    };
+    let policy = exception_policy_for_test(
+        &frame,
+        &recipe,
+        InvalidConversionAction::ExcludeRow,
+        InvalidConversionAction::ExcludeRow,
+    );
+    let path = temporary_csv("amount,when\n1,2024-01-01\ninvalid,2024-02-02\n3,invalid\n4,\n");
+    let mut dataset = loaded_dataset(path.clone(), frame.clone());
+
+    let result = apply_recipe_to_dataset_with_policy_and_cancellation(
+        &mut dataset,
+        &recipe,
+        Some(&policy),
+        None,
+    )
+    .expect("la política excludeRow debe completar la receta");
+
+    assert_eq!(result.removed_row_count, 2);
+    assert_eq!(result.dataset.row_count, 2);
+    assert_eq!(result.dataset.rows[0][0].as_deref(), Some("1"));
+    assert_eq!(result.dataset.rows[1][0].as_deref(), Some("4"));
+    assert_eq!(
+        result.dataset.rows[1][1], None,
+        "un nulo real no excluye su fila"
+    );
+    assert_eq!(dataset.frame.height(), 2);
+
+    undo_dataset(&mut dataset).expect("la exclusión debe poder deshacerse");
+    assert!(dataset.frame.equals_missing(&frame));
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn reusable_conversion_policy_review_and_schema_or_recipe_mismatch_fail_before_publish() {
+    let frame = DataFrame::new(
+        2,
+        vec![Series::new("amount".into(), [Some("invalid"), Some("5")]).into_column()],
+    )
+    .expect("el frame de conversión debe ser válido");
+    let recipe = TransformRecipe {
+        casts: vec![RecipeCast {
+            column: "amount".into(),
+            target: RecipeCastTarget::Integer,
+        }],
+        ..Default::default()
+    };
+    let policy = exception_policy_for_test(
+        &frame,
+        &recipe,
+        InvalidConversionAction::Review,
+        InvalidConversionAction::Review,
+    );
+    let path = temporary_csv("amount\ninvalid\n5\n");
+    let mut dataset = loaded_dataset(path.clone(), frame.clone());
+    let original_history = dataset.history.state();
+
+    let review_error = apply_recipe_to_dataset_with_policy_and_cancellation(
+        &mut dataset,
+        &recipe,
+        Some(&policy),
+        None,
+    )
+    .expect_err("review debe conservar el fallo estricto actual");
+    assert!(review_error.contains("no se puede convertir a entero"));
+    assert!(dataset.frame.equals_missing(&frame));
+    assert_eq!(dataset.history.state(), original_history);
+
+    let mut mismatched_schema = policy.clone();
+    mismatched_schema.schema[0].data_type = "Float64".to_owned();
+    let schema_error = apply_recipe_to_dataset_with_policy_and_cancellation(
+        &mut dataset,
+        &recipe,
+        Some(&mismatched_schema),
+        None,
+    )
+    .expect_err("un esquema diferente debe rechazar la política");
+    assert!(schema_error.contains("esquema exacto"));
+    assert!(dataset.frame.equals_missing(&frame));
+    assert_eq!(dataset.history.state(), original_history);
+
+    let mut mismatched_recipe = recipe.clone();
+    mismatched_recipe.casts[0].target = RecipeCastTarget::Decimal;
+    let recipe_error = apply_recipe_to_dataset_with_policy_and_cancellation(
+        &mut dataset,
+        &mismatched_recipe,
+        Some(&policy),
+        None,
+    )
+    .expect_err("un destino distinto al guardado debe rechazar la política");
+    assert!(recipe_error.contains("destino o formato"));
+    assert!(dataset.frame.equals_missing(&frame));
+    assert_eq!(dataset.history.state(), original_history);
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
 #[test]
 fn lazy_recipe_applies_isolated_outlier_treatments_with_exact_counts() {
     let frame = DataFrame::new(

@@ -32,12 +32,14 @@ import {
   undoLastChange,
   type DatasetPreview,
   type SafeCorrectionOptions,
+  type ReusableTaskExceptionPolicy,
   type TransformRecipe,
 } from "../../bridge";
 import { EMPTY_HISTORY, type ChangeStatus } from "./prepareModel";
 
 interface PrepareControllerOptions {
   activeDataset: DatasetPreview | null;
+  exceptionPolicy?: ReusableTaskExceptionPolicy | null;
   onDatasetChanged: (dataset: DatasetPreview) => void;
   onProfileInvalidated: () => void;
   onDeliveryInvalidated: () => void;
@@ -45,6 +47,7 @@ interface PrepareControllerOptions {
 
 export function usePrepareController({
   activeDataset,
+  exceptionPolicy = null,
   onDatasetChanged,
   onProfileInvalidated,
   onDeliveryInvalidated,
@@ -607,7 +610,7 @@ export function usePrepareController({
     if (activeDataset === null) return;
     setChangeStatus({ kind: "working", action: "transform" });
     try {
-      const result = await applyTransformRecipe(recipe);
+      const result = await applyTransformRecipe(recipe, exceptionPolicy);
       onDatasetChanged(result.dataset);
       onProfileInvalidated();
       const total = result.renamedColumnCount + result.convertedColumnCount +

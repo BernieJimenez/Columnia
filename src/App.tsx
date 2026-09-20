@@ -16,7 +16,11 @@ import {
 } from "./features/delivery/deliveryModel";
 import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
 import { ReusableTaskPanel } from "./features/load/ReusableTaskPanel";
-import { createReusableTaskExceptionPolicy } from "./features/load/reusableTaskExceptions";
+import {
+  createReusableTaskExceptionPolicy,
+  exceptionPolicyMatchesSchema,
+  refreshReusableTaskExceptionPolicy,
+} from "./features/load/reusableTaskExceptions";
 import { ModalDialog } from "./components/ModalDialog";
 import {
   beginDatasetLoad,
@@ -126,6 +130,7 @@ import {
   type PerformanceProfile,
   type PrivacyMode,
   type ReusableTask,
+  type ReusableTaskExceptionPolicy,
   type ReusableTaskOutputFormat,
   type ReusableTaskSchema,
   type SavedRecipe,
@@ -245,6 +250,7 @@ export function App() {
   const [recentDatasets, setRecentDatasets] = useState<RecentDataset[]>(readRecentDatasets);
   const [sampleDatasets, setSampleDatasets] = useState<SampleDatasetDescriptor[]>([]);
   const [recipeDraft, setRecipeDraft] = useState<SavedRecipe | null>(null);
+  const [activeExceptionPolicy, setActiveExceptionPolicy] = useState<ReusableTaskExceptionPolicy | null>(null);
   const [sqlHistory, setSqlHistory] = useState<SqlQueryHistoryEntry[]>([]);
   const [datasetRevision, setDatasetRevision] = useState(0);
   const datasetRevisionRef = useRef(0);
@@ -283,16 +289,18 @@ export function App() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const prepare = usePrepareController({
     activeDataset: datasetStatus.kind === "ready" ? datasetStatus.dataset : null,
+    exceptionPolicy: activeExceptionPolicy,
     onDatasetChanged: (dataset) => {
       bumpDatasetRevision();
+      setActiveExceptionPolicy((current) => current && exceptionPolicyMatchesSchema(current, dataset.columns)
+        ? current
+        : null);
       setDatasetStatus({ kind: "ready", dataset, pageOffset: 0, pageLoading: false });
       setSqlHistory([]);
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
       setJoinType("inner");
-      setExportFormat("csv");
-      setPrivacyMode("none");
       void clearDatasetComparison().catch(() => undefined);
     },
     onProfileInvalidated: () => setProfileStatus({ kind: "idle" }),
@@ -387,6 +395,7 @@ export function App() {
       setPrivacyMode(workspace.privacyMode ?? "none");
       await clearDatasetComparison().catch(() => undefined);
       setRecipeDraft(workspace.recipeDraft);
+      setActiveExceptionPolicy(null);
       setSqlHistory(workspace.sqlHistory ?? []);
       setRecipeSession((current) => current + 1);
       setReviewTab(workspace.reviewTab ?? "diagnosis");
@@ -568,6 +577,7 @@ export function App() {
       setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
       setRecipeDraft(null);
+      setActiveExceptionPolicy(null);
       setRecipeSession((current) => current + 1);
       setLoadInspection({ kind: "idle" });
       setProfileStatus({ kind: "idle" });
@@ -923,6 +933,7 @@ export function App() {
       setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
       setRecipeDraft(null);
+      setActiveExceptionPolicy(null);
       setRecipeSession((current) => current + 1);
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
@@ -959,6 +970,7 @@ export function App() {
       setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
       setRecipeDraft(null);
+      setActiveExceptionPolicy(null);
       setRecipeSession((current) => current + 1);
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
@@ -1000,6 +1012,7 @@ export function App() {
       setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
       setRecipeDraft(null);
+      setActiveExceptionPolicy(null);
       setRecipeSession((current) => current + 1);
       prepare.resetChangeStatus();
       await clearDatasetComparison().catch(() => undefined);
@@ -1186,6 +1199,7 @@ export function App() {
     setReusableTaskApplicationReview(null);
     if (!preserveActiveImportProfile) setActiveImportProfile(task.importProfile);
     setRecipeDraft(task.recipe);
+    setActiveExceptionPolicy(task.exceptionPolicy ?? null);
     setDeliveryContract(deliveryContractFromRules(task.qualityRules));
     setExportFormat(task.outputFormat);
     setPrivacyMode(task.privacyMode);
@@ -1193,6 +1207,13 @@ export function App() {
     setRecipeSession((current) => current + 1);
     setCompletedPhases(new Set(["load"]));
     setActivePhase(task.recipe ? "prepare" : "review");
+  }
+
+  function handleRecipeDraftChange(draft: SavedRecipe) {
+    setRecipeDraft(draft);
+    setActiveExceptionPolicy((current) => current
+      ? refreshReusableTaskExceptionPolicy(current, draft) ?? null
+      : null);
   }
 
   function prepareReusableTaskImport(taskId: string, task: ReusableTask) {
@@ -1541,7 +1562,7 @@ export function App() {
                 onTrimText={prepare.trimText}
                 onNormalizeText={prepare.normalizeText}
                 onApplyTransforms={prepare.applyStructuralTransforms}
-                onRecipeDraftChange={setRecipeDraft}
+                onRecipeDraftChange={handleRecipeDraftChange}
                 onUndo={prepare.undoChange}
                 onRedo={prepare.redoChange}
               />

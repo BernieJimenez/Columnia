@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 
-import type { ReusableTask, ReusableTaskSchema } from "../../bridge";
-import { exceptionPolicyMatchesSchema } from "./reusableTaskExceptions";
+import type { ReusableTask, ReusableTaskExceptionPolicy, ReusableTaskSchema } from "../../bridge";
+import { createReusableTaskExceptionPolicy, exceptionPolicyMatchesSchema } from "./reusableTaskExceptions";
 import { useReusableTasks } from "./useReusableTasks";
 
 interface ReusableTaskPanelProps {
@@ -30,6 +30,7 @@ export function ReusableTaskPanel({
   const reusableTasks = useReusableTasks({ connected, blocked });
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [taskName, setTaskName] = useState("");
+  const [exceptionPolicyDraft, setExceptionPolicyDraft] = useState<ReusableTaskExceptionPolicy | null>(null);
   const [reviewedSchema, setReviewedSchema] = useState<{ taskId: string; fingerprint: string } | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const schemaFingerprint = useMemo(() => schema === null ? null : JSON.stringify(schema), [schema]);
@@ -42,17 +43,13 @@ export function ReusableTaskPanel({
   const reviewIsCurrent = schemaFingerprint !== null
     && reviewedSchema?.taskId === selectedTaskId
     && reviewedSchema.fingerprint === schemaFingerprint;
-  const hasUnsupportedConversionAction = openedTask?.exceptionPolicy?.conversions.some(
-    ({ onInvalid }) => onInvalid !== "review",
-  ) ?? false;
   const canApply = !blocked
     && !reusableTasks.isBusy
     && openedTask !== null
-    && exceptionPolicyMatchesSchema(openedTask.exceptionPolicy, openedTask.importProfile.schema)
-    && !hasUnsupportedConversionAction
+    && exceptionPolicyMatchesSchema(exceptionPolicyDraft ?? undefined, openedTask.importProfile.schema)
     && reviewIsCurrent
     && checkedCompatibility?.status === "ready";
-  const canPrepareImport = !blocked && !reusableTasks.isBusy && openedTask !== null && !hasUnsupportedConversionAction;
+  const canPrepareImport = !blocked && !reusableTasks.isBusy && openedTask !== null;
 
   async function openAndReviewTask(taskId: string) {
     if (!taskId || reusableTasks.isBusy) return;
@@ -60,7 +57,9 @@ export function ReusableTaskPanel({
     setSaveMessage(null);
     setReviewedSchema(null);
     const task = await reusableTasks.open(taskId);
-    if (!task || schema === null || schemaFingerprint === null) return;
+    if (!task) return;
+    setExceptionPolicyDraft(task.exceptionPolicy ?? createReusableTaskExceptionPolicy(task.importProfile.schema, task.recipe) ?? null);
+    if (schema === null || schemaFingerprint === null) return;
     const compatibility = await reusableTasks.checkSchema(taskId, schema);
     if (compatibility) {
       setReviewedSchema({ taskId, fingerprint: schemaFingerprint });
@@ -83,11 +82,27 @@ export function ReusableTaskPanel({
   }
 
   function applySelectedTask() {
-    if (canApply && openedTask) onApply(openedTask);
+    if (!canApply || !openedTask) return;
+    void persistTaskPolicy(openedTask).then((task) => {
+      if (task) onApply(task);
+    });
   }
 
   function prepareSelectedTask() {
-    if (canPrepareImport && openedTask) onPrepareImport(selectedTaskId, openedTask);
+    if (!canPrepareImport || !openedTask) return;
+    void persistTaskPolicy(openedTask).then((task) => {
+      if (task) onPrepareImport(selectedTaskId, task);
+    });
+  }
+
+  async function persistTaskPolicy(task: ReusableTask): Promise<ReusableTask | null> {
+    const policy = exceptionPolicyDraft ?? undefined;
+    const nextTask: ReusableTask = { ...task };
+    if (policy) nextTask.exceptionPolicy = policy;
+    else delete nextTask.exceptionPolicy;
+    if (JSON.stringify(task.exceptionPolicy) === JSON.stringify(policy)) return nextTask;
+    const saved = await reusableTasks.save(selectedTaskId, nextTask);
+    return saved ? nextTask : null;
   }
 
   return (
@@ -122,6 +137,7 @@ export function ReusableTaskPanel({
                     const taskId = event.target.value;
                     setSelectedTaskId(taskId);
                     setReviewedSchema(null);
+                    setExceptionPolicyDraft(null);
                     setSaveMessage(null);
                     reusableTasks.clearError();
                     if (taskId) void openAndReviewTask(taskId);
@@ -162,12 +178,11 @@ export function ReusableTaskPanel({
                     <dt>Preparación</dt>
                     <dd>{openedTask.recipe?.name ?? "Sin receta guardada"}</dd>
                   </div>
-                  {openedTask.exceptionPolicy && (
+                  {exceptionPolicyDraft && (
                     <div>
                       <dt>Decisiones de conversión</dt>
                       <dd>
-                        {openedTask.exceptionPolicy.conversions.length} decisión{openedTask.exceptionPolicy.conversions.length === 1 ? "" : "es"} · base léxica ·
-                        {" "}valores no interpretables requieren revisión
+                        {exceptionPolicyDraft.conversions.length} decisión{exceptionPolicyDraft.conversions.length === 1 ? "" : "es"} · base léxica
                       </dd>
                     </div>
                   )}
@@ -181,15 +196,35 @@ export function ReusableTaskPanel({
                 {openedTask.importProfile.schema.length > 0 && (
                   <p>Columnas esperadas: {openedTask.importProfile.schema.map((column) => column.name).join(", ")}</p>
                 )}
-                {openedTask.exceptionPolicy && (
-                  <p className="recipe-hint">
-                    Las conversiones quedan preseleccionadas como borrador. El esquema debe coincidir exactamente y solo se ejecutan al usar la acción actual de aplicar transformaciones.
-                  </p>
-                )}
-                {hasUnsupportedConversionAction && (
-                  <p className="recipe-error" role="alert">
-                    Esta tarea contiene una decisión para valores no interpretables que todavía no está disponible en este flujo. No se aplicará la tarea.
-                  </p>
+                {exceptionPolicyDraft && (
+                  <fieldset className="reusable-task-panel__exceptions">
+                    <legend>Si un valor no coincide</legend>
+                    {exceptionPolicyDraft.conversions.map((decision, index) => (
+                      <label key={`${decision.kind}-${decision.column}-${index}`}>
+                        <span>{decision.column} · {decision.kind === "date" ? "fecha" : "tipo"}</span>
+                        <select
+                          aria-label={`Valores no interpretables en ${decision.column}`}
+                          value={decision.onInvalid}
+                          disabled={blocked || reusableTasks.isBusy}
+                          onChange={(event) => {
+                            const onInvalid = event.target.value as typeof decision.onInvalid;
+                            setExceptionPolicyDraft((current) => current ? {
+                              ...current,
+                              conversions: current.conversions.map((candidate, candidateIndex) =>
+                                candidateIndex === index ? { ...candidate, onInvalid } : candidate),
+                            } : current);
+                          }}
+                        >
+                          <option value="review">Dejar para revisar</option>
+                          <option value="nullify">Convertir en nulo</option>
+                          <option value="excludeRow">Excluir fila</option>
+                        </select>
+                      </label>
+                    ))}
+                    <p className="recipe-hint">
+                      La decisión se guarda con la tarea al prepararla o aplicarla. Solo se usa con el esquema exacto y la acción existente de aplicar transformaciones.
+                    </p>
+                  </fieldset>
                 )}
               </div>
             )}

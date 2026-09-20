@@ -606,7 +606,26 @@ describe("desktop bridge", () => {
     await applyTransformRecipe(recipe);
 
     expect(invoke).toHaveBeenCalledOnce();
-    expect(invoke).toHaveBeenCalledWith("apply_transform_recipe", { recipe });
+    expect(invoke).toHaveBeenCalledWith("apply_transform_recipe", { recipe, exceptionPolicy: null });
+  });
+
+  it("transmite la política de excepciones junto a la receta", async () => {
+    vi.mocked(invoke).mockResolvedValue({ changed: false });
+    const recipe = {
+      renames: [], casts: [], dateParses: [], filters: [], calculatedColumn: null,
+      findReplace: null, keepColumns: null, splitColumn: null, mergeColumns: null,
+      outlierTreatments: [], groupSummary: null, contactNormalizations: [], textExtractions: [],
+    } satisfies TransformRecipe;
+    const exceptionPolicy = {
+      version: 1 as const,
+      baseline: "lexical" as const,
+      schema: [{ name: "total", dataType: "String" }],
+      conversions: [{ kind: "cast" as const, column: "total", target: "decimal" as const, onInvalid: "nullify" as const }],
+    };
+
+    await applyTransformRecipe(recipe, exceptionPolicy);
+
+    expect(invoke).toHaveBeenCalledWith("apply_transform_recipe", { recipe, exceptionPolicy });
   });
 
   it("cancela únicamente la operación indicada", async () => {

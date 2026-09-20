@@ -10,6 +10,7 @@ import type {
   SafeCorrectionsResult,
   SafeCorrectionOptions,
   TransformRecipe,
+  ReusableTaskExceptionPolicy,
   SavedRecipe,
   LoadedRecipe,
   RecipeExportOptions,
@@ -125,8 +126,14 @@ export function applySafeCorrections(options: SafeCorrectionOptions): Promise<Sa
   });
 }
 
-export function applyTransformRecipe(recipe: TransformRecipe): Promise<TransformRecipeResult> {
-  return invoke<TransformRecipeResult>("apply_transform_recipe", { recipe });
+export function applyTransformRecipe(
+  recipe: TransformRecipe,
+  exceptionPolicy?: ReusableTaskExceptionPolicy | null,
+): Promise<TransformRecipeResult> {
+  return invoke<TransformRecipeResult>("apply_transform_recipe", {
+    recipe,
+    exceptionPolicy: exceptionPolicy ?? null,
+  });
 }
 
 export function saveTransformRecipe(

@@ -27,12 +27,14 @@ export type ReusableTaskConversionDecision =
     };
 
 /** Conversion choices contain column metadata only and are valid for one exact input schema. */
-export interface ReusableTaskExceptionPolicy {
+export interface ImportExceptionPolicy {
   version: 1;
   baseline: "lexical";
   schema: ImportProfileColumn[];
   conversions: ReusableTaskConversionDecision[];
 }
+
+export type ReusableTaskExceptionPolicy = ImportExceptionPolicy;
 
 /** Local reusable flow settings. No source paths, credentials, destinations, or overwrite consent. */
 export interface ReusableTask {
@@ -40,7 +42,7 @@ export interface ReusableTask {
   name: string;
   importProfile: ImportProfile;
   recipe: SavedRecipe | null;
-  exceptionPolicy?: ReusableTaskExceptionPolicy;
+  exceptionPolicy?: ImportExceptionPolicy;
   qualityRules: QualityRule[];
   outputFormat: ReusableTaskOutputFormat;
   privacyMode: ReusableTaskPrivacyMode;

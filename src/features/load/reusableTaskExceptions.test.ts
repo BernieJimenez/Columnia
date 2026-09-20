@@ -4,6 +4,7 @@ import type { ImportProfileColumn, SavedRecipe } from "../../bridge";
 import {
   createReusableTaskExceptionPolicy,
   exceptionPolicyMatchesSchema,
+  refreshReusableTaskExceptionPolicy,
 } from "./reusableTaskExceptions";
 
 const schema: ImportProfileColumn[] = [
@@ -74,5 +75,31 @@ describe("ReusableTaskExceptionPolicy", () => {
     expect(exceptionPolicyMatchesSchema(policy, schema)).toBe(true);
     expect(exceptionPolicyMatchesSchema(policy, [...schema].reverse())).toBe(false);
     expect(exceptionPolicyMatchesSchema(policy, [schema[0], { ...schema[1], dataType: "Date" }])).toBe(false);
+  });
+
+  it("preserves decisions for unchanged conversions and defaults new conversions to review", () => {
+    const sourceSchema = [...schema, { name: "code", dataType: "String" }];
+    const sourceRecipe = {
+      ...recipe,
+      recipe: {
+        ...recipe.recipe,
+        casts: [...recipe.recipe.casts, { column: "code", target: "integer" as const }],
+      },
+    };
+    const existing = createReusableTaskExceptionPolicy(sourceSchema, sourceRecipe)!;
+    existing.conversions[0] = { ...existing.conversions[0]!, onInvalid: "excludeRow" };
+    const edited = {
+      ...sourceRecipe,
+      recipe: {
+        ...sourceRecipe.recipe,
+        casts: [...sourceRecipe.recipe.casts, { column: "new-column", target: "string" as const }],
+      },
+    };
+
+    expect(refreshReusableTaskExceptionPolicy(existing, edited)?.conversions).toEqual([
+      { kind: "cast", column: "amount", target: "decimal", onInvalid: "excludeRow" },
+      { kind: "cast", column: "code", target: "integer", onInvalid: "review" },
+      { kind: "date", column: "started", format: "dmy", target: "date", onInvalid: "review" },
+    ]);
   });
 });

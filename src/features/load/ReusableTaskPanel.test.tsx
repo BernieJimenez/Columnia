@@ -120,37 +120,46 @@ describe("ReusableTaskPanel", () => {
     fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
 
     expect(await screen.findByText(/1 decisión · base léxica/)).toBeInTheDocument();
-    expect(screen.getByText(/quedan preseleccionadas como borrador/)).toBeInTheDocument();
+    expect(screen.getByText(/La decisión se guarda con la tarea/)).toBeInTheDocument();
     const apply = screen.getByRole("button", { name: "Aplicar al dataset actual" });
     await waitFor(() => expect(apply).toBeEnabled());
     fireEvent.click(apply);
-    expect(onApply).toHaveBeenCalledWith(taskWithConversionPolicy);
+    await waitFor(() => expect(onApply).toHaveBeenCalledWith(taskWithConversionPolicy));
   });
 
-  it("no ejecuta silenciosamente una política con acciones incompatibles disponibles", async () => {
-    bridge.openReusableTask.mockResolvedValue({
-      ...taskWithConversionPolicy,
-      exceptionPolicy: {
-        ...taskWithConversionPolicy.exceptionPolicy!,
-        conversions: [{ kind: "cast", column: "id", target: "integer", onInvalid: "excludeRow" }],
-      },
-    });
+  it("guarda la acción elegida para valores no interpretables antes de aplicar la tarea", async () => {
+    bridge.openReusableTask.mockResolvedValue(taskWithConversionPolicy);
+    const onApply = vi.fn();
     render(
       <ReusableTaskPanel
         connected
         blocked={false}
         schema={schema}
         draft={draft}
-        onApply={vi.fn()}
+        onApply={onApply}
       />,
     );
     await waitFor(() => expect(bridge.listReusableTasks).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByText("Reutilizar una tarea"));
     fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("todavía no está disponible");
-    expect(screen.getByRole("button", { name: "Aplicar al dataset actual" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Preparar próxima importación" })).toBeDisabled();
+    expect(await screen.findByRole("status")).toHaveTextContent("El esquema es compatible");
+    fireEvent.change(screen.getByLabelText("Valores no interpretables en id"), { target: { value: "excludeRow" } });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar al dataset actual" }));
+
+    await waitFor(() => expect(bridge.saveReusableTask).toHaveBeenCalledWith(
+      taskSummary.id,
+      expect.objectContaining({
+        exceptionPolicy: expect.objectContaining({
+          conversions: [{ kind: "cast", column: "id", target: "integer", onInvalid: "excludeRow" }],
+        }),
+      }),
+    ));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
+      exceptionPolicy: expect.objectContaining({
+        conversions: [{ kind: "cast", column: "id", target: "integer", onInvalid: "excludeRow" }],
+      }),
+    }));
   });
 
   it("permanece plegado y revisa una tarea antes de permitir su uso en el dataset actual", async () => {
@@ -180,7 +189,7 @@ describe("ReusableTaskPanel", () => {
     expect(apply).toBeEnabled();
 
     fireEvent.click(apply);
-    expect(onApply).toHaveBeenCalledWith(savedTask);
+    await waitFor(() => expect(onApply).toHaveBeenCalledWith(savedTask));
   });
 
   it("muestra diferencias y bloquea la aplicación si el esquema requiere revisión", async () => {
@@ -237,7 +246,7 @@ describe("ReusableTaskPanel", () => {
     expect(screen.getByRole("button", { name: "Preparar próxima importación" })).toBeEnabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));
-    expect(onPrepareImport).toHaveBeenCalledWith(taskSummary.id, savedTask);
+    await waitFor(() => expect(onPrepareImport).toHaveBeenCalledWith(taskSummary.id, savedTask));
   });
 
   it("abre y prepara inmediatamente la configuración que acaba de guardar", async () => {
@@ -269,7 +278,7 @@ describe("ReusableTaskPanel", () => {
     expect(screen.queryByRole("button", { name: /eliminar/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));
 
-    expect(onPrepareImport).toHaveBeenCalledWith("task-2", { ...draft, name: "Cierre semanal" });
+    await waitFor(() => expect(onPrepareImport).toHaveBeenCalledWith("task-2", { ...draft, name: "Cierre semanal" }));
   });
 
   it("bloquea los controles de tarea mientras el flujo externo está ocupado", async () => {

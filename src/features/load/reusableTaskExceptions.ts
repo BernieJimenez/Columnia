@@ -38,6 +38,29 @@ export function createReusableTaskExceptionPolicy(
   };
 }
 
+/** Keeps decisions only when an edited recipe still has the same conversion. */
+export function refreshReusableTaskExceptionPolicy(
+  policy: ReusableTaskExceptionPolicy,
+  savedRecipe: SavedRecipe | null,
+): ReusableTaskExceptionPolicy | undefined {
+  const next = createReusableTaskExceptionPolicy(policy.schema, savedRecipe);
+  if (!next) return undefined;
+  return {
+    ...next,
+    conversions: next.conversions.map((conversion) => {
+      const previous = policy.conversions.find((candidate) => {
+        if (candidate.kind !== conversion.kind || candidate.column !== conversion.column) return false;
+        if (candidate.kind === "cast" && conversion.kind === "cast") {
+          return candidate.target === conversion.target;
+        }
+        return candidate.kind === "date" && conversion.kind === "date" &&
+          candidate.target === conversion.target && candidate.format === conversion.format;
+      });
+      return previous ? { ...conversion, onInvalid: previous.onInvalid } : conversion;
+    }),
+  };
+}
+
 /** The saved decisions cannot be reused after any schema change, including order. */
 export function exceptionPolicyMatchesSchema(
   policy: ReusableTaskExceptionPolicy | undefined,

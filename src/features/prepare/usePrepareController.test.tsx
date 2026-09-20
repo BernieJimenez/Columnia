@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../bridge";
-import type { DatasetPreview, HistoryState } from "../../bridge";
+import type { DatasetPreview, HistoryState, ReusableTaskExceptionPolicy, TransformRecipeResult } from "../../bridge";
 import { EMPTY_HISTORY } from "./prepareModel";
 import { usePrepareController } from "./usePrepareController";
 
@@ -36,14 +36,17 @@ function ControllerHarness({
   onProfileInvalidated,
   onDeliveryInvalidated,
   activeDataset = dataset,
+  exceptionPolicy,
 }: {
   onDatasetChanged: (next: DatasetPreview) => void;
   onProfileInvalidated: () => void;
   onDeliveryInvalidated: () => void;
   activeDataset?: DatasetPreview | null;
+  exceptionPolicy?: ReusableTaskExceptionPolicy | null;
 }) {
   const controller = usePrepareController({
     activeDataset,
+    exceptionPolicy,
     onDatasetChanged,
     onProfileInvalidated,
     onDeliveryInvalidated,
@@ -96,6 +99,50 @@ function ControllerHarness({
 }
 
 describe("usePrepareController", () => {
+  it("envía la política de conversión junto con la receta", async () => {
+    const exceptionPolicy: ReusableTaskExceptionPolicy = {
+      version: 1,
+      baseline: "lexical",
+      schema: [{ name: "nombre", dataType: "String" }],
+      conversions: [{ kind: "cast", column: "nombre", target: "integer", onInvalid: "nullify" }],
+    };
+    const result = {
+      dataset,
+      changed: true,
+      renamedColumnCount: 0,
+      convertedColumnCount: 1,
+      parsedDateColumnCount: 0,
+      removedRowCount: 0,
+      calculatedColumnCount: 0,
+      replacedCellCount: 0,
+      droppedColumnCount: 0,
+      splitColumnCount: 0,
+      mergedColumnCount: 0,
+      droppedSourceColumnCount: 0,
+      adjustedOutlierCellCount: 0,
+      outlierRemovedRowCount: 0,
+      outlierColumnCount: 0,
+      groupCount: 0,
+      aggregatedColumnCount: 0,
+      collapsedRowCount: 0,
+      normalizedContactCellCount: 0,
+      normalizedContactColumnCount: 0,
+      extractedColumnCount: 0,
+    } satisfies TransformRecipeResult;
+    const apply = vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue(result);
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    render(<ControllerHarness
+      onDatasetChanged={vi.fn()}
+      onProfileInvalidated={vi.fn()}
+      onDeliveryInvalidated={vi.fn()}
+      exceptionPolicy={exceptionPolicy}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Receta" }));
+
+    await waitFor(() => expect(apply).toHaveBeenCalledWith(expect.objectContaining({ casts: [], dateParses: [] }), exceptionPolicy));
+  });
+
   it("solicita cancelar la preparación y muestra el resultado cancelado sin publicar una candidata", async () => {
     let rejectRemoval!: (error: Error) => void;
     const pendingRemoval = new Promise<Awaited<ReturnType<typeof bridge.removeDuplicates>>>((_, reject) => {

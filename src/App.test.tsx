@@ -250,10 +250,16 @@ describe("App", () => {
         savedAt: "2026-09-01T10:00:00Z",
         recipe: {
           renames: [{ from: "id", to: "id_limpio" }],
-          casts: [], dateParses: [], filters: [], calculatedColumn: null,
+          casts: [{ column: "id", target: "integer" }], dateParses: [], filters: [], calculatedColumn: null,
           findReplace: null, keepColumns: null, splitColumn: null, mergeColumns: null,
           outlierTreatments: [], groupSummary: null, contactNormalizations: [], textExtractions: [],
         },
+      },
+      exceptionPolicy: {
+        version: 1,
+        baseline: "lexical",
+        schema: [{ name: "id", dataType: "Int64" }],
+        conversions: [{ kind: "cast", column: "id", target: "integer", onInvalid: "review" }],
       },
       qualityRules: [{ column: "id", kind: "not_null", maxInvalid: 0 }],
       outputFormat: "json",
@@ -284,7 +290,25 @@ describe("App", () => {
       fileName: "entrada.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
       columns: [{ name: "id", dataType: "Int64" }], rows: [["10"]],
     });
-    const applyRecipeSpy = vi.spyOn(bridge, "applyTransformRecipe");
+    const applyRecipeSpy = vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
+      dataset: {
+        fileName: "entrada.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
+        columns: [{ name: "id_limpio", dataType: "Int64" }], rows: [["10"]],
+      },
+      changed: true,
+      renamedColumnCount: 1,
+      convertedColumnCount: 0,
+      parsedDateColumnCount: 0,
+      removedRowCount: 0,
+      calculatedColumnCount: 0,
+      replacedCellCount: 0,
+      droppedColumnCount: 0,
+      splitColumnCount: 0, mergedColumnCount: 0, droppedSourceColumnCount: 0,
+      adjustedOutlierCellCount: 0, outlierRemovedRowCount: 0, outlierColumnCount: 0,
+      groupCount: 0, aggregatedColumnCount: 0, collapsedRowCount: 0,
+      normalizedContactCellCount: 0, normalizedContactColumnCount: 0, extractedColumnCount: 0,
+    });
+    vi.spyOn(bridge, "saveReusableTask").mockResolvedValue(taskSummary);
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
@@ -295,13 +319,29 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
     await screen.findByText("El esquema es compatible. Puedes aplicar la configuración guardada.");
     expect(checkSchemaSpy).toHaveBeenCalledWith(taskSummary.id, [{ name: "id", dataType: "Int64" }]);
+    fireEvent.change(screen.getByLabelText("Valores no interpretables en id"), { target: { value: "excludeRow" } });
     fireEvent.click(screen.getByRole("button", { name: "Aplicar al dataset actual" }));
+    await waitFor(() => expect(bridge.saveReusableTask).toHaveBeenCalledWith(
+      taskSummary.id,
+      expect.objectContaining({
+        exceptionPolicy: expect.objectContaining({
+          conversions: [{ kind: "cast", column: "id", target: "integer", onInvalid: "excludeRow" }],
+        }),
+      }),
+    ));
 
     expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
     fireEvent.click(await screen.findByRole("tab", { name: "Transformaciones" }));
     expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Renombrar id");
     expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue("id_limpio");
     expect(applyRecipeSpy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    await waitFor(() => expect(applyRecipeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ casts: [{ column: "id", target: "integer" }] }),
+      expect.objectContaining({
+        conversions: [{ kind: "cast", column: "id", target: "integer", onInvalid: "excludeRow" }],
+      }),
+    ));
 
     await switchPhase("Entregar");
     expect(screen.getByText(/id: no admite valores nulos/)).toBeInTheDocument();
@@ -311,7 +351,7 @@ describe("App", () => {
     await switchPhase("Revisar");
     fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
     expect(await screen.findByRole("cell", { name: "10" })).toBeInTheDocument();
-    expect(applyRecipeSpy).not.toHaveBeenCalled();
+    expect(applyRecipeSpy).toHaveBeenCalledOnce();
   });
 
   it("preselecciona una tarea antes del archivo, usa su perfil y pide aplicar el resto de la configuración", async () => {
@@ -1852,7 +1892,7 @@ describe("App", () => {
       outlierTreatments: [],
       groupSummary: null,
       contactNormalizations: [], textExtractions: [],
-    });
+    }, null);
     expect(await screen.findByText(/Receta aplicada: 1 renombres, 1 conversiones, 1 fechas interpretadas/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
   });
@@ -2027,7 +2067,7 @@ describe("App", () => {
       outlierTreatments: [],
       groupSummary: null,
       contactNormalizations: [], textExtractions: [],
-    }));
+    }), null);
   });
 
   it("actualiza columnas de texto por conversiones y confirma dropSource por sí solo", async () => {
@@ -2102,7 +2142,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar y aplicar" }));
-    expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ outlierTreatments: [{ column: "importe", action: "cap" }, { column: "nota", action: "drop" }] }));
+    expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ outlierTreatments: [{ column: "importe", action: "cap" }, { column: "nota", action: "drop" }] }), null);
   });
 
   it("no crea historial cuando el tratamiento IQR no encuentra outliers", async () => {
@@ -2180,7 +2220,7 @@ describe("App", () => {
     expect(applySpy).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Confirmar y aplicar" }));
-    expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ groupSummary: { groupBy: ["region"], aggregations: [{ column: "importe", operation: "sum" }, { column: "nota", operation: "count_unique" }] } }));
+    expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ groupSummary: { groupBy: ["region"], aggregations: [{ column: "importe", operation: "sum" }, { column: "nota", operation: "count_unique" }] } }), null);
     expect(await screen.findByText(/resumen de 2 grupos con 2 agregaciones/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
   });
@@ -2220,7 +2260,7 @@ describe("App", () => {
     expect(applySpy).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Confirmar y aplicar" }));
-    expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ contactNormalizations: [{ column: "correo", kind: "email" }], textExtractions: [{ source: "codigo", kind: "before", name: "prefijo", delimiter: "-" }] }));
+    expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ contactNormalizations: [{ column: "correo", kind: "email" }], textExtractions: [{ source: "codigo", kind: "before", name: "prefijo", delimiter: "-" }] }), null);
     expect(await screen.findByText(/1 contactos normalizados en 1 columnas, 1 columnas extraídas/)).toBeInTheDocument();
   });
 
