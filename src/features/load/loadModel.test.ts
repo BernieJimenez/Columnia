@@ -180,6 +180,46 @@ describe("loadModel", () => {
     expect(reused).toMatchObject({ kind: "sheet", selectedSheetId: "sheet-1", headerMode: "generated", useSavedProfile: true });
   });
 
+  it("no aplica convenciones guardadas a CSV source-backed", () => {
+    const source: DatasetSourceInspection = {
+      ...workbook,
+      fileName: "ventas.csv",
+      format: "csv",
+      sheets: [],
+      defaultSheetId: null,
+      isCompressedContainer: false,
+      resourceEstimate: { ...workbook.resourceEstimate, processingPath: "sourceBacked" },
+    };
+    const profile: ImportProfile = {
+      version: 1,
+      format: "csv",
+      headerMode: "firstRow",
+      dateConvention: "dmy",
+      numberConvention: "commaDecimalDotGrouping",
+      schema: [
+        { name: "fecha", dataType: "Date" },
+        { name: "importe", dataType: "Float64" },
+      ],
+    };
+
+    expect(delimitedHeaderInspection(source, profile)).toMatchObject({
+      kind: "sheet",
+      dateConvention: "unresolved",
+      numberConvention: "unresolved",
+      useSavedProfile: true,
+    });
+
+    const inMemorySource = {
+      ...source,
+      resourceEstimate: { ...source.resourceEstimate, processingPath: "inMemory" as const },
+    };
+    expect(delimitedHeaderInspection(inMemorySource, profile)).toMatchObject({
+      kind: "sheet",
+      dateConvention: "dmy",
+      numberConvention: "commaDecimalDotGrouping",
+    });
+  });
+
   it("no sustituye una hoja guardada que ya no existe por la hoja predeterminada", () => {
     const profile: ImportProfile = {
       version: 1,

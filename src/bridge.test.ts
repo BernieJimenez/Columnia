@@ -248,6 +248,8 @@ describe("desktop bridge", () => {
       sheetId: "2",
       headerMode: "generated",
       expectedProfile: null,
+      dateConvention: null,
+      numberConvention: null,
       onProgress: expect.any(Channel),
     });
     const args = vi.mocked(invoke).mock.calls[0][1] as {
@@ -607,6 +609,35 @@ describe("desktop bridge", () => {
 
     expect(invoke).toHaveBeenCalledOnce();
     expect(invoke).toHaveBeenCalledWith("apply_transform_recipe", { recipe, exceptionPolicy: null });
+  });
+
+  it("transmite convenciones de importación explícitas con claves IPC camelCase", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({ fileName: "ventas.csv" });
+    await loadDatasetSelection("selection-2", null, "firstRow", undefined, {
+      version: 1,
+      format: "csv",
+      headerMode: "firstRow",
+      dateConvention: "dmy",
+      numberConvention: "commaDecimalDotGrouping",
+      schema: [{ name: "fecha", dataType: "date" }],
+    }, "dmy", "commaDecimalDotGrouping");
+
+    expect(invoke).toHaveBeenCalledWith("load_dataset_selection", {
+      selectionId: "selection-2",
+      sheetId: null,
+      headerMode: "firstRow",
+      expectedProfile: {
+        version: 1,
+        format: "csv",
+        headerMode: "firstRow",
+        dateConvention: "dmy",
+        numberConvention: "commaDecimalDotGrouping",
+        schema: [{ name: "fecha", dataType: "date" }],
+      },
+      dateConvention: "dmy",
+      numberConvention: "commaDecimalDotGrouping",
+      onProgress: expect.any(Channel),
+    });
   });
 
   it("transmite la política de excepciones junto a la receta", async () => {

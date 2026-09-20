@@ -33,7 +33,6 @@ import {
   delimitedHeaderInspection,
   updateDatasetLoadProgress,
   updateSheetSelection,
-  updateProfileReview,
   schemaMismatchInspection,
   workbookInspection,
   needsResourcePreflight,
@@ -536,8 +535,12 @@ export function App() {
     profileSeed: ImportProfile | null = expectedProfile,
     taskForReview: ReusableTask | null = null,
     schemaMismatchConfirmed = false,
+    conventions: Pick<ImportProfile, "dateConvention" | "numberConvention"> | null = profileSeed,
   ) {
     if (loadInFlightRef.current) return;
+    const delimitedConventions = source.format === "csv" || source.format === "tsv"
+      ? conventions
+      : null;
     loadInFlightRef.current = true;
     const requestId = ++loadRequestRef.current;
     const requestedRevision = datasetRevisionRef.current;
@@ -550,13 +553,19 @@ export function App() {
       const dataset = await loadDatasetSelection(source.selectionId, sheetId, headerMode, (progress) => {
         if (!isCurrentRequest()) return;
         setDatasetStatus((current) => updateDatasetLoadProgress(current, progress));
-      }, expectedProfile);
+      }, expectedProfile,
+      delimitedConventions?.dateConvention && delimitedConventions.dateConvention !== "unresolved"
+        ? delimitedConventions.dateConvention
+        : null,
+      delimitedConventions?.numberConvention && delimitedConventions.numberConvention !== "unresolved"
+        ? delimitedConventions.numberConvention
+        : null);
       if (!isCurrentRequest()) return;
       setActiveImportProfile(createImportProfile(
         source,
         dataset,
         { sheetId, headerMode },
-        profileSeed,
+        delimitedConventions,
       ));
       if (taskForReview) {
         setQueuedReusableTask(null);
@@ -655,8 +664,6 @@ export function App() {
           kind: "profile_review",
           source,
           profile: selectedImportProfile,
-          dateConvention: selectedImportProfile.dateConvention ?? "unresolved",
-          numberConvention: selectedImportProfile.numberConvention ?? "unresolved",
         });
         return;
       }
@@ -725,13 +732,22 @@ export function App() {
         const selectedProfile = queuedReusableTask
           ? queuedProfileIsApplicable ? queuedProfile : null
           : loadInspection.useSavedProfile ? loadInspection.savedProfile : null;
+        const conventions = {
+          dateConvention: loadInspection.dateConvention,
+          numberConvention: loadInspection.numberConvention,
+        };
+        const profileWithConventions = selectedProfile
+          ? { ...selectedProfile, ...conventions }
+          : null;
         void loadSelection(
           loadInspection.source,
           loadInspection.source.format === "excel" ? loadInspection.selectedSheetId : null,
           loadInspection.headerMode,
-          selectedProfile,
-          selectedProfile,
+          profileWithConventions,
+          profileWithConventions,
           queuedReusableTask?.task ?? null,
+          false,
+          conventions,
         );
       }
       return;
@@ -758,22 +774,16 @@ export function App() {
       return;
     }
     if (action.kind === "use_profile") {
-      const selectedProfile: ImportProfile = {
-        ...profile,
-        dateConvention: loadInspection.dateConvention,
-        numberConvention: loadInspection.numberConvention,
-      };
       void loadSelection(
         source,
         null,
         null,
-        selectedProfile,
-        selectedProfile,
+        profile,
+        profile,
         queuedReusableTask?.task ?? null,
       );
       return;
     }
-    setLoadInspection((current) => updateProfileReview(current, action));
   }
 
   function handleResourcePreflightAction(action: ResourcePreflightAction) {

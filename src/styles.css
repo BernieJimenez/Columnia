@@ -482,6 +482,9 @@ summary:focus-visible,
 .sheet-dialog__options { display: grid; gap: 10px; margin: 20px 0 0; padding: 0; border: 0; }
 .sheet-dialog__options legend { margin-bottom: 8px; color: var(--text-secondary); font-size: .8rem; font-weight: 800; text-transform: uppercase; }
 .sheet-dialog__options label { display: flex; align-items: center; gap: 9px; margin: 0; color: inherit; font-size: .9rem; font-weight: 600; text-transform: none; }
+.sheet-import-options { margin-top: 14px; padding: 12px; border: 1px solid var(--border-subtle); background: var(--surface-raised); }
+.sheet-import-options summary { cursor: pointer; font-weight: 750; }
+.sheet-import-options p { margin: 10px 0 0; color: var(--text-secondary); font-size: .82rem; }
 .sheet-import-summary { margin-top: 18px; padding: 14px; border: 1px solid var(--border-subtle); background: var(--surface-raised); }
 .sheet-import-summary h4 { margin: 0 0 12px; font-size: .95rem; }
 .sheet-import-summary dl { display: grid; gap: 10px; margin: 0; }

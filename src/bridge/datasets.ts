@@ -6,6 +6,8 @@ import type {
   DatasetConflictPage,
   DatasetJoinType,
   DatasetSourceInspection,
+  ImportDateConvention,
+  ImportNumberConvention,
   ImportProfile,
   SampleDatasetDescriptor,
   SpreadsheetHeaderMode,
@@ -49,12 +51,16 @@ export function loadDatasetSelection(
   headerMode: SpreadsheetHeaderMode | null,
   onProgress?: ProgressHandler,
   expectedProfile: ImportProfile | null = null,
+  dateConvention: ImportDateConvention | null = null,
+  numberConvention: ImportNumberConvention | null = null,
 ): Promise<DatasetPreview> {
   return invoke<DatasetPreview>("load_dataset_selection", {
     selectionId,
     sheetId,
     headerMode,
     expectedProfile,
+    dateConvention,
+    numberConvention,
     onProgress: progressChannel(onProgress),
   });
 }

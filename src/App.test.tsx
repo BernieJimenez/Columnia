@@ -371,6 +371,8 @@ describe("App", () => {
     await waitFor(() => expect(bridge.loadDatasetSelection).toHaveBeenCalledOnce());
     const importCall = vi.mocked(bridge.loadDatasetSelection).mock.calls[0];
     expect(importCall?.[4]).toEqual(task.importProfile);
+    expect(importCall?.[5]).toBe(task.importProfile.dateConvention);
+    expect(importCall?.[6]).toBe(task.importProfile.numberConvention);
 
     const review = await screen.findByRole("dialog", { name: "Revisa la configuración guardada" });
     expect(within(review).getByText("Renombrar id")).toBeInTheDocument();
@@ -419,6 +421,8 @@ describe("App", () => {
       "generated",
       expect.any(Function),
       generatedProfile,
+      generatedProfile.dateConvention,
+      generatedProfile.numberConvention,
     );
     fireEvent.click(within(review).getByRole("button", { name: "Seguir sin esos ajustes" }));
     fireEvent.click(await screen.findByRole("tab", { name: "Vista previa" }));
@@ -901,10 +905,15 @@ describe("App", () => {
     const headerDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de temperaturas.csv" });
     expect(loadSpy).not.toHaveBeenCalled();
     fireEvent.click(within(headerDialog).getByRole("radio", { name: /Conservar la primera fila como datos/ }));
+    fireEvent.click(within(headerDialog).getByText("Interpretación de fechas y números (opcional)"));
+    fireEvent.change(within(headerDialog).getByRole("combobox", { name: "Fechas" }), { target: { value: "dmy" } });
+    fireEvent.change(within(headerDialog).getByRole("combobox", { name: "Números" }), { target: { value: "commaDecimalDotGrouping" } });
     fireEvent.click(within(headerDialog).getByRole("button", { name: "Cargar archivo" }));
 
     expect(await screen.findByRole("heading", { name: "temperaturas.csv" })).toBeInTheDocument();
-    expect(loadSpy).toHaveBeenCalledWith("selection-test", null, "generated", expect.any(Function), null);
+    expect(loadSpy).toHaveBeenCalledWith(
+      "selection-test", null, "generated", expect.any(Function), null, "dmy", "commaDecimalDotGrouping",
+    );
     expect(screen.getByRole("progressbar", { name: "Progreso del flujo" })).toHaveAttribute("aria-valuetext", "Paso 2 de 4: Revisar");
     expect(await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Seleccionar dataset" })).not.toBeInTheDocument();
@@ -976,7 +985,7 @@ describe("App", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Cargar archivo" }));
     expect(await screen.findByRole("heading", { name: "clientes-grande.csv" })).toBeInTheDocument();
-    expect(loadSpy).toHaveBeenCalledWith("large-source-selection", null, "firstRow", expect.any(Function), null);
+    expect(loadSpy).toHaveBeenCalledWith("large-source-selection", null, "firstRow", expect.any(Function), null, null, null);
   });
 
   it("deja revisar valores con ceros iniciales y columnas ambiguas en la vista previa", async () => {
@@ -1805,7 +1814,7 @@ describe("App", () => {
     fireEvent.click(loadSheet);
 
     expect(await screen.findByRole("heading", { name: "ventas.xlsx" })).toBeInTheDocument();
-    expect(loadSpy).toHaveBeenCalledWith("opaque-workbook-1", "1", "generated", expect.any(Function), null);
+    expect(loadSpy).toHaveBeenCalledWith("opaque-workbook-1", "1", "generated", expect.any(Function), null, null, null);
     expect(JSON.stringify(loadSpy.mock.calls)).not.toContain("C:\\\\");
   });
 

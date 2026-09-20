@@ -39,6 +39,8 @@ export type LoadInspectionState =
       source: DatasetSourceInspection;
       selectedSheetId: string;
       headerMode: SpreadsheetHeaderMode;
+      dateConvention: ImportDateConvention;
+      numberConvention: ImportNumberConvention;
       suggestedProfile: ImportProfile | null;
       savedProfile: ImportProfile | null;
       profileCanBeApplied: boolean;
@@ -51,8 +53,6 @@ export type LoadInspectionState =
       kind: "profile_review";
       source: DatasetSourceInspection;
       profile: ImportProfile;
-      dateConvention: ImportDateConvention;
-      numberConvention: ImportNumberConvention;
     }
   | {
       kind: "schema_mismatch";
@@ -67,6 +67,8 @@ export type LoadInspectionState =
 export type SheetSelectionAction =
   | { kind: "sheet_changed"; sheetId: string }
   | { kind: "header_mode_changed"; headerMode: SpreadsheetHeaderMode }
+  | { kind: "date_convention_changed"; value: ImportDateConvention }
+  | { kind: "number_convention_changed"; value: ImportNumberConvention }
   | { kind: "profile_toggled"; useProfile: boolean }
   | { kind: "confirmed" }
   | { kind: "cancelled" };
@@ -74,8 +76,6 @@ export type SheetSelectionAction =
 export type ProfileReviewAction =
   | { kind: "use_profile" }
   | { kind: "use_defaults" }
-  | { kind: "date_convention_changed"; value: ImportDateConvention }
-  | { kind: "number_convention_changed"; value: ImportNumberConvention }
   | { kind: "cancelled" };
 
 export type SchemaMismatchAction = { kind: "import_new_schema" } | { kind: "cancelled" };
@@ -126,6 +126,9 @@ export function workbookInspection(
   const applicableProfile = applicability?.kind === "applicable" ? applicability : null;
   const profileCanBeApplied = applicableProfile !== null;
   const sameFormatProfile = savedProfile?.format === source.format ? savedProfile : null;
+  const canApplyConventions =
+    (source.format === "csv" || source.format === "tsv") &&
+    source.resourceEstimate.processingPath !== "sourceBacked";
   return {
     kind: "sheet",
     source,
@@ -135,6 +138,12 @@ export function workbookInspection(
     headerMode: applicableProfile && applicableProfile.headerMode !== null
       ? applicableProfile.headerMode
       : "firstRow",
+    dateConvention: applicableProfile && canApplyConventions
+      ? savedProfile?.dateConvention ?? "unresolved"
+      : "unresolved",
+    numberConvention: applicableProfile && canApplyConventions
+      ? savedProfile?.numberConvention ?? "unresolved"
+      : "unresolved",
     suggestedProfile: sameFormatProfile,
     savedProfile: profileCanBeApplied ? savedProfile : null,
     profileCanBeApplied,
@@ -181,6 +190,12 @@ export function updateSheetSelection(
   if (action.kind === "header_mode_changed") {
     return { ...current, headerMode: action.headerMode, useSavedProfile: false };
   }
+  if (action.kind === "date_convention_changed") {
+    return { ...current, dateConvention: action.value };
+  }
+  if (action.kind === "number_convention_changed") {
+    return { ...current, numberConvention: action.value };
+  }
   if (action.useProfile && current.profileCanBeApplied && current.savedProfile) {
     const applicability = importProfileApplicability(current.savedProfile, current.source);
     if (applicability.kind === "applicable") {
@@ -188,25 +203,13 @@ export function updateSheetSelection(
         ...current,
         selectedSheetId: applicability.sheetId ?? current.selectedSheetId,
         headerMode: applicability.headerMode ?? current.headerMode,
+        dateConvention: current.savedProfile.dateConvention ?? "unresolved",
+        numberConvention: current.savedProfile.numberConvention ?? "unresolved",
         useSavedProfile: true,
       };
     }
   }
   return { ...current, useSavedProfile: false };
-}
-
-export function updateProfileReview(
-  current: LoadInspectionState,
-  action: Exclude<ProfileReviewAction, { kind: "cancelled" }>,
-): LoadInspectionState {
-  if (current.kind !== "profile_review") return current;
-  if (action.kind === "date_convention_changed") {
-    return { ...current, dateConvention: action.value };
-  }
-  if (action.kind === "number_convention_changed") {
-    return { ...current, numberConvention: action.value };
-  }
-  return current;
 }
 
 export function schemaMismatchInspection(

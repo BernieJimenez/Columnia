@@ -285,43 +285,9 @@ export function LoadPhase({
               El perfil de “{pendingTaskName}” se usará en esta importación. La receta, las reglas y la salida se ofrecerán para aplicar después de cargar.
             </p>
           )}
-          <div className="sheet-import-summary">
-            <dl>
-              <div>
-                <dt>Fechas</dt>
-                <dd>{dateConventionLabel(profileReview.dateConvention)}</dd>
-              </div>
-              <div>
-                <dt>Números</dt>
-                <dd>{numberConventionLabel(profileReview.numberConvention)}</dd>
-              </div>
-            </dl>
-          </div>
           <ResourceEstimateSummary source={profileReview.source} />
-          <label htmlFor="profile-date-convention">Convención de fechas</label>
-          <select
-            id="profile-date-convention"
-            value={profileReview.dateConvention}
-            onChange={(event) => onProfileReviewAction({
-              kind: "date_convention_changed",
-              value: event.target.value as ImportDateConvention,
-            })}
-          >
-            {DATE_CONVENTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </select>
-          <label htmlFor="profile-number-convention">Convención numérica</label>
-          <select
-            id="profile-number-convention"
-            value={profileReview.numberConvention}
-            onChange={(event) => onProfileReviewAction({
-              kind: "number_convention_changed",
-              value: event.target.value as ImportNumberConvention,
-            })}
-          >
-            {NUMBER_CONVENTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </select>
           <p className="notice" role="note">
-            Estas convenciones quedan como guía reutilizable. La importación conserva los valores originales y no aplica conversiones ni mapeos automáticos.
+            Este formato no usa convenciones de CSV/TSV; sus valores se conservan como aparecen en el archivo.
           </p>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => onProfileReviewAction({ kind: "cancelled" })}>Cancelar</button>
@@ -364,7 +330,7 @@ export function LoadPhase({
           </p>
           <SchemaDifferenceList mismatch={schemaMismatch.mismatch} />
           <p className="notice" role="note">
-            Si continúas, se importará el archivo con el nuevo esquema sin modificar sus valores. Puedes cancelar y mantener el dataset anterior.
+            Si continúas, se importará el archivo con el nuevo esquema. Las convenciones seleccionadas convierten solo columnas cuyos valores completos cumplen; las demás se conservan como texto. Puedes cancelar y mantener el dataset anterior.
           </p>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => onSchemaMismatchAction({ kind: "cancelled" })}>Cancelar y conservar dataset</button>
@@ -439,6 +405,55 @@ export function LoadPhase({
                 : "Conservar la primera fila como datos y generar nombres (column_1, column_2…)"}
             </label>
           </fieldset>
+          {sheetSelection.source.format !== "excel" && (
+            <details className="sheet-import-options">
+              <summary>Interpretación de fechas y números (opcional)</summary>
+              <p role="note">
+                “Sin definir” conserva el texto. Una convención convierte una columna solo si todos sus valores no nulos cumplen; si alguno no cumple, se conserva la columna completa como texto.
+                {sheetSelection.source.resourceEstimate.processingPath === "sourceBacked"
+                  ? " Esta fuente requiere lectura por bloques; para aplicar conversiones, usa un archivo dentro del límite de carga en memoria."
+                  : ""}
+              </p>
+              <label htmlFor="delimited-date-convention">Fechas</label>
+              <select
+                id="delimited-date-convention"
+                value={sheetSelection.dateConvention}
+                onChange={(event) => onSheetAction({
+                  kind: "date_convention_changed",
+                  value: event.target.value as ImportDateConvention,
+                })}
+              >
+                {DATE_CONVENTIONS.map((item) => (
+                  <option
+                    key={item.value}
+                    value={item.value}
+                    disabled={sheetSelection.source.resourceEstimate.processingPath === "sourceBacked" && item.value !== "unresolved"}
+                  >
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              <label htmlFor="delimited-number-convention">Números</label>
+              <select
+                id="delimited-number-convention"
+                value={sheetSelection.numberConvention}
+                onChange={(event) => onSheetAction({
+                  kind: "number_convention_changed",
+                  value: event.target.value as ImportNumberConvention,
+                })}
+              >
+                {NUMBER_CONVENTIONS.map((item) => (
+                  <option
+                    key={item.value}
+                    value={item.value}
+                    disabled={sheetSelection.source.resourceEstimate.processingPath === "sourceBacked" && item.value !== "unresolved"}
+                  >
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </details>
+          )}
           {sheetSelection.suggestedProfile && (
             <section className="sheet-import-summary" aria-labelledby="saved-import-profile-title">
               <h4 id="saved-import-profile-title">Perfil reutilizable del proyecto</h4>
@@ -463,9 +478,7 @@ export function LoadPhase({
                 </p>
               )}
               <p role="note">
-                Fechas: {dateConventionLabel(sheetSelection.suggestedProfile.dateConvention ?? "unresolved")} ·
-                números: {numberConventionLabel(sheetSelection.suggestedProfile.numberConvention ?? "unresolved")}.
-                Se conservan valores originales; no hay conversiones ni mapeos automáticos.
+                Convenciones seleccionadas: {dateConventionLabel(sheetSelection.dateConvention)} · {numberConventionLabel(sheetSelection.numberConvention)}.
               </p>
             </section>
           )}
@@ -520,7 +533,10 @@ export function LoadPhase({
                   />
                 )}
                 <p role="note">
-                  La muestra lee como máximo 64 KiB y enseña hasta cinco filas. Los valores siguen como texto; la carga completa empieza solo al confirmar.
+                  La muestra lee como máximo 64 KiB y enseña hasta cinco filas. La carga completa empieza solo al confirmar.
+                  {sheetSelection.dateConvention === "unresolved" && sheetSelection.numberConvention === "unresolved"
+                    ? " Sin convenciones elegidas, los valores se conservan como texto."
+                    : " Las conversiones elegidas se aplican solo cuando toda la columna cumple la convención."}
                   {sheetSelection.headerReview?.[sheetSelection.headerMode === "firstRow" ? "firstRow" : "generated"].sampleTruncated
                     ? " La muestra quedó truncada y puede no representar el archivo entero."
                     : ""}

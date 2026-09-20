@@ -39,6 +39,7 @@ use tauri_plugin_dialog::DialogExt;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 use xxhash_rust::xxh3::xxh3_64;
 
+mod import_conventions;
 pub(crate) mod samples;
 
 use crate::dataset_fingerprints::{
@@ -25654,6 +25655,8 @@ pub async fn load_dataset_selection(
     sheet_id: Option<String>,
     header_mode: Option<SpreadsheetHeaderMode>,
     expected_profile: Option<ImportProfile>,
+    date_convention: Option<ImportDateConvention>,
+    number_convention: Option<ImportNumberConvention>,
     on_progress: Channel<OperationProgress>,
 ) -> Result<DatasetPreview, String> {
     let generation = app.state::<DatasetState>().begin_load();
@@ -25694,6 +25697,13 @@ pub async fn load_dataset_selection(
                     "El perfil guardado no corresponde al formato de este archivo.".to_owned(),
                 );
             }
+            if is_delimited {
+                import_conventions::validate_profile_conventions(
+                    profile,
+                    date_convention,
+                    number_convention,
+                )?;
+            }
             if is_delimited && profile.header_mode != Some(selected_header_mode) {
                 return Err("Las opciones elegidas no coinciden con el perfil guardado.".to_owned());
             }
@@ -25716,7 +25726,7 @@ pub async fn load_dataset_selection(
             }
         }
         let mut deferred_history = None;
-        let (frame, preview, row_count, source_backed) = if spreadsheet_extensions(&extension) {
+        let (mut frame, mut preview, row_count, source_backed) = if spreadsheet_extensions(&extension) {
             let header_mode = header_mode
                 .ok_or_else(|| "Elige cómo interpretar los encabezados del libro.".to_owned())?;
             let index = sheet_id
@@ -25851,6 +25861,30 @@ pub async fn load_dataset_selection(
         };
         let state = app.state::<DatasetState>();
         ensure_not_cancelled(state.load_was_cancelled(generation))?;
+        let conventions_selected = date_convention
+            .is_some_and(|value| value != ImportDateConvention::Unresolved)
+            || number_convention
+                .is_some_and(|value| value != ImportNumberConvention::Unresolved);
+        if is_delimited && conventions_selected {
+            if source_backed {
+                return Err(
+                    "Las convenciones de fecha y número requieren una carga en memoria; este archivo supera el límite de materialización segura. Importa sin convenciones o usa un archivo más pequeño."
+                        .to_owned(),
+                );
+            }
+            let cancellation_app = app.clone();
+            frame = import_conventions::apply_import_conventions(
+                &frame,
+                date_convention,
+                number_convention,
+                || {
+                    cancellation_app
+                        .state::<DatasetState>()
+                        .load_was_cancelled(generation)
+                },
+            )?;
+            preview = dataset_preview(&pending.path, &frame)?;
+        }
         if let Some(profile) = expected_profile.as_ref() {
             if let Some(mismatch) = import_profile_schema_mismatch(profile, &frame) {
                 let details = serde_json::to_string(&mismatch).map_err(|_| {
