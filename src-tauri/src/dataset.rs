@@ -3264,6 +3264,7 @@ pub async fn probe_export_dataset(
     allow_unvalidated: bool,
 ) -> Result<ExportResult, String> {
     validate_quality_rules_payload(&quality_rules)?;
+    let generation = app.state::<DatasetState>().begin_export();
     let (frame, suggested_name) = {
         let state = app.state::<DatasetState>();
         let mut current = state
@@ -3273,7 +3274,7 @@ pub async fn probe_export_dataset(
         let dataset = current
             .as_mut()
             .ok_or_else(|| "No hay un dataset activo para el probe nativo.".to_owned())?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || state.export_was_cancelled(generation))?;
         let stem = Path::new(&dataset.file_name)
             .file_stem()
             .and_then(|stem| stem.to_str())
@@ -3284,7 +3285,6 @@ pub async fn probe_export_dataset(
         )
     };
 
-    let generation = app.state::<DatasetState>().begin_export();
     tauri::async_runtime::spawn_blocking(move || {
         enforce_export_quality_with_cancel(&frame, &quality_rules, allow_unvalidated, || {
             app.state::<DatasetState>().export_was_cancelled(generation)
@@ -16332,16 +16332,39 @@ fn load_source_backed_dataset_for_automation(
 }
 
 fn materialize_loaded_dataset(dataset: &mut LoadedDataset) -> Result<(), String> {
+    materialize_loaded_dataset_with_cancel(dataset, || false)
+}
+
+fn materialize_loaded_dataset_with_cancel<C>(
+    dataset: &mut LoadedDataset,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     if !dataset.source_backed {
         return Ok(());
     }
-    let frame = materialized_dataset_frame(dataset)?;
+    let frame = materialized_dataset_frame_with_cancel(dataset, &is_cancelled)?;
+    ensure_not_cancelled(is_cancelled())?;
     dataset.frame = frame;
     dataset.source_backed = false;
     Ok(())
 }
 
 fn materialized_dataset_frame(dataset: &LoadedDataset) -> Result<DataFrame, String> {
+    materialized_dataset_frame_with_cancel(dataset, || false)
+}
+
+fn materialized_dataset_frame_with_cancel<C>(
+    dataset: &LoadedDataset,
+    is_cancelled: C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     if !dataset.source_backed {
         return Ok(dataset.frame.clone());
     }
@@ -16351,6 +16374,7 @@ fn materialized_dataset_frame(dataset: &LoadedDataset) -> Result<DataFrame, Stri
         .as_deref()
         .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
     let (canonical, file_size, extension) = validate_dataset_file(path)?;
+    ensure_not_cancelled(is_cancelled())?;
     if file_size != dataset.file_size_bytes {
         return Err("El archivo source-backed cambió después de la carga.".to_owned());
     }
@@ -16361,20 +16385,25 @@ fn materialized_dataset_frame(dataset: &LoadedDataset) -> Result<DataFrame, Stri
         .unwrap_or(&canonical);
     let materialized_extension = dataset_extension(materialized_path)?;
     let frame = match materialized_extension.as_str() {
-        "csv" | "tsv" | "txt" => read_delimited_frame_with_header(
+        "csv" | "tsv" | "txt" => read_delimited_frame_with_header_and_cancel(
             materialized_path,
             &extension,
             dataset
                 .delimited_header_mode
                 .unwrap_or(SpreadsheetHeaderMode::FirstRow),
+            || is_cancelled(),
         )?,
-        "json" | "jsonl" | "ndjson" => load_json_records(materialized_path)?,
-        "parquet" => read_parquet_frame(materialized_path)?,
+        "json" | "jsonl" | "ndjson" => {
+            load_json_records_with_cancel(materialized_path, || is_cancelled())?
+        }
+        "parquet" => read_parquet_frame_with_cancel(materialized_path, || is_cancelled())?,
         _ => return Err("El formato source-backed no se puede materializar.".to_owned()),
     };
+    ensure_not_cancelled(is_cancelled())?;
     if frame.height() != dataset.row_count {
         return Err("El conteo del dataset source-backed cambió durante la lectura.".to_owned());
     }
+    ensure_not_cancelled(is_cancelled())?;
     Ok(frame)
 }
 
@@ -26096,11 +26125,7 @@ pub async fn join_dataset(
         })?;
         let context =
             source_backed_join_context(dataset).or_else(|| snapshot_backed_join_context(dataset));
-        let eager_frame = if context.is_none() {
-            Some(materialized_dataset_frame(dataset)?)
-        } else {
-            None
-        };
+        let eager_frame: Option<DataFrame> = None;
         let stamp = DatasetMutationStamp::capture(dataset);
         let file_name = dataset.file_name.clone();
         let file_size = dataset.file_size_bytes;
@@ -26203,7 +26228,9 @@ pub async fn join_dataset(
                         "El dataset activo cambió durante la operación de Review.".to_owned()
                     );
                 }
-                materialized_dataset_frame(dataset)?
+                materialized_dataset_frame_with_cancel(dataset, || {
+                    cancellation_for_eager.is_cancelled()
+                })?
             }
         };
         cancellation_for_eager.ensure()?;
@@ -26829,7 +26856,9 @@ pub async fn resolve_dataset_conflicts(
                         "El dataset activo cambió durante la operación de Review.".to_owned()
                     );
                 }
-                materialized_dataset_frame(dataset)?
+                materialized_dataset_frame_with_cancel(dataset, || {
+                    cancellation_for_work.is_cancelled()
+                })?
             }
         };
         cancellation_for_work.ensure()?;
@@ -26934,7 +26963,7 @@ pub async fn use_consolidated_dataset(app: AppHandle) -> Result<DatasetPreview, 
             if !expected_stamp.matches(dataset) {
                 return Err("El dataset activo cambió durante la consolidación.".to_owned());
             }
-            materialized_dataset_frame(dataset)?
+            materialized_dataset_frame_with_cancel(dataset, || cancellation.is_cancelled())?
         };
         if current_frame.get_column_names() != compared_frame.get_column_names()
             || current_frame
@@ -27685,7 +27714,9 @@ pub async fn query_dataset(
             if source_backed_query {
                 return Err(SOURCE_BACKED_QUERY_ERROR.to_owned());
             }
-            materialize_loaded_dataset(dataset)?;
+            materialize_loaded_dataset_with_cancel(dataset, || {
+                state.query_was_cancelled(generation)
+            })?;
             let compared_frame = comparison
                 .as_ref()
                 .map(|pending| read_parquet_frame(&pending.snapshot_path))
@@ -27922,7 +27953,10 @@ pub async fn get_dataset_profile(
             return Ok(profile);
         }
 
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || {
+            app.state::<DatasetState>()
+                .profile_was_cancelled(generation)
+        })?;
 
         let profile = profile_dataset_with_progress(
             &dataset.frame,
@@ -28463,8 +28497,11 @@ pub async fn export_dataset(
             return Ok(result);
         }
     }
-    let (frame, suggested_name) = {
-        let state = app.state::<DatasetState>();
+    let generation = app.state::<DatasetState>().begin_export();
+    let preparation_app = app.clone();
+    let output_extension = format.extension().to_owned();
+    let (frame, suggested_name) = tauri::async_runtime::spawn_blocking(move || {
+        let state = preparation_app.state::<DatasetState>();
         let mut current = state
             .current
             .lock()
@@ -28472,20 +28509,21 @@ pub async fn export_dataset(
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || state.export_was_cancelled(generation))?;
         let stem = Path::new(&dataset.file_name)
             .file_stem()
             .and_then(|stem| stem.to_str())
             .unwrap_or("dataset");
-        (
+        Ok::<_, String>((
             dataset.frame.clone(),
-            format!("{stem}-columnia.{}", format.extension()),
-        )
-    };
+            format!("{stem}-columnia.{output_extension}"),
+        ))
+    })
+    .await
+    .map_err(|error| format!("La preparación previa a la exportación se interrumpió: {error}"))??;
 
     // La compuerta se evalúa sobre el mismo snapshot que después será escrito y
     // antes de abrir el selector, para que una exportación bloqueada no solicite destino.
-    let generation = app.state::<DatasetState>().begin_export();
     let validation_app = app.clone();
     let (frame, suggested_name, quality_validation) =
         tauri::async_runtime::spawn_blocking(move || {
@@ -28917,7 +28955,11 @@ pub async fn export_dataset_to_database(
             let dataset = current.as_mut().ok_or_else(|| {
                 "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
             })?;
-            materialize_loaded_dataset(dataset)?;
+            materialize_loaded_dataset_with_cancel(dataset, || {
+                preparation_app
+                    .state::<DatasetState>()
+                    .export_was_cancelled(generation)
+            })?;
             dataset.frame.clone()
         };
         let validation_app = preparation_app.clone();
@@ -29129,7 +29171,7 @@ pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (cleaned, affected_row_count) = remove_duplicate_rows(&dataset.frame)?;
         cancellation.ensure()?;
 
@@ -29174,7 +29216,7 @@ pub async fn remove_near_duplicates(app: AppHandle) -> Result<DatasetMutation, S
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (cleaned, affected_row_count) = remove_near_duplicate_rows(&dataset.frame)?;
         cancellation.ensure()?;
 
@@ -29219,7 +29261,7 @@ pub async fn remove_empty_rows(app: AppHandle) -> Result<DatasetMutation, String
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (cleaned, affected_row_count) = remove_empty_rows_from_frame(&dataset.frame)?;
         cancellation.ensure()?;
         let preview = if affected_row_count > 0 {
@@ -29262,7 +29304,7 @@ pub async fn enable_row_audit(app: AppHandle) -> Result<DatasetMutation, String>
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (candidate, added) = add_audit_column_to_frame(&dataset.frame)?;
         cancellation.ensure()?;
         let preview = if added {
@@ -29308,7 +29350,7 @@ pub async fn remove_constant_columns(app: AppHandle) -> Result<ColumnRemovalResu
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (cleaned, removed_columns) = remove_constant_columns_from_frame(&dataset.frame)?;
         cancellation.ensure()?;
         let preview = if removed_columns.is_empty() {
@@ -29355,7 +29397,7 @@ pub async fn remove_empty_columns(app: AppHandle) -> Result<ColumnRemovalResult,
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (cleaned, removed_columns) = remove_empty_columns_from_frame(&dataset.frame)?;
         cancellation.ensure()?;
         let preview = if removed_columns.is_empty() {
@@ -29402,7 +29444,7 @@ pub async fn remove_high_null_columns(app: AppHandle) -> Result<ColumnRemovalRes
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (cleaned, removed_columns) = remove_high_null_columns_from_frame(&dataset.frame)?;
         cancellation.ensure()?;
         let preview = if removed_columns.is_empty() {
@@ -29451,7 +29493,7 @@ pub async fn remove_identifier_columns(app: AppHandle) -> Result<ColumnRemovalRe
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (cleaned, removed_columns) = remove_identifier_columns_from_frame(&dataset.frame)?;
         cancellation.ensure()?;
         let preview = if removed_columns.is_empty() {
@@ -29501,7 +29543,7 @@ pub async fn remove_personal_columns(app: AppHandle) -> Result<ColumnRemovalResu
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (cleaned, removed_columns) = remove_personal_columns_from_frame(&dataset.frame)?;
         cancellation.ensure()?;
         let removed_column_count = removed_columns.len();
@@ -29549,7 +29591,7 @@ pub async fn mask_personal_values(app: AppHandle) -> Result<PersonalDataMaskResu
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (masked, changed_cell_count, changed_column_count) =
             mask_personal_values_from_frame(&dataset.frame)?;
         cancellation.ensure()?;
@@ -29594,7 +29636,7 @@ pub async fn normalize_column_names(app: AppHandle) -> Result<ColumnNormalizatio
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (names, renames) = normalized_column_names(&dataset.frame);
         cancellation.ensure()?;
 
@@ -29649,7 +29691,7 @@ fn apply_text_cleaning(
         }
     }
     cancellation.ensure()?;
-    materialize_loaded_dataset(dataset)?;
+    materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
     let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
         clean_text_columns(&dataset.frame, selected_columns.as_deref(), mode)?;
     cancellation.ensure()?;
@@ -29696,7 +29738,7 @@ fn apply_date_parsing(
         }
     }
     cancellation.ensure()?;
-    materialize_loaded_dataset(dataset)?;
+    materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
     let (parsed, affected_row_count, changed_cell_count, changed_columns) =
         parse_inferred_date_columns(&dataset.frame)?;
     cancellation.ensure()?;
@@ -29739,7 +29781,7 @@ fn apply_numeric_cast(
         }
     }
     cancellation.ensure()?;
-    materialize_loaded_dataset(dataset)?;
+    materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
     let (cast, affected_row_count, changed_cell_count, changed_columns) =
         cast_inferred_numeric_columns(&dataset.frame)?;
     cancellation.ensure()?;
@@ -29873,7 +29915,7 @@ pub async fn impute_missing_values(app: AppHandle) -> Result<TextCleaningResult,
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
             impute_missing_values_in_frame(&dataset.frame)?;
         cancellation.ensure()?;
@@ -29919,7 +29961,7 @@ pub async fn impute_categorical_values(app: AppHandle) -> Result<TextCleaningRes
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
             impute_categorical_values_in_frame(&dataset.frame)?;
         cancellation.ensure()?;
@@ -29968,7 +30010,7 @@ pub async fn impute_outlier_values(app: AppHandle) -> Result<TextCleaningResult,
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
             impute_outlier_values_in_frame(&dataset.frame)?;
         cancellation.ensure()?;
@@ -30022,7 +30064,7 @@ fn apply_direct_outlier_mode(
         }
     }
     cancellation.ensure()?;
-    materialize_loaded_dataset(dataset)?;
+    materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
     let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
         apply_outlier_mode(&dataset.frame, mode)?;
     cancellation.ensure()?;
@@ -30103,7 +30145,7 @@ pub async fn apply_safe_corrections(
             }
         }
         cancellation.ensure()?;
-        materialize_loaded_dataset(dataset)?;
+        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
 
         let (candidate, affected_row_count, changed_cell_count, removed_row_count, renames) =
             safe_corrected_frame(
@@ -38186,7 +38228,7 @@ impl DatasetState {
                 MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
             )?
         } else {
-            materialize_loaded_dataset(dataset)?;
+            materialize_loaded_dataset_with_cancel(dataset, &is_cancelled)?;
             profile_dataset_with_progress(
                 &dataset.frame,
                 report,
@@ -38487,9 +38529,17 @@ fn apply_recipe_to_dataset_with_policy_and_cancellation(
         );
     }
     let source_frame = if requires_eager_exception_handling && dataset.source_backed {
-        Some(materialized_dataset_frame(dataset)?)
+        Some(if let Some(cancellation) = cancellation {
+            materialized_dataset_frame_with_cancel(dataset, || cancellation.is_cancelled())?
+        } else {
+            materialized_dataset_frame(dataset)?
+        })
     } else {
-        materialize_loaded_dataset(dataset)?;
+        if let Some(cancellation) = cancellation {
+            materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
+        } else {
+            materialize_loaded_dataset(dataset)?;
+        }
         None
     };
     if let Some(cancellation) = cancellation {

@@ -20,6 +20,12 @@ los artefactos de validación locales.
   el JOIN eager de Review acumula el resultado por bloques cancelables y solo lo
   devuelve al completarse.
 
+- La cancelación ya se propaga a los fallbacks eager source-backed de JOIN,
+  resolución/consolidación de Review, mutaciones y recetas de Preparar, y
+  exportaciones local/ODBC. CSV/TSV/TXT y Parquet interrumpen entre lotes;
+  JSON/JSONL/NDJSON, entre registros. El dataset conserva el estado
+  source-backed si se cancela la lectura.
+
 - Las seis auditorías fechadas se fusionan en `AUDITORIA.md`. Tier 9 y el índice
   `roadmap-current.md` reúnen 16 resultados pendientes con valor operativo,
   eliminan duplicados y dejan fuera ampliaciones sin demanda demostrada. El gate

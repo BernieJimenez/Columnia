@@ -34,9 +34,13 @@ acumula filas por bloques; XLS/ODS conserva la lectura completa mediante
 `worksheet_range`.
 El JOIN eager de Review recorre bloques de filas activas y comprueba cancelación
 entre bloques, repitiendo el JOIN contra el dataset comparado para cada bloque.
-El fallback eager source-backed conserva su límite de materialización, pero no
-interrumpe el parser; los selectores nativos siguen siendo modales. Las rutas
-cooperativas descartan el resultado incompleto.
+Las materializaciones eager source-backed usadas como fallback por JOIN,
+resolución/consolidación de Review, mutaciones/recetas de Preparar y exportaciones
+local/ODBC ahora aceptan el token de cancelación. CSV/TSV/TXT y Parquet
+interrumpen entre lotes; JSON/JSONL/NDJSON, entre registros. El dataset permanece
+source-backed hasta que termina la lectura. La comparación de archivos, otros
+comandos sin token y los selectores nativos modales siguen pendientes. Las rutas
+canceladas descartan el resultado incompleto.
 
 Las tareas reutilizables aplican reglas, formato, privacidad y receta como
 borrador al importar un archivo con el perfil y esquema guardados; la receta
@@ -89,10 +93,10 @@ Siguen abiertos los criterios con evidencia que no se puede fabricar localmente:
 la beta de tres participantes y su resumen sanitizado; accesibilidad manual con
 lector de pantalla/alto contraste; round-trip contra SQL Server real; y un
 candidato binario/canal autorizado probado en VM limpia.
-RV04 conserva los formatos `.xls`/`.ods` monolíticos, la lectura interna del
-fallback eager source-backed y el selector nativo modal; también falta medir el
-coste del JOIN por bloques y validar cancelación con datos reales en una sesión
-nativa. RV14 requiere seleccionar y validar la herramienta BI a partir de beta.
+RV04 conserva los formatos `.xls`/`.ods` monolíticos, los comandos sin token de
+cancelación y el selector nativo modal. También falta medir el coste del JOIN
+por bloques y validar cancelación con datos reales en una sesión nativa. RV14
+requiere seleccionar y validar la herramienta BI a partir de beta.
 No sustituir estas evidencias por fixtures o resultados sintéticos.
 
 ### Registro histórico de verificación — corte 2026-09-12
