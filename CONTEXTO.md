@@ -44,8 +44,10 @@ publica al final, bajo un gate que ordena cancelación y commit. El selector nat
 es modal y no se puede cerrar desde este control mientras está abierto; XLS/ODS
 conserva la lectura `worksheet_range` monolítica. El conteo y la escritura de un
 snapshot eager comprueban cancelación después de terminar su llamada síncrona. La
-paginación de conflictos y otros comandos todavía tienen rutas sin token; las
-rutas canceladas descartan el resultado incompleto.
+paginación de conflictos eager y source-backed comparte el token
+`datasetComparison`; Review permite cancelar su carga y conserva la página previa
+si la cancelación gana. Otros comandos todavía tienen rutas sin token y las rutas
+canceladas descartan el resultado incompleto.
 
 Las tareas reutilizables aplican reglas, formato, privacidad y receta como
 borrador al importar un archivo con el perfil y esquema guardados; la receta

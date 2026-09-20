@@ -31,6 +31,11 @@ los artefactos de validación locales.
   termina y la cancelación no gana la carrera de commit. El selector nativo sigue
   siendo modal; XLS/ODS conserva su lectura monolítica.
 
+- La paginación de conflictos de Review también usa `datasetComparison` en las
+  rutas source-backed y eager. El control «Cancelar carga» interrumpe la
+  materialización y el recorrido por bloques/registros, y conserva la página
+  anterior si la cancelación gana la carrera de respuesta.
+
 - Las seis auditorías fechadas se fusionan en `AUDITORIA.md`. Tier 9 y el índice
   `roadmap-current.md` reúnen 16 resultados pendientes con valor operativo,
   eliminan duplicados y dejan fuera ampliaciones sin demanda demostrada. El gate

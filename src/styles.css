@@ -809,7 +809,7 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 .conflict-resolution__choices label { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 7px 10px; border: 1px solid #ddc78f; background: #fff8dc; color: #694f1e; cursor: pointer; }
 .conflict-resolution__choices label:has(input:checked) { border-color: #9a6e18; background: #f7e9bc; }
 .conflict-resolution__choices input { flex: 0 0 auto; }
-.conflict-resolution__pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #765f2f; font-size: .78rem; }
+.conflict-resolution__pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; color: #765f2f; font-size: .78rem; }
 .conflict-resolution__pager button { min-height: 44px; padding: 7px 10px; border: 1px solid #ddc78f; background: #fff8dc; color: #694f1e; }
 .conflict-resolution__pager button:disabled { cursor: not-allowed; opacity: .55; }
 .comparison-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }

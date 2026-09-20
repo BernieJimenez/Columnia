@@ -244,6 +244,8 @@ function DatasetComparisonSection({
   const [conflictChoices, setConflictChoices] = useState<Record<string, ConflictSource>>({});
   const [excludedConflictIndexes, setExcludedConflictIndexes] = useState<Record<number, true>>({});
   const [conflictPageLoading, setConflictPageLoading] = useState(false);
+  const [conflictPageCancellationPending, setConflictPageCancellationPending] = useState(false);
+  const [conflictPageCancellationError, setConflictPageCancellationError] = useState<string | null>(null);
   const comparisonKeyColumnsKey = JSON.stringify(keyColumns);
   useEffect(() => {
     setConflictChoices({});
@@ -325,10 +327,25 @@ function DatasetComparisonSection({
 
   async function requestConflictPage(offset: number) {
     setConflictPageLoading(true);
+    setConflictPageCancellationPending(false);
+    setConflictPageCancellationError(null);
     try {
       await onConflictPageChange(offset);
     } finally {
       setConflictPageLoading(false);
+      setConflictPageCancellationPending(false);
+    }
+  }
+
+  async function cancelConflictPage() {
+    if (!conflictPageLoading || conflictPageCancellationPending) return;
+    setConflictPageCancellationPending(true);
+    setConflictPageCancellationError(null);
+    try {
+      await cancelOperation("datasetComparison");
+    } catch (error: unknown) {
+      setConflictPageCancellationError(error instanceof Error ? error.message : String(error));
+      setConflictPageCancellationPending(false);
     }
   }
 
@@ -645,7 +662,20 @@ function DatasetComparisonSection({
                   >
                     {conflictPageLoading ? "Cargando conflictos…" : "Siguientes conflictos"}
                   </button>
+                  {conflictPageLoading && (
+                    <button
+                      type="button"
+                      className="secondary-action"
+                      onClick={() => void cancelConflictPage()}
+                      disabled={conflictPageCancellationPending}
+                    >
+                      {conflictPageCancellationPending ? "Esperando cancelación…" : "Cancelar carga"}
+                    </button>
+                  )}
                 </nav>
+              )}
+              {conflictPageCancellationError && (
+                <p className="notice" role="alert">No se pudo cancelar la carga de conflictos: {conflictPageCancellationError}</p>
               )}
             </section>
           )}

@@ -892,6 +892,7 @@ export function App() {
     if (comparisonOperationInFlightRef.current) return;
     comparisonOperationInFlightRef.current = true;
     const requestId = ++comparisonRequestRef.current;
+    comparisonPageRequestRef.current += 1;
     const requestedRevision = datasetRevisionRef.current;
     const previousComparisonStatus = comparisonStatus;
     setReviewMutationStatus({ kind: "idle" });
@@ -923,8 +924,10 @@ export function App() {
     if (comparisonOperationInFlightRef.current) return;
     comparisonOperationInFlightRef.current = true;
     const requestId = ++comparisonRequestRef.current;
+    comparisonPageRequestRef.current += 1;
     setReviewMutationStatus({ kind: "idle" });
     try {
+      await cancelOperation("datasetComparison");
       await clearDatasetComparison();
       if (comparisonRequestRef.current !== requestId) return;
       setComparisonStatus(clearComparison());
@@ -941,6 +944,7 @@ export function App() {
     if (comparisonStatus.kind !== "ready") return;
     const requestId = ++comparisonPageRequestRef.current;
     const requestedRevision = datasetRevisionRef.current;
+    const previousComparisonStatus = comparisonStatus;
     try {
       const page = await getDatasetConflictPage(offset, CONFLICT_PAGE_SIZE);
       if (comparisonPageRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
@@ -953,6 +957,10 @@ export function App() {
       }));
     } catch (error: unknown) {
       if (comparisonPageRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
+      if (isCancellationError(error)) {
+        setComparisonStatus(previousComparisonStatus);
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       setComparisonStatus(failComparison(message));
     }
@@ -1699,7 +1707,7 @@ export function App() {
                 onClearComparison={() => void clearActiveComparison()}
                 onConsolidate={() => void consolidateComparedDataset()}
                 onResolveConflicts={(decisions) => void resolveComparedConflicts(decisions)}
-                onConflictPageChange={(offset) => void changeConflictPage(offset)}
+                onConflictPageChange={(offset) => changeConflictPage(offset)}
                 onJoin={(requestedJoinType) => void joinActiveDataset(requestedJoinType)}
                 onCancelReviewMutation={() => void cancelActiveReviewMutation()}
                 sqlHistory={sqlHistory}
