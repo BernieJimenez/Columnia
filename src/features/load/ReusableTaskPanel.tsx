@@ -292,7 +292,7 @@ export function ReusableTaskPanel({
             {pendingTaskId && (
               <div className="notice notice--success reusable-task-panel__pending" role="status">
                 <span>
-                  Tarea “{pendingTaskName ?? reusableTasks.tasks.find((task) => task.id === pendingTaskId)?.name ?? "guardada"}” preparada. Su perfil se usará al elegir otro archivo; los demás ajustes se pedirán antes de aplicarse.
+                  Tarea “{pendingTaskName ?? reusableTasks.tasks.find((task) => task.id === pendingTaskId)?.name ?? "guardada"}” preparada. Al importar un archivo con el esquema compatible se aplicarán sus reglas y opciones de entrega; la receta quedará como borrador y no se ejecutará hasta que la apliques.
                 </span>
                 <button type="button" className="inline-action" onClick={onClearPendingImport} disabled={blocked}>
                   Quitar

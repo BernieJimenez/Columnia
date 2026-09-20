@@ -173,6 +173,7 @@ async function prepareReusableTaskBeforeImport(task: ReusableTask, summary: Reus
   await screen.findByText("Configuración que se reutilizará");
   fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));
   expect(await screen.findByText(/Tarea “Cierre recurrente” preparada/)).toBeInTheDocument();
+  expect(screen.getByText(/la receta quedará como borrador/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Seleccionar dataset" }));
 }
 
@@ -354,7 +355,7 @@ describe("App", () => {
     expect(applyRecipeSpy).toHaveBeenCalledOnce();
   });
 
-  it("preselecciona una tarea antes del archivo, usa su perfil y pide aplicar el resto de la configuración", async () => {
+  it("aplica la configuración no mutadora de una tarea compatible al importar, sin ejecutar su receta", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
       name: "Columnia", version: "0.26.0", platform: "windows",
@@ -374,23 +375,21 @@ describe("App", () => {
     expect(importCall?.[5]).toBe(task.importProfile.dateConvention);
     expect(importCall?.[6]).toBe(task.importProfile.numberConvention);
 
-    const review = await screen.findByRole("dialog", { name: "Revisa la configuración guardada" });
-    expect(within(review).getByText("Renombrar id")).toBeInTheDocument();
-    expect(within(review).getByText("JSON · mask")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Revisa la configuración guardada" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
     expect(applyRecipeSpy).not.toHaveBeenCalled();
 
-    fireEvent.click(within(review).getByRole("button", { name: "Aplicar tarea guardada" }));
-    await screen.findByRole("tab", { name: "Transformaciones" });
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Renombrar id");
     expect(applyRecipeSpy).not.toHaveBeenCalled();
 
     await switchPhase("Entregar");
+    expect(screen.getByText(/id: no admite valores nulos/)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("json");
     expect(screen.getByRole("combobox", { name: "Protección de datos personales" })).toHaveValue("mask");
   });
 
-  it("reutiliza un perfil CSV con encabezados generados y conserva la primera fila como dato", async () => {
+  it("reutiliza un perfil CSV con encabezados generados, conserva la primera fila y no muestra otra confirmación", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
       name: "Columnia", version: "0.26.0", platform: "windows",
@@ -413,7 +412,6 @@ describe("App", () => {
 
     await prepareReusableTaskBeforeImport(generatedTask, summary);
 
-    const review = await screen.findByRole("dialog", { name: "Revisa la configuración guardada" });
     await waitFor(() => expect(loadSpy).toHaveBeenCalledOnce());
     expect(loadSpy).toHaveBeenCalledWith(
       "selection-test",
@@ -424,7 +422,9 @@ describe("App", () => {
       generatedProfile.dateConvention,
       generatedProfile.numberConvention,
     );
-    fireEvent.click(within(review).getByRole("button", { name: "Seguir sin esos ajustes" }));
+    expect(screen.queryByRole("dialog", { name: "Revisa la configuración guardada" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
+    await switchPhase("Revisar");
     fireEvent.click(await screen.findByRole("tab", { name: "Vista previa" }));
     expect(await screen.findByRole("cell", { name: "id" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "001" })).toBeInTheDocument();
@@ -460,6 +460,7 @@ describe("App", () => {
     fireEvent.click(within(mismatchDialog).getByRole("button", { name: "Importar con esquema nuevo" }));
     const applicationReview = await screen.findByRole("dialog", { name: "Revisa la configuración guardada" });
     expect(applicationReview).toHaveTextContent("Confirmaste un esquema distinto");
+    expect(applicationReview).toHaveTextContent("la interpretación predeterminada");
     expect(loadSpy).toHaveBeenCalledTimes(2);
     expect(loadSpy.mock.calls[1]?.[4]).toBeNull();
     expect(applyRecipeSpy).not.toHaveBeenCalled();

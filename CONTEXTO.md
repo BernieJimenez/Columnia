@@ -31,6 +31,11 @@ el JOIN eager de Polars y el selector nativo son no cooperativos/modal: una
 cancelación puede esperar a que termine esa llamada, aunque no publica una
 revisión parcial.
 
+Las tareas reutilizables aplican reglas, formato, privacidad y receta como
+borrador al importar un archivo con el perfil y esquema guardados; la receta
+requiere ejecución explícita. Si el perfil no se usa o el esquema cambia, la
+interfaz conserva la revisión de la configuración antes de aplicarla.
+
 Verificación más reciente: `npm test` 425/425, `npm run test:e2e` 21/21,
 `npm run build`, `npm run ipc:check`, `npm run docs:check`, `cargo fmt --check` y
 `cargo check --tests` pasan. La suite Rust completa pasó 490 pruebas, con 0

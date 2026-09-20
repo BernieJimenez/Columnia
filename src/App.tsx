@@ -581,13 +581,20 @@ export function App() {
         { sheetId, headerMode },
         delimitedConventions,
       ));
+      const applyQueuedTaskAutomatically = taskForReview !== null
+        && expectedProfile !== null
+        && !schemaMismatchConfirmed;
       if (taskForReview) {
         setQueuedReusableTask(null);
-        setReusableTaskApplicationReview({
-          task: taskForReview,
-          importProfileUsed: expectedProfile !== null || schemaMismatchConfirmed,
-          schemaMismatchConfirmed,
-        });
+        if (applyQueuedTaskAutomatically) {
+          setReusableTaskApplicationReview(null);
+        } else {
+          setReusableTaskApplicationReview({
+            task: taskForReview,
+            importProfileUsed: expectedProfile !== null,
+            schemaMismatchConfirmed,
+          });
+        }
       }
       setRecentDatasets((current) => rememberRecentDataset(current, {
         fileName: source.fileName,
@@ -618,7 +625,11 @@ export function App() {
       if (loadRequestRef.current !== requestId) return;
       setExportStatus({ kind: "idle" });
       setReviewTab("diagnosis");
-      setActivePhase("review");
+      if (applyQueuedTaskAutomatically && taskForReview) {
+        applyReusableTask(taskForReview, true);
+      } else {
+        setActivePhase("review");
+      }
     } catch (error: unknown) {
       if (!isCurrentRequest()) return;
       setDatasetStatus(restoreDatasetAfterLoadFailure);
