@@ -15,6 +15,11 @@ los artefactos de validación locales.
 
 ### Interno
 
+- La importación eager comprueba cancelación entre bloques de CSV/TSV/TXT y
+  Parquet, y entre registros JSON/JSONL. XLSX/XLSB recorre celdas por bloques;
+  el JOIN eager de Review acumula el resultado por bloques cancelables y solo lo
+  devuelve al completarse.
+
 - Las seis auditorías fechadas se fusionan en `AUDITORIA.md`. Tier 9 y el índice
   `roadmap-current.md` reúnen 16 resultados pendientes con valor operativo,
   eliminan duplicados y dejan fuera ampliaciones sin demanda demostrada. El gate

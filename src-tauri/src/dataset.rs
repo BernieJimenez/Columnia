@@ -5,11 +5,11 @@ use std::{
     collections::VecDeque,
     ffi::OsStr,
     fs::{self, File, OpenOptions},
-    io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
+    io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc, Mutex,
+        mpsc, Arc, Mutex,
     },
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -26,7 +26,7 @@ use rayon::prelude::*;
 use regex::Regex;
 use rusqlite::{params_from_iter, types::Value as SqlValue, Connection};
 use serde::{
-    de::{SeqAccess, Visitor},
+    de::{DeserializeSeed, SeqAccess, Visitor},
     Deserialize, Deserializer, Serialize,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -142,6 +142,7 @@ const MAX_TEMPORAL_PERIODS: usize = 48;
 const MAX_TEMPORAL_DAY_SPAN: i64 = 90;
 const MAX_TEMPORAL_MONTH_SPAN: i64 = 36;
 const LOCAL_QUERY_BLOCK_ROWS: usize = 16 * 1024;
+const CANCELLABLE_READ_BATCH_ROWS: usize = 8 * 1024;
 const SOURCE_PROFILE_BLOCK_ROWS: usize = 4 * LOCAL_QUERY_BLOCK_ROWS;
 const LOCAL_QUERY_CANCEL_CHECK_ROWS: usize = 4096;
 const LOCAL_QUERY_JOIN_MAX_INPUT_ROWS: usize = 2_000_000;
@@ -14867,7 +14868,7 @@ fn visit_streamed_spreadsheet_cells<F>(
     is_cancelled: impl Fn() -> bool,
 ) -> Result<(), String>
 where
-    F: FnMut(Dimensions, (u32, u32), Data),
+    F: FnMut(Dimensions, (u32, u32), Data) -> Result<(), String>,
 {
     let mut workbook = open_workbook_auto(path)
         .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
@@ -14891,7 +14892,7 @@ where
                     dimensions,
                     cell.get_position(),
                     cell.get_value().clone().into(),
-                );
+                )?;
             }
         }
         Sheets::Xlsb(workbook) => {
@@ -14913,7 +14914,7 @@ where
                     dimensions,
                     cell.get_position(),
                     cell.get_value().clone().into(),
-                );
+                )?;
             }
         }
         Sheets::Xls(_) | Sheets::Ods(_) => return Err(SPREADSHEET_STREAMING_UNSUPPORTED.to_owned()),
@@ -14944,6 +14945,7 @@ fn spreadsheet_snapshot_plan_from_stream(
                     builder.visit(position, value);
                 }
             }
+            Ok(())
         },
         is_cancelled,
     )?;
@@ -15024,6 +15026,85 @@ where
         .map_err(|error| format!("No se pudo cerrar el snapshot Excel: {error}"))?;
     file.sync_all()
         .map_err(|error| format!("No se pudo sincronizar el snapshot Excel: {error}"))
+}
+
+fn read_streamed_spreadsheet_frame<C>(
+    path: &Path,
+    sheet_name: &str,
+    plan: &SpreadsheetSnapshotPlan,
+    is_cancelled: C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let mut frame = spreadsheet_block_frame(plan, &[])?;
+    let block_count = plan.data_rows.div_ceil(SPREADSHEET_SNAPSHOT_BLOCK_ROWS);
+    if block_count == 0 {
+        return Ok(frame);
+    }
+
+    let mut current_block = 0_usize;
+    let mut rows = empty_spreadsheet_block(plan, current_block);
+    visit_streamed_spreadsheet_cells(
+        path,
+        sheet_name,
+        |_, position, value| {
+            let Some(row) = position.0.checked_sub(plan.start.0) else {
+                return Ok(());
+            };
+            let Some(column) = position.1.checked_sub(plan.start.1) else {
+                return Ok(());
+            };
+            let Some(row) = usize::try_from(row).ok() else {
+                return Ok(());
+            };
+            let Some(column) = usize::try_from(column).ok() else {
+                return Ok(());
+            };
+            if row >= plan.height || column >= plan.width || row < plan.data_start {
+                return Ok(());
+            }
+            let data_row = row - plan.data_start;
+            if data_row >= plan.data_rows {
+                return Ok(());
+            }
+            let block_index = data_row / SPREADSHEET_SNAPSHOT_BLOCK_ROWS;
+            if block_index < current_block {
+                return Err("El lector Excel devolvió celdas fuera de orden.".to_owned());
+            }
+            while current_block < block_index {
+                ensure_not_cancelled(is_cancelled())?;
+                let block = spreadsheet_block_frame(plan, &rows)?;
+                frame.vstack_mut(&block).map_err(|error| {
+                    format!("No se pudo acumular un bloque de la hoja Excel: {error}")
+                })?;
+                current_block += 1;
+                if current_block < block_count {
+                    rows = empty_spreadsheet_block(plan, current_block);
+                }
+            }
+            if current_block < block_count {
+                rows[data_row % SPREADSHEET_SNAPSHOT_BLOCK_ROWS][column] = value;
+            }
+            Ok(())
+        },
+        || is_cancelled(),
+    )?;
+
+    while current_block < block_count {
+        ensure_not_cancelled(is_cancelled())?;
+        let block = spreadsheet_block_frame(plan, &rows)?;
+        frame
+            .vstack_mut(&block)
+            .map_err(|error| format!("No se pudo acumular un bloque de la hoja Excel: {error}"))?;
+        current_block += 1;
+        if current_block < block_count {
+            rows = empty_spreadsheet_block(plan, current_block);
+        }
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    Ok(frame)
 }
 
 fn write_streamed_spreadsheet_snapshot(
@@ -15108,7 +15189,38 @@ fn spreadsheet_range_to_frame(
         .map_err(|error| format!("No se pudo construir el dataset desde la hoja: {error}"))
 }
 
+#[cfg(test)]
 fn load_spreadsheet_sheet(
+    path: &Path,
+    sheet_name: &str,
+    header_mode: SpreadsheetHeaderMode,
+) -> Result<DataFrame, String> {
+    load_spreadsheet_sheet_with_cancel(path, sheet_name, header_mode, || false)
+}
+
+fn load_spreadsheet_sheet_with_cancel<C>(
+    path: &Path,
+    sheet_name: &str,
+    header_mode: SpreadsheetHeaderMode,
+    is_cancelled: C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    match spreadsheet_snapshot_plan_from_stream(path, sheet_name, header_mode, || is_cancelled()) {
+        Ok(plan) => read_streamed_spreadsheet_frame(path, sheet_name, &plan, is_cancelled),
+        Err(error) if error == SPREADSHEET_STREAMING_UNSUPPORTED => {
+            ensure_not_cancelled(is_cancelled())?;
+            let frame = load_spreadsheet_sheet_range(path, sheet_name, header_mode)?;
+            ensure_not_cancelled(is_cancelled())?;
+            Ok(frame)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn load_spreadsheet_sheet_range(
     path: &Path,
     sheet_name: &str,
     header_mode: SpreadsheetHeaderMode,
@@ -15251,54 +15363,177 @@ fn json_records_to_frame(records: &[JsonMap<String, JsonValue>]) -> Result<DataF
         .map_err(|error| format!("No se pudo construir el dataset JSON: {error}"))
 }
 
+struct CancellableJsonRecordsSeed<C> {
+    is_cancelled: C,
+}
+
+impl<'de, C> DeserializeSeed<'de> for CancellableJsonRecordsSeed<C>
+where
+    C: Fn() -> bool,
+{
+    type Value = Vec<JsonMap<String, JsonValue>>;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(CancellableJsonRecordsVisitor {
+            is_cancelled: self.is_cancelled,
+        })
+    }
+}
+
+struct CancellableJsonRecordsVisitor<C> {
+    is_cancelled: C,
+}
+
+impl<'de, C> Visitor<'de> for CancellableJsonRecordsVisitor<C>
+where
+    C: Fn() -> bool,
+{
+    type Value = Vec<JsonMap<String, JsonValue>>;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("un arreglo JSON de objetos")
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        use serde::de::Error;
+
+        let mut records = Vec::new();
+        loop {
+            if (self.is_cancelled)() {
+                return Err(A::Error::custom(OPERATION_CANCELLED_MESSAGE));
+            }
+            let Some(value) = sequence.next_element::<JsonValue>()? else {
+                break;
+            };
+            if (self.is_cancelled)() {
+                return Err(A::Error::custom(OPERATION_CANCELLED_MESSAGE));
+            }
+            match value {
+                JsonValue::Object(record) => records.push(record),
+                _ => {
+                    return Err(A::Error::custom(format!(
+                        "El registro JSON {} no es un objeto.",
+                        records.len() + 1
+                    )));
+                }
+            }
+        }
+        Ok(records)
+    }
+}
+
+fn first_non_whitespace_json_byte<R>(reader: &mut R) -> std::io::Result<Option<u8>>
+where
+    R: BufRead,
+{
+    loop {
+        let (whitespace, first, at_eof) = {
+            let buffer = reader.fill_buf()?;
+            if buffer.is_empty() {
+                (0, None, true)
+            } else {
+                let whitespace = buffer
+                    .iter()
+                    .take_while(|byte| byte.is_ascii_whitespace())
+                    .count();
+                (whitespace, buffer.get(whitespace).copied(), false)
+            }
+        };
+        reader.consume(whitespace);
+        if first.is_some() || at_eof {
+            return Ok(first);
+        }
+    }
+}
+
 fn load_json_records(path: &Path) -> Result<DataFrame, String> {
+    load_json_records_with_cancel(path, || false)
+}
+
+fn load_json_records_with_cancel<C>(path: &Path, is_cancelled: C) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool,
+{
     let file =
         fs::File::open(path).map_err(|error| format!("No se pudo abrir el JSON: {error}"))?;
-    let mut values =
-        serde_json::Deserializer::from_reader(BufReader::new(file)).into_iter::<JsonValue>();
-    let first = values
-        .next()
-        .transpose()
-        .map_err(|error| format!("El JSON no es válido: {error}"))?
-        .ok_or_else(|| "El archivo JSON está vacío.".to_owned())?;
+    let mut reader = BufReader::new(file);
+    let first_byte = first_non_whitespace_json_byte(&mut reader)
+        .map_err(|error| format!("No se pudo leer el JSON: {error}"))?;
+    let cancellation = Arc::new(is_cancelled);
+    ensure_not_cancelled(cancellation())?;
 
-    let records = match first {
-        JsonValue::Array(items) => {
-            if values.next().is_some() {
+    let records = match first_byte {
+        Some(b'[') => {
+            let mut deserializer = serde_json::Deserializer::from_reader(reader);
+            let seed_cancellation = Arc::clone(&cancellation);
+            let records = CancellableJsonRecordsSeed {
+                is_cancelled: move || seed_cancellation(),
+            }
+            .deserialize(&mut deserializer)
+            .map_err(|error| {
+                if cancellation() {
+                    OPERATION_CANCELLED_MESSAGE.to_owned()
+                } else {
+                    format!("El JSON no es válido: {error}")
+                }
+            })?;
+            if deserializer.end().is_err() {
                 return Err("Un arreglo JSON debe ser el único valor del archivo.".to_owned());
             }
-            items
-                .into_iter()
-                .enumerate()
-                .map(|(index, value)| match value {
-                    JsonValue::Object(record) => Ok(record),
-                    _ => Err(format!("El registro JSON {} no es un objeto.", index + 1)),
-                })
-                .collect::<Result<Vec<_>, _>>()?
+            records
         }
-        JsonValue::Object(record) => {
+        Some(b'{') => {
+            let mut values = serde_json::Deserializer::from_reader(reader).into_iter::<JsonValue>();
+            let first = values
+                .next()
+                .transpose()
+                .map_err(|error| format!("El JSON no es válido: {error}"))?
+                .ok_or_else(|| "El archivo JSON está vacío.".to_owned())?;
+            ensure_not_cancelled(cancellation())?;
+            let JsonValue::Object(record) = first else {
+                return Err(
+                    "El JSON debe ser un arreglo de objetos o contener un objeto por línea."
+                        .to_owned(),
+                );
+            };
             let mut records = vec![record];
-            for (index, value) in values.enumerate() {
+            let mut record_number = 2_usize;
+            loop {
+                ensure_not_cancelled(cancellation())?;
+                let Some(value) = values.next() else {
+                    break;
+                };
                 let value = value.map_err(|error| format!("JSON Lines inválido: {error}"))?;
+                ensure_not_cancelled(cancellation())?;
                 match value {
                     JsonValue::Object(record) => records.push(record),
                     _ => {
                         return Err(format!(
-                            "La línea JSON {} no contiene un objeto.",
-                            index + 2
+                            "La línea JSON {record_number} no contiene un objeto."
                         ));
                     }
                 }
+                record_number = record_number.saturating_add(1);
             }
             records
         }
+        None => return Err("El archivo JSON está vacío.".to_owned()),
         _ => {
             return Err(
                 "El JSON debe ser un arreglo de objetos o contener un objeto por línea.".to_owned(),
             );
         }
     };
-    json_records_to_frame(&records)
+    ensure_not_cancelled(cancellation())?;
+    let frame = json_records_to_frame(&records)?;
+    ensure_not_cancelled(cancellation())?;
+    Ok(frame)
 }
 
 #[derive(Default)]
@@ -15501,6 +15736,74 @@ fn collect_lazy_frame_streaming(plan: LazyFrame, context: &str) -> Result<DataFr
         .map_err(|error| format!("{context}: {error}"))
 }
 
+fn collect_lazy_frame_streaming_with_cancel<C>(
+    plan: LazyFrame,
+    context: &str,
+    is_cancelled: &C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let schema = plan
+        .clone()
+        .collect_schema()
+        .map_err(|error| format!("{context}: {error}"))?;
+    let collected = Arc::new(Mutex::new(DataFrame::empty_with_schema(&schema)));
+    let callback_collected = Arc::clone(&collected);
+    let callback_cancelled = Arc::new(AtomicBool::new(false));
+    let callback_cancelled_state = Arc::clone(&callback_cancelled);
+    let callback_cancellation = Arc::clone(&callback_cancelled);
+    let plan = plan
+        .sink_batches(
+            PlanCallback::new(move |batch| {
+                if callback_cancellation.load(Ordering::Acquire) {
+                    return Ok(true);
+                }
+                let mut collected = callback_collected.lock().map_err(|_| {
+                    PolarsError::ComputeError(
+                        "No se pudo acumular un bloque leído del dataset.".into(),
+                    )
+                })?;
+                collected.vstack_mut(&batch)?;
+                Ok(callback_cancelled_state.load(Ordering::Acquire))
+            }),
+            true,
+            std::num::NonZeroUsize::new(CANCELLABLE_READ_BATCH_ROWS),
+        )
+        .map_err(|error| format!("{context}: {error}"))?;
+
+    let collect_result = std::thread::scope(|scope| {
+        let watcher_cancelled = Arc::clone(&callback_cancelled);
+        let watcher_stop = Arc::new(AtomicBool::new(false));
+        let watcher_stop_signal = Arc::clone(&watcher_stop);
+        let watcher = scope.spawn(move || {
+            while !watcher_stop_signal.load(Ordering::Acquire) {
+                if is_cancelled() {
+                    watcher_cancelled.store(true, Ordering::Release);
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        });
+        let result = plan
+            .collect_with_engine(Engine::Streaming)
+            .map(|_| ())
+            .map_err(|error| format!("{context}: {error}"));
+        watcher_stop.store(true, Ordering::Release);
+        if watcher.join().is_err() {
+            return Err("El monitor de cancelación de Polars terminó inesperadamente.".to_owned());
+        }
+        result
+    });
+    ensure_not_cancelled(callback_cancelled.load(Ordering::Acquire) || is_cancelled())?;
+    collect_result?;
+    collected
+        .lock()
+        .map(|frame| frame.clone())
+        .map_err(|_| "No se pudo recuperar el dataset leído por bloques.".to_owned())
+}
+
 fn delimited_scan(path: &Path, extension: &str) -> Result<LazyFrame, String> {
     delimited_scan_with_header(path, extension, true)
 }
@@ -15544,11 +15847,24 @@ fn read_delimited_frame_with_header(
     extension: &str,
     header_mode: SpreadsheetHeaderMode,
 ) -> Result<DataFrame, String> {
+    read_delimited_frame_with_header_and_cancel(path, extension, header_mode, || false)
+}
+
+fn read_delimited_frame_with_header_and_cancel<C>(
+    path: &Path,
+    extension: &str,
+    header_mode: SpreadsheetHeaderMode,
+    is_cancelled: C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
     let has_header = header_mode == SpreadsheetHeaderMode::FirstRow;
     let plan = delimited_scan_with_header(path, extension, has_header)?;
-    collect_lazy_frame_streaming(
+    collect_lazy_frame_streaming_with_cancel(
         plan,
         "No se pudo interpretar el archivo delimitado como UTF-8",
+        &is_cancelled,
     )
 }
 
@@ -15660,9 +15976,20 @@ fn parquet_scan(path: &Path) -> Result<LazyFrame, String> {
 }
 
 fn read_parquet_frame(path: &Path) -> Result<DataFrame, String> {
+    read_parquet_frame_with_cancel(path, || false)
+}
+
+fn read_parquet_frame_with_cancel<C>(path: &Path, is_cancelled: C) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
     ensure_materialization_budget_for_path(path)?;
     let plan = parquet_scan(path)?;
-    collect_lazy_frame_streaming(plan, "No se pudo interpretar el Parquet")
+    collect_lazy_frame_streaming_with_cancel(
+        plan,
+        "No se pudo interpretar el Parquet",
+        &is_cancelled,
+    )
 }
 
 fn validate_staged_history_snapshot(
@@ -16134,7 +16461,7 @@ fn load_dataset_with_progress<F, C>(
 ) -> Result<(DataFrame, DatasetPreview), String>
 where
     F: FnMut(&'static str, u8),
-    C: Fn() -> bool,
+    C: Fn() -> bool + Sync,
 {
     load_dataset_with_header_mode(path, SpreadsheetHeaderMode::FirstRow, report, is_cancelled)
 }
@@ -16147,7 +16474,7 @@ fn load_dataset_with_header_mode<F, C>(
 ) -> Result<(DataFrame, DatasetPreview), String>
 where
     F: FnMut(&'static str, u8),
-    C: Fn() -> bool,
+    C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
     report("Validando archivo", 10);
@@ -16157,9 +16484,13 @@ where
     ensure_materialization_budget(file_size_bytes)?;
 
     let frame = match extension.as_str() {
-        "csv" | "tsv" | "txt" => read_delimited_frame_with_header(path, &extension, header_mode)?,
-        "parquet" => read_parquet_frame(path)?,
-        "json" | "jsonl" | "ndjson" => load_json_records(path)?,
+        "csv" | "tsv" | "txt" => {
+            read_delimited_frame_with_header_and_cancel(path, &extension, header_mode, || {
+                is_cancelled()
+            })?
+        }
+        "parquet" => read_parquet_frame_with_cancel(path, || is_cancelled())?,
+        "json" | "jsonl" | "ndjson" => load_json_records_with_cancel(path, || is_cancelled())?,
         extension if spreadsheet_extensions(extension) => {
             return Err("Selecciona primero una hoja del libro.".to_owned());
         }
@@ -22575,7 +22906,7 @@ fn load_compare_frame_with_cancel<C>(
     is_cancelled: C,
 ) -> Result<DataFrame, String>
 where
-    C: Fn() -> bool,
+    C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
     ensure_materialization_budget_for_path(path)?;
@@ -22584,7 +22915,9 @@ where
         let sheet = sheets
             .first()
             .ok_or_else(|| "El libro no contiene hojas que se puedan comparar.".to_owned())?;
-        load_spreadsheet_sheet(path, sheet, SpreadsheetHeaderMode::FirstRow)
+        load_spreadsheet_sheet_with_cancel(path, sheet, SpreadsheetHeaderMode::FirstRow, || {
+            is_cancelled()
+        })
     } else {
         load_dataset_with_progress(path, |_, _| {}, &is_cancelled).map(|(frame, _)| frame)
     }?;
@@ -25085,6 +25418,60 @@ where
     )
 }
 
+fn join_frames_on_keys_in_blocks_with_cancel<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    current_keys: &[String],
+    compared_keys: &[String],
+    join_type: DatasetJoinType,
+    is_cancelled: &C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    validate_join_inputs_and_cardinality_with_cancel(
+        current,
+        compared,
+        current_keys,
+        compared_keys,
+        join_type,
+        is_cancelled,
+    )?;
+    let spec = LocalJoinQuerySpec {
+        current_keys: current_keys.to_vec(),
+        compared_keys: compared_keys.to_vec(),
+        join_type,
+        normalized_query: String::new(),
+    };
+    let mut joined: Option<DataFrame> = None;
+    visit_local_join_blocks_with_cancel(current, compared, &spec, is_cancelled, |block| {
+        ensure_not_cancelled(is_cancelled())?;
+        if let Some(joined) = joined.as_mut() {
+            joined.vstack_mut(&block).map_err(|error| {
+                format!("No se pudieron acumular los bloques del JOIN: {error}")
+            })?;
+        } else {
+            joined = Some(block);
+        }
+        Ok(())
+    })?;
+    ensure_not_cancelled(is_cancelled())?;
+    if let Some(joined) = joined {
+        return Ok(joined);
+    }
+
+    let empty_current = current.slice(0, 0);
+    let empty_compared = compared.slice(0, 0);
+    collect_join_frame_on_keys_with_cancel(
+        &empty_current,
+        &empty_compared,
+        current_keys,
+        compared_keys,
+        join_type,
+        is_cancelled,
+    )
+}
+
 fn compare_frames(
     current: &DataFrame,
     current_file_name: &str,
@@ -25822,7 +26209,7 @@ pub async fn join_dataset(
         cancellation_for_eager.ensure()?;
         let compared_frame =
             load_compare_frame_with_cancel(&path, &extension, cancellation_for_eager.callback())?;
-        let joined = join_frames_on_keys_with_cancel(
+        let joined = join_frames_on_keys_in_blocks_with_cancel(
             &current_frame,
             &compared_frame,
             &key_columns,
@@ -26890,7 +27277,17 @@ pub async fn load_dataset_selection(
                 send_progress(&on_progress, "load", "Preparando vista previa", 85);
                 (frame, preview, row_count, true)
             } else {
-                let frame = load_spreadsheet_sheet(&pending.path, sheet_name, header_mode)?;
+                let cancellation_app = app.clone();
+                let frame = load_spreadsheet_sheet_with_cancel(
+                    &pending.path,
+                    sheet_name,
+                    header_mode,
+                    move || {
+                        cancellation_app
+                            .state::<DatasetState>()
+                            .load_was_cancelled(generation)
+                    },
+                )?;
                 ensure_not_cancelled(app.state::<DatasetState>().load_was_cancelled(generation))?;
                 send_progress(&on_progress, "load", "Preparando vista previa", 85);
                 let preview = dataset_preview(&pending.path, &frame)?;
@@ -26923,11 +27320,16 @@ pub async fn load_dataset_selection(
                 send_progress(&on_progress, "load", "Preparando vista previa", 85);
                 (frame, preview, row_count, true)
             } else {
+                let cancellation_app = app.clone();
                 let (frame, preview) = load_dataset_with_header_mode(
                     &pending.path,
                     selected_header_mode,
                     |stage, percent| send_progress(&on_progress, "load", stage, percent),
-                    || app.state::<DatasetState>().load_was_cancelled(generation),
+                    move || {
+                        cancellation_app
+                            .state::<DatasetState>()
+                            .load_was_cancelled(generation)
+                    },
                 )?;
                 let row_count = frame.height();
                 (frame, preview, row_count, false)
@@ -26973,10 +27375,15 @@ pub async fn load_dataset_selection(
                 send_progress(&on_progress, "load", "Preparando vista previa", 85);
                 (frame, preview, row_count, true)
             } else {
+                let cancellation_app = app.clone();
                 let (frame, preview) = load_dataset_with_progress(
                     &pending.path,
                     |stage, percent| send_progress(&on_progress, "load", stage, percent),
-                    || app.state::<DatasetState>().load_was_cancelled(generation),
+                    move || {
+                        cancellation_app
+                            .state::<DatasetState>()
+                            .load_was_cancelled(generation)
+                    },
                 )?;
                 let row_count = frame.height();
                 (frame, preview, row_count, false)
@@ -36937,7 +37344,7 @@ pub(crate) fn load_dataset_for_automation_with_progress<F, C>(
 ) -> Result<(DataFrame, DatasetPreview), String>
 where
     F: FnMut(&'static str, u8),
-    C: Fn() -> bool,
+    C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
     let (canonical, file_size_bytes, extension) = validate_dataset_file(input)?;
@@ -36961,7 +37368,10 @@ where
         {
             return Err("La hoja seleccionada no existe de forma única en el libro.".to_owned());
         }
-        let frame = load_spreadsheet_sheet(&canonical, sheet_name, header_mode)?;
+        let frame =
+            load_spreadsheet_sheet_with_cancel(&canonical, sheet_name, header_mode, || {
+                is_cancelled()
+            })?;
         ensure_not_cancelled(is_cancelled())?;
         report("Preparando vista previa", 85);
         let preview = dataset_preview(&canonical, &frame)?;

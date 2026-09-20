@@ -8049,6 +8049,120 @@ fn csv_import_keeps_zero_padded_values_and_all_duplicate_header_columns() {
 }
 
 #[test]
+fn eager_delimited_reader_observes_cancellation_during_batched_collection() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    let mut contents = String::from("id,value\n");
+    for row in 0..250_000 {
+        contents.push_str(&format!("{row},value-{row}\n"));
+    }
+    let path = temporary_csv(&contents);
+    let checks = Arc::new(AtomicUsize::new(0));
+    let callback_checks = Arc::clone(&checks);
+    let result = read_delimited_frame_with_header_and_cancel(
+        &path,
+        "csv",
+        SpreadsheetHeaderMode::FirstRow,
+        move || callback_checks.fetch_add(1, Ordering::AcqRel) >= 1,
+    );
+
+    assert_eq!(result.unwrap_err(), OPERATION_CANCELLED_MESSAGE);
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn eager_json_array_reader_observes_cancellation_between_records() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+    let path = directory.path().join("records.json");
+    let records = (0..100)
+        .map(|row| format!("{{\"id\":{row},\"value\":\"row-{row}\"}}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    fs::write(&path, format!("[{records}]")).expect("se debe escribir el JSON temporal");
+    let checks = Arc::new(AtomicUsize::new(0));
+    let callback_checks = Arc::clone(&checks);
+    let result = load_json_records_with_cancel(&path, move || {
+        callback_checks.fetch_add(1, Ordering::AcqRel) >= 3
+    });
+
+    assert_eq!(result.unwrap_err(), OPERATION_CANCELLED_MESSAGE);
+}
+
+#[test]
+fn eager_xlsx_reader_observes_cancellation_between_cells() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let path = temporary_xlsx_with_worksheet(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:A2"/><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>id</t></is></c></row><row r="2"><c r="A2"><v>1</v></c></row></sheetData></worksheet>"#,
+    );
+    let checks = AtomicUsize::new(0);
+    let error = load_spreadsheet_sheet_with_cancel(
+        &path,
+        "dataset",
+        SpreadsheetHeaderMode::FirstRow,
+        || checks.fetch_add(1, Ordering::AcqRel) >= 2,
+    )
+    .expect_err("la lectura XLSX debe detenerse entre celdas");
+
+    assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+    fs::remove_file(path).expect("se debe limpiar el libro temporal");
+}
+
+#[test]
+fn full_join_accumulates_ordered_blocks_without_repeating_right_only_rows() {
+    let row_count = LOCAL_QUERY_BLOCK_ROWS + 7;
+    let current_keys = (0..row_count as i64).collect::<Vec<_>>();
+    let compared_keys = (5..row_count as i64 + 5).collect::<Vec<_>>();
+    let current = DataFrame::new(
+        row_count,
+        vec![
+            Series::new("key".into(), current_keys.clone()).into_column(),
+            Series::new("current_value".into(), current_keys).into_column(),
+        ],
+    )
+    .expect("el dataset activo debe construirse");
+    let compared = DataFrame::new(
+        row_count,
+        vec![
+            Series::new("key".into(), compared_keys.clone()).into_column(),
+            Series::new("compared_value".into(), compared_keys).into_column(),
+        ],
+    )
+    .expect("el dataset comparado debe construirse");
+    let key_columns = vec!["key".to_owned()];
+
+    let expected = join_frames_on_keys_with_cancel(
+        &current,
+        &compared,
+        &key_columns,
+        &key_columns,
+        DatasetJoinType::Full,
+        &|| false,
+    )
+    .expect("el JOIN completo de referencia debe ejecutarse");
+    let actual = join_frames_on_keys_in_blocks_with_cancel(
+        &current,
+        &compared,
+        &key_columns,
+        &key_columns,
+        DatasetJoinType::Full,
+        &|| false,
+    )
+    .expect("el JOIN completo por bloques debe ejecutarse");
+
+    assert!(actual.equals_missing(&expected));
+    assert_eq!(actual.height(), row_count + 5);
+}
+
+#[test]
 fn profiles_bounded_numeric_correlations_without_exposing_cells() {
     let path = temporary_csv(
         "first,second,constant,identifier\n1,2,9,001\n2,4,9,002\n,8,9,003\n4,8,9,004\n",

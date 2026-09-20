@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-20
 
-La base de partida de esta revisión fue `master` en `d65a428`, versión
+La base de partida de esta revisión fue `master` en `b385d43`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -26,10 +26,17 @@ conservan orden y tipos, y publican el candidato staged con historial reversible
 La comparación y el historial se conservan si cancelar gana antes del commit;
 una regresión integrada verifica también la cancelación source-backed justo en
 el gate de publicación. Filas duplicadas se diagnostican aparte. DuckDB puede
-interrumpir consultas source-backed activas. Los parsers eager CSV/Parquet/Excel,
-el JOIN eager de Polars y el selector nativo son no cooperativos/modal: una
-cancelación puede esperar a que termine esa llamada, aunque no publica una
-revisión parcial.
+interrumpir consultas source-backed activas. Los lectores eager CSV/TSV/TXT y
+Parquet recopilan con Polars Streaming en bloques configurados en 8.192 filas y
+observan cancelación entre lotes.
+JSON/JSONL la comprueba entre registros. XLSX/XLSB lee celdas en dos pasadas y
+acumula filas por bloques; XLS/ODS conserva la lectura completa mediante
+`worksheet_range`.
+El JOIN eager de Review recorre bloques de filas activas y comprueba cancelación
+entre bloques, repitiendo el JOIN contra el dataset comparado para cada bloque.
+El fallback eager source-backed conserva su límite de materialización, pero no
+interrumpe el parser; los selectores nativos siguen siendo modales. Las rutas
+cooperativas descartan el resultado incompleto.
 
 Las tareas reutilizables aplican reglas, formato, privacidad y receta como
 borrador al importar un archivo con el perfil y esquema guardados; la receta
@@ -47,11 +54,14 @@ En los diálogos, el trap de teclado filtra controles dentro de elementos
 un selector oculto al revisar encabezados CSV; la regresión recorre el diálogo
 hasta «Cargar archivo».
 
-Verificación más reciente: `npm test` 426/426, `npm run test:e2e -- --workers=1`
-21/21, `npm run build`, `npm run ipc:check`, `npm run docs:check`,
-`cargo fmt --check`, `cargo check --tests` y `npm audit --omit=optional` pasan;
-el audit reporta 0 vulnerabilidades. La suite Rust completa pasó 490 pruebas,
-con 0 fallidas y 5 ignoradas. `smoke:cdp` pasó en WebView2 y
+Verificación frontend en el corte anterior: `npm test` 426/426,
+`npm run test:e2e -- --workers=1` 21/21, `npm run build`, `npm run ipc:check`,
+`npm run docs:check` y `npm audit --omit=optional` pasan; el audit reporta 0
+vulnerabilidades. La suite Rust del corte anterior pasó 490 pruebas (0 fallidas,
+5 ignoradas).
+En esta revisión, `cargo fmt --check` y `cargo check --tests` pasan; los tests
+nuevos compilan, pero no se ejecutaron por el fallo del loader de Windows descrito
+abajo. `smoke:cdp` pasó en WebView2 y
 verificó ProjectsPanel, IPC, transformaciones, exportación y reapertura de
 proyecto. `smoke:native-selectors` usó los diálogos reales de Windows para
 exportar y volver a cargar CSV, XLSX y Parquet generados por un dataset de prueba
@@ -66,19 +76,24 @@ debug, el working set pico fue 558,764,032 bytes y la memoria privada
 es informativo en debug; esta corrida no demuestra el presupuesto del binario
 release.
 
-Las E2E usan el bridge simulado y los archivos de los smokes son sintéticos:
-estas pruebas ejercitan IPC y bytes reales, pero no sustituyen beta con datos de
-trabajo, un recorrido Cargar→Entregar completo, ni la aceptación nativa con
-lector de pantalla. Las pruebas Rust de Windows necesitaron un manifiesto
-Common Controls v6 temporal.
+Las E2E usan el bridge simulado y los archivos de los smokes son sintéticos.
+Estas pruebas ejercitan IPC y bytes reales, pero no sustituyen beta con datos de
+trabajo, un recorrido Cargar→Entregar completo ni aceptación nativa con lector de
+pantalla.
+Durante esta revisión, `cargo test --manifest-path src-tauri/Cargo.toml` compiló,
+pero Windows no inició el harness: terminó con `STATUS_ENTRYPOINT_NOT_FOUND`
+(`0xc0000139`) incluso al probar un manifiesto Common Controls v6 temporal. Por
+eso las cuatro regresiones nuevas solo tienen evidencia de compilación.
 
 Siguen abiertos los criterios con evidencia que no se puede fabricar localmente:
 la beta de tres participantes y su resumen sanitizado; accesibilidad manual con
 lector de pantalla/alto contraste; round-trip contra SQL Server real; y un
-candidato binario/canal autorizado probado en VM limpia. RV04 conserva además
-la mejora de cancelación dentro de las llamadas eager. RV14 requiere seleccionar
-y validar la herramienta BI a partir de beta. No sustituir estas evidencias por
-fixtures o resultados sintéticos.
+candidato binario/canal autorizado probado en VM limpia.
+RV04 conserva los formatos `.xls`/`.ods` monolíticos, la lectura interna del
+fallback eager source-backed y el selector nativo modal; también falta medir el
+coste del JOIN por bloques y validar cancelación con datos reales en una sesión
+nativa. RV14 requiere seleccionar y validar la herramienta BI a partir de beta.
+No sustituir estas evidencias por fixtures o resultados sintéticos.
 
 ### Registro histórico de verificación — corte 2026-09-12
 
@@ -249,7 +264,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-20; verificación posterior a la base `d65a428`; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-20; verificación posterior a la base `b385d43`; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `0.167.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -259,8 +274,8 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | Estado al 2026-09-20: 426 frontend; 21 E2E sintéticas; 490 Rust completas (0 fallidas, 5 ignoradas); build, IPC, documentación, formato, `cargo check --tests` y smokes nativos WebView2 pasan. Véase el alcance descrito arriba: no equivale a beta con datasets de trabajo, round-trip SQL Server ni aceptación de accesibilidad con lector de pantalla. |
-| Última revisión de este documento | 2026-09-20, posterior a la base de partida `d65a428`; incluye el smoke WebView2 de proyectos y los round trips nativos CSV/XLSX/Parquet con datos sintéticos. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En esta revisión pasan `cargo fmt --check`, `cargo check --tests` y `npm run docs:check`; el test filtrado compila, pero el ejecutable falla antes del harness con `STATUS_ENTRYPOINT_NOT_FOUND`. Véase el alcance arriba: estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
+| Última revisión de este documento | 2026-09-20, posterior a la base de partida `b385d43`; incluye el smoke WebView2 de proyectos y los round trips nativos CSV/XLSX/Parquet con datos sintéticos. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 
