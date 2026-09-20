@@ -2942,7 +2942,7 @@ impl ReviewMutationCancellation {
         }
     }
 
-    fn callback(&self) -> impl Fn() -> bool + Send + 'static {
+    fn callback(&self) -> impl Fn() -> bool + Clone + Send + 'static {
         let cancellation = self.clone();
         move || cancellation.is_cancelled()
     }
@@ -5486,6 +5486,47 @@ where
         ));
     }
     Ok(())
+}
+
+fn for_each_parquet_block_with_cancel<C, F>(
+    path: &Path,
+    row_count: usize,
+    is_cancelled: &C,
+    mut visit: F,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Sync,
+    F: FnMut(usize, &DataFrame) -> Result<(), String>,
+{
+    let block_count = row_count.div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+    for block_index in 0..block_count {
+        ensure_not_cancelled(is_cancelled())?;
+        let start = block_index
+            .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
+            .ok_or_else(|| {
+                format!(
+                    "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el índice del bloque excede la capacidad local."
+                )
+            })?;
+        let length = LOCAL_QUERY_BLOCK_ROWS.min(row_count - start);
+        let block = read_parquet_query_block(path, start, length)?;
+        if block.height() != length {
+            return Err(format!(
+                "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot Parquet cambió durante la lectura (se esperaban {length} filas en el bloque y se obtuvieron {}).",
+                block.height()
+            ));
+        }
+        ensure_not_cancelled(is_cancelled())?;
+        visit(start, &block)?;
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    let trailing_block = read_parquet_query_block(path, row_count, 1)?;
+    if trailing_block.height() != 0 {
+        return Err(format!(
+            "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot Parquet contiene más filas que las registradas."
+        ));
+    }
+    ensure_not_cancelled(is_cancelled())
 }
 
 fn read_parquet_columns_block(
@@ -11146,6 +11187,9 @@ fn consolidate_source_backed_dataset(
 fn resolve_source_backed_conflicts(
     state: &DatasetState,
     request: SourceBackedConflictResolutionRequest,
+    expected_stamp: &DatasetMutationStamp,
+    expected_comparison_path: &Path,
+    cancellation: &ReviewMutationCancellation,
 ) -> Result<Option<DatasetPreview>, String> {
     let SourceBackedConflictResolutionRequest {
         context,
@@ -11157,6 +11201,7 @@ fn resolve_source_backed_conflicts(
         key_columns,
         decisions,
     } = request;
+    cancellation.ensure()?;
     let (_, source_size_before, _) = validate_dataset_file(&context.source_path)?;
     if source_size_before != context.source_size_bytes {
         return Err("La fuente source-backed cambió antes de resolver conflictos.".to_owned());
@@ -11166,10 +11211,11 @@ fn resolve_source_backed_conflicts(
         return Err("El dataset comparado cambió antes de resolver conflictos.".to_owned());
     }
     let Some((current_path, current_row_count, _current_snapshot_directory)) =
-        source_backed_parquet_snapshot(&context)?
+        source_backed_parquet_snapshot_with_cancel(&context, cancellation.callback())?
     else {
         return Ok(None);
     };
+    cancellation.ensure()?;
     let current_schema = read_parquet_schema_frame(&current_path)?;
     if current_schema.get_column_names() != context.schema.get_column_names()
         || current_schema
@@ -11186,6 +11232,7 @@ fn resolve_source_backed_conflicts(
         .filter(|name| compared_schema.get_column_index(name).is_some())
         .map(|name| name.to_string())
         .collect::<Vec<_>>();
+    let is_cancelled = cancellation.callback();
     let Some(choices) = validate_source_backed_conflict_decisions(
         &current_path,
         current_row_count,
@@ -11194,6 +11241,7 @@ fn resolve_source_backed_conflicts(
         &key_columns,
         &shared_columns,
         &decisions,
+        &is_cancelled,
     )?
     else {
         return Ok(None);
@@ -11212,23 +11260,31 @@ fn resolve_source_backed_conflicts(
     let output_path = temporary.path().to_owned();
     drop(temporary);
     let _output_guard = SourceBackedJoinOutputGuard::new(&output_path);
-    let output_row_count = match crate::duckdb_query::materialize_file_sources_query_to_parquet(
-        crate::duckdb_query::DuckDbFileSourcesQuery {
-            current_path: &current_path,
-            current_format: crate::duckdb_query::DuckDbFileFormat::Parquet,
-            compared_path: &compared_path,
-            compared_format: crate::duckdb_query::DuckDbFileFormat::Parquet,
-            dataset_view_query: &dataset_view_query,
-            query: &output_query,
-            destination: &output_path,
-            current_order_column: &current_order_column,
-            compared_order_column: &compared_order_column,
-            max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
-        },
-    ) {
-        Ok(row_count) => row_count,
-        Err(_) => return Ok(None),
-    };
+    cancellation.ensure()?;
+    let output_row_count =
+        match crate::duckdb_query::materialize_file_sources_query_to_parquet_with_cancel(
+            crate::duckdb_query::DuckDbFileSourcesQuery {
+                current_path: &current_path,
+                current_format: crate::duckdb_query::DuckDbFileFormat::Parquet,
+                compared_path: &compared_path,
+                compared_format: crate::duckdb_query::DuckDbFileFormat::Parquet,
+                dataset_view_query: &dataset_view_query,
+                query: &output_query,
+                destination: &output_path,
+                current_order_column: &current_order_column,
+                compared_order_column: &compared_order_column,
+                max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
+            },
+            cancellation.callback(),
+        ) {
+            Ok(row_count) => row_count,
+            Err(error) => {
+                cancellation.ensure()?;
+                let _ = error;
+                return Ok(None);
+            }
+        };
+    cancellation.ensure()?;
     let mut current = state
         .current
         .lock()
@@ -11236,10 +11292,16 @@ fn resolve_source_backed_conflicts(
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
+    let mut comparison = state
+        .comparison
+        .lock()
+        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
     let file_name = format!("Resuelto · {} + {compared_file_name}", context.file_name);
-    let preview = publish_source_backed_result_output(
+    let preview = publish_review_source_backed_result_output(
         dataset,
+        &mut comparison,
         &context,
+        expected_stamp,
         SourceBackedResultOutput {
             compared_path: &compared_path,
             compared_size_bytes,
@@ -11248,14 +11310,10 @@ fn resolve_source_backed_conflicts(
             file_name: &file_name,
             label: "Resolver conflictos por clave",
         },
+        Some(expected_comparison_path),
+        false,
+        cancellation,
     )?;
-    if preview.is_some() {
-        drop(current);
-        *state
-            .comparison
-            .lock()
-            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
-    }
     Ok(preview)
 }
 
@@ -22837,18 +22895,25 @@ fn create_spilled_key_payload_rows() -> Result<SpilledKeyPayloadRows, String> {
     })
 }
 
-fn append_spilled_key_payload_rows(
+fn append_spilled_key_payload_rows_with_cancel<C>(
     spill: &SpilledKeyPayloadRows,
     frame: &DataFrame,
     key_columns: &[String],
     payload_columns: &[String],
     row_offset: usize,
-) -> Result<(), String> {
+    is_cancelled: &C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Sync,
+{
     let mut writers = (0..COMPARISON_KEY_BUCKETS)
         .map(|_| None::<BufWriter<File>>)
         .collect::<Vec<_>>();
 
     for row_index in 0..frame.height() {
+        if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+            ensure_not_cancelled(is_cancelled())?;
+        }
         let key = row_signature(frame, key_columns, row_index)?;
         let payload = row_signature(frame, payload_columns, row_index)?;
         let bucket = comparison_key_bucket(&key);
@@ -22894,7 +22959,7 @@ fn append_spilled_key_payload_rows(
             format!("No se pudo sincronizar el índice temporal de comparación por clave: {error}")
         })?;
     }
-    Ok(())
+    ensure_not_cancelled(is_cancelled())
 }
 
 fn spill_parquet_key_payload_rows(
@@ -22903,19 +22968,47 @@ fn spill_parquet_key_payload_rows(
     key_columns: &[String],
     payload_columns: &[String],
 ) -> Result<SpilledKeyPayloadRows, String> {
+    spill_parquet_key_payload_rows_with_cancel(
+        path,
+        row_count,
+        key_columns,
+        payload_columns,
+        &|| false,
+    )
+}
+
+fn spill_parquet_key_payload_rows_with_cancel<C>(
+    path: &Path,
+    row_count: usize,
+    key_columns: &[String],
+    payload_columns: &[String],
+    is_cancelled: &C,
+) -> Result<SpilledKeyPayloadRows, String>
+where
+    C: Fn() -> bool + Sync,
+{
     let spill = create_spilled_key_payload_rows()?;
-    for_each_parquet_block(path, row_count, |start, block| {
-        append_spilled_key_payload_rows(&spill, block, key_columns, payload_columns, start)
+    for_each_parquet_block_with_cancel(path, row_count, is_cancelled, |start, block| {
+        append_spilled_key_payload_rows_with_cancel(
+            &spill,
+            block,
+            key_columns,
+            payload_columns,
+            start,
+            is_cancelled,
+        )
     })?;
     Ok(spill)
 }
 
-fn for_each_spilled_key_payload_record<F>(
+fn for_each_spilled_key_payload_record_with_cancel<C, F>(
     spill: &SpilledKeyPayloadRows,
     bucket: usize,
+    is_cancelled: &C,
     mut visit: F,
 ) -> Result<(), String>
 where
+    C: Fn() -> bool + Sync,
     F: FnMut(String, String, usize) -> Result<(), String>,
 {
     let path = spill
@@ -22939,7 +23032,11 @@ where
         format!("No se pudo leer el índice temporal de comparación por clave: {error}")
     })?;
     let mut reader = BufReader::new(file);
+    let mut record_index = 0usize;
     loop {
+        if record_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+            ensure_not_cancelled(is_cancelled())?;
+        }
         let mut first_byte = [0_u8; 1];
         if reader.read(&mut first_byte).map_err(|error| {
             format!("No se pudo leer el índice temporal de comparación por clave: {error}")
@@ -22979,30 +23076,49 @@ where
         let payload = String::from_utf8(payload_bytes)
             .map_err(|_| "El índice temporal contiene una carga inválida.".to_owned())?;
         visit(key, payload, row_index)?;
+        record_index = record_index
+            .checked_add(1)
+            .ok_or_else(|| "La cubeta temporal supera la capacidad local.".to_owned())?;
     }
-    Ok(())
+    ensure_not_cancelled(is_cancelled())
 }
 
 fn read_spilled_key_payload_bucket(
     spill: &SpilledKeyPayloadRows,
     bucket: usize,
 ) -> Result<HashMap<String, KeyPayloadGroup>, String> {
+    read_spilled_key_payload_bucket_with_cancel(spill, bucket, &|| false)
+}
+
+fn read_spilled_key_payload_bucket_with_cancel<C>(
+    spill: &SpilledKeyPayloadRows,
+    bucket: usize,
+    is_cancelled: &C,
+) -> Result<HashMap<String, KeyPayloadGroup>, String>
+where
+    C: Fn() -> bool + Sync,
+{
     let mut groups = HashMap::new();
-    for_each_spilled_key_payload_record(spill, bucket, |key, payload, row_index| {
-        let group = groups.entry(key).or_insert_with(|| KeyPayloadGroup {
-            first_row_index: row_index,
-            count: 0,
-            payload: Some(payload.clone()),
-        });
-        group.count = group
-            .count
-            .checked_add(1)
-            .ok_or_else(|| "La clave temporal supera la capacidad local.".to_owned())?;
-        if group.count > 1 {
-            group.payload = None;
-        }
-        Ok(())
-    })?;
+    for_each_spilled_key_payload_record_with_cancel(
+        spill,
+        bucket,
+        is_cancelled,
+        |key, payload, row_index| {
+            let group = groups.entry(key).or_insert_with(|| KeyPayloadGroup {
+                first_row_index: row_index,
+                count: 0,
+                payload: Some(payload.clone()),
+            });
+            group.count = group
+                .count
+                .checked_add(1)
+                .ok_or_else(|| "La clave temporal supera la capacidad local.".to_owned())?;
+            if group.count > 1 {
+                group.payload = None;
+            }
+            Ok(())
+        },
+    )?;
     Ok(groups)
 }
 
@@ -23840,9 +23956,33 @@ fn collect_key_conflicts_page(
     offset: usize,
     limit: usize,
 ) -> Result<(Vec<KeyConflictRows>, bool), String> {
+    collect_key_conflicts_page_with_cancel(
+        current,
+        compared,
+        key_columns,
+        shared_columns,
+        offset,
+        limit,
+        &|| false,
+    )
+}
+
+fn collect_key_conflicts_page_with_cancel<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    shared_columns: &[String],
+    offset: usize,
+    limit: usize,
+    is_cancelled: &C,
+) -> Result<(Vec<KeyConflictRows>, bool), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     validate_key_columns(current, compared, key_columns)?;
-    let current_rows = spill_key_rows(current, key_columns)?;
-    let compared_rows = spill_key_rows(compared, key_columns)?;
+    let current_rows = spill_key_rows_with_cancel(current, key_columns, is_cancelled)?;
+    let compared_rows = spill_key_rows_with_cancel(compared, key_columns, is_cancelled)?;
     let shared_payload_columns = shared_columns
         .iter()
         .filter(|column| !key_columns.contains(column))
@@ -23864,9 +24004,17 @@ fn collect_key_conflicts_page(
     })?;
 
     for bucket in 0..COMPARISON_KEY_BUCKETS {
-        let current_bucket = read_spilled_key_bucket(&current_rows, bucket)?;
-        let compared_bucket = read_spilled_key_bucket(&compared_rows, bucket)?;
+        ensure_not_cancelled(is_cancelled())?;
+        let current_bucket =
+            read_spilled_key_bucket_with_cancel(&current_rows, bucket, is_cancelled)?;
+        let compared_bucket =
+            read_spilled_key_bucket_with_cancel(&compared_rows, bucket, is_cancelled)?;
+        let mut record_index = 0usize;
         for (signature, current_group) in current_bucket {
+            if record_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            record_index = record_index.saturating_add(1);
             let Some(compared_group) = compared_bucket.get(&signature) else {
                 continue;
             };
@@ -23919,6 +24067,9 @@ fn collect_key_conflicts_page(
     let mut conflicts = Vec::new();
     let mut total = 0usize;
     for current_row_index in 0..current.height() {
+        if current_row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+            ensure_not_cancelled(is_cancelled())?;
+        }
         let mut marker = [0_u8; 1];
         marker_reader.read_exact(&mut marker).map_err(|error| {
             format!("No se pudo leer el índice temporal de conflictos: {error}")
@@ -23959,6 +24110,7 @@ fn collect_key_conflicts_page(
         }
     }
     let page_end = offset.saturating_add(conflicts.len());
+    ensure_not_cancelled(is_cancelled())?;
     Ok((conflicts, total > page_end))
 }
 
@@ -24143,7 +24295,7 @@ fn for_each_key_conflict_between_parquet<F>(
     key_columns: &[String],
     shared_columns: &[String],
     max_conflicts: Option<usize>,
-    mut visit: F,
+    visit: F,
 ) -> Result<usize, String>
 where
     F: FnMut(
@@ -24157,6 +24309,40 @@ where
         KeyConflictShape,
     ) -> Result<(), String>,
 {
+    for_each_key_conflict_between_parquet_with_cancel(
+        current,
+        compared,
+        key_columns,
+        shared_columns,
+        max_conflicts,
+        &|| false,
+        visit,
+    )
+}
+
+fn for_each_key_conflict_between_parquet_with_cancel<C, F>(
+    current: ParquetComparisonSource<'_>,
+    compared: ParquetComparisonSource<'_>,
+    key_columns: &[String],
+    shared_columns: &[String],
+    max_conflicts: Option<usize>,
+    is_cancelled: &C,
+    mut visit: F,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+    F: FnMut(
+        usize,
+        &DataFrame,
+        usize,
+        &DataFrame,
+        usize,
+        usize,
+        usize,
+        KeyConflictShape,
+    ) -> Result<(), String>,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let current_schema = read_parquet_schema_frame(current.path)?;
     let compared_schema = read_parquet_schema_frame(compared.path)?;
     validate_key_columns(&current_schema, &compared_schema, key_columns)?;
@@ -24169,17 +24355,19 @@ where
         return Ok(0);
     }
 
-    let current_rows = spill_parquet_key_payload_rows(
+    let current_rows = spill_parquet_key_payload_rows_with_cancel(
         current.path,
         current.row_count,
         key_columns,
         &shared_payload_columns,
+        is_cancelled,
     )?;
-    let compared_rows = spill_parquet_key_payload_rows(
+    let compared_rows = spill_parquet_key_payload_rows_with_cancel(
         compared.path,
         compared.row_count,
         key_columns,
         &shared_payload_columns,
+        is_cancelled,
     )?;
     let row_index_bytes = std::mem::size_of::<u64>() as u64;
     let current_row_bytes = u64::try_from(current.row_count)
@@ -24197,9 +24385,17 @@ where
     })?;
 
     for bucket in 0..COMPARISON_KEY_BUCKETS {
-        let current_bucket = read_spilled_key_payload_bucket(&current_rows, bucket)?;
-        let compared_bucket = read_spilled_key_payload_bucket(&compared_rows, bucket)?;
+        ensure_not_cancelled(is_cancelled())?;
+        let current_bucket =
+            read_spilled_key_payload_bucket_with_cancel(&current_rows, bucket, is_cancelled)?;
+        let compared_bucket =
+            read_spilled_key_payload_bucket_with_cancel(&compared_rows, bucket, is_cancelled)?;
+        let mut record_index = 0usize;
         for (key, current_group) in current_bucket {
+            if record_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            record_index = record_index.saturating_add(1);
             let Some(compared_group) = compared_bucket.get(&key) else {
                 continue;
             };
@@ -24242,86 +24438,101 @@ where
     let mut total = 0usize;
     let mut cached_compared_start = None;
     let mut cached_compared = None;
-    for_each_parquet_block(current.path, current.row_count, |start, current_block| {
-        for current_row_in_block in 0..current_block.height() {
-            let mut marker = [0_u8; 1];
-            marker_reader.read_exact(&mut marker).map_err(|error| {
-                format!("No se pudo leer el índice temporal de conflictos: {error}")
-            })?;
-            if marker[0] == 0 {
-                continue;
-            }
-            let current_row_index = start
-                .checked_add(current_row_in_block)
-                .ok_or_else(|| "El índice de fila supera la capacidad local.".to_owned())?;
-            let row_offset = u64::try_from(current_row_index)
-                .ok()
-                .and_then(|index| index.checked_mul(row_index_bytes))
-                .ok_or_else(|| "El índice de conflicto supera la capacidad local.".to_owned())?;
-            conflict_rows
-                .seek(SeekFrom::Start(row_offset))
-                .map_err(|error| {
-                    format!("No se pudo leer el índice temporal de conflictos: {error}")
-                })?;
-            let mut compared_row_bytes = [0_u8; std::mem::size_of::<u64>()];
-            conflict_rows
-                .read_exact(&mut compared_row_bytes)
-                .map_err(|error| {
-                    format!("No se pudo leer el índice temporal de conflictos: {error}")
-                })?;
-            let compared_row_index = usize::try_from(u64::from_le_bytes(compared_row_bytes))
-                .map_err(|_| "El índice de fila temporal excede la capacidad local.".to_owned())?;
-            if compared_row_index >= compared.row_count {
-                return Err(
-                    "El índice de conflicto apunta fuera del snapshot comparado.".to_owned(),
-                );
-            }
-            let compared_start = (compared_row_index / LOCAL_QUERY_BLOCK_ROWS)
-                .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
-                .ok_or_else(|| "El índice del bloque excede la capacidad local.".to_owned())?;
-            if cached_compared_start != Some(compared_start) {
-                let length = LOCAL_QUERY_BLOCK_ROWS.min(compared.row_count - compared_start);
-                let block = read_parquet_query_block(compared.path, compared_start, length)?;
-                if block.height() != length {
-                    return Err("El snapshot comparado cambió durante la lectura.".to_owned());
+    for_each_parquet_block_with_cancel(
+        current.path,
+        current.row_count,
+        is_cancelled,
+        |start, current_block| {
+            for current_row_in_block in 0..current_block.height() {
+                if current_row_in_block.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                    ensure_not_cancelled(is_cancelled())?;
                 }
-                cached_compared_start = Some(compared_start);
-                cached_compared = Some(block);
+                let mut marker = [0_u8; 1];
+                marker_reader.read_exact(&mut marker).map_err(|error| {
+                    format!("No se pudo leer el índice temporal de conflictos: {error}")
+                })?;
+                if marker[0] == 0 {
+                    continue;
+                }
+                let current_row_index = start
+                    .checked_add(current_row_in_block)
+                    .ok_or_else(|| "El índice de fila supera la capacidad local.".to_owned())?;
+                let row_offset = u64::try_from(current_row_index)
+                    .ok()
+                    .and_then(|index| index.checked_mul(row_index_bytes))
+                    .ok_or_else(|| {
+                        "El índice de conflicto supera la capacidad local.".to_owned()
+                    })?;
+                conflict_rows
+                    .seek(SeekFrom::Start(row_offset))
+                    .map_err(|error| {
+                        format!("No se pudo leer el índice temporal de conflictos: {error}")
+                    })?;
+                let mut compared_row_bytes = [0_u8; std::mem::size_of::<u64>()];
+                conflict_rows
+                    .read_exact(&mut compared_row_bytes)
+                    .map_err(|error| {
+                        format!("No se pudo leer el índice temporal de conflictos: {error}")
+                    })?;
+                let compared_row_index = usize::try_from(u64::from_le_bytes(compared_row_bytes))
+                    .map_err(|_| {
+                        "El índice de fila temporal excede la capacidad local.".to_owned()
+                    })?;
+                if compared_row_index >= compared.row_count {
+                    return Err(
+                        "El índice de conflicto apunta fuera del snapshot comparado.".to_owned(),
+                    );
+                }
+                let compared_start = (compared_row_index / LOCAL_QUERY_BLOCK_ROWS)
+                    .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
+                    .ok_or_else(|| "El índice del bloque excede la capacidad local.".to_owned())?;
+                if cached_compared_start != Some(compared_start) {
+                    let length = LOCAL_QUERY_BLOCK_ROWS.min(compared.row_count - compared_start);
+                    ensure_not_cancelled(is_cancelled())?;
+                    let block = read_parquet_query_block(compared.path, compared_start, length)?;
+                    if block.height() != length {
+                        return Err("El snapshot comparado cambió durante la lectura.".to_owned());
+                    }
+                    ensure_not_cancelled(is_cancelled())?;
+                    cached_compared_start = Some(compared_start);
+                    cached_compared = Some(block);
+                }
+                let compared_block = cached_compared
+                    .as_ref()
+                    .ok_or_else(|| "No se pudo conservar el bloque del conflicto.".to_owned())?;
+                let compared_row_in_block = compared_row_index - compared_start;
+                let Some(shape) = build_key_conflict_shape(
+                    current_block,
+                    compared_block,
+                    &shared_payload_columns,
+                    current_row_in_block,
+                    compared_row_in_block,
+                )?
+                else {
+                    continue;
+                };
+                if max_conflicts.is_some_and(|limit| total >= limit) {
+                    return Err(SOURCE_BACKED_RESOLUTION_LIMIT_REACHED.to_owned());
+                }
+                let conflict_index = total;
+                total = total.checked_add(1).ok_or_else(|| {
+                    "El índice de conflictos supera la capacidad local.".to_owned()
+                })?;
+                visit(
+                    conflict_index,
+                    current_block,
+                    current_row_in_block,
+                    compared_block,
+                    compared_row_in_block,
+                    current_row_index,
+                    compared_row_index,
+                    shape,
+                )?;
             }
-            let compared_block = cached_compared
-                .as_ref()
-                .ok_or_else(|| "No se pudo conservar el bloque del conflicto.".to_owned())?;
-            let compared_row_in_block = compared_row_index - compared_start;
-            let Some(shape) = build_key_conflict_shape(
-                current_block,
-                compared_block,
-                &shared_payload_columns,
-                current_row_in_block,
-                compared_row_in_block,
-            )?
-            else {
-                continue;
-            };
-            if max_conflicts.is_some_and(|limit| total >= limit) {
-                return Err(SOURCE_BACKED_RESOLUTION_LIMIT_REACHED.to_owned());
-            }
-            let conflict_index = total;
-            total = total
-                .checked_add(1)
-                .ok_or_else(|| "El índice de conflictos supera la capacidad local.".to_owned())?;
-            visit(
-                conflict_index,
-                current_block,
-                current_row_in_block,
-                compared_block,
-                compared_row_in_block,
-                current_row_index,
-                compared_row_index,
-                shape,
-            )?;
-        }
-        Ok(())
-    })?;
+            Ok(())
+        },
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
     Ok(total)
 }
 
@@ -24372,6 +24583,16 @@ fn collect_key_conflicts_page_between_parquet(
 fn source_backed_parquet_snapshot(
     context: &SourceBackedJoinContext,
 ) -> Result<Option<(PathBuf, usize, Option<tempfile::TempDir>)>, String> {
+    source_backed_parquet_snapshot_with_cancel(context, || false)
+}
+
+fn source_backed_parquet_snapshot_with_cancel<C>(
+    context: &SourceBackedJoinContext,
+    is_cancelled: C,
+) -> Result<Option<(PathBuf, usize, Option<tempfile::TempDir>)>, String>
+where
+    C: Fn() -> bool + Clone + Send + 'static,
+{
     if matches!(
         context.source_format,
         crate::duckdb_query::DuckDbFileFormat::Parquet
@@ -24387,16 +24608,17 @@ fn source_backed_parquet_snapshot(
         context.source_format,
         &path,
         "*",
-        || false,
+        is_cancelled.clone(),
     )
     .is_err()
     {
+        ensure_not_cancelled(is_cancelled())?;
         return Ok(None);
     }
     let row_count = crate::duckdb_query::count_file_rows(
         &path,
         crate::duckdb_query::DuckDbFileFormat::Parquet,
-        || false,
+        is_cancelled,
     )?;
     Ok(Some((path, row_count, Some(directory))))
 }
@@ -24508,13 +24730,27 @@ fn collect_all_key_conflicts(
     key_columns: &[String],
     shared_columns: &[String],
 ) -> Result<Vec<KeyConflictRows>, String> {
-    let (conflicts, _) = collect_key_conflicts_page(
+    collect_all_key_conflicts_with_cancel(current, compared, key_columns, shared_columns, &|| false)
+}
+
+fn collect_all_key_conflicts_with_cancel<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    shared_columns: &[String],
+    is_cancelled: &C,
+) -> Result<Vec<KeyConflictRows>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let (conflicts, _) = collect_key_conflicts_page_with_cancel(
         current,
         compared,
         key_columns,
         shared_columns,
         0,
         usize::MAX,
+        is_cancelled,
     )?;
     Ok(conflicts)
 }
@@ -25587,8 +25823,22 @@ fn validate_conflict_decisions(
     conflicts: &[KeyConflictRows],
     decisions: &[ConflictResolution],
 ) -> Result<ConflictChoiceMap, String> {
+    validate_conflict_decisions_with_cancel(conflicts, decisions, &|| false)
+}
+
+fn validate_conflict_decisions_with_cancel<C>(
+    conflicts: &[KeyConflictRows],
+    decisions: &[ConflictResolution],
+    is_cancelled: &C,
+) -> Result<ConflictChoiceMap, String>
+where
+    C: Fn() -> bool + Sync,
+{
     let mut choices = HashMap::new();
-    for decision in decisions {
+    for (decision_index, decision) in decisions.iter().enumerate() {
+        if decision_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+            ensure_not_cancelled(is_cancelled())?;
+        }
         let Some(conflict) = conflicts.get(decision.conflict_index) else {
             return Err(
                 "La selección de resolución contiene conflictos repetidos o inválidos.".to_owned(),
@@ -25620,6 +25870,9 @@ fn validate_conflict_decisions(
     }
 
     for (conflict_index, conflict) in conflicts.iter().enumerate() {
+        if conflict_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+            ensure_not_cancelled(is_cancelled())?;
+        }
         let conflict_choices = choices
             .iter()
             .filter(|((index, _), _)| *index == conflict_index)
@@ -25657,6 +25910,7 @@ fn validate_conflict_decisions(
             return Err("Debes elegir un origen para cada conflicto visible.".to_owned());
         }
     }
+    ensure_not_cancelled(is_cancelled())?;
     Ok(choices)
 }
 
@@ -25668,14 +25922,19 @@ fn validate_source_backed_conflict_decisions(
     key_columns: &[String],
     shared_columns: &[String],
     decisions: &[ConflictResolution],
+    is_cancelled: &(impl Fn() -> bool + Sync),
 ) -> Result<Option<ConflictChoiceMap>, String> {
+    ensure_not_cancelled(is_cancelled())?;
     if decisions.len() > SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS {
         return Ok(None);
     }
 
     let mut choices = ConflictChoiceMap::new();
     let mut choices_by_conflict = HashMap::<usize, HashMap<Option<String>, ConflictSource>>::new();
-    for decision in decisions {
+    for (decision_index, decision) in decisions.iter().enumerate() {
+        if decision_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+            ensure_not_cancelled(is_cancelled())?;
+        }
         let choice_key = (decision.conflict_index, decision.column.clone());
         if choices
             .insert(choice_key.clone(), decision.source)
@@ -25697,7 +25956,7 @@ fn validate_source_backed_conflict_decisions(
         }
     }
 
-    match for_each_key_conflict_between_parquet(
+    match for_each_key_conflict_between_parquet_with_cancel(
         ParquetComparisonSource {
             path: current_path,
             row_count: current_row_count,
@@ -25709,6 +25968,7 @@ fn validate_source_backed_conflict_decisions(
         key_columns,
         shared_columns,
         Some(SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS),
+        is_cancelled,
         |conflict_index,
          _current_block,
          _current_row_in_block,
@@ -25767,6 +26027,7 @@ fn validate_source_backed_conflict_decisions(
     if !choices_by_conflict.is_empty() {
         return Err("La selección de resolución contiene conflictos inválidos.".to_owned());
     }
+    ensure_not_cancelled(is_cancelled())?;
     Ok(Some(choices))
 }
 
@@ -25911,6 +26172,20 @@ fn resolved_conflict_frame(
     key_columns: &[String],
     decisions: &[ConflictResolution],
 ) -> Result<DataFrame, String> {
+    resolved_conflict_frame_with_cancel(current, compared, key_columns, decisions, &|| false)
+}
+
+fn resolved_conflict_frame_with_cancel<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    decisions: &[ConflictResolution],
+    is_cancelled: &C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     if key_columns.is_empty() {
         return Err("La resolución de conflictos requiere al menos una columna clave.".to_owned());
     }
@@ -25928,8 +26203,15 @@ fn resolved_conflict_frame(
         .iter()
         .map(|name| name.to_string())
         .collect::<Vec<_>>();
-    let conflicts = collect_all_key_conflicts(current, compared, key_columns, &shared_columns)?;
-    let choices = validate_conflict_decisions(&conflicts, decisions)?;
+    let conflicts = collect_all_key_conflicts_with_cancel(
+        current,
+        compared,
+        key_columns,
+        &shared_columns,
+        is_cancelled,
+    )?;
+    let choices = validate_conflict_decisions_with_cancel(&conflicts, decisions, is_cancelled)?;
+    ensure_not_cancelled(is_cancelled())?;
 
     let conflict_rows = conflicts
         .iter()
@@ -25942,34 +26224,35 @@ fn resolved_conflict_frame(
         let compared_column = compared
             .column(&name)
             .map_err(|error| format!("No se pudo leer la columna comparada '{name}': {error}"))?;
-        let values = (0..current.height())
-            .map(|row_index| {
-                let source = conflict_rows.get(&row_index).and_then(|conflict_index| {
-                    choices
-                        .get(&(*conflict_index, Some(name.clone())))
-                        .or_else(|| choices.get(&(*conflict_index, None)))
-                        .copied()
-                });
-                let source_row = match source {
-                    Some(ConflictSource::Compared) => conflicts
-                        .get(*conflict_rows.get(&row_index).expect("conflict row exists"))
-                        .map(|conflict| conflict.compared_row_index)
-                        .ok_or_else(|| {
-                            "No se encontró la fila comparada en conflicto.".to_owned()
-                        })?,
-                    _ => row_index,
-                };
-                let column = if matches!(source, Some(ConflictSource::Compared)) {
-                    compared_column
-                } else {
-                    current_column
-                };
-                let value = column
-                    .get(source_row)
-                    .map_err(|error| format!("No se pudo leer la fila resuelta: {error}"))?;
-                Ok(value.clone())
-            })
-            .collect::<Result<Vec<_>, String>>()?;
+        let mut values = Vec::with_capacity(current.height());
+        for row_index in 0..current.height() {
+            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            let conflict_index = conflict_rows.get(&row_index).copied();
+            let source = conflict_index.and_then(|conflict_index| {
+                choices
+                    .get(&(conflict_index, Some(name.clone())))
+                    .or_else(|| choices.get(&(conflict_index, None)))
+                    .copied()
+            });
+            let source_row = match (source, conflict_index) {
+                (Some(ConflictSource::Compared), Some(conflict_index)) => conflicts
+                    .get(conflict_index)
+                    .map(|conflict| conflict.compared_row_index)
+                    .ok_or_else(|| "No se encontró la fila comparada en conflicto.".to_owned())?,
+                _ => row_index,
+            };
+            let column = if matches!(source, Some(ConflictSource::Compared)) {
+                compared_column
+            } else {
+                current_column
+            };
+            let value = column
+                .get(source_row)
+                .map_err(|error| format!("No se pudo leer la fila resuelta: {error}"))?;
+            values.push(value.clone());
+        }
         let resolved = Series::from_any_values_and_dtype(
             name.clone().into(),
             &values,
@@ -25980,6 +26263,7 @@ fn resolved_conflict_frame(
         .into_column();
         resolved_columns.push(resolved);
     }
+    ensure_not_cancelled(is_cancelled())?;
     DataFrame::new(current.height(), resolved_columns)
         .map_err(|error| format!("No se pudo construir el dataset resuelto: {error}"))
 }
@@ -25989,88 +26273,102 @@ pub async fn resolve_dataset_conflicts(
     app: AppHandle,
     decisions: Vec<ConflictResolution>,
 ) -> Result<DatasetPreview, String> {
+    let (_review_guard, cancellation) = ReviewMutationCancellation::begin(&app)?;
+    let cancellation_for_work = cancellation.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
-        let (
-            compared_file_name,
-            compared_file_size,
-            compared_path,
-            compared_row_count,
-            key_columns,
-        ) = {
-            let comparison = state
-                .comparison
-                .lock()
-                .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
-            let pending = comparison
-                .as_ref()
-                .ok_or_else(|| "No hay una comparación activa para resolver.".to_owned())?;
-            (
-                pending.file_name.clone(),
-                pending.file_size_bytes,
-                pending.snapshot_path.clone(),
-                pending.row_count,
-                pending.key_columns.clone(),
-            )
-        };
-        let source_context = {
+        let comparison = snapshot_pending_comparison_for_review(&state, &cancellation_for_work)?;
+        cancellation_for_work.ensure()?;
+        let (source_context, initial_eager_frame, expected_stamp) = {
             let current = state
                 .current
                 .lock()
                 .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-            current.as_ref().and_then(current_join_context)
+            let dataset = current.as_ref().ok_or_else(|| {
+                "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+            })?;
+            (
+                current_join_context(dataset),
+                (!dataset.source_backed).then(|| dataset.frame.clone()),
+                DatasetMutationStamp::capture(dataset),
+            )
         };
-        if let Some(context) = source_context {
-            let compared_schema = read_parquet_schema_frame(&compared_path)?;
-            let compared_snapshot_size = fs::metadata(&compared_path)
+
+        if let Some(context) = source_context.as_ref() {
+            cancellation_for_work.ensure()?;
+            let compared_schema = read_parquet_schema_frame(&comparison.path)?;
+            let compared_snapshot_size = fs::metadata(&comparison.path)
                 .map_err(|error| format!("No se pudo verificar el snapshot comparado: {error}"))?
                 .len();
+            if compared_snapshot_size != comparison.file_size_bytes {
+                return Err("El snapshot comparado cambió antes de resolver conflictos.".to_owned());
+            }
             if let Some(preview) = resolve_source_backed_conflicts(
                 &state,
                 SourceBackedConflictResolutionRequest {
-                    context,
-                    compared_path: compared_path.clone(),
+                    context: context.clone(),
+                    compared_path: comparison.path.clone(),
                     compared_size_bytes: compared_snapshot_size,
-                    compared_row_count,
+                    compared_row_count: comparison.row_count,
                     compared_schema,
-                    compared_file_name: compared_file_name.clone(),
-                    key_columns: key_columns.clone(),
+                    compared_file_name: comparison.file_name.clone(),
+                    key_columns: comparison.key_columns.clone(),
                     decisions: decisions.clone(),
                 },
+                &expected_stamp,
+                &comparison.identity_path,
+                &cancellation_for_work,
             )? {
                 return Ok(preview);
             }
         }
-        let compared_frame = read_parquet_frame(&compared_path)?;
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        let dataset = current.as_mut().ok_or_else(|| {
-            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-        })?;
-        materialize_loaded_dataset(dataset)?;
-        let resolved =
-            resolved_conflict_frame(&dataset.frame, &compared_frame, &key_columns, &decisions)?;
-        let file_name = format!("Resuelto · {} + {compared_file_name}", dataset.file_name);
-        let file_size_bytes = dataset.file_size_bytes.saturating_add(compared_file_size);
-        let preview = dataset_preview_with_size(&file_name, file_size_bytes, &resolved)?;
-        dataset
-            .history
-            .record(&resolved, "Resolver conflictos por clave")?;
-        dataset.source_path = None;
-        dataset.file_name = file_name;
-        dataset.file_size_bytes = file_size_bytes;
-        dataset.row_count = resolved.height();
-        dataset.frame = resolved;
-        dataset.source_backed = false;
-        dataset.profile = None;
-        drop(current);
-        *state
-            .comparison
-            .lock()
-            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
-        Ok(preview)
+        cancellation_for_work.ensure()?;
+        let compared_frame = read_parquet_frame(&comparison.path)?;
+        cancellation_for_work.ensure()?;
+        let current_frame = match initial_eager_frame {
+            Some(frame) => frame,
+            None => {
+                let current = state.current.lock().map_err(|_| {
+                    "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
+                })?;
+                let dataset = current.as_ref().ok_or_else(|| {
+                    "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+                })?;
+                if !expected_stamp.matches(dataset) {
+                    return Err(
+                        "El dataset activo cambió durante la operación de Review.".to_owned()
+                    );
+                }
+                materialized_dataset_frame(dataset)?
+            }
+        };
+        cancellation_for_work.ensure()?;
+        let is_cancelled = cancellation_for_work.callback();
+        let resolved = resolved_conflict_frame_with_cancel(
+            &current_frame,
+            &compared_frame,
+            &comparison.key_columns,
+            &decisions,
+            &is_cancelled,
+        )?;
+        let file_name = format!(
+            "Resuelto · {} + {}",
+            expected_stamp.file_name, comparison.file_name
+        );
+        let file_size_bytes = expected_stamp
+            .file_size_bytes
+            .saturating_add(comparison.file_size_bytes);
+        publish_review_eager_candidate(
+            &state,
+            &expected_stamp,
+            Some(&comparison.identity_path),
+            false,
+            resolved,
+            &file_name,
+            file_size_bytes,
+            "Resolver conflictos por clave",
+            &cancellation_for_work,
+        )
     })
     .await
     .map_err(|error| format!("La resolución de conflictos se interrumpió: {error}"))?

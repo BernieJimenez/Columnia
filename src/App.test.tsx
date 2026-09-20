@@ -2463,6 +2463,91 @@ describe("App", () => {
     if (outcome === "error") expect(cancelSpy).not.toHaveBeenCalled();
   });
 
+  it("cancela la resolución de conflictos sin publicar cambios y permite reintentar", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });
+    const dataset: DatasetPreview = {
+      fileName: "actual.csv", fileSizeBytes: 128, rowCount: 2, columnCount: 2,
+      columns: [{ name: "id", dataType: "Int64" }, { name: "valor", dataType: "String" }],
+      rows: [["1", "A"], ["2", "B"]],
+    };
+    mockDatasetLoad(dataset);
+    const comparison = {
+      currentFileName: "actual.csv",
+      comparedFileName: "nuevo.csv",
+      currentRowCount: 2,
+      comparedRowCount: 2,
+      commonRowCount: 1,
+      currentOnlyRowCount: 1,
+      comparedOnlyRowCount: 0,
+      sharedColumns: ["id", "valor"],
+      currentOnlyColumns: [],
+      comparedOnlyColumns: [],
+      schemaCompatible: true,
+      keyColumns: ["id"],
+      matchedKeyCount: 1,
+      currentOnlyKeyCount: 0,
+      comparedOnlyKeyCount: 0,
+      conflictingKeyCount: 1,
+      duplicateKeyCount: 0,
+      conflicts: [{
+        key: ["1"],
+        cells: [{ column: "valor", current: "A", compared: "Z" }],
+      }],
+      conflictOffset: 0,
+      conflictsTruncated: false,
+      canConsolidate: false,
+    };
+    vi.spyOn(bridge, "compareDataset").mockResolvedValue(comparison);
+    vi.spyOn(bridge, "clearDatasetComparison").mockResolvedValue(undefined);
+    let rejectResolution!: (reason: unknown) => void;
+    const resolutionPromise = new Promise<DatasetPreview>((_resolve, reject) => {
+      rejectResolution = reject;
+    });
+    const resolvedDataset = { ...dataset, fileName: "resuelto.csv" };
+    const resolveSpy = vi.spyOn(bridge, "resolveDatasetConflicts")
+      .mockReturnValueOnce(resolutionPromise)
+      .mockResolvedValueOnce(resolvedDataset);
+    const cancelSpy = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByText("Comparar con otro dataset"));
+    fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Elegir dataset para comparar" }));
+    await screen.findByText("nuevo.csv");
+    fireEvent.click(screen.getByRole("radio", { name: "Usar comparado en valor" }));
+    fireEvent.click(screen.getByRole("button", { name: "Resolver conflictos" }));
+    await waitFor(() => expect(resolveSpy).toHaveBeenCalledWith([
+      { conflictIndex: 0, column: "valor", source: "compared" },
+    ]));
+    expect(screen.getByRole("button", { name: "Cancelar resolución" })).toBeEnabled();
+    expect(screen.getByText("Resolviendo conflictos. Puedes cancelar mientras se calcula el resultado.", {
+      selector: 'p[role="status"]',
+    })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar resolución" }));
+    expect(cancelSpy).toHaveBeenCalledWith("reviewMutation");
+    expect(await screen.findByRole("button", { name: "Cancelando resolución…" })).toBeDisabled();
+    await act(async () => {
+      rejectResolution(new Error("Operación cancelada por el usuario."));
+      await resolutionPromise.catch(() => undefined);
+    });
+
+    expect(await screen.findByRole("heading", { name: "actual.csv" })).toBeInTheDocument();
+    expect(screen.getByText("nuevo.csv")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Usar comparado en valor" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Resolver conflictos" })).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Resolver conflictos" }));
+    await waitFor(() => expect(resolveSpy).toHaveBeenCalledTimes(2));
+    expect(resolveSpy).toHaveBeenLastCalledWith([
+      { conflictIndex: 0, column: "valor", source: "compared" },
+    ]);
+    expect(await screen.findByRole("heading", { name: "resuelto.csv" })).toBeInTheDocument();
+  });
+
   it("mantiene exclusión mutua hasta que termina una cancelación tardía", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });

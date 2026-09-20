@@ -1013,11 +1013,22 @@ export function App() {
     comparisonOperationInFlightRef.current = true;
     const requestId = ++comparisonRequestRef.current;
     const requestedRevision = datasetRevisionRef.current;
-    setReviewMutationStatus({ kind: "idle" });
-    setComparisonStatus(beginComparison());
+    const mutation = {
+      mutation: "resolveConflicts" as const,
+      requestId,
+      datasetRevision: requestedRevision,
+      cancellationRequested: false,
+    };
+    reviewMutationRef.current = mutation;
+    setReviewMutationStatus({ kind: "running", mutation: "resolveConflicts", cancellation: "available" });
     try {
       const dataset = await resolveDatasetConflicts(decisions);
-      if (comparisonRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
+      if (
+        reviewMutationRef.current !== mutation
+        || comparisonRequestRef.current !== requestId
+        || datasetRevisionRef.current !== requestedRevision
+      ) return;
+      setReviewMutationStatus({ kind: "finalizing", mutation: "resolveConflicts" });
       setDatasetStatus(createReadyDatasetStatus(dataset));
       bumpDatasetRevision();
       resetCompletedPhases();
@@ -1038,11 +1049,29 @@ export function App() {
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
     } catch (error: unknown) {
-      if (comparisonRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
+      if (
+        reviewMutationRef.current !== mutation
+        || comparisonRequestRef.current !== requestId
+        || datasetRevisionRef.current !== requestedRevision
+      ) return;
+      if (isCancellationError(error)) {
+        setReviewMutationStatus({ kind: "idle" });
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
-      setComparisonStatus(failComparison(message));
+      setReviewMutationStatus({ kind: "error", mutation: "resolveConflicts", message });
     } finally {
-      comparisonOperationInFlightRef.current = false;
+      if (reviewMutationRef.current === mutation) {
+        reviewMutationRef.current = null;
+        setReviewMutationStatus((current) =>
+          current.kind === "running" || current.kind === "finalizing"
+            ? { kind: "idle" }
+            : current,
+        );
+      }
+      if (!reviewMutationCancellationPendingRef.current) {
+        comparisonOperationInFlightRef.current = false;
+      }
     }
   }
 

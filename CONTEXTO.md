@@ -7,31 +7,60 @@
 proceso de revisión. Se conserva como única fuente viva para no mantener dos
 documentos equivalentes que puedan divergir.
 
-## Estado operativo verificado — 2026-09-12
+## Estado operativo verificado — 2026-09-20
 
-En el commit limpio `959036f`, versión `0.167.0`, el perfil `Full` pasó con
-15/15 etapas aprobadas: 312 pruebas frontend y 402 Rust pasaron; cuatro pruebas
+La última base de producto verificada es `master` en `bda5bf0`, versión
+`0.167.0`; el árbol estaba limpio en ese commit antes de esta actualización del contexto. La
+cola operativa vigente está en
+[`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
+historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
+resume el estado; esas fuentes definen los criterios de cierre.
+
+En el código local están implementadas la importación CSV/TSV con convenciones
+explícitas de fecha y número, las políticas reutilizables de excepciones de
+conversión, y la cancelación compartida de JOIN, consolidación y resolución
+manual de conflictos en Review. La resolución de conflictos valida y prepara un
+candidato privado; la publicación de Review es staged y reversible, y la
+comparación y el historial se conservan si cancelar gana antes del commit.
+DuckDB puede interrumpir consultas source-backed activas. Los parsers eager
+CSV/Parquet/Excel, el JOIN eager de Polars y el selector nativo son
+no cooperativos/modal: una cancelación puede esperar a que termine esa llamada,
+aunque no publica una revisión parcial. Aún falta una acción para excluir un
+conflicto completo y filas duplicadas se diagnostican aparte.
+
+Verificación más reciente: `npm test` 425/425, `npm run test:e2e` 21/21,
+`npm run build`, `npm run ipc:check`, `npm run docs:check`, `cargo fmt --check` y
+`cargo check --tests` pasan. El filtro Rust `review_` recompilado pasa 10/10.
+La suite Rust completa pasó 488, con 0 fallidas y 5 ignoradas. Las E2E usan el
+bridge simulado y las pruebas Rust de Windows necesitaron un manifiesto Common
+Controls v6 temporal; ninguna de esas pruebas equivale a aceptación nativa
+completa con datos de trabajo reales.
+
+Siguen abiertos los criterios con evidencia que no se puede fabricar localmente:
+la beta de tres participantes y su resumen sanitizado; accesibilidad manual con
+lector de pantalla/alto contraste; round-trip contra SQL Server real; y un
+candidato binario/canal autorizado probado en VM limpia. RV04 conserva además
+la exclusión de conflictos completos y la mejora de cancelación dentro de las
+llamadas eager. RV14 requiere seleccionar y validar la herramienta BI a partir
+de beta. No sustituir estas evidencias por fixtures o resultados sintéticos.
+
+### Registro histórico de verificación — corte 2026-09-12
+
+En `959036f`, versión `0.167.0`, el perfil `Full` pasó con 15/15 etapas
+aprobadas: 312 pruebas frontend y 402 Rust pasaron; cuatro pruebas
 externas/optativas quedaron ignoradas. Evidencia exacta:
 `.local/validation/20260913T003824Z-959036f-full.json`.
 
-La captura visual se renovó en `.local/validation/accessibility-visual/20260913T002632Z`;
-escritorio, móvil, zoom 125/200 % y colores forzados pasaron el contrato y el
-baseline en `.local/validation/accessibility-baseline/20260913T002709Z`. Esto no
-sustituye la comprobación manual con lector de pantalla y colores de alto contraste.
+La captura visual de ese corte está en
+`.local/validation/accessibility-visual/20260913T002632Z`; escritorio, móvil,
+zoom 125/200 % y colores forzados pasaron el contrato y el baseline en
+`.local/validation/accessibility-baseline/20260913T002709Z`. No sustituye la
+comprobación manual vigente con lector de pantalla y colores de alto contraste.
 
-El cambio de `bb35f04`, incluido en ese perfil Full, añade cobertura unitaria del
-parseo booleano y del mapeo `BOOLEAN`/`BIT`. La prueba verifica el resultado puro
-del parseo, la aceptación de parámetros booleanos/nulos y los tipos declarados
-por dialecto; no demuestra por sí sola los valores ODBC recibidos por un servidor.
-T6-05 sigue abierto hasta completar el round-trip real en SQL Server por las
-rutas frame y source-backed.
-
-Tier 7 está completo. Siguen abiertos los gates que requieren evidencia externa
-o humana: las tres sesiones beta y el resumen sanitizado de Gate 1; el round-trip
-de T6-05 contra SQL Server real; y la comprobación manual con lector de pantalla
-y colores de alto contraste. El validador de Gate 2 continúa bloqueando la falta
-de `docs/reference/beta-v1-summary.md`; no se debe sustituir evidencia humana por
-fixtures ni por la pasada automatizada.
+El cambio `bb35f04` añadió cobertura unitaria del parseo booleano y del mapeo
+`BOOLEAN`/`BIT`; verifica el parseo puro, parámetros booleanos/nulos y tipos
+declarados por dialecto, pero no demuestra los valores ODBC recibidos por un
+servidor. El round-trip real de SQL Server sigue abierto.
 
 ## Reauditoría incremental — registro histórico (2026-09-07)
 
@@ -184,7 +213,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-07; reauditoría incremental cerrada sobre `d0e00fd` |
+| Última actualización | 2026-09-20; estado de producto verificado sobre `bda5bf0`; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `0.167.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -194,8 +223,8 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | La suite local actual mantiene 284 pruebas frontend y 397 pruebas Rust aprobadas, con 1 benchmark de escala ignorado explícitamente; `perf:benchmark`, `perf:webview2` y `perf:check` pasan con evidencia fresca de 100 MiB, tres corridas sostenidas, dos actualizaciones durables, 819.137 filas WebView2 y cleanup confirmado; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
-| Última revisión de este documento | 2026-09-04, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR directas source-backed para limitar, imputar y eliminar filas atípicas, eliminación source-backed de duplicados parecidos, correcciones recomendadas source-backed que combinan trim y renombres, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas, conversión numérica segura, separación source-backed de tipos incompatibles y corrección source-backed de secuencias mojibake inequívocas con fallback eager seguro; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la superficie pública se mantiene limitada a capacidades nativas de Columnia; la entrega opcional ODBC cubre PostgreSQL, MySQL y SQL Server con prueba de conexión y políticas de tabla sin persistir credenciales, y transmite fuentes source-backed compatibles por bloques sin llenar el `DataFrame` activo; el inventario IPC registra 67 comandos de producción y 58 estructuras compartidas, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, la página visible de la muestra, el motor SQL elegido, la cobertura de correlaciones, el perfil de rendimiento, el formato de exportación, la protección de datos, las claves de comparación y el tipo de JOIN elegido por proyecto, con fallback seguro y migración SQLite v12. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; la comparación inicial de `.xlsx` y `.xlsb` genera snapshots Parquet por bloques y conserva fallback para `.xls`/`.ods`; las comparaciones iniciales reutilizan el snapshot Parquet del activo o una fuente original Parquet/CSV/TSV/TXT intacta cuando es posible, sin clonar el `DataFrame`; las aperturas grandes de `JSON`, `JSONL` y `NDJSON` generan snapshots Parquet privados de DuckDB y dejan el frame activo en modo esquema-only; la restauración de proyectos durables también comprueba el presupuesto de RAM antes de leer `current.parquet` completo y conserva la sesión activa si la admisión falla; las lecturas eager indirectas de fuentes comparadas incompatibles, snapshots Parquet comparados, undo/redo y automatización pasan por la misma admisión antes de leer filas; Deshacer/Rehacer source-backed ya restaura esquema, conteo y primera página desde el cursor Parquet sin materializar la revisión completa; las consultas DuckDB fijan 512 MB, derrame privado de hasta 8 GB y cleanup por operación; las recetas source-backed ya pueden filtrar, seleccionar, renombrar, convertir tipos, parsear fechas fijas e ISO seguras, extraer partes de fecha, reemplazar texto literal, dividir y unir columnas de texto, calcular columnas simples y aplicar tratamientos IQR directamente sobre CSV/TSV/TXT delimitado o Parquet; las exportaciones source-backed de Bundle, Excel `.xlsx` y SQLite transfieren datos desde DuckDB sin materializar el `DataFrame` activo y conservan atomicidad, cancelación, validación de cambios y cleanup; los JOINs source-backed `INNER`/`LEFT`/`FULL` entre fuentes locales CSV/TSV/TXT/Parquet generan solo el resultado Parquet, limitan cardinalidad y dejan historial reversible con fallback eager para formatos incompatibles; conflictos paginados, resolución y consolidación también reutilizan snapshots Parquet durables del cursor actual de datasets materializados, con validación de cursor y fallback eager; `npm run brand:check` inspecciona el árbol activo para impedir regresiones de nomenclatura; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; el gate legal técnico y el inventario de avisos pasan, mientras la aprobación jurídica, la VM limpia y la validación del canal siguen pendientes |
+| Pruebas observadas | Estado al 2026-09-20: 425 frontend; 21 E2E sintéticas; 488 Rust completas (0 fallidas, 5 ignoradas); build, IPC, documentación, formato y `cargo check --tests` pasan. Véase la nota de alcance en el estado operativo: no equivale a beta, round-trip SQL Server ni aceptación nativa completa. |
+| Última revisión de este documento | 2026-09-20 sobre `bda5bf0`; la cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 

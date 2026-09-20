@@ -5669,10 +5669,10 @@ fn cancelled_review_source_backed_publication_keeps_history_and_cleans_output() 
 }
 
 #[test]
-fn cancelled_review_eager_publication_keeps_dataset_history_and_comparison() {
+fn cancelled_review_eager_conflict_resolution_keeps_dataset_history_and_comparison() {
     let current_frame = df!["id" => &[1_i64, 2], "city" => &["Santo Domingo", "Santiago"]]
         .expect("el dataset activo debe construirse");
-    let compared_frame = df!["id" => &[2_i64, 3], "city" => &["Santiago", "La Vega"]]
+    let compared_frame = df!["id" => &[1_i64, 2], "city" => &["La Vega", "Santiago"]]
         .expect("la comparación debe construirse");
     let (comparison_directory, comparison_path) =
         persist_comparison_snapshot(&compared_frame).expect("el snapshot debe escribirse");
@@ -5737,9 +5737,18 @@ fn cancelled_review_eager_publication_keeps_dataset_history_and_comparison() {
         let dataset = current.as_ref().expect("el dataset debe existir");
         directory_entries(dataset.history.directory.path())
     };
-    let candidate =
-        df!["id" => &[1_i64, 2, 3], "city" => &["Santo Domingo", "Santiago", "La Vega"]]
-            .expect("la candidata debe construirse");
+    let candidate = resolved_conflict_frame_with_cancel(
+        &current_frame,
+        &compared_frame,
+        &["id".to_owned()],
+        &[ConflictResolution {
+            conflict_index: 0,
+            column: None,
+            source: ConflictSource::Compared,
+        }],
+        &|| false,
+    )
+    .expect("la candidata de resolución debe construirse antes de publicarse");
     let cancellation = ReviewMutationCancellation::cancel_at_commit_for_test();
 
     let error = publish_review_eager_candidate(
@@ -5748,12 +5757,12 @@ fn cancelled_review_eager_publication_keeps_dataset_history_and_comparison() {
         Some(&comparison_path),
         false,
         candidate,
-        "Consolidado · current.csv + compared.parquet",
+        "Resuelto · current.csv + compared.parquet",
         256,
-        "Consolidar datasets",
+        "Resolver conflictos por clave",
         &cancellation,
     )
-    .expect_err("una publicación eager cancelada debe abortar");
+    .expect_err("una resolución eager cancelada antes de publicar debe abortar");
 
     assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
     assert!(cancellation.is_cancelled());
@@ -6436,6 +6445,20 @@ fn snapshot_backed_conflict_resolution_publishes_a_reversible_cursor() {
         profile: None,
         history,
     });
+    let compared_size_bytes = fs::metadata(&compared_path)
+        .expect("el snapshot comparado debe conservar sus metadatos")
+        .len();
+    *state
+        .comparison
+        .lock()
+        .expect("la comparación debe estar disponible") = Some(PendingComparison {
+        file_name: "compared.parquet".to_owned(),
+        file_size_bytes: compared_size_bytes,
+        row_count: compared.height(),
+        _directory: compared_directory,
+        snapshot_path: compared_path.clone(),
+        key_columns: vec!["id".to_owned()],
+    });
     let context = {
         let current = state
             .current
@@ -6445,11 +6468,16 @@ fn snapshot_backed_conflict_resolution_publishes_a_reversible_cursor() {
             .expect("el contexto snapshot-backed debe conservarse")
     };
     assert!(context.snapshot_only);
-    let compared_size_bytes = fs::metadata(&compared_path)
-        .expect("el snapshot comparado debe conservar sus metadatos")
-        .len();
+    let expected_stamp = {
+        let current = state
+            .current
+            .lock()
+            .expect("el estado activo debe estar disponible");
+        DatasetMutationStamp::capture(current.as_ref().expect("el dataset debe existir"))
+    };
     let compared_schema =
         read_parquet_schema_frame(&compared_path).expect("el esquema comparado debe poder leerse");
+    let cancellation = ReviewMutationCancellation::disabled();
     let preview = resolve_source_backed_conflicts(
         &state,
         SourceBackedConflictResolutionRequest {
@@ -6478,6 +6506,9 @@ fn snapshot_backed_conflict_resolution_publishes_a_reversible_cursor() {
                 },
             ],
         },
+        &expected_stamp,
+        &compared_path,
+        &cancellation,
     )
     .expect("la resolución snapshot-backed debe poder ejecutarse")
     .expect("la resolución debe publicarse con historial");
@@ -6513,7 +6544,6 @@ fn snapshot_backed_conflict_resolution_publishes_a_reversible_cursor() {
         Some("25")
     );
     drop(active);
-    drop(compared_directory);
     assert!(!compared_path.exists());
 }
 
@@ -6681,8 +6711,16 @@ fn source_backed_conflict_resolution_publishes_selected_values_reversibly() {
         source_backed_join_context(current.as_ref().expect("el dataset debe existir"))
             .expect("el contexto source-backed debe conservarse")
     };
+    let expected_stamp = {
+        let current = state
+            .current
+            .lock()
+            .expect("el estado activo debe estar disponible");
+        DatasetMutationStamp::capture(current.as_ref().expect("el dataset debe existir"))
+    };
     let compared_schema =
         read_parquet_schema_frame(&compared_path).expect("el esquema comparado debe poder leerse");
+    let cancellation = ReviewMutationCancellation::disabled();
     let preview = resolve_source_backed_conflicts(
         &state,
         SourceBackedConflictResolutionRequest {
@@ -6711,6 +6749,9 @@ fn source_backed_conflict_resolution_publishes_selected_values_reversibly() {
                 },
             ],
         },
+        &expected_stamp,
+        &compared_path,
+        &cancellation,
     )
     .expect("la resolución source-backed debe poder ejecutarse")
     .expect("la resolución debe publicarse con historial");
@@ -6776,6 +6817,7 @@ fn source_backed_conflict_resolution_defers_oversized_decisions_to_the_eager_pat
         &[],
         &[],
         &decisions,
+        &|| false,
     )
     .expect("las decisiones fuera de presupuesto deben conservar fallback");
     assert!(result.is_none());
@@ -9622,6 +9664,61 @@ fn resolves_key_conflicts_by_column_and_keeps_legacy_row_decisions() {
         ],
     )
     .is_err());
+}
+
+#[test]
+fn source_backed_conflict_scan_honors_cancellation_between_disk_blocks() {
+    let ids = (0_i64..512).collect::<Vec<_>>();
+    let current_values = ids
+        .iter()
+        .map(|id| format!("current-{id}"))
+        .collect::<Vec<_>>();
+    let compared_values = ids
+        .iter()
+        .map(|id| format!("compared-{id}"))
+        .collect::<Vec<_>>();
+    let current = DataFrame::new(
+        ids.len(),
+        vec![
+            Series::new("id".into(), ids.clone()).into_column(),
+            Series::new("value".into(), current_values).into_column(),
+        ],
+    )
+    .expect("el frame activo debe ser válido");
+    let compared = DataFrame::new(
+        ids.len(),
+        vec![
+            Series::new("id".into(), ids).into_column(),
+            Series::new("value".into(), compared_values).into_column(),
+        ],
+    )
+    .expect("el frame comparado debe ser válido");
+    let (_current_directory, current_path) =
+        persist_comparison_snapshot(&current).expect("el snapshot activo debe poder escribirse");
+    let (_compared_directory, compared_path) = persist_comparison_snapshot(&compared)
+        .expect("el snapshot comparado debe poder escribirse");
+    let checks = AtomicU64::new(0);
+    let is_cancelled = || checks.fetch_add(1, Ordering::Relaxed) >= 18;
+
+    let error = for_each_key_conflict_between_parquet_with_cancel(
+        ParquetComparisonSource {
+            path: &current_path,
+            row_count: current.height(),
+        },
+        ParquetComparisonSource {
+            path: &compared_path,
+            row_count: compared.height(),
+        },
+        &["id".to_owned()],
+        &["id".to_owned(), "value".to_owned()],
+        Some(SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS),
+        &is_cancelled,
+        |_, _, _, _, _, _, _, _| Ok(()),
+    )
+    .expect_err("la exploración source-backed debe interrumpirse al cancelar");
+
+    assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+    assert!(checks.load(Ordering::Relaxed) >= 18);
 }
 
 #[test]

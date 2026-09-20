@@ -5,7 +5,7 @@ export type JoinStatus =
   | { kind: "loading"; joinType: DatasetJoinType }
   | { kind: "error"; message: string };
 
-export type ReviewMutationKind = "join" | "consolidate";
+export type ReviewMutationKind = "join" | "consolidate" | "resolveConflicts";
 
 export type ReviewMutationStatus =
   | { kind: "idle" }

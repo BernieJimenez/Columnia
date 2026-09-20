@@ -1077,6 +1077,111 @@ describe("ReviewPhase", () => {
     ]);
   });
 
+  it("permite cancelar la resolución desde el mismo control y anuncia el estado", () => {
+    const onCancelReviewMutation = vi.fn();
+    const comparisonStatus = {
+      kind: "ready" as const,
+      comparison: {
+        currentFileName: "datos.csv",
+        comparedFileName: "actualizacion.csv",
+        currentRowCount: 2,
+        comparedRowCount: 2,
+        commonRowCount: 2,
+        currentOnlyRowCount: 0,
+        comparedOnlyRowCount: 0,
+        sharedColumns: ["id", "nota"],
+        currentOnlyColumns: [],
+        comparedOnlyColumns: [],
+        schemaCompatible: true,
+        keyColumns: ["id"],
+        matchedKeyCount: 1,
+        currentOnlyKeyCount: 0,
+        comparedOnlyKeyCount: 0,
+        conflictingKeyCount: 1,
+        duplicateKeyCount: 0,
+        conflicts: [{
+          key: ["51"],
+          cells: [{ column: "nota", current: null, compared: "ok" }],
+        }],
+        conflictOffset: 0,
+        conflictsTruncated: false,
+        canConsolidate: false,
+      },
+    };
+    const view = render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "idle" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        comparisonStatus={comparisonStatus}
+        datasetColumns={dataset.columns}
+        comparisonKeyColumns={["id"]}
+        onComparisonKeyColumnsChange={() => undefined}
+        onCompare={() => undefined}
+        onClearComparison={() => undefined}
+        onConsolidate={() => undefined}
+        onResolveConflicts={() => undefined}
+        onConflictPageChange={() => undefined}
+        joinStatus={{ kind: "idle" }}
+        reviewMutationStatus={{
+          kind: "running",
+          mutation: "resolveConflicts",
+          cancellation: "available",
+        }}
+        onCancelReviewMutation={onCancelReviewMutation}
+        joinType="inner"
+        onJoinTypeChange={() => undefined}
+        onJoin={() => undefined}
+      />,
+    );
+
+    const cancelButton = screen.getByRole("button", { name: "Cancelar resolución" });
+    expect(cancelButton).toBeEnabled();
+    expect(screen.getByText("Resolviendo conflictos. Puedes cancelar mientras se calcula el resultado.", {
+      selector: 'p[role="status"]',
+    })).toBeInTheDocument();
+    fireEvent.click(cancelButton);
+    expect(onCancelReviewMutation).toHaveBeenCalledOnce();
+
+    view.rerender(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "idle" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        comparisonStatus={comparisonStatus}
+        datasetColumns={dataset.columns}
+        comparisonKeyColumns={["id"]}
+        onComparisonKeyColumnsChange={() => undefined}
+        onCompare={() => undefined}
+        onClearComparison={() => undefined}
+        onConsolidate={() => undefined}
+        onResolveConflicts={() => undefined}
+        onConflictPageChange={() => undefined}
+        joinStatus={{ kind: "idle" }}
+        reviewMutationStatus={{
+          kind: "running",
+          mutation: "resolveConflicts",
+          cancellation: "requested",
+        }}
+        onCancelReviewMutation={onCancelReviewMutation}
+        joinType="inner"
+        onJoinTypeChange={() => undefined}
+        onJoin={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Cancelando resolución…" })).toBeDisabled();
+    expect(screen.getByText("Cancelación solicitada. Esperando a que la resolución se detenga sin cambiar el dataset.", {
+      selector: 'p[role="status"]',
+    })).toBeInTheDocument();
+  });
+
   it("pagina conflictos sin permitir saltar decisiones pendientes", () => {
     const onConflictPageChange = vi.fn();
     render(

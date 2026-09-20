@@ -368,7 +368,9 @@ function DatasetComparisonSection({
                   : "Cancelar unión"
               : activeReviewMutation === "consolidate"
                 ? "Esperando consolidación…"
-                : "Elegir fuente y unir"}
+                : activeReviewMutation === "resolveConflicts"
+                  ? "Esperando resolución…"
+                  : "Elegir fuente y unir"}
           </button>
         </fieldset>
       )}
@@ -393,6 +395,11 @@ function DatasetComparisonSection({
       {reviewMutationStatus.kind === "error" && reviewMutationStatus.mutation === "consolidate" && (
         <p className="notice notice--error" role="alert">
           No se pudieron consolidar las filas: {reviewMutationStatus.message}
+        </p>
+      )}
+      {reviewMutationStatus.kind === "error" && reviewMutationStatus.mutation === "resolveConflicts" && (
+        <p className="notice notice--error" role="alert">
+          No se pudieron resolver los conflictos: {reviewMutationStatus.message}
         </p>
       )}
       {status.kind === "ready" && (
@@ -447,17 +454,46 @@ function DatasetComparisonSection({
                 <button
                   type="button"
                   className="primary-action"
-                  onClick={() => onResolveConflicts(Object.entries(conflictChoices).map(([choiceKey, source]) => {
-                    const separator = choiceKey.indexOf(":");
-                    const conflictIndex = Number(choiceKey.slice(0, separator));
-                    const column = choiceKey.slice(separator + 1);
-                    return { conflictIndex, column, source };
-                  }))}
-                  disabled={reviewMutationBusy || conflictPageLoading || status.comparison.conflictsTruncated || !visibleConflictPageComplete}
+                  onClick={() => activeReviewMutation === "resolveConflicts"
+                    ? onCancelReviewMutation()
+                    : onResolveConflicts(Object.entries(conflictChoices).map(([choiceKey, source]) => {
+                      const separator = choiceKey.indexOf(":");
+                      const conflictIndex = Number(choiceKey.slice(0, separator));
+                      const column = choiceKey.slice(separator + 1);
+                      return { conflictIndex, column, source };
+                    }))}
+                  disabled={reviewMutationBusy
+                    ? activeReviewMutation !== "resolveConflicts"
+                      || reviewMutationFinalizing
+                      || reviewMutationCancellationRequested
+                    : conflictPageLoading || status.comparison.conflictsTruncated || !visibleConflictPageComplete}
                 >
-                  Resolver conflictos
+                  {reviewMutationCancellationPending
+                    ? "Esperando cancelación…"
+                    : activeReviewMutation === "resolveConflicts"
+                      ? reviewMutationFinalizing
+                        ? "Finalizando resolución…"
+                        : reviewMutationCancellationRequested
+                          ? "Cancelando resolución…"
+                          : "Cancelar resolución"
+                      : activeReviewMutation === "join"
+                        ? "Esperando unión…"
+                        : activeReviewMutation === "consolidate"
+                          ? "Esperando consolidación…"
+                          : "Resolver conflictos"}
                 </button>
               </div>
+              {activeReviewMutation === "resolveConflicts" && (
+                <p className="notice" role="status" aria-live="polite">
+                  {reviewMutationCancellationPending
+                    ? "Enviando la solicitud de cancelación de la resolución."
+                    : reviewMutationCancellationRequested
+                      ? "Cancelación solicitada. Esperando a que la resolución se detenga sin cambiar el dataset."
+                      : reviewMutationFinalizing
+                        ? "La resolución terminó; se está publicando el resultado validado."
+                        : "Resolviendo conflictos. Puedes cancelar mientras se calcula el resultado."}
+                </p>
+              )}
               {status.comparison.conflicts.map((conflict, conflictIndex) => {
                 const globalConflictIndex = status.comparison.conflictOffset + conflictIndex;
                 return (
@@ -562,6 +598,8 @@ function DatasetComparisonSection({
                     : "Cancelar consolidación"
                 : activeReviewMutation === "join"
                   ? "Esperando unión…"
+                  : activeReviewMutation === "resolveConflicts"
+                    ? "Esperando resolución…"
                   : "Consolidar filas"}
             </button>
           </div>
