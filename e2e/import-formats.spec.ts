@@ -141,6 +141,13 @@ for (const fixture of importCases) {
     if (fixture.format === "csv") {
       const dialog = page.getByRole("dialog", { name: `Revisar encabezados de ${fixture.fileName}` });
       await expect(dialog).toBeVisible();
+      const importOptions = dialog.locator("details.sheet-import-options");
+      await expect(importOptions).not.toHaveAttribute("open", "");
+      await importOptions.locator("summary").focus();
+      await page.keyboard.press("Enter");
+      await expect(importOptions).toHaveAttribute("open", "");
+      await expect(dialog.getByRole("combobox", { name: "Fechas" })).toBeVisible();
+      await expect(dialog.getByRole("combobox", { name: "Números" })).toBeVisible();
       await expect(dialog.getByRole("columnheader").first()).toContainText("id");
       await expect(dialog.getByRole("radio", { name: /primera fila como encabezados/ })).toBeChecked();
       await dialog.getByRole("button", { name: "Cargar archivo" }).click();
