@@ -2787,6 +2787,7 @@ pub struct DatasetState {
     snapshot_comparison_generation: AtomicU64,
     dataset_comparison_generation: AtomicU64,
     dataset_comparison_commit_lock: Mutex<()>,
+    quality_validation_generation: AtomicU64,
     prepare_generation: AtomicU64,
     prepare_commit_lock: Mutex<()>,
     review_mutation_generation: AtomicU64,
@@ -2840,6 +2841,37 @@ impl DatasetComparisonCancellation {
             .map_err(|_| "La publicación de la comparación quedó bloqueada.".to_owned())?;
         self.ensure()?;
         operation()
+    }
+}
+
+#[derive(Clone)]
+struct QualityValidationCancellation {
+    app: AppHandle,
+    generation: u64,
+}
+
+impl QualityValidationCancellation {
+    fn begin(app: &AppHandle) -> Self {
+        let generation = app.state::<DatasetState>().begin_quality_validation();
+        Self {
+            app: app.clone(),
+            generation,
+        }
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.app
+            .state::<DatasetState>()
+            .quality_validation_was_cancelled(self.generation)
+    }
+
+    fn ensure(&self) -> Result<(), String> {
+        ensure_not_cancelled(self.is_cancelled())
+    }
+
+    fn callback(&self) -> impl Fn() -> bool + Clone + Send + Sync + 'static {
+        let cancellation = self.clone();
+        move || cancellation.is_cancelled()
     }
 }
 
@@ -3153,6 +3185,12 @@ impl DatasetState {
             .wrapping_add(1)
     }
 
+    fn begin_quality_validation(&self) -> u64 {
+        self.quality_validation_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
     fn begin_prepare(&self) -> u64 {
         self.prepare_generation
             .fetch_add(1, Ordering::SeqCst)
@@ -3195,6 +3233,10 @@ impl DatasetState {
 
     fn dataset_comparison_was_cancelled(&self, generation: u64) -> bool {
         self.dataset_comparison_generation.load(Ordering::SeqCst) != generation
+    }
+
+    fn quality_validation_was_cancelled(&self, generation: u64) -> bool {
+        self.quality_validation_generation.load(Ordering::SeqCst) != generation
     }
 
     fn prepare_was_cancelled(&self, generation: u64) -> bool {
@@ -3243,6 +3285,11 @@ impl DatasetState {
                 .lock()
                 .map_err(|_| "La cancelación de la comparación quedó bloqueada.".to_owned())?;
             self.dataset_comparison_generation
+                .fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
+        if operation == "qualityValidation" {
+            self.quality_validation_generation
                 .fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
@@ -9715,11 +9762,26 @@ fn source_profile_snapshot(
     source_path: &Path,
     extension: &str,
 ) -> Result<(Option<tempfile::TempDir>, PathBuf), String> {
+    source_profile_snapshot_with_cancel(source_path, extension, || false)
+}
+
+fn source_profile_snapshot_with_cancel<C>(
+    source_path: &Path,
+    extension: &str,
+    is_cancelled: C,
+) -> Result<(Option<tempfile::TempDir>, PathBuf), String>
+where
+    C: Fn() -> bool + Clone + Send + Sync + 'static,
+{
+    ensure_not_cancelled(is_cancelled())?;
     match extension {
         "parquet" => Ok((None, source_path.to_owned())),
         "csv" | "tsv" | "txt" => {
-            let (directory, snapshot) =
-                persist_delimited_comparison_source_file(source_path, extension)?;
+            let (directory, snapshot) = persist_delimited_comparison_source_file_with_cancel(
+                source_path,
+                extension,
+                is_cancelled,
+            )?;
             Ok((Some(directory), snapshot))
         }
         _ => Err("El formato no admite un perfil source-backed.".to_owned()),
@@ -19704,10 +19766,32 @@ fn quality_dtype_matches(actual: &DataType, expected: &str) -> bool {
     }
 }
 
+fn ensure_quality_row_not_cancelled<C>(row_index: usize, is_cancelled: &C) -> Result<(), String>
+where
+    C: Fn() -> bool,
+{
+    if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+        ensure_not_cancelled(is_cancelled())?;
+    }
+    Ok(())
+}
+
 fn duplicate_combination_count(frame: &DataFrame, columns: &[String]) -> Result<usize, String> {
+    duplicate_combination_count_with_cancel(frame, columns, &|| false)
+}
+
+fn duplicate_combination_count_with_cancel<C>(
+    frame: &DataFrame,
+    columns: &[String],
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool,
+{
     let mut seen = HashSet::new();
     let mut duplicate_count = 0;
     for row_index in 0..frame.height() {
+        ensure_quality_row_not_cancelled(row_index, is_cancelled)?;
         let key = columns
             .iter()
             .map(|name| {
@@ -19722,6 +19806,7 @@ fn duplicate_combination_count(frame: &DataFrame, columns: &[String]) -> Result<
             duplicate_count += 1;
         }
     }
+    ensure_not_cancelled(is_cancelled())?;
     Ok(duplicate_count)
 }
 
@@ -20176,11 +20261,13 @@ fn evaluate_source_quality_rules_with_cancel<C>(
     is_cancelled: C,
 ) -> Result<QualityValidationResult, String>
 where
-    C: Fn() -> bool + Sync,
+    C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
     ensure_not_cancelled(is_cancelled())?;
     validate_quality_rules_payload(quality_rules)?;
-    let (_snapshot_directory, snapshot_path) = source_profile_snapshot(source_path, extension)?;
+    let (_snapshot_directory, snapshot_path) =
+        source_profile_snapshot_with_cancel(source_path, extension, is_cancelled.clone())?;
+    ensure_not_cancelled(is_cancelled())?;
     let schema = read_parquet_schema_frame(&snapshot_path)?;
 
     for rule in quality_rules {
@@ -20337,20 +20424,25 @@ where
             .map(|index| quality_rules[*index].clone())
             .collect::<Vec<_>>();
         let mut streaming_counts = vec![(0_usize, 0_usize); streaming_rules.len()];
-        for_each_parquet_block(&snapshot_path, row_count, |_, block| {
-            ensure_not_cancelled(is_cancelled())?;
-            let result =
-                evaluate_quality_rules_with_cancel(block, &streaming_rules, &is_cancelled)?;
-            for (index, rule_result) in result.rules.iter().enumerate() {
-                streaming_counts[index].0 = streaming_counts[index]
-                    .0
-                    .saturating_add(rule_result.checked_count);
-                streaming_counts[index].1 = streaming_counts[index]
-                    .1
-                    .saturating_add(rule_result.invalid_count);
-            }
-            Ok(())
-        })?;
+        for_each_parquet_block_with_cancel(
+            &snapshot_path,
+            row_count,
+            &is_cancelled,
+            |_, block| {
+                ensure_not_cancelled(is_cancelled())?;
+                let result =
+                    evaluate_quality_rules_with_cancel(block, &streaming_rules, &is_cancelled)?;
+                for (index, rule_result) in result.rules.iter().enumerate() {
+                    streaming_counts[index].0 = streaming_counts[index]
+                        .0
+                        .saturating_add(rule_result.checked_count);
+                    streaming_counts[index].1 = streaming_counts[index]
+                        .1
+                        .saturating_add(rule_result.invalid_count);
+                }
+                Ok(())
+            },
+        )?;
         for (streaming_index, rule_index) in streaming_rule_indices.iter().enumerate() {
             counts[*rule_index] = streaming_counts[streaming_index];
         }
@@ -20388,7 +20480,7 @@ fn enforce_source_quality_with_cancel<C>(
     is_cancelled: C,
 ) -> Result<Option<QualityValidationResult>, String>
 where
-    C: Fn() -> bool + Sync,
+    C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
     ensure_not_cancelled(is_cancelled())?;
     validate_quality_rules_payload(quality_rules)?;
@@ -20451,6 +20543,7 @@ where
                     .map_err(|error| error.to_string())?;
                 let mut invalid_count = 0;
                 for row_index in 0..row_count {
+                    ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
                     let condition_value = condition_column
                         .get(row_index)
                         .map_err(|error| error.to_string())?;
@@ -20469,15 +20562,17 @@ where
                     .map_err(|error| error.to_string())?;
                 let minimum = rule.min_date.as_deref().and_then(parse_quality_datetime);
                 let maximum = rule.max_date.as_deref().and_then(parse_quality_datetime);
-                let invalid_count = (0..row_count)
-                    .filter(|row_index| {
-                        let value = column.get(*row_index).ok().and_then(quality_datetime_value);
-                        value.is_none_or(|value| {
-                            minimum.is_some_and(|minimum| value < minimum)
-                                || maximum.is_some_and(|maximum| value > maximum)
-                        })
-                    })
-                    .count();
+                let mut invalid_count = 0;
+                for row_index in 0..row_count {
+                    ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
+                    let value = column.get(row_index).ok().and_then(quality_datetime_value);
+                    if value.is_none_or(|value| {
+                        minimum.is_some_and(|minimum| value < minimum)
+                            || maximum.is_some_and(|maximum| value > maximum)
+                    }) {
+                        invalid_count += 1;
+                    }
+                }
                 (row_count, invalid_count)
             }
             QualityRuleKind::SchemaContract => {
@@ -20525,9 +20620,10 @@ where
             }
             QualityRuleKind::UniqueTogether => (
                 row_count,
-                duplicate_combination_count(
+                duplicate_combination_count_with_cancel(
                     frame,
                     rule.columns.as_deref().expect("columns validadas"),
+                    &is_cancelled,
                 )?,
             ),
             QualityRuleKind::ColumnCompare => {
@@ -20541,6 +20637,7 @@ where
                 let operator = rule.operator.expect("operator validado");
                 let mut invalid_count = 0;
                 for row_index in 0..row_count {
+                    ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
                     let left_value = left.get(row_index).map_err(|error| error.to_string())?;
                     let right_value = right.get(row_index).map_err(|error| error.to_string())?;
                     if matches!(left_value, AnyValue::Null)
@@ -20564,15 +20661,17 @@ where
                     .collect::<Result<Vec<_>, _>>()?;
                 let invalid_count = if key_columns.len() == 1 {
                     let column = key_columns[0];
-                    (0..row_count)
-                        .filter(|row_index| {
-                            column.get(*row_index).ok().is_none_or(|value| {
-                                !references.iter().any(|reference| {
-                                    quality_reference_scalar_matches(value.clone(), reference)
-                                })
+                    let mut invalid_count = 0;
+                    for row_index in 0..row_count {
+                        ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
+                        let valid = column.get(row_index).ok().is_some_and(|value| {
+                            references.iter().any(|reference| {
+                                quality_reference_scalar_matches(value.clone(), reference)
                             })
-                        })
-                        .count()
+                        });
+                        invalid_count += usize::from(!valid);
+                    }
+                    invalid_count
                 } else {
                     let parsed_references = references
                         .iter()
@@ -20581,29 +20680,32 @@ where
                                 .expect("referencias compuestas validadas")
                         })
                         .collect::<Vec<_>>();
-                    (0..row_count)
-                        .filter(|row_index| {
-                            let values = key_columns
-                                .iter()
-                                .map(|column| column.get(*row_index))
-                                .collect::<Result<Vec<_>, _>>();
-                            let Ok(values) = values else {
-                                return true;
+                    let mut invalid_count = 0;
+                    for row_index in 0..row_count {
+                        ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
+                        let values = key_columns
+                            .iter()
+                            .map(|column| column.get(row_index))
+                            .collect::<Result<Vec<_>, _>>();
+                        let Ok(values) = values else {
+                            invalid_count += 1;
+                            continue;
+                        };
+                        let valid = parsed_references.iter().any(|reference| {
+                            let Some(components) = reference.as_array() else {
+                                return false;
                             };
-                            !parsed_references.iter().any(|reference| {
-                                let Some(components) = reference.as_array() else {
-                                    return false;
-                                };
-                                components.len() == values.len()
-                                    && values.iter().zip(components).all(|(value, expected)| {
-                                        quality_reference_json_component_matches(
-                                            value.clone(),
-                                            expected,
-                                        )
-                                    })
-                            })
-                        })
-                        .count()
+                            components.len() == values.len()
+                                && values.iter().zip(components).all(|(value, expected)| {
+                                    quality_reference_json_component_matches(
+                                        value.clone(),
+                                        expected,
+                                    )
+                                })
+                        });
+                        invalid_count += usize::from(!valid);
+                    }
+                    invalid_count
                 };
                 (row_count, invalid_count)
             }
@@ -20617,6 +20719,7 @@ where
                 let mut previous: Option<AnyValue<'_>> = None;
                 let mut invalid_count = 0;
                 for row_index in 0..row_count {
+                    ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
                     let value = column.get(row_index).map_err(|error| error.to_string())?;
                     if matches!(&value, AnyValue::Null) {
                         previous = None;
@@ -20710,66 +20813,76 @@ where
                     .map_err(|error| error.to_string())?;
                 let invalid_count = match rule.kind {
                     QualityRuleKind::NotNull => column.null_count(),
-                    QualityRuleKind::NonEmpty => column
-                        .str()
-                        .map_err(|error| error.to_string())?
-                        .iter()
-                        .filter(|value| value.is_none_or(|text| text.trim().is_empty()))
-                        .count(),
+                    QualityRuleKind::NonEmpty => {
+                        let values = column.str().map_err(|error| error.to_string())?;
+                        let mut invalid_count = 0;
+                        for (row_index, value) in values.iter().enumerate() {
+                            ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
+                            invalid_count +=
+                                usize::from(value.is_none_or(|text| text.trim().is_empty()));
+                        }
+                        invalid_count
+                    }
                     QualityRuleKind::Unique => {
                         let distinct_including_null = column
                             .n_unique()
                             .map_err(|error| format!("No se pudo evaluar unique: {error}"))?;
+                        ensure_not_cancelled(is_cancelled())?;
                         let distinct_non_null = distinct_including_null
                             .saturating_sub(usize::from(column.null_count() > 0));
                         row_count.saturating_sub(distinct_non_null)
                     }
                     QualityRuleKind::NumericRange => match column.dtype() {
-                        DataType::Int64 => column
-                            .i64()
-                            .map_err(|error| error.to_string())?
-                            .iter()
-                            .filter(|value| {
-                                value.is_none_or(|number| {
+                        DataType::Int64 => {
+                            let values = column.i64().map_err(|error| error.to_string())?;
+                            let mut invalid_count = 0;
+                            for (row_index, value) in values.iter().enumerate() {
+                                ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
+                                invalid_count += usize::from(value.is_none_or(|number| {
                                     rule.min.is_some_and(|minimum| number < minimum as i64)
                                         || rule.max.is_some_and(|maximum| number > maximum as i64)
-                                })
-                            })
-                            .count(),
-                        DataType::Float64 => column
-                            .f64()
-                            .map_err(|error| error.to_string())?
-                            .iter()
-                            .filter(|value| {
-                                value.is_none_or(|number| {
+                                }));
+                            }
+                            invalid_count
+                        }
+                        DataType::Float64 => {
+                            let values = column.f64().map_err(|error| error.to_string())?;
+                            let mut invalid_count = 0;
+                            for (row_index, value) in values.iter().enumerate() {
+                                ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
+                                invalid_count += usize::from(value.is_none_or(|number| {
                                     !number.is_finite()
                                         || rule.min.is_some_and(|minimum| number < minimum)
                                         || rule.max.is_some_and(|maximum| number > maximum)
-                                })
-                            })
-                            .count(),
+                                }));
+                            }
+                            invalid_count
+                        }
                         _ => unreachable!("el tipo numérico ya fue validado"),
                     },
                     QualityRuleKind::AllowedValues => {
                         let allowed = rule.values.as_ref().expect("values validados");
-                        column
-                            .str()
-                            .map_err(|error| error.to_string())?
-                            .iter()
-                            .filter(|value| {
-                                value.is_none_or(|text| !allowed.iter().any(|item| item == text))
-                            })
-                            .count()
+                        let values = column.str().map_err(|error| error.to_string())?;
+                        let mut invalid_count = 0;
+                        for (row_index, value) in values.iter().enumerate() {
+                            ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
+                            invalid_count += usize::from(
+                                value.is_none_or(|text| !allowed.iter().any(|item| item == text)),
+                            );
+                        }
+                        invalid_count
                     }
                     QualityRuleKind::Regex => {
                         let pattern = rule.pattern.as_deref().expect("pattern validado");
                         let regex = Regex::new(pattern).expect("pattern validado");
-                        column
-                            .str()
-                            .map_err(|error| error.to_string())?
-                            .iter()
-                            .filter(|value| value.is_none_or(|text| !regex.is_match(text)))
-                            .count()
+                        let values = column.str().map_err(|error| error.to_string())?;
+                        let mut invalid_count = 0;
+                        for (row_index, value) in values.iter().enumerate() {
+                            ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
+                            invalid_count +=
+                                usize::from(value.is_none_or(|text| !regex.is_match(text)));
+                        }
+                        invalid_count
                     }
                     QualityRuleKind::Dtype
                     | QualityRuleKind::UniqueTogether
@@ -20787,8 +20900,10 @@ where
                 (row_count, invalid_count)
             }
         };
+        ensure_not_cancelled(is_cancelled())?;
         results.push(quality_rule_result(rule, checked_count, invalid_count));
     }
+    ensure_not_cancelled(is_cancelled())?;
     let failed_rules = results.iter().filter(|result| !result.passed).count();
     Ok(QualityValidationResult {
         passed: failed_rules == 0,
@@ -28818,6 +28933,9 @@ pub async fn validate_quality_rules(
     quality_rules: Vec<QualityRule>,
 ) -> Result<QualityValidationResult, String> {
     validate_quality_rules_payload(&quality_rules)?;
+    let cancellation = QualityValidationCancellation::begin(&app);
+    cancellation.ensure()?;
+    let is_cancelled = cancellation.callback();
     let source_context = {
         let state = app.state::<DatasetState>();
         let current = state
@@ -28832,10 +28950,14 @@ pub async fn validate_quality_rules(
             }
         })
     };
+    cancellation.ensure()?;
     if quality_rules.iter().all(source_quality_rule_is_incremental) {
         if let Some((source_path, expected_file_size, row_count)) = source_context {
+            let cancellation = cancellation.clone();
             return tauri::async_runtime::spawn_blocking(move || {
+                cancellation.ensure()?;
                 let (source_path, source_size, extension) = validate_dataset_file(&source_path)?;
+                cancellation.ensure()?;
                 if source_size != expected_file_size {
                     return Err(
                         "El archivo source-backed cambió desde la carga; vuelve a seleccionarlo."
@@ -28848,8 +28970,9 @@ pub async fn validate_quality_rules(
                     expected_file_size,
                     row_count,
                     &quality_rules,
-                    || false,
+                    cancellation.callback(),
                 )?;
+                cancellation.ensure()?;
                 let current_context = {
                     let state = app.state::<DatasetState>();
                     let current = state.current.lock().map_err(|_| {
@@ -28863,6 +28986,7 @@ pub async fn validate_quality_rules(
                         }
                     })
                 };
+                cancellation.ensure()?;
                 if current_context != Some((source_path.clone(), expected_file_size, row_count)) {
                     return Err(
                         "El dataset activo cambió durante la validación de calidad.".to_owned()
@@ -28874,21 +28998,18 @@ pub async fn validate_quality_rules(
             .map_err(|error| format!("La validación de calidad se interrumpió: {error}"))?;
         }
     }
-    let frame = {
-        let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        let dataset = current.as_mut().ok_or_else(|| {
-            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-        })?;
-        materialize_loaded_dataset(dataset)?;
-        dataset.frame.clone()
-    };
-    tauri::async_runtime::spawn_blocking(move || evaluate_quality_rules(&frame, &quality_rules))
-        .await
-        .map_err(|error| format!("La validación de calidad se interrumpió: {error}"))?
+    let state = app.state::<DatasetState>();
+    let (frame, _) = materialize_current_dataset_with_cancel(&state, &is_cancelled)?;
+    cancellation.ensure()?;
+    let cancellation = cancellation.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let result =
+            evaluate_quality_rules_with_cancel(&frame, &quality_rules, cancellation.callback())?;
+        cancellation.ensure()?;
+        Ok(result)
+    })
+    .await
+    .map_err(|error| format!("La validación de calidad se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -28986,6 +29107,7 @@ pub async fn export_dataset(
                             .to_owned(),
                     );
                 }
+                let quality_validation_app = validation_app.clone();
                 enforce_source_quality_with_cancel(
                     &source_path,
                     &extension,
@@ -28993,8 +29115,8 @@ pub async fn export_dataset(
                     row_count,
                     &source_quality_rules,
                     allow_unvalidated,
-                    || {
-                        validation_app
+                    move || {
+                        quality_validation_app
                             .state::<DatasetState>()
                             .export_was_cancelled(generation)
                     },
@@ -29535,6 +29657,7 @@ pub async fn export_dataset_to_database(
                             .to_owned(),
                     );
                 }
+                let quality_validation_app = validation_app.clone();
                 enforce_source_quality_with_cancel(
                     &source_path,
                     &extension,
@@ -29542,8 +29665,8 @@ pub async fn export_dataset_to_database(
                     row_count,
                     &source_quality_rules,
                     allow_unvalidated,
-                    || {
-                        validation_app
+                    move || {
+                        quality_validation_app
                             .state::<DatasetState>()
                             .export_was_cancelled(generation)
                     },

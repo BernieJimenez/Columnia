@@ -49,7 +49,12 @@ llamadas síncronas. La
 paginación de conflictos eager y source-backed comparte el token
 `datasetComparison`; Review permite cancelar su carga y conserva la página previa
 si la cancelación gana. Otros comandos todavía tienen rutas sin token y las rutas
-canceladas descartan el resultado incompleto.
+canceladas descartan el resultado incompleto. En Entregar, la validación local de
+reglas usa ahora el token `qualityValidation` y ofrece «Cancelar validación»; al
+cancelarse, conserva el gate previo y descarta el resultado incompleto. La fuente
+source-backed puede interrumpirse durante la materialización DuckDB, y la
+evaluación revisa el token entre bloques Parquet y filas. Las operaciones
+vectorizadas comprueban el token cuando devuelven.
 
 Las tareas reutilizables aplican reglas, formato, privacidad y receta como
 borrador al importar un archivo con el perfil y esquema guardados; la receta
@@ -94,6 +99,10 @@ Las E2E usan el bridge simulado y los archivos de los smokes son sintéticos.
 Estas pruebas ejercitan IPC y bytes reales, pero no sustituyen beta con datos de
 trabajo, un recorrido Cargar→Entregar completo ni aceptación nativa con lector de
 pantalla.
+
+En la validación de calidad de RV04, `cargo fmt`, `cargo check --lib`,
+`npm run build`, el checker documental y `git diff --check` pasan; no se
+ejecutaron pruebas.
 Durante esta revisión, `cargo test --manifest-path src-tauri/Cargo.toml` compiló,
 pero Windows no inició el harness: terminó con `STATUS_ENTRYPOINT_NOT_FOUND`
 (`0xc0000139`) incluso al probar un manifiesto Common Controls v6 temporal. Por

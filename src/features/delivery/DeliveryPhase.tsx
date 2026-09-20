@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   QUALITY_DATASET_COLUMN,
+  cancelOperation,
   deleteDeliveryPreset,
   listDeliveryPresets,
   openDeliveryPreset,
@@ -153,6 +154,10 @@ const QUALITY_RULE_SUMMARY: Record<QualityRuleKind, string> = {
   row_count: "debe mantener la cantidad de filas permitida",
 };
 
+function isCancellationError(error: unknown): boolean {
+  return String(error).includes("cancelada por el usuario");
+}
+
 function summarizeQualityRule(rule: QualityRule): string {
   const columns = rule.kind === "schema_contract" || rule.kind === "row_count"
     ? "Dataset"
@@ -258,6 +263,8 @@ export function DeliveryPhase({
     | { kind: "ready"; document: QualityRulesDocument }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
+  const [qualityValidationCancellationPending, setQualityValidationCancellationPending] = useState(false);
+  const [qualityValidationCancellationError, setQualityValidationCancellationError] = useState<string | null>(null);
   const [openOutputState, setOpenOutputState] = useState<
     "idle" | "working" | "opened" | "error"
   >("idle");
@@ -474,6 +481,18 @@ export function DeliveryPhase({
     }
   }
 
+  async function cancelQualityValidation() {
+    if (contract.gate.kind !== "loading" || qualityValidationCancellationPending) return;
+    setQualityValidationCancellationPending(true);
+    setQualityValidationCancellationError(null);
+    try {
+      await cancelOperation("qualityValidation");
+    } catch (error: unknown) {
+      setQualityValidationCancellationError(error instanceof Error ? error.message : String(error));
+      setQualityValidationCancellationPending(false);
+    }
+  }
+
   async function requestExport(format: ExportFormat) {
     if (exportInFlightRef.current) return;
     exportInFlightRef.current = true;
@@ -491,6 +510,9 @@ export function DeliveryPhase({
       if (contract.kind === "with_contract") {
         if (validationError) return;
         if (!gatePassed) {
+          const previousGate = contract.gate;
+          setQualityValidationCancellationPending(false);
+          setQualityValidationCancellationError(null);
           onContractAction({ kind: "gate_changed", gate: { kind: "loading" } });
           try {
             const result = await validateQualityRules(contract.rules);
@@ -499,6 +521,10 @@ export function DeliveryPhase({
             if (!result.passed) return;
           } catch (error: unknown) {
             if (exportRequestGeneration.current !== requestedGeneration) return;
+            if (isCancellationError(error)) {
+              onContractAction({ kind: "gate_changed", gate: previousGate });
+              return;
+            }
             onContractAction({
               kind: "gate_changed",
               gate: {
@@ -517,6 +543,7 @@ export function DeliveryPhase({
       }
     } finally {
       exportInFlightRef.current = false;
+      setQualityValidationCancellationPending(false);
     }
   }
 
@@ -1469,7 +1496,26 @@ export function DeliveryPhase({
           </div>
         )}
 
-        {contract.gate.kind === "loading" && <p className="notice" role="status">Validando contrato localmente…</p>}
+        {contract.gate.kind === "loading" && (
+          <div className="quality-contract__validation-progress">
+            <p className="notice" role="status">
+              {qualityValidationCancellationPending ? "Esperando que termine la validación…" : "Validando contrato localmente…"}
+            </p>
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => void cancelQualityValidation()}
+              disabled={qualityValidationCancellationPending}
+            >
+              {qualityValidationCancellationPending ? "Esperando cancelación…" : "Cancelar validación"}
+            </button>
+            {qualityValidationCancellationError && (
+              <p className="notice notice--error" role="alert">
+                No se pudo cancelar la validación: {qualityValidationCancellationError}
+              </p>
+            )}
+          </div>
+        )}
         {contract.gate.kind === "error" && <p className="notice notice--error" role="alert">No se pudo validar: {contract.gate.message}</p>}
         {(contract.gate.kind === "ready" || contract.gate.kind === "stale") && (
           <div className={`quality-gate quality-gate--${contract.gate.result.passed ? "passed" : "failed"}`} role="status">

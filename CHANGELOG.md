@@ -40,6 +40,12 @@ los artefactos de validación locales.
   y escribe los snapshots eager por bloques, revisando el token entre bloques. El
   cierre final del escritor y `sync_all` siguen siendo síncronos.
 
+- La validación local de reglas de calidad en Entregar tiene un token
+  `qualityValidation` y un control «Cancelar validación». Al cancelar, recupera el
+  gate anterior y descarta el resultado; la materialización source-backed,
+  los bloques Parquet y los recorridos por filas revisan el token. Las operaciones
+  vectorizadas lo comprueban al regresar.
+
 - Las seis auditorías fechadas se fusionan en `AUDITORIA.md`. Tier 9 y el índice
   `roadmap-current.md` reúnen 16 resultados pendientes con valor operativo,
   eliminan duplicados y dejan fuera ampliaciones sin demanda demostrada. El gate
