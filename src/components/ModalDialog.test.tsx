@@ -54,4 +54,37 @@ describe("ModalDialog", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
   });
+
+  it("permite llegar a la acción e incluye el resumen, pero omite campos de un disclosure cerrado", () => {
+    render(
+      <ModalDialog
+        role="dialog"
+        labelledBy="import-dialog-title"
+        onDismiss={() => undefined}
+      >
+        <h2 id="import-dialog-title">Revisar importación</h2>
+        <details>
+          <summary tabIndex={0}>Opciones de importación</summary>
+          <label htmlFor="date-convention">Fechas</label>
+          <select id="date-convention" defaultValue="unresolved">
+            <option value="unresolved">Sin definir</option>
+            <option value="ymd">Año, mes y día</option>
+          </select>
+        </details>
+        <button type="button">Cargar archivo</button>
+      </ModalDialog>,
+    );
+
+    const summary = screen.getByText("Opciones de importación");
+    const action = screen.getByRole("button", { name: "Cargar archivo" });
+    const hiddenSelect = screen.getByRole("combobox", { name: "Fechas" });
+    expect(summary).toHaveFocus();
+
+    fireEvent.keyDown(summary, { key: "Tab" });
+    expect(action).toHaveFocus();
+    expect(hiddenSelect).not.toHaveFocus();
+
+    fireEvent.keyDown(action, { key: "Tab" });
+    expect(summary).toHaveFocus();
+  });
 });

@@ -1,7 +1,49 @@
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 
 const FOCUSABLE_SELECTOR =
-  'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+  'button:not(:disabled), a[href], input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])';
+
+function isAvailableForKeyboard(element: HTMLElement, panel: HTMLElement): boolean {
+  if (element.matches(":disabled")) return false;
+  if (element.tagName === "SUMMARY") {
+    const parent = element.parentElement;
+    const firstSummary = parent?.tagName === "DETAILS"
+      ? Array.from(parent.children).find((child) => child.tagName === "SUMMARY")
+      : null;
+    if (firstSummary !== element) return false;
+  }
+
+  let current: HTMLElement | null = element;
+  while (current) {
+    if (current.hidden || current.hasAttribute("inert") || current.getAttribute("aria-hidden") === "true") {
+      return false;
+    }
+    if (current.tagName === "DETAILS" && !current.hasAttribute("open")) {
+      const summary = Array.from(current.children).find((child) => child.tagName === "SUMMARY");
+      if (!summary?.contains(element)) return false;
+    }
+
+    const style = window.getComputedStyle(current);
+    if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") {
+      return false;
+    }
+    if (current === panel) break;
+    current = current.parentElement;
+  }
+
+  return true;
+}
+
+function getFocusableElements(panel: HTMLElement): HTMLElement[] {
+  return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+    .filter((element) => isAvailableForKeyboard(element, panel))
+    .sort((left, right) => {
+      const position = left.compareDocumentPosition(right);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    });
+}
 
 interface ModalDialogProps {
   role: "dialog" | "alertdialog";
@@ -25,7 +67,7 @@ export function ModalDialog({
       ? document.activeElement
       : null;
     const panel = panelRef.current;
-    const firstFocusable = panel?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+    const firstFocusable = panel ? getFocusableElements(panel)[0] : undefined;
     (firstFocusable ?? panel)?.focus();
 
     return () => previouslyFocused?.focus();
@@ -42,8 +84,7 @@ export function ModalDialog({
 
     const panel = panelRef.current;
     if (!panel) return;
-    const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
-      .sort((left, right) => left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
+    const focusable = getFocusableElements(panel);
     const first = focusable[0];
     const last = focusable.at(-1);
     if (!first || !last) {

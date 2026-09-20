@@ -27,6 +27,10 @@ los artefactos de validación locales.
   antes de validar su contrato, y registra esa interacción en la evidencia. Esto
   evita confundir un panel montado pero colapsado con un fallo de persistencia.
 
+- `smoke:native-selectors` exporta y vuelve a cargar CSV, XLSX y Parquet con los
+  diálogos reales de Windows, y verifica bytes, filas, esquema y valores del
+  dataset de prueba sin incluir rutas en el resumen.
+
 - Tier 8 adopta un protocolo de beta auditable: tres participantes sobre el mismo
   release candidate, 30 tareas, dos casos reales por sesión, métricas de fricción,
   severidades P0–P3 y un resumen sanitizado versionado. Los reportes detallados
@@ -98,6 +102,9 @@ los artefactos de validación locales.
 - El panel de licencia y privacidad distingue el procesamiento local de la
   exportación ODBC explícita y explica el alcance temporal de sus credenciales;
   T5-18/T5-20 conservan la revisión legal y del canal como pendientes.
+- Los diálogos de importación ya no atrapan el foco en controles ocultos dentro
+  de secciones plegadas: Tab recorre los controles disponibles y el resumen del
+  disclosure.
 
 
 ## [0.167.0] - 2026-09-04

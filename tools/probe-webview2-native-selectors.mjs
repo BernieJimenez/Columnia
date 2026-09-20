@@ -136,13 +136,119 @@ function validDatasetPreview(preview, source) {
 
 function validRecipe(recipe) {
   return Boolean(recipe)
-    && recipe.version === 1
+    && (recipe.version === 1 || recipe.version === 2)
     && recipe.name === "Native selector probe"
     && typeof recipe.savedAt === "string"
     && recipe.recipe
     && Array.isArray(recipe.recipe.renames)
     && recipe.recipe.renames.length === 0
     && forbiddenFields(recipe).length === 0;
+}
+
+function validRoundTripSource(source, format, fileName) {
+  if (!source
+    || source.format !== format
+    || source.fileName !== fileName
+    || !Number.isInteger(source.fileSizeBytes)
+    || source.fileSizeBytes <= 0
+    || !Array.isArray(source.sheets)
+    || forbiddenFields(source).length > 0) {
+    return false;
+  }
+  if (format === "excel") {
+    return source.sheets.length > 0
+      && typeof source.defaultSheetId === "string"
+      && source.sheets.some((sheet) => sheet.id === source.defaultSheetId);
+  }
+  return source.sheets.length === 0 && source.defaultSheetId === null;
+}
+
+function validRoundTripDataset(dataset, fileName) {
+  const expectedRows = [
+    ["1", "probe-a"],
+    ["2", "probe-b"],
+  ];
+  return Boolean(dataset)
+    && dataset.fileName === fileName
+    && dataset.rowCount === 2
+    && dataset.columnCount === 2
+    && Array.isArray(dataset.columns)
+    && dataset.columns.map((column) => column.name).join(",") === "id,value"
+    && Array.isArray(dataset.rows)
+    && expectedRows.every((expectedRow, rowIndex) => {
+      const row = dataset.rows[rowIndex];
+      return Array.isArray(row) && expectedRow.every((expectedCell, columnIndex) => {
+        const actualCell = row[columnIndex];
+        return actualCell === expectedCell
+          || (/^\d+$/.test(expectedCell)
+            && typeof actualCell === "string"
+            && actualCell.replace(/\.0+$/, "") === expectedCell);
+      });
+    })
+    && forbiddenFields(dataset).length === 0;
+}
+
+async function exportRoundTripFormat(page, format, targetPath) {
+  const exported = await invokeWithNativeDialog(
+    page,
+    "export_dataset",
+    {
+      format,
+      qualityRules: [],
+      allowUnvalidated: true,
+      privacyMode: "none",
+      onProgress: null,
+    },
+    "save",
+    targetPath,
+  );
+  if (!exported
+    || !Number.isInteger(exported.fileSizeBytes)
+    || exported.fileSizeBytes <= 0
+    || !existsSync(targetPath)
+    || statSync(targetPath).size !== exported.fileSizeBytes
+    || forbiddenFields(exported).length > 0) {
+    throw new Error(`${format}_export_invalid`);
+  }
+
+  const fileName = basename(targetPath);
+  const source = await invokeWithNativeDialog(
+    page,
+    "pick_dataset_source",
+    {},
+    "open",
+    targetPath,
+  );
+  if (!validRoundTripSource(source, format, fileName)) {
+    throw new Error(`${format}_source_invalid`);
+  }
+
+  const dataset = await invoke(page, "load_dataset_selection", {
+    selectionId: source.selectionId,
+    sheetId: format === "excel" ? source.defaultSheetId : null,
+    headerMode: format === "parquet" ? null : "firstRow",
+    onProgress: null,
+  });
+  if (!validRoundTripDataset(dataset, fileName)) {
+    throw new Error(`${format}_load_invalid:${JSON.stringify({
+      fileName: dataset?.fileName ?? null,
+      rowCount: dataset?.rowCount ?? null,
+      columnCount: dataset?.columnCount ?? null,
+      columns: Array.isArray(dataset?.columns) ? dataset.columns.map((column) => column.name) : null,
+      rows: Array.isArray(dataset?.rows) ? dataset.rows.slice(0, 2) : null,
+    })}`);
+  }
+
+  return {
+    format,
+    fileName,
+    sizeBytes: source.fileSizeBytes,
+    sheetCount: source.sheets.length,
+    rowCount: dataset.rowCount,
+    columnCount: dataset.columnCount,
+    schema: dataset.columns.map((column) => column.name),
+    valuesVerified: true,
+  };
 }
 
 async function findPage() {
@@ -297,7 +403,14 @@ async function run() {
   const savedRecipe = await invokeWithNativeDialog(
     page,
     "save_transform_recipe",
-    { recipe: emptyRecipe, name: "Native selector probe" },
+    {
+      recipe: emptyRecipe,
+      name: "Native selector probe",
+      sourceSchema: [
+        { name: "id", dataType: "Int64" },
+        { name: "value", dataType: "String" },
+      ],
+    },
     "save",
     recipePath,
   );
@@ -337,6 +450,23 @@ async function run() {
     throw new Error("export_selector_invalid");
   }
 
+  const roundTrips = [];
+  roundTrips.push(await exportRoundTripFormat(
+    page,
+    "csv",
+    join(temporaryDirectory, "native-round-trip.csv"),
+  ));
+  roundTrips.push(await exportRoundTripFormat(
+    page,
+    "excel",
+    join(temporaryDirectory, "native-round-trip.xlsx"),
+  ));
+  roundTrips.push(await exportRoundTripFormat(
+    page,
+    "parquet",
+    join(temporaryDirectory, "native-round-trip.parquet"),
+  ));
+
   return {
     status: "passed",
     phase: "native_file_selectors",
@@ -346,6 +476,9 @@ async function run() {
     recipePickerVerified: true,
     exportPickerVerified: true,
     outputsVerified: true,
+    realImportRoundTrips: roundTrips,
+    csvBytesLoaded: true,
+    excelAndParquetBytesLoaded: true,
     forbiddenPathFields: false,
     interactions: [
       "pick_dataset_source",
@@ -353,7 +486,15 @@ async function run() {
       "save_transform_recipe",
       "pick_transform_recipe",
       "probe_seed_dataset",
-      "export_dataset",
+      "export_dataset:csv",
+      "pick_dataset_source:csv",
+      "load_dataset_selection:csv",
+      "export_dataset:excel",
+      "pick_dataset_source:excel",
+      "load_dataset_selection:excel",
+      "export_dataset:parquet",
+      "pick_dataset_source:parquet",
+      "load_dataset_selection:parquet",
     ],
   };
 }

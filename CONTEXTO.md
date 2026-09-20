@@ -42,13 +42,35 @@ continuar mantiene la prioridad. La comparación de revisiones sigue plegada y
 el historial/deshacer queda cerca del resultado. El E2E comprueba la jerarquía
 visual a 200 % y recorre el avance con teclado a 320 CSS px.
 
-Verificación más reciente: `npm test` 425/425, `npm run test:e2e` 21/21,
-`npm run build`, `npm run ipc:check`, `npm run docs:check`, `cargo fmt --check` y
-`cargo check --tests` pasan. La suite Rust completa pasó 490 pruebas, con 0
-fallidas y 5 ignoradas. Las E2E usan el bridge simulado
-y las pruebas Rust de Windows necesitaron un manifiesto Common Controls v6
-temporal; ninguna de esas pruebas equivale a aceptación nativa completa con
-datos de trabajo reales.
+En los diálogos, el trap de teclado filtra controles dentro de elementos
+`details` cerrados e incluye el resumen del disclosure. Así, Tab no termina en
+un selector oculto al revisar encabezados CSV; la regresión recorre el diálogo
+hasta «Cargar archivo».
+
+Verificación más reciente: `npm test` 426/426, `npm run test:e2e -- --workers=1`
+21/21, `npm run build`, `npm run ipc:check`, `npm run docs:check`,
+`cargo fmt --check`, `cargo check --tests` y `npm audit --omit=optional` pasan;
+el audit reporta 0 vulnerabilidades. La suite Rust completa pasó 490 pruebas,
+con 0 fallidas y 5 ignoradas. `smoke:cdp` pasó en WebView2 y
+verificó ProjectsPanel, IPC, transformaciones, exportación y reapertura de
+proyecto. `smoke:native-selectors` usó los diálogos reales de Windows para
+exportar y volver a cargar CSV, XLSX y Parquet generados por un dataset de prueba
+de dos filas; verificó valores, columnas y la hoja XLSX. La importación nativa
+adicional cargó un CSV de prueba de dos filas, leyó páginas, transformó y
+previsualizó una exportación. Evidencia principal:
+`.local/validation/webview2-cdp/20260920T210957Z`, con smoke de proyectos en
+`.local/validation/webview2-cdp/20260920T205628Z` y carga CSV en
+`.local/validation/webview2-cdp/20260920T205234Z`. En la corrida de selectores
+debug, el working set pico fue 558,764,032 bytes y la memoria privada
+296,427,520 bytes, por encima de los presupuestos de 512 MiB y 256 MiB. El gate
+es informativo en debug; esta corrida no demuestra el presupuesto del binario
+release.
+
+Las E2E usan el bridge simulado y los archivos de los smokes son sintéticos:
+estas pruebas ejercitan IPC y bytes reales, pero no sustituyen beta con datos de
+trabajo, un recorrido Cargar→Entregar completo, ni la aceptación nativa con
+lector de pantalla. Las pruebas Rust de Windows necesitaron un manifiesto
+Common Controls v6 temporal.
 
 Siguen abiertos los criterios con evidencia que no se puede fabricar localmente:
 la beta de tres participantes y su resumen sanitizado; accesibilidad manual con
@@ -237,8 +259,8 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | Estado al 2026-09-20: 425 frontend; 21 E2E sintéticas; 490 Rust completas (0 fallidas, 5 ignoradas); build, IPC, documentación, formato y `cargo check --tests` pasan. Véase la nota de alcance en el estado operativo: no equivale a beta, round-trip SQL Server ni aceptación nativa completa. |
-| Última revisión de este documento | 2026-09-20, posterior a la base de partida `d65a428`; la cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Pruebas observadas | Estado al 2026-09-20: 426 frontend; 21 E2E sintéticas; 490 Rust completas (0 fallidas, 5 ignoradas); build, IPC, documentación, formato, `cargo check --tests` y smokes nativos WebView2 pasan. Véase el alcance descrito arriba: no equivale a beta con datasets de trabajo, round-trip SQL Server ni aceptación de accesibilidad con lector de pantalla. |
+| Última revisión de este documento | 2026-09-20, posterior a la base de partida `d65a428`; incluye el smoke WebView2 de proyectos y los round trips nativos CSV/XLSX/Parquet con datos sintéticos. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 

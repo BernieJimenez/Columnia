@@ -176,7 +176,7 @@ revisar Tauri/Vite, tests y build antes de modificar el lockfile.
 
 | Comando | Resultado del snapshot | Interpretación |
 | --- | --- | --- |
-| `npm audit --json --omit=optional` | 0 vulnerabilidades reportadas; 287 dependencias del lockfile | Revisión npm limpia en el snapshot; repetir antes de release |
+| `npm audit --json --omit=optional` | 0 vulnerabilidades reportadas; 180 dependencias del lockfile | Reauditado el 2026-09-20; repetir antes de release |
 | `cargo audit --json` | `cargo-audit 0.22.2`; 0 vulnerabilidades después de las excepciones documentadas; los avisos informativos no son bloqueantes | `quick-xml 0.39.4` llega transitivamente por `object_store 0.13.2`; Columnia no habilita los features cloud ni expone un flujo remoto. La razón vigente está en `src-tauri/deny.toml` |
 | `cargo deny --format json check` | `cargo-deny 0.20.2`; advisories/licencias/fuentes sin errores; 48 duplicados en warning | Política explícita en `src-tauri/deny.toml`; excepciones upstream tienen razón y se revisan al actualizar Tauri/Polars |
 | `cargo outdated --version` | Herramienta no instalada | No se inventa un estado de actualización Cargo |

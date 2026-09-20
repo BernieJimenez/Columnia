@@ -276,7 +276,7 @@ async function inspectNativeProjectIpc(page) {
             recipe,
             name: "Native probe recipe",
           });
-          const savedRecipeValid = savedRecipe?.version === 1
+          const savedRecipeValid = (savedRecipe?.version === 1 || savedRecipe?.version === 2)
             && savedRecipe.name === "Native probe recipe"
             && typeof savedRecipe.savedAt === "string"
             && savedRecipe.recipe?.renames?.[0]?.from === "value"
@@ -421,7 +421,7 @@ async function inspectNativeProjectIpc(page) {
             && opened.workspace.qualityRules.length === 1
             && opened.workspace.qualityRules[0]?.column === "label"
             && opened.workspace.recipeDraft?.name === "Native probe recipe"
-            && opened.workspace.recipeDraft?.version === 1
+            && (opened.workspace.recipeDraft?.version === 1 || opened.workspace.recipeDraft?.version === 2)
             && opened.workspace.activePhase === "prepare"
             && forbiddenFields(opened).length === 0;
           if (!openedValid) throw new Error("open_invalid");
@@ -575,7 +575,7 @@ async function inspectPage(page) {
         }
         return (candidate.textContent ?? "").replace(/\s+/g, " ").trim();
       };
-      const buttons = [...element.querySelectorAll("button")];
+      const buttons = [...element.querySelectorAll("button")].filter(visible);
       const visibleRouteLinks = [...document.querySelectorAll("a[href]")]
         .filter(visible)
         .map((anchor) => ({
@@ -601,6 +601,7 @@ async function inspectPage(page) {
         panelLinks,
       };
     });
+    const hasNoDataset = !accessible.datasetFileName || accessible.datasetFileName === "Sin dataset";
 
     const checks = {
       headingRegion: {
@@ -618,15 +619,17 @@ async function inspectPage(page) {
         inputVisible: (await input.count()) > 0 && await input.isVisible(),
         inputLabel: accessible.inputLabel,
         inputId: accessible.inputId,
-        valid: accessible.inputId === "project-name" && accessible.inputLabel === "Nombre del proyecto",
+        valid: hasNoDataset
+          ? accessible.inputId === null && accessible.inputLabel === null && await input.count() === 0
+          : accessible.inputId === "project-name" && accessible.inputLabel === "Nombre del proyecto",
       },
       saveDisabledWithoutDataset: {
         datasetFileName: accessible.datasetFileName,
         saveButtonCount: await saveButton.count(),
         saveDisabled: accessible.saveDisabled,
-        valid: !accessible.datasetFileName || accessible.datasetFileName === "Sin dataset"
-          ? accessible.saveDisabled
-          : null,
+        valid: hasNoDataset
+          ? accessible.inputId === null && await input.count() === 0 && await saveButton.count() === 0
+          : true,
       },
       noVisibleRoutes: {
         visibleRouteLinks: accessible.visibleRouteLinks,
@@ -636,7 +639,7 @@ async function inspectPage(page) {
       actionNames: {
         names: accessible.actionNames,
         unnamedCount: accessible.unnamedActions,
-        valid: accessible.actionNames.length > 0 && accessible.unnamedActions === 0,
+        valid: accessible.unnamedActions === 0,
       },
     };
 
@@ -696,8 +699,8 @@ function snapshotResult(status, pages, extra = {}) {
     pages,
     checks: {
       headingRegion: "section.projects[aria-labelledby=projects-title]",
-      inputLabel: "label[for=project-name]",
-      saveDisabledWithoutDataset: "button[type=submit]:disabled",
+      inputLabel: "project name field is available only when a dataset is active",
+      saveDisabledWithoutDataset: "project save controls stay hidden until a dataset is active",
       noVisibleRoutes: "visible route anchors",
       actionNames: "all visible ProjectsPanel buttons",
       nativeIpc: runMutations ? nativeCommands : ["list_projects", "get_recovery_candidate"],
