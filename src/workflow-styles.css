@@ -863,6 +863,19 @@ td {
 
 :root .workspace .secondary-action:hover:not(:disabled) { background: var(--surface-subtle); border-color: var(--accent); }
 
+/* In Prepare, keep the stage action primary while an enabled local action exists. */
+:root .workspace--prepare:has(.prepare-plan > button:not(:disabled)) .flow-footer__next-action:not(:disabled),
+:root .workspace--prepare:has(.transform-recipe__footer > button[aria-label="Aplicar receta"]:not(:disabled)) .flow-footer__next-action:not(:disabled) {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+}
+:root .workspace--prepare:has(.prepare-plan > button:not(:disabled)) .flow-footer__next-action:hover:not(:disabled),
+:root .workspace--prepare:has(.transform-recipe__footer > button[aria-label="Aplicar receta"]:not(:disabled)) .flow-footer__next-action:hover:not(:disabled) {
+  background: var(--surface-raised);
+  border-color: var(--accent);
+}
+
 .load-brief__illustration { align-self: center; width: 140px; max-width: 100%; color: var(--accent); }
 
 .load-brief__lead > div > p { margin: 0; max-width: 54ch; color: var(--text-secondary); }
@@ -1328,4 +1341,20 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .update-panel__actions button,
 .quality-sample-control select {
   min-height: 44px;
+}
+
+@media (forced-colors: active) {
+  /* Keep this demoted action on system colors after primary-action theme overrides. */
+  :root .workspace--prepare:has(.prepare-plan > button:not(:disabled)) .flow-footer__next-action:not(:disabled),
+  :root .workspace--prepare:has(.transform-recipe__footer > button[aria-label="Aplicar receta"]:not(:disabled)) .flow-footer__next-action:not(:disabled) {
+    border-color: ButtonText !important;
+    background: ButtonFace !important;
+    color: ButtonText !important;
+  }
+  :root .workspace--prepare:has(.prepare-plan > button:not(:disabled)) .flow-footer__next-action:hover:not(:disabled),
+  :root .workspace--prepare:has(.transform-recipe__footer > button[aria-label="Aplicar receta"]:not(:disabled)) .flow-footer__next-action:hover:not(:disabled) {
+    border-color: Highlight !important;
+    background: HighlightText !important;
+    color: Highlight !important;
+  }
 }

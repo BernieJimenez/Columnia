@@ -289,6 +289,38 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await activateWithKeyboard(page, page.getByRole("button", { name: "Volver a Preparar", exact: true }), "Volver a Preparar");
     await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
     await inspectHorizontalLayout("zoom 200 % · Preparar");
+    const prepareAction = page.getByRole("button", { name: "Aplicar plan seleccionado" });
+    const nextAction = page.getByRole("button", { name: "Revisar opciones de entrega" });
+    await expect(prepareAction).toBeEnabled();
+    await expect(nextAction).toBeEnabled();
+    const [prepareBackground, nextBackground] = await Promise.all([
+      prepareAction.evaluate((element) => getComputedStyle(element).backgroundColor),
+      nextAction.evaluate((element) => getComputedStyle(element).backgroundColor),
+    ]);
+    expect(nextBackground).not.toBe(prepareBackground);
+    await page.emulateMedia({ forcedColors: "active" });
+    await page.waitForTimeout(200);
+    const forcedColorsStyle = await nextAction.evaluate((element) => {
+      const systemButton = document.createElement("button");
+      systemButton.style.backgroundColor = "ButtonFace";
+      systemButton.style.color = "ButtonText";
+      document.body.append(systemButton);
+      const expected = getComputedStyle(systemButton);
+      const actual = getComputedStyle(element);
+      const result = {
+        active: matchMedia("(forced-colors: active)").matches,
+        background: actual.backgroundColor,
+        foreground: actual.color,
+        buttonFace: expected.backgroundColor,
+        buttonText: expected.color,
+      };
+      systemButton.remove();
+      return result;
+    });
+    expect(forcedColorsStyle.active).toBe(true);
+    expect(forcedColorsStyle.background).toBe(forcedColorsStyle.buttonFace);
+    expect(forcedColorsStyle.foreground).toBe(forcedColorsStyle.buttonText);
+    await page.emulateMedia({ forcedColors: "none" });
     await activateWithKeyboard(page, page.getByRole("button", { name: "Volver a Revisar", exact: true }), "Volver a Revisar");
     await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
     await inspectHorizontalLayout("zoom 200 % · Revisar");

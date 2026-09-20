@@ -1782,7 +1782,7 @@ export function App() {
               {nextPhase && activeDataset && !reviewHasContextualContinue && (
                 <button
                   type="button"
-                  className="primary-action"
+                  className="primary-action flow-footer__next-action"
                   onMouseEnter={() => preloadPhase(nextPhase.id)}
                   onFocus={() => preloadPhase(nextPhase.id)}
                   onClick={handleNextPhase}

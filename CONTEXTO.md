@@ -36,6 +36,12 @@ borrador al importar un archivo con el perfil y esquema guardados; la receta
 requiere ejecución explícita. Si el perfil no se usa o el esquema cambia, la
 interfaz conserva la revisión de la configuración antes de aplicarla.
 
+En Preparar, el botón para avanzar pasa a secundario mientras haya un plan o una
+receta lista para aplicar; cuando no existe una acción local disponible,
+continuar mantiene la prioridad. La comparación de revisiones sigue plegada y
+el historial/deshacer queda cerca del resultado. El E2E comprueba la jerarquía
+visual a 200 % y recorre el avance con teclado a 320 CSS px.
+
 Verificación más reciente: `npm test` 425/425, `npm run test:e2e` 21/21,
 `npm run build`, `npm run ipc:check`, `npm run docs:check`, `cargo fmt --check` y
 `cargo check --tests` pasan. La suite Rust completa pasó 490 pruebas, con 0
