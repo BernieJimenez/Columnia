@@ -9,6 +9,7 @@ import type {
   DelimitedHeaderReview,
   HistoryState,
   ProjectSummary,
+  RemoteExportPreflight,
   ReusableTask,
   ReusableTaskSummary,
   SavedRecipe,
@@ -2727,5 +2728,271 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Limpiar historial" }));
     expect(screen.queryByRole("heading", { name: "Archivos recientes" })).not.toBeInTheDocument();
     localStorage.removeItem("columnia.recent-datasets");
+  });
+
+  it("muestra un error del motor y limpia la conexión sin filtrar el mensaje", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockRejectedValue(new Error("motor no disponible"));
+    vi.spyOn(bridge, "listProjects").mockResolvedValue({ projects: [], recoveryCandidate: null });
+    vi.spyOn(bridge, "listSampleDatasets").mockResolvedValue([]);
+
+    render(<App />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Error del motor: motor no disponible");
+  });
+
+  it("tolera un selector cancelado y permite reintentar una muestra delimitada", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "1.25.0", platform: "windows" });
+    vi.spyOn(bridge, "listProjects").mockResolvedValue({ projects: [], recoveryCandidate: null });
+    vi.spyOn(bridge, "listSampleDatasets").mockResolvedValue([]);
+    const pick = vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue(null);
+    const preview = vi.spyOn(bridge, "previewDelimitedHeaderReview")
+      .mockRejectedValueOnce(new Error("muestra ilegible"))
+      .mockResolvedValueOnce(defaultDelimitedHeaderReview());
+    vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue({
+      fileName: "muestra.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
+      columns: [{ name: "value", dataType: "String" }], rows: [["ok"]],
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await waitFor(() => expect(pick).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    pick.mockResolvedValueOnce({
+      selectionId: "retry-selection", fileName: "muestra.csv", fileSizeBytes: 32,
+      format: "csv", sheets: [], defaultSheetId: null, isCompressedContainer: false,
+      resourceEstimate: resourceEstimate(32),
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar dataset" }));
+    const dialog = await screen.findByRole("dialog", { name: "Revisar encabezados de muestra.csv" });
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("muestra ilegible");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reintentar muestra" }));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    expect(await within(dialog).findByText("Con primera fila como encabezado")).toBeInTheDocument();
+  });
+
+  it("permite cancelar la inspección de un libro antes de cargarlo", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "1.25.0", platform: "windows" });
+    vi.spyOn(bridge, "listProjects").mockResolvedValue({ projects: [], recoveryCandidate: null });
+    vi.spyOn(bridge, "listSampleDatasets").mockResolvedValue([]);
+    vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue({
+      selectionId: "workbook-cancel", fileName: "ventas.xlsx", fileSizeBytes: 1024,
+      format: "excel", sheets: [{ id: "0", name: "Ventas" }], defaultSheetId: "0",
+      isCompressedContainer: false, resourceEstimate: resourceEstimate(1024),
+    });
+    let resolveSheets!: (value: { id: string; name: string }[]) => void;
+    vi.spyOn(bridge, "inspectWorkbookSheets").mockReturnValue(new Promise((resolve) => { resolveSheets = resolve; }));
+    const cancel = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
+    const discard = vi.spyOn(bridge, "discardDatasetSelection").mockResolvedValue(undefined);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    const cancelButton = await screen.findByRole("button", { name: "Cancelar inspección" });
+    fireEvent.click(cancelButton);
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith("load"));
+    await waitFor(() => expect(discard).toHaveBeenCalledWith("workbook-cancel"));
+    expect(screen.queryByRole("button", { name: "Cancelar inspección" })).not.toBeInTheDocument();
+    resolveSheets([{ id: "0", name: "Ventas" }]);
+  });
+
+  it("confirma el preflight de una fuente source-backed antes de materializarla", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "1.25.0", platform: "windows" });
+    vi.spyOn(bridge, "listProjects").mockResolvedValue({ projects: [], recoveryCandidate: null });
+    vi.spyOn(bridge, "listSampleDatasets").mockResolvedValue([]);
+    const source = {
+      selectionId: "json-source", fileName: "ventas.json", fileSizeBytes: 512 * 1024 * 1024,
+      format: "json" as const, sheets: [], defaultSheetId: null, isCompressedContainer: false,
+      resourceEstimate: resourceEstimate(512 * 1024 * 1024, "sourceBacked"),
+    };
+    vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue(source);
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState());
+    vi.spyOn(bridge, "getDatasetProfile").mockResolvedValue({
+      rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [],
+    });
+    const load = vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue({
+      fileName: "ventas.json", fileSizeBytes: source.fileSizeBytes, rowCount: 1, columnCount: 1,
+      columns: [{ name: "id", dataType: "Int64" }], rows: [["1"]],
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    const dialog = await screen.findByRole("dialog", { name: "Revisa el costo estimado de la carga" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Continuar con la carga" }));
+    expect(await screen.findByRole("heading", { name: "ventas.json" })).toBeInTheDocument();
+    expect(load).toHaveBeenCalledWith("json-source", null, null, expect.any(Function), null, null, null);
+  });
+
+  it("cancela una página de vista previa y muestra el fallo al reintentarlo", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "1.25.0", platform: "windows" });
+    const dataset: DatasetPreview = {
+      fileName: "paginas.csv", fileSizeBytes: 128, rowCount: 75, columnCount: 1,
+      columns: [{ name: "city", dataType: "String" }], rows: [["Santo Domingo"]],
+    };
+    mockDatasetLoad(dataset);
+    let resolvePage!: (value: { offset: number; rows: (string | null)[][] }) => void;
+    const page = vi.spyOn(bridge, "getDatasetPage").mockReturnValue(new Promise((resolve) => { resolvePage = resolve; }));
+    const cancel = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Vista previa" }));
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancelar carga" }));
+    expect(cancel).toHaveBeenCalledWith("datasetPage");
+    resolvePage({ offset: 50, rows: [["Puerto Plata"]] });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Siguiente" })).toBeEnabled());
+
+    page.mockRejectedValueOnce(new Error("página no disponible"));
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("página no disponible");
+  });
+
+  it("exporta a una base remota después del preflight y conserva el contrato del destino", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "1.25.0", platform: "windows" });
+    const dataset: DatasetPreview = {
+      fileName: "remoto.csv", fileSizeBytes: 128, rowCount: 1, columnCount: 1,
+      columns: [{ name: "id", dataType: "Int64" }], rows: [["1"]],
+    };
+    mockDatasetLoad(dataset);
+    vi.spyOn(bridge, "preflightDatabaseExport").mockResolvedValue({
+      kind: "postgresql", schema: "public", table: "dataset", tablePolicy: "create_only",
+      tableExists: false, ready: true, issues: [],
+    } satisfies RemoteExportPreflight);
+    const exportSpy = vi.spyOn(bridge, "exportDatasetToDatabase").mockResolvedValue({
+      fileName: "remoto", fileSizeBytes: 1, format: "PostgreSQL", protectedColumnCount: 0, protectedColumns: [],
+    });
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await switchPhase("Entregar");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), { target: { value: "postgresql" } });
+    fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), { target: { value: "Driver={PostgreSQL};Server=localhost" } });
+    fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
+    await screen.findByText(/Preflight completo/);
+    fireEvent.click(screen.getByRole("button", { name: "Exportar PostgreSQL" }));
+    await waitFor(() => expect(exportSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "postgresql", schema: "public", table: "dataset" }),
+      [], true, expect.any(Function), "none",
+    ));
+  });
+
+  it("permite revisar un perfil reutilizable y aplicar la tarea desde el diálogo final", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "1.25.0", platform: "windows" });
+    const { task, summary } = reusableTaskFixture();
+    const { headerMode: _headerMode, ...jsonProfileBase } = task.importProfile;
+    const jsonTask: ReusableTask = {
+      ...task,
+      importProfile: { ...jsonProfileBase, format: "json" },
+    };
+    const source = {
+      selectionId: "profile-json", fileName: "perfil.json", fileSizeBytes: 64,
+      format: "json" as const, sheets: [], defaultSheetId: null, isCompressedContainer: false,
+      resourceEstimate: resourceEstimate(64),
+    };
+    const dataset: DatasetPreview = {
+      fileName: "perfil.json", fileSizeBytes: 64, rowCount: 1, columnCount: 1,
+      columns: [{ name: "id", dataType: "Int64" }], rows: [["1"]],
+    };
+    vi.spyOn(bridge, "listProjects").mockResolvedValue({ projects: [], recoveryCandidate: null });
+    vi.spyOn(bridge, "listReusableTasks").mockResolvedValue([summary]);
+    vi.spyOn(bridge, "openReusableTask").mockResolvedValue(jsonTask);
+    vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue(source);
+    vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue(dataset);
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState());
+    vi.spyOn(bridge, "getDatasetProfile").mockResolvedValue({
+      rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [],
+    });
+    const discard = vi.spyOn(bridge, "discardDatasetSelection").mockResolvedValue(undefined);
+
+    render(<App />);
+    fireEvent.click(await screen.findByText("Reutilizar una tarea"));
+    fireEvent.change(await screen.findByLabelText("Tarea guardada"), { target: { value: summary.id } });
+    await screen.findByText("Configuración que se reutilizará");
+    fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));
+    await screen.findByText(/Tarea “Cierre recurrente” preparada/);
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar dataset" }));
+    const profileDialog = await screen.findByRole("dialog", { name: "Reutilizar interpretación guardada" });
+    fireEvent.click(within(profileDialog).getByRole("button", { name: "Importar sin perfil" }));
+    const applicationDialog = await screen.findByRole("dialog", { name: "Revisa la configuración guardada" });
+    fireEvent.click(within(applicationDialog).getByRole("button", { name: "Aplicar tarea guardada" }));
+    expect(await screen.findByRole("heading", { name: "Prepara datos consistentes" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
+    const secondProfileDialog = await screen.findByRole("dialog", { name: "Reutilizar interpretación guardada" });
+    fireEvent.click(within(secondProfileDialog).getByRole("button", { name: "Usar perfil y revisar esquema" }));
+    await waitFor(() => expect(bridge.loadDatasetSelection).toHaveBeenCalledTimes(2));
+    await screen.findByRole("heading", { name: "Revisa antes de modificar" });
+    fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
+    const cancelledProfileDialog = await screen.findByRole("dialog", { name: "Reutilizar interpretación guardada" });
+    fireEvent.click(within(cancelledProfileDialog).getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(discard).toHaveBeenCalledWith("profile-json"));
+  });
+
+  it("cambia páginas de conflictos y presenta el error de la página remota", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "1.25.0", platform: "windows" });
+    const dataset: DatasetPreview = {
+      fileName: "conflictos.csv", fileSizeBytes: 128, rowCount: 2, columnCount: 2,
+      columns: [{ name: "id", dataType: "Int64" }, { name: "valor", dataType: "String" }],
+      rows: [["1", "A"], ["2", "B"]],
+    };
+    mockDatasetLoad(dataset);
+    const comparison = {
+      currentFileName: "conflictos.csv", comparedFileName: "nuevo.csv", currentRowCount: 2,
+      comparedRowCount: 2, commonRowCount: 2, currentOnlyRowCount: 0, comparedOnlyRowCount: 0,
+      sharedColumns: ["id", "valor"], currentOnlyColumns: [], comparedOnlyColumns: [],
+      schemaCompatible: true, keyColumns: ["id"], matchedKeyCount: 2, currentOnlyKeyCount: 0,
+      comparedOnlyKeyCount: 0, conflictingKeyCount: 3, duplicateKeyCount: 0,
+      conflicts: [{ key: ["1"], cells: [{ column: "valor", current: "A", compared: "Z" }] }],
+      conflictOffset: 0, conflictsTruncated: true, canConsolidate: false,
+    };
+    vi.spyOn(bridge, "compareDataset").mockResolvedValue(comparison);
+    vi.spyOn(bridge, "clearDatasetComparison").mockResolvedValue(undefined);
+    const nextPage = vi.spyOn(bridge, "getDatasetConflictPage")
+      .mockResolvedValueOnce({ offset: 1, conflicts: [{ key: ["2"], cells: [{ column: "valor", current: "B", compared: "Y" }] }], hasNext: true })
+      .mockRejectedValueOnce(new Error("página de conflictos no disponible"));
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByText("Comparar con otro dataset"));
+    fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Elegir dataset para comparar" }));
+    await screen.findByText("nuevo.csv");
+    fireEvent.click(screen.getByRole("radio", { name: "Usar comparado en valor" }));
+    fireEvent.click(screen.getByRole("button", { name: "Siguientes conflictos" }));
+    await waitFor(() => expect(nextPage).toHaveBeenCalledWith(1, 50));
+    expect(await screen.findByText("Conflictos 2–2 de 3")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Usar comparado en valor" }));
+    fireEvent.click(screen.getByRole("button", { name: "Siguientes conflictos" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("página de conflictos no disponible");
+  });
+
+  it("muestra el error al rechazar la cancelación del diagnóstico activo", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "1.25.0", platform: "windows" });
+    const dataset: DatasetPreview = {
+      fileName: "diagnostico.csv", fileSizeBytes: 64, rowCount: 1, columnCount: 1,
+      columns: [{ name: "id", dataType: "Int64" }], rows: [["1"]],
+    };
+    mockDatasetLoad(dataset);
+    let resolveProfile!: (value: DatasetProfile) => void;
+    vi.spyOn(bridge, "getDatasetProfile").mockReturnValue(new Promise((resolve) => { resolveProfile = resolve; }));
+    const analyzeProfile = bridge.getDatasetProfile;
+    const cancel = vi.spyOn(bridge, "cancelOperation").mockRejectedValue(new Error("cancelación rechazada"));
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await waitFor(() => expect(analyzeProfile).toHaveBeenCalled());
+    const cancelButton = await screen.findByRole("button", { name: "Cancelar" });
+    fireEvent.click(cancelButton);
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith("profile"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("cancelación rechazada");
+    resolveProfile({ rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] });
   });
 });

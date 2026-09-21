@@ -16,7 +16,7 @@
     "test": "vitest run",
     "test:network-policy": "node --test tools/check-network-policy.test.mjs",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage && node tools/check-coverage.mjs",
+    "test:coverage": "vitest run --coverage --maxWorkers=1 && node tools/check-coverage.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "beta:workflows:check": "node --test tools/check-beta-workflows.test.mjs",

@@ -1039,4 +1039,113 @@ describe("DeliveryPhase", () => {
     expect(onContractAction).toHaveBeenCalled();
     expect(screen.getByText("Entrega no validada")).toBeInTheDocument();
   });
+
+  it("cubre la cancelación y el error al cancelar una validación de calidad", async () => {
+    const cancel = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
+    const loadingContract: DeliveryContractState = {
+      kind: "with_contract",
+      rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      gate: { kind: "loading" },
+    };
+    render(<DeliveryHarness onExport={vi.fn()} initialContract={loadingContract} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar validación" }));
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith("qualityValidation"));
+    expect(screen.getByRole("button", { name: "Esperando cancelación…" })).toBeDisabled();
+
+    cleanup();
+    cancel.mockRejectedValueOnce(new Error("cancelación no disponible"));
+    render(<DeliveryHarness onExport={vi.fn()} initialContract={loadingContract} />);
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar validación" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("cancelación no disponible"));
+    expect(screen.getByRole("button", { name: "Cancelar validación" })).toBeEnabled();
+  });
+
+  it("expone los estados de error, motor inesperado y cancelación del preflight", async () => {
+    const preflight = vi.spyOn(bridge, "preflightDatabaseExport");
+    const cancel = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: "Confirmo que quiero exportar sin validar la calidad",
+    }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+      target: { value: "postgresql" },
+    });
+    const connection = screen.getByLabelText("Cadena de conexión ODBC");
+    fireEvent.change(connection, { target: { value: "Driver={PostgreSQL};Server=localhost" } });
+
+    preflight.mockResolvedValueOnce(preflightResult("mysql"));
+    fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("no corresponde al motor"));
+
+    preflight.mockRejectedValueOnce(new Error("ODBC no disponible"));
+    fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("ODBC no disponible"));
+
+    let resolvePreflight!: (result: RemoteExportPreflight) => void;
+    preflight.mockReturnValueOnce(new Promise((resolve) => {
+      resolvePreflight = resolve;
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancelar análisis" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar análisis" }));
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith("databasePreflight"));
+    resolvePreflight(preflightResult("postgresql"));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preflight completo"));
+  });
+
+  it("muestra una cancelación y un error del catálogo de presets", async () => {
+    let resolveCatalog!: (value: bridge.DeliveryPresetSummary[]) => void;
+    const list = vi.spyOn(bridge, "listDeliveryPresets").mockReturnValue(new Promise((resolve) => {
+      resolveCatalog = resolve;
+    }));
+    const cancel = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    fireEvent.click(screen.getByText("Presets de entrega guardados"));
+    await waitFor(() => expect(list).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar carga" }));
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith("deliveryPresetCatalog"));
+    expect(screen.getByRole("status")).toHaveTextContent("Se canceló la carga de presets locales.");
+
+    resolveCatalog([]);
+    const retry = screen.getByRole("button", { name: "Reintentar catálogo" });
+    list.mockRejectedValueOnce(new Error("catálogo no disponible"));
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("catálogo no disponible"));
+  });
+
+  it("guarda, aplica y elimina un preset de entrega con el esquema actual", async () => {
+    const summary: bridge.DeliveryPresetSummary = {
+      id: "0123456789abcdef0123456789abcdef",
+      name: "Cierre mensual",
+      format: "csv",
+      updatedAt: "2026-09-14T00:00:00Z",
+      selectedColumnCount: dataset.columns.length,
+      remote: false,
+    };
+    const save = vi.spyOn(bridge, "saveDeliveryPreset").mockResolvedValue(summary);
+    const remove = vi.spyOn(bridge, "deleteDeliveryPreset").mockResolvedValue(undefined);
+    vi.spyOn(bridge, "listDeliveryPresets").mockResolvedValue([]);
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    fireEvent.click(screen.getByText("Presets de entrega guardados"));
+    await waitFor(() => expect(screen.getByRole("note")).toHaveTextContent("Aún no hay presets locales."));
+    fireEvent.change(screen.getByRole("textbox", { name: "Nombre del preset de entrega" }), {
+      target: { value: "  Cierre mensual  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar preset" }));
+    await waitFor(() => expect(screen.getByText(/Preset guardado localmente/)).toBeInTheDocument());
+    expect(save).toHaveBeenCalledWith(null, expect.objectContaining({
+      name: "Cierre mensual",
+      format: "csv",
+      selectedColumns: ["total", "limite", "estado", "fecha"],
+      privacyMode: "none",
+    }));
+    expect(screen.getByRole("button", { name: "Aplicar preset verificado" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar preset verificado" }));
+    expect(screen.getByText("Preset verificado contra el esquema actual.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar preset" }));
+    await waitFor(() => expect(remove).toHaveBeenCalledWith(summary.id));
+    expect(screen.getByText("Preset eliminado del catálogo local.")).toBeInTheDocument();
+  });
 });

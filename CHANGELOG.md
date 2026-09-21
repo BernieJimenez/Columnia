@@ -17,13 +17,20 @@ los artefactos de validación locales.
   exportación, memoria dentro del presupuesto del benchmark y cleanup.
 - Las regresiones de `App` quedan alineadas con la inspección Excel separada, la
   carga perezosa de Preparar, el análisis previo a Entregar y los nombres
-  accesibles vigentes; la suite frontend pasa 426/426 y Playwright 22/22.
+  accesibles vigentes; la suite frontend pasa 449/449 y Playwright 22/22.
+- `npm run test:coverage` pasa las 51 suites y los umbrales por capa crítica:
+  86,51 % de sentencias y 81,49 % de ramas globales. Se amplían las regresiones
+  de App, Delivery, preparación y proyectos sin reducir los umbrales acordados.
 - El dry-run de release para `1.25.0` valida los gates técnicos y se detiene
   antes del empaquetado cuando falta el sign-off jurídico obligatorio; no se
   publican artefactos.
 - El protocolo beta incorpora `npm run beta:check-summary`, que compara el
   resumen Gate 1 con sus tres sesiones y el gate Full, y bloquea alias,
   correos, rutas o credenciales en el resumen sanitizado.
+- Los perfiles `check.ps1` de validación ejecutan Vitest con un worker para
+  conservar una corrida reproducible en Windows y evitar procesos huérfanos al
+  cancelar la verificación; también limitan a un worker la cobertura. El comando
+  de producto no cambia.
 
 ## [1.25.0] - 2026-09-21
 

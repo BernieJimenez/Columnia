@@ -26,6 +26,11 @@ alias, correos, rutas y credenciales en el resumen versionado. No se ha inventad
 evidencia de participantes: RV07 sigue abierto hasta ejecutar las tres sesiones
 con datos de trabajo reales.
 
+Los perfiles `tools/check.ps1` fijan `--maxWorkers=1` para las pruebas frontend y
+la cobertura. Esto hace reproducible `verify:tier` en Windows y evita que una
+cancelación deje procesos Vitest huérfanos; el comando `npm test` del producto
+conserva su configuración normal.
+
 Para RV10, Windows tiene instalados ODBC Driver 17/18 y `sqlcmd`, pero el
 servicio local `MSSQLSERVER` está detenido. Esta sesión no pudo abrirlo con
 `Start-Service`, y `(localdb)\MSSQLLocalDB` no respondió; aún no hay una
@@ -68,11 +73,13 @@ presupuesto de benchmark.
 
 Las regresiones de `App` quedaron sincronizadas con la inspección Excel separada,
 la carga perezosa de Preparar, el análisis previo a navegar a Entregar y las
-etiquetas accesibles actuales. `npx vitest run --maxWorkers=1` pasa 426/426
-pruebas en 51 archivos; `npm run test:e2e` pasa 22/22 y ejecuta el build de
-producción. Los gates `beta:workflows:check`, `legal:check` e `ipc:check`
-también pasan. El límite de un worker hace reproducible la suite frontend en
-esta estación y no cambia el producto.
+etiquetas accesibles actuales. `npx vitest run --maxWorkers=1` pasa 449/449
+pruebas en 51 archivos; `npm run test:coverage` aprueba los umbrales por capa
+crítica, con 86,51 % de sentencias y 81,49 % de ramas globales. `npm run
+test:e2e` pasa 22/22 y ejecuta el build de producción. Los gates
+`beta:workflows:check`, `legal:check` e `ipc:check` también pasan. El límite de
+un worker hace reproducible la suite frontend en esta estación y no cambia el
+producto.
 
 El `npm run release:dry-run` del mismo corte confirma el árbol limpio y los
 gates de toolchains, documentación, IPC, gobernanza y legal técnico, pero se
@@ -524,8 +531,8 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 426/426 frontend en 51 archivos; `npm run test:e2e` pasa 22/22 y ejecuta build; `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-21, posterior al commit base `f961aa2`; sincroniza las regresiones de App con la inspección Excel separada, la carga perezosa de Preparar, el análisis previo a Entregar y las etiquetas accesibles actuales. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 449/449 frontend en 51 archivos; `npm run test:coverage` pasa la cobertura global y las cinco capas críticas; `npm run test:e2e` pasa 22/22 y ejecuta build. `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
+| Última revisión de este documento | 2026-09-21, posterior al commit base `f961aa2`; registra las regresiones ampliadas y la cobertura observada para la versión `1.25.0`. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 
@@ -1569,8 +1576,9 @@ Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
 - Threat model vivo y gates de regresión para CSP, permisos, payloads semánticos y fórmulas CSV.
 - Navegación por teclado inicial con skip link, pestañas ARIA, foco visible, regiones anunciables y diálogos con ciclo/restauración de foco.
 - SBOM CycloneDX 1.6 reproducible y gates offline de integridad/procedencia para npm y Cargo.
-- Cobertura V8 global sobre `src` con gate 80/75/75/80; la cobertura real por
-  capa está abierta en `T5-04`. Supply
+- Cobertura V8 global sobre `src` con gate 80/75/75/80 y umbrales por capa
+  crítica; `T5-04` y la recuperación de ramas de proyectos pasan
+  `npm run test:coverage` en la verificación del 2026-09-21. Supply
   chain local con npm audit, cargo-audit 0.22.2, cargo-deny 0.20.2, secret scan,
   avisos de terceros y política de red/telemetría.
 - Instalador declarado `NSIS currentUser`, licencia MIT y avisos de terceros
@@ -2035,6 +2043,8 @@ Al actualizarlo:
 | 2026-09-21 | RV12/RV01: el benchmark WebView2 de 100 MiB pasa con 819.137 filas y confirma carga, paginación, transformación, exportación, memoria dentro del presupuesto del benchmark y cleanup. El smoke CDP completo pasa Playwright, landmarks, foco y ProjectsPanel, además de receta, exportación, reapertura y restauración nativas con 18 operaciones IPC y cleanup. La aceptación con tareas reales y el presupuesto del ejecutable release siguen siendo gates separados. | `tools/benchmark-webview2-dataset.ps1`, `tools/probe-webview2-cdp.ps1`, `CONTEXTO.md`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `.local/validation/performance-webview2/20260921T230202Z/summary.json`, `.local/validation/webview2-cdp/20260921T230251Z/summary.json` |
 | 2026-09-21 | RV01/RV02/RV05/RV06: las regresiones de App quedan alineadas con la inspección Excel separada, la carga perezosa de Preparar, el análisis previo a Entregar y las etiquetas accesibles actuales. `npx vitest run --maxWorkers=1` pasa 426/426; `npm run test:e2e` pasa 22/22 y ejecuta build. Los gates beta, legal e IPC también pasan; RV07/RV09/RV10/RV11 siguen abiertos por evidencia externa. | `src/App.test.tsx`, `e2e/import-formats.spec.ts`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-21 | RV11: `npm run release:dry-run` sobre `1.25.0` valida árbol limpio, toolchains, documentación, IPC, gobernanza y legal técnico, y se detiene en el sign-off jurídico requerido antes de empaquetar. No se crean ni publican artefactos; el reporte queda en `.local/validation/20260921T232220Z-a8fb7b4-package.json`. | `tools/release.ps1`, `tools/check.ps1`, `ROADMAP.md`, `docs/reference/roadmap-current.md` |
+| 2026-09-21 | El gate `tools/check.ps1` fija un worker para Vitest en pruebas y cobertura. La suite frontend pasa 449/449 con `--maxWorkers=1`; este ajuste evita fan-out y procesos huérfanos en `verify:tier` sin cambiar el comando de producto. | `tools/check.ps1`, `CONTEXTO.md`, `CHANGELOG.md`, `ROADMAP.md` |
+| 2026-09-21 | T5-04/T6-10: se amplían regresiones de App, Delivery, preparación y proyectos para las ramas faltantes sin bajar umbrales. `npm run test:coverage` pasa 51/51 suites y 449/449 pruebas; cobertura global 86,51 % sentencias, 81,49 % ramas, 87,94 % funciones y 90,60 % líneas; el checker aprueba las cinco capas críticas. | `src/App.test.tsx`, `src/features/delivery/DeliveryPhase.test.tsx`, `src/features/prepare/usePrepareController.test.tsx`, `src/features/projects/useProjectsController.test.tsx`, `tools/check-coverage.mjs`, `ROADMAP.md` |
 
 ## Documentos relacionados
 

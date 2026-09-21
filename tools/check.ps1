@@ -200,7 +200,10 @@ try {
     }
     Invoke-Checked "Rust format" $TauriRoot { cargo fmt -- --check }
     Invoke-Checked "Rust check" $TauriRoot { cargo check }
-    Invoke-Checked "Frontend tests" $ProjectRoot { npm test -- --run }
+    # Keep the gate deterministic on constrained Windows runners. The product
+    # test command remains configurable; this profile avoids worker fan-out
+    # that can leave orphaned Vitest processes after a cancelled run.
+    Invoke-Checked "Frontend tests" $ProjectRoot { npm test -- --run --maxWorkers=1 }
     if ($Profile -in @("Full", "Release", "Package")) {
         Invoke-Checked "Frontend coverage" $ProjectRoot { npm run test:coverage }
     }

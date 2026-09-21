@@ -773,6 +773,71 @@ describe("usePrepareController", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("error"));
   });
 
+  it("cubre impactos unitarios y las ramas singulares de las acciones", async () => {
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    vi.spyOn(bridge, "maskPersonalValues").mockResolvedValue({ dataset, changedCellCount: 1, changedColumnCount: 1 });
+    vi.spyOn(bridge, "normalizeBooleanValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 1, changedColumns: [{ name: "activo", changedCellCount: 1 }] });
+    vi.spyOn(bridge, "parseDateValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 1, changedColumns: [{ name: "fecha", changedCellCount: 1 }] });
+    vi.spyOn(bridge, "fixEncodingValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 1, changedColumns: [{ name: "nombre", changedCellCount: 1 }] });
+    vi.spyOn(bridge, "castNumericValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 1, changedColumns: [{ name: "total", changedCellCount: 1 }] });
+    vi.spyOn(bridge, "nullifyInvalidTypeValues").mockResolvedValue({ dataset, affectedRowCount: 2, changedCellCount: 2, changedColumns: [{ name: "fecha", changedCellCount: 2 }] });
+    vi.spyOn(bridge, "imputeMissingValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 1, changedColumns: [{ name: "estado", changedCellCount: 1 }] });
+    vi.spyOn(bridge, "imputeOutlierValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 1, changedColumns: [{ name: "total", changedCellCount: 1 }] });
+    vi.spyOn(bridge, "capOutlierValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 0, changedColumns: [] });
+    vi.spyOn(bridge, "dropOutlierValues").mockResolvedValue({ dataset, affectedRowCount: 0, changedCellCount: 0, changedColumns: [] });
+    vi.spyOn(bridge, "imputeCategoricalValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 1, changedColumns: [{ name: "estado", changedCellCount: 1 }] });
+    vi.spyOn(bridge, "enableRowAudit").mockResolvedValue({ dataset, affectedRowCount: 0 });
+    vi.spyOn(bridge, "normalizeColumnNames").mockResolvedValue({ dataset, renamedColumnCount: 1, renames: [{ from: " Nombre ", to: "nombre" }] });
+    vi.spyOn(bridge, "trimTextValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 1, changedColumns: [{ name: "nombre", changedCellCount: 1 }] });
+    vi.spyOn(bridge, "normalizeTextValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 1, changedColumns: [{ name: "nombre", changedCellCount: 1 }] });
+    vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({ dataset, changedCellCount: 1, affectedRowCount: 1, removedRowCount: 0, renamedColumnCount: 0, renames: [] });
+    const callbacks = {
+      onDatasetChanged: vi.fn(),
+      onProfileInvalidated: vi.fn(),
+      onDeliveryInvalidated: vi.fn(),
+    };
+    render(<ControllerHarness {...callbacks} />);
+
+    for (const [name, expected] of [
+      ["Proteger personales", "1 valor en 1 columna"],
+      ["Booleanos", "1 valores booleanos"],
+      ["Fechas", "1 valores de fecha"],
+      ["Codificación", "1 celda"],
+      ["Números", "1 valores numéricos"],
+      ["Tipos incompatibles", "2 valores incompatibles"],
+      ["Imputar", "1 valores nulos"],
+      ["Outliers", "1 outliers"],
+      ["Capear", "No se detectaron outliers"],
+      ["Eliminar atípicos", "No se detectaron filas atípicas"],
+      ["Categorías", "1 nulos textuales"],
+      ["Auditoría", "no produjo cambios"],
+      ["Columnas", "Se normalizó 1 nombre"],
+      ["Recortar", "1 celda en 1 fila"],
+      ["Texto", "1 celda en 1 fila"],
+      ["Recomendadas", "Plan aplicado: 1 celda actualizada"],
+    ] as const) {
+      fireEvent.click(screen.getByRole("button", { name }));
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(expected));
+    }
+    expect(callbacks.onDatasetChanged).toHaveBeenCalled();
+  });
+
+  it("restaura el estado de cancelación si el bridge rechaza la solicitud", async () => {
+    let rejectRemoval!: (error: Error) => void;
+    vi.spyOn(bridge, "removeDuplicates").mockReturnValue(new Promise((_, reject) => { rejectRemoval = reject; }));
+    vi.spyOn(bridge, "cancelOperation").mockRejectedValue(new Error("cancelación no disponible"));
+    render(<ControllerHarness
+      onDatasetChanged={vi.fn()}
+      onProfileInvalidated={vi.fn()}
+      onDeliveryInvalidated={vi.fn()}
+    />);
+    fireEvent.click(screen.getByRole("button", { name: "Duplicar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar preparación" }));
+    await waitFor(() => expect(screen.getByTestId("cancel-requested")).toHaveTextContent("no"));
+    rejectRemoval(new Error("fallo de operación"));
+    await waitFor(() => expect(screen.getByTestId("change-status")).toHaveTextContent("error"));
+  });
+
   it("ignora todas las mutaciones y cambios de historial sin dataset activo", () => {
     const callbacks = {
       onDatasetChanged: vi.fn(),
