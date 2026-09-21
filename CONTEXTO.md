@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `d65b2b5`, versión
+La base de este incremento fue `master` en `9403de9`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -51,6 +51,12 @@ eager de privacidad y las exportaciones CSV, JSON y Parquet también observan el
 token: los escritores procesan bloques de 8.192 filas, CSV neutraliza fórmulas
 dentro de cada bloque y JSON conserva un solo arreglo. El resultado de comparación
 solo se publica al final, bajo un gate que ordena cancelación y commit.
+La reconciliación de generaciones huérfanas consulta cancelación al enumerar y
+validar entradas, y antes/después de cada borrado recursivo seguro. `remove_dir_all`
+no puede interrumpirse mientras su llamada síncrona está activa; cancelar durante
+ese tramo se reconoce al regresar. El borrado explícito de proyecto conserva el
+gate: si el commit del catálogo gana, termina su limpieza antes de reconocer una
+cancelación tardía.
 El selector nativo
 es modal y no se puede cerrar desde este control mientras está abierto; XLS/ODS
 conserva `worksheet_range` monolítico, pero su conversión posterior comprueba el
@@ -173,10 +179,13 @@ Esa consulta SQLite de una fila sigue siendo síncrona. El panel ofrece
 La carga de versiones usa `projectVersions`; Proyectos permite cancelarla y
 reintentar. Tanto la lectura limitada a cinco entradas como la inicialización
 del catálogo comprueban el token. La recuperación del disco recorre las
-referencias SQLite y entradas de generaciones de forma cooperativa, y omite la
-limpieza si no logra leer el catálogo para evitar borrar generaciones activas.
-La migración SQLite, las lecturas individuales y `remove_dir_all` son tramos
-síncronos que solo detectan cancelación al terminar.
+referencias SQLite y las generaciones cooperativamente, y omite la limpieza si
+no logra leer el catálogo para evitar borrar generaciones activas. Comprueba
+cancelación al enumerar y validar entradas y antes/después del `remove_dir_all`
+seguro; ese borrado y las llamadas SQLite individuales son síncronos y no se
+interrumpen mientras el sistema operativo los ejecuta. El borrado explícito
+mantiene el cleanup bajo el gate después del commit SQLite, por lo que una
+cancelación tardía espera a que termine.
 
 Las tareas reutilizables aplican reglas, formato, privacidad y receta como
 borrador al importar un archivo con el perfil y esquema guardados; la receta
@@ -453,8 +462,8 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En esta revisión de cancelación del catálogo, la vista previa CSV/TSV, la comprobación updater y los `COPY` source-backed Parquet/JSON pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron pruebas de producto. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-21, posterior al commit base `be2a035`; incluye smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, más cancelación de apertura, restauración, guardado, eliminación, catálogo unificado, detección CSV/TSV por bloques, comprobación cancelable del updater y exportación source-backed Parquet/JSON interrumpible en DuckDB. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En este incremento, la reconciliación de generaciones huérfanas amplía los checkpoints alrededor de syscalls síncronas. Pasan `cargo fmt --check`, `cargo check --lib` (58 avisos dead-code existentes), `npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron pruebas de producto. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
+| Última revisión de este documento | 2026-09-21, posterior al commit base `9403de9`; amplía los checkpoints de cancelación alrededor de la limpieza recursiva segura de generaciones huérfanas, además de los smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, cancelación de apertura/restauración/guardado/eliminación, catálogo unificado, detección CSV/TSV por bloques, comprobación cancelable del updater y exportación source-backed Parquet/JSON interrumpible en DuckDB. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 

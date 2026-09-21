@@ -69,9 +69,14 @@ where
     if is_cancelled() {
         return Err(());
     }
-    let Ok(entries) = fs::read_dir(snapshots) else {
-        return Ok(report);
+    let entries = match fs::read_dir(snapshots) {
+        Ok(entries) => entries,
+        Err(_) if is_cancelled() => return Err(()),
+        Err(_) => return Ok(report),
     };
+    if is_cancelled() {
+        return Err(());
+    }
 
     for entry in entries {
         if is_cancelled() {
@@ -85,10 +90,17 @@ where
         if !is_generation_name(&name) || active_generations.contains(&name) {
             continue;
         }
-        let Ok(metadata) = fs::symlink_metadata(entry.path()) else {
-            report.failures += 1;
-            continue;
+        let metadata = match fs::symlink_metadata(entry.path()) {
+            Ok(metadata) => metadata,
+            Err(_) if is_cancelled() => return Err(()),
+            Err(_) => {
+                report.failures += 1;
+                continue;
+            }
         };
+        if is_cancelled() {
+            return Err(());
+        }
         if !metadata.is_dir() || metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
             report.failures += 1;
             continue;
@@ -104,6 +116,10 @@ where
         if is_cancelled() {
             return Err(());
         }
+        // Keep recursive removal in the standard library. A manual traversal
+        // by path could race with a symlink or reparse-point replacement.
+        // The operation itself is synchronous, so cancellation is observed
+        // immediately before and after this call.
         match fs::remove_dir_all(entry.path()) {
             Ok(()) => report.removed += 1,
             Err(_) => report.failures += 1,
@@ -111,6 +127,9 @@ where
         if is_cancelled() {
             return Err(());
         }
+    }
+    if is_cancelled() {
+        return Err(());
     }
     Ok(report)
 }
