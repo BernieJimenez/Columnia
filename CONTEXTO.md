@@ -79,6 +79,13 @@ generación `load` para descartar una selección obsoleta. `open_workbook_auto` 
 la llamada de calamine retorna. El selector nativo conserva su comportamiento
 modal.
 
+La apertura normal de un proyecto persistido usa `projectOpen`: consulta la
+cancelación durante el hash por bloques, el conteo DuckDB, la lectura Parquet y
+la copia/validación del historial. El panel ofrece «Cancelar apertura» solo en
+esa ruta; cancelar y publicar comparten un gate, así que si cancelar gana se
+conservan el dataset activo y `last_opened_at`. Restaurar una versión mantiene
+su publicación transaccional propia y no expone ese control.
+
 Las tareas reutilizables aplican reglas, formato, privacidad y receta como
 borrador al importar un archivo con el perfil y esquema guardados; la receta
 requiere ejecución explícita. Si el perfil no se usa o el esquema cambia, la
@@ -334,7 +341,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-20; verificación posterior a la base `b385d43`; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-21; verificación posterior a la base `b385d43`; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `0.167.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -344,8 +351,8 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En esta revisión pasan `cargo fmt --check`, `cargo check --tests` y `npm run docs:check`; el test filtrado compila, pero el ejecutable falla antes del harness con `STATUS_ENTRYPOINT_NOT_FOUND`. Véase el alcance arriba: estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-20, posterior a la base de partida `b385d43`; incluye el smoke WebView2 de proyectos y los round trips nativos CSV/XLSX/Parquet con datos sintéticos. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En esta revisión pasan `cargo fmt --check`, `cargo check --tests`, `cargo check --lib`, `npm run build` y `npm run docs:check`; el test filtrado compila, pero el ejecutable falla antes del harness con `STATUS_ENTRYPOINT_NOT_FOUND`. Véase el alcance arriba: estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
+| Última revisión de este documento | 2026-09-21, posterior a la base de partida `b385d43`; incluye smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, más cancelación de apertura de proyectos. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 

@@ -14,7 +14,8 @@ export type CancellableOperation =
   | "datasetComparison"
   | "qualityValidation"
   | "databasePreflight"
-  | "reviewMutation";
+  | "reviewMutation"
+  | "projectOpen";
 export type LocalExportFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
 export type ExportFormat = LocalExportFormat | "postgresql" | "mysql" | "sqlserver";
 export type PrivacyMode = "none" | "mask" | "hash";

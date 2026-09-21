@@ -2787,6 +2787,8 @@ pub struct DatasetState {
     query_generation: AtomicU64,
     dataset_page_generation: AtomicU64,
     snapshot_comparison_generation: AtomicU64,
+    project_open_generation: std::sync::Arc<AtomicU64>,
+    project_open_commit_lock: Mutex<()>,
     dataset_comparison_generation: AtomicU64,
     dataset_comparison_commit_lock: Mutex<()>,
     quality_validation_generation: AtomicU64,
@@ -3316,6 +3318,13 @@ impl DatasetState {
     }
 
     fn cancel(&self, operation: &str) -> Result<(), String> {
+        if operation == "projectOpen" {
+            let _guard = self.project_open_commit_lock.lock().map_err(|_| {
+                "La cancelación de apertura del proyecto quedó bloqueada.".to_owned()
+            })?;
+            self.project_open_generation.fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
         if operation == "prepare" {
             let _guard = self
                 .prepare_commit_lock
@@ -16413,8 +16422,35 @@ fn validate_staged_history_snapshot(
     is_cursor: bool,
     error_message: &str,
 ) -> Result<bool, String> {
+    validate_staged_history_snapshot_with_cancel(
+        path,
+        current_frame,
+        is_cursor,
+        error_message,
+        || false,
+    )
+}
+
+fn validate_staged_history_snapshot_with_cancel<C>(
+    path: &Path,
+    current_frame: &DataFrame,
+    is_cursor: bool,
+    error_message: &str,
+    is_cancelled: C,
+) -> Result<bool, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     if is_cursor {
-        let frame = read_parquet_frame(path).map_err(|_| error_message.to_owned())?;
+        let frame = read_parquet_frame_with_cancel(path, || is_cancelled()).map_err(|error| {
+            if error == OPERATION_CANCELLED_MESSAGE {
+                error
+            } else {
+                error_message.to_owned()
+            }
+        })?;
+        ensure_not_cancelled(is_cancelled())?;
         return Ok(frame.equals_missing(current_frame));
     }
 
@@ -16423,6 +16459,7 @@ fn validate_staged_history_snapshot(
     // demanda cuando el usuario hace undo/redo, evitando materializar todo el
     // historial en RAM.
     read_parquet_schema_frame(path).map_err(|_| error_message.to_owned())?;
+    ensure_not_cancelled(is_cancelled())?;
     Ok(false)
 }
 
@@ -39120,10 +39157,15 @@ fn capture_project_history(
     })
 }
 
-fn restore_project_history(
+fn restore_project_history_with_cancel<C>(
     current_frame: &DataFrame,
     history: ProjectHistoryRestore,
-) -> Result<HistoryManager, String> {
+    is_cancelled: C,
+) -> Result<HistoryManager, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     if history.max_entries == 0
         || history.max_entries > HISTORY_MAX_ENTRIES
         || history.disk_budget_bytes > HISTORY_DISK_BUDGET_BYTES
@@ -39156,6 +39198,7 @@ fn restore_project_history(
     let mut total_bytes = 0_u64;
     let mut ids = HashSet::with_capacity(history.entries.len());
     for (index, entry) in history.entries.into_iter().enumerate() {
+        ensure_not_cancelled(is_cancelled())?;
         validate_history_label(&entry.label)?;
         let id = if entry.id.is_empty() {
             // Manifiestos anteriores a D03 no incluían IDs estables.
@@ -39182,16 +39225,29 @@ fn restore_project_history(
         let destination = directory
             .path()
             .join(format!("snapshot-{index:020}.parquet"));
-        let copied = fs::copy(&entry.path, &destination)
+        let mut destination_file = File::create(&destination)
             .map_err(|_| "No se pudo copiar el historial restaurado.".to_owned())?;
+        let copied = copy_file_with_cancel(&entry.path, &mut destination_file, || is_cancelled())
+            .map_err(|error| {
+            if error == OPERATION_CANCELLED_MESSAGE {
+                error
+            } else {
+                "No se pudo copiar el historial restaurado.".to_owned()
+            }
+        })?;
+        ensure_not_cancelled(is_cancelled())?;
+        destination_file
+            .sync_all()
+            .map_err(|_| "No se pudo sincronizar el historial restaurado.".to_owned())?;
         if copied != entry.bytes {
             return Err("Un snapshot del historial cambió durante la apertura.".to_owned());
         }
-        let matches = validate_staged_history_snapshot(
+        let matches = validate_staged_history_snapshot_with_cancel(
             &destination,
             current_frame,
             index == history.cursor,
             "Un snapshot del historial no contiene un Parquet válido.",
+            || is_cancelled(),
         )?;
         if index == history.cursor {
             cursor_matches = matches;
@@ -39206,6 +39262,7 @@ fn restore_project_history(
     if !cursor_matches {
         return Err("El cursor del historial no coincide con el dataset actual.".to_owned());
     }
+    ensure_not_cancelled(is_cancelled())?;
     let next_id = entries.len() as u64;
     Ok(HistoryManager {
         directory,
@@ -39222,6 +39279,42 @@ fn restore_project_history(
 }
 
 impl DatasetState {
+    pub(crate) fn begin_project_open(&self) -> Result<u64, String> {
+        let _guard = self
+            .project_open_commit_lock
+            .lock()
+            .map_err(|_| "La apertura del proyecto quedó bloqueada.".to_owned())?;
+        Ok(self
+            .project_open_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1))
+    }
+
+    pub(crate) fn project_open_was_cancelled(&self, generation: u64) -> bool {
+        self.project_open_generation.load(Ordering::SeqCst) != generation
+    }
+
+    pub(crate) fn project_open_cancellation(
+        &self,
+        generation: u64,
+    ) -> std::sync::Arc<dyn Fn() -> bool + Send + Sync> {
+        let current_generation = std::sync::Arc::clone(&self.project_open_generation);
+        std::sync::Arc::new(move || current_generation.load(Ordering::SeqCst) != generation)
+    }
+
+    pub(crate) fn commit_project_open<T>(
+        &self,
+        generation: u64,
+        operation: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _guard = self
+            .project_open_commit_lock
+            .lock()
+            .map_err(|_| "La publicación de apertura del proyecto quedó bloqueada.".to_owned())?;
+        ensure_not_cancelled(self.project_open_was_cancelled(generation))?;
+        operation()
+    }
+
     pub(crate) fn for_project_import(frame: DataFrame, file_name: String) -> Result<Self, String> {
         let visible = Path::new(&file_name);
         if file_name.trim().is_empty()
@@ -39458,25 +39551,47 @@ impl DatasetState {
         profile: Option<DatasetProfile>,
         history: Option<ProjectHistoryRestore>,
     ) -> Result<ProjectDatasetCandidate, String> {
+        Self::prepare_durable_project_candidate_with_cancel(
+            snapshot_path,
+            file_name,
+            profile,
+            history,
+            std::sync::Arc::new(|| false),
+        )
+    }
+
+    pub(crate) fn prepare_durable_project_candidate_with_cancel(
+        snapshot_path: PathBuf,
+        file_name: String,
+        profile: Option<DatasetProfile>,
+        history: Option<ProjectHistoryRestore>,
+        is_cancelled: std::sync::Arc<dyn Fn() -> bool + Send + Sync>,
+    ) -> Result<ProjectDatasetCandidate, String> {
+        ensure_not_cancelled(is_cancelled())?;
         let snapshot_size_bytes = fs::metadata(&snapshot_path)
             .map_err(|_| "No se pudo verificar el snapshot del proyecto.".to_owned())?
             .len();
+        ensure_not_cancelled(is_cancelled())?;
         let can_defer_history = history
             .as_ref()
             .is_none_or(|value| !value.snapshots_enabled && value.entries.is_empty());
         if snapshot_size_bytes >= SOURCE_BACKED_LOAD_THRESHOLD_BYTES && can_defer_history {
             let schema = read_parquet_schema_frame(&snapshot_path)
                 .map_err(|_| "No se pudo leer el esquema del proyecto.".to_owned())?;
+            ensure_not_cancelled(is_cancelled())?;
+            let cancellation = std::sync::Arc::clone(&is_cancelled);
             let row_count = crate::duckdb_query::count_file_rows(
                 &snapshot_path,
                 crate::duckdb_query::DuckDbFileFormat::Parquet,
-                || false,
+                move || cancellation(),
             )?;
+            ensure_not_cancelled(is_cancelled())?;
             let page = if row_count == 0 {
                 schema.slice(0, 0)
             } else {
                 read_parquet_query_block(&snapshot_path, 0, row_count.min(PREVIEW_ROW_LIMIT))?
             };
+            ensure_not_cancelled(is_cancelled())?;
             let preview = dataset_preview_from_schema_and_page(
                 &file_name,
                 snapshot_size_bytes,
@@ -39485,12 +39600,17 @@ impl DatasetState {
                 &page,
             )?;
             if let Some(profile) = profile.as_ref() {
+                ensure_not_cancelled(is_cancelled())?;
                 validate_project_profile_with_row_count(&schema, row_count, profile)?;
+                ensure_not_cancelled(is_cancelled())?;
             }
             let history = match history {
-                Some(history) => restore_project_history(&schema, history)?,
+                Some(history) => {
+                    restore_project_history_with_cancel(&schema, history, || is_cancelled())?
+                }
                 None => HistoryManager::deferred()?,
             };
+            ensure_not_cancelled(is_cancelled())?;
             return Ok(ProjectDatasetCandidate {
                 loaded: LoadedDataset {
                     source_path: Some(snapshot_path),
@@ -39507,19 +39627,31 @@ impl DatasetState {
             });
         }
         ensure_materialization_budget(snapshot_size_bytes)?;
-        let frame = read_parquet_frame(&snapshot_path)
-            .map_err(|_| "No se pudo restaurar el dataset del proyecto.".to_owned())?;
+        let frame =
+            read_parquet_frame_with_cancel(&snapshot_path, || is_cancelled()).map_err(|error| {
+                if error == OPERATION_CANCELLED_MESSAGE {
+                    error
+                } else {
+                    "No se pudo restaurar el dataset del proyecto.".to_owned()
+                }
+            })?;
+        ensure_not_cancelled(is_cancelled())?;
         let file_size_bytes = snapshot_size_bytes;
         let preview = dataset_preview_with_size(&file_name, file_size_bytes, &frame)
             .map_err(|_| "No se pudo preparar el dataset del proyecto.".to_owned())?;
         if let Some(profile) = profile.as_ref() {
+            ensure_not_cancelled(is_cancelled())?;
             validate_project_profile(&frame, profile)?;
+            ensure_not_cancelled(is_cancelled())?;
         }
         let history = match history {
-            Some(history) => restore_project_history(&frame, history)?,
+            Some(history) => {
+                restore_project_history_with_cancel(&frame, history, || is_cancelled())?
+            }
             None => HistoryManager::new(&frame)
                 .map_err(|_| "No se pudo iniciar el historial temporal del proyecto.".to_owned())?,
         };
+        ensure_not_cancelled(is_cancelled())?;
         Ok(ProjectDatasetCandidate {
             loaded: LoadedDataset {
                 source_path: None,

@@ -17,6 +17,7 @@ use crate::dataset::{
     validate_import_profile, validate_project_profile_with_row_count, validate_project_workspace,
     DatasetPreview, DatasetProfile, DatasetState, ImportProfile, ProjectHistoryCapture,
     ProjectHistoryRestore, ProjectHistoryRestoreEntry, QualityRule, StoredTransformRecipe,
+    OPERATION_CANCELLED_MESSAGE,
 };
 use sha2::{Digest, Sha256};
 
@@ -1201,36 +1202,63 @@ impl ProjectStore {
     }
 
     fn load_validated(&self, project_id: &str) -> Result<ValidatedProject, String> {
+        self.load_validated_with_cancel(project_id, || false)
+    }
+
+    fn load_validated_with_cancel<C>(
+        &self,
+        project_id: &str,
+        is_cancelled: C,
+    ) -> Result<ValidatedProject, String>
+    where
+        C: Fn() -> bool + Send + Sync + Clone + 'static,
+    {
+        ensure_project_open_not_cancelled(is_cancelled())?;
         self.ensure_initialized()?;
         validate_id(project_id)?;
         let connection = self.connection()?;
         let stored = self
             .stored_project(&connection, project_id)?
             .ok_or_else(|| "El proyecto solicitado no existe.".to_owned())?;
-        self.validate_stored_project(stored)
+        self.validate_stored_project_with_cancel(stored, is_cancelled)
     }
 
-    fn validate_stored_project(
+    fn validate_stored_project(&self, stored: StoredProject) -> Result<ValidatedProject, String> {
+        self.validate_stored_project_with_cancel(stored, || false)
+    }
+
+    fn validate_stored_project_with_cancel<C>(
         &self,
         mut stored: StoredProject,
-    ) -> Result<ValidatedProject, String> {
+        is_cancelled: C,
+    ) -> Result<ValidatedProject, String>
+    where
+        C: Fn() -> bool + Send + Sync + Clone + 'static,
+    {
+        ensure_project_open_not_cancelled(is_cancelled())?;
         stored.summary.storage_bytes = self.stored_project_storage_bytes(&stored).ok();
+        ensure_project_open_not_cancelled(is_cancelled())?;
         let workspace = decode_workspace(&stored)?;
         let mut profile = decode_profile(&stored)?;
+        ensure_project_open_not_cancelled(is_cancelled())?;
         let candidate = if let Some(generation_name) = stored.generation_name.as_deref() {
             let generation = self.generation_path(&stored.summary.id, generation_name)?;
             let current = self.generation_file(&generation, "current.parquet")?;
-            if profile.is_some() && !profile_cache_matches(&stored, &current)? {
+            if profile.is_some()
+                && !profile_cache_matches_with_cancel(&stored, &current, || is_cancelled())?
+            {
                 // A cache from a different generation is not fatal; Review can
                 // recompute the derived profile for the verified dataset.
                 profile = None;
             }
+            ensure_project_open_not_cancelled(is_cancelled())?;
             let history = self.decode_history(&stored, &generation)?;
-            DatasetState::prepare_durable_project_candidate(
+            DatasetState::prepare_durable_project_candidate_with_cancel(
                 current,
                 stored.summary.dataset_file_name.clone(),
                 profile.clone(),
                 Some(history),
+                Arc::new(is_cancelled.clone()),
             )?
         } else {
             if stored.history_manifest_json.is_some()
@@ -1240,11 +1268,15 @@ impl ProjectStore {
                 return Err("El estado persistente del proyecto no es consistente.".to_owned());
             }
             let snapshot_path = self.snapshot_path(&stored.summary.id, &stored.snapshot_name)?;
-            DatasetState::prepare_project_candidate(
+            DatasetState::prepare_durable_project_candidate_with_cancel(
                 snapshot_path,
                 stored.summary.dataset_file_name.clone(),
+                None,
+                None,
+                Arc::new(is_cancelled.clone()),
             )?
         };
+        ensure_project_open_not_cancelled(is_cancelled())?;
         validate_project_workspace(
             candidate.frame(),
             &workspace.quality_rules,
@@ -1254,6 +1286,7 @@ impl ProjectStore {
         if candidate.dimensions() != (stored.summary.row_count, stored.summary.column_count) {
             return Err("El snapshot del proyecto no coincide con su catálogo.".to_owned());
         }
+        ensure_project_open_not_cancelled(is_cancelled())?;
         Ok(ValidatedProject {
             stored,
             workspace,
@@ -1267,30 +1300,58 @@ impl ProjectStore {
         dataset_state: &DatasetState,
         project_id: String,
     ) -> Result<ProjectOpenResult, String> {
-        let validated = self.load_validated(&project_id)?;
-        let mut connection = self.connection()?;
-        let timestamp = now_utc();
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|_| storage_error())?;
-        if transaction
-            .execute(
-                "UPDATE projects SET last_opened_at = ?1 WHERE id = ?2",
-                params![timestamp, project_id],
-            )
-            .map_err(|_| storage_error())?
-            != 1
-        {
-            return Err("El proyecto solicitado no existe.".to_owned());
+        self.open_with_cancellation(dataset_state, project_id, None)
+    }
+
+    fn open_cancellable(
+        &self,
+        dataset_state: &DatasetState,
+        project_id: String,
+        generation: u64,
+    ) -> Result<ProjectOpenResult, String> {
+        self.open_with_cancellation(dataset_state, project_id, Some(generation))
+    }
+
+    fn open_with_cancellation(
+        &self,
+        dataset_state: &DatasetState,
+        project_id: String,
+        generation: Option<u64>,
+    ) -> Result<ProjectOpenResult, String> {
+        let is_cancelled: Arc<dyn Fn() -> bool + Send + Sync> = generation
+            .map(|generation| dataset_state.project_open_cancellation(generation))
+            .unwrap_or_else(|| Arc::new(|| false));
+        let cancellation = Arc::clone(&is_cancelled);
+        let validated = self.load_validated_with_cancel(&project_id, move || cancellation())?;
+        let publish = move || {
+            let mut connection = self.connection()?;
+            let timestamp = now_utc();
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|_| storage_error())?;
+            if transaction
+                .execute(
+                    "UPDATE projects SET last_opened_at = ?1 WHERE id = ?2",
+                    params![timestamp, project_id],
+                )
+                .map_err(|_| storage_error())?
+                != 1
+            {
+                return Err("El proyecto solicitado no existe.".to_owned());
+            }
+            transaction.commit().map_err(|_| storage_error())?;
+            let dataset = dataset_state.activate_project_candidate(validated.candidate)?;
+            Ok(ProjectOpenResult {
+                project: validated.stored.summary,
+                dataset,
+                workspace: validated.workspace,
+                profile: validated.profile,
+            })
+        };
+        match generation {
+            Some(generation) => dataset_state.commit_project_open(generation, publish),
+            None => publish(),
         }
-        transaction.commit().map_err(|_| storage_error())?;
-        let dataset = dataset_state.activate_project_candidate(validated.candidate)?;
-        Ok(ProjectOpenResult {
-            project: validated.stored.summary,
-            dataset,
-            workspace: validated.workspace,
-            profile: validated.profile,
-        })
     }
 
     fn delete(&self, project_id: String) -> Result<(), String> {
@@ -1970,7 +2031,15 @@ fn decode_profile(stored: &StoredProject) -> Result<Option<DatasetProfile>, Stri
         .map_err(|_| "El perfil guardado del proyecto no es válido.".to_owned())
 }
 
-fn profile_cache_matches(stored: &StoredProject, current: &Path) -> Result<bool, String> {
+fn profile_cache_matches_with_cancel<C>(
+    stored: &StoredProject,
+    current: &Path,
+    is_cancelled: C,
+) -> Result<bool, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_project_open_not_cancelled(is_cancelled())?;
     let Some(expected) = stored.profile_cache_sha256.as_deref() else {
         // Catalogs created before the cache fingerprint existed remain
         // readable; the next save upgrades them to the verified contract.
@@ -1979,22 +2048,41 @@ fn profile_cache_matches(stored: &StoredProject, current: &Path) -> Result<bool,
     if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Ok(false);
     }
-    let actual = hash_file_sha256(current)?;
+    let actual = hash_file_sha256_with_cancel(current, || is_cancelled())?;
+    ensure_project_open_not_cancelled(is_cancelled())?;
     Ok(actual.eq_ignore_ascii_case(expected))
 }
 
 fn hash_file_sha256(path: &Path) -> Result<String, String> {
+    hash_file_sha256_with_cancel(path, || false)
+}
+
+fn hash_file_sha256_with_cancel<C>(path: &Path, is_cancelled: C) -> Result<String, String>
+where
+    C: Fn() -> bool,
+{
+    ensure_project_open_not_cancelled(is_cancelled())?;
     let mut file = fs::File::open(path).map_err(|_| storage_error())?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {
+        ensure_project_open_not_cancelled(is_cancelled())?;
         let read = file.read(&mut buffer).map_err(|_| storage_error())?;
         if read == 0 {
             break;
         }
         hasher.update(&buffer[..read]);
     }
+    ensure_project_open_not_cancelled(is_cancelled())?;
     Ok(hex::encode(hasher.finalize()))
+}
+
+fn ensure_project_open_not_cancelled(is_cancelled: bool) -> Result<(), String> {
+    if is_cancelled {
+        Err(OPERATION_CANCELLED_MESSAGE.to_owned())
+    } else {
+        Ok(())
+    }
 }
 
 fn prepare_store_directory(requested: &Path) -> Result<PathBuf, String> {
@@ -2340,7 +2428,11 @@ pub async fn restore_project_version(
 
 #[tauri::command]
 pub async fn open_project(app: AppHandle, project_id: String) -> Result<ProjectOpenResult, String> {
-    run_project_operation(app, move |store, dataset| store.open(dataset, project_id)).await
+    let generation = app.state::<DatasetState>().begin_project_open()?;
+    run_project_operation(app, move |store, dataset| {
+        store.open_cancellable(dataset, project_id, generation)
+    })
+    .await
 }
 
 #[tauri::command]

@@ -16,7 +16,7 @@ export type ProjectOperationState =
   | { kind: "idle" }
   | {
       kind: "working";
-      operation: "save" | "open" | "delete";
+      operation: "save" | "open" | "restore" | "delete";
       projectId: string | null;
       progress?: OperationProgress;
     }

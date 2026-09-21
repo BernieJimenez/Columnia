@@ -23,8 +23,10 @@ interface ProjectsPanelProps {
   autoSaveEnabled: boolean;
   datasetFileName: string | null;
   disabled: boolean;
+  openCancellationPending?: boolean;
   onSave: (name: string) => void;
   onOpen: (projectId: string) => void;
+  onCancelOpen?: () => void;
   onRestore: (projectId: string, versionId: number) => void;
   onAutoSaveChange: (enabled: boolean) => void;
   onDeleteRequest: (project: ProjectSummary) => void;
@@ -52,8 +54,10 @@ export function ProjectsPanel({
   autoSaveEnabled,
   datasetFileName,
   disabled,
+  openCancellationPending = false,
   onSave,
   onOpen,
+  onCancelOpen,
   onRestore,
   onAutoSaveChange,
   onDeleteRequest,
@@ -206,9 +210,25 @@ export function ProjectsPanel({
         <p className="projects__empty">Todavía no hay proyectos guardados. Carga un archivo para empezar.</p>
       )}
 
-      {operation.kind === "working" && <p className="notice" role="status">
-        Procesando proyecto…
-      </p>}
+      {operation.kind === "working" && (
+        <div className="notice projects__operation">
+          <p role="status">
+            {operation.operation === "open"
+              ? openCancellationPending ? "Cancelando apertura del proyecto…" : "Abriendo proyecto…"
+              : "Procesando proyecto…"}
+          </p>
+          {operation.operation === "open" && onCancelOpen && (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={onCancelOpen}
+              disabled={openCancellationPending}
+            >
+              {openCancellationPending ? "Cancelando…" : "Cancelar apertura"}
+            </button>
+          )}
+        </div>
+      )}
       {operation.kind === "success" && <p className="notice notice--success" role="status">{operation.message}</p>}
       {operation.kind === "error" && <p className="notice notice--error" role="alert">{operation.message}</p>}
 

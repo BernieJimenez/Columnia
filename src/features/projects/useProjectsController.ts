@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   autosaveProject,
+  cancelOperation,
   deleteProject,
   getRecoveryCandidate,
   listProjectVersions,
@@ -64,6 +65,10 @@ function errorMessage(error: unknown): string {
   return (sanitized || "No se pudo completar la operación.").slice(0, 240);
 }
 
+function isCancellationError(error: unknown): boolean {
+  return String(error).includes("cancelada por el usuario");
+}
+
 export function useProjectsController({
   connected,
   blocked,
@@ -84,6 +89,7 @@ export function useProjectsController({
   }>({ projectId: null, enabled: false });
   const [autoSave, setAutoSave] = useState<ProjectAutoSaveState>({ kind: "disabled" });
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
+  const [openCancellationPending, setOpenCancellationPending] = useState(false);
   const operationLock = useRef(false);
   const autoSaveInProgress = useRef(false);
   const lastAutoSaveSignature = useRef<string | null>(null);
@@ -190,22 +196,50 @@ export function useProjectsController({
   }, [activeProject, datasetRevision, hasDataset, refresh, runExclusive, workspace]);
 
   const open = useCallback(async (projectId: string) => {
+    setOpenCancellationPending(false);
     await runExclusive(
       { kind: "working", operation: "open", projectId },
       async () => {
-        const result = await openProject(projectId);
-        skipAutoSaveForProject.current = readAutoSavePreference(projectId) ? projectId : null;
-        await onProjectOpened(result);
-        setActiveProject(result.project);
-        setOperation({ kind: "success", message: `Proyecto “${result.project.name}” abierto.` });
-        await refresh();
+        try {
+          const result = await openProject(projectId);
+          skipAutoSaveForProject.current = readAutoSavePreference(projectId) ? projectId : null;
+          await onProjectOpened(result);
+          setActiveProject(result.project);
+          setOperation({ kind: "success", message: `Proyecto “${result.project.name}” abierto.` });
+          await refresh();
+        } catch (error: unknown) {
+          if (isCancellationError(error)) {
+            setOperation({ kind: "idle" });
+            return;
+          }
+          throw error;
+        }
       },
     );
+    setOpenCancellationPending(false);
   }, [onProjectOpened, refresh, runExclusive]);
+
+  const cancelOpen = useCallback(async () => {
+    if (
+      !operationLock.current
+      || operation.kind !== "working"
+      || operation.operation !== "open"
+      || openCancellationPending
+    ) {
+      return;
+    }
+    setOpenCancellationPending(true);
+    try {
+      await cancelOperation("projectOpen");
+    } catch (error: unknown) {
+      setOpenCancellationPending(false);
+      setOperation({ kind: "error", message: errorMessage(error) });
+    }
+  }, [openCancellationPending, operation]);
 
   const restore = useCallback(async (projectId: string, versionId: number) => {
     await runExclusive(
-      { kind: "working", operation: "open", projectId },
+      { kind: "working", operation: "restore", projectId },
       async () => {
         const result = await restoreProjectVersion(projectId, versionId);
         skipAutoSaveForProject.current = readAutoSavePreference(projectId) ? projectId : null;
@@ -303,6 +337,8 @@ export function useProjectsController({
     refresh,
     save,
     open,
+    cancelOpen,
+    openCancellationPending,
     versions,
     refreshVersions,
     restore,
