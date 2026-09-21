@@ -2788,6 +2788,7 @@ pub struct DatasetState {
     dataset_comparison_generation: AtomicU64,
     dataset_comparison_commit_lock: Mutex<()>,
     quality_validation_generation: AtomicU64,
+    database_preflight_generation: AtomicU64,
     prepare_generation: AtomicU64,
     prepare_commit_lock: Mutex<()>,
     review_mutation_generation: AtomicU64,
@@ -2863,6 +2864,37 @@ impl QualityValidationCancellation {
         self.app
             .state::<DatasetState>()
             .quality_validation_was_cancelled(self.generation)
+    }
+
+    fn ensure(&self) -> Result<(), String> {
+        ensure_not_cancelled(self.is_cancelled())
+    }
+
+    fn callback(&self) -> impl Fn() -> bool + Clone + Send + Sync + 'static {
+        let cancellation = self.clone();
+        move || cancellation.is_cancelled()
+    }
+}
+
+#[derive(Clone)]
+struct DatabasePreflightCancellation {
+    app: AppHandle,
+    generation: u64,
+}
+
+impl DatabasePreflightCancellation {
+    fn begin(app: &AppHandle) -> Self {
+        let generation = app.state::<DatasetState>().begin_database_preflight();
+        Self {
+            app: app.clone(),
+            generation,
+        }
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.app
+            .state::<DatasetState>()
+            .database_preflight_was_cancelled(self.generation)
     }
 
     fn ensure(&self) -> Result<(), String> {
@@ -3191,6 +3223,12 @@ impl DatasetState {
             .wrapping_add(1)
     }
 
+    fn begin_database_preflight(&self) -> u64 {
+        self.database_preflight_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
     fn begin_prepare(&self) -> u64 {
         self.prepare_generation
             .fetch_add(1, Ordering::SeqCst)
@@ -3237,6 +3275,10 @@ impl DatasetState {
 
     fn quality_validation_was_cancelled(&self, generation: u64) -> bool {
         self.quality_validation_generation.load(Ordering::SeqCst) != generation
+    }
+
+    fn database_preflight_was_cancelled(&self, generation: u64) -> bool {
+        self.database_preflight_generation.load(Ordering::SeqCst) != generation
     }
 
     fn prepare_was_cancelled(&self, generation: u64) -> bool {
@@ -3290,6 +3332,11 @@ impl DatasetState {
         }
         if operation == "qualityValidation" {
             self.quality_validation_generation
+                .fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
+        if operation == "databasePreflight" {
+            self.database_preflight_generation
                 .fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
@@ -21919,6 +21966,18 @@ fn privacy_safe_frame(
     frame: &DataFrame,
     mode: PrivacyMode,
 ) -> Result<(DataFrame, Vec<String>), String> {
+    privacy_safe_frame_with_cancel(frame, mode, &|| false)
+}
+
+fn privacy_safe_frame_with_cancel<C>(
+    frame: &DataFrame,
+    mode: PrivacyMode,
+    is_cancelled: &C,
+) -> Result<(DataFrame, Vec<String>), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     if mode == PrivacyMode::None {
         return Ok((frame.clone(), Vec::new()));
     }
@@ -21934,36 +21993,39 @@ fn privacy_safe_frame(
         .iter()
         .filter(|column| privacy_signal(column.name()).is_some())
     {
-        let values = (0..column.len())
-            .map(|row_index| {
-                column
-                    .get(row_index)
-                    .map_err(|_| {
-                        "No se pudo preparar una columna para protección de privacidad.".to_owned()
+        ensure_not_cancelled(is_cancelled())?;
+        let mut values = Vec::with_capacity(column.len());
+        for row_index in 0..column.len() {
+            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            let value = column.get(row_index).map_err(|_| {
+                "No se pudo preparar una columna para protección de privacidad.".to_owned()
+            })?;
+            values.push(match value {
+                AnyValue::Null => None,
+                value => {
+                    let value = match value {
+                        AnyValue::String(value) => value.to_owned(),
+                        AnyValue::StringOwned(value) => value.as_str().to_owned(),
+                        value => value.to_string(),
+                    };
+                    Some(match mode {
+                        PrivacyMode::None => value,
+                        PrivacyMode::Mask => REDACTED_VALUE.to_owned(),
+                        PrivacyMode::Hash => hex::encode(Sha256::digest(value.as_bytes())),
                     })
-                    .map(|value| match value {
-                        AnyValue::Null => None,
-                        value => {
-                            let value = match value {
-                                AnyValue::String(value) => value.to_owned(),
-                                AnyValue::StringOwned(value) => value.as_str().to_owned(),
-                                value => value.to_string(),
-                            };
-                            Some(match mode {
-                                PrivacyMode::None => value,
-                                PrivacyMode::Mask => REDACTED_VALUE.to_owned(),
-                                PrivacyMode::Hash => hex::encode(Sha256::digest(value.as_bytes())),
-                            })
-                        }
-                    })
-            })
-            .collect::<Result<Vec<_>, String>>()?;
+                }
+            });
+        }
+        ensure_not_cancelled(is_cancelled())?;
         safe.replace(
             column.name().as_str(),
             Column::new(column.name().clone(), values),
         )
         .map_err(|_| "No se pudo proteger una columna de datos personales.".to_owned())?;
     }
+    ensure_not_cancelled(is_cancelled())?;
     Ok((safe, protected_columns))
 }
 
@@ -29425,6 +29487,9 @@ pub async fn preflight_database_export(
     privacy_mode: PrivacyMode,
 ) -> Result<remote_databases::RemoteExportPreflight, String> {
     remote_databases::validate_database_target(&target)?;
+    let cancellation = DatabasePreflightCancellation::begin(&app);
+    cancellation.ensure()?;
+    let is_cancelled = cancellation.callback();
     let (source_context, frame) = {
         let state = app.state::<DatasetState>();
         let mut current = state
@@ -29473,13 +29538,17 @@ pub async fn preflight_database_export(
         let frame = if source_context.is_some() {
             None
         } else {
-            materialize_loaded_dataset(dataset)?;
+            materialize_loaded_dataset_with_cancel(dataset, &is_cancelled)?;
+            cancellation.ensure()?;
             Some(dataset.frame.clone())
         };
         (source_context, frame)
     };
 
-    tauri::async_runtime::spawn_blocking(move || {
+    let worker_cancellation = cancellation.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let is_cancelled = worker_cancellation.callback();
+        worker_cancellation.ensure()?;
         if let Some((
             source_path,
             source_format,
@@ -29497,12 +29566,14 @@ pub async fn preflight_database_export(
                         .to_owned(),
                 );
             }
+            worker_cancellation.ensure()?;
             let (_, original_source_size, _) = validate_dataset_file(&original_source_path)?;
             if original_source_size != expected_original_file_size {
                 return Err(
                     "El archivo original cambió desde su carga; vuelve a seleccionarlo.".to_owned(),
                 );
             }
+            worker_cancellation.ensure()?;
             if privacy_mode == PrivacyMode::None {
                 return remote_databases::preflight_source_backed(
                     &source_path,
@@ -29510,7 +29581,7 @@ pub async fn preflight_database_export(
                     &schema,
                     row_count,
                     &target,
-                    || false,
+                    is_cancelled.clone(),
                 );
             }
             let scratch = tempfile::tempdir()
@@ -29521,8 +29592,9 @@ pub async fn preflight_database_export(
                 expected_source_size,
                 &protected_snapshot,
                 privacy_mode,
-                || false,
+                is_cancelled.clone(),
             )?;
+            worker_cancellation.ensure()?;
             if protected_columns.is_empty() {
                 return remote_databases::preflight_source_backed(
                     &source_path,
@@ -29530,7 +29602,7 @@ pub async fn preflight_database_export(
                     &schema,
                     row_count,
                     &target,
-                    || false,
+                    is_cancelled.clone(),
                 );
             }
             let protected_schema = read_parquet_schema_frame(&protected_snapshot)?;
@@ -29540,18 +29612,25 @@ pub async fn preflight_database_export(
                 &protected_schema,
                 row_count,
                 &target,
-                || false,
+                is_cancelled.clone(),
             )
         } else {
             let frame = frame
                 .ok_or_else(|| "No se pudo preparar el dataset para el preflight.".to_owned())?;
-            let (protected_frame, _) = privacy_safe_frame(&frame, privacy_mode)?;
-            let input_columns = remote_databases::input_shape_from_frame(&protected_frame)?;
-            remote_databases::preflight_export(&target, &input_columns)
+            let (protected_frame, _) =
+                privacy_safe_frame_with_cancel(&frame, privacy_mode, &is_cancelled)?;
+            let input_columns = remote_databases::input_shape_from_frame_with_cancel(
+                &protected_frame,
+                &is_cancelled,
+            )?;
+            worker_cancellation.ensure()?;
+            remote_databases::preflight_export_with_cancel(&target, &input_columns, &is_cancelled)
         }
     })
     .await
-    .map_err(|error| format!("El preflight remoto se interrumpió: {error}"))?
+    .map_err(|error| format!("El preflight remoto se interrumpió: {error}"))?;
+    cancellation.ensure()?;
+    result
 }
 
 #[tauri::command]

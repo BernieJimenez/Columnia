@@ -46,6 +46,12 @@ los artefactos de validación locales.
   los bloques Parquet y los recorridos por filas revisan el token. Las operaciones
   vectorizadas lo comprueban al regresar.
 
+- El preflight de compatibilidad ODBC usa `databasePreflight` y permite cancelar
+  la protección de privacidad y el análisis eager/source-backed del dataset desde
+  Entregar. El análisis de columnas del exportador eager también observa el token;
+  las llamadas síncronas al driver ODBC solo pueden descartar el resultado al
+  regresar.
+
 - Las seis auditorías fechadas se fusionan en `AUDITORIA.md`. Tier 9 y el índice
   `roadmap-current.md` reúnen 16 resultados pendientes con valor operativo,
   eliminan duplicados y dejan fuera ampliaciones sin demanda demostrada. El gate

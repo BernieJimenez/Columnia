@@ -581,6 +581,9 @@ summary:focus-visible,
 .quality-contract__validation-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
 .quality-contract__validation-progress > .notice { margin: 0; }
 .quality-contract__validation-progress > .notice--error { flex-basis: 100%; }
+.database-preflight__progress { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.database-preflight__progress > .notice { margin: 0; }
+.database-preflight__progress > .notice--error { flex-basis: 100%; }
 .quality-contract__unvalidated { display: grid; gap: 8px; margin-top: 14px; padding: 12px; border-left: 3px solid #bd7621; background: #fff7e9; }
 .quality-migration-result { display: grid; gap: 5px; margin-top: 10px; border-left-color: var(--accent); }
 .quality-migration-result ul { margin: 2px 0 0; padding-left: 18px; }

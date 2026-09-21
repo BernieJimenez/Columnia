@@ -11,6 +11,7 @@ use crate::duckdb_query::DuckDbFileFormat;
 
 const MAX_CONNECTION_STRING_CHARS: usize = 16 * 1024;
 const MAX_IDENTIFIER_CHARS: usize = 128;
+const PREFLIGHT_CANCEL_CHECK_ROWS: usize = 1_024;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -133,20 +134,28 @@ pub fn test_database_connection(
     })
 }
 
-pub(crate) fn preflight_export(
+pub(crate) fn preflight_export_with_cancel<C>(
     target: &DatabaseTarget,
     input_columns: &[RemoteInputColumn],
-) -> Result<RemoteExportPreflight, String> {
+    is_cancelled: &C,
+) -> Result<RemoteExportPreflight, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled)?;
     validate_database_target(target)?;
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
     let connection = environment
         .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
         .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
+    ensure_not_cancelled(is_cancelled)?;
     connection
         .execute("SELECT 1", (), Some(10))
         .map_err(|error| format_driver_error("La prueba SELECT 1 falló", error, target))?;
+    ensure_not_cancelled(is_cancelled)?;
     let (table_exists, is_base_table, existing_columns) = inspect_destination(&connection, target)?;
+    ensure_not_cancelled(is_cancelled)?;
     Ok(assess_remote_export(
         target,
         input_columns,
@@ -165,73 +174,93 @@ pub(crate) fn preflight_source_backed<C>(
     is_cancelled: C,
 ) -> Result<RemoteExportPreflight, String>
 where
-    C: Fn() -> bool + Send + 'static,
+    C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
-    let input_columns =
-        input_shape_from_source(source_path, source_format, schema, row_count, is_cancelled)?;
-    preflight_export(target, &input_columns)
+    ensure_not_cancelled(&is_cancelled)?;
+    let input_columns = input_shape_from_source(
+        source_path,
+        source_format,
+        schema,
+        row_count,
+        is_cancelled.clone(),
+    )?;
+    ensure_not_cancelled(&is_cancelled)?;
+    preflight_export_with_cancel(target, &input_columns, &is_cancelled)
 }
 
+#[cfg(test)]
 pub(crate) fn input_shape_from_frame(frame: &DataFrame) -> Result<Vec<RemoteInputColumn>, String> {
-    frame
-        .columns()
-        .iter()
-        .map(|column| {
-            let data_type = column.dtype().to_string();
-            let is_text = type_family(&data_type) == TypeFamily::Text;
-            let normalized_dtype = data_type.to_ascii_lowercase();
-            let is_integer = is_integer_dtype(&normalized_dtype);
-            let is_decimal = is_decimal_dtype(&normalized_dtype);
-            let mut null_count = 0usize;
-            let mut maximum_length = 0usize;
-            let mut contains_nul = false;
-            let mut unrepresentable_integer_count = 0usize;
-            let mut unrepresentable_decimal_count = 0usize;
-            if is_text || is_integer || is_decimal {
-                for row_index in 0..column.len() {
-                    let value = column.get(row_index).map_err(|error| {
-                        format!(
-                            "No se pudo revisar la columna '{}' para la entrega: {error}",
-                            column.name()
-                        )
-                    })?;
-                    let text = match value {
-                        AnyValue::Null => {
-                            null_count += 1;
-                            continue;
-                        }
-                        AnyValue::String(value) => value.to_owned(),
-                        AnyValue::StringOwned(value) => value.as_str().to_owned(),
-                        value => value.to_string(),
-                    };
-                    if is_text {
-                        maximum_length = maximum_length.max(text.chars().count());
-                        contains_nul |= text.contains('\0');
-                    }
-                    if is_integer && text.parse::<i64>().is_err() {
-                        unrepresentable_integer_count =
-                            unrepresentable_integer_count.saturating_add(1);
-                    }
-                    if is_decimal && !matches!(text.parse::<f64>(), Ok(value) if value.is_finite())
-                    {
-                        unrepresentable_decimal_count =
-                            unrepresentable_decimal_count.saturating_add(1);
-                    }
+    input_shape_from_frame_with_cancel(frame, &|| false)
+}
+
+pub(crate) fn input_shape_from_frame_with_cancel<C>(
+    frame: &DataFrame,
+    is_cancelled: &C,
+) -> Result<Vec<RemoteInputColumn>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled)?;
+    let mut input_columns = Vec::with_capacity(frame.width());
+    for column in frame.columns() {
+        ensure_not_cancelled(is_cancelled)?;
+        let data_type = column.dtype().to_string();
+        let is_text = type_family(&data_type) == TypeFamily::Text;
+        let normalized_dtype = data_type.to_ascii_lowercase();
+        let is_integer = is_integer_dtype(&normalized_dtype);
+        let is_decimal = is_decimal_dtype(&normalized_dtype);
+        let mut null_count = 0usize;
+        let mut maximum_length = 0usize;
+        let mut contains_nul = false;
+        let mut unrepresentable_integer_count = 0usize;
+        let mut unrepresentable_decimal_count = 0usize;
+        if is_text || is_integer || is_decimal {
+            for row_index in 0..column.len() {
+                if row_index.is_multiple_of(PREFLIGHT_CANCEL_CHECK_ROWS) {
+                    ensure_not_cancelled(is_cancelled)?;
                 }
-            } else {
-                null_count = column.null_count() as usize;
+                let value = column.get(row_index).map_err(|error| {
+                    format!(
+                        "No se pudo revisar la columna '{}' para la entrega: {error}",
+                        column.name()
+                    )
+                })?;
+                let text = match value {
+                    AnyValue::Null => {
+                        null_count += 1;
+                        continue;
+                    }
+                    AnyValue::String(value) => value.to_owned(),
+                    AnyValue::StringOwned(value) => value.as_str().to_owned(),
+                    value => value.to_string(),
+                };
+                if is_text {
+                    maximum_length = maximum_length.max(text.chars().count());
+                    contains_nul |= text.contains('\0');
+                }
+                if is_integer && text.parse::<i64>().is_err() {
+                    unrepresentable_integer_count = unrepresentable_integer_count.saturating_add(1);
+                }
+                if is_decimal && !matches!(text.parse::<f64>(), Ok(value) if value.is_finite()) {
+                    unrepresentable_decimal_count = unrepresentable_decimal_count.saturating_add(1);
+                }
             }
-            Ok(RemoteInputColumn {
-                name: column.name().to_string(),
-                data_type,
-                null_count,
-                maximum_length: is_text.then_some(maximum_length),
-                contains_nul,
-                unrepresentable_integer_count,
-                unrepresentable_decimal_count,
-            })
-        })
-        .collect()
+        } else {
+            null_count = column.null_count() as usize;
+        }
+        ensure_not_cancelled(is_cancelled)?;
+        input_columns.push(RemoteInputColumn {
+            name: column.name().to_string(),
+            data_type,
+            null_count,
+            maximum_length: is_text.then_some(maximum_length),
+            contains_nul,
+            unrepresentable_integer_count,
+            unrepresentable_decimal_count,
+        });
+    }
+    ensure_not_cancelled(is_cancelled)?;
+    Ok(input_columns)
 }
 
 fn input_shape_from_source<C>(
@@ -242,8 +271,9 @@ fn input_shape_from_source<C>(
     is_cancelled: C,
 ) -> Result<Vec<RemoteInputColumn>, String>
 where
-    C: Fn() -> bool + Send + 'static,
+    C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
+    ensure_not_cancelled(&is_cancelled)?;
     let mut columns = schema
         .columns()
         .iter()
@@ -298,8 +328,9 @@ where
             row_count = row_count.saturating_add(1);
             Ok(())
         },
-        is_cancelled,
+        is_cancelled.clone(),
     )?;
+    ensure_not_cancelled(&is_cancelled)?;
     if row_count != expected_row_count {
         return Err(
             "El conteo de filas cambió durante el preflight remoto; vuelve a revisar el dataset."
@@ -704,20 +735,23 @@ pub(crate) fn export_frame<F, C>(
 ) -> Result<RemoteExportResult, String>
 where
     F: FnMut(&'static str, u8),
-    C: Fn() -> bool,
+    C: Fn() -> bool + Sync,
 {
     validate_database_target(target)?;
     ensure_not_cancelled(&is_cancelled)?;
-    let input_columns = input_shape_from_frame(frame)?;
+    let input_columns = input_shape_from_frame_with_cancel(frame, &is_cancelled)?;
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
     let connection = environment
         .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
         .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
+    ensure_not_cancelled(&is_cancelled)?;
     connection
         .execute("SELECT 1", (), Some(10))
         .map_err(|error| format_driver_error("La prueba SELECT 1 falló", error, target))?;
+    ensure_not_cancelled(&is_cancelled)?;
     let (table_exists, is_base_table, existing_columns) = inspect_destination(&connection, target)?;
+    ensure_not_cancelled(&is_cancelled)?;
     let preflight = assess_remote_export(
         target,
         &input_columns,
@@ -816,7 +850,7 @@ pub(crate) fn export_source_backed<F, C>(
 ) -> Result<RemoteExportResult, String>
 where
     F: FnMut(&'static str, u8),
-    C: Fn() -> bool + Clone + Send + 'static,
+    C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
     validate_database_target(target)?;
     ensure_not_cancelled(&is_cancelled)?;

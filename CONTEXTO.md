@@ -54,7 +54,11 @@ reglas usa ahora el token `qualityValidation` y ofrece «Cancelar validación»;
 cancelarse, conserva el gate previo y descarta el resultado incompleto. La fuente
 source-backed puede interrumpirse durante la materialización DuckDB, y la
 evaluación revisa el token entre bloques Parquet y filas. Las operaciones
-vectorizadas comprueban el token cuando devuelven.
+vectorizadas comprueban el token cuando devuelven. El preflight de compatibilidad
+ODBC usa `databasePreflight` para cancelar la preparación de snapshots privados y
+los recorridos por filas; el exportador eager también puede cancelar el análisis
+de columnas. Las llamadas síncronas al driver ODBC solo detectan la cancelación
+cuando retornan y descartan el resultado.
 
 Las tareas reutilizables aplican reglas, formato, privacidad y receta como
 borrador al importar un archivo con el perfil y esquema guardados; la receta
@@ -103,6 +107,10 @@ pantalla.
 En la validación de calidad de RV04, `cargo fmt`, `cargo check --lib`,
 `npm run build`, el checker documental y `git diff --check` pasan; no se
 ejecutaron pruebas.
+En el preflight ODBC de RV04, `cargo fmt --check`, `cargo check --lib`,
+`npm run build`, el checker documental y `git diff --check` pasan; no se
+ejecutaron pruebas. El driver ODBC no se interrumpe durante una llamada síncrona;
+se descarta el resultado al regresar.
 Durante esta revisión, `cargo test --manifest-path src-tauri/Cargo.toml` compiló,
 pero Windows no inició el harness: terminó con `STATUS_ENTRYPOINT_NOT_FOUND`
 (`0xc0000139`) incluso al probar un manifiesto Common Controls v6 temporal. Por

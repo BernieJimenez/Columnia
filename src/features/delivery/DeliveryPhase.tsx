@@ -223,6 +223,8 @@ export function DeliveryPhase({
     | { kind: "ready"; result: RemoteExportPreflight; fingerprint: string }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
+  const [databasePreflightCancellationPending, setDatabasePreflightCancellationPending] = useState(false);
+  const [databasePreflightCancellationError, setDatabasePreflightCancellationError] = useState<string | null>(null);
   const databaseRequestGeneration = useRef(0);
   const exportRequestGeneration = useRef(0);
   const exportInFlightRef = useRef(false);
@@ -294,7 +296,8 @@ export function DeliveryPhase({
   const busy = exportState.kind === "loading"
     || contract.gate.kind === "loading"
     || migrationState.kind === "working"
-    || qualityFileState.kind === "working";
+    || qualityFileState.kind === "working"
+    || databasePreflightState.kind === "working";
   const exportFormatLabel = {
     csv: "CSV",
     json: "JSON",
@@ -573,10 +576,14 @@ export function DeliveryPhase({
   }
 
   async function preflightDatabaseTarget() {
-    if (databaseTargetError) return;
-    const requestGeneration = databaseRequestGeneration.current;
+    if (databaseTargetError || databasePreflightState.kind === "working") return;
+    const requestGeneration = databaseRequestGeneration.current + 1;
+    databaseRequestGeneration.current = requestGeneration;
     const requestFingerprint = databaseTargetFingerprint;
     const requestedTarget = databaseTarget;
+    const previousState = databasePreflightState;
+    setDatabasePreflightCancellationPending(false);
+    setDatabasePreflightCancellationError(null);
     setDatabasePreflightState({ kind: "working" });
     try {
       const result = await preflightDatabaseExport(requestedTarget, selectedPrivacyMode);
@@ -589,14 +596,38 @@ export function DeliveryPhase({
         });
         return;
       }
+      setDatabasePreflightCancellationError(null);
       setDatabasePreflightState({ kind: "ready", result, fingerprint: requestFingerprint });
     } catch (error: unknown) {
       if (requestGeneration !== databaseRequestGeneration.current
         || requestFingerprint !== databaseTargetFingerprintRef.current) return;
+      if (isCancellationError(error)) {
+        setDatabasePreflightState(previousState.kind === "ready"
+          && previousState.fingerprint === requestFingerprint
+          ? previousState
+          : { kind: "idle" });
+        return;
+      }
       setDatabasePreflightState({
         kind: "error",
         message: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      if (requestGeneration === databaseRequestGeneration.current) {
+        setDatabasePreflightCancellationPending(false);
+      }
+    }
+  }
+
+  async function cancelDatabasePreflight() {
+    if (databasePreflightState.kind !== "working" || databasePreflightCancellationPending) return;
+    setDatabasePreflightCancellationPending(true);
+    setDatabasePreflightCancellationError(null);
+    try {
+      await cancelOperation("databasePreflight");
+    } catch (error: unknown) {
+      setDatabasePreflightCancellationError(error instanceof Error ? error.message : String(error));
+      setDatabasePreflightCancellationPending(false);
     }
   }
 
@@ -1747,10 +1778,32 @@ export function DeliveryPhase({
                 className="secondary-action"
                 type="button"
                 onClick={() => void preflightDatabaseTarget()}
-                disabled={busy || databaseTargetError !== null || databasePreflightState.kind === "working"}
+                disabled={busy || databaseTargetError !== null}
               >
                 {databasePreflightState.kind === "working" ? "Analizando compatibilidad…" : "Analizar compatibilidad"}
               </button>
+              {databasePreflightState.kind === "working" && (
+                <div className="database-preflight__progress">
+                  <p className="notice" role="status">
+                    {databasePreflightCancellationPending
+                      ? "Esperando que termine el análisis…"
+                      : "Analizando el dataset y el esquema del destino. No se han escrito datos."}
+                  </p>
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    onClick={() => void cancelDatabasePreflight()}
+                    disabled={databasePreflightCancellationPending}
+                  >
+                    {databasePreflightCancellationPending ? "Esperando cancelación…" : "Cancelar análisis"}
+                  </button>
+                  {databasePreflightCancellationError && (
+                    <p className="notice notice--error" role="alert">
+                      No se pudo cancelar el análisis: {databasePreflightCancellationError}
+                    </p>
+                  )}
+                </div>
+              )}
               {activePreflight && (
                 <div className={activePreflight.ready ? "notice notice--success" : "notice notice--error"} role={activePreflight.ready ? "status" : "alert"}>
                   <p>{activePreflight.ready
