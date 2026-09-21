@@ -27,6 +27,10 @@ pendiente.
 El fallo de la vista previa CSV/TSV se presenta dentro del diálogo de revisión;
 se quitó la alerta global duplicada que quedaba fuera de contexto.
 
+En Entregar, los campos de destino ODBC toman sus nombres accesibles de las
+etiquetas visibles; el esquema conserva su indicación de opcional y los errores
+de validación se asocian al campo correspondiente.
+
 En el código local están implementadas la importación CSV/TSV con convenciones
 explícitas de fecha y número, las políticas reutilizables de excepciones de
 conversión, y la cancelación compartida de JOIN, consolidación y resolución

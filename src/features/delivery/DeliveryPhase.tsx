@@ -1789,7 +1789,7 @@ export function DeliveryPhase({
             <fieldset className="database-target">
               <legend>Destino remoto · {exportFormatLabel}</legend>
               <p>
-                Usa el controlador ODBC correspondiente. La cadena y la contraseña solo viven durante esta sesión y no se guardan en el proyecto.
+                Usa el controlador ODBC correspondiente. La cadena y la contraseña solo viven durante esta sesión y no se guardan en el proyecto. El esquema de destino es opcional.
               </p>
               <label>
                 Cadena de conexión ODBC
@@ -1807,9 +1807,8 @@ export function DeliveryPhase({
               </label>
               <div className="database-target__grid">
                 <label>
-                  Esquema (opcional)
+                  Esquema de destino
                   <input
-                    aria-label="Esquema de destino"
                     value={databaseTarget.schema}
                     aria-invalid={invalidDatabaseTargetField === "schema" || undefined}
                     aria-describedby={invalidDatabaseTargetField === "schema" ? "database-target-validation-error" : undefined}
@@ -1820,7 +1819,6 @@ export function DeliveryPhase({
                 <label>
                   Tabla
                   <input
-                    aria-label="Tabla de destino"
                     value={databaseTarget.table}
                     aria-invalid={invalidDatabaseTargetField === "table" || undefined}
                     aria-describedby={invalidDatabaseTargetField === "table" ? "database-target-validation-error" : undefined}
