@@ -14,6 +14,7 @@ export type CancellableOperation =
   | "datasetComparison"
   | "qualityValidation"
   | "databasePreflight"
+  | "databaseConnection"
   | "reviewMutation"
   | "projectCatalog"
   | "projectVersions"

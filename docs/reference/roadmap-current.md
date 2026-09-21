@@ -40,6 +40,16 @@ permanece activa. Pasan `cargo fmt --check`, `cargo check --lib`,
 `npm run build`, `npm run ipc:check` y `git diff --check`; no se ejecutaron
 pruebas de producto.
 
+El incremento actual sobre `10f8d43` mueve `test_database_connection` a
+`spawn_blocking` y lo asocia a `databaseConnection`, separado del token de
+preflight para que cancelar una prueba no invalide otro análisis remoto.
+Comprueba el token antes y
+después de inicializar ODBC, conectar y ejecutar `SELECT 1`; las llamadas del
+driver siguen siendo síncronas y el resultado se descarta al retornar si se
+canceló. El comando independiente no tiene hoy un consumidor en la interfaz.
+Pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`,
+`npm run ipc:check` y `git diff --check`; no se ejecutaron pruebas de producto.
+
 El incremento sobre `94b7fe5` añade `reusableTaskCatalog` para cancelar la
 enumeración local de tareas entre filas SQLite y deserializaciones, con
 «Cancelar carga» y reintento en el panel. Una operación SQLite o la

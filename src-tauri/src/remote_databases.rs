@@ -6,7 +6,9 @@ use odbc_api::{
 };
 use polars::prelude::{AnyValue, DataFrame};
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager};
 
+use crate::dataset::{DatasetState, OPERATION_CANCELLED_MESSAGE};
 use crate::duckdb_query::DuckDbFileFormat;
 
 const MAX_CONNECTION_STRING_CHARS: usize = 16 * 1024;
@@ -116,22 +118,60 @@ pub(crate) struct RemoteExportResult {
 }
 
 #[tauri::command]
-pub fn test_database_connection(
+pub async fn test_database_connection(
+    app: AppHandle,
     target: DatabaseTarget,
 ) -> Result<DatabaseConnectionResult, String> {
-    validate_database_target(&target)?;
-    let environment = Environment::new()
-        .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, &target))?;
+    let generation = app.state::<DatasetState>().begin_database_connection();
+    let cancellation_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        test_database_connection_with_cancel(&target, || {
+            cancellation_app
+                .state::<DatasetState>()
+                .database_connection_was_cancelled(generation)
+        })
+    })
+    .await
+    .map_err(|_| "La prueba de conexión ODBC se interrumpió inesperadamente.".to_owned())?
+}
+
+fn test_database_connection_with_cancel<C>(
+    target: &DatabaseTarget,
+    is_cancelled: C,
+) -> Result<DatabaseConnectionResult, String>
+where
+    C: Fn() -> bool,
+{
+    ensure_connection_test_not_cancelled(&is_cancelled)?;
+    validate_database_target(target)?;
+
+    let environment = Environment::new();
+    ensure_connection_test_not_cancelled(&is_cancelled)?;
+    let environment = environment
+        .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
+
     let connection = environment
-        .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
-        .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, &target))?;
-    connection
-        .execute("SELECT 1", (), Some(10))
-        .map_err(|error| format_driver_error("La prueba SELECT 1 falló", error, &target))?;
+        .connect_with_connection_string(&target.connection_string, ConnectionOptions::default());
+    ensure_connection_test_not_cancelled(&is_cancelled)?;
+    let connection = connection
+        .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
+
+    let query_result = connection.execute("SELECT 1", (), Some(10));
+    ensure_connection_test_not_cancelled(&is_cancelled)?;
+    query_result.map_err(|error| format_driver_error("La prueba SELECT 1 falló", error, target))?;
+
     Ok(DatabaseConnectionResult {
         kind: target.kind,
         message: format!("Conexión ODBC verificada para {}.", target.kind.label()),
     })
+}
+
+fn ensure_connection_test_not_cancelled(is_cancelled: &impl Fn() -> bool) -> Result<(), String> {
+    if is_cancelled() {
+        Err(OPERATION_CANCELLED_MESSAGE.to_owned())
+    } else {
+        Ok(())
+    }
 }
 
 pub(crate) fn preflight_export_with_cancel<C>(

@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `0f4be2f`, versión
+La base de este incremento fue `master` en `10f8d43`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -97,6 +97,16 @@ juntos. Si cancelar gana durante la creación síncrona del historial, el
 candidato se descarta y permanece activa la sesión anterior. Pasan
 `cargo fmt --check`, `cargo check --lib`, `npm run build`, `npm run ipc:check`
 y `git diff --check`; no se ejecutaron pruebas de producto.
+
+La prueba Tauri `test_database_connection` ahora ejecuta inicialización ODBC,
+conexión y `SELECT 1` dentro de `spawn_blocking`, bajo la generación
+`databaseConnection`. Comprueba cancelación antes y después de cada llamada al
+driver; ODBC no interrumpe una llamada activa, pero el resultado se descarta al
+retornar si la generación cambió. No hay una acción de interfaz que invoque hoy
+este comando independiente; el preflight de Entregar mantiene su propio botón
+de cancelación. Pasan `cargo fmt --check`, `cargo check --lib`,
+`npm run build`, `npm run ipc:check` y `git diff --check`; no se ejecutaron
+pruebas de producto.
 
 El catálogo local de tareas reutilizables usa `reusableTaskCatalog` y consulta
 cancelación al avanzar por las filas SQLite y antes y después de deserializar

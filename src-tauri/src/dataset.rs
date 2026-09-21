@@ -2800,6 +2800,7 @@ pub struct DatasetState {
     dataset_comparison_commit_lock: Mutex<()>,
     quality_validation_generation: AtomicU64,
     database_preflight_generation: AtomicU64,
+    database_connection_generation: AtomicU64,
     prepare_generation: AtomicU64,
     prepare_commit_lock: Mutex<()>,
     review_mutation_generation: AtomicU64,
@@ -3263,6 +3264,12 @@ impl DatasetState {
             .wrapping_add(1)
     }
 
+    pub(crate) fn begin_database_connection(&self) -> u64 {
+        self.database_connection_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
     fn begin_prepare(&self) -> u64 {
         self.prepare_generation
             .fetch_add(1, Ordering::SeqCst)
@@ -3317,6 +3324,10 @@ impl DatasetState {
 
     fn database_preflight_was_cancelled(&self, generation: u64) -> bool {
         self.database_preflight_generation.load(Ordering::SeqCst) != generation
+    }
+
+    pub(crate) fn database_connection_was_cancelled(&self, generation: u64) -> bool {
+        self.database_connection_generation.load(Ordering::SeqCst) != generation
     }
 
     fn prepare_was_cancelled(&self, generation: u64) -> bool {
@@ -3415,6 +3426,11 @@ impl DatasetState {
         }
         if operation == "databasePreflight" {
             self.database_preflight_generation
+                .fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
+        if operation == "databaseConnection" {
+            self.database_connection_generation
                 .fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
