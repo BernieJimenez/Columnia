@@ -1737,6 +1737,8 @@ export function App() {
               >
                 <ProjectsPanel
                   catalog={projects.catalog}
+                  catalogCancellationPending={projects.catalogCancellationPending}
+                  onCancelCatalogLoad={() => void projects.cancelCatalogLoad()}
                   operation={projects.operation}
                   deletion={projects.deletion}
                   activeProject={projects.activeProject}

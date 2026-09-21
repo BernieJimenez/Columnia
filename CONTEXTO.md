@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `c887d65`, versión
+La base de este incremento fue `master` en `85856a7`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -106,6 +106,12 @@ tardía espere a que la eliminación termine en vez de informar una cancelación
 después del commit. SQLite y `remove_dir_all` siguen siendo llamadas síncronas;
 un fallo de limpieza posterior al commit se informa como proyecto eliminado
 con archivos pendientes de limpieza. El panel ofrece «Cancelar eliminación».
+
+La carga del catálogo usa `projectCatalog`: consulta cancelación al leer cada
+proyecto y al medir su snapshot e historial, y descarta respuestas de una carga
+que haya quedado obsoleta. El panel ofrece «Cancelar carga» y, si se cancela la
+carga inicial, permite reintentar. La consulta del candidato de recuperación
+sigue siendo una lectura SQLite breve aparte y no observa este token.
 
 Las tareas reutilizables aplican reglas, formato, privacidad y receta como
 borrador al importar un archivo con el perfil y esquema guardados; la receta
@@ -362,7 +368,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este incremento parte de `c887d65`; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-21; este incremento parte de `85856a7`; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `0.167.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -372,8 +378,8 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En esta revisión de cancelación de eliminación pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron pruebas de producto. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-21, posterior al commit base `c887d65`; incluye smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, más cancelación de apertura, restauración, guardado y eliminación de proyectos. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En esta revisión de cancelación del catálogo pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron pruebas de producto. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
+| Última revisión de este documento | 2026-09-21, posterior al commit base `85856a7`; incluye smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, más cancelación de apertura, restauración, guardado, eliminación y carga del catálogo de proyectos. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 

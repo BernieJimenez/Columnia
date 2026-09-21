@@ -9,17 +9,19 @@ trabajo, protege resultados o aporta evidencia necesaria para declarar soporte.
 Las propuestas condicionadas a demanda se enumeran al final y no son trabajo
 comprometido.
 
-Último incremento verificado sobre `c887d65`: eliminar proyecto usa
-`projectDelete` al validar rutas y versiones; el gate cubre el borrado SQLite y
-la limpieza de archivos. Si cancelar gana antes del gate se conserva todo; si
-el gate gana, la eliminación termina y cancelar espera. SQLite y
-`remove_dir_all` siguen siendo síncronos. El panel ofrece «Cancelar
-eliminación». El guardado manual y automático usan `projectSave`, copian
-snapshots e historial por bloques y descartan la generación staged si cancelar
-gana antes del commit; `ParquetWriter::finish`, `sync_all` y SQLite siguen
-siendo tramos síncronos. Pasan `cargo fmt --check`, `cargo check --lib`,
-`npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`;
-no se ejecutaron pruebas de producto.
+Último incremento verificado sobre `85856a7`: la lista de proyectos usa
+`projectCatalog` y comprueba cancelación al leer cada fila y medir el snapshot
+y el historial. Las respuestas obsoletas se descartan y el panel ofrece
+«Cancelar carga» y reintento. El candidato de recuperación sigue siendo una
+consulta SQLite breve separada, sin token. El guardado manual y automático
+usan `projectSave`, copian snapshots e historial por bloques y descartan la
+generación staged si cancelar gana antes del commit; `ParquetWriter::finish`,
+`sync_all` y SQLite siguen siendo tramos síncronos. El borrado usa
+`projectDelete`: cancelar antes del gate conserva catálogo y archivos; si el
+gate gana, el borrado y la limpieza terminan bajo ese gate. SQLite y
+`remove_dir_all` siguen siendo síncronos. Pasan `cargo fmt --check`,
+`cargo check --lib`, `npm run build`, `npm run ipc:check`, el checker documental
+y `git diff --check`; no se ejecutaron pruebas de producto.
 
 ## Ahora — completar el flujo automático
 

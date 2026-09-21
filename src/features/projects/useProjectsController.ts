@@ -80,6 +80,7 @@ export function useProjectsController({
   onActiveProjectUnlinked,
 }: ProjectsControllerOptions) {
   const [catalog, setCatalog] = useState<ProjectCatalogState>({ kind: "unavailable" });
+  const [catalogCancellationPending, setCatalogCancellationPending] = useState(false);
   const [operation, setOperation] = useState<ProjectOperationState>({ kind: "idle" });
   const [deletion, setDeletion] = useState<ProjectDeletionState>({ kind: "idle" });
   const [versions, setVersions] = useState<ProjectVersionsState>({ kind: "ready", versions: [] });
@@ -95,6 +96,9 @@ export function useProjectsController({
   const [autoSaveCancellationPending, setAutoSaveCancellationPending] = useState(false);
   const [deleteCancellationPending, setDeleteCancellationPending] = useState(false);
   const operationLock = useRef(false);
+  const catalogRequestGeneration = useRef(0);
+  const catalogRequestInProgress = useRef(false);
+  const lastReadyCatalog = useRef<Extract<ProjectCatalogState, { kind: "ready" }> | null>(null);
   const autoSaveInProgress = useRef(false);
   const lastAutoSaveSignature = useRef<string | null>(null);
   const failedAutoSaveSignature = useRef<string | null>(null);
@@ -107,21 +111,58 @@ export function useProjectsController({
   );
 
   const refresh = useCallback(async () => {
+    const requestId = ++catalogRequestGeneration.current;
+    setCatalogCancellationPending(false);
     if (!connected) {
+      catalogRequestInProgress.current = false;
+      lastReadyCatalog.current = null;
       setCatalog({ kind: "unavailable" });
       return;
     }
+    catalogRequestInProgress.current = true;
     setCatalog({ kind: "loading" });
     try {
       const [projects, recoveryCandidate] = await Promise.all([
         listProjects(),
         getRecoveryCandidate(),
       ]);
-      setCatalog({ kind: "ready", projects: sortProjects(projects), recoveryCandidate });
+      if (catalogRequestGeneration.current !== requestId) return;
+      const ready = { kind: "ready" as const, projects: sortProjects(projects), recoveryCandidate };
+      lastReadyCatalog.current = ready;
+      setCatalog(ready);
     } catch (error: unknown) {
+      if (catalogRequestGeneration.current !== requestId) return;
+      if (isCancellationError(error)) {
+        setCatalog(lastReadyCatalog.current ?? { kind: "cancelled" });
+        return;
+      }
       setCatalog({ kind: "error", message: errorMessage(error) });
+    } finally {
+      if (catalogRequestGeneration.current === requestId) {
+        catalogRequestInProgress.current = false;
+        setCatalogCancellationPending(false);
+      }
     }
   }, [connected]);
+
+  const cancelCatalogLoad = useCallback(async () => {
+    if (
+      !catalogRequestInProgress.current
+      || catalog.kind !== "loading"
+      || catalogCancellationPending
+    ) {
+      return;
+    }
+    const requestId = catalogRequestGeneration.current;
+    setCatalogCancellationPending(true);
+    try {
+      await cancelOperation("projectCatalog");
+    } catch (error: unknown) {
+      if (catalogRequestGeneration.current !== requestId) return;
+      setCatalogCancellationPending(false);
+      setCatalog({ kind: "error", message: errorMessage(error) });
+    }
+  }, [catalog.kind, catalogCancellationPending]);
 
   useEffect(() => {
     void refresh();
@@ -191,6 +232,7 @@ export function useProjectsController({
         try {
           const saved = await saveProject(activeProject?.id ?? null, validation.name, workspace);
           setActiveProject(saved);
+          lastReadyCatalog.current = null;
           lastAutoSaveSignature.current = `${saved.id}:${datasetRevision}:${JSON.stringify(workspace)}`;
           failedAutoSaveSignature.current = null;
           setOperation({ kind: "success", message: activeProject
@@ -235,6 +277,7 @@ export function useProjectsController({
         try {
           const result = await openProject(projectId);
           skipAutoSaveForProject.current = readAutoSavePreference(projectId) ? projectId : null;
+          lastReadyCatalog.current = null;
           await onProjectOpened(result);
           setActiveProject(result.project);
           setOperation({ kind: "success", message: `Proyecto “${result.project.name}” abierto.` });
@@ -277,6 +320,7 @@ export function useProjectsController({
         try {
           const result = await restoreProjectVersion(projectId, versionId);
           skipAutoSaveForProject.current = readAutoSavePreference(projectId) ? projectId : null;
+          lastReadyCatalog.current = null;
           await onProjectOpened(result);
           setActiveProject(result.project);
           setOperation({ kind: "success", message: `Versión restaurada: “${result.project.name}”.` });
@@ -342,6 +386,7 @@ export function useProjectsController({
           const saved = await autosaveProject(activeProject.id, activeProject.name, workspaceRef.current);
           lastAutoSaveSignature.current = signature;
           failedAutoSaveSignature.current = null;
+          lastReadyCatalog.current = null;
           setActiveProject(saved);
           setAutoSave({ kind: "saved", savedAt: new Date().toISOString() });
           await refresh();
@@ -403,6 +448,7 @@ export function useProjectsController({
         setDeletion({ kind: "deleting", project: target });
         try {
           await deleteProject(target.id);
+          lastReadyCatalog.current = null;
           setDeletion({ kind: "idle" });
           if (activeProject?.id === target.id) {
             setActiveProject(null);
@@ -416,6 +462,7 @@ export function useProjectsController({
             setOperation({ kind: "idle" });
             return;
           }
+          lastReadyCatalog.current = null;
           throw error;
         }
       },
@@ -443,6 +490,8 @@ export function useProjectsController({
 
   return {
     catalog,
+    catalogCancellationPending,
+    cancelCatalogLoad,
     operation,
     deletion,
     activeProject,

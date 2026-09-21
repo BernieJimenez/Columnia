@@ -2793,6 +2793,7 @@ pub struct DatasetState {
     project_save_commit_lock: Mutex<()>,
     project_delete_generation: std::sync::Arc<AtomicU64>,
     project_delete_commit_lock: Mutex<()>,
+    project_catalog_generation: std::sync::Arc<AtomicU64>,
     dataset_comparison_generation: AtomicU64,
     dataset_comparison_commit_lock: Mutex<()>,
     quality_validation_generation: AtomicU64,
@@ -3322,6 +3323,11 @@ impl DatasetState {
     }
 
     fn cancel(&self, operation: &str) -> Result<(), String> {
+        if operation == "projectCatalog" {
+            self.project_catalog_generation
+                .fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
         if operation == "projectDelete" {
             let _guard = self.project_delete_commit_lock.lock().map_err(|_| {
                 "La cancelación de eliminación del proyecto quedó bloqueada.".to_owned()
@@ -39402,6 +39408,21 @@ impl DatasetState {
         })?;
         ensure_not_cancelled(self.project_delete_was_cancelled(generation))?;
         operation()
+    }
+
+    pub(crate) fn begin_project_catalog(&self) -> Result<u64, String> {
+        Ok(self
+            .project_catalog_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1))
+    }
+
+    pub(crate) fn project_catalog_cancellation(
+        &self,
+        generation: u64,
+    ) -> std::sync::Arc<dyn Fn() -> bool + Send + Sync> {
+        let current_generation = std::sync::Arc::clone(&self.project_catalog_generation);
+        std::sync::Arc::new(move || current_generation.load(Ordering::SeqCst) != generation)
     }
 
     pub(crate) fn project_open_was_cancelled(&self, generation: u64) -> bool {

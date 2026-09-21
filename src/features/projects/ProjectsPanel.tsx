@@ -15,6 +15,7 @@ import {
 
 interface ProjectsPanelProps {
   catalog: ProjectCatalogState;
+  catalogCancellationPending?: boolean;
   operation: ProjectOperationState;
   deletion: ProjectDeletionState;
   activeProject: ProjectSummary | null;
@@ -29,6 +30,7 @@ interface ProjectsPanelProps {
   autoSaveCancellationPending?: boolean;
   deleteCancellationPending?: boolean;
   onSave: (name: string) => void;
+  onCancelCatalogLoad?: () => void;
   onCancelSave?: () => void;
   onOpen: (projectId: string) => void;
   onCancelOpen?: () => void;
@@ -54,6 +56,7 @@ function projectDate(value: string): string {
 
 export function ProjectsPanel({
   catalog,
+  catalogCancellationPending = false,
   operation,
   deletion,
   activeProject,
@@ -68,6 +71,7 @@ export function ProjectsPanel({
   autoSaveCancellationPending = false,
   deleteCancellationPending = false,
   onSave,
+  onCancelCatalogLoad,
   onCancelSave,
   onOpen,
   onCancelOpen,
@@ -122,7 +126,31 @@ export function ProjectsPanel({
         </div>
       </div>
 
-      {catalog.kind === "loading" && <p className="notice" role="status">Cargando proyectos locales…</p>}
+      {catalog.kind === "loading" && (
+        <div className="notice projects__operation">
+          <p role="status">
+            {catalogCancellationPending ? "Cancelando carga de proyectos…" : "Cargando proyectos locales…"}
+          </p>
+          {onCancelCatalogLoad && (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={onCancelCatalogLoad}
+              disabled={catalogCancellationPending}
+            >
+              {catalogCancellationPending ? "Cancelando…" : "Cancelar carga"}
+            </button>
+          )}
+        </div>
+      )}
+      {catalog.kind === "cancelled" && (
+        <div className="notice" role="status">
+          <span>Se canceló la carga de proyectos locales.</span>
+          <button type="button" className="secondary-action" onClick={onRetry} disabled={disabled}>
+            Reintentar
+          </button>
+        </div>
+      )}
       {catalog.kind === "error" && (
         <div className="notice notice--error" role="alert">
           <span>No se pudieron cargar los proyectos: {catalog.message}</span>

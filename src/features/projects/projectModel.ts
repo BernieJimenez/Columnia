@@ -10,7 +10,8 @@ export type ProjectCatalogState =
       projects: ProjectSummary[];
       recoveryCandidate: ProjectSummary | null;
     }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+  | { kind: "cancelled" };
 
 export type ProjectOperationState =
   | { kind: "idle" }

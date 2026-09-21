@@ -671,7 +671,16 @@ impl ProjectStore {
     }
 
     fn list(&self) -> Result<Vec<ProjectSummary>, String> {
+        self.list_with_cancel(|| false)
+    }
+
+    fn list_with_cancel<C>(&self, is_cancelled: C) -> Result<Vec<ProjectSummary>, String>
+    where
+        C: Fn() -> bool + Sync,
+    {
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         self.ensure_initialized()?;
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         let connection = self.connection()?;
         let mut statement = connection
             .prepare(
@@ -682,14 +691,23 @@ impl ProjectStore {
         let rows = statement
             .query_map([], summary_from_row)
             .map_err(|_| storage_error())?;
-        let summaries = rows
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| storage_error())?;
+        let mut summaries = Vec::new();
+        for summary in rows {
+            ensure_project_operation_not_cancelled(is_cancelled())?;
+            summaries.push(summary.map_err(|_| storage_error())?);
+        }
         drop(statement);
-        summaries
-            .into_iter()
-            .map(|summary| self.with_storage_usage(&connection, summary))
-            .collect()
+        let mut projects = Vec::with_capacity(summaries.len());
+        for summary in summaries {
+            ensure_project_operation_not_cancelled(is_cancelled())?;
+            projects.push(self.with_storage_usage_with_cancel(
+                &connection,
+                summary,
+                &is_cancelled,
+            )?);
+        }
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        Ok(projects)
     }
 
     fn recovery_candidate(&self) -> Result<Option<ProjectSummary>, String> {
@@ -1692,16 +1710,47 @@ impl ProjectStore {
     fn with_storage_usage(
         &self,
         connection: &Connection,
-        mut summary: ProjectSummary,
+        summary: ProjectSummary,
     ) -> Result<ProjectSummary, String> {
+        self.with_storage_usage_with_cancel(connection, summary, &|| false)
+    }
+
+    fn with_storage_usage_with_cancel<C>(
+        &self,
+        connection: &Connection,
+        mut summary: ProjectSummary,
+        is_cancelled: &C,
+    ) -> Result<ProjectSummary, String>
+    where
+        C: Fn() -> bool + Sync,
+    {
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         let stored = self
             .stored_project(connection, &summary.id)?
             .ok_or_else(|| "El proyecto solicitado no existe.".to_owned())?;
-        summary.storage_bytes = self.stored_project_storage_bytes(&stored).ok();
+        summary.storage_bytes =
+            match self.stored_project_storage_bytes_with_cancel(&stored, is_cancelled) {
+                Ok(bytes) => Some(bytes),
+                Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
+                Err(_) => None,
+            };
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         Ok(summary)
     }
 
     fn stored_project_storage_bytes(&self, stored: &StoredProject) -> Result<u64, String> {
+        self.stored_project_storage_bytes_with_cancel(stored, &|| false)
+    }
+
+    fn stored_project_storage_bytes_with_cancel<C>(
+        &self,
+        stored: &StoredProject,
+        is_cancelled: &C,
+    ) -> Result<u64, String>
+    where
+        C: Fn() -> bool + Sync,
+    {
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         if let Some(generation_name) = stored.generation_name.as_deref() {
             let generation = self.generation_path(&stored.summary.id, generation_name)?;
             let history = stored
@@ -1712,13 +1761,19 @@ impl ProjectStore {
                         .map_err(|_| "El manifiesto del historial no es válido.".to_owned())
                 })
                 .transpose()?;
-            return self.generation_storage_bytes(&generation, history.as_ref());
+            return self.generation_storage_bytes_with_cancel(
+                &generation,
+                history.as_ref(),
+                is_cancelled,
+            );
         }
 
         let snapshot = self.snapshot_path(&stored.summary.id, &stored.snapshot_name)?;
-        fs::metadata(snapshot)
+        let bytes = fs::metadata(snapshot)
             .map(|metadata| metadata.len())
-            .map_err(|_| storage_error())
+            .map_err(|_| storage_error())?;
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        Ok(bytes)
     }
 
     fn generation_storage_bytes(
@@ -1726,6 +1781,19 @@ impl ProjectStore {
         generation: &Path,
         history: Option<&DurableHistoryManifest>,
     ) -> Result<u64, String> {
+        self.generation_storage_bytes_with_cancel(generation, history, &|| false)
+    }
+
+    fn generation_storage_bytes_with_cancel<C>(
+        &self,
+        generation: &Path,
+        history: Option<&DurableHistoryManifest>,
+        is_cancelled: &C,
+    ) -> Result<u64, String>
+    where
+        C: Fn() -> bool + Sync,
+    {
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         let current = self.generation_file(generation, "current.parquet")?;
         let mut total = fs::metadata(current).map_err(|_| storage_error())?.len();
         if let Some(history) = history {
@@ -1733,6 +1801,7 @@ impl ProjectStore {
                 return Err("La versión del manifiesto del historial no es compatible.".to_owned());
             }
             for (index, entry) in history.entries.iter().enumerate() {
+                ensure_project_operation_not_cancelled(is_cancelled())?;
                 if entry.file_name != format!("history-{index:03}.parquet") {
                     return Err("El manifiesto del historial no tiene un orden válido.".to_owned());
                 }
@@ -1746,6 +1815,7 @@ impl ProjectStore {
                 total = total.checked_add(bytes).ok_or_else(storage_error)?;
             }
         }
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         Ok(total)
     }
 
@@ -2664,7 +2734,14 @@ where
 
 #[tauri::command]
 pub async fn list_projects(app: AppHandle) -> Result<Vec<ProjectSummary>, String> {
-    run_project_operation(app, |store, _| store.list()).await
+    let generation = app.state::<DatasetState>().begin_project_catalog()?;
+    let cancellation = app
+        .state::<DatasetState>()
+        .project_catalog_cancellation(generation);
+    run_project_operation(app, move |store, _| {
+        store.list_with_cancel(move || cancellation())
+    })
+    .await
 }
 
 #[tauri::command]
