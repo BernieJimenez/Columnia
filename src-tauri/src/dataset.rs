@@ -21321,29 +21321,48 @@ fn neutralize_spreadsheet_formula(value: &str) -> String {
     }
 }
 
+const EAGER_EXPORT_BATCH_ROWS: usize = 8_192;
+
+#[cfg(test)]
 fn csv_formula_safe_frame(frame: &DataFrame) -> Result<DataFrame, String> {
+    csv_formula_safe_frame_with_cancel(frame, &|| false)
+}
+
+fn csv_formula_safe_frame_with_cancel<C>(
+    frame: &DataFrame,
+    is_cancelled: &C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + ?Sized,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let mut safe = frame.clone();
-    let text_columns = frame
+    for column in frame
         .columns()
         .iter()
         .filter(|column| column.dtype() == &DataType::String)
-        .map(|column| column.name().as_str().to_owned())
-        .collect::<Vec<_>>();
-
-    for name in text_columns {
-        let values = frame
-            .column(&name)
-            .and_then(|column| column.str())
-            .map_err(|_| "No se pudo preparar texto seguro para CSV.".to_owned())?
-            .iter()
-            .map(|value| value.map(neutralize_spreadsheet_formula))
-            .collect::<Vec<_>>();
+    {
+        ensure_not_cancelled(is_cancelled())?;
+        let name = column.name().as_str().to_owned();
+        let strings = column
+            .str()
+            .map_err(|_| "No se pudo preparar texto seguro para CSV.".to_owned())?;
+        let mut values = Vec::with_capacity(strings.len());
+        for (row_index, value) in strings.iter().enumerate() {
+            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            values.push(value.map(neutralize_spreadsheet_formula));
+        }
+        ensure_not_cancelled(is_cancelled())?;
         safe.replace(&name, Column::new(name.clone().into(), values))
             .map_err(|_| "No se pudo proteger una columna de texto para CSV.".to_owned())?;
     }
+    ensure_not_cancelled(is_cancelled())?;
     Ok(safe)
 }
 
+#[cfg(test)]
 fn frame_for_export(frame: &DataFrame, format: ExportFormat) -> Result<DataFrame, String> {
     match format {
         // CSV suele abrirse en hojas de cálculo: una comilla inicial fuerza texto y evita
@@ -21356,6 +21375,134 @@ fn frame_for_export(frame: &DataFrame, format: ExportFormat) -> Result<DataFrame
         ExportFormat::Sqlite => Ok(frame.clone()),
         ExportFormat::Bundle => csv_formula_safe_frame(frame),
     }
+}
+
+fn for_each_export_batch<C, F>(
+    frame: &DataFrame,
+    is_cancelled: &C,
+    mut write_batch: F,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + ?Sized,
+    F: FnMut(&DataFrame) -> Result<(), String>,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let mut offset = 0_usize;
+    while offset < frame.height() {
+        ensure_not_cancelled(is_cancelled())?;
+        let batch_rows = EAGER_EXPORT_BATCH_ROWS.min(frame.height() - offset);
+        let row_offset = i64::try_from(offset)
+            .map_err(|_| "El dataset excede el rango de exportación por bloques.".to_owned())?;
+        let batch = frame.slice(row_offset, batch_rows);
+        write_batch(&batch)?;
+        offset = offset.saturating_add(batch_rows);
+        ensure_not_cancelled(is_cancelled())?;
+    }
+    Ok(())
+}
+
+fn write_csv_frame_with_cancel<C>(
+    frame: &DataFrame,
+    output: &mut File,
+    is_cancelled: &C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + ?Sized,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let batch_size = std::num::NonZeroUsize::new(EAGER_EXPORT_BATCH_ROWS)
+        .expect("el tamaño de lote CSV debe ser mayor que cero");
+    let mut writer = CsvWriter::new(&mut *output)
+        .with_batch_size(batch_size)
+        .batched(frame.schema().as_ref())
+        .map_err(|error| format!("No se pudo preparar el escritor CSV: {error}"))?;
+    for_each_export_batch(frame, is_cancelled, |batch| {
+        let mut safe_batch = csv_formula_safe_frame_with_cancel(batch, is_cancelled)?;
+        safe_batch.align_chunks_par();
+        ensure_not_cancelled(is_cancelled())?;
+        writer
+            .write_batch(&safe_batch)
+            .map_err(|error| format!("No se pudo escribir el CSV: {error}"))
+    })?;
+    ensure_not_cancelled(is_cancelled())?;
+    writer
+        .finish()
+        .map_err(|error| format!("No se pudo cerrar el CSV: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    Ok(())
+}
+
+fn write_json_frame_with_cancel<C>(
+    frame: &DataFrame,
+    output: &mut File,
+    is_cancelled: &C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + ?Sized,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    output
+        .write_all(b"[")
+        .map_err(|error| format!("No se pudo iniciar el JSON: {error}"))?;
+    let mut wrote_row = false;
+    for_each_export_batch(frame, is_cancelled, |batch| {
+        let mut batch = batch.clone();
+        let mut encoded = Vec::new();
+        JsonWriter::new(&mut encoded)
+            .with_json_format(JsonFormat::Json)
+            .finish(&mut batch)
+            .map_err(|error| format!("No se pudo escribir el JSON: {error}"))?;
+        let rows = encoded
+            .strip_prefix(b"[")
+            .and_then(|value| value.strip_suffix(b"]"))
+            .ok_or_else(|| "Polars no devolvió un bloque JSON válido.".to_owned())?;
+        if !rows.is_empty() {
+            ensure_not_cancelled(is_cancelled())?;
+            if wrote_row {
+                output
+                    .write_all(b",")
+                    .map_err(|error| format!("No se pudo separar el lote JSON: {error}"))?;
+            }
+            output
+                .write_all(rows)
+                .map_err(|error| format!("No se pudo escribir el lote JSON: {error}"))?;
+            wrote_row = true;
+        }
+        Ok(())
+    })?;
+    ensure_not_cancelled(is_cancelled())?;
+    output
+        .write_all(b"]")
+        .map_err(|error| format!("No se pudo cerrar el JSON: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    Ok(())
+}
+
+fn write_parquet_frame_with_cancel<C>(
+    frame: &DataFrame,
+    output: &mut File,
+    is_cancelled: &C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + ?Sized,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let mut writer = ParquetWriter::new(&mut *output)
+        .batched(frame.schema().as_ref())
+        .map_err(|error| format!("No se pudo preparar el escritor Parquet: {error}"))?;
+    for_each_export_batch(frame, is_cancelled, |batch| {
+        let mut aligned_batch = batch.clone();
+        aligned_batch.align_chunks_par();
+        writer
+            .write_batch(&aligned_batch)
+            .map_err(|error| format!("No se pudo escribir Parquet: {error}"))
+    })?;
+    ensure_not_cancelled(is_cancelled())?;
+    writer
+        .finish()
+        .map_err(|error| format!("No se pudo cerrar Parquet: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    Ok(())
 }
 
 fn sql_identifier(value: &str) -> String {
@@ -22292,7 +22439,7 @@ fn privacy_safe_frame_with_cancel<C>(
     is_cancelled: &C,
 ) -> Result<(DataFrame, Vec<String>), String>
 where
-    C: Fn() -> bool + Sync,
+    C: Fn() -> bool,
 {
     ensure_not_cancelled(is_cancelled())?;
     if mode == PrivacyMode::None {
@@ -23133,22 +23280,22 @@ where
     report("Preparando archivo temporal", 10);
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| format!("No se pudo crear el archivo temporal: {error}"))?;
-    let (protected_frame, protected_columns) = privacy_safe_frame(frame, privacy_mode)?;
-    let mut output_frame = frame_for_export(&protected_frame, format)?;
+    let (protected_frame, protected_columns) =
+        privacy_safe_frame_with_cancel(frame, privacy_mode, &is_cancelled)?;
 
     report("Escribiendo dataset", 25);
     match format {
-        ExportFormat::Csv => CsvWriter::new(temporary.as_file())
-            .finish(&mut output_frame)
-            .map_err(|error| format!("No se pudo escribir el CSV: {error}"))?,
-        ExportFormat::Json => JsonWriter::new(temporary.as_file())
-            .with_json_format(JsonFormat::Json)
-            .finish(&mut output_frame)
-            .map_err(|error| format!("No se pudo escribir el JSON: {error}"))?,
-        ExportFormat::Parquet => ParquetWriter::new(temporary.as_file())
-            .finish(&mut output_frame)
-            .map(|_| ())
-            .map_err(|error| format!("No se pudo escribir Parquet: {error}"))?,
+        ExportFormat::Csv => {
+            write_csv_frame_with_cancel(&protected_frame, temporary.as_file_mut(), &is_cancelled)?
+        }
+        ExportFormat::Json => {
+            write_json_frame_with_cancel(&protected_frame, temporary.as_file_mut(), &is_cancelled)?
+        }
+        ExportFormat::Parquet => write_parquet_frame_with_cancel(
+            &protected_frame,
+            temporary.as_file_mut(),
+            &is_cancelled,
+        )?,
         ExportFormat::Sql => write_sql_script(
             &protected_frame,
             temporary.as_file_mut(),
@@ -23424,9 +23571,7 @@ where
     // calcular su hash sin duplicar datasets grandes en memoria.
     let mut dataset_file = tempfile::tempfile()
         .map_err(|error| format!("No se pudo preparar el dataset del paquete: {error}"))?;
-    let mut csv_frame = frame_for_export(frame, ExportFormat::Csv)?;
-    CsvWriter::new(&mut dataset_file)
-        .finish(&mut csv_frame)
+    write_csv_frame_with_cancel(frame, &mut dataset_file, &is_cancelled)
         .map_err(|error| format!("No se pudo escribir el dataset del paquete: {error}"))?;
     dataset_file
         .sync_all()

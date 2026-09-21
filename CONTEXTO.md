@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `b34c930`, versión
+La base de este incremento fue `master` en `d65b2b5`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -46,8 +46,11 @@ CSV/TSV/TXT y Parquet interrumpen entre lotes; JSON/JSONL/NDJSON, entre registro
 los índices y la comparación Parquet, entre bloques y registros derramados. DuckDB
 interrumpe una conversión source-backed activa. El hash SHA-256 del CSV temporal
 de Bundle comprueba cancelación entre lecturas de 64 KiB, tanto en la ruta eager
-como source-backed; cada lectura de bloque sigue siendo síncrona. El resultado de
-comparación solo se publica al final, bajo un gate que ordena cancelación y commit.
+como source-backed; cada lectura de bloque sigue siendo síncrona. La protección
+eager de privacidad y las exportaciones CSV, JSON y Parquet también observan el
+token: los escritores procesan bloques de 8.192 filas, CSV neutraliza fórmulas
+dentro de cada bloque y JSON conserva un solo arreglo. El resultado de comparación
+solo se publica al final, bajo un gate que ordena cancelación y commit.
 El selector nativo
 es modal y no se puede cerrar desde este control mientras está abierto; XLS/ODS
 conserva `worksheet_range` monolítico, pero su conversión posterior comprueba el
