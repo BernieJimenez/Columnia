@@ -166,6 +166,7 @@ pub fn run() {
             dataset::samples::inspect_sample_dataset,
             dataset::pick_dataset_source,
             dataset::inspect_dropped_dataset,
+            dataset::inspect_workbook_sheets,
             dataset::preview_delimited_header_review,
             dataset::load_dataset_selection,
             dataset::discard_dataset_selection,

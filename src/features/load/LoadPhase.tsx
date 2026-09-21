@@ -66,6 +66,8 @@ interface LoadPhaseProps {
   onResourcePreflightAction?: (action: ResourcePreflightAction) => void;
   onSchemaMismatchAction?: (action: SchemaMismatchAction) => void;
   onCancelLoad: () => void;
+  workbookInspectionCancellationPending?: boolean;
+  onCancelWorkbookInspection?: () => void;
 }
 
 export function LoadPhase({
@@ -89,6 +91,8 @@ export function LoadPhase({
   onResourcePreflightAction = () => undefined,
   onSchemaMismatchAction = () => undefined,
   onCancelLoad,
+  workbookInspectionCancellationPending = false,
+  onCancelWorkbookInspection = () => undefined,
 }: LoadPhaseProps) {
   const current =
     datasetStatus.kind === "ready"
@@ -105,6 +109,7 @@ export function LoadPhase({
     : sheetSelection?.error;
   const selectionDisabled = disabled || runtime.kind !== "connected" ||
     inspection.kind === "inspecting" ||
+    inspection.kind === "workbook_inspecting" ||
     datasetStatus.kind === "loading" ||
     inspection.kind === "sheet" ||
     inspection.kind === "profile_review" ||
@@ -256,6 +261,19 @@ export function LoadPhase({
       )}
       {inspection.kind === "inspecting" && (
         <p className="notice" role="status">Esperando la selección y verificando el formato local…</p>
+      )}
+      {inspection.kind === "workbook_inspecting" && (
+        <div className="notice" role="status">
+          <p>Revisando las hojas de {inspection.source.fileName}. La lectura interna del libro puede terminar antes de aplicar la cancelación.</p>
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={onCancelWorkbookInspection}
+            disabled={workbookInspectionCancellationPending}
+          >
+            {workbookInspectionCancellationPending ? "Cancelando inspección…" : "Cancelar inspección"}
+          </button>
+        </div>
       )}
       {datasetStatus.kind === "error" && (
         <p className="notice notice--error" role="alert">

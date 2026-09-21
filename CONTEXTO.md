@@ -7,7 +7,7 @@
 proceso de revisión. Se conserva como única fuente viva para no mantener dos
 documentos equivalentes que puedan divergir.
 
-## Estado operativo verificado — 2026-09-20
+## Estado operativo verificado — 2026-09-21
 
 La base de partida de esta revisión fue `master` en `beddef8`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
@@ -60,6 +60,13 @@ los recorridos por filas; el exportador eager también puede cancelar el anális
 de columnas. Las llamadas síncronas al driver ODBC solo detectan la cancelación
 cuando retornan y descartan el resultado.
 
+La selección de un libro Excel devuelve primero sus metadatos; Cargar obtiene los
+nombres de hoja en una segunda llamada y ofrece «Cancelar inspección». Usa la
+generación `load` para descartar una selección obsoleta. `open_workbook_auto` y
+`sheet_names` siguen siendo síncronos, así que la cancelación se confirma cuando
+la llamada de calamine retorna. El selector nativo conserva su comportamiento
+modal.
+
 Las tareas reutilizables aplican reglas, formato, privacidad y receta como
 borrador al importar un archivo con el perfil y esquema guardados; la receta
 requiere ejecución explícita. Si el perfil no se usa o el esquema cambia, la
@@ -111,6 +118,11 @@ En el preflight ODBC de RV04, `cargo fmt --check`, `cargo check --lib`,
 `npm run build`, el checker documental y `git diff --check` pasan; no se
 ejecutaron pruebas. El driver ODBC no se interrumpe durante una llamada síncrona;
 se descarta el resultado al regresar.
+En la enumeración de hojas de Excel, `cargo fmt --check`, `cargo check --lib`,
+`npm run build` y `npm run ipc:check` pasan; también pasan el checker documental
+y `git diff --check`. No se ejecutaron pruebas. El inventario IPC ahora registra
+85 comandos de producción. La lectura de nombres de hoja por calamine sigue
+siendo síncrona y solo comprueba cancelación antes y después.
 Durante esta revisión, `cargo test --manifest-path src-tauri/Cargo.toml` compiló,
 pero Windows no inició el harness: terminó con `STATUS_ENTRYPOINT_NOT_FOUND`
 (`0xc0000139`) incluso al probar un manifiesto Common Controls v6 temporal. Por
@@ -121,10 +133,11 @@ la beta de tres participantes y su resumen sanitizado; accesibilidad manual con
 lector de pantalla/alto contraste; round-trip contra SQL Server real; y un
 candidato binario/canal autorizado probado en VM limpia.
 RV04 conserva los formatos `.xls`/`.ods` monolíticos, la paginación de conflictos
-y otros comandos sin token de cancelación, el selector nativo modal y tramos
-síncronos de conteo/escritura de snapshots. También falta medir el coste del JOIN
-por bloques y validar cancelación con datos reales en una sesión nativa. RV14
-requiere seleccionar y validar la herramienta BI a partir de beta.
+y otros comandos sin token de cancelación, la apertura síncrona del libro durante
+la inspección de hojas, el selector nativo modal y tramos síncronos de
+conteo/escritura de snapshots. También falta medir el coste del JOIN por bloques
+y validar cancelación con datos reales en una sesión nativa. RV14 requiere
+seleccionar y validar la herramienta BI a partir de beta.
 No sustituir estas evidencias por fixtures o resultados sintéticos.
 
 ### Registro histórico de verificación — corte 2026-09-12

@@ -17,6 +17,7 @@ import type {
   DatasetProfile,
   SnapshotRevisionComparison,
   QualityRule,
+  WorkbookSheet,
   TemporalAggregationKind,
   TemporalAggregationSeries,
   CancellableOperation,
@@ -39,6 +40,10 @@ export function pickDatasetSource(): Promise<DatasetSourceInspection | null> {
 /** Inspects the path captured by Tauri's native drag/drop event without exposing it to React. */
 export function inspectDroppedDataset(): Promise<DatasetSourceInspection | null> {
   return invoke<DatasetSourceInspection | null>("inspect_dropped_dataset");
+}
+
+export function inspectWorkbookSheets(selectionId: string): Promise<WorkbookSheet[]> {
+  return invoke<WorkbookSheet[]>("inspect_workbook_sheets", { selectionId });
 }
 
 export function previewDelimitedHeaderReview(selectionId: string): Promise<DelimitedHeaderReview> {

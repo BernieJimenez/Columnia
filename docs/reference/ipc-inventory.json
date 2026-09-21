@@ -77,6 +77,11 @@
       "debug": false
     },
     {
+      "name": "inspect_workbook_sheets",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "preview_delimited_header_review",
       "module": "dataset",
       "debug": false

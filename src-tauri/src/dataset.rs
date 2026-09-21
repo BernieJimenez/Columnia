@@ -2748,6 +2748,7 @@ fn add_audit_column_to_frame(frame: &DataFrame) -> Result<(DataFrame, bool), Str
 #[derive(Clone)]
 struct PendingSelection {
     id: String,
+    generation: u64,
     path: PathBuf,
     file_size_bytes: u64,
     sheets: Vec<String>,
@@ -27948,16 +27949,9 @@ async fn inspect_dataset_path(
     path: PathBuf,
 ) -> Result<DatasetSourceInspection, String> {
     let (path, file_size_bytes, extension) = validate_dataset_file(&path)?;
-    let sheets = if spreadsheet_extensions(&extension) {
-        let path = path.clone();
-        tauri::async_runtime::spawn_blocking(move || inspect_workbook(&path))
-            .await
-            .map_err(|error| format!("La inspección del libro se interrumpió: {error}"))??
-    } else {
-        Vec::new()
-    };
     let state = app.state::<DatasetState>();
-    let selection_id = format!("selection-{}", state.begin_load());
+    let generation = state.begin_load();
+    let selection_id = format!("selection-{generation}");
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -27974,30 +27968,23 @@ async fn inspect_dataset_path(
     } else {
         "csv"
     };
-    let workbook_sheets = sheets
-        .iter()
-        .enumerate()
-        .map(|(index, name)| WorkbookSheet {
-            id: index.to_string(),
-            name: name.clone(),
-        })
-        .collect();
     *state
         .pending_selection
         .lock()
         .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())? =
         Some(PendingSelection {
             id: selection_id.clone(),
+            generation,
             path,
             file_size_bytes,
-            sheets,
+            sheets: Vec::new(),
         });
     Ok(DatasetSourceInspection {
         selection_id,
         file_name,
         file_size_bytes,
         format,
-        sheets: workbook_sheets,
+        sheets: Vec::new(),
         default_sheet_id: if spreadsheet_extensions(&extension) {
             Some("0".to_owned())
         } else {
@@ -28006,6 +27993,85 @@ async fn inspect_dataset_path(
         is_compressed_container: matches!(extension.as_str(), "xlsx" | "xlsb" | "ods"),
         resource_estimate: dataset_resource_estimate(&extension, file_size_bytes),
     })
+}
+
+#[tauri::command]
+pub async fn inspect_workbook_sheets(
+    app: AppHandle,
+    selection_id: String,
+) -> Result<Vec<WorkbookSheet>, String> {
+    let pending = {
+        let state = app.state::<DatasetState>();
+        let selection = state
+            .pending_selection
+            .lock()
+            .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+        let pending = selection
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
+        if pending.id != selection_id {
+            return Err("La selección no coincide con el archivo pendiente.".to_owned());
+        }
+        ensure_not_cancelled(state.load_was_cancelled(pending.generation))?;
+        pending
+    };
+
+    let (path, file_size_bytes, extension) = validate_dataset_file(&pending.path)?;
+    if file_size_bytes != pending.file_size_bytes {
+        return Err("El archivo cambió después de seleccionarlo; vuelve a elegirlo.".to_owned());
+    }
+    if !spreadsheet_extensions(&extension) {
+        return Err("El archivo seleccionado no es un libro compatible.".to_owned());
+    }
+
+    let generation = pending.generation;
+    let expected_size = pending.file_size_bytes;
+    let cancellation_app = app.clone();
+    let sheet_names = tauri::async_runtime::spawn_blocking(move || {
+        let state = cancellation_app.state::<DatasetState>();
+        ensure_not_cancelled(state.load_was_cancelled(generation))?;
+        let sheets = inspect_workbook(&path)?;
+        ensure_not_cancelled(state.load_was_cancelled(generation))?;
+        let size_after_inspection = fs::metadata(&path)
+            .map_err(|error| format!("No se pudieron verificar los metadatos del libro: {error}"))?
+            .len();
+        if size_after_inspection != expected_size {
+            return Err(
+                "El archivo cambió durante la inspección del libro; vuelve a elegirlo.".to_owned(),
+            );
+        }
+        ensure_not_cancelled(state.load_was_cancelled(generation))?;
+        Ok(sheets)
+    })
+    .await
+    .map_err(|error| format!("La inspección del libro se interrumpió: {error}"))??;
+
+    let workbook_sheets = sheet_names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| WorkbookSheet {
+            id: index.to_string(),
+            name: name.clone(),
+        })
+        .collect();
+    {
+        let state = app.state::<DatasetState>();
+        ensure_not_cancelled(state.load_was_cancelled(generation))?;
+        let mut selection = state
+            .pending_selection
+            .lock()
+            .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+        let pending = selection
+            .as_mut()
+            .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
+        if pending.id != selection_id {
+            return Err("La selección ya no corresponde al archivo pendiente.".to_owned());
+        }
+        pending.sheets = sheet_names;
+    }
+
+    Ok(workbook_sheets)
 }
 
 /// Consumes the path captured by Tauri's native drag/drop event. The path never

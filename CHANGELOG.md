@@ -46,6 +46,11 @@ los artefactos de validación locales.
   los bloques Parquet y los recorridos por filas revisan el token. Las operaciones
   vectorizadas lo comprueban al regresar.
 
+- La inspección de libros devuelve primero la selección y enumera las hojas en
+  una segunda llamada. Cargar permite cancelar esa etapa y descarta la selección
+  pendiente; la lectura síncrona de nombres de hoja solo observa el token al
+  terminar.
+
 - El preflight de compatibilidad ODBC usa `databasePreflight` y permite cancelar
   la protección de privacidad y el análisis eager/source-backed del dataset desde
   Entregar. El análisis de columnas del exportador eager también observa el token;

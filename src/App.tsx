@@ -111,6 +111,7 @@ import {
   getDatasetProfile,
   inspectDroppedDataset as inspectDroppedDatasetSource,
   inspectSampleDataset,
+  inspectWorkbookSheets,
   joinDataset,
   listSampleDatasets,
   loadDatasetSelection,
@@ -235,6 +236,7 @@ export function App() {
   const [prepareFocusTarget, setPrepareFocusTarget] = useState<QualityActionTarget | null>(null);
   const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
+  const [workbookInspectionCancellationPending, setWorkbookInspectionCancellationPending] = useState(false);
   const [selectionFinalizing, setSelectionFinalizing] = useState(false);
   const headerPreviewRequestRef = useRef(0);
   const inspectionRequestRef = useRef(0);
@@ -328,6 +330,7 @@ export function App() {
     reviewMutationStatus.kind === "running" ||
     reviewMutationStatus.kind === "finalizing";
   const loadSelectionBusy = loadInspection.kind === "inspecting" ||
+    loadInspection.kind === "workbook_inspecting" ||
     loadInspection.kind === "sheet" ||
     loadInspection.kind === "profile_review" ||
     loadInspection.kind === "resource_preflight" ||
@@ -673,7 +676,10 @@ export function App() {
       const selectedImportProfile = queuedReusableTask?.task.importProfile ?? activeImportProfile;
       if (source.format === "excel") {
         if (!isCurrentRequest()) return;
-        setLoadInspection(workbookInspection(source, selectedImportProfile));
+        setLoadInspection({ kind: "workbook_inspecting", source });
+        const sheets = await inspectWorkbookSheets(source.selectionId);
+        if (!isCurrentRequest()) return;
+        setLoadInspection(workbookInspection({ ...source, sheets }, selectedImportProfile));
         return;
       }
       if (source.format === "csv" || source.format === "tsv") {
@@ -702,14 +708,41 @@ export function App() {
       await loadSelection(source, source.sheets[0]?.id ?? null);
     } catch (error: unknown) {
       if (!isCurrentRequest()) return;
+      if (isCancellationError(error)) {
+        setLoadInspection({ kind: "idle" });
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       setLoadInspection((current) => setLoadInspectionError(current, message));
     } finally {
       if (isCurrentRequest()) {
         setLoadInspection((current) => current.kind === "inspecting" ? { kind: "idle" } : current);
+        inspectionInFlightRef.current = false;
       }
-      inspectionInFlightRef.current = false;
     }
+  }
+
+  async function cancelWorkbookInspection() {
+    if (loadInspection.kind !== "workbook_inspecting" || workbookInspectionCancellationPending) return;
+    const selectionId = loadInspection.source.selectionId;
+    setWorkbookInspectionCancellationPending(true);
+    inspectionRequestRef.current += 1;
+    let cancellationError: string | null = null;
+    try {
+      await cancelOperation("load");
+    } catch (error: unknown) {
+      cancellationError = error instanceof Error ? error.message : String(error);
+    }
+    try {
+      await discardDatasetSelection(selectionId);
+    } catch (error: unknown) {
+      cancellationError ??= error instanceof Error ? error.message : String(error);
+    }
+    inspectionInFlightRef.current = false;
+    setLoadInspection(cancellationError === null
+      ? { kind: "idle" }
+      : { kind: "error", message: cancellationError });
+    setWorkbookInspectionCancellationPending(false);
   }
 
   function selectDataset() {
@@ -1655,6 +1688,8 @@ export function App() {
                 onResourcePreflightAction={handleResourcePreflightAction}
                 onSchemaMismatchAction={handleSchemaMismatchAction}
                 onCancelLoad={() => cancelActiveOperation("load")}
+                workbookInspectionCancellationPending={workbookInspectionCancellationPending}
+                onCancelWorkbookInspection={() => void cancelWorkbookInspection()}
               >
                 <ProjectsPanel
                   catalog={projects.catalog}
