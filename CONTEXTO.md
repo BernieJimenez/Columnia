@@ -49,6 +49,13 @@ habilita aplicar al dataset activo. El smoke nativo más reciente
 mediante diálogos de Windows, y verifica round-trips reales de CSV/XLSX/Parquet
 con bytes, filas, esquema y valores. El aviso de memoria pertenece al
 ejecutable debug y no cierra el gate de memoria del release.
+El smoke CDP completo (`.local/validation/webview2-cdp/20260921T230251Z`)
+aprueba Playwright, landmarks, foco, ProjectsPanel y 18 operaciones IPC nativas
+de proyecto, incluidas receta, exportación, reapertura, restauración de fase y
+cleanup. El benchmark nativo de 100 MiB
+(`.local/validation/performance-webview2/20260921T230202Z`) confirma 819.137
+filas, carga, paginación, transformación, exportación y memoria dentro de su
+presupuesto de benchmark.
 
 En el código local están implementadas la importación CSV/TSV con convenciones
 explícitas de fecha y número, las políticas reutilizables de excepciones de
@@ -484,7 +491,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este corte parte de `0b80bae`; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-21; este corte parte de `520a1da`; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.25.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -2002,6 +2009,7 @@ Al actualizarlo:
 | 2026-08-20 | La primera versión del gate IPC comparó todos los nombres registrados con las llamadas de `bridge.ts`; en ese corte todavía no comparaba argumentos. | `src/ipc-contract.test.ts` |
 | 2026-08-20 | Se creó este documento vivo a partir del código, las pruebas, `README.md`, `ROADMAP.md` y el índice CodeGraph. | Estado de `master` en `8fdcb3d` |
 | 2026-09-21 | RV01/RV02: el probe nativo actualiza su contrato para enumerar `inspect_workbook_sheets` después de seleccionar un Excel. `npm run smoke:native-selectors` pasa con diálogos reales de Windows y round-trips de bytes, filas, esquema y valores para CSV/XLSX/Parquet; la evidencia queda en `.local/validation/webview2-cdp/20260921T225717Z`. El presupuesto de memoria sigue marcado como diagnóstico del ejecutable debug y la aceptación con datasets de trabajo reales permanece pendiente. | `tools/probe-webview2-native-selectors.mjs`, `CONTEXTO.md`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `.local/validation/webview2-cdp/20260921T225717Z/summary.json` |
+| 2026-09-21 | RV12/RV01: el benchmark WebView2 de 100 MiB pasa con 819.137 filas y confirma carga, paginación, transformación, exportación, memoria dentro del presupuesto del benchmark y cleanup. El smoke CDP completo pasa Playwright, landmarks, foco y ProjectsPanel, además de receta, exportación, reapertura y restauración nativas con 18 operaciones IPC y cleanup. La aceptación con tareas reales y el presupuesto del ejecutable release siguen siendo gates separados. | `tools/benchmark-webview2-dataset.ps1`, `tools/probe-webview2-cdp.ps1`, `CONTEXTO.md`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `.local/validation/performance-webview2/20260921T230202Z/summary.json`, `.local/validation/webview2-cdp/20260921T230251Z/summary.json` |
 
 ## Documentos relacionados
 

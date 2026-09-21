@@ -11,6 +11,10 @@ los artefactos de validación locales.
 - El probe nativo enumera las hojas Excel mediante `inspect_workbook_sheets`
   después de seleccionar el archivo, y vuelve a verificar los round-trips CSV,
   XLSX y Parquet con diálogos reales de Windows.
+- El smoke CDP completo verifica render, landmarks, foco, ProjectsPanel y
+  persistencia nativa de receta, exportación, reapertura y restauración de fase.
+- El benchmark WebView2 de 100 MiB confirma carga, paginación, transformación,
+  exportación, memoria dentro del presupuesto del benchmark y cleanup.
 
 ## [1.25.0] - 2026-09-21
 
