@@ -90,6 +90,7 @@ export function useProjectsController({
   const [autoSave, setAutoSave] = useState<ProjectAutoSaveState>({ kind: "disabled" });
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
   const [openCancellationPending, setOpenCancellationPending] = useState(false);
+  const [restoreCancellationPending, setRestoreCancellationPending] = useState(false);
   const operationLock = useRef(false);
   const autoSaveInProgress = useRef(false);
   const lastAutoSaveSignature = useRef<string | null>(null);
@@ -238,18 +239,46 @@ export function useProjectsController({
   }, [openCancellationPending, operation]);
 
   const restore = useCallback(async (projectId: string, versionId: number) => {
+    setRestoreCancellationPending(false);
     await runExclusive(
       { kind: "working", operation: "restore", projectId },
       async () => {
-        const result = await restoreProjectVersion(projectId, versionId);
-        skipAutoSaveForProject.current = readAutoSavePreference(projectId) ? projectId : null;
-        await onProjectOpened(result);
-        setActiveProject(result.project);
-        setOperation({ kind: "success", message: `Versión restaurada: “${result.project.name}”.` });
-        await refresh();
+        try {
+          const result = await restoreProjectVersion(projectId, versionId);
+          skipAutoSaveForProject.current = readAutoSavePreference(projectId) ? projectId : null;
+          await onProjectOpened(result);
+          setActiveProject(result.project);
+          setOperation({ kind: "success", message: `Versión restaurada: “${result.project.name}”.` });
+          await refresh();
+        } catch (error: unknown) {
+          if (isCancellationError(error)) {
+            setOperation({ kind: "idle" });
+            return;
+          }
+          throw error;
+        }
       },
     );
+    setRestoreCancellationPending(false);
   }, [onProjectOpened, refresh, runExclusive]);
+
+  const cancelRestore = useCallback(async () => {
+    if (
+      !operationLock.current
+      || operation.kind !== "working"
+      || operation.operation !== "restore"
+      || restoreCancellationPending
+    ) {
+      return;
+    }
+    setRestoreCancellationPending(true);
+    try {
+      await cancelOperation("projectOpen");
+    } catch (error: unknown) {
+      setRestoreCancellationPending(false);
+      setOperation({ kind: "error", message: errorMessage(error) });
+    }
+  }, [operation, restoreCancellationPending]);
 
   const setAutoSaveEnabled = useCallback((enabled: boolean) => {
     if (!activeProject) return;
@@ -342,6 +371,8 @@ export function useProjectsController({
     versions,
     refreshVersions,
     restore,
+    cancelRestore,
+    restoreCancellationPending,
     autoSave,
     autoSaveEnabled,
     setAutoSaveEnabled,

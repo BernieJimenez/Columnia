@@ -211,6 +211,12 @@ struct ValidatedProject {
     candidate: crate::dataset::ProjectDatasetCandidate,
 }
 
+struct PreparedProjectRestore {
+    current: StoredProject,
+    current_storage_bytes: u64,
+    validated: ValidatedProject,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DurableHistoryManifest {
@@ -723,16 +729,26 @@ impl ProjectStore {
         Ok(versions)
     }
 
-    fn restore_version(&self, project_id: &str, version_id: i64) -> Result<ProjectSummary, String> {
+    fn prepare_project_restore<C>(
+        &self,
+        project_id: &str,
+        version_id: i64,
+        is_cancelled: C,
+    ) -> Result<PreparedProjectRestore, String>
+    where
+        C: Fn() -> bool + Send + Sync + Clone + 'static,
+    {
+        ensure_project_open_not_cancelled(is_cancelled())?;
         self.ensure_initialized()?;
         validate_id(project_id)?;
         if version_id <= 0 {
             return Err("La versión del proyecto no es válida.".to_owned());
         }
-        let mut connection = self.connection()?;
+        let connection = self.connection()?;
         let current = self
             .stored_project(&connection, project_id)?
             .ok_or_else(|| "El proyecto solicitado no existe.".to_owned())?;
+        ensure_project_open_not_cancelled(is_cancelled())?;
         let payload_json: String = connection
             .query_row(
                 "SELECT payload_json FROM project_versions WHERE project_id = ?1 AND id = ?2",
@@ -742,15 +758,76 @@ impl ProjectStore {
             .optional()
             .map_err(|_| storage_error())?
             .ok_or_else(|| "La versión seleccionada ya no está disponible.".to_owned())?;
-        let mut restored = decode_project_version(&payload_json)?;
+        let restored = decode_project_version(&payload_json)?;
         if restored.summary.id != project_id {
             return Err(storage_error());
         }
-        // Validate the complete stored version before changing the catalog pointer.
-        let _validated = self.validate_stored_project(restored.clone())?;
+        ensure_project_open_not_cancelled(is_cancelled())?;
+        // Prepare and validate the complete candidate before changing the catalog pointer.
+        let validated = self.validate_stored_project_with_cancel(restored, is_cancelled.clone())?;
+        ensure_project_open_not_cancelled(is_cancelled())?;
         let current_storage_bytes = self
             .stored_project_storage_bytes(&current)
             .unwrap_or_default();
+        ensure_project_open_not_cancelled(is_cancelled())?;
+        Ok(PreparedProjectRestore {
+            current,
+            current_storage_bytes,
+            validated,
+        })
+    }
+
+    #[cfg(test)]
+    fn restore_version(&self, project_id: &str, version_id: i64) -> Result<ProjectSummary, String> {
+        let PreparedProjectRestore {
+            current,
+            current_storage_bytes,
+            validated,
+        } = self.prepare_project_restore(project_id, version_id, || false)?;
+        let ValidatedProject { stored, .. } = validated;
+        self.commit_project_restore(current, current_storage_bytes, stored)
+    }
+
+    fn restore_version_cancellable(
+        &self,
+        dataset_state: &DatasetState,
+        project_id: &str,
+        version_id: i64,
+        generation: u64,
+    ) -> Result<ProjectOpenResult, String> {
+        let cancelled = dataset_state.project_open_cancellation(generation);
+        let prepare_cancelled = cancelled.clone();
+        let PreparedProjectRestore {
+            current,
+            current_storage_bytes,
+            validated,
+        } = self.prepare_project_restore(project_id, version_id, move || prepare_cancelled())?;
+        let ValidatedProject {
+            stored,
+            workspace,
+            profile,
+            candidate,
+        } = validated;
+        let (project, dataset) =
+            dataset_state.commit_project_open_with_candidate(generation, candidate, move || {
+                self.commit_project_restore(current, current_storage_bytes, stored)
+            })?;
+        Ok(ProjectOpenResult {
+            project,
+            dataset,
+            workspace,
+            profile,
+        })
+    }
+
+    fn commit_project_restore(
+        &self,
+        current: StoredProject,
+        current_storage_bytes: u64,
+        mut restored: StoredProject,
+    ) -> Result<ProjectSummary, String> {
+        let project_id = restored.summary.id.clone();
+        let mut connection = self.connection()?;
         let timestamp = now_utc();
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -798,12 +875,12 @@ impl ProjectStore {
         if !matches!(update, Ok(1)) {
             return Err(storage_error());
         }
-        let pruned = self.prune_versions_in_transaction(&transaction, project_id)?;
+        let pruned = self.prune_versions_in_transaction(&transaction, &project_id)?;
         transaction.commit().map_err(|_| storage_error())?;
         restored.summary.created_at = created_at;
         restored.summary.updated_at = timestamp;
         restored.summary.storage_bytes = self.stored_project_storage_bytes(&restored).ok();
-        self.cleanup_pruned_version_files(project_id, pruned);
+        self.cleanup_pruned_version_files(&project_id, pruned);
         Ok(restored.summary)
     }
 
@@ -1223,10 +1300,6 @@ impl ProjectStore {
         self.validate_stored_project_with_cancel(stored, is_cancelled)
     }
 
-    fn validate_stored_project(&self, stored: StoredProject) -> Result<ValidatedProject, String> {
-        self.validate_stored_project_with_cancel(stored, || false)
-    }
-
     fn validate_stored_project_with_cancel<C>(
         &self,
         mut stored: StoredProject,
@@ -1295,6 +1368,7 @@ impl ProjectStore {
         })
     }
 
+    #[cfg(test)]
     fn open(
         &self,
         dataset_state: &DatasetState,
@@ -2419,9 +2493,9 @@ pub async fn restore_project_version(
     project_id: String,
     version_id: i64,
 ) -> Result<ProjectOpenResult, String> {
+    let generation = app.state::<DatasetState>().begin_project_open()?;
     run_project_operation(app, move |store, dataset| {
-        store.restore_version(&project_id, version_id)?;
-        store.open(dataset, project_id)
+        store.restore_version_cancellable(dataset, &project_id, version_id, generation)
     })
     .await
 }

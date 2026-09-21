@@ -24,10 +24,12 @@ interface ProjectsPanelProps {
   datasetFileName: string | null;
   disabled: boolean;
   openCancellationPending?: boolean;
+  restoreCancellationPending?: boolean;
   onSave: (name: string) => void;
   onOpen: (projectId: string) => void;
   onCancelOpen?: () => void;
   onRestore: (projectId: string, versionId: number) => void;
+  onCancelRestore?: () => void;
   onAutoSaveChange: (enabled: boolean) => void;
   onDeleteRequest: (project: ProjectSummary) => void;
   onDeleteCancel: () => void;
@@ -55,10 +57,12 @@ export function ProjectsPanel({
   datasetFileName,
   disabled,
   openCancellationPending = false,
+  restoreCancellationPending = false,
   onSave,
   onOpen,
   onCancelOpen,
   onRestore,
+  onCancelRestore,
   onAutoSaveChange,
   onDeleteRequest,
   onDeleteCancel,
@@ -215,7 +219,9 @@ export function ProjectsPanel({
           <p role="status">
             {operation.operation === "open"
               ? openCancellationPending ? "Cancelando apertura del proyecto…" : "Abriendo proyecto…"
-              : "Procesando proyecto…"}
+              : operation.operation === "restore"
+                ? restoreCancellationPending ? "Cancelando restauración de versión…" : "Restaurando versión…"
+                : "Procesando proyecto…"}
           </p>
           {operation.operation === "open" && onCancelOpen && (
             <button
@@ -225,6 +231,16 @@ export function ProjectsPanel({
               disabled={openCancellationPending}
             >
               {openCancellationPending ? "Cancelando…" : "Cancelar apertura"}
+            </button>
+          )}
+          {operation.operation === "restore" && onCancelRestore && (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={onCancelRestore}
+              disabled={restoreCancellationPending}
+            >
+              {restoreCancellationPending ? "Cancelando…" : "Cancelar restauración"}
             </button>
           )}
         </div>

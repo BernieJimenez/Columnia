@@ -39315,6 +39315,39 @@ impl DatasetState {
         operation()
     }
 
+    pub(crate) fn commit_project_open_with_candidate<T>(
+        &self,
+        generation: u64,
+        candidate: ProjectDatasetCandidate,
+        commit_catalog: impl FnOnce() -> Result<T, String>,
+    ) -> Result<(T, DatasetPreview), String> {
+        ensure_not_cancelled(self.project_open_was_cancelled(generation))?;
+        // Esperar aquí deja que cancelar gane mientras la sesión esté ocupada.
+        let mut current = self
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+        let _guard = self
+            .project_open_commit_lock
+            .lock()
+            .map_err(|_| "La publicación de apertura del proyecto quedó bloqueada.".to_owned())?;
+        ensure_not_cancelled(self.project_open_was_cancelled(generation))?;
+
+        let ProjectDatasetCandidate { loaded, preview } = candidate;
+        let catalog_result = commit_catalog()?;
+        *current = Some(loaded);
+        drop(current);
+
+        // Catalog and active dataset have committed. Clearing a poisoned pending
+        // selection must not turn that successful commit into a reported failure.
+        if let Ok(mut pending_selection) = self.pending_selection.lock() {
+            pending_selection.take();
+        }
+        self.profile_generation.fetch_add(1, Ordering::SeqCst);
+        self.export_generation.fetch_add(1, Ordering::SeqCst);
+        Ok((catalog_result, preview))
+    }
+
     pub(crate) fn for_project_import(frame: DataFrame, file_name: String) -> Result<Self, String> {
         let visible = Path::new(&file_name);
         if file_name.trim().is_empty()
