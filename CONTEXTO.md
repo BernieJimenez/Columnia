@@ -36,10 +36,12 @@ En Entregar, los campos de destino ODBC toman sus nombres accesibles de las
 etiquetas visibles; el esquema conserva su indicación de opcional y los errores
 de validación se asocian al campo correspondiente.
 La alerta de validación del contrato de calidad se asocia con el grupo de la
-regla que identifica.
+regla que identifica. Las etiquetas accesibles de límites, referencias y orden
+del contrato incluyen ahora el texto visible completo.
 
-La suite Playwright actual pasa 21 E2E; el mock de importación simula la
-inspección de hojas Excel como la llamada independiente `inspect_workbook_sheets`.
+La prueba `DeliveryPhase.test.tsx` pasa 32/32 y Playwright pasa 21/21 E2E; el
+mock de importación simula la inspección de hojas Excel como llamada separada
+`inspect_workbook_sheets`.
 
 En el código local están implementadas la importación CSV/TSV con convenciones
 explícitas de fecha y número, las políticas reutilizables de excepciones de

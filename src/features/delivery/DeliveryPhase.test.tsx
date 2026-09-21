@@ -616,14 +616,14 @@ describe("DeliveryPhase", () => {
     });
 
     expect(screen.getByRole("checkbox", { name: "Columna referencial total, regla 1" })).toBeChecked();
-    expect(screen.getByRole("textbox", { name: "Valores de referencia regla 1" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Valores permitidos de referencia regla 1" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "Columna referencial limite, regla 1" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Valores de referencia regla 1" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Valores permitidos de referencia regla 1" }), {
       target: { value: "[10,12]\n[20,20]" },
     });
 
     expect(screen.getByRole("checkbox", { name: "Columna referencial limite, regla 1" })).toBeChecked();
-    expect(screen.getByRole("textbox", { name: "Valores de referencia regla 1" })).toHaveValue("[10,12]\n[20,20]");
+    expect(screen.getByRole("textbox", { name: "Valores permitidos de referencia regla 1" })).toHaveValue("[10,12]\n[20,20]");
   });
 
   it("expone la dirección de monotonicidad", () => {
@@ -651,7 +651,7 @@ describe("DeliveryPhase", () => {
 
     expect(screen.getByRole("combobox", { name: "Agregación regla 1" })).toHaveValue("sum");
     expect(screen.getByRole("spinbutton", { name: "Valor esperado agregado regla 1" })).toHaveValue(0);
-    expect(screen.getByRole("textbox", { name: "Referencias agregadas regla 1" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Referencias numéricas opcionales regla 1" })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "Agregación regla 1" }), {
       target: { value: "max" },
     });
@@ -673,7 +673,7 @@ describe("DeliveryPhase", () => {
       target: { value: "distribution_drift" },
     });
 
-    const baseline = screen.getByRole("textbox", { name: "Línea base de distribución regla 1" });
+    const baseline = screen.getByRole("textbox", { name: "Línea base numérica regla 1" });
     expect(baseline).toBeInTheDocument();
     fireEvent.change(baseline, { target: { value: "10\n20" } });
     const threshold = screen.getByRole("spinbutton", { name: "Umbral de drift regla 1" });
@@ -731,7 +731,7 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("checkbox", {
       name: "Permitir columnas adicionales esquema regla 1",
     })).toBeChecked();
-    expect(screen.getByRole("textbox", { name: "Orden requerido esquema regla 1" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Orden requerido, opcional esquema regla 1" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Permitir columnas adicionales esquema regla 1",
@@ -750,14 +750,14 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     const kind = screen.getByRole("combobox", { name: "Comprobación regla 1" });
 
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Inválidos regla 1" }), {
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Inválidos máximos regla 1" }), {
       target: { value: "2" },
     });
     fireEvent.change(kind, { target: { value: "numeric_range" } });
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Mínimo regla 1" }), {
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Mínimo inclusivo regla 1" }), {
       target: { value: "1" },
     });
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Máximo regla 1" }), {
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Máximo inclusivo regla 1" }), {
       target: { value: "" },
     });
     fireEvent.change(kind, { target: { value: "allowed_values" } });
@@ -777,7 +777,7 @@ describe("DeliveryPhase", () => {
     fireEvent.change(screen.getByRole("spinbutton", { name: "Valor esperado agregado regla 1" }), {
       target: { value: "10" },
     });
-    fireEvent.change(screen.getByRole("textbox", { name: "Referencias agregadas regla 1" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Referencias numéricas opcionales regla 1" }), {
       target: { value: "10\n20" },
     });
     fireEvent.change(screen.getByRole("spinbutton", { name: "Tolerancia absoluta agregada regla 1" }), {
@@ -840,12 +840,12 @@ describe("DeliveryPhase", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Columnas requeridas esquema regla 1" }), {
       target: { value: "total\nestado" },
     });
-    fireEvent.change(screen.getByRole("textbox", { name: "Orden requerido esquema regla 1" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Orden requerido, opcional esquema regla 1" }), {
       target: { value: "total\nestado" },
     });
 
     expect(screen.getByRole("textbox", { name: "Columnas requeridas esquema regla 1" })).toHaveValue("total\nestado");
-    expect(screen.getByRole("textbox", { name: "Orden requerido esquema regla 1" })).toHaveValue("total\nestado");
+    expect(screen.getByRole("textbox", { name: "Orden requerido, opcional esquema regla 1" })).toHaveValue("total\nestado");
   });
 
   it("guarda el contrato activo como documento Columnia v1", async () => {
@@ -1030,7 +1030,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Editar reglas" }));
     const kind = screen.getByRole("combobox", { name: "Comprobación regla 1" });
     fireEvent.change(screen.getByRole("combobox", { name: "Tolerancia regla 1" }), { target: { value: "both" } });
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Porcentaje regla 1" }), { target: { value: "5" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Porcentaje máximo regla 1" }), { target: { value: "5" } });
     fireEvent.change(kind, { target: { value: "unique_together" } });
     fireEvent.click(screen.getByRole("checkbox", { name: "Columna compuesta limite, regla 1" }));
     fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), { target: { value: "column_compare" } });

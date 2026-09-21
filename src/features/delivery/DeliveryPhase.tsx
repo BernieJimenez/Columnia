@@ -984,25 +984,25 @@ export function DeliveryPhase({
                     </label>
                     {(toleranceMode === "count" || toleranceMode === "both") && <label>Inválidos máximos
                       <input type="number" min="0" step="1"
-                        aria-label={`Inválidos regla ${index + 1}`}
+                        aria-label={`Inválidos máximos regla ${index + 1}`}
                         value={rule.maxInvalid ?? 0}
                         onChange={(event) => updateRule(index, { maxInvalid: Number(event.target.value) })} />
                     </label>}
                     {(toleranceMode === "percentage" || toleranceMode === "both") && <label>Porcentaje máximo
                       <input type="number" min="0" max="100" step="0.1"
-                        aria-label={`Porcentaje regla ${index + 1}`}
+                        aria-label={`Porcentaje máximo regla ${index + 1}`}
                         value={rule.maxInvalidPct ?? 0}
                         onChange={(event) => updateRule(index, { maxInvalidPct: Number(event.target.value) })} />
                     </label>}
                     {(rule.kind === "numeric_range" || rule.kind === "row_count") && (
                       <>
                         <label>{rule.kind === "row_count" ? "Filas mínimas" : "Mínimo inclusivo"}
-                          <input type="number" aria-label={`Mínimo regla ${index + 1}`}
+                          <input type="number" aria-label={`${rule.kind === "row_count" ? "Filas mínimas" : "Mínimo inclusivo"} regla ${index + 1}`}
                             value={rule.min ?? ""}
                             onChange={(event) => updateRule(index, { min: event.target.value === "" ? undefined : Number(event.target.value) })} />
                         </label>
                         <label>{rule.kind === "row_count" ? "Filas máximas" : "Máximo inclusivo"}
-                          <input type="number" aria-label={`Máximo regla ${index + 1}`}
+                          <input type="number" aria-label={`${rule.kind === "row_count" ? "Filas máximas" : "Máximo inclusivo"} regla ${index + 1}`}
                             value={rule.max ?? ""}
                             onChange={(event) => updateRule(index, { max: event.target.value === "" ? undefined : Number(event.target.value) })} />
                         </label>
@@ -1107,7 +1107,7 @@ export function DeliveryPhase({
                         <label className="quality-rule__wide">Valores permitidos de referencia
                           <textarea
                             rows={3}
-                            aria-label={`Valores de referencia regla ${index + 1}`}
+                            aria-label={`Valores permitidos de referencia regla ${index + 1}`}
                             aria-describedby={`quality-reference-values-help-${index}`}
                             value={rule.referenceValues?.join("\n") ?? ""}
                             onChange={(event) => updateRule(index, {
@@ -1166,7 +1166,7 @@ export function DeliveryPhase({
                         <label className="quality-rule__wide">Referencias numéricas opcionales
                           <textarea
                             rows={2}
-                            aria-label={`Referencias agregadas regla ${index + 1}`}
+                            aria-label={`Referencias numéricas opcionales regla ${index + 1}`}
                             value={rule.referenceValues?.join("\n") ?? ""}
                             onChange={(event) => updateRule(index, {
                               referenceValues: event.target.value.split(/\r?\n/).filter((value) => value.length > 0),
@@ -1183,7 +1183,7 @@ export function DeliveryPhase({
                         <label className="quality-rule__wide">Línea base numérica
                           <textarea
                             rows={3}
-                            aria-label={`Línea base de distribución regla ${index + 1}`}
+                            aria-label={`Línea base numérica regla ${index + 1}`}
                             aria-describedby={`quality-drift-baseline-help-${index}`}
                             value={rule.baseline?.join("\n") ?? ""}
                             onChange={(event) => updateRule(index, {
@@ -1487,7 +1487,7 @@ export function DeliveryPhase({
                         <label className="quality-rule__wide">Orden requerido, opcional
                           <textarea
                             rows={2}
-                            aria-label={`Orden requerido esquema regla ${index + 1}`}
+                            aria-label={`Orden requerido, opcional esquema regla ${index + 1}`}
                             value={rule.requiredOrder?.join("\n") ?? ""}
                             onChange={(event) => updateRule(index, {
                               requiredOrder: event.target.value.trim().length === 0
@@ -1698,7 +1698,7 @@ export function DeliveryPhase({
             <summary>Presets de entrega guardados</summary>
             <p>Guarda formatos, protección y columnas para repetirlos. Las credenciales quedan fuera del preset.</p>
             <label>
-              Preset local
+              Preset de entrega local
               <select
                 aria-label="Preset de entrega local"
                 value={selectedPresetId}
