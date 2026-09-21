@@ -21,6 +21,9 @@ los artefactos de validación locales.
 - El dry-run de release para `1.25.0` valida los gates técnicos y se detiene
   antes del empaquetado cuando falta el sign-off jurídico obligatorio; no se
   publican artefactos.
+- El protocolo beta incorpora `npm run beta:check-summary`, que compara el
+  resumen Gate 1 con sus tres sesiones y el gate Full, y bloquea alias,
+  correos, rutas o credenciales en el resumen sanitizado.
 
 ## [1.25.0] - 2026-09-21
 

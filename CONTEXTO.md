@@ -18,6 +18,14 @@ con datos reales, accesibilidad nativa, SQL Server o distribución binaria. La c
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
 resume el estado; esas fuentes definen los criterios de cierre.
 
+El gate beta local tiene ahora dos comprobaciones separadas: `beta:check-summary`
+valida el resumen Gate 1 contra las tres sesiones y el reporte Full del candidato,
+sin esperar a un commit posterior; `beta:check-gate1` conserva la comprobación de
+descendencia necesaria para preparar Gate 2. El primer checker también rechaza
+alias, correos, rutas y credenciales en el resumen versionado. No se ha inventado
+evidencia de participantes: RV07 sigue abierto hasta ejecutar las tres sesiones
+con datos de trabajo reales.
+
 Para RV10, Windows tiene instalados ODBC Driver 17/18 y `sqlcmd`, pero el
 servicio local `MSSQLSERVER` está detenido. Esta sesión no pudo abrirlo con
 `Start-Service`, y `(localdb)\MSSQLLocalDB` no respondió; aún no hay una

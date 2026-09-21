@@ -158,6 +158,11 @@ describe("prerrequisitos de evidencia para Gate 2", () => {
     assert.deepEqual(validateGate1Evidence(makeEvidence()), { valid: true, errors: [] });
   });
 
+  it("permite validar Gate 1 en su mismo commit cuando no se está preparando Gate 2", () => {
+    const evidence = makeEvidence({ currentCommit: commit });
+    assert.deepEqual(validateGate1Evidence({ ...evidence, requireGate2Commit: false }), { valid: true, errors: [] });
+  });
+
   it("exige que Gate 2 esté en un commit posterior que descienda del baseline", () => {
     const sameCommit = validateGate1Evidence(makeEvidence({ currentCommit: commit }));
     assert.equal(sameCommit.valid, false);
@@ -265,6 +270,19 @@ describe("prerrequisitos de evidencia para Gate 2", () => {
     const result = validateGate1Evidence(makeEvidence({ summaryMarkdown }));
     assert.equal(result.valid, false);
     assert.ok(result.errors.some((error) => error.includes("Revisión de privacidad")));
+  });
+
+  it("bloquea alias, rutas y credenciales en el resumen sanitizado", () => {
+    const summaryMarkdown = makeSummary()
+      .replace("| Fechas de ejecución | 2026-09-12 — 2026-09-12 |", "| Fechas de ejecución | 2026-09-12 — 2026-09-12 |\n\nContacto: participante-01, dataset-01, persona@example.com, C:\\datos\\entrada.csv, password=secreto");
+
+    const result = validateGate1Evidence(makeEvidence({ summaryMarkdown }));
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((error) => error.includes("alias de participante")));
+    assert.ok(result.errors.some((error) => error.includes("alias de dataset")));
+    assert.ok(result.errors.some((error) => error.includes("correo electrónico")));
+    assert.ok(result.errors.some((error) => error.includes("ruta local")));
+    assert.ok(result.errors.some((error) => error.includes("credencial")));
   });
 
   it("acepta hallazgos P2 documentados y bloquea hallazgos rellenados bajo el ID de ejemplo", () => {

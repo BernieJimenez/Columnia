@@ -32,6 +32,14 @@ documentación, IPC, gobernanza y el gate legal técnico, pero se detiene en el
 sign-off jurídico antes de empaquetar. No se crean ni publican artefactos; el
 reporte es `.local/validation/20260921T232220Z-a8fb7b4-package.json`.
 
+El protocolo beta incluye `npm run beta:check-summary`: valida el resumen Gate 1
+contra las tres sesiones y el reporte Full del mismo release candidate, sin
+exigir todavía el commit posterior de Gate 2. También bloquea en el resumen
+versionado alias de participantes o datasets, correos, rutas locales y
+credenciales. La evidencia humana de RV07 aún no existe en este checkout, por
+lo que el comando solo podrá aprobarse cuando se completen las tres sesiones
+reales.
+
 Desde `ca745d9`, `list_projects` devuelve proyectos
 y candidato de recuperación en una sola respuesta y transacción de lectura
 SQLite bajo el token `projectCatalog`. La migración SQLite v15 agrega el índice
@@ -161,7 +169,7 @@ borrado explícito continúa bajo el gate si gana el commit del catálogo.
 
 | ID | Resultado y criterio de cierre | Responsable | Dependencia | Estado |
 | --- | --- | --- | --- | --- |
-| RV07 | **Beta con tareas reales.** Tres participantes distintos completan dos casos reales por sesión sobre el mismo candidato, con al menos tres datasets en total; consiguen 24/30 tareas sin ayuda, completan el flujo, guardan/reabren y verifican la entrega en cada sesión, sin P0/P1 abierto; se publica un resumen sanitizado y los reportes detallados quedan bajo `.local/beta/`. | Producto | Candidato con RV01–RV06 y gate Full | **Abierto — requiere participantes y datos de trabajo.** |
+| RV07 | **Beta con tareas reales.** Tres participantes distintos completan dos casos reales por sesión sobre el mismo candidato, con al menos tres datasets en total; consiguen 24/30 tareas sin ayuda, completan el flujo, guardan/reabren y verifican la entrega en cada sesión, sin P0/P1 abierto; se publica un resumen sanitizado y los reportes detallados quedan bajo `.local/beta/`. | Producto | Candidato con RV01–RV06 y gate Full | **Abierto — requiere participantes y datos de trabajo.** El checker local `npm run beta:check-summary` ya valida consistencia, privacidad y el reporte Full; faltan las tres sesiones humanas. |
 | RV08 | **Regresiones derivadas de beta.** Cada fallo dependiente de datos se reduce a una fixture sintética, se reproduce antes de corregirse y obtiene una regresión pertinente. | Mantenimiento | RV07 | **Abierto — depende de hallazgos de RV07.** |
 | RV09 | **Aceptación nativa de accesibilidad.** Recorrido Cargar→Entregar en Windows con teclado y lector de pantalla real, incluidos modales, tablas, progreso, zoom y alto contraste. | QA accesibilidad | Mismo candidato de RV07 | **Abierto — requiere verificación nativa.** |
 | RV10 | **Aceptación SQL Server.** Exportar y releer `true`/`false`/`null` desde frame y fuente incremental conserva tipos y valores; registrar driver y configuración sin credenciales. | QA ODBC | Instancia SQL Server accesible | **Abierto — drivers ODBC 17/18 y `sqlcmd` instalados; falta una instancia conectable.** El servicio local `MSSQLSERVER` está detenido y esta sesión no pudo abrirlo; `(localdb)\MSSQLLocalDB` tampoco está disponible. El round-trip aún no se ejecutó. |

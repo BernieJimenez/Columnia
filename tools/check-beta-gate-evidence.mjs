@@ -104,6 +104,19 @@ function requireYes(errors, value, label) {
   }
 }
 
+function validateSummaryPrivacy(markdown, errors) {
+  const checks = [
+    [/\bparticipante-\d{2,3}\b/i, "alias de participante"],
+    [/\bdataset-[a-z0-9][a-z0-9.-]*\b/i, "alias de dataset"],
+    [/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i, "correo electrónico"],
+    [/(?:[A-Za-z]:[\\/]|\\\\[^\\s]+[\\/])/i, "ruta local"],
+    [/(?:password|passwd|pwd|contraseña|cadena de conexión|connection string)\s*=/i, "credencial o cadena de conexión"],
+  ];
+  for (const [pattern, label] of checks) {
+    if (pattern.test(markdown)) errors.push(`El resumen sanitizado contiene ${label}; elimina ese dato antes de versionarlo.`);
+  }
+}
+
 function parseCandidate(summaryMarkdown, errors) {
   const gate = tableValue(summaryMarkdown, "Release candidate", "Gate");
   const candidateId = tableValue(summaryMarkdown, "Release candidate", "Release candidate");
@@ -126,6 +139,7 @@ function parseCandidate(summaryMarkdown, errors) {
 }
 
 function validateSummary(markdown, candidate, errors) {
+  validateSummaryPrivacy(markdown, errors);
   const sessions = fraction(tableValue(markdown, "Muestra agregada", "Sesiones válidas"));
   requireFraction(errors, tableValue(markdown, "Muestra agregada", "Sesiones válidas"), 3, 3, "Sesiones válidas");
   requireFraction(errors, tableValue(markdown, "Muestra agregada", "Participantes distintos"), 3, 3, "Participantes distintos");
@@ -326,19 +340,29 @@ function validateSession(session, index, candidate, errors) {
   session.participant = normalized(participant);
 }
 
-export function validateGate1Evidence({ summaryMarkdown, manifest, sessions, fullReport, currentCommit, gate1CommitIsAncestor }) {
+export function validateGate1Evidence({
+  summaryMarkdown,
+  manifest,
+  sessions,
+  fullReport,
+  currentCommit,
+  gate1CommitIsAncestor,
+  requireGate2Commit = true,
+}) {
   const errors = [];
   const candidate = parseCandidate(summaryMarkdown ?? "", errors);
   validateSummary(summaryMarkdown ?? "", candidate, errors);
   validateManifest(manifest, candidate, errors);
 
-  if (!/^[a-f0-9]{40}$/i.test(currentCommit ?? "")) {
-    errors.push("No se pudo verificar el commit actual de Gate 2.");
-  } else if (candidate.commit?.toLowerCase() === currentCommit.toLowerCase()) {
-    errors.push("Gate 2 requiere un commit actual distinto del baseline Gate 1.");
-  }
-  if (gate1CommitIsAncestor !== true) {
-    errors.push("El commit del baseline Gate 1 debe ser ancestro del commit actual de Gate 2.");
+  if (requireGate2Commit) {
+    if (!/^[a-f0-9]{40}$/i.test(currentCommit ?? "")) {
+      errors.push("No se pudo verificar el commit actual de Gate 2.");
+    } else if (candidate.commit?.toLowerCase() === currentCommit.toLowerCase()) {
+      errors.push("Gate 2 requiere un commit actual distinto del baseline Gate 1.");
+    }
+    if (gate1CommitIsAncestor !== true) {
+      errors.push("El commit del baseline Gate 1 debe ser ancestro del commit actual de Gate 2.");
+    }
   }
 
   if (!fullReport || fullReport.schemaVersion !== 1 || fullReport.profile !== "Full" ||

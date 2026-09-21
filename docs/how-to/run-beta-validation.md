@@ -186,7 +186,16 @@ La beta queda aceptada cuando se cumplen todos estos puntos:
 
 Al terminar, copia la [plantilla de resumen](../templates/beta-summary.md) a
 `docs/reference/beta-v1-summary.md`, completa únicamente métricas agregadas y
-sométela a revisión de privacidad. Los reportes de sesión permanecen en
+sométela a revisión de privacidad. Comprueba la consistencia con las tres
+sesiones y el gate técnico con:
+
+```powershell
+npm run beta:check-summary
+```
+
+El comando rechaza conteos que no coinciden, candidatos o commits mezclados,
+hallazgos P0/P1 y datos sensibles como alias de participantes, alias de datasets,
+correos, rutas o credenciales. Los reportes de sesión permanecen en
 `.local/beta/`; solo el resumen sanitizado se versiona. Tier 8 no se marca cerrado
 en `ROADMAP.md` hasta que ese archivo exista y todos los criterios anteriores
 estén aprobados.
