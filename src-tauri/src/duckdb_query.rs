@@ -161,6 +161,7 @@ where
     )
 }
 
+#[cfg(test)]
 pub(crate) fn materialize_file_to_parquet(
     source_path: &Path,
     source_format: DuckDbFileFormat,
@@ -290,29 +291,33 @@ where
     })
 }
 
-pub(crate) fn export_file_to_json(
+pub(crate) fn export_file_to_json_with_cancel<C>(
     source_path: &Path,
     source_format: DuckDbFileFormat,
     destination: &Path,
-) -> Result<(), String> {
-    let connection = Connection::open_in_memory()
-        .map_err(|error| format!("No se pudo iniciar DuckDB para la exportación JSON: {error}"))?;
-    let resource_directory = tempfile::tempdir().map_err(|error| {
-        format!("No se pudo preparar el espacio temporal para la exportación JSON: {error}")
-    })?;
-    configure_duckdb_resources(&connection, resource_directory.path())?;
-    let source = file_scan_expression(source_path, source_format);
-    let destination = destination
-        .to_string_lossy()
-        .replace('\\', "/")
-        .replace('\'', "''");
-    let query = format!(
-        "SET preserve_insertion_order = true; COPY (SELECT * FROM {source}) TO '{destination}' (FORMAT JSON, ARRAY true)"
-    );
-    connection
-        .execute_batch(&query)
-        .map_err(|error| format!("DuckDB no pudo crear la exportación JSON: {error}"))?;
-    Ok(())
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el espacio temporal para la exportación JSON: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        let source = file_scan_expression(source_path, source_format);
+        let destination = destination
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace('\'', "''");
+        let query = format!(
+            "SET preserve_insertion_order = true; COPY (SELECT * FROM {source}) TO '{destination}' (FORMAT JSON, ARRAY true)"
+        );
+        connection
+            .execute_batch(&query)
+            .map_err(|error| format!("DuckDB no pudo crear la exportación JSON: {error}"))?;
+        Ok(())
+    })
 }
 
 pub(crate) fn export_file_to_csv_with_cancel<C>(

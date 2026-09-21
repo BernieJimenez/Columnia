@@ -30,7 +30,7 @@ Polars. Pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`,
 `npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron
 pruebas de producto.
 
-El incremento actual sobre `0f4be2f` ordena inicio, cancelación y publicación de
+El incremento sobre `0f4be2f` ordena inicio, cancelación y publicación de
 la carga con `load_commit_lock`. La selección inicial y las hojas inspeccionadas
 se publican solo si su generación sigue vigente. La carga prepara el historial
 fuera del gate y, antes de publicar, valida el token y el ID pendiente; dataset,
@@ -40,7 +40,7 @@ permanece activa. Pasan `cargo fmt --check`, `cargo check --lib`,
 `npm run build`, `npm run ipc:check` y `git diff --check`; no se ejecutaron
 pruebas de producto.
 
-El incremento actual sobre `10f8d43` mueve `test_database_connection` a
+El incremento sobre `10f8d43` mueve `test_database_connection` a
 `spawn_blocking` y lo asocia a `databaseConnection`, separado del token de
 preflight para que cancelar una prueba no invalide otro análisis remoto.
 Comprueba el token antes y
@@ -50,12 +50,20 @@ canceló. El comando independiente no tiene hoy un consumidor en la interfaz.
 Pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`,
 `npm run ipc:check` y `git diff --check`; no se ejecutaron pruebas de producto.
 
-El incremento actual sobre `c6d7bda` asocia la comprobación de red del updater
+El incremento sobre `c6d7bda` asocia la comprobación de red del updater
 con `updateCheck`. El panel permite cancelarla, `tokio::select!` descarta la
 consulta pendiente y un gate común decide entre cancelar y publicar el
 resultado. Pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`,
 `npm run ipc:check`, el checker documental y `git diff --check`; no se
 ejecutaron pruebas de producto.
+
+El incremento actual sobre `be2a035` conecta las exportaciones source-backed
+Parquet y JSON con el monitor de cancelación de DuckDB durante `COPY`. La
+operación escribe en staging, copia al archivo temporal final con comprobaciones
+cada 64 KiB y no publica el destino si se interrumpe. `sync_all` sigue síncrono.
+Pasan `cargo fmt --check`, `cargo check --lib` (58 avisos
+dead-code existentes), `npm run build`, `npm run ipc:check`, el checker
+documental y `git diff --check`; no se ejecutaron pruebas de producto.
 
 El incremento sobre `94b7fe5` añade `reusableTaskCatalog` para cancelar la
 enumeración local de tareas entre filas SQLite y deserializaciones, con

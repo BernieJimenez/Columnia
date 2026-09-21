@@ -22487,7 +22487,7 @@ fn export_source_backed_parquet_atomic<F, C>(
 ) -> Result<ExportResult, String>
 where
     F: FnMut(&'static str, u8),
-    C: Fn() -> bool,
+    C: Fn() -> bool + Clone + Send + 'static,
 {
     ensure_not_cancelled(is_cancelled())?;
     let destination = canonicalize_write_destination(destination, "la exportación")?;
@@ -22511,15 +22511,18 @@ where
         .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
     let partial = scratch.path().join("dataset.partial.parquet");
     report("Escribiendo dataset", 25);
-    crate::duckdb_query::materialize_file_to_parquet(&source_path, source_format, &partial, None)?;
+    crate::duckdb_query::materialize_file_to_parquet_with_cancel(
+        &source_path,
+        source_format,
+        &partial,
+        None,
+        is_cancelled.clone(),
+    )?;
     ensure_not_cancelled(is_cancelled())?;
 
-    let mut generated = File::open(&partial)
-        .map_err(|error| format!("No se pudo leer el Parquet temporal: {error}"))?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
-    std::io::copy(&mut generated, temporary.as_file_mut())
-        .map_err(|error| format!("No se pudo copiar el Parquet temporal: {error}"))?;
+    copy_file_with_cancel(&partial, temporary.as_file_mut(), is_cancelled.clone())?;
     temporary
         .as_file()
         .sync_all()
@@ -22715,7 +22718,7 @@ fn export_source_backed_json_atomic<F, C>(
 ) -> Result<ExportResult, String>
 where
     F: FnMut(&'static str, u8),
-    C: Fn() -> bool,
+    C: Fn() -> bool + Clone + Send + 'static,
 {
     ensure_not_cancelled(is_cancelled())?;
     let destination = canonicalize_write_destination(destination, "la exportación")?;
@@ -22739,15 +22742,17 @@ where
         .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
     let partial = scratch.path().join("dataset.partial.json");
     report("Escribiendo dataset", 25);
-    crate::duckdb_query::export_file_to_json(&source_path, source_format, &partial)?;
+    crate::duckdb_query::export_file_to_json_with_cancel(
+        &source_path,
+        source_format,
+        &partial,
+        is_cancelled.clone(),
+    )?;
     ensure_not_cancelled(is_cancelled())?;
 
-    let mut generated = File::open(&partial)
-        .map_err(|error| format!("No se pudo leer el JSON temporal: {error}"))?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
-    std::io::copy(&mut generated, temporary.as_file_mut())
-        .map_err(|error| format!("No se pudo copiar el JSON temporal: {error}"))?;
+    copy_file_with_cancel(&partial, temporary.as_file_mut(), is_cancelled.clone())?;
     temporary
         .as_file()
         .sync_all()
@@ -23660,11 +23665,12 @@ fn persist_delimited_comparison_source_file(
     let directory = tempfile::tempdir()
         .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
     let temporary = directory.path().join("compared.partial.parquet");
-    crate::duckdb_query::materialize_file_to_parquet(
+    crate::duckdb_query::materialize_file_to_parquet_with_cancel(
         path,
         crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter },
         &temporary,
         None,
+        || false,
     )?;
     let destination = directory.path().join("compared.parquet");
     fs::rename(&temporary, &destination)
@@ -23678,11 +23684,12 @@ fn persist_json_comparison_source_file(
     let directory = tempfile::tempdir()
         .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
     let temporary = directory.path().join("compared.partial.parquet");
-    crate::duckdb_query::materialize_file_to_parquet(
+    crate::duckdb_query::materialize_file_to_parquet_with_cancel(
         path,
         crate::duckdb_query::DuckDbFileFormat::Json,
         &temporary,
         Some(&json_record_column_names(path)?),
+        || false,
     )?;
     let destination = directory.path().join("compared.parquet");
     fs::rename(&temporary, &destination)
@@ -29714,20 +29721,34 @@ pub async fn export_dataset(
                             },
                         )
                     }
-                    ExportFormat::Json => export_source_backed_json_atomic(
-                        &effective_source_path,
-                        effective_source_size,
-                        &destination,
-                        |stage, percent| send_progress(&on_progress, "export", stage, percent),
-                        || app.state::<DatasetState>().export_was_cancelled(generation),
-                    ),
-                    ExportFormat::Parquet => export_source_backed_parquet_atomic(
-                        &effective_source_path,
-                        effective_source_size,
-                        &destination,
-                        |stage, percent| send_progress(&on_progress, "export", stage, percent),
-                        || app.state::<DatasetState>().export_was_cancelled(generation),
-                    ),
+                    ExportFormat::Json => {
+                        let cancellation_app = app.clone();
+                        export_source_backed_json_atomic(
+                            &effective_source_path,
+                            effective_source_size,
+                            &destination,
+                            |stage, percent| send_progress(&on_progress, "export", stage, percent),
+                            move || {
+                                cancellation_app
+                                    .state::<DatasetState>()
+                                    .export_was_cancelled(generation)
+                            },
+                        )
+                    }
+                    ExportFormat::Parquet => {
+                        let cancellation_app = app.clone();
+                        export_source_backed_parquet_atomic(
+                            &effective_source_path,
+                            effective_source_size,
+                            &destination,
+                            |stage, percent| send_progress(&on_progress, "export", stage, percent),
+                            move || {
+                                cancellation_app
+                                    .state::<DatasetState>()
+                                    .export_was_cancelled(generation)
+                            },
+                        )
+                    }
                     ExportFormat::Sql => {
                         let cancellation_app = app.clone();
                         export_source_backed_sql_atomic(
