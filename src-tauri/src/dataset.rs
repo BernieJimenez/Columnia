@@ -16081,16 +16081,34 @@ where
     Ok(collected.names)
 }
 
-fn read_utf8_delimited_sample(path: &Path) -> Result<(String, bool), String> {
+fn read_utf8_delimited_sample_with_cancel<C>(
+    path: &Path,
+    is_cancelled: C,
+) -> Result<(String, bool), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let file_size = fs::metadata(path)
         .map_err(|error| format!("No se pudo inspeccionar el archivo delimitado: {error}"))?
         .len();
+    ensure_not_cancelled(is_cancelled())?;
     let mut bytes = Vec::with_capacity(DELIMITED_SAMPLE_BYTES as usize);
-    fs::File::open(path)
+    let mut file = fs::File::open(path)
         .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))?
-        .take(DELIMITED_SAMPLE_BYTES)
-        .read_to_end(&mut bytes)
-        .map_err(|error| format!("No se pudo inspeccionar el archivo delimitado: {error}"))?;
+        .take(DELIMITED_SAMPLE_BYTES);
+    let mut buffer = [0_u8; 8 * 1024];
+    loop {
+        ensure_not_cancelled(is_cancelled())?;
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| format!("No se pudo inspeccionar el archivo delimitado: {error}"))?;
+        ensure_not_cancelled(is_cancelled())?;
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+    }
     let complete = file_size <= bytes.len() as u64;
 
     let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
@@ -16152,24 +16170,39 @@ fn delimited_field_counts(sample: &str, delimiter: char, complete: bool) -> Vec<
 }
 
 fn detect_delimiter(path: &Path, extension: &str) -> Result<u8, String> {
+    detect_delimiter_with_cancel(path, extension, || false)
+}
+
+fn detect_delimiter_with_cancel<C>(
+    path: &Path,
+    extension: &str,
+    is_cancelled: C,
+) -> Result<u8, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     if extension == "tsv" {
         // La extensión explícita tiene prioridad sobre cualquier carácter que
         // aparezca dentro de los valores.
-        read_utf8_delimited_sample(path)?;
+        read_utf8_delimited_sample_with_cancel(path, &is_cancelled)?;
         return Ok(b'\t');
     }
 
-    let (sample, complete) = read_utf8_delimited_sample(path)?;
+    let (sample, complete) = read_utf8_delimited_sample_with_cancel(path, &is_cancelled)?;
     let candidates = [(b',', ','), (b';', ';'), (b'\t', '\t'), (b'|', '|')];
-    let mut valid = candidates
-        .into_iter()
-        .filter_map(|(byte, delimiter)| {
-            let counts = delimited_field_counts(&sample, delimiter, complete);
-            let first = *counts.first()?;
-            (counts.len() >= 2 && first > 1 && counts.iter().all(|count| *count == first))
-                .then_some((byte, first))
-        })
-        .collect::<Vec<_>>();
+    let mut valid = Vec::new();
+    for (byte, delimiter) in candidates {
+        ensure_not_cancelled(is_cancelled())?;
+        let counts = delimited_field_counts(&sample, delimiter, complete);
+        let Some(first) = counts.first().copied() else {
+            continue;
+        };
+        if counts.len() >= 2 && first > 1 && counts.iter().all(|count| *count == first) {
+            valid.push((byte, first));
+        }
+    }
+    ensure_not_cancelled(is_cancelled())?;
     valid.sort_unstable_by_key(|(_, field_count)| std::cmp::Reverse(*field_count));
 
     match valid.as_slice() {
@@ -16262,7 +16295,20 @@ fn delimited_scan_with_header(
     extension: &str,
     has_header: bool,
 ) -> Result<LazyFrame, String> {
-    let separator = detect_delimiter(path, extension)?;
+    delimited_scan_with_header_and_cancel(path, extension, has_header, || false)
+}
+
+fn delimited_scan_with_header_and_cancel<C>(
+    path: &Path,
+    extension: &str,
+    has_header: bool,
+    is_cancelled: C,
+) -> Result<LazyFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let separator = detect_delimiter_with_cancel(path, extension, &is_cancelled)?;
+    ensure_not_cancelled(is_cancelled())?;
     delimited_scan_with_separator(path, separator, has_header)
 }
 
@@ -16309,7 +16355,7 @@ where
     C: Fn() -> bool + Sync,
 {
     let has_header = header_mode == SpreadsheetHeaderMode::FirstRow;
-    let plan = delimited_scan_with_header(path, extension, has_header)?;
+    let plan = delimited_scan_with_header_and_cancel(path, extension, has_header, &is_cancelled)?;
     collect_lazy_frame_streaming_with_cancel(
         plan,
         "No se pudo interpretar el archivo delimitado como UTF-8",
@@ -16392,9 +16438,9 @@ where
     C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
-    let separator = detect_delimiter(path, extension)?;
+    let separator = detect_delimiter_with_cancel(path, extension, &is_cancelled)?;
     ensure_not_cancelled(is_cancelled())?;
-    let (sample, complete) = read_utf8_delimited_sample(path)?;
+    let (sample, complete) = read_utf8_delimited_sample_with_cancel(path, &is_cancelled)?;
     ensure_not_cancelled(is_cancelled())?;
     let sample = complete_delimited_sample_prefix(&sample, complete)?;
     let mut bounded_sample = tempfile::NamedTempFile::new()

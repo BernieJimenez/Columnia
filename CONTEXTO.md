@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `e9bef34`, versión
+La base de este incremento fue `master` en `ad10fb4`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -81,9 +81,11 @@ modal.
 
 La vista previa de encabezados CSV/TSV también usa la generación `load` de la
 selección pendiente. El diálogo cancela el token antes de descartar el archivo;
-Rust lo consulta alrededor de la lectura de muestra acotada a 64 KiB y entre
-los dos parseos de interpretación. Los tramos de archivo y Polars siguen siendo
-síncronos y observan la cancelación cuando retornan.
+la muestra acotada a 64 KiB se lee en bloques de 8 KiB y el token se consulta
+entre bloques, durante la detección del delimitador y entre los dos parseos de
+interpretación. La carga completa CSV/TSV/TXT también usa el detector cancelable
+antes de iniciar la lectura Polars. Las llamadas individuales de archivo y
+Polars siguen siendo síncronas y observan la cancelación cuando retornan.
 
 Abrir un proyecto y restaurar una versión usan `projectOpen`: consultan la
 cancelación durante el hash por bloques, el conteo DuckDB, la lectura Parquet y
@@ -376,7 +378,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este incremento parte de `e9bef34`; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-21; este incremento parte de `ad10fb4`; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `0.167.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -387,7 +389,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
 | Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En esta revisión de cancelación del catálogo y de la vista previa CSV/TSV pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron pruebas de producto. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-21, posterior al commit base `e9bef34`; incluye smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, más cancelación de apertura, restauración, guardado, eliminación, catálogo unificado y vista previa de encabezados CSV/TSV. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Última revisión de este documento | 2026-09-21, posterior al commit base `ad10fb4`; incluye smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, más cancelación de apertura, restauración, guardado, eliminación, catálogo unificado y detección CSV/TSV cancelable por bloques antes de cargar o previsualizar. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 

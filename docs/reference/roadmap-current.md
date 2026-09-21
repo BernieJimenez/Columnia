@@ -9,7 +9,7 @@ trabajo, protege resultados o aporta evidencia necesaria para declarar soporte.
 Las propuestas condicionadas a demanda se enumeran al final y no son trabajo
 comprometido.
 
-Último incremento verificado sobre `e9bef34`: `list_projects` devuelve proyectos
+Desde `ca745d9`, `list_projects` devuelve proyectos
 y candidato de recuperación en una sola respuesta y transacción de lectura
 SQLite bajo el token `projectCatalog`. La migración SQLite v15 agrega el índice
 parcial que sirve a la consulta del candidato. La lista comprueba cancelación al leer cada fila y
@@ -21,12 +21,14 @@ por bloques y descartan la generación staged si cancelar gana antes del commit;
 `sync_all` y SQLite siguen siendo tramos síncronos. El borrado usa
 `projectDelete`: cancelar antes del gate conserva catálogo y archivos; si el
 gate gana, el borrado y la limpieza terminan bajo ese gate. SQLite y
-`remove_dir_all` siguen siendo síncronos. Pasan `cargo fmt --check`,
-`cargo check --lib`, `npm run build`, `npm run ipc:check`, el checker documental
-y `git diff --check`; no se ejecutaron pruebas de producto. La vista previa de
-encabezados CSV/TSV también usa la generación `load`: el token se consulta entre
-la lectura de muestra de 64 KiB y los dos parseos síncronos, y el diálogo
-cancela antes de descartar la selección pendiente.
+`remove_dir_all` siguen siendo síncronos. El incremento actual sobre `ad10fb4`
+hace que la vista previa de encabezados CSV/TSV use la generación `load`: la
+muestra de 64 KiB se lee en bloques de 8 KiB, el token se revisa entre bloques
+y parseos síncronos, y el diálogo cancela antes de descartar la selección. La
+carga completa usa el mismo detector cancelable antes de comenzar la lectura
+Polars. Pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`,
+`npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron
+pruebas de producto.
 
 ## Ahora — completar el flujo automático
 
