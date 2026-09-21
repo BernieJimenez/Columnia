@@ -62,6 +62,8 @@ async function installSyntheticImportBridge(page: Page, fixture: SyntheticImport
           return { projects: [], recoveryCandidate: null };
         case "pick_dataset_source":
           return source;
+        case "inspect_workbook_sheets":
+          return source.sheets;
         case "preview_delimited_header_review":
           return {
             delimiter: ",",
