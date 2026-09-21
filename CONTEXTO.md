@@ -66,6 +66,12 @@ producción. Los gates `beta:workflows:check`, `legal:check` e `ipc:check`
 también pasan. El límite de un worker hace reproducible la suite frontend en
 esta estación y no cambia el producto.
 
+El `npm run release:dry-run` del mismo corte confirma el árbol limpio y los
+gates de toolchains, documentación, IPC, gobernanza y legal técnico, pero se
+detiene en el sign-off jurídico obligatorio antes del empaquetado. No se
+crearon ni publicaron artefactos; el reporte es
+`.local/validation/20260921T232220Z-a8fb7b4-package.json`.
+
 En el código local están implementadas la importación CSV/TSV con convenciones
 explícitas de fecha y número, las políticas reutilizables de excepciones de
 conversión, y la cancelación compartida de JOIN, consolidación y resolución
@@ -2020,6 +2026,7 @@ Al actualizarlo:
 | 2026-09-21 | RV01/RV02: el probe nativo actualiza su contrato para enumerar `inspect_workbook_sheets` después de seleccionar un Excel. `npm run smoke:native-selectors` pasa con diálogos reales de Windows y round-trips de bytes, filas, esquema y valores para CSV/XLSX/Parquet; la evidencia queda en `.local/validation/webview2-cdp/20260921T225717Z`. El presupuesto de memoria sigue marcado como diagnóstico del ejecutable debug y la aceptación con datasets de trabajo reales permanece pendiente. | `tools/probe-webview2-native-selectors.mjs`, `CONTEXTO.md`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `.local/validation/webview2-cdp/20260921T225717Z/summary.json` |
 | 2026-09-21 | RV12/RV01: el benchmark WebView2 de 100 MiB pasa con 819.137 filas y confirma carga, paginación, transformación, exportación, memoria dentro del presupuesto del benchmark y cleanup. El smoke CDP completo pasa Playwright, landmarks, foco y ProjectsPanel, además de receta, exportación, reapertura y restauración nativas con 18 operaciones IPC y cleanup. La aceptación con tareas reales y el presupuesto del ejecutable release siguen siendo gates separados. | `tools/benchmark-webview2-dataset.ps1`, `tools/probe-webview2-cdp.ps1`, `CONTEXTO.md`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `.local/validation/performance-webview2/20260921T230202Z/summary.json`, `.local/validation/webview2-cdp/20260921T230251Z/summary.json` |
 | 2026-09-21 | RV01/RV02/RV05/RV06: las regresiones de App quedan alineadas con la inspección Excel separada, la carga perezosa de Preparar, el análisis previo a Entregar y las etiquetas accesibles actuales. `npx vitest run --maxWorkers=1` pasa 426/426; `npm run test:e2e` pasa 22/22 y ejecuta build. Los gates beta, legal e IPC también pasan; RV07/RV09/RV10/RV11 siguen abiertos por evidencia externa. | `src/App.test.tsx`, `e2e/import-formats.spec.ts`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-21 | RV11: `npm run release:dry-run` sobre `1.25.0` valida árbol limpio, toolchains, documentación, IPC, gobernanza y legal técnico, y se detiene en el sign-off jurídico requerido antes de empaquetar. No se crean ni publican artefactos; el reporte queda en `.local/validation/20260921T232220Z-a8fb7b4-package.json`. | `tools/release.ps1`, `tools/check.ps1`, `ROADMAP.md`, `docs/reference/roadmap-current.md` |
 
 ## Documentos relacionados
 

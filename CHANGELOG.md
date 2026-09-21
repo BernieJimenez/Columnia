@@ -18,6 +18,9 @@ los artefactos de validación locales.
 - Las regresiones de `App` quedan alineadas con la inspección Excel separada, la
   carga perezosa de Preparar, el análisis previo a Entregar y los nombres
   accesibles vigentes; la suite frontend pasa 426/426 y Playwright 22/22.
+- El dry-run de release para `1.25.0` valida los gates técnicos y se detiene
+  antes del empaquetado cuando falta el sign-off jurídico obligatorio; no se
+  publican artefactos.
 
 ## [1.25.0] - 2026-09-21
 

@@ -27,6 +27,11 @@ llamadas, la carga perezosa de Preparar, el análisis antes de Entregar y los
 nombres accesibles vigentes. Los gates beta, legal e IPC pasan; RV07, RV09,
 RV10 y RV11 siguen requiriendo evidencia externa.
 
+`npm run release:dry-run` sobre `1.25.0` valida árbol limpio, toolchains,
+documentación, IPC, gobernanza y el gate legal técnico, pero se detiene en el
+sign-off jurídico antes de empaquetar. No se crean ni publican artefactos; el
+reporte es `.local/validation/20260921T232220Z-a8fb7b4-package.json`.
+
 Desde `ca745d9`, `list_projects` devuelve proyectos
 y candidato de recuperación en una sola respuesta y transacción de lectura
 SQLite bajo el token `projectCatalog`. La migración SQLite v15 agrega el índice
@@ -160,7 +165,7 @@ borrado explícito continúa bajo el gate si gana el commit del catálogo.
 | RV08 | **Regresiones derivadas de beta.** Cada fallo dependiente de datos se reduce a una fixture sintética, se reproduce antes de corregirse y obtiene una regresión pertinente. | Mantenimiento | RV07 | **Abierto — depende de hallazgos de RV07.** |
 | RV09 | **Aceptación nativa de accesibilidad.** Recorrido Cargar→Entregar en Windows con teclado y lector de pantalla real, incluidos modales, tablas, progreso, zoom y alto contraste. | QA accesibilidad | Mismo candidato de RV07 | **Abierto — requiere verificación nativa.** |
 | RV10 | **Aceptación SQL Server.** Exportar y releer `true`/`false`/`null` desde frame y fuente incremental conserva tipos y valores; registrar driver y configuración sin credenciales. | QA ODBC | Instancia SQL Server accesible | **Abierto — drivers ODBC 17/18 y `sqlcmd` instalados; falta una instancia conectable.** El servicio local `MSSQLSERVER` está detenido y esta sesión no pudo abrirlo; `(localdb)\MSSQLLocalDB` tampoco está disponible. El round-trip aún no se ejecutó. |
-| RV11 | **Candidato instalable y distribución.** Resolver notices y decisión por canal; probar en VM limpia instalación, reapertura, fallos/firmas del updater y recuperación sobre artefactos ligados al commit; volver a descargar y verificar hashes y firmas publicados. | Release + responsable de distribución | RV07, RV09 y decisiones externas | **Parcial — fuente únicamente aprobada.** GitHub permite publicar código fuente y la revisión técnica de notices está aprobada. Eso no autoriza instaladores/updater ni comercialización; faltan candidato/canal binario autorizado, VM limpia y verificación de los assets descargados. ONAPI sigue siendo requisito previo a comercializar. |
+| RV11 | **Candidato instalable y distribución.** Resolver notices y decisión por canal; probar en VM limpia instalación, reapertura, fallos/firmas del updater y recuperación sobre artefactos ligados al commit; volver a descargar y verificar hashes y firmas publicados. | Release + responsable de distribución | RV07, RV09 y decisiones externas | **Parcial — fuente únicamente aprobada.** GitHub permite publicar código fuente y la revisión técnica de notices está aprobada. `npm run release:dry-run` valida los gates locales y se detiene en el sign-off jurídico obligatorio antes de empaquetar; el reporte queda en `.local/validation/20260921T232220Z-a8fb7b4-package.json`. Eso no autoriza instaladores/updater ni comercialización; faltan aprobación jurídica, candidato/canal binario autorizado, VM limpia y verificación de assets descargados. ONAPI sigue siendo requisito previo a comercializar. |
 
 ## Siguiente valor — priorizar con evidencia de beta
 
