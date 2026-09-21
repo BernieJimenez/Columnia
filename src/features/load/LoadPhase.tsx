@@ -106,7 +106,7 @@ export function LoadPhase({
   const schemaMismatch = inspection.kind === "schema_mismatch" ? inspection : undefined;
   const importError = inspection.kind === "error"
     ? inspection.message
-    : sheetSelection?.error;
+    : undefined;
   const selectionDisabled = disabled || runtime.kind !== "connected" ||
     inspection.kind === "inspecting" ||
     inspection.kind === "workbook_inspecting" ||
