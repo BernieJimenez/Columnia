@@ -22909,7 +22909,8 @@ where
     });
     let mut dataset_file = File::open(&dataset_path)
         .map_err(|error| format!("No se pudo leer el dataset temporal del paquete: {error}"))?;
-    let (dataset_bytes, dataset_sha256) = hash_and_rewind(&mut dataset_file)?;
+    let (dataset_bytes, dataset_sha256) =
+        hash_and_rewind_with_cancel(&mut dataset_file, &is_cancelled)?;
     let mut files = vec![
         BundleFileManifest {
             path: "dataset.csv".to_owned(),
@@ -23369,13 +23370,21 @@ fn bundle_delivery_summary(
     lines.join("\n") + "\n"
 }
 
-fn hash_and_rewind(file: &mut File) -> Result<(u64, String), String> {
+fn hash_and_rewind_with_cancel<C>(
+    file: &mut File,
+    is_cancelled: &C,
+) -> Result<(u64, String), String>
+where
+    C: Fn() -> bool + ?Sized,
+{
+    ensure_not_cancelled(is_cancelled())?;
     file.seek(SeekFrom::Start(0))
         .map_err(|error| format!("No se pudo leer el dataset temporal del paquete: {error}"))?;
     let mut hasher = Sha256::new();
     let mut bytes = 0_u64;
     let mut buffer = [0_u8; 64 * 1024];
     loop {
+        ensure_not_cancelled(is_cancelled())?;
         let read = file
             .read(&mut buffer)
             .map_err(|error| format!("No se pudo calcular el hash del paquete: {error}"))?;
@@ -23383,10 +23392,13 @@ fn hash_and_rewind(file: &mut File) -> Result<(u64, String), String> {
             break;
         }
         hasher.update(&buffer[..read]);
-        bytes += read as u64;
+        bytes = bytes.checked_add(read as u64).ok_or_else(|| {
+            "El tamaño del dataset del paquete excede la capacidad local.".to_owned()
+        })?;
     }
     file.seek(SeekFrom::Start(0))
         .map_err(|error| format!("No se pudo rebobinar el dataset temporal: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
     Ok((bytes, hex::encode(hasher.finalize())))
 }
 
@@ -23419,7 +23431,8 @@ where
     dataset_file
         .sync_all()
         .map_err(|error| format!("No se pudo sincronizar el dataset del paquete: {error}"))?;
-    let (dataset_bytes, dataset_sha256) = hash_and_rewind(&mut dataset_file)?;
+    let (dataset_bytes, dataset_sha256) =
+        hash_and_rewind_with_cancel(&mut dataset_file, &is_cancelled)?;
     ensure_not_cancelled(is_cancelled())?;
     report("Preparando diccionario", 35);
 
