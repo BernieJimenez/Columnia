@@ -32,7 +32,7 @@ describe("informe de diagnóstico local", () => {
   it("requiere una acción explícita para generar y revisar el contrato de allowlist", () => {
     render(
       <DiagnosticsDialog
-        appVersion="0.168.0"
+        appVersion="1.25.0"
         activePhase="prepare"
         datasetMetrics={datasetMetrics}
         onDismiss={onDismiss}
@@ -59,7 +59,7 @@ describe("informe de diagnóstico local", () => {
   it("permite cancelar antes del preview sin abrir el guardado local", () => {
     render(
       <DiagnosticsDialog
-        appVersion="0.168.0"
+        appVersion="1.25.0"
         activePhase="review"
         datasetMetrics={null}
         onDismiss={onDismiss}
@@ -75,7 +75,7 @@ describe("informe de diagnóstico local", () => {
     vi.mocked(saveDiagnosticReport).mockResolvedValue(null);
     render(
       <DiagnosticsDialog
-        appVersion="0.168.0"
+        appVersion="1.25.0"
         activePhase="prepare"
         datasetMetrics={datasetMetrics}
         onDismiss={onDismiss}
@@ -93,7 +93,7 @@ describe("informe de diagnóstico local", () => {
     vi.mocked(saveDiagnosticReport).mockResolvedValue(undefined);
     render(
       <DiagnosticsDialog
-        appVersion="0.168.0"
+        appVersion="1.25.0"
         activePhase="deliver"
         datasetMetrics={null}
         onDismiss={onDismiss}
@@ -119,7 +119,7 @@ describe("informe de diagnóstico local", () => {
     }));
     render(
       <DiagnosticsDialog
-        appVersion="0.168.0"
+        appVersion="1.25.0"
         activePhase="prepare"
         datasetMetrics={datasetMetrics}
         onDismiss={onDismiss}

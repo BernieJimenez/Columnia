@@ -73,7 +73,7 @@ async function installSyntheticImportBridge(page: Page, fixture: SyntheticImport
       calls.push({ command, args });
       switch (command) {
         case "get_app_info":
-          return { name: "Columnia", version: "0.168.0", platform: "windows" };
+          return { name: "Columnia", version: "1.25.0", platform: "windows" };
         case "list_sample_datasets":
           return [];
         case "list_reusable_tasks":

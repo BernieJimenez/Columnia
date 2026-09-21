@@ -159,7 +159,7 @@ describe("desktop bridge", () => {
     const report: import("./bridge/diagnostics-contracts").DiagnosticReport = {
       contract: "columnia-diagnostic-report",
       schemaVersion: 1,
-      appVersion: "0.168.0",
+      appVersion: "1.25.0",
       phase: "prepare",
       status: "issue_reported",
       errorCodes: ["TRANSFORM_APPLY_FAILED"],

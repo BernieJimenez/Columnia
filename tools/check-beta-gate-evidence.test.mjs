@@ -12,8 +12,8 @@ const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const sessionTemplate = readFileSync(join(projectRoot, "docs", "templates", "beta-session.md"), "utf8");
 const summaryTemplate = readFileSync(join(projectRoot, "docs", "templates", "beta-summary.md"), "utf8");
 const commit = "a".repeat(40);
-const version = "0.168.0";
-const candidateId = "rc-0.168.0-aaaaaaaa-gate1";
+const version = "1.25.0";
+const candidateId = "rc-1.25.0-aaaaaaaa-gate1";
 
 function replaceOnce(source, before, after) {
   assert.ok(source.includes(before), `fixture source is missing: ${before}`);

@@ -9,11 +9,10 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `6053b87`, versión
-`0.167.0`; este corte verifica la revisión de esquema al guardar y reutilizar
-tareas y sincroniza el proyecto como `0.168.0`. Se mantiene la serie 0.x
-mientras siguen abiertos beta con datos reales, accesibilidad nativa, SQL Server
-y distribución binaria. La cola operativa vigente está en
+La base de este ajuste de versión fue `master` en `5348360`, versión
+`0.168.0`. A petición del usuario, el proyecto adopta `1.25.0` para reflejar
+el alcance acumulado. La versión no implica que estén cerrados los gates de beta
+con datos reales, accesibilidad nativa, SQL Server o distribución binaria. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
 resume el estado; esas fuentes definen los criterios de cierre.
@@ -481,9 +480,9 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este incremento parte de `6053b87`; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-21; este ajuste parte de `5348360`; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.168.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `1.25.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |

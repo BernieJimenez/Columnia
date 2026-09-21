@@ -19,7 +19,7 @@ async function installSyntheticTauriMock(page: Page) {
       invokeCalls.push(command);
       switch (command) {
         case "get_app_info":
-          return { name: "Columnia", version: "0.168.0", platform: "windows" };
+          return { name: "Columnia", version: "1.25.0", platform: "windows" };
         case "list_sample_datasets":
         case "list_reusable_tasks":
           return [];

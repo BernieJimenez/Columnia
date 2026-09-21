@@ -6,7 +6,7 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
-## [0.168.0] - 2026-09-21
+## [1.25.0] - 2026-09-21
 
 ### Añadido
 

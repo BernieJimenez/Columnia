@@ -4,7 +4,7 @@
   <p><strong>Convierte archivos desordenados en datasets confiables, sin sacar los datos de tu equipo.</strong></p>
   <p>Una estación de trabajo local para revisar, limpiar, transformar, validar y exportar datos.</p>
 
-  ![Versión](https://img.shields.io/badge/versión-0.168.0-176d62?style=flat-square)
+  ![Versión](https://img.shields.io/badge/versión-1.25.0-176d62?style=flat-square)
   ![Plataforma](https://img.shields.io/badge/plataforma-Windows%20x64-0078D4?style=flat-square&logo=windows11&logoColor=white)
   ![Privacidad](https://img.shields.io/badge/privacidad-local--first-143239?style=flat-square)
   [![Licencia MIT](https://img.shields.io/badge/licencia-MIT-f2c94c?style=flat-square)](LICENSE)
