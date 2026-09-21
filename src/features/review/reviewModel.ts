@@ -83,6 +83,7 @@ export function writeAnalysisSampleRowsPreference(
 export type ProfileStatus =
   | { kind: "idle" }
   | { kind: "loading"; progress: OperationProgress; cancelRequested: boolean }
+  | { kind: "cancelled" }
   | { kind: "ready"; profile: DatasetProfile }
   | { kind: "error"; message: string };
 

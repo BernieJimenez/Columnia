@@ -904,7 +904,7 @@ export function App() {
     } catch (error: unknown) {
       if (!isCurrentRequest()) return;
       if (isCancellationError(error)) {
-        setProfileStatus({ kind: "idle" });
+        setProfileStatus({ kind: "cancelled" });
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
@@ -1414,7 +1414,7 @@ export function App() {
   const progressValue = activePhaseIndex + 1;
   const profileGatedPhase = activePhase === "review" || activePhase === "prepare";
   const primaryNextLabel = profileGatedPhase && profileStatus.kind !== "ready"
-    ? profileStatus.kind === "error"
+    ? profileStatus.kind === "error" || profileStatus.kind === "cancelled"
       ? "Reintentar análisis"
       : profileStatus.kind === "loading"
         ? "Analizando calidad…"
@@ -1427,6 +1427,8 @@ export function App() {
   const primaryNextDescription = profileGatedPhase && profileStatus.kind !== "ready"
     ? profileStatus.kind === "error"
       ? "El análisis tuvo un problema; puedes intentarlo de nuevo."
+      : profileStatus.kind === "cancelled"
+        ? "El análisis se canceló y no publicó resultados parciales; puedes volver a intentarlo."
       : "El diagnóstico se inicia automáticamente al cargar y puede tardar según el tamaño."
     : profileGatedPhase
       ? activePhase === "review"
@@ -1437,7 +1439,13 @@ export function App() {
   function handleNextPhase() {
     if (!nextPhase) return;
     if (profileGatedPhase && profileStatus.kind !== "ready") {
-      if (profileStatus.kind === "idle" || profileStatus.kind === "error") void analyzeQuality();
+      if (
+        profileStatus.kind === "idle" ||
+        profileStatus.kind === "error" ||
+        profileStatus.kind === "cancelled"
+      ) {
+        void analyzeQuality();
+      }
       return;
     }
     setActivePhase(nextPhase.id);

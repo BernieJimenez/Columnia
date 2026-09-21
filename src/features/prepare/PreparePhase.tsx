@@ -483,6 +483,12 @@ export function PreparePhase({
           No se pudo analizar la calidad: {profileStatus.message} Reintenta desde el pie de la aplicación.
         </p>
       )}
+      {profileStatus.kind === "cancelled" && (
+        <p className="notice" role="status">
+          El diagnóstico se canceló y no publicó resultados parciales. Puedes
+          reintentarlo desde el pie de la aplicación.
+        </p>
+      )}
       {hasColumns && (
       <details className="advanced-corrections">
         <summary>

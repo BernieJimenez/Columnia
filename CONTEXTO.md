@@ -59,7 +59,9 @@ armado de filas comprueban la generación. Review mantiene visible la página pr
 hasta completar o cancelar. La conversión de rangos `.xls`/`.ods` ahora consulta
 cancelación por lotes después de que Calamine devuelve el rango completo. Otros
 comandos todavía tienen rutas sin token y las rutas canceladas descartan el
-resultado incompleto. En Entregar, la validación local de
+resultado incompleto. El perfil cancelado conserva un estado visible y confirma
+el descarte del resultado parcial; la acción principal permite reintentarlo bajo
+demanda. En Entregar, la validación local de
 reglas usa ahora el token `qualityValidation` y ofrece «Cancelar validación»; al
 cancelarse, conserva el gate previo y descarta el resultado incompleto. La fuente
 source-backed puede interrumpirse durante la materialización DuckDB, y la
@@ -142,6 +144,10 @@ En el fallback XLS/ODS de importación y comparación, `cargo fmt --check`,
 recibir el rango completo, el análisis, la conversión de columnas y la escritura
 de snapshots consultan el token entre filas, celdas y bloques; el parser síncrono
 de Calamine aún no se puede interrumpir.
+El análisis de calidad ahora conserva un estado visible si se cancela y explica
+que el resultado parcial se descartó; la acción principal permite reintentarlo
+sin repetir automáticamente el análisis. `npm run build` y `git diff --check`
+pasan; no se ejecutaron pruebas.
 Durante esta revisión, `cargo test --manifest-path src-tauri/Cargo.toml` compiló,
 pero Windows no inició el harness: terminó con `STATUS_ENTRYPOINT_NOT_FOUND`
 (`0xc0000139`) incluso al probar un manifiesto Common Controls v6 temporal. Por

@@ -780,6 +780,12 @@ function QualitySection({
             : { kind: "available", onCancel }}
         />
       )}
+      {status.kind === "cancelled" && (
+        <p className="notice" role="status">
+          El análisis se canceló. No se publicó ningún resultado parcial; puedes
+          reintentarlo desde la acción principal.
+        </p>
+      )}
       {status.kind === "error" && (
         <p className="notice notice--error" role="alert">
           No se pudo analizar la calidad: {status.message}
