@@ -29357,8 +29357,14 @@ pub async fn get_temporal_aggregation(
 }
 
 #[tauri::command]
-pub fn cancel_operation(state: State<'_, DatasetState>, operation: String) -> Result<(), String> {
-    state.cancel(&operation)
+pub fn cancel_operation(app: AppHandle, operation: String) -> Result<(), String> {
+    if operation == crate::reusable_tasks::REUSABLE_TASK_CATALOG_OPERATION {
+        app.state::<crate::reusable_tasks::ReusableTaskState>()
+            .cancel_catalog();
+        Ok(())
+    } else {
+        app.state::<DatasetState>().cancel(&operation)
+    }
 }
 
 #[tauri::command]

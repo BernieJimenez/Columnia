@@ -1,4 +1,12 @@
-use std::{collections::HashSet, fs, path::PathBuf, sync::Mutex};
+use std::{
+    collections::HashSet,
+    fs,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
+};
 
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
@@ -7,13 +15,14 @@ use tauri::{AppHandle, Manager};
 use crate::dataset::{
     validate_import_exception_policy, validate_import_profile, validate_reusable_quality_rules,
     validate_reusable_recipe, ImportExceptionPolicy, ImportProfile, ImportProfileColumn,
-    ImportProfileTypeChange, QualityRule, StoredTransformRecipe,
+    ImportProfileTypeChange, QualityRule, StoredTransformRecipe, OPERATION_CANCELLED_MESSAGE,
 };
 
 const TASK_SCHEMA_VERSION: i64 = 1;
 const TASK_DOCUMENT_VERSION: u8 = 1;
 const TASK_ID_LENGTH: usize = 32;
 const MAX_TASK_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const REUSABLE_TASK_CATALOG_OPERATION: &str = "reusableTaskCatalog";
 
 /// Configuration local reusable between files. It intentionally has no source path,
 /// database target, credentials, table policy, or overwrite authorization.
@@ -64,6 +73,7 @@ pub struct ReusableTaskSchemaCompatibility {
 pub struct ReusableTaskState {
     store: TaskStore,
     operation: Mutex<()>,
+    catalog_generation: AtomicU64,
 }
 
 impl ReusableTaskState {
@@ -71,7 +81,22 @@ impl ReusableTaskState {
         Ok(Self {
             store: TaskStore::initialize(app_data_dir)?,
             operation: Mutex::new(()),
+            catalog_generation: AtomicU64::new(0),
         })
+    }
+
+    fn begin_catalog(&self) -> u64 {
+        self.catalog_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
+    pub(crate) fn cancel_catalog(&self) {
+        self.catalog_generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn catalog_was_cancelled(&self, generation: u64) -> bool {
+        self.catalog_generation.load(Ordering::SeqCst) != generation
     }
 }
 
@@ -130,19 +155,31 @@ impl TaskStore {
         transaction.commit().map_err(|_| storage_error())
     }
 
-    fn list(&self) -> Result<Vec<ReusableTaskSummary>, String> {
+    fn list_with_cancel(
+        &self,
+        is_cancelled: impl Fn() -> bool,
+    ) -> Result<Vec<ReusableTaskSummary>, String> {
+        ensure_task_catalog_not_cancelled(&is_cancelled)?;
         let connection = self.connection()?;
+        ensure_task_catalog_not_cancelled(&is_cancelled)?;
         let mut statement = connection
             .prepare(
                 "SELECT id, name, document_json, created_at, updated_at
                  FROM reusable_tasks ORDER BY updated_at DESC, id ASC",
             )
             .map_err(|_| storage_error())?;
-        let rows = statement
-            .query_map([], task_summary_from_row)
-            .map_err(|_| storage_error())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|_| storage_error())
+        let mut rows = statement.query([]).map_err(|_| storage_error())?;
+        let mut tasks = Vec::new();
+        loop {
+            ensure_task_catalog_not_cancelled(&is_cancelled)?;
+            let Some(row) = rows.next().map_err(|_| storage_error())? else {
+                break;
+            };
+            tasks.push(task_summary_from_row(row).map_err(|_| storage_error())?);
+            ensure_task_catalog_not_cancelled(&is_cancelled)?;
+        }
+        ensure_task_catalog_not_cancelled(&is_cancelled)?;
+        Ok(tasks)
     }
 
     fn open(&self, task_id: String) -> Result<ReusableTask, String> {
@@ -423,6 +460,14 @@ fn storage_error() -> String {
     "No se pudo acceder al catálogo local de tareas.".to_owned()
 }
 
+fn ensure_task_catalog_not_cancelled(is_cancelled: &impl Fn() -> bool) -> Result<(), String> {
+    if is_cancelled() {
+        Err(OPERATION_CANCELLED_MESSAGE.to_owned())
+    } else {
+        Ok(())
+    }
+}
+
 async fn run_task_operation<T, F>(app: AppHandle, operation: F) -> Result<T, String>
 where
     T: Send + 'static,
@@ -442,7 +487,13 @@ where
 
 #[tauri::command]
 pub async fn list_reusable_tasks(app: AppHandle) -> Result<Vec<ReusableTaskSummary>, String> {
-    run_task_operation(app, |store| store.list()).await
+    let generation = app.state::<ReusableTaskState>().begin_catalog();
+    let cancellation_app = app.clone();
+    run_task_operation(app, move |store| {
+        let state = cancellation_app.state::<ReusableTaskState>();
+        store.list_with_cancel(|| state.catalog_was_cancelled(generation))
+    })
+    .await
 }
 
 #[tauri::command]

@@ -113,13 +113,43 @@ export function ReusableTaskPanel({
       </summary>
       <div className="load-secondary__content">
         {reusableTasks.catalogState === "loading" && (
-          <p className="recipe-hint" role="status">Cargando tareas guardadas…</p>
+          <div className="reusable-task-panel__catalog-status">
+            <p className="recipe-hint" role="status">Cargando tareas guardadas…</p>
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => void reusableTasks.cancelRefresh()}
+            >
+              Cancelar carga
+            </button>
+          </div>
         )}
         {reusableTasks.catalogState === "unavailable" && (
           <p className="recipe-hint" role="status">Las tareas reutilizables están disponibles en la aplicación de escritorio.</p>
         )}
         {reusableTasks.catalogState === "error" && (
-          <p className="recipe-error" role="alert">No se pudieron cargar las tareas guardadas.</p>
+          <div>
+            <p className="recipe-error" role="alert">No se pudieron cargar las tareas guardadas.</p>
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => void reusableTasks.refresh()}
+            >
+              Reintentar carga
+            </button>
+          </div>
+        )}
+        {reusableTasks.catalogState === "cancelled" && (
+          <div>
+            <p className="recipe-hint" role="status">La carga de tareas se canceló.</p>
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => void reusableTasks.refresh()}
+            >
+              Reintentar carga
+            </button>
+          </div>
         )}
         {reusableTasks.error && <p className="recipe-error" role="alert">{reusableTasks.error}</p>}
 

@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `ad10fb4`, versión
+La base de este incremento fue `master` en `94b7fe5`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -86,6 +86,13 @@ entre bloques, durante la detección del delimitador y entre los dos parseos de
 interpretación. La carga completa CSV/TSV/TXT también usa el detector cancelable
 antes de iniciar la lectura Polars. Las llamadas individuales de archivo y
 Polars siguen siendo síncronas y observan la cancelación cuando retornan.
+
+El catálogo local de tareas reutilizables usa `reusableTaskCatalog` y consulta
+cancelación al avanzar por las filas SQLite y antes y después de deserializar
+cada resumen. El panel ofrece «Cancelar carga» y reintento; la UI descarta
+respuestas obsoletas y no publica un catálogo parcial. Una lectura SQLite o la
+deserialización de un documento individual siguen siendo síncronas y observan
+la cancelación cuando retornan.
 
 Abrir un proyecto y restaurar una versión usan `projectOpen`: consultan la
 cancelación durante el hash por bloques, el conteo DuckDB, la lectura Parquet y

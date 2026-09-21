@@ -21,7 +21,7 @@ por bloques y descartan la generación staged si cancelar gana antes del commit;
 `sync_all` y SQLite siguen siendo tramos síncronos. El borrado usa
 `projectDelete`: cancelar antes del gate conserva catálogo y archivos; si el
 gate gana, el borrado y la limpieza terminan bajo ese gate. SQLite y
-`remove_dir_all` siguen siendo síncronos. El incremento actual sobre `ad10fb4`
+`remove_dir_all` siguen siendo síncronos. El incremento sobre `ad10fb4`
 hace que la vista previa de encabezados CSV/TSV use la generación `load`: la
 muestra de 64 KiB se lee en bloques de 8 KiB, el token se revisa entre bloques
 y parseos síncronos, y el diálogo cancela antes de descartar la selección. La
@@ -29,6 +29,12 @@ carga completa usa el mismo detector cancelable antes de comenzar la lectura
 Polars. Pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`,
 `npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron
 pruebas de producto.
+
+El incremento actual sobre `94b7fe5` añade `reusableTaskCatalog` para cancelar la
+enumeración local de tareas entre filas SQLite y deserializaciones, con
+«Cancelar carga» y reintento en el panel. Una operación SQLite o la
+deserialización individual siguen siendo síncronas; la UI descarta respuestas
+obsoletas y el backend descarta el resultado si cancelar gana.
 
 ## Ahora — completar el flujo automático
 

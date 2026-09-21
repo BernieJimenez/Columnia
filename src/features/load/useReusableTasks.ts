@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  cancelOperation,
   checkReusableTaskSchema,
   deleteReusableTask,
   listReusableTasks,
@@ -12,7 +13,7 @@ import {
   type ReusableTaskSummary,
 } from "../../bridge";
 
-export type ReusableTaskCatalogState = "unavailable" | "loading" | "ready" | "error";
+export type ReusableTaskCatalogState = "unavailable" | "loading" | "ready" | "error" | "cancelled";
 export type ReusableTaskOperation = "open" | "save" | "delete" | "check_schema";
 
 export interface OpenedReusableTask {
@@ -39,6 +40,7 @@ export interface ReusableTasksController {
   openedTask: OpenedReusableTask | null;
   schemaCheck: ReusableTaskSchemaCheck | null;
   refresh: () => Promise<void>;
+  cancelRefresh: () => Promise<void>;
   open: (taskId: string) => Promise<ReusableTask | null>;
   save: (taskId: string | null, task: ReusableTask) => Promise<ReusableTaskSummary | null>;
   remove: (taskId: string) => Promise<boolean>;
@@ -82,6 +84,7 @@ export function useReusableTasks({
   const operationGeneration = useRef(0);
   const catalogGeneration = useRef(0);
   const catalogStateRef = useRef<ReusableTaskCatalogState>(initialCatalogState);
+  const catalogStateBeforeRefreshRef = useRef<ReusableTaskCatalogState>(initialCatalogState);
 
   const changeCatalogState = useCallback((next: ReusableTaskCatalogState) => {
     catalogStateRef.current = next;
@@ -90,6 +93,9 @@ export function useReusableTasks({
 
   const refresh = useCallback(async () => {
     if (!optionsRef.current.connected || operationLock.current) return;
+    if (catalogStateRef.current !== "loading") {
+      catalogStateBeforeRefreshRef.current = catalogStateRef.current;
+    }
     const request = ++catalogGeneration.current;
     changeCatalogState("loading");
     setError(null);
@@ -106,6 +112,21 @@ export function useReusableTasks({
         || !optionsRef.current.connected) return;
       changeCatalogState("error");
       setError(errorMessage(cause));
+    }
+  }, [changeCatalogState]);
+
+  const cancelRefresh = useCallback(async () => {
+    if (!optionsRef.current.connected || catalogStateRef.current !== "loading") return;
+    const request = ++catalogGeneration.current;
+    const previousState = catalogStateBeforeRefreshRef.current;
+    changeCatalogState(previousState === "ready" ? "ready" : "cancelled");
+    setError(null);
+    try {
+      await cancelOperation("reusableTaskCatalog");
+    } catch (cause: unknown) {
+      if (mountedRef.current && request === catalogGeneration.current) {
+        setError(errorMessage(cause));
+      }
     }
   }, [changeCatalogState]);
 
@@ -229,6 +250,7 @@ export function useReusableTasks({
     openedTask,
     schemaCheck,
     refresh,
+    cancelRefresh,
     open,
     save,
     remove,
