@@ -16378,9 +16378,24 @@ fn delimited_header_mode_preview(
     })
 }
 
+#[cfg(test)]
 fn delimited_header_review(path: &Path, extension: &str) -> Result<DelimitedHeaderReview, String> {
+    delimited_header_review_with_cancel(path, extension, || false)
+}
+
+fn delimited_header_review_with_cancel<C>(
+    path: &Path,
+    extension: &str,
+    is_cancelled: C,
+) -> Result<DelimitedHeaderReview, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let separator = detect_delimiter(path, extension)?;
+    ensure_not_cancelled(is_cancelled())?;
     let (sample, complete) = read_utf8_delimited_sample(path)?;
+    ensure_not_cancelled(is_cancelled())?;
     let sample = complete_delimited_sample_prefix(&sample, complete)?;
     let mut bounded_sample = tempfile::NamedTempFile::new()
         .map_err(|error| format!("No se pudo preparar la muestra de encabezados: {error}"))?;
@@ -16390,6 +16405,7 @@ fn delimited_header_review(path: &Path, extension: &str) -> Result<DelimitedHead
     bounded_sample
         .flush()
         .map_err(|error| format!("No se pudo preparar la muestra de encabezados: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
 
     let sample_truncated = !complete;
     let first_row = delimited_header_mode_preview(
@@ -16398,12 +16414,14 @@ fn delimited_header_review(path: &Path, extension: &str) -> Result<DelimitedHead
         SpreadsheetHeaderMode::FirstRow,
         sample_truncated,
     )?;
+    ensure_not_cancelled(is_cancelled())?;
     let generated = delimited_header_mode_preview(
         bounded_sample.path(),
         separator,
         SpreadsheetHeaderMode::Generated,
         sample_truncated,
     )?;
+    ensure_not_cancelled(is_cancelled())?;
     Ok(DelimitedHeaderReview {
         delimiter: char::from(separator).to_string(),
         first_row,
@@ -28293,9 +28311,10 @@ pub async fn inspect_dropped_dataset(
 
 #[tauri::command]
 pub async fn preview_delimited_header_review(
-    state: State<'_, DatasetState>,
+    app: AppHandle,
     selection_id: String,
 ) -> Result<DelimitedHeaderReview, String> {
+    let state = app.state::<DatasetState>();
     let pending = {
         let selection = state
             .pending_selection
@@ -28308,12 +28327,19 @@ pub async fn preview_delimited_header_review(
         if pending.id != selection_id {
             return Err("La selección no coincide con el archivo pendiente.".to_owned());
         }
+        ensure_not_cancelled(state.load_was_cancelled(pending.generation))?;
         pending
     };
 
+    let generation = pending.generation;
+    let expected_size = pending.file_size_bytes;
+    let cancellation_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let state = cancellation_app.state::<DatasetState>();
+        ensure_not_cancelled(state.load_was_cancelled(generation))?;
         let (path, file_size_bytes, extension) = validate_dataset_file(&pending.path)?;
-        if file_size_bytes != pending.file_size_bytes {
+        ensure_not_cancelled(state.load_was_cancelled(generation))?;
+        if file_size_bytes != expected_size {
             return Err(
                 "El archivo cambió después de seleccionarlo; vuelve a elegirlo.".to_owned(),
             );
@@ -28324,15 +28350,20 @@ pub async fn preview_delimited_header_review(
                     .to_owned(),
             );
         }
-        let review = delimited_header_review(&path, &extension)?;
+        let review = delimited_header_review_with_cancel(&path, &extension, || {
+            state.load_was_cancelled(generation)
+        })?;
+        ensure_not_cancelled(state.load_was_cancelled(generation))?;
         let size_after_preview = fs::metadata(&path)
             .map_err(|error| {
                 format!("No se pudieron verificar los metadatos del archivo: {error}")
             })?
             .len();
-        if size_after_preview != pending.file_size_bytes {
+        ensure_not_cancelled(state.load_was_cancelled(generation))?;
+        if size_after_preview != expected_size {
             return Err("El archivo cambió durante la vista previa; vuelve a elegirlo.".to_owned());
         }
+        ensure_not_cancelled(state.load_was_cancelled(generation))?;
         Ok(review)
     })
     .await

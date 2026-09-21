@@ -772,12 +772,21 @@ export function App() {
       : undefined;
     setLoadInspection({ kind: "idle" });
     if (source) {
+      let cancellationError: string | null = null;
+      try {
+        await cancelOperation("load");
+      } catch (error: unknown) {
+        cancellationError = error instanceof Error ? error.message : String(error);
+      }
       try {
         await discardDatasetSelection(source.selectionId);
       } catch (error: unknown) {
+        cancellationError ??= error instanceof Error ? error.message : String(error);
+      }
+      if (cancellationError) {
         setLoadInspection({
           kind: "error",
-          message: error instanceof Error ? error.message : String(error),
+          message: cancellationError,
         });
       }
     }
