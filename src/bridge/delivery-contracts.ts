@@ -16,6 +16,7 @@ export type CancellableOperation =
   | "databasePreflight"
   | "reviewMutation"
   | "projectCatalog"
+  | "projectVersions"
   | "projectDelete"
   | "projectSave"
   | "projectOpen"

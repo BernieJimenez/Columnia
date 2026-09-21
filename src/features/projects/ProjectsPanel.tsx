@@ -29,6 +29,7 @@ interface ProjectsPanelProps {
   saveCancellationPending?: boolean;
   autoSaveCancellationPending?: boolean;
   deleteCancellationPending?: boolean;
+  versionsCancellationPending?: boolean;
   onSave: (name: string) => void;
   onCancelCatalogLoad?: () => void;
   onCancelSave?: () => void;
@@ -42,6 +43,8 @@ interface ProjectsPanelProps {
   onDeleteCancel: () => void;
   onDeleteConfirm: () => void;
   onCancelDeleteOperation?: () => void;
+  onCancelVersionsLoad?: () => void;
+  onRetryVersions?: () => void;
   onRetry: () => void;
   onClearFeedback: () => void;
 }
@@ -70,6 +73,7 @@ export function ProjectsPanel({
   saveCancellationPending = false,
   autoSaveCancellationPending = false,
   deleteCancellationPending = false,
+  versionsCancellationPending = false,
   onSave,
   onCancelCatalogLoad,
   onCancelSave,
@@ -83,6 +87,8 @@ export function ProjectsPanel({
   onDeleteCancel,
   onDeleteConfirm,
   onCancelDeleteOperation,
+  onCancelVersionsLoad,
+  onRetryVersions,
   onRetry,
   onClearFeedback,
 }: ProjectsPanelProps) {
@@ -247,8 +253,45 @@ export function ProjectsPanel({
                           )}
                           {autoSave.kind === "saved" && <small role="status">Guardado automáticamente · {projectDate(autoSave.savedAt)}</small>}
                           {autoSave.kind === "error" && <small className="project-autosave__error" role="alert">Error al guardar automáticamente: {autoSave.message}</small>}
-                          {versions.kind === "loading" && <small role="status">Cargando versiones…</small>}
-                          {versions.kind === "error" && <small className="project-autosave__error" role="alert">No se pudieron cargar las versiones: {versions.message}</small>}
+                          {versions.kind === "loading" && (
+                            <div className="project-continuity__saving">
+                              <small role="status">
+                                {versionsCancellationPending ? "Cancelando carga de versiones…" : "Cargando versiones…"}
+                              </small>
+                              {onCancelVersionsLoad && (
+                                <button
+                                  type="button"
+                                  className="secondary-action"
+                                  onClick={onCancelVersionsLoad}
+                                  disabled={versionsCancellationPending}
+                                >
+                                  {versionsCancellationPending ? "Cancelando…" : "Cancelar carga"}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          {versions.kind === "cancelled" && (
+                            <div className="project-continuity__saving">
+                              <small role="status">Se canceló la carga de versiones.</small>
+                              {onRetryVersions && (
+                                <button type="button" className="secondary-action" onClick={onRetryVersions} disabled={disabled}>
+                                  Reintentar carga
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          {versions.kind === "error" && (
+                            <div className="project-continuity__saving">
+                              <small className="project-autosave__error" role="alert">
+                                No se pudieron cargar las versiones: {versions.message}
+                              </small>
+                              {onRetryVersions && (
+                                <button type="button" className="secondary-action" onClick={onRetryVersions} disabled={disabled}>
+                                  Reintentar carga
+                                </button>
+                              )}
+                            </div>
+                          )}
                           {versions.kind === "ready" && versions.versions.length > 0 && (
                             <details className="project-versions">
                               <summary>Versiones anteriores ({versions.versions.length})</summary>

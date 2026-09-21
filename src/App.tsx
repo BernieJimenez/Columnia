@@ -1752,6 +1752,7 @@ export function App() {
                   deletion={projects.deletion}
                   activeProject={projects.activeProject}
                   versions={projects.versions}
+                  versionsCancellationPending={projects.versionsCancellationPending}
                   autoSave={projects.autoSave}
                   autoSaveEnabled={projects.autoSaveEnabled}
                   datasetFileName={activeDataset?.dataset.fileName ?? null}
@@ -1773,6 +1774,10 @@ export function App() {
                   onDeleteCancel={projects.cancelDelete}
                   onDeleteConfirm={() => void projects.confirmDelete()}
                   onCancelDeleteOperation={() => void projects.cancelProjectDelete()}
+                  onCancelVersionsLoad={() => void projects.cancelVersionsLoad()}
+                  onRetryVersions={() => {
+                    if (projects.activeProject) void projects.refreshVersions(projects.activeProject.id);
+                  }}
                   onRetry={() => void projects.refresh()}
                   onClearFeedback={projects.clearFeedback}
                 />

@@ -2794,6 +2794,7 @@ pub struct DatasetState {
     project_delete_generation: std::sync::Arc<AtomicU64>,
     project_delete_commit_lock: Mutex<()>,
     project_catalog_generation: std::sync::Arc<AtomicU64>,
+    project_versions_generation: std::sync::Arc<AtomicU64>,
     dataset_comparison_generation: AtomicU64,
     dataset_comparison_commit_lock: Mutex<()>,
     quality_validation_generation: AtomicU64,
@@ -3325,6 +3326,11 @@ impl DatasetState {
     fn cancel(&self, operation: &str) -> Result<(), String> {
         if operation == "projectCatalog" {
             self.project_catalog_generation
+                .fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
+        if operation == "projectVersions" {
+            self.project_versions_generation
                 .fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
@@ -39509,6 +39515,21 @@ impl DatasetState {
         generation: u64,
     ) -> std::sync::Arc<dyn Fn() -> bool + Send + Sync> {
         let current_generation = std::sync::Arc::clone(&self.project_catalog_generation);
+        std::sync::Arc::new(move || current_generation.load(Ordering::SeqCst) != generation)
+    }
+
+    pub(crate) fn begin_project_versions(&self) -> Result<u64, String> {
+        Ok(self
+            .project_versions_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1))
+    }
+
+    pub(crate) fn project_versions_cancellation(
+        &self,
+        generation: u64,
+    ) -> std::sync::Arc<dyn Fn() -> bool + Send + Sync> {
+        let current_generation = std::sync::Arc::clone(&self.project_versions_generation);
         std::sync::Arc::new(move || current_generation.load(Ordering::SeqCst) != generation)
     }
 

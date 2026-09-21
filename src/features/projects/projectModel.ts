@@ -31,6 +31,7 @@ export type ProjectDeletionState =
 export type ProjectVersionsState =
   | { kind: "loading" }
   | { kind: "ready"; versions: ProjectVersionSummary[] }
+  | { kind: "cancelled" }
   | { kind: "error"; message: string };
 
 export type ProjectAutoSaveState =

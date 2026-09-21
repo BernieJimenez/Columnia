@@ -83,6 +83,7 @@ export function useProjectsController({
   const [operation, setOperation] = useState<ProjectOperationState>({ kind: "idle" });
   const [deletion, setDeletion] = useState<ProjectDeletionState>({ kind: "idle" });
   const [versions, setVersions] = useState<ProjectVersionsState>({ kind: "ready", versions: [] });
+  const [versionsCancellationPending, setVersionsCancellationPending] = useState(false);
   const [autoSavePreference, setAutoSavePreference] = useState<{
     projectId: string | null;
     enabled: boolean;
@@ -173,6 +174,7 @@ export function useProjectsController({
   const refreshVersions = useCallback(async (projectId: string) => {
     const requestId = ++versionsRequestGeneration.current;
     versionsProjectId.current = projectId;
+    setVersionsCancellationPending(false);
     setVersions({ kind: "loading" });
     try {
       const projectVersions = await listProjectVersions(projectId);
@@ -180,15 +182,37 @@ export function useProjectsController({
       setVersions({ kind: "ready", versions: projectVersions });
     } catch (error: unknown) {
       if (versionsRequestGeneration.current !== requestId) return;
+      if (isCancellationError(error)) {
+        setVersions({ kind: "cancelled" });
+        return;
+      }
       setVersions({ kind: "error", message: errorMessage(error) });
+    } finally {
+      if (versionsRequestGeneration.current === requestId) {
+        setVersionsCancellationPending(false);
+      }
     }
   }, []);
+
+  const cancelVersionsLoad = useCallback(async () => {
+    if (versions.kind !== "loading" || versionsCancellationPending) return;
+    const requestId = versionsRequestGeneration.current;
+    setVersionsCancellationPending(true);
+    try {
+      await cancelOperation("projectVersions");
+    } catch (error: unknown) {
+      if (versionsRequestGeneration.current !== requestId) return;
+      setVersionsCancellationPending(false);
+      setVersions({ kind: "error", message: errorMessage(error) });
+    }
+  }, [versions.kind, versionsCancellationPending]);
 
   useEffect(() => {
     const projectId = activeProject?.id ?? null;
     if (!connected || !projectId) {
       versionsRequestGeneration.current += 1;
       versionsProjectId.current = null;
+      setVersionsCancellationPending(false);
       setVersions({ kind: "ready", versions: [] });
       return;
     }
@@ -522,7 +546,9 @@ export function useProjectsController({
     cancelOpen,
     openCancellationPending,
     versions: visibleVersions,
+    versionsCancellationPending,
     refreshVersions,
+    cancelVersionsLoad,
     restore,
     cancelRestore,
     restoreCancellationPending,

@@ -293,43 +293,83 @@ impl ProjectStore {
     }
 
     fn ensure_initialized(&self) -> Result<(), String> {
+        self.ensure_initialized_with_cancel(|| false)
+    }
+
+    fn ensure_initialized_with_cancel<C>(&self, is_cancelled: C) -> Result<(), String>
+    where
+        C: Fn() -> bool + Sync,
+    {
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         let mut initialized = self
             .initialized
             .lock()
             .map_err(|_| "El catálogo de proyectos no está disponible.".to_owned())?;
         if *initialized {
+            ensure_project_operation_not_cancelled(is_cancelled())?;
             return Ok(());
         }
         self.migrate()?;
-        self.reconcile_orphan_generations();
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        self.reconcile_orphan_generations_with_cancel(&is_cancelled)?;
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         *initialized = true;
         Ok(())
     }
 
-    fn reconcile_orphan_generations(&self) {
-        let active = self
-            .connection()
-            .ok()
-            .and_then(|connection| {
-                let mut statement = connection
-                    .prepare(
-                        "SELECT generation_name FROM projects WHERE generation_name IS NOT NULL
-                         UNION SELECT generation_name FROM project_versions
-                         WHERE generation_name IS NOT NULL",
-                    )
-                    .ok()?;
-                let rows = statement
-                    .query_map([], |row| row.get::<_, String>(0))
-                    .ok()?;
-                Some(rows.filter_map(Result::ok).collect::<HashSet<_>>())
-            })
-            .unwrap_or_default();
-        let _ = crate::project_recovery::reconcile_orphan_generations(
+    fn active_generation_names_with_cancel<C>(
+        &self,
+        is_cancelled: &C,
+    ) -> Result<HashSet<String>, String>
+    where
+        C: Fn() -> bool + Sync,
+    {
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        let connection = self.connection()?;
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        let mut active = HashSet::new();
+        for query in [
+            "SELECT generation_name FROM projects WHERE generation_name IS NOT NULL",
+            "SELECT generation_name FROM project_versions WHERE generation_name IS NOT NULL",
+        ] {
+            let mut statement = connection.prepare(query).map_err(|_| storage_error())?;
+            let mut rows = statement.query([]).map_err(|_| storage_error())?;
+            loop {
+                ensure_project_operation_not_cancelled(is_cancelled())?;
+                let Some(row) = rows.next().map_err(|_| storage_error())? else {
+                    break;
+                };
+                active.insert(row.get::<_, String>(0).map_err(|_| storage_error())?);
+                ensure_project_operation_not_cancelled(is_cancelled())?;
+            }
+        }
+        Ok(active)
+    }
+
+    fn reconcile_orphan_generations_with_cancel<C>(&self, is_cancelled: &C) -> Result<(), String>
+    where
+        C: Fn() -> bool + Sync,
+    {
+        let active = match self.active_generation_names_with_cancel(is_cancelled) {
+            Ok(active) => active,
+            Err(_) if is_cancelled() => {
+                return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+            }
+            Err(_) => {
+                // Recovery cleanup is optional. Never treat a failed catalog read as an empty
+                // reference set, because that could remove generations still used by projects.
+                return Ok(());
+            }
+        };
+        crate::project_recovery::reconcile_orphan_generations_with_cancel(
             &self.snapshots,
             &active,
             SystemTime::now(),
             Duration::from_secs(60 * 60),
-        );
+            || is_cancelled(),
+        )
+        .map(|_| ())
+        .map_err(|_| OPERATION_CANCELLED_MESSAGE.to_owned())
     }
 
     fn connection(&self) -> Result<Connection, String> {
@@ -700,7 +740,7 @@ impl ProjectStore {
         C: Fn() -> bool + Sync,
     {
         ensure_project_operation_not_cancelled(is_cancelled())?;
-        self.ensure_initialized()?;
+        self.ensure_initialized_with_cancel(&is_cancelled)?;
         ensure_project_operation_not_cancelled(is_cancelled())?;
         let connection = self.connection()?;
         self.list_from_connection(&connection, &is_cancelled)
@@ -711,7 +751,7 @@ impl ProjectStore {
         C: Fn() -> bool + Sync,
     {
         ensure_project_operation_not_cancelled(is_cancelled())?;
-        self.ensure_initialized()?;
+        self.ensure_initialized_with_cancel(&is_cancelled)?;
         ensure_project_operation_not_cancelled(is_cancelled())?;
         let mut connection = self.connection()?;
         let transaction = connection.transaction().map_err(|_| storage_error())?;
@@ -792,11 +832,28 @@ impl ProjectStore {
             .transpose()
     }
 
+    #[cfg(test)]
     fn list_versions(&self, project_id: &str) -> Result<Vec<ProjectVersionSummary>, String> {
-        self.ensure_initialized()?;
+        self.list_versions_with_cancel(project_id, || false)
+    }
+
+    fn list_versions_with_cancel<C>(
+        &self,
+        project_id: &str,
+        is_cancelled: C,
+    ) -> Result<Vec<ProjectVersionSummary>, String>
+    where
+        C: Fn() -> bool + Sync,
+    {
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         validate_id(project_id)?;
+        self.ensure_initialized_with_cancel(&is_cancelled)?;
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         let connection = self.connection()?;
-        if self.stored_project(&connection, project_id)?.is_none() {
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        let project_exists = self.stored_project(&connection, project_id)?.is_some();
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        if !project_exists {
             return Err("El proyecto solicitado no existe.".to_owned());
         }
         let mut statement = connection
@@ -806,19 +863,21 @@ impl ProjectStore {
             )
             .map_err(|_| storage_error())?;
         let version_limit = i64::try_from(MAX_PROJECT_VERSIONS).map_err(|_| storage_error())?;
-        let rows = statement
-            .query_map(params![project_id, version_limit], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                ))
-            })
+        let mut rows = statement
+            .query(params![project_id, version_limit])
             .map_err(|_| storage_error())?;
-        let mut versions = Vec::new();
-        for row in rows {
-            let (id, created_at, payload_json, storage_bytes) = row.map_err(|_| storage_error())?;
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        let mut versions = Vec::with_capacity(MAX_PROJECT_VERSIONS);
+        loop {
+            ensure_project_operation_not_cancelled(is_cancelled())?;
+            let Some(row) = rows.next().map_err(|_| storage_error())? else {
+                break;
+            };
+            let id = row.get::<_, i64>(0).map_err(|_| storage_error())?;
+            let created_at = row.get::<_, String>(1).map_err(|_| storage_error())?;
+            let payload_json = row.get::<_, String>(2).map_err(|_| storage_error())?;
+            let storage_bytes = row.get::<_, i64>(3).map_err(|_| storage_error())?;
+            ensure_project_operation_not_cancelled(is_cancelled())?;
             let stored = decode_project_version(&payload_json)?;
             if stored.summary.id != project_id {
                 return Err(storage_error());
@@ -832,6 +891,7 @@ impl ProjectStore {
                 storage_bytes: u64::try_from(storage_bytes).unwrap_or(0),
             });
         }
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         Ok(versions)
     }
 
@@ -845,7 +905,7 @@ impl ProjectStore {
         C: Fn() -> bool + Send + Sync + Clone + 'static,
     {
         ensure_project_open_not_cancelled(is_cancelled())?;
-        self.ensure_initialized()?;
+        self.ensure_initialized_with_cancel(&is_cancelled)?;
         validate_id(project_id)?;
         if version_id <= 0 {
             return Err("La versión del proyecto no es válida.".to_owned());
@@ -1217,7 +1277,7 @@ impl ProjectStore {
         C: Fn() -> bool + Clone + Send + Sync + 'static,
     {
         ensure_project_save_not_cancelled(is_cancelled())?;
-        self.ensure_initialized()?;
+        self.ensure_initialized_with_cancel(&is_cancelled)?;
         let name = validate_name(name)?;
         if let Some(id) = project_id.as_deref() {
             validate_id(id)?;
@@ -1467,7 +1527,7 @@ impl ProjectStore {
         C: Fn() -> bool + Send + Sync + Clone + 'static,
     {
         ensure_project_open_not_cancelled(is_cancelled())?;
-        self.ensure_initialized()?;
+        self.ensure_initialized_with_cancel(&is_cancelled)?;
         validate_id(project_id)?;
         let connection = self.connection()?;
         let stored = self
@@ -1630,7 +1690,7 @@ impl ProjectStore {
         C: Fn() -> bool + Sync,
     {
         ensure_project_operation_not_cancelled(is_cancelled())?;
-        self.ensure_initialized()?;
+        self.ensure_initialized_with_cancel(&is_cancelled)?;
         validate_id(&project_id)?;
         let mut connection = self.connection()?;
         let stored = self
@@ -2790,7 +2850,6 @@ where
             .lock()
             .map_err(|_| "El catálogo de proyectos no está disponible.".to_owned())?;
         let dataset_state = app.state::<DatasetState>();
-        project_state.store.ensure_initialized()?;
         operation(&project_state.store, &dataset_state)
     })
     .await
@@ -2814,7 +2873,14 @@ pub async fn list_project_versions(
     app: AppHandle,
     project_id: String,
 ) -> Result<Vec<ProjectVersionSummary>, String> {
-    run_project_operation(app, move |store, _| store.list_versions(&project_id)).await
+    let generation = app.state::<DatasetState>().begin_project_versions()?;
+    let cancellation = app
+        .state::<DatasetState>()
+        .project_versions_cancellation(generation);
+    run_project_operation(app, move |store, _| {
+        store.list_versions_with_cancel(&project_id, move || cancellation())
+    })
+    .await
 }
 
 #[tauri::command]

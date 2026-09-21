@@ -44,18 +44,43 @@ fn is_reparse_point(_metadata: &fs::Metadata) -> bool {
 
 /// Removes only generation directories that are old enough and absent from
 /// the catalog. Failures are counted without returning filesystem paths.
+#[cfg(test)]
 pub(crate) fn reconcile_orphan_generations(
     snapshots: &Path,
     active_generations: &HashSet<String>,
     now: SystemTime,
     grace: Duration,
 ) -> ReconciliationReport {
+    reconcile_orphan_generations_with_cancel(snapshots, active_generations, now, grace, || false)
+        .unwrap_or_default()
+}
+
+pub(crate) fn reconcile_orphan_generations_with_cancel<C>(
+    snapshots: &Path,
+    active_generations: &HashSet<String>,
+    now: SystemTime,
+    grace: Duration,
+    is_cancelled: C,
+) -> Result<ReconciliationReport, ()>
+where
+    C: Fn() -> bool,
+{
     let mut report = ReconciliationReport::default();
+    if is_cancelled() {
+        return Err(());
+    }
     let Ok(entries) = fs::read_dir(snapshots) else {
-        return report;
+        return Ok(report);
     };
 
-    for entry in entries.flatten() {
+    for entry in entries {
+        if is_cancelled() {
+            return Err(());
+        }
+        let Ok(entry) = entry else {
+            report.failures += 1;
+            continue;
+        };
         let name = entry.file_name().to_string_lossy().into_owned();
         if !is_generation_name(&name) || active_generations.contains(&name) {
             continue;
@@ -76,12 +101,18 @@ pub(crate) fn reconcile_orphan_generations(
         if !old_enough {
             continue;
         }
+        if is_cancelled() {
+            return Err(());
+        }
         match fs::remove_dir_all(entry.path()) {
             Ok(()) => report.removed += 1,
             Err(_) => report.failures += 1,
         }
+        if is_cancelled() {
+            return Err(());
+        }
     }
-    report
+    Ok(report)
 }
 
 #[cfg(test)]

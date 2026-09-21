@@ -55,6 +55,14 @@ El incremento actual sobre `239df30` aplica el límite de retención también al
 leer versiones: `list_project_versions` usa SQL `LIMIT` y solo deserializa las
 cinco más recientes, aunque el catálogo contenga registros sobrantes.
 
+El incremento actual sobre `ffe6d12` añade `projectVersions` para cancelar la
+carga del historial desde Proyectos y reintentarla. La inicialización y la
+consulta limitada comprueban el token; la recuperación recorre el catálogo de
+referencias y las generaciones entre filas/entradas. Si no se pueden leer las
+referencias SQLite, se omite la limpieza en vez de asumir que no hay proyectos
+activos. `migrate`, cada lectura SQLite y `remove_dir_all` siguen siendo tramos
+síncronos y solo observan cancelación al regresar.
+
 ## Ahora — completar el flujo automático
 
 | ID | Resultado y criterio de cierre | Responsable | Dependencia | Estado / evidencia |

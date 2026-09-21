@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `239df30`, versión
+La base de este incremento fue `master` en `ffe6d12`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -144,6 +144,14 @@ filas, al medir bytes de snapshots/historial y antes y después de la consulta
 indexada del candidato.
 Esa consulta SQLite de una fila sigue siendo síncrona. El panel ofrece
 «Cancelar carga» y, si se cancela la carga inicial, permite reintentar.
+
+La carga de versiones usa `projectVersions`; Proyectos permite cancelarla y
+reintentar. Tanto la lectura limitada a cinco entradas como la inicialización
+del catálogo comprueban el token. La recuperación del disco recorre las
+referencias SQLite y entradas de generaciones de forma cooperativa, y omite la
+limpieza si no logra leer el catálogo para evitar borrar generaciones activas.
+La migración SQLite, las lecturas individuales y `remove_dir_all` son tramos
+síncronos que solo detectan cancelación al terminar.
 
 Las tareas reutilizables aplican reglas, formato, privacidad y receta como
 borrador al importar un archivo con el perfil y esquema guardados; la receta
