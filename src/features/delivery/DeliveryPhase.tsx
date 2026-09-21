@@ -239,12 +239,25 @@ export function DeliveryPhase({
   const [presets, setPresets] = useState<DeliveryPresetSummary[]>([]);
   const [presetsLoaded, setPresetsLoaded] = useState(false);
   const [presetsLoading, setPresetsLoading] = useState(false);
+  const [presetsCancellationPending, setPresetsCancellationPending] = useState(false);
+  const [presetsCancelled, setPresetsCancelled] = useState(false);
   const [presetsError, setPresetsError] = useState<string | null>(null);
+  const presetsRequestGeneration = useRef(0);
+  const presetsCatalogInFlight = useRef(false);
+  const presetsMounted = useRef(true);
   const [presetName, setPresetName] = useState("");
   const [selectedPresetId, setSelectedPresetId] = useState("");
   const [openedPreset, setOpenedPreset] = useState<DeliveryPreset | null>(null);
   const [presetNotice, setPresetNotice] = useState<string | null>(null);
   const [presetWorking, setPresetWorking] = useState(false);
+  useEffect(() => {
+    presetsMounted.current = true;
+    return () => {
+      presetsMounted.current = false;
+      presetsRequestGeneration.current += 1;
+      presetsCatalogInFlight.current = false;
+    };
+  }, []);
   useEffect(() => {
     exportRequestGeneration.current += 1;
     const kind = databaseKindForExportFormat(selectedExportFormat);
@@ -640,15 +653,47 @@ export function DeliveryPhase({
   }
 
   async function refreshDeliveryPresets() {
+    if (presetsCatalogInFlight.current) return;
+    const request = ++presetsRequestGeneration.current;
+    presetsCatalogInFlight.current = true;
     setPresetsLoading(true);
+    setPresetsCancellationPending(false);
+    setPresetsCancelled(false);
     setPresetsError(null);
     try {
-      setPresets(await listDeliveryPresets());
+      const nextPresets = await listDeliveryPresets();
+      if (!presetsMounted.current || request !== presetsRequestGeneration.current) return;
+      setPresets(nextPresets);
       setPresetsLoaded(true);
     } catch (error: unknown) {
+      if (!presetsMounted.current || request !== presetsRequestGeneration.current) return;
       setPresetsError(error instanceof Error ? error.message : String(error));
     } finally {
-      setPresetsLoading(false);
+      if (presetsMounted.current && request === presetsRequestGeneration.current) {
+        presetsCatalogInFlight.current = false;
+        setPresetsLoading(false);
+      }
+    }
+  }
+
+  async function cancelDeliveryPresetCatalog() {
+    if (!presetsCatalogInFlight.current || presetsCancellationPending) return;
+    const request = ++presetsRequestGeneration.current;
+    setPresetsCancellationPending(true);
+    setPresetsCancelled(true);
+    setPresetsError(null);
+    try {
+      await cancelOperation("deliveryPresetCatalog");
+    } catch (error: unknown) {
+      if (presetsMounted.current && request === presetsRequestGeneration.current) {
+        setPresetsError(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (presetsMounted.current && request === presetsRequestGeneration.current) {
+        presetsCatalogInFlight.current = false;
+        setPresetsLoading(false);
+        setPresetsCancellationPending(false);
+      }
     }
   }
 
@@ -677,6 +722,7 @@ export function DeliveryPhase({
       const summary = await saveDeliveryPreset(selectedPresetId || null, preset);
       setPresets((current) => [summary, ...current.filter((item) => item.id !== summary.id)]);
       setPresetsLoaded(true);
+      setPresetsCancelled(false);
       setSelectedPresetId(summary.id);
       setOpenedPreset(preset);
       setPresetNotice("Preset guardado localmente. Las credenciales de conexión no se almacenan.");
@@ -752,6 +798,7 @@ export function DeliveryPhase({
     try {
       await deleteDeliveryPreset(selectedPresetId);
       setPresets((current) => current.filter((item) => item.id !== selectedPresetId));
+      setPresetsCancelled(false);
       setSelectedPresetId("");
       setOpenedPreset(null);
       setPresetName("");
@@ -1631,7 +1678,10 @@ export function DeliveryPhase({
           <details
             className="delivery-presets"
             onToggle={(event) => {
-              if (event.currentTarget.open && !presetsLoaded && !presetsLoading) void refreshDeliveryPresets();
+              if (event.currentTarget.open && !presetsLoaded && !presetsLoading
+                && !presetsCancellationPending && !presetsCatalogInFlight.current) {
+                void refreshDeliveryPresets();
+              }
             }}
           >
             <summary>Presets de entrega guardados</summary>
@@ -1672,21 +1722,48 @@ export function DeliveryPhase({
               <button type="button" className="secondary-action" onClick={() => void loadSelectedDeliveryPreset()} disabled={!selectedPresetId || presetWorking || presetsLoading}>
                 {presetWorking ? "Procesando preset…" : "Abrir y verificar"}
               </button>
-              <button type="button" className="secondary-action" onClick={() => void saveCurrentDeliveryPreset()} disabled={!presetName.trim() || presetWorking}>
+              <button type="button" className="secondary-action" onClick={() => void saveCurrentDeliveryPreset()} disabled={!presetName.trim() || presetWorking || presetsLoading || presetsCancellationPending}>
                 Guardar preset
               </button>
               {selectedPresetId && (
-                <button type="button" className="secondary-action" onClick={() => void deleteSelectedDeliveryPreset()} disabled={presetWorking}>
+                <button type="button" className="secondary-action" onClick={() => void deleteSelectedDeliveryPreset()} disabled={presetWorking || presetsLoading || presetsCancellationPending}>
                   Eliminar preset
                 </button>
               )}
             </div>
-            {presetsLoading && <p role="status">Cargando catálogo local…</p>}
+            {presetsLoading && (
+              <div className="notice">
+                <p role="status">
+                  {presetsCancellationPending ? "Cancelando carga del catálogo local…" : "Cargando catálogo local…"}
+                </p>
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => void cancelDeliveryPresetCatalog()}
+                  disabled={presetsCancellationPending}
+                >
+                  {presetsCancellationPending ? "Cancelando…" : "Cancelar carga"}
+                </button>
+              </div>
+            )}
+            {presetsCancelled && !presetsLoading && !presetsError && (
+              <div className="notice" role="status">
+                <span>Se canceló la carga de presets locales.</span>
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => void refreshDeliveryPresets()}
+                  disabled={presetsCancellationPending}
+                >
+                  Reintentar catálogo
+                </button>
+              </div>
+            )}
             {!presetsLoading && presetsLoaded && presets.length === 0 && <p role="note">Aún no hay presets locales.</p>}
             {presetsError && (
               <div className="notice notice--error" role="alert">
                 <p>{presetsError}</p>
-                <button type="button" className="secondary-action" onClick={() => void refreshDeliveryPresets()} disabled={presetsLoading}>Reintentar catálogo</button>
+                <button type="button" className="secondary-action" onClick={() => void refreshDeliveryPresets()} disabled={presetsLoading || presetsCancellationPending}>Reintentar catálogo</button>
               </div>
             )}
             {openedPreset && (

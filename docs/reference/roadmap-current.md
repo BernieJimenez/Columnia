@@ -36,10 +36,15 @@ enumeración local de tareas entre filas SQLite y deserializaciones, con
 deserialización individual siguen siendo síncronas; la UI descarta respuestas
 obsoletas y el backend descarta el resultado si cancelar gana.
 
-El incremento actual sobre `2f6355d` asocia las versiones de proyecto con la
+El incremento sobre `2f6355d` asocia las versiones de proyecto con la
 generación y el ID activo: al cambiar de proyecto o desmontar el controlador,
 las respuestas obsoletas se descartan y no se muestran versiones del proyecto
 anterior. La retención limita el historial a cinco versiones.
+
+El incremento actual sobre `cdcc2bd` añade cancelación `deliveryPresetCatalog`
+entre filas SQLite y deserializaciones del catálogo local de presets de
+entrega (máximo 100). El panel ofrece «Cancelar carga» y reintento; SQLite y la
+deserialización de una fila siguen siendo síncronas.
 
 ## Ahora — completar el flujo automático
 

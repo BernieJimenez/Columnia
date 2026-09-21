@@ -1,14 +1,24 @@
-use std::{collections::HashSet, path::PathBuf, sync::Mutex};
+use std::{
+    collections::HashSet,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
+};
 
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
+
+use crate::dataset::OPERATION_CANCELLED_MESSAGE;
 
 const PRESET_VERSION: u8 = 1;
 const PRESET_ID_LENGTH: usize = 32;
 const MAX_PRESETS: usize = 100;
 const MAX_PRESET_BYTES: usize = 64 * 1024;
 const MAX_COLUMNS: usize = 2_000;
+pub(crate) const DELIVERY_PRESET_CATALOG_OPERATION: &str = "deliveryPresetCatalog";
 
 /// Persisted delivery configuration. Credentials and overwrite authorization are
 /// deliberately absent: selecting a preset must never grant a destructive write.
@@ -47,6 +57,7 @@ pub struct DeliveryPresetSummary {
 pub struct DeliveryPresetState {
     store: DeliveryPresetStore,
     operation: Mutex<()>,
+    catalog_generation: AtomicU64,
 }
 
 impl DeliveryPresetState {
@@ -54,7 +65,22 @@ impl DeliveryPresetState {
         Ok(Self {
             store: DeliveryPresetStore::initialize(app_data_dir)?,
             operation: Mutex::new(()),
+            catalog_generation: AtomicU64::new(0),
         })
+    }
+
+    fn begin_catalog(&self) -> u64 {
+        self.catalog_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
+    pub(crate) fn cancel_catalog(&self) {
+        self.catalog_generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn catalog_was_cancelled(&self, generation: u64) -> bool {
+        self.catalog_generation.load(Ordering::SeqCst) != generation
     }
 }
 
@@ -104,19 +130,36 @@ impl DeliveryPresetStore {
         transaction.commit().map_err(|_| storage_error())
     }
 
-    fn list(&self) -> Result<Vec<DeliveryPresetSummary>, String> {
+    fn list_with_cancel(
+        &self,
+        is_cancelled: impl Fn() -> bool,
+    ) -> Result<Vec<DeliveryPresetSummary>, String> {
+        ensure_preset_catalog_not_cancelled(&is_cancelled)?;
         let connection = self.connection()?;
+        ensure_preset_catalog_not_cancelled(&is_cancelled)?;
         let mut statement = connection
             .prepare(
                 "SELECT id, name, document_json, updated_at
                  FROM delivery_presets ORDER BY updated_at DESC, id ASC",
             )
             .map_err(|_| storage_error())?;
-        let rows = statement
-            .query_map([], preset_summary_from_row)
-            .map_err(|_| storage_error())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|_| storage_error())
+        let mut rows = statement.query([]).map_err(|_| storage_error())?;
+        let mut presets = Vec::new();
+        loop {
+            ensure_preset_catalog_not_cancelled(&is_cancelled)?;
+            let Some(row) = rows.next().map_err(|_| storage_error())? else {
+                break;
+            };
+            presets.push(preset_summary_from_row(row).map_err(|_| storage_error())?);
+            ensure_preset_catalog_not_cancelled(&is_cancelled)?;
+        }
+        ensure_preset_catalog_not_cancelled(&is_cancelled)?;
+        Ok(presets)
+    }
+
+    #[cfg(test)]
+    fn list(&self) -> Result<Vec<DeliveryPresetSummary>, String> {
+        self.list_with_cancel(|| false)
     }
 
     fn open(&self, preset_id: String) -> Result<DeliveryPreset, String> {
@@ -379,6 +422,14 @@ fn storage_error() -> String {
     "No se pudo acceder al catálogo local de presets de entrega.".to_owned()
 }
 
+fn ensure_preset_catalog_not_cancelled(is_cancelled: &impl Fn() -> bool) -> Result<(), String> {
+    if is_cancelled() {
+        Err(OPERATION_CANCELLED_MESSAGE.to_owned())
+    } else {
+        Ok(())
+    }
+}
+
 async fn run_operation<T, F>(app: AppHandle, operation: F) -> Result<T, String>
 where
     T: Send + 'static,
@@ -397,7 +448,13 @@ where
 
 #[tauri::command]
 pub async fn list_delivery_presets(app: AppHandle) -> Result<Vec<DeliveryPresetSummary>, String> {
-    run_operation(app, |store| store.list()).await
+    let generation = app.state::<DeliveryPresetState>().begin_catalog();
+    let cancellation_app = app.clone();
+    run_operation(app, move |store| {
+        let state = cancellation_app.state::<DeliveryPresetState>();
+        store.list_with_cancel(|| state.catalog_was_cancelled(generation))
+    })
+    .await
 }
 
 #[tauri::command]

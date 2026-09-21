@@ -29362,6 +29362,10 @@ pub fn cancel_operation(app: AppHandle, operation: String) -> Result<(), String>
         app.state::<crate::reusable_tasks::ReusableTaskState>()
             .cancel_catalog();
         Ok(())
+    } else if operation == crate::delivery_presets::DELIVERY_PRESET_CATALOG_OPERATION {
+        app.state::<crate::delivery_presets::DeliveryPresetState>()
+            .cancel_catalog();
+        Ok(())
     } else {
         app.state::<DatasetState>().cancel(&operation)
     }

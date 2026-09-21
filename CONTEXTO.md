@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `2f6355d`, versión
+La base de este incremento fue `master` en `cdcc2bd`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -98,6 +98,12 @@ La carga de versiones del proyecto lleva una generación asociada al proyecto
 activo. Al cambiar de proyecto o desmontar el controlador, las respuestas y
 errores anteriores se descartan; mientras las versiones no correspondan al
 proyecto activo, la interfaz mantiene el estado de carga.
+
+El catálogo de presets de entrega usa `deliveryPresetCatalog`: el recorrido
+SQLite y la deserialización de cada resumen revisan cancelación por fila. El
+panel ofrece «Cancelar carga» y reintento; se conservan los presets existentes
+y no se publica una lista parcial. Cada lectura SQLite y deserialización
+individual siguen siendo síncronas.
 
 Abrir un proyecto y restaurar una versión usan `projectOpen`: consultan la
 cancelación durante el hash por bloques, el conteo DuckDB, la lectura Parquet y
