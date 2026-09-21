@@ -248,6 +248,8 @@ export function App() {
   const reviewMutationCancellationPendingRef = useRef(false);
   const comparisonPageRequestRef = useRef(0);
   const joinRequestRef = useRef(0);
+  const [pageCancellationPending, setPageCancellationPending] = useState(false);
+  const pageCancellationRequestRef = useRef<number | null>(null);
   const reviewMutationRef = useRef<{
     mutation: ReviewMutationKind;
     requestId: number;
@@ -286,6 +288,8 @@ export function App() {
     datasetRevisionRef.current += 1;
     profileRequestSequenceRef.current += 1;
     pageRequestRef.current += 1;
+    pageCancellationRequestRef.current = null;
+    setPageCancellationPending(false);
     comparisonRequestRef.current += 1;
     comparisonPageRequestRef.current += 1;
     joinRequestRef.current += 1;
@@ -321,6 +325,7 @@ export function App() {
   });
   const coreOperationBusy =
     datasetStatus.kind === "loading" ||
+    (datasetStatus.kind === "ready" && datasetStatus.pageLoading) ||
     profileStatus.kind === "loading" ||
     prepare.changeStatus.kind === "working" ||
     deliveryContract.gate.kind === "loading" ||
@@ -1332,7 +1337,7 @@ export function App() {
   }
 
   async function changePage(offset: number) {
-    if (datasetStatus.kind !== "ready") return;
+    if (datasetStatus.kind !== "ready" || datasetStatus.pageLoading) return;
 
     const previous = datasetStatus;
     const requestedRevision = datasetRevisionRef.current;
@@ -1342,11 +1347,42 @@ export function App() {
     try {
       const page = await getDatasetPage(offset, PAGE_SIZE);
       if (datasetRevisionRef.current !== requestedRevision || pageRequestRef.current !== requestId) return;
+      if (pageCancellationRequestRef.current === requestId) {
+        setDatasetStatus(previous);
+        return;
+      }
       setDatasetStatus(completePageLoad(previous, page));
     } catch (error: unknown) {
       if (datasetRevisionRef.current !== requestedRevision || pageRequestRef.current !== requestId) return;
+      if (isCancellationError(error)) {
+        setDatasetStatus(previous);
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       setDatasetStatus(failPageLoad(previous, message));
+    } finally {
+      if (pageRequestRef.current === requestId) {
+        if (pageCancellationRequestRef.current === requestId) {
+          pageCancellationRequestRef.current = null;
+          setPageCancellationPending(false);
+        }
+      }
+    }
+  }
+
+  async function cancelPageChange() {
+    if (datasetStatus.kind !== "ready" || !datasetStatus.pageLoading) return;
+    const requestId = pageRequestRef.current;
+    if (pageCancellationRequestRef.current === requestId) return;
+    pageCancellationRequestRef.current = requestId;
+    setPageCancellationPending(true);
+    try {
+      await cancelOperation("datasetPage");
+    } catch {
+      if (pageCancellationRequestRef.current === requestId) {
+        pageCancellationRequestRef.current = null;
+        setPageCancellationPending(false);
+      }
     }
   }
 
@@ -1721,6 +1757,8 @@ export function App() {
                 reviewTab={reviewTab}
                 onTabChange={setReviewTab}
                 onPageChange={changePage}
+                onCancelPageChange={() => void cancelPageChange()}
+                pageCancellationPending={pageCancellationPending}
                 onCancelProfile={() => cancelActiveOperation("profile")}
                 onContinueToPrepare={(target) => {
                   setPrepareFocusTarget(target ?? null);

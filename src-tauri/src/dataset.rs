@@ -2785,6 +2785,7 @@ pub struct DatasetState {
     temporal_generation: AtomicU64,
     export_generation: AtomicU64,
     query_generation: AtomicU64,
+    dataset_page_generation: AtomicU64,
     snapshot_comparison_generation: AtomicU64,
     dataset_comparison_generation: AtomicU64,
     dataset_comparison_commit_lock: Mutex<()>,
@@ -3206,6 +3207,12 @@ impl DatasetState {
             .wrapping_add(1)
     }
 
+    fn begin_dataset_page(&self) -> u64 {
+        self.dataset_page_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
     fn begin_snapshot_comparison(&self) -> u64 {
         self.snapshot_comparison_generation
             .fetch_add(1, Ordering::SeqCst)
@@ -3264,6 +3271,10 @@ impl DatasetState {
 
     fn query_was_cancelled(&self, generation: u64) -> bool {
         self.query_generation.load(Ordering::SeqCst) != generation
+    }
+
+    fn dataset_page_was_cancelled(&self, generation: u64) -> bool {
+        self.dataset_page_generation.load(Ordering::SeqCst) != generation
     }
 
     fn snapshot_comparison_was_cancelled(&self, generation: u64) -> bool {
@@ -3339,6 +3350,10 @@ impl DatasetState {
         if operation == "databasePreflight" {
             self.database_preflight_generation
                 .fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
+        if operation == "datasetPage" {
+            self.dataset_page_generation.fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
         let generation = match operation {
@@ -3646,23 +3661,39 @@ fn validate_dataset_page_request(
 }
 
 fn dataset_page(frame: &DataFrame, offset: usize, limit: usize) -> Result<DatasetPage, String> {
+    dataset_page_with_cancel(frame, offset, limit, || false)
+}
+
+fn dataset_page_with_cancel<C>(
+    frame: &DataFrame,
+    offset: usize,
+    limit: usize,
+    is_cancelled: C,
+) -> Result<DatasetPage, String>
+where
+    C: Fn() -> bool + Sync,
+{
     validate_dataset_page_request(frame.height(), offset, limit)?;
+    ensure_not_cancelled(is_cancelled())?;
 
     let end = offset.saturating_add(limit).min(frame.height());
-    let rows = (offset..end)
-        .map(|row_index| {
-            frame
-                .columns()
-                .iter()
-                .map(|column| {
-                    column
-                        .get(row_index)
-                        .map_err(|error| format!("No se pudo preparar la vista previa: {error}"))
-                        .map(preview_value)
-                })
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut rows = Vec::with_capacity(end.saturating_sub(offset));
+    for row_index in offset..end {
+        ensure_not_cancelled(is_cancelled())?;
+        let mut row = Vec::with_capacity(frame.width());
+        for (column_index, column) in frame.columns().iter().enumerate() {
+            if column_index % 256 == 0 {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            row.push(
+                column
+                    .get(row_index)
+                    .map_err(|error| format!("No se pudo preparar la vista previa: {error}"))
+                    .map(preview_value)?,
+            );
+        }
+        rows.push(row);
+    }
 
     Ok(DatasetPage { offset, rows })
 }
@@ -3673,16 +3704,36 @@ fn dataset_page_from_parquet(
     offset: usize,
     limit: usize,
 ) -> Result<DatasetPage, String> {
+    dataset_page_from_parquet_with_cancel(path, row_count, offset, limit, || false)
+}
+
+fn dataset_page_from_parquet_with_cancel<C>(
+    path: &Path,
+    row_count: usize,
+    offset: usize,
+    limit: usize,
+    is_cancelled: C,
+) -> Result<DatasetPage, String>
+where
+    C: Fn() -> bool + Sync,
+{
     validate_dataset_page_request(row_count, offset, limit)?;
+    ensure_not_cancelled(is_cancelled())?;
     let slice_offset = i64::try_from(offset)
         .map_err(|_| "La página solicitada excede la capacidad del lector Parquet.".to_owned())?;
     let plan = parquet_scan(path)?.slice(slice_offset, limit as IdxSize);
-    let page_frame = collect_lazy_frame_streaming(plan, "No se pudo leer la página Parquet")?;
-    let mut page = dataset_page(&page_frame, 0, limit)?;
+    let page_frame = collect_lazy_frame_streaming_with_cancel(
+        plan,
+        "No se pudo leer la página Parquet",
+        &is_cancelled,
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+    let mut page = dataset_page_with_cancel(&page_frame, 0, limit, is_cancelled)?;
     page.offset = offset;
     Ok(page)
 }
 
+#[cfg(test)]
 fn dataset_page_from_source(
     path: &Path,
     extension: &str,
@@ -3690,25 +3741,31 @@ fn dataset_page_from_source(
     offset: usize,
     limit: usize,
 ) -> Result<DatasetPage, String> {
-    dataset_page_from_source_with_header(
+    dataset_page_from_source_with_header_and_cancel(
         path,
         extension,
         row_count,
         offset,
         limit,
         SpreadsheetHeaderMode::FirstRow,
+        || false,
     )
 }
 
-fn dataset_page_from_source_with_header(
+fn dataset_page_from_source_with_header_and_cancel<C>(
     path: &Path,
     extension: &str,
     row_count: usize,
     offset: usize,
     limit: usize,
     header_mode: SpreadsheetHeaderMode,
-) -> Result<DatasetPage, String> {
+    is_cancelled: C,
+) -> Result<DatasetPage, String>
+where
+    C: Fn() -> bool + Sync,
+{
     validate_dataset_page_request(row_count, offset, limit)?;
+    ensure_not_cancelled(is_cancelled())?;
     let slice_offset = i64::try_from(offset)
         .map_err(|_| "La página solicitada excede la capacidad del lector.".to_owned())?;
     let plan =
@@ -3725,8 +3782,12 @@ fn dataset_page_from_source_with_header(
             ),
         }
         .slice(slice_offset, limit as IdxSize);
-    let page_frame =
-        collect_lazy_frame_streaming(plan, "No se pudo leer la página desde la fuente")?;
+    let page_frame = collect_lazy_frame_streaming_with_cancel(
+        plan,
+        "No se pudo leer la página desde la fuente",
+        &is_cancelled,
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
     let expected_rows = row_count.saturating_sub(offset).min(limit);
     if page_frame.height() != expected_rows {
         return Err(
@@ -3734,7 +3795,7 @@ fn dataset_page_from_source_with_header(
                 .to_owned(),
         );
     }
-    let mut page = dataset_page(&page_frame, 0, limit)?;
+    let mut page = dataset_page_with_cancel(&page_frame, 0, limit, is_cancelled)?;
     page.offset = offset;
     Ok(page)
 }
@@ -28465,45 +28526,69 @@ pub fn discard_dataset_selection(
 }
 
 #[tauri::command]
-pub fn get_dataset_page(
-    state: State<'_, DatasetState>,
+pub async fn get_dataset_page(
+    app: AppHandle,
     offset: usize,
     limit: usize,
 ) -> Result<DatasetPage, String> {
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-    let dataset = current.as_mut().ok_or_else(|| {
-        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-    })?;
+    let generation = app.state::<DatasetState>().begin_dataset_page();
+    tauri::async_runtime::spawn_blocking(move || {
+        let cancellation_app = app.clone();
+        let is_cancelled = || {
+            cancellation_app
+                .state::<DatasetState>()
+                .dataset_page_was_cancelled(generation)
+        };
+        ensure_not_cancelled(is_cancelled())?;
 
-    if let Some((path, _, row_count)) = current_history_parquet_snapshot(dataset) {
-        return dataset_page_from_parquet(&path, row_count, offset, limit);
-    }
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
 
-    // A degraded history still has a safe, immutable source reference while
-    // the dataset has not been mutated. Read only the requested page from
-    // disk instead of duplicating the whole active frame for the preview.
-    if let Some((path, _)) = current_duckdb_file_source(dataset) {
-        if let Ok(extension) = dataset_extension(&path) {
-            if let Ok(page) = dataset_page_from_source_with_header(
+        if let Some((path, _, row_count)) = current_history_parquet_snapshot(dataset) {
+            return dataset_page_from_parquet_with_cancel(
                 &path,
-                &extension,
-                dataset.row_count,
+                row_count,
                 offset,
                 limit,
-                dataset
-                    .delimited_header_mode
-                    .unwrap_or(SpreadsheetHeaderMode::FirstRow),
-            ) {
-                return Ok(page);
+                &is_cancelled,
+            );
+        }
+
+        // A degraded history still has a safe, immutable source reference while
+        // the dataset has not been mutated. Read only the requested page from
+        // disk instead of duplicating the whole active frame for the preview.
+        if let Some((path, _)) = current_duckdb_file_source(dataset) {
+            if let Ok(extension) = dataset_extension(&path) {
+                match dataset_page_from_source_with_header_and_cancel(
+                    &path,
+                    &extension,
+                    dataset.row_count,
+                    offset,
+                    limit,
+                    dataset
+                        .delimited_header_mode
+                        .unwrap_or(SpreadsheetHeaderMode::FirstRow),
+                    &is_cancelled,
+                ) {
+                    Ok(page) => return Ok(page),
+                    Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
+                    Err(_) => {}
+                }
             }
         }
-    }
 
-    materialize_loaded_dataset(dataset)?;
-    dataset_page(&dataset.frame, offset, limit)
+        materialize_loaded_dataset_with_cancel(dataset, &is_cancelled)?;
+        ensure_not_cancelled(is_cancelled())?;
+        dataset_page_with_cancel(&dataset.frame, offset, limit, &is_cancelled)
+    })
+    .await
+    .map_err(|error| format!("La paginación local se interrumpió: {error}"))?
 }
 
 #[tauri::command]

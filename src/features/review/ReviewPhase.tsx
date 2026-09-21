@@ -49,6 +49,8 @@ interface ReviewPhaseProps {
   reviewTab: ReviewTab;
   onTabChange: (tab: ReviewTab) => void;
   onPageChange: (offset: number) => void;
+  onCancelPageChange?: () => void;
+  pageCancellationPending?: boolean;
   onCancelProfile: () => void;
   onContinueToPrepare?: (target?: QualityActionTarget) => void;
   comparisonStatus: ComparisonStatus;
@@ -84,6 +86,8 @@ export function ReviewPhase({
   reviewTab,
   onTabChange,
   onPageChange,
+  onCancelPageChange = () => undefined,
+  pageCancellationPending = false,
   onCancelProfile,
   onContinueToPrepare = () => undefined,
   comparisonStatus,
@@ -160,8 +164,10 @@ export function ReviewPhase({
             dataset={datasetStatus.dataset}
             pageOffset={datasetStatus.pageOffset}
             pageLoading={datasetStatus.pageLoading}
+            pageCancellationPending={pageCancellationPending}
             pageError={datasetStatus.pageError}
             onPageChange={onPageChange}
+            onCancelPageChange={onCancelPageChange}
           />
         </div>
       )}
@@ -1105,16 +1111,20 @@ interface DatasetPreviewProps {
   dataset: DatasetPreview;
   pageOffset: number;
   pageLoading: boolean;
+  pageCancellationPending?: boolean;
   pageError?: string;
   onPageChange: (offset: number) => void;
+  onCancelPageChange?: () => void;
 }
 
 export function DatasetPreviewPanel({
   dataset,
   pageOffset,
   pageLoading,
+  pageCancellationPending = false,
   pageError,
   onPageChange,
+  onCancelPageChange = () => undefined,
 }: DatasetPreviewProps) {
   const { end: pageEnd, hasPrevious, hasNext } = pageRange(dataset, pageOffset);
 
@@ -1164,6 +1174,16 @@ export function DatasetPreviewPanel({
           >
             {pageLoading ? "Cargando…" : "Siguiente"}
           </button>
+          {pageLoading && (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={onCancelPageChange}
+              disabled={pageCancellationPending}
+            >
+              {pageCancellationPending ? "Cancelando carga…" : "Cancelar carga"}
+            </button>
+          )}
         </div>
       </div>
       {pageError && (

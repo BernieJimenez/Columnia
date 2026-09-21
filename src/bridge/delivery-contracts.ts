@@ -8,6 +8,7 @@ export type CancellableOperation =
   | OperationProgress["operation"]
   | "prepare"
   | "query"
+  | "datasetPage"
   | "temporal"
   | "snapshotComparison"
   | "datasetComparison"

@@ -48,8 +48,13 @@ consulta el token entre ellos. El cierre del escritor y `sync_all` siguen siendo
 llamadas síncronas. La
 paginación de conflictos eager y source-backed comparte el token
 `datasetComparison`; Review permite cancelar su carga y conserva la página previa
-si la cancelación gana. Otros comandos todavía tienen rutas sin token y las rutas
-canceladas descartan el resultado incompleto. En Entregar, la validación local de
+si la cancelación gana. La paginación principal del dataset también admite
+cancelación con `datasetPage`: la lectura Parquet/CSV/TSV/TXT desde snapshots o
+fuentes source-backed usa Polars Streaming cancelable; el fallback eager y el
+armado de filas comprueban la generación. Review mantiene visible la página previa
+hasta completar o cancelar. Los lectores monolíticos `.xls`/`.ods` solo observan
+la cancelación al regresar. Otros comandos todavía tienen rutas sin token y las
+rutas canceladas descartan el resultado incompleto. En Entregar, la validación local de
 reglas usa ahora el token `qualityValidation` y ofrece «Cancelar validación»; al
 cancelarse, conserva el gate previo y descarta el resultado incompleto. La fuente
 source-backed puede interrumpirse durante la materialización DuckDB, y la
@@ -123,6 +128,10 @@ En la enumeración de hojas de Excel, `cargo fmt --check`, `cargo check --lib`,
 y `git diff --check`. No se ejecutaron pruebas. El inventario IPC ahora registra
 85 comandos de producción. La lectura de nombres de hoja por calamine sigue
 siendo síncrona y solo comprueba cancelación antes y después.
+En la paginación principal de Review, `cargo fmt --check`, `cargo check --lib`,
+`npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`
+pasan; no se ejecutaron pruebas. La lectura por lotes de snapshots Parquet y
+fuentes delimitadas source-backed comprueba cancelación durante Polars Streaming.
 Durante esta revisión, `cargo test --manifest-path src-tauri/Cargo.toml` compiló,
 pero Windows no inició el harness: terminó con `STATUS_ENTRYPOINT_NOT_FOUND`
 (`0xc0000139`) incluso al probar un manifiesto Common Controls v6 temporal. Por
@@ -132,9 +141,9 @@ Siguen abiertos los criterios con evidencia que no se puede fabricar localmente:
 la beta de tres participantes y su resumen sanitizado; accesibilidad manual con
 lector de pantalla/alto contraste; round-trip contra SQL Server real; y un
 candidato binario/canal autorizado probado en VM limpia.
-RV04 conserva los formatos `.xls`/`.ods` monolíticos, la paginación de conflictos
-y otros comandos sin token de cancelación, la apertura síncrona del libro durante
-la inspección de hojas, el selector nativo modal y tramos síncronos de
+RV04 conserva los formatos `.xls`/`.ods` monolíticos y otros comandos sin token
+de cancelación, la apertura síncrona del libro durante la inspección de hojas,
+el selector nativo modal y tramos síncronos de
 conteo/escritura de snapshots. También falta medir el coste del JOIN por bloques
 y validar cancelación con datos reales en una sesión nativa. RV14 requiere
 seleccionar y validar la herramienta BI a partir de beta.
