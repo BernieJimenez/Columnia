@@ -30,6 +30,8 @@ se quitó la alerta global duplicada que quedaba fuera de contexto.
 En Entregar, los campos de destino ODBC toman sus nombres accesibles de las
 etiquetas visibles; el esquema conserva su indicación de opcional y los errores
 de validación se asocian al campo correspondiente.
+La alerta de validación del contrato de calidad se asocia con el grupo de la
+regla que identifica.
 
 En el código local están implementadas la importación CSV/TSV con convenciones
 explícitas de fecha y número, las políticas reutilizables de excepciones de

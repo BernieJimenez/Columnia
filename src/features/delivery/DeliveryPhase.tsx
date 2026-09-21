@@ -287,6 +287,10 @@ export function DeliveryPhase({
   const [pendingRuleFocus, setPendingRuleFocus] = useState<number | null>(null);
   const rules = contract.kind === "with_contract" ? contract.rules : [];
   const validationError = validateQualityRuleDraft(rules, dataset);
+  const validationErrorRuleNumber = validationError?.match(/^Regla (\d+):/)?.[1];
+  const validationErrorRuleIndex = validationErrorRuleNumber
+    ? Number(validationErrorRuleNumber) - 1
+    : null;
   const gatePassed = contract.gate.kind === "ready" && contract.gate.result.passed;
   const needsUnvalidatedConfirmation = contract.kind === "without_contract"
     && contract.confirmation !== "confirmed";
@@ -928,6 +932,9 @@ export function DeliveryPhase({
                     id={`quality-rule-${index + 1}`}
                     key={index}
                     tabIndex={-1}
+                    aria-describedby={validationErrorRuleIndex === index
+                      ? "quality-rule-validation-error"
+                      : undefined}
                     disabled={busy}
                   >
                     <legend>Regla {index + 1}</legend>
@@ -1515,7 +1522,11 @@ export function DeliveryPhase({
               </div>
               </div>
             </details>
-            {validationError && <p className="notice notice--error" role="alert">{validationError}</p>}
+            {validationError && (
+              <p id="quality-rule-validation-error" className="notice notice--error" role="alert">
+                {validationError}
+              </p>
+            )}
             {migrationState.kind === "working" && <p className="notice" role="status">Importando y comprobando compatibilidad…</p>}
             {migrationState.kind === "ready" && (
               <div className="notice quality-migration-result" role="status" aria-live="polite">
