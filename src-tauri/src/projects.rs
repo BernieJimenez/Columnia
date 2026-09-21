@@ -802,11 +802,12 @@ impl ProjectStore {
         let mut statement = connection
             .prepare(
                 "SELECT id, created_at, payload_json, storage_bytes
-                 FROM project_versions WHERE project_id = ?1 ORDER BY id DESC",
+                 FROM project_versions WHERE project_id = ?1 ORDER BY id DESC LIMIT ?2",
             )
             .map_err(|_| storage_error())?;
+        let version_limit = i64::try_from(MAX_PROJECT_VERSIONS).map_err(|_| storage_error())?;
         let rows = statement
-            .query_map(params![project_id], |row| {
+            .query_map(params![project_id, version_limit], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, String>(1)?,

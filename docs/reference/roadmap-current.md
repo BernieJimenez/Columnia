@@ -39,14 +39,21 @@ obsoletas y el backend descarta el resultado si cancelar gana.
 El incremento sobre `2f6355d` asocia las versiones de proyecto con la
 generación y el ID activo: al cambiar de proyecto o desmontar el controlador,
 las respuestas obsoletas se descartan y no se muestran versiones del proyecto
-anterior. La retención limita el historial a cinco versiones.
+anterior. La retención y la consulta limitan el historial a cinco versiones; la lista solo lee y deserializa las cinco más recientes.
 
 El incremento actual sobre `cdcc2bd` añade cancelación `deliveryPresetCatalog`
 entre filas SQLite y deserializaciones del catálogo local de presets de
 entrega (máximo 100). El panel ofrece «Cancelar carga» y reintento; SQLite y la
 deserialización de una fila siguen siendo síncronas.
 
-El incremento actual sobre `628c27c` separa el anuncio de progreso del panel visual: una región viva breve anuncia cambios de etapa y cancelación, mientras la barra nativa conserva un nombre y valor accesibles sin anunciar cada cambio de porcentaje ni el reloj.
+El incremento sobre `628c27c` separa el anuncio de progreso del panel visual:
+una región viva breve anuncia cambios de etapa y cancelación, mientras la barra
+nativa conserva un nombre y valor accesibles sin anunciar cada cambio de
+porcentaje ni el reloj.
+
+El incremento actual sobre `239df30` aplica el límite de retención también al
+leer versiones: `list_project_versions` usa SQL `LIMIT` y solo deserializa las
+cinco más recientes, aunque el catálogo contenga registros sobrantes.
 
 ## Ahora — completar el flujo automático
 
