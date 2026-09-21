@@ -212,13 +212,23 @@ async function exportRoundTripFormat(page, format, targetPath) {
   }
 
   const fileName = basename(targetPath);
-  const source = await invokeWithNativeDialog(
+  let source = await invokeWithNativeDialog(
     page,
     "pick_dataset_source",
     {},
     "open",
     targetPath,
   );
+  if (format === "excel" && source) {
+    const sheets = await invoke(page, "inspect_workbook_sheets", {
+      selectionId: source.selectionId,
+    });
+    source = {
+      ...source,
+      sheets: Array.isArray(sheets) ? sheets : [],
+      defaultSheetId: source.defaultSheetId ?? sheets?.[0]?.id ?? null,
+    };
+  }
   if (!validRoundTripSource(source, format, fileName)) {
     throw new Error(`${format}_source_invalid`);
   }
@@ -491,6 +501,7 @@ async function run() {
       "load_dataset_selection:csv",
       "export_dataset:excel",
       "pick_dataset_source:excel",
+      "inspect_workbook_sheets:excel",
       "load_dataset_selection:excel",
       "export_dataset:parquet",
       "pick_dataset_source:parquet",

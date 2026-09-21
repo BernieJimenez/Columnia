@@ -6,6 +6,12 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+### Interno
+
+- El probe nativo enumera las hojas Excel mediante `inspect_workbook_sheets`
+  después de seleccionar el archivo, y vuelve a verificar los round-trips CSV,
+  XLSX y Parquet con diálogos reales de Windows.
+
 ## [1.25.0] - 2026-09-21
 
 ### Añadido

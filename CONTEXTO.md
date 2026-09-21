@@ -44,7 +44,11 @@ La prueba `DeliveryPhase.test.tsx` pasa 32/32, `ReusableTaskPanel.test.tsx`
 pasa 7/7 y Playwright pasa 22/22 E2E. El mock de importación simula la
 inspección de hojas Excel como llamada separada `inspect_workbook_sheets`; el
 recorrido de tareas reutilizables confirma que guardar comprueba el esquema y
-habilita aplicar al dataset activo.
+habilita aplicar al dataset activo. El smoke nativo más reciente
+(`.local/validation/webview2-cdp/20260921T225717Z`) también pasa: abre y guarda
+mediante diálogos de Windows, y verifica round-trips reales de CSV/XLSX/Parquet
+con bytes, filas, esquema y valores. El aviso de memoria pertenece al
+ejecutable debug y no cierra el gate de memoria del release.
 
 En el código local están implementadas la importación CSV/TSV con convenciones
 explícitas de fecha y número, las políticas reutilizables de excepciones de
@@ -480,7 +484,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este ajuste parte de `5348360`; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-21; este corte parte de `0b80bae`; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.25.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -1997,6 +2001,7 @@ Al actualizarlo:
 | 2026-08-20 | El gate IPC ahora compara también los argumentos serializados, excluyendo las inyecciones internas `AppHandle` y `State`; los tipos y respuestas siguen pendientes. | `src/ipc-contract.test.ts` |
 | 2026-08-20 | La primera versión del gate IPC comparó todos los nombres registrados con las llamadas de `bridge.ts`; en ese corte todavía no comparaba argumentos. | `src/ipc-contract.test.ts` |
 | 2026-08-20 | Se creó este documento vivo a partir del código, las pruebas, `README.md`, `ROADMAP.md` y el índice CodeGraph. | Estado de `master` en `8fdcb3d` |
+| 2026-09-21 | RV01/RV02: el probe nativo actualiza su contrato para enumerar `inspect_workbook_sheets` después de seleccionar un Excel. `npm run smoke:native-selectors` pasa con diálogos reales de Windows y round-trips de bytes, filas, esquema y valores para CSV/XLSX/Parquet; la evidencia queda en `.local/validation/webview2-cdp/20260921T225717Z`. El presupuesto de memoria sigue marcado como diagnóstico del ejecutable debug y la aceptación con datasets de trabajo reales permanece pendiente. | `tools/probe-webview2-native-selectors.mjs`, `CONTEXTO.md`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `.local/validation/webview2-cdp/20260921T225717Z/summary.json` |
 
 ## Documentos relacionados
 
