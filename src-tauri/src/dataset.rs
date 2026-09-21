@@ -2791,6 +2791,8 @@ pub struct DatasetState {
     project_open_commit_lock: Mutex<()>,
     project_save_generation: std::sync::Arc<AtomicU64>,
     project_save_commit_lock: Mutex<()>,
+    project_delete_generation: std::sync::Arc<AtomicU64>,
+    project_delete_commit_lock: Mutex<()>,
     dataset_comparison_generation: AtomicU64,
     dataset_comparison_commit_lock: Mutex<()>,
     quality_validation_generation: AtomicU64,
@@ -3320,6 +3322,14 @@ impl DatasetState {
     }
 
     fn cancel(&self, operation: &str) -> Result<(), String> {
+        if operation == "projectDelete" {
+            let _guard = self.project_delete_commit_lock.lock().map_err(|_| {
+                "La cancelación de eliminación del proyecto quedó bloqueada.".to_owned()
+            })?;
+            self.project_delete_generation
+                .fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
         if operation == "projectSave" {
             let _guard = self.project_save_commit_lock.lock().map_err(|_| {
                 "La cancelación del guardado del proyecto quedó bloqueada.".to_owned()
@@ -39356,6 +39366,41 @@ impl DatasetState {
             .lock()
             .map_err(|_| "La publicación del proyecto quedó bloqueada.".to_owned())?;
         ensure_not_cancelled(self.project_save_was_cancelled(generation))?;
+        operation()
+    }
+
+    pub(crate) fn begin_project_delete(&self) -> Result<u64, String> {
+        let _guard = self
+            .project_delete_commit_lock
+            .lock()
+            .map_err(|_| "La eliminación del proyecto quedó bloqueada.".to_owned())?;
+        Ok(self
+            .project_delete_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1))
+    }
+
+    pub(crate) fn project_delete_was_cancelled(&self, generation: u64) -> bool {
+        self.project_delete_generation.load(Ordering::SeqCst) != generation
+    }
+
+    pub(crate) fn project_delete_cancellation(
+        &self,
+        generation: u64,
+    ) -> std::sync::Arc<dyn Fn() -> bool + Send + Sync> {
+        let current_generation = std::sync::Arc::clone(&self.project_delete_generation);
+        std::sync::Arc::new(move || current_generation.load(Ordering::SeqCst) != generation)
+    }
+
+    pub(crate) fn commit_project_delete<T>(
+        &self,
+        generation: u64,
+        operation: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _guard = self.project_delete_commit_lock.lock().map_err(|_| {
+            "La publicación de eliminación del proyecto quedó bloqueada.".to_owned()
+        })?;
+        ensure_not_cancelled(self.project_delete_was_cancelled(generation))?;
         operation()
     }
 

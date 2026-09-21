@@ -93,6 +93,7 @@ export function useProjectsController({
   const [restoreCancellationPending, setRestoreCancellationPending] = useState(false);
   const [saveCancellationPending, setSaveCancellationPending] = useState(false);
   const [autoSaveCancellationPending, setAutoSaveCancellationPending] = useState(false);
+  const [deleteCancellationPending, setDeleteCancellationPending] = useState(false);
   const operationLock = useRef(false);
   const autoSaveInProgress = useRef(false);
   const lastAutoSaveSignature = useRef<string | null>(null);
@@ -393,22 +394,52 @@ export function useProjectsController({
   }, [autoSave.kind, autoSaveCancellationPending]);
 
   const confirmDelete = useCallback(async () => {
-    if (deletion.kind !== "confirming") return;
+    if (deletion.kind !== "confirming" || operationLock.current || blocked) return;
     const target = deletion.project;
+    setDeleteCancellationPending(false);
     await runExclusive(
       { kind: "working", operation: "delete", projectId: target.id },
       async () => {
-        await deleteProject(target.id);
-        setDeletion({ kind: "idle" });
-        if (activeProject?.id === target.id) {
-          setActiveProject(null);
-          onActiveProjectDeleted?.();
+        setDeletion({ kind: "deleting", project: target });
+        try {
+          await deleteProject(target.id);
+          setDeletion({ kind: "idle" });
+          if (activeProject?.id === target.id) {
+            setActiveProject(null);
+            onActiveProjectDeleted?.();
+          }
+          setOperation({ kind: "success", message: `Proyecto “${target.name}” eliminado. El dataset abierto se conserva.` });
+          await refresh();
+        } catch (error: unknown) {
+          setDeletion({ kind: "idle" });
+          if (isCancellationError(error)) {
+            setOperation({ kind: "idle" });
+            return;
+          }
+          throw error;
         }
-        setOperation({ kind: "success", message: `Proyecto “${target.name}” eliminado. El dataset abierto se conserva.` });
-        await refresh();
       },
     );
-  }, [activeProject, deletion, onActiveProjectDeleted, refresh, runExclusive]);
+    setDeleteCancellationPending(false);
+  }, [activeProject, blocked, deletion, onActiveProjectDeleted, refresh, runExclusive]);
+
+  const cancelProjectDelete = useCallback(async () => {
+    if (
+      !operationLock.current
+      || operation.kind !== "working"
+      || operation.operation !== "delete"
+      || deleteCancellationPending
+    ) {
+      return;
+    }
+    setDeleteCancellationPending(true);
+    try {
+      await cancelOperation("projectDelete");
+    } catch (error: unknown) {
+      setDeleteCancellationPending(false);
+      setOperation({ kind: "error", message: errorMessage(error) });
+    }
+  }, [deleteCancellationPending, operation]);
 
   return {
     catalog,
@@ -428,6 +459,8 @@ export function useProjectsController({
     restore,
     cancelRestore,
     restoreCancellationPending,
+    cancelProjectDelete,
+    deleteCancellationPending,
     autoSave,
     cancelAutoSave,
     autoSaveCancellationPending,

@@ -1747,6 +1747,7 @@ export function App() {
                   disabled={operationBusy}
                   saveCancellationPending={projects.saveCancellationPending}
                   autoSaveCancellationPending={projects.autoSaveCancellationPending}
+                  deleteCancellationPending={projects.deleteCancellationPending}
                   openCancellationPending={projects.openCancellationPending}
                   restoreCancellationPending={projects.restoreCancellationPending}
                   onSave={(name) => void projects.save(name)}
@@ -1760,6 +1761,7 @@ export function App() {
                   onDeleteRequest={projects.requestDelete}
                   onDeleteCancel={projects.cancelDelete}
                   onDeleteConfirm={() => void projects.confirmDelete()}
+                  onCancelDeleteOperation={() => void projects.cancelProjectDelete()}
                   onRetry={() => void projects.refresh()}
                   onClearFeedback={projects.clearFeedback}
                 />

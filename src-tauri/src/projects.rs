@@ -1522,6 +1522,31 @@ impl ProjectStore {
     }
 
     fn delete(&self, project_id: String) -> Result<(), String> {
+        self.delete_with_cancellation(project_id, None, || false)
+    }
+
+    fn delete_cancellable(
+        &self,
+        dataset_state: &DatasetState,
+        project_id: String,
+        generation: u64,
+    ) -> Result<(), String> {
+        let cancellation = dataset_state.project_delete_cancellation(generation);
+        self.delete_with_cancellation(project_id, Some((dataset_state, generation)), move || {
+            cancellation()
+        })
+    }
+
+    fn delete_with_cancellation<C>(
+        &self,
+        project_id: String,
+        dataset_state: Option<(&DatasetState, u64)>,
+        is_cancelled: C,
+    ) -> Result<(), String>
+    where
+        C: Fn() -> bool + Sync,
+    {
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         self.ensure_initialized()?;
         validate_id(&project_id)?;
         let mut connection = self.connection()?;
@@ -1530,7 +1555,14 @@ impl ProjectStore {
             .ok_or_else(|| "El proyecto solicitado no existe.".to_owned())?;
         let mut generations = HashSet::new();
         let mut snapshots = HashSet::new();
-        collect_project_storage_paths(self, &stored, &mut generations, &mut snapshots)?;
+        collect_project_storage_paths_with_cancel(
+            self,
+            &stored,
+            &mut generations,
+            &mut snapshots,
+            &is_cancelled,
+        )?;
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         let mut statement = connection
             .prepare("SELECT payload_json FROM project_versions WHERE project_id = ?1")
             .map_err(|_| storage_error())?;
@@ -1541,52 +1573,73 @@ impl ProjectStore {
             .map_err(|_| storage_error())?;
         drop(statement);
         for payload in backups {
+            ensure_project_operation_not_cancelled(is_cancelled())?;
             let backup = decode_project_version(&payload)?;
             if backup.summary.id != project_id {
                 return Err(storage_error());
             }
-            collect_project_storage_paths(self, &backup, &mut generations, &mut snapshots)?;
+            collect_project_storage_paths_with_cancel(
+                self,
+                &backup,
+                &mut generations,
+                &mut snapshots,
+                &is_cancelled,
+            )?;
         }
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|_| storage_error())?;
-        if transaction
-            .execute("DELETE FROM projects WHERE id = ?1", params![project_id])
-            .map_err(|_| storage_error())?
-            != 1
-        {
-            return Err("El proyecto solicitado no existe.".to_owned());
-        }
-        transaction.commit().map_err(|_| storage_error())?;
-        for name in generations {
-            let path = self.generation_path(&project_id, &name)?;
-            match fs::remove_dir_all(path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(_) => {
-                    return Err(
-                        "El proyecto se eliminó, pero no se pudo limpiar una versión.".to_owned(),
-                    )
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        let delete_catalog = || {
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|_| storage_error())?;
+            if transaction
+                .execute("DELETE FROM projects WHERE id = ?1", params![project_id])
+                .map_err(|_| storage_error())?
+                != 1
+            {
+                return Err("El proyecto solicitado no existe.".to_owned());
+            }
+            transaction.commit().map_err(|_| storage_error())?;
+            // Once the catalog commit wins, finish cleanup under the same gate
+            // so a late cancel cannot be acknowledged while deletion continues.
+            for name in generations {
+                let path = self.generation_path(&project_id, &name)?;
+                match fs::remove_dir_all(path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(_) => {
+                        return Err(
+                            "El proyecto se eliminó, pero no se pudo limpiar una versión."
+                                .to_owned(),
+                        )
+                    }
                 }
             }
-        }
-        for name in &snapshots {
-            let path = self.managed_snapshot_path(&project_id, name)?;
-            if path.exists() {
-                reject_link_or_reparse(&path)?;
-            }
-        }
-        for name in snapshots {
-            let path = self.managed_snapshot_path(&project_id, &name)?;
-            match fs::remove_file(path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(_) => {
-                    return Err(
-                        "El proyecto se eliminó, pero no se pudo limpiar un snapshot.".to_owned(),
-                    )
+            for name in &snapshots {
+                let path = self.managed_snapshot_path(&project_id, name)?;
+                if path.exists() {
+                    reject_link_or_reparse(&path)?;
                 }
             }
+            for name in snapshots {
+                let path = self.managed_snapshot_path(&project_id, &name)?;
+                match fs::remove_file(path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(_) => {
+                        return Err(
+                            "El proyecto se eliminó, pero no se pudo limpiar un snapshot."
+                                .to_owned(),
+                        )
+                    }
+                }
+            }
+            Ok(())
+        };
+        match dataset_state {
+            Some((dataset_state, generation)) => {
+                dataset_state.commit_project_delete(generation, delete_catalog)?;
+            }
+            None => delete_catalog()?,
         }
         Ok(())
     }
@@ -1922,12 +1975,17 @@ fn decode_project_version(payload_json: &str) -> Result<StoredProject, String> {
     Ok(payload.project)
 }
 
-fn collect_project_storage_paths(
+fn collect_project_storage_paths_with_cancel<C>(
     store: &ProjectStore,
     stored: &StoredProject,
     generations: &mut HashSet<String>,
     snapshots: &mut HashSet<String>,
-) -> Result<(), String> {
+    is_cancelled: &C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_project_operation_not_cancelled(is_cancelled())?;
     if let Some(name) = stored.generation_name.as_deref() {
         // Resolve now to reject unsafe names or reparse points before deleting the catalog row.
         store.generation_path(&stored.summary.id, name)?;
@@ -1939,6 +1997,7 @@ fn collect_project_storage_paths(
         }
         snapshots.insert(stored.snapshot_name.clone());
     }
+    ensure_project_operation_not_cancelled(is_cancelled())?;
     Ok(())
 }
 
@@ -2673,7 +2732,11 @@ pub async fn open_project(app: AppHandle, project_id: String) -> Result<ProjectO
 
 #[tauri::command]
 pub async fn delete_project(app: AppHandle, project_id: String) -> Result<(), String> {
-    run_project_operation(app, move |store, _| store.delete(project_id)).await
+    let generation = app.state::<DatasetState>().begin_project_delete()?;
+    run_project_operation(app, move |store, dataset| {
+        store.delete_cancellable(dataset, project_id, generation)
+    })
+    .await
 }
 
 #[cfg(debug_assertions)]

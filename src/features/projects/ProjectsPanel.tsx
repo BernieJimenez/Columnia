@@ -27,6 +27,7 @@ interface ProjectsPanelProps {
   restoreCancellationPending?: boolean;
   saveCancellationPending?: boolean;
   autoSaveCancellationPending?: boolean;
+  deleteCancellationPending?: boolean;
   onSave: (name: string) => void;
   onCancelSave?: () => void;
   onOpen: (projectId: string) => void;
@@ -38,6 +39,7 @@ interface ProjectsPanelProps {
   onDeleteRequest: (project: ProjectSummary) => void;
   onDeleteCancel: () => void;
   onDeleteConfirm: () => void;
+  onCancelDeleteOperation?: () => void;
   onRetry: () => void;
   onClearFeedback: () => void;
 }
@@ -64,6 +66,7 @@ export function ProjectsPanel({
   restoreCancellationPending = false,
   saveCancellationPending = false,
   autoSaveCancellationPending = false,
+  deleteCancellationPending = false,
   onSave,
   onCancelSave,
   onOpen,
@@ -75,6 +78,7 @@ export function ProjectsPanel({
   onDeleteRequest,
   onDeleteCancel,
   onDeleteConfirm,
+  onCancelDeleteOperation,
   onRetry,
   onClearFeedback,
 }: ProjectsPanelProps) {
@@ -91,6 +95,22 @@ export function ProjectsPanel({
   const projects = catalog.kind === "ready" ? catalog.projects : [];
   const recovery = catalog.kind === "ready" ? catalog.recoveryCandidate : null;
   const hasProjectOptions = Boolean(datasetFileName) || projects.length > 0;
+  const operationMessage = operation.kind === "working"
+    ? (() => {
+        switch (operation.operation) {
+          case "open":
+            return openCancellationPending ? "Cancelando apertura del proyecto…" : "Abriendo proyecto…";
+          case "restore":
+            return restoreCancellationPending ? "Cancelando restauración de versión…" : "Restaurando versión…";
+          case "save":
+            return saveCancellationPending ? "Cancelando guardado del proyecto…" : "Guardando proyecto…";
+          case "delete":
+            return deleteCancellationPending ? "Cancelando eliminación del proyecto…" : "Eliminando proyecto…";
+          default:
+            return "Procesando proyecto…";
+        }
+      })()
+    : "";
 
   return (
     <section className="projects" aria-labelledby="projects-title" aria-busy={disabled}>
@@ -242,15 +262,17 @@ export function ProjectsPanel({
 
       {operation.kind === "working" && (
         <div className="notice projects__operation">
-          <p role="status">
-            {operation.operation === "open"
-              ? openCancellationPending ? "Cancelando apertura del proyecto…" : "Abriendo proyecto…"
-              : operation.operation === "restore"
-                ? restoreCancellationPending ? "Cancelando restauración de versión…" : "Restaurando versión…"
-                : operation.operation === "save"
-                  ? saveCancellationPending ? "Cancelando guardado del proyecto…" : "Guardando proyecto…"
-                : "Procesando proyecto…"}
-          </p>
+          <p role="status">{operationMessage}</p>
+          {operation.operation === "delete" && onCancelDeleteOperation && (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={onCancelDeleteOperation}
+              disabled={deleteCancellationPending}
+            >
+              {deleteCancellationPending ? "Cancelando…" : "Cancelar eliminación"}
+            </button>
+          )}
           {operation.operation === "save" && onCancelSave && (
             <button
               type="button"

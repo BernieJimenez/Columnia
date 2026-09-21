@@ -25,7 +25,7 @@ export type ProjectOperationState =
 
 export type ProjectDeletionState =
   | { kind: "idle" }
-  | { kind: "confirming"; project: ProjectSummary };
+  | { kind: "confirming" | "deleting"; project: ProjectSummary };
 
 export type ProjectVersionsState =
   | { kind: "loading" }
