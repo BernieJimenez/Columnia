@@ -1745,13 +1745,17 @@ export function App() {
                   autoSaveEnabled={projects.autoSaveEnabled}
                   datasetFileName={activeDataset?.dataset.fileName ?? null}
                   disabled={operationBusy}
+                  saveCancellationPending={projects.saveCancellationPending}
+                  autoSaveCancellationPending={projects.autoSaveCancellationPending}
                   openCancellationPending={projects.openCancellationPending}
                   restoreCancellationPending={projects.restoreCancellationPending}
                   onSave={(name) => void projects.save(name)}
+                  onCancelSave={() => void projects.cancelSave()}
                   onOpen={(projectId) => void projects.open(projectId)}
                   onCancelOpen={() => void projects.cancelOpen()}
                   onRestore={(projectId, versionId) => void projects.restore(projectId, versionId)}
                   onCancelRestore={() => void projects.cancelRestore()}
+                  onCancelAutoSave={() => void projects.cancelAutoSave()}
                   onAutoSaveChange={projects.setAutoSaveEnabled}
                   onDeleteRequest={projects.requestDelete}
                   onDeleteCancel={projects.cancelDelete}

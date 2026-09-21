@@ -2789,6 +2789,8 @@ pub struct DatasetState {
     snapshot_comparison_generation: AtomicU64,
     project_open_generation: std::sync::Arc<AtomicU64>,
     project_open_commit_lock: Mutex<()>,
+    project_save_generation: std::sync::Arc<AtomicU64>,
+    project_save_commit_lock: Mutex<()>,
     dataset_comparison_generation: AtomicU64,
     dataset_comparison_commit_lock: Mutex<()>,
     quality_validation_generation: AtomicU64,
@@ -3318,6 +3320,13 @@ impl DatasetState {
     }
 
     fn cancel(&self, operation: &str) -> Result<(), String> {
+        if operation == "projectSave" {
+            let _guard = self.project_save_commit_lock.lock().map_err(|_| {
+                "La cancelación del guardado del proyecto quedó bloqueada.".to_owned()
+            })?;
+            self.project_save_generation.fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
         if operation == "projectOpen" {
             let _guard = self.project_open_commit_lock.lock().map_err(|_| {
                 "La cancelación de apertura del proyecto quedó bloqueada.".to_owned()
@@ -22312,7 +22321,7 @@ where
     )
 }
 
-fn copy_file_with_cancel<C, W>(
+pub(crate) fn copy_file_with_cancel<C, W>(
     source_path: &Path,
     destination: &mut W,
     is_cancelled: C,
@@ -38954,6 +38963,7 @@ pub(crate) fn export_frame_for_automation_with_recipe(
 pub(crate) struct ActiveDatasetSnapshot {
     pub(crate) frame: DataFrame,
     pub(crate) current_snapshot_path: Option<PathBuf>,
+    _current_snapshot_guard: Option<tempfile::TempPath>,
     pub(crate) file_name: String,
     pub(crate) row_count: usize,
     pub(crate) column_count: usize,
@@ -39071,6 +39081,18 @@ fn capture_project_history(
     history: &HistoryManager,
     current_frame: &DataFrame,
 ) -> Result<ProjectHistoryCapture, String> {
+    capture_project_history_with_cancel(history, current_frame, || false)
+}
+
+fn capture_project_history_with_cancel<C>(
+    history: &HistoryManager,
+    current_frame: &DataFrame,
+    is_cancelled: C,
+) -> Result<ProjectHistoryCapture, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     if history.max_entries == 0
         || history.max_entries > HISTORY_MAX_ENTRIES
         || history.disk_budget_bytes > HISTORY_DISK_BUDGET_BYTES
@@ -39103,6 +39125,7 @@ fn capture_project_history(
     let mut cursor_matches = !history.snapshots_enabled;
     let mut ids = HashSet::with_capacity(history.entries.len());
     for (index, entry) in history.entries.iter().enumerate() {
+        ensure_not_cancelled(is_cancelled())?;
         validate_history_label(&entry.label)?;
         validate_history_entry_id(&entry.id)?;
         if !ids.insert(entry.id.as_str()) {
@@ -39121,16 +39144,25 @@ fn capture_project_history(
             return Err("El historial activo supera el presupuesto de disco.".to_owned());
         }
         let destination = directory.path().join(format!("entry-{index:03}.parquet"));
-        let copied = fs::copy(&entry.path, &destination)
+        let mut destination_file = File::create(&destination)
             .map_err(|_| "No se pudo preparar el historial del proyecto.".to_owned())?;
+        let copied = copy_file_with_cancel(&entry.path, &mut destination_file, || is_cancelled())
+            .map_err(|error| {
+            if error == OPERATION_CANCELLED_MESSAGE {
+                error
+            } else {
+                "No se pudo preparar el historial del proyecto.".to_owned()
+            }
+        })?;
         if copied != entry.bytes {
             return Err("El historial activo cambió mientras se guardaba.".to_owned());
         }
-        let matches = validate_staged_history_snapshot(
+        let matches = validate_staged_history_snapshot_with_cancel(
             &destination,
             current_frame,
             index == history.cursor,
             "El historial activo contiene un snapshot corrupto.",
+            || is_cancelled(),
         )?;
         if index == history.cursor {
             cursor_matches = matches;
@@ -39145,6 +39177,7 @@ fn capture_project_history(
     if !cursor_matches {
         return Err("El cursor del historial activo no coincide con el dataset.".to_owned());
     }
+    ensure_not_cancelled(is_cancelled())?;
     Ok(ProjectHistoryCapture {
         _directory: directory,
         entries,
@@ -39288,6 +39321,42 @@ impl DatasetState {
             .project_open_generation
             .fetch_add(1, Ordering::SeqCst)
             .wrapping_add(1))
+    }
+
+    pub(crate) fn begin_project_save(&self) -> Result<u64, String> {
+        let _guard = self
+            .project_save_commit_lock
+            .lock()
+            .map_err(|_| "El guardado del proyecto quedó bloqueado.".to_owned())?;
+        Ok(self
+            .project_save_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1))
+    }
+
+    pub(crate) fn project_save_was_cancelled(&self, generation: u64) -> bool {
+        self.project_save_generation.load(Ordering::SeqCst) != generation
+    }
+
+    pub(crate) fn project_save_cancellation(
+        &self,
+        generation: u64,
+    ) -> std::sync::Arc<dyn Fn() -> bool + Send + Sync> {
+        let current_generation = std::sync::Arc::clone(&self.project_save_generation);
+        std::sync::Arc::new(move || current_generation.load(Ordering::SeqCst) != generation)
+    }
+
+    pub(crate) fn commit_project_save<T>(
+        &self,
+        generation: u64,
+        operation: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _guard = self
+            .project_save_commit_lock
+            .lock()
+            .map_err(|_| "La publicación del proyecto quedó bloqueada.".to_owned())?;
+        ensure_not_cancelled(self.project_save_was_cancelled(generation))?;
+        operation()
     }
 
     pub(crate) fn project_open_was_cancelled(&self, generation: u64) -> bool {
@@ -39506,68 +39575,89 @@ impl DatasetState {
     }
 
     pub(crate) fn active_project_snapshot(&self) -> Result<ActiveDatasetSnapshot, String> {
+        self.active_project_snapshot_with_cancel(|| false)
+    }
+
+    pub(crate) fn active_project_snapshot_with_cancel<C>(
+        &self,
+        is_cancelled: C,
+    ) -> Result<ActiveDatasetSnapshot, String>
+    where
+        C: Fn() -> bool + Clone + Send + Sync + 'static,
+    {
+        ensure_not_cancelled(is_cancelled())?;
         let mut current = self
             .current
             .lock()
             .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+        ensure_not_cancelled(is_cancelled())?;
         let dataset = current
             .as_mut()
             .ok_or_else(|| "Carga un dataset antes de guardar un proyecto.".to_owned())?;
+        let mut snapshot_temporary_guard = None;
         let current_snapshot_path = if dataset.source_backed {
             let (source_path, source_format) =
                 current_duckdb_file_source(dataset).ok_or_else(|| {
                     "La fuente source-backed ya no está disponible para guardar el proyecto."
                         .to_owned()
                 })?;
-            let snapshot_path = tempfile::Builder::new()
+            let snapshot_temporary = tempfile::Builder::new()
                 .prefix("project-current-")
                 .suffix(".parquet")
                 .tempfile_in(dataset.history.directory.path())
                 .map_err(|_| {
                     "No se pudo preparar el snapshot source-backed del proyecto.".to_owned()
                 })?
-                .into_temp_path()
-                .keep()
-                .map_err(|_| {
-                    "No se pudo preparar el snapshot source-backed del proyecto.".to_owned()
-                })?;
+                .into_temp_path();
+            let snapshot_path = snapshot_temporary.to_path_buf();
             fs::remove_file(&snapshot_path).map_err(|_| {
                 "No se pudo preparar el snapshot source-backed del proyecto.".to_owned()
             })?;
-            crate::duckdb_query::materialize_file_to_parquet(
+            crate::duckdb_query::materialize_file_to_parquet_with_cancel(
                 &source_path,
                 source_format,
                 &snapshot_path,
                 None,
+                is_cancelled.clone(),
             )?;
+            ensure_not_cancelled(is_cancelled())?;
             let snapshot_row_count = crate::duckdb_query::count_file_rows(
                 &snapshot_path,
                 crate::duckdb_query::DuckDbFileFormat::Parquet,
-                || false,
+                is_cancelled.clone(),
             )?;
             if snapshot_row_count != dataset.row_count {
                 return Err(
                     "El conteo del dataset source-backed cambió durante el guardado.".to_owned(),
                 );
             }
+            ensure_not_cancelled(is_cancelled())?;
+            snapshot_temporary_guard = Some(snapshot_temporary);
             Some(snapshot_path)
         } else {
-            materialize_loaded_dataset(dataset)?;
+            materialize_loaded_dataset_with_cancel(dataset, || is_cancelled())?;
             None
         };
+        ensure_not_cancelled(is_cancelled())?;
         let frame = if let Some(snapshot_path) = current_snapshot_path.as_deref() {
             read_parquet_schema_frame(snapshot_path)?
         } else {
             dataset.frame.clone()
         };
+        let history =
+            capture_project_history_with_cancel(&dataset.history, &dataset.frame, || {
+                is_cancelled()
+            })?;
+        ensure_not_cancelled(is_cancelled())?;
         Ok(ActiveDatasetSnapshot {
             column_count: frame.width(),
             frame,
             current_snapshot_path,
+            _current_snapshot_guard: snapshot_temporary_guard,
             file_name: dataset.file_name.clone(),
             row_count: dataset.row_count,
             profile: dataset.profile.clone(),
-            history: capture_project_history(&dataset.history, &dataset.frame)?,
+            history,
         })
     }
 

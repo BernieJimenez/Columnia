@@ -91,6 +91,8 @@ export function useProjectsController({
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
   const [openCancellationPending, setOpenCancellationPending] = useState(false);
   const [restoreCancellationPending, setRestoreCancellationPending] = useState(false);
+  const [saveCancellationPending, setSaveCancellationPending] = useState(false);
+  const [autoSaveCancellationPending, setAutoSaveCancellationPending] = useState(false);
   const operationLock = useRef(false);
   const autoSaveInProgress = useRef(false);
   const lastAutoSaveSignature = useRef<string | null>(null);
@@ -181,20 +183,48 @@ export function useProjectsController({
       setOperation({ kind: "error", message: "Carga un dataset antes de guardar un proyecto." });
       return;
     }
+    setSaveCancellationPending(false);
     await runExclusive(
       { kind: "working", operation: "save", projectId: activeProject?.id ?? null },
       async () => {
-        const saved = await saveProject(activeProject?.id ?? null, validation.name, workspace);
-        setActiveProject(saved);
-        lastAutoSaveSignature.current = `${saved.id}:${datasetRevision}:${JSON.stringify(workspace)}`;
-        failedAutoSaveSignature.current = null;
-        setOperation({ kind: "success", message: activeProject
-          ? `Proyecto “${saved.name}” actualizado.`
-          : `Proyecto “${saved.name}” guardado.` });
-        await refresh();
+        try {
+          const saved = await saveProject(activeProject?.id ?? null, validation.name, workspace);
+          setActiveProject(saved);
+          lastAutoSaveSignature.current = `${saved.id}:${datasetRevision}:${JSON.stringify(workspace)}`;
+          failedAutoSaveSignature.current = null;
+          setOperation({ kind: "success", message: activeProject
+            ? `Proyecto “${saved.name}” actualizado.`
+            : `Proyecto “${saved.name}” guardado.` });
+          await refresh();
+        } catch (error: unknown) {
+          if (isCancellationError(error)) {
+            setOperation({ kind: "idle" });
+            return;
+          }
+          throw error;
+        }
       },
     );
+    setSaveCancellationPending(false);
   }, [activeProject, datasetRevision, hasDataset, refresh, runExclusive, workspace]);
+
+  const cancelSave = useCallback(async () => {
+    if (
+      !operationLock.current
+      || operation.kind !== "working"
+      || operation.operation !== "save"
+      || saveCancellationPending
+    ) {
+      return;
+    }
+    setSaveCancellationPending(true);
+    try {
+      await cancelOperation("projectSave");
+    } catch (error: unknown) {
+      setSaveCancellationPending(false);
+      setOperation({ kind: "error", message: errorMessage(error) });
+    }
+  }, [operation, saveCancellationPending]);
 
   const open = useCallback(async (projectId: string) => {
     setOpenCancellationPending(false);
@@ -304,6 +334,7 @@ export function useProjectsController({
       if (operationLock.current || autoSaveInProgress.current) return;
       autoSaveInProgress.current = true;
       operationLock.current = true;
+      setAutoSaveCancellationPending(false);
       setAutoSave({ kind: "saving" });
       void (async () => {
         try {
@@ -315,6 +346,10 @@ export function useProjectsController({
           await refresh();
         } catch (error: unknown) {
           failedAutoSaveSignature.current = signature;
+          if (isCancellationError(error)) {
+            setAutoSave({ kind: "idle" });
+            return;
+          }
           setAutoSave({
             kind: "error",
             message: `${errorMessage(error)} La última versión válida se conserva.`,
@@ -322,6 +357,7 @@ export function useProjectsController({
         } finally {
           operationLock.current = false;
           autoSaveInProgress.current = false;
+          setAutoSaveCancellationPending(false);
         }
       })();
     }, 900);
@@ -338,6 +374,23 @@ export function useProjectsController({
     refresh,
     workspaceSignature,
   ]);
+
+  const cancelAutoSave = useCallback(async () => {
+    if (
+      !autoSaveInProgress.current
+      || autoSave.kind !== "saving"
+      || autoSaveCancellationPending
+    ) {
+      return;
+    }
+    setAutoSaveCancellationPending(true);
+    try {
+      await cancelOperation("projectSave");
+    } catch (error: unknown) {
+      setAutoSaveCancellationPending(false);
+      setAutoSave({ kind: "error", message: errorMessage(error) });
+    }
+  }, [autoSave.kind, autoSaveCancellationPending]);
 
   const confirmDelete = useCallback(async () => {
     if (deletion.kind !== "confirming") return;
@@ -366,6 +419,8 @@ export function useProjectsController({
     refresh,
     save,
     open,
+    cancelSave,
+    saveCancellationPending,
     cancelOpen,
     openCancellationPending,
     versions,
@@ -374,6 +429,8 @@ export function useProjectsController({
     cancelRestore,
     restoreCancellationPending,
     autoSave,
+    cancelAutoSave,
+    autoSaveCancellationPending,
     autoSaveEnabled,
     setAutoSaveEnabled,
     requestDelete: (project: ProjectSummary) => setDeletion({ kind: "confirming", project }),

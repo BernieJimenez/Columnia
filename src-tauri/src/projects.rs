@@ -217,6 +217,29 @@ struct PreparedProjectRestore {
     validated: ValidatedProject,
 }
 
+struct StagedGenerationGuard {
+    path: PathBuf,
+    keep: bool,
+}
+
+impl StagedGenerationGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, keep: false }
+    }
+
+    fn keep(&mut self) {
+        self.keep = true;
+    }
+}
+
+impl Drop for StagedGenerationGuard {
+    fn drop(&mut self) {
+        if !self.keep {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DurableHistoryManifest {
@@ -1011,6 +1034,26 @@ impl ProjectStore {
         self.save_inner(dataset_state, project_id, name, workspace, false)
     }
 
+    fn save_cancellable(
+        &self,
+        dataset_state: &DatasetState,
+        project_id: Option<String>,
+        name: String,
+        workspace: ProjectWorkspace,
+        generation: u64,
+    ) -> Result<ProjectSummary, String> {
+        let cancellation = dataset_state.project_save_cancellation(generation);
+        self.save_inner_with_cancellation(
+            dataset_state,
+            project_id,
+            name,
+            workspace,
+            false,
+            Some(generation),
+            move || cancellation(),
+        )
+    }
+
     fn autosave(
         &self,
         dataset_state: &DatasetState,
@@ -1019,6 +1062,26 @@ impl ProjectStore {
         workspace: ProjectWorkspace,
     ) -> Result<ProjectSummary, String> {
         self.save_inner_with_options(dataset_state, Some(project_id), name, workspace, false)
+    }
+
+    fn autosave_cancellable(
+        &self,
+        dataset_state: &DatasetState,
+        project_id: String,
+        name: String,
+        workspace: ProjectWorkspace,
+        generation: u64,
+    ) -> Result<ProjectSummary, String> {
+        let cancellation = dataset_state.project_save_cancellation(generation);
+        self.save_inner_with_cancellation(
+            dataset_state,
+            Some(project_id),
+            name,
+            workspace,
+            false,
+            Some(generation),
+            move || cancellation(),
+        )
     }
 
     fn save_inner(
@@ -1046,12 +1109,39 @@ impl ProjectStore {
         workspace: ProjectWorkspace,
         fail_before_database: bool,
     ) -> Result<ProjectSummary, String> {
+        self.save_inner_with_cancellation(
+            dataset_state,
+            project_id,
+            name,
+            workspace,
+            fail_before_database,
+            None,
+            || false,
+        )
+    }
+
+    fn save_inner_with_cancellation<C>(
+        &self,
+        dataset_state: &DatasetState,
+        project_id: Option<String>,
+        name: String,
+        workspace: ProjectWorkspace,
+        fail_before_database: bool,
+        project_save_generation: Option<u64>,
+        is_cancelled: C,
+    ) -> Result<ProjectSummary, String>
+    where
+        C: Fn() -> bool + Clone + Send + Sync + 'static,
+    {
+        ensure_project_save_not_cancelled(is_cancelled())?;
         self.ensure_initialized()?;
         let name = validate_name(name)?;
         if let Some(id) = project_id.as_deref() {
             validate_id(id)?;
         }
-        let mut active = dataset_state.active_project_snapshot()?;
+        ensure_project_save_not_cancelled(is_cancelled())?;
+        let mut active = dataset_state.active_project_snapshot_with_cancel(is_cancelled.clone())?;
+        ensure_project_save_not_cancelled(is_cancelled())?;
         validate_project_workspace(
             &active.frame,
             &workspace.quality_rules,
@@ -1119,6 +1209,7 @@ impl ProjectStore {
         let snapshot_name = format!("{id}-{generation}.parquet");
         let generation_name = format!("{id}-{generation}");
         let generation_path = self.snapshots.join(&generation_name);
+        let mut generation_guard = StagedGenerationGuard::new(generation_path.clone());
         let row_count = usize_to_i64(active.row_count)?;
         let column_count = usize_to_i64(active.column_count)?;
         let history_manifest = history_manifest(&active.history);
@@ -1130,24 +1221,32 @@ impl ProjectStore {
             .map(serde_json::to_string)
             .transpose()
             .map_err(|_| "No se pudo validar el perfil del proyecto.".to_owned())?;
+        ensure_project_save_not_cancelled(is_cancelled())?;
         let frame = std::mem::replace(&mut active.frame, DataFrame::empty());
-        write_generation(
+        write_generation_with_cancel(
             frame,
             active.current_snapshot_path.as_deref(),
             &active.history,
             &generation_path,
+            is_cancelled.clone(),
         )?;
+        ensure_project_save_not_cancelled(is_cancelled())?;
         let storage_bytes = self
             .generation_storage_bytes(&generation_path, Some(&history_manifest))
             .ok();
+        ensure_project_save_not_cancelled(is_cancelled())?;
         let profile_cache_sha256 = active
             .profile
             .as_ref()
-            .map(|_| hash_file_sha256(&generation_path.join("current.parquet")))
+            .map(|_| {
+                hash_file_sha256_with_cancel(&generation_path.join("current.parquet"), || {
+                    is_cancelled()
+                })
+            })
             .transpose()?;
+        ensure_project_save_not_cancelled(is_cancelled())?;
 
         if fail_before_database {
-            let _ = fs::remove_dir_all(&generation_path);
             return Err(storage_error());
         }
 
@@ -1160,21 +1259,18 @@ impl ProjectStore {
             .as_ref()
             .map(|project| project.summary.created_at.clone())
             .unwrap_or_else(|| timestamp.clone());
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|_| {
-                let _ = fs::remove_dir_all(&generation_path);
-                storage_error()
-            })?;
-        if let Some(previous) = existing.as_ref() {
-            if insert_project_version(&transaction, previous, old_storage_bytes).is_err() {
-                let _ = fs::remove_dir_all(&generation_path);
-                return Err(storage_error());
+        ensure_project_save_not_cancelled(is_cancelled())?;
+        let mut commit_catalog = || -> Result<Vec<(Option<String>, String)>, String> {
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|_| storage_error())?;
+            if let Some(previous) = existing.as_ref() {
+                insert_project_version(&transaction, previous, old_storage_bytes)
+                    .map_err(|_| storage_error())?;
             }
-        }
-        let database_result = if existing.is_some() {
-            transaction.execute(
-                "UPDATE projects SET name = ?1, dataset_file_name = ?2, row_count = ?3,
+            let database_result = if existing.is_some() {
+                transaction.execute(
+                    "UPDATE projects SET name = ?1, dataset_file_name = ?2, row_count = ?3,
                  column_count = ?4, snapshot_name = ?5, updated_at = ?6, last_opened_at = ?6,
                  quality_rules_json = ?7, recipe_draft_json = ?8, generation_name = ?9,
                   history_manifest_json = ?10, profile_json = ?11, profile_cache_sha256 = ?12,
@@ -1183,37 +1279,37 @@ impl ProjectStore {
                  performance_profile = ?19, export_format = ?20, privacy_mode = ?21,
                  comparison_key_columns_json = ?22, join_type = ?23,
                  import_profile_json = ?24 WHERE id = ?25",
-                params![
-                    name,
-                    active.file_name,
-                    row_count,
-                    column_count,
-                    snapshot_name,
-                    timestamp,
-                    quality_rules_json,
-                    recipe_draft_json,
-                    generation_name,
-                    history_manifest_json,
-                    profile_json,
-                    profile_cache_sha256,
-                    sql_history_json,
-                    review_tab,
-                    preview_offset,
-                    active_phase,
-                    query_engine,
-                    analysis_sample_rows,
-                    performance_profile,
-                    export_format,
-                    privacy_mode,
-                    comparison_key_columns_json,
-                    join_type,
-                    import_profile_json,
-                    id
-                ],
-            )
-        } else {
-            transaction.execute(
-                "INSERT INTO projects
+                    params![
+                        name,
+                        active.file_name,
+                        row_count,
+                        column_count,
+                        snapshot_name,
+                        timestamp,
+                        quality_rules_json,
+                        recipe_draft_json,
+                        generation_name,
+                        history_manifest_json,
+                        profile_json,
+                        profile_cache_sha256,
+                        sql_history_json,
+                        review_tab,
+                        preview_offset,
+                        active_phase,
+                        query_engine,
+                        analysis_sample_rows,
+                        performance_profile,
+                        export_format,
+                        privacy_mode,
+                        comparison_key_columns_json,
+                        join_type,
+                        import_profile_json,
+                        id
+                    ],
+                )
+            } else {
+                transaction.execute(
+                    "INSERT INTO projects
                  (id, name, dataset_file_name, row_count, column_count, snapshot_name,
                   created_at, updated_at, last_opened_at, quality_rules_json, recipe_draft_json,
                    generation_name, history_manifest_json, profile_json, profile_cache_sha256,
@@ -1247,24 +1343,21 @@ impl ProjectStore {
                     comparison_key_columns_json,
                     join_type,
                     import_profile_json,
-                ],
-            )
-        };
-        if !matches!(database_result, Ok(1)) {
-            let _ = fs::remove_dir_all(&generation_path);
-            return Err(storage_error());
-        }
-        let pruned = match self.prune_versions_in_transaction(&transaction, &id) {
-            Ok(pruned) => pruned,
-            Err(error) => {
-                let _ = fs::remove_dir_all(&generation_path);
-                return Err(error);
+                    ],
+                )
+            };
+            if !matches!(database_result, Ok(1)) {
+                return Err(storage_error());
             }
+            let pruned = self.prune_versions_in_transaction(&transaction, &id)?;
+            transaction.commit().map_err(|_| storage_error())?;
+            generation_guard.keep();
+            Ok(pruned)
         };
-        if transaction.commit().is_err() {
-            let _ = fs::remove_dir_all(&generation_path);
-            return Err(storage_error());
-        }
+        let pruned = match project_save_generation {
+            Some(generation) => dataset_state.commit_project_save(generation, commit_catalog)?,
+            None => commit_catalog()?,
+        };
         self.cleanup_pruned_version_files(&id, pruned);
         Ok(ProjectSummary {
             id,
@@ -2159,6 +2252,14 @@ fn ensure_project_open_not_cancelled(is_cancelled: bool) -> Result<(), String> {
     }
 }
 
+fn ensure_project_save_not_cancelled(is_cancelled: bool) -> Result<(), String> {
+    ensure_project_open_not_cancelled(is_cancelled)
+}
+
+fn ensure_project_operation_not_cancelled(is_cancelled: bool) -> Result<(), String> {
+    ensure_project_open_not_cancelled(is_cancelled)
+}
+
 fn prepare_store_directory(requested: &Path) -> Result<PathBuf, String> {
     if requested.as_os_str().is_empty() {
         return Err("La raíz del catálogo no es válida.".to_owned());
@@ -2305,7 +2406,19 @@ fn write_snapshot(frame: &DataFrame, destination: &Path) -> Result<(), String> {
     write_snapshot_owned(frame.clone(), destination)
 }
 
-fn write_snapshot_owned(mut frame: DataFrame, destination: &Path) -> Result<(), String> {
+fn write_snapshot_owned(frame: DataFrame, destination: &Path) -> Result<(), String> {
+    write_snapshot_owned_with_cancel(frame, destination, || false)
+}
+
+fn write_snapshot_owned_with_cancel<C>(
+    mut frame: DataFrame,
+    destination: &Path,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_project_operation_not_cancelled(is_cancelled())?;
     if destination.exists() {
         return Err(storage_error());
     }
@@ -2314,13 +2427,16 @@ fn write_snapshot_owned(mut frame: DataFrame, destination: &Path) -> Result<(), 
     ParquetWriter::new(temporary.as_file())
         .finish(&mut frame)
         .map_err(|_| storage_error())?;
+    ensure_project_operation_not_cancelled(is_cancelled())?;
     temporary
         .as_file()
         .sync_all()
         .map_err(|_| storage_error())?;
+    ensure_project_operation_not_cancelled(is_cancelled())?;
     temporary
         .persist_noclobber(destination)
         .map_err(|_| storage_error())?;
+    ensure_project_operation_not_cancelled(is_cancelled())?;
     if sync_directory(parent).is_err() {
         let _ = fs::remove_file(destination);
         return Err(storage_error());
@@ -2334,6 +2450,20 @@ fn write_generation(
     history: &ProjectHistoryCapture,
     destination: &Path,
 ) -> Result<(), String> {
+    write_generation_with_cancel(frame, current_snapshot_path, history, destination, || false)
+}
+
+fn write_generation_with_cancel<C>(
+    frame: DataFrame,
+    current_snapshot_path: Option<&Path>,
+    history: &ProjectHistoryCapture,
+    destination: &Path,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Clone + Sync,
+{
+    ensure_project_operation_not_cancelled(is_cancelled())?;
     if destination.exists() {
         return Err(storage_error());
     }
@@ -2341,24 +2471,32 @@ fn write_generation(
     let staging = tempfile::tempdir_in(parent).map_err(|_| storage_error())?;
     let current_target = staging.path().join("current.parquet");
     if let Some(source) = current_snapshot_path {
-        copy_snapshot(source, &current_target)?;
+        copy_snapshot_with_cancel(source, &current_target, is_cancelled.clone())?;
     } else {
-        write_snapshot_owned(frame, &current_target)?;
+        write_snapshot_owned_with_cancel(frame, &current_target, is_cancelled.clone())?;
     }
     for (index, entry) in history.entries.iter().enumerate() {
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         let target = staging.path().join(format!("history-{index:03}.parquet"));
-        let copied = fs::copy(&entry.path, &target).map_err(|_| storage_error())?;
+        let mut destination_file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+            .map_err(|_| storage_error())?;
+        let copied = crate::dataset::copy_file_with_cancel(
+            &entry.path,
+            &mut destination_file,
+            is_cancelled.clone(),
+        )?;
         if copied != entry.bytes {
             return Err(storage_error());
         }
-        fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&target)
-            .and_then(|file| file.sync_all())
-            .map_err(|_| storage_error())?;
+        destination_file.sync_all().map_err(|_| storage_error())?;
+        ensure_project_operation_not_cancelled(is_cancelled())?;
     }
+    ensure_project_operation_not_cancelled(is_cancelled())?;
     sync_directory(staging.path())?;
+    ensure_project_operation_not_cancelled(is_cancelled())?;
     let staging_path = staging.keep();
     if fs::rename(&staging_path, destination).is_err() {
         let _ = fs::remove_dir_all(staging_path);
@@ -2368,10 +2506,23 @@ fn write_generation(
         let _ = fs::remove_dir_all(destination);
         return Err(storage_error());
     }
+    ensure_project_operation_not_cancelled(is_cancelled())?;
     Ok(())
 }
 
 fn copy_snapshot(source: &Path, destination: &Path) -> Result<(), String> {
+    copy_snapshot_with_cancel(source, destination, || false)
+}
+
+fn copy_snapshot_with_cancel<C>(
+    source: &Path,
+    destination: &Path,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Clone,
+{
+    ensure_project_operation_not_cancelled(is_cancelled())?;
     let metadata = fs::symlink_metadata(source).map_err(|_| storage_error())?;
     if !metadata.is_file() || metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
         return Err(storage_error());
@@ -2379,16 +2530,25 @@ fn copy_snapshot(source: &Path, destination: &Path) -> Result<(), String> {
     if destination.exists() {
         return Err(storage_error());
     }
-    let copied = fs::copy(source, destination).map_err(|_| storage_error())?;
+    let mut destination_file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+        .map_err(|_| storage_error())?;
+    let copied =
+        crate::dataset::copy_file_with_cancel(source, &mut destination_file, is_cancelled.clone())
+            .map_err(|error| {
+                if error == OPERATION_CANCELLED_MESSAGE {
+                    error
+                } else {
+                    storage_error()
+                }
+            })?;
     if copied != metadata.len() {
         return Err(storage_error());
     }
-    fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(destination)
-        .and_then(|file| file.sync_all())
-        .map_err(|_| storage_error())?;
+    destination_file.sync_all().map_err(|_| storage_error())?;
+    ensure_project_operation_not_cancelled(is_cancelled())?;
     Ok(())
 }
 
@@ -2468,8 +2628,9 @@ pub async fn save_project(
     name: String,
     workspace: ProjectWorkspace,
 ) -> Result<ProjectSummary, String> {
+    let generation = app.state::<DatasetState>().begin_project_save()?;
     run_project_operation(app, move |store, dataset| {
-        store.save(dataset, project_id, name, workspace)
+        store.save_cancellable(dataset, project_id, name, workspace, generation)
     })
     .await
 }
@@ -2481,8 +2642,9 @@ pub async fn autosave_project(
     name: String,
     workspace: ProjectWorkspace,
 ) -> Result<ProjectSummary, String> {
+    let generation = app.state::<DatasetState>().begin_project_save()?;
     run_project_operation(app, move |store, dataset| {
-        store.autosave(dataset, project_id, name, workspace)
+        store.autosave_cancellable(dataset, project_id, name, workspace, generation)
     })
     .await
 }

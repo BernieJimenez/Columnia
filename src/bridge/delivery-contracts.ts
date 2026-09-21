@@ -15,6 +15,7 @@ export type CancellableOperation =
   | "qualityValidation"
   | "databasePreflight"
   | "reviewMutation"
+  | "projectSave"
   | "projectOpen";
 export type LocalExportFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
 export type ExportFormat = LocalExportFormat | "postgresql" | "mysql" | "sqlserver";

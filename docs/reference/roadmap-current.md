@@ -9,6 +9,15 @@ trabajo, protege resultados o aporta evidencia necesaria para declarar soporte.
 Las propuestas condicionadas a demanda se enumeran al final y no son trabajo
 comprometido.
 
+Último incremento verificado sobre `fb82323`: guardar manualmente y el
+autoguardado usan `projectSave`, copian snapshots e historial por bloques y
+descartan la generación staged si la cancelación gana antes del commit. La
+transacción del catálogo comparte un gate con cancelar; `ParquetWriter::finish`,
+`sync_all` y la transacción SQLite siguen siendo tramos síncronos. La interfaz
+ofrece «Cancelar guardado» y «Cancelar autoguardado». Pasan `cargo fmt --check`,
+`cargo check --lib`, `npm run build`, `npm run ipc:check`, el checker documental
+y `git diff --check`; no se ejecutaron pruebas de producto.
+
 ## Ahora — completar el flujo automático
 
 | ID | Resultado y criterio de cierre | Responsable | Dependencia | Estado / evidencia |

@@ -25,11 +25,15 @@ interface ProjectsPanelProps {
   disabled: boolean;
   openCancellationPending?: boolean;
   restoreCancellationPending?: boolean;
+  saveCancellationPending?: boolean;
+  autoSaveCancellationPending?: boolean;
   onSave: (name: string) => void;
+  onCancelSave?: () => void;
   onOpen: (projectId: string) => void;
   onCancelOpen?: () => void;
   onRestore: (projectId: string, versionId: number) => void;
   onCancelRestore?: () => void;
+  onCancelAutoSave?: () => void;
   onAutoSaveChange: (enabled: boolean) => void;
   onDeleteRequest: (project: ProjectSummary) => void;
   onDeleteCancel: () => void;
@@ -58,11 +62,15 @@ export function ProjectsPanel({
   disabled,
   openCancellationPending = false,
   restoreCancellationPending = false,
+  saveCancellationPending = false,
+  autoSaveCancellationPending = false,
   onSave,
+  onCancelSave,
   onOpen,
   onCancelOpen,
   onRestore,
   onCancelRestore,
+  onCancelAutoSave,
   onAutoSaveChange,
   onDeleteRequest,
   onDeleteCancel,
@@ -170,7 +178,25 @@ export function ProjectsPanel({
                             <span>Autoguardar este proyecto</span>
                           </label>
                           <small>Hasta 5 versiones anteriores y 512 MiB. La última versión válida se conserva aunque supere la cuota.</small>
-                          {autoSave.kind === "saving" && <small role="status">Guardando automáticamente…</small>}
+                          {autoSave.kind === "saving" && (
+                            <div className="project-continuity__saving">
+                              <small role="status">
+                                {autoSaveCancellationPending
+                                  ? "Cancelando guardado automático…"
+                                  : "Guardando automáticamente…"}
+                              </small>
+                              {onCancelAutoSave && (
+                                <button
+                                  type="button"
+                                  className="secondary-action"
+                                  onClick={onCancelAutoSave}
+                                  disabled={autoSaveCancellationPending}
+                                >
+                                  {autoSaveCancellationPending ? "Cancelando…" : "Cancelar autoguardado"}
+                                </button>
+                              )}
+                            </div>
+                          )}
                           {autoSave.kind === "saved" && <small role="status">Guardado automáticamente · {projectDate(autoSave.savedAt)}</small>}
                           {autoSave.kind === "error" && <small className="project-autosave__error" role="alert">Error al guardar automáticamente: {autoSave.message}</small>}
                           {versions.kind === "loading" && <small role="status">Cargando versiones…</small>}
@@ -221,8 +247,20 @@ export function ProjectsPanel({
               ? openCancellationPending ? "Cancelando apertura del proyecto…" : "Abriendo proyecto…"
               : operation.operation === "restore"
                 ? restoreCancellationPending ? "Cancelando restauración de versión…" : "Restaurando versión…"
+                : operation.operation === "save"
+                  ? saveCancellationPending ? "Cancelando guardado del proyecto…" : "Guardando proyecto…"
                 : "Procesando proyecto…"}
           </p>
+          {operation.operation === "save" && onCancelSave && (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={onCancelSave}
+              disabled={saveCancellationPending}
+            >
+              {saveCancellationPending ? "Cancelando…" : "Cancelar guardado"}
+            </button>
+          )}
           {operation.operation === "open" && onCancelOpen && (
             <button
               type="button"
