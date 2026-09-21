@@ -60,20 +60,38 @@ export function ModalDialog({
   onDismiss,
   children,
 }: ModalDialogProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
     const panel = panelRef.current;
+    if (panel && !panel.open) {
+      if (typeof panel.showModal === "function") {
+        panel.showModal();
+      } else {
+        // Keep component tests and older embedded browsers usable while the
+        // production WebView uses the native modal behavior.
+        panel.setAttribute("open", "");
+      }
+    }
     const firstFocusable = panel ? getFocusableElements(panel)[0] : undefined;
     (firstFocusable ?? panel)?.focus();
 
-    return () => previouslyFocused?.focus();
+    return () => {
+      if (panel?.open) {
+        if (typeof panel.close === "function") {
+          panel.close();
+        } else {
+          panel.removeAttribute("open");
+        }
+      }
+      previouslyFocused?.focus();
+    };
   }, []);
 
-  function keepFocusInside(event: KeyboardEvent<HTMLDivElement>) {
+  function keepFocusInside(event: KeyboardEvent<HTMLDialogElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
@@ -103,19 +121,18 @@ export function ModalDialog({
   }
 
   return (
-    <div className="sheet-dialog" role="presentation">
-      <div
-        ref={panelRef}
-        className="sheet-dialog__panel"
-        role={role}
-        aria-modal="true"
-        aria-labelledby={labelledBy}
-        aria-describedby={describedBy}
-        tabIndex={-1}
-        onKeyDown={keepFocusInside}
-      >
-        {children}
-      </div>
-    </div>
+    <dialog
+      ref={panelRef}
+      className="sheet-dialog"
+      role={role}
+      aria-modal="true"
+      aria-labelledby={labelledBy}
+      aria-describedby={describedBy}
+      tabIndex={-1}
+      onKeyDown={keepFocusInside}
+      onCancel={(event) => event.preventDefault()}
+    >
+      <div className="sheet-dialog__panel">{children}</div>
+    </dialog>
   );
 }

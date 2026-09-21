@@ -18,6 +18,12 @@ resume el estado; esas fuentes definen los criterios de cierre.
 
 La tarjeta de progreso conserva una barra nativa con nombre y valor accesibles. Una región viva breve anuncia los cambios de etapa y la solicitud de cancelación; el porcentaje y el reloj no vuelven a anunciar toda la tarjeta con cada actualización.
 
+Los diálogos propios usan el elemento HTML `dialog` con `showModal()`. El
+navegador los presenta en la capa modal y deja inerte el contenido de fondo;
+Columnia conserva el trap de teclado, restaura el foco al cerrar y asocia nombre
+y descripción accesibles. La aceptación con lector de pantalla real sigue
+pendiente.
+
 En el código local están implementadas la importación CSV/TSV con convenciones
 explícitas de fecha y número, las políticas reutilizables de excepciones de
 conversión, y la cancelación compartida de JOIN, consolidación y resolución
@@ -462,8 +468,8 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En este incremento, la reconciliación de generaciones huérfanas amplía los checkpoints alrededor de syscalls síncronas. Pasan `cargo fmt --check`, `cargo check --lib` (58 avisos dead-code existentes), `npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron pruebas de producto. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-21, posterior al commit base `9403de9`; amplía los checkpoints de cancelación alrededor de la limpieza recursiva segura de generaciones huérfanas, además de los smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, cancelación de apertura/restauración/guardado/eliminación, catálogo unificado, detección CSV/TSV por bloques, comprobación cancelable del updater y exportación source-backed Parquet/JSON interrumpible en DuckDB. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En el incremento anterior, la reconciliación de generaciones huérfanas amplió los checkpoints alrededor de syscalls síncronas. En este incremento, los diálogos propios pasan a `dialog.showModal()` para aplicar modalidad nativa. Pasan `npm run build`, el checker documental y `git diff --check`; no se ejecutaron pruebas de producto. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
+| Última revisión de este documento | 2026-09-21, posterior al commit base `de6f960`; añade modalidad nativa `dialog.showModal()` con fondo inerte y conserva el trap/restauración de foco, además de los smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, cancelación de apertura/restauración/guardado/eliminación, catálogo unificado, detección CSV/TSV por bloques, comprobación cancelable del updater y exportación source-backed Parquet/JSON interrumpible en DuckDB. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 
