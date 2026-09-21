@@ -9,12 +9,14 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `cdcc2bd`, versión
+La base de este incremento fue `master` en `628c27c`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
 resume el estado; esas fuentes definen los criterios de cierre.
+
+La tarjeta de progreso conserva una barra nativa con nombre y valor accesibles. Una región viva breve anuncia los cambios de etapa y la solicitud de cancelación; el porcentaje y el reloj no vuelven a anunciar toda la tarjeta con cada actualización.
 
 En el código local están implementadas la importación CSV/TSV con convenciones
 explícitas de fecha y número, las políticas reutilizables de excepciones de

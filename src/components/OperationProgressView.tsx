@@ -58,66 +58,72 @@ export function OperationProgressView({
   }, [progress.operation, isCancelling]);
 
   return (
-    <section
-      className={`operation-progress${isCancelling ? " operation-progress--cancelling" : ""}`}
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-      aria-busy={!isCancelling}
-      aria-labelledby={titleId}
-      aria-describedby={descriptionId}
-    >
-      <header className="operation-progress__header">
-        <div className="operation-progress__title-block">
-          <span className="operation-progress__eyebrow">{copy.eyebrow}</span>
-          <h3 id={titleId}>{copy.title}</h3>
-        </div>
-        <span className="operation-progress__state">
-          <span className="operation-progress__state-dot" aria-hidden="true" />
-          {isCancelling ? "Cancelación solicitada" : "En curso"}
-        </span>
-      </header>
-
-      <p id={descriptionId} className="operation-progress__description">
-        {copy.description}
+    <>
+      <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+        {isCancelling
+          ? `Cancelación solicitada. ${copy.title}: ${progress.stage}.`
+          : `${copy.title}: ${progress.stage}.`}
       </p>
+      <section
+        className={`operation-progress${isCancelling ? " operation-progress--cancelling" : ""}`}
+        role="region"
+        aria-busy={!isCancelling}
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+      >
+        <header className="operation-progress__header">
+          <div className="operation-progress__title-block">
+            <span className="operation-progress__eyebrow">{copy.eyebrow}</span>
+            <h3 id={titleId}>{copy.title}</h3>
+          </div>
+          <span className="operation-progress__state">
+            <span className="operation-progress__state-dot" aria-hidden="true" />
+            {isCancelling ? "Cancelación solicitada" : "En curso"}
+          </span>
+        </header>
 
-      <div className="operation-progress__current">
-        <div className="operation-progress__stage">
-          <span>Etapa actual</span>
-          <strong>{progress.stage}</strong>
-        </div>
-        <strong className="operation-progress__percent">{percent}%</strong>
-      </div>
-
-      <progress
-        aria-label={`Progreso: ${progress.stage}`}
-        max={100}
-        value={percent}
-      />
-
-      <div className="operation-progress__scale" aria-hidden="true">
-        <span>Inicio</span>
-        <span>Completado</span>
-      </div>
-
-      <footer className="operation-progress__footer">
-        <p>
-          {isCancelling
-            ? "Terminando la operación actual…"
-            : "El avance se actualiza automáticamente. Los datasets grandes pueden tardar varios minutos."}
+        <p id={descriptionId} className="operation-progress__description">
+          {copy.description}
         </p>
-        <span className="operation-progress__elapsed" aria-label={`Tiempo transcurrido: ${formatElapsed(elapsedSeconds)}`}>
-          {formatElapsed(elapsedSeconds)}
-        </span>
-        <button
-          type="button"
-          onClick={cancellation.kind === "available" ? cancellation.onCancel : undefined}
-          disabled={isCancelling}
-        >
-          {isCancelling ? "Cancelando…" : "Cancelar"}
-        </button>
-      </footer>
-    </section>
+
+        <div className="operation-progress__current">
+          <div className="operation-progress__stage">
+            <span>Etapa actual</span>
+            <strong>{progress.stage}</strong>
+          </div>
+          <strong className="operation-progress__percent">{percent}%</strong>
+        </div>
+
+        <progress
+          aria-label={`Progreso: ${progress.stage}`}
+          aria-valuetext={`${progress.stage}: ${percent}%`}
+          max={100}
+          value={percent}
+        />
+
+        <div className="operation-progress__scale" aria-hidden="true">
+          <span>Inicio</span>
+          <span>Completado</span>
+        </div>
+
+        <footer className="operation-progress__footer">
+          <p>
+            {isCancelling
+              ? "Terminando la operación actual…"
+              : "El avance se actualiza automáticamente. Los datasets grandes pueden tardar varios minutos."}
+          </p>
+          <span className="operation-progress__elapsed" aria-label={`Tiempo transcurrido: ${formatElapsed(elapsedSeconds)}`}>
+            {formatElapsed(elapsedSeconds)}
+          </span>
+          <button
+            type="button"
+            onClick={cancellation.kind === "available" ? cancellation.onCancel : undefined}
+            disabled={isCancelling}
+          >
+            {isCancelling ? "Cancelando…" : "Cancelar"}
+          </button>
+        </footer>
+      </section>
+    </>
   );
 }

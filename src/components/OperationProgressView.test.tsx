@@ -20,7 +20,8 @@ describe("OperationProgressView", () => {
     expect(screen.getByText("Importación")).toBeInTheDocument();
     expect(screen.getByText("Etapa actual")).toBeInTheDocument();
     expect(screen.getByText("En curso")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("status")).toHaveTextContent("Cargando dataset: Leyendo columnas.");
+    expect(screen.getByRole("region", { name: "Cargando dataset" })).toHaveAttribute("aria-busy", "true");
     expect(screen.getByRole("progressbar", { name: "Progreso: Leyendo columnas" })).toHaveValue(35);
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(onCancel).toHaveBeenCalledOnce();
@@ -35,7 +36,7 @@ describe("OperationProgressView", () => {
     );
 
     expect(screen.getByRole("button", { name: "Cancelando…" })).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "false");
+    expect(screen.getByRole("region", { name: "Exportando dataset" })).toHaveAttribute("aria-busy", "false");
     expect(screen.getByText("Cancelación solicitada")).toBeInTheDocument();
   });
 
