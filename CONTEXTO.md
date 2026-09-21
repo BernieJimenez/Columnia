@@ -16,6 +16,11 @@ abajo. La cola operativa vigente está en
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
 resume el estado; esas fuentes definen los criterios de cierre.
 
+Para RV10, Windows tiene instalados ODBC Driver 17/18 y `sqlcmd`, pero el
+servicio local `MSSQLSERVER` está detenido. Esta sesión no pudo abrirlo con
+`Start-Service`, y `(localdb)\MSSQLLocalDB` no respondió; aún no hay una
+instancia accesible para ejecutar el round-trip.
+
 La tarjeta de progreso conserva una barra nativa con nombre y valor accesibles. Una región viva breve anuncia los cambios de etapa y la solicitud de cancelación; el porcentaje y el reloj no vuelven a anunciar toda la tarjeta con cada actualización.
 
 Los diálogos propios usan el elemento HTML `dialog` con `showModal()`. El
