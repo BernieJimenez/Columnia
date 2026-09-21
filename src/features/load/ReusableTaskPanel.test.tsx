@@ -251,13 +251,14 @@ describe("ReusableTaskPanel", () => {
 
   it("abre y prepara inmediatamente la configuración que acaba de guardar", async () => {
     const onPrepareImport = vi.fn();
+    const onApply = vi.fn();
     render(
       <ReusableTaskPanel
         connected
         blocked={false}
         schema={schema}
         draft={draft}
-        onApply={vi.fn()}
+        onApply={onApply}
         onPrepareImport={onPrepareImport}
       />,
     );
@@ -274,6 +275,14 @@ describe("ReusableTaskPanel", () => {
       "status",
     );
     expect(screen.getByText("Configuración que se reutilizará")).toBeInTheDocument();
+    expect(await screen.findByText("El esquema es compatible. Puedes aplicar la configuración guardada."))
+      .toBeInTheDocument();
+    expect(bridge.checkReusableTaskSchema).toHaveBeenCalledWith("task-2", schema);
+    const apply = screen.getByRole("button", { name: "Aplicar al dataset actual" });
+    expect(apply).toBeEnabled();
+    fireEvent.click(apply);
+    await waitFor(() => expect(onApply).toHaveBeenCalledWith({ ...draft, name: "Cierre semanal" }));
+
     expect(screen.getByRole("button", { name: "Preparar próxima importación" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: /eliminar/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));

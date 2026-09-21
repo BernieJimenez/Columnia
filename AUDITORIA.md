@@ -115,8 +115,7 @@ Este snapshot técnico se conserva aquí para evitar una segunda auditoría
 independiente. No es otra cola de trabajo: los cambios necesarios siguen el orden
 de [`roadmap vigente`](docs/reference/roadmap-current.md).
 
-Snapshot de dependencias actualizado el **2026-09-07** sobre `0.167.0`; el
-inventario IPC quedó sincronizado el **2026-09-14**. Es una referencia local
+Snapshot de dependencias actualizado el **2026-09-07** sobre `0.167.0`. La ficha vigente se conserva sobre `0.168.0` porque este incremento solo cambia la versión del proyecto, no el grafo de dependencias. El inventario IPC quedó sincronizado el **2026-09-14**. Es una referencia local
 reproducible, no una aprobación permanente de actualizar a la última versión.
 Antes de cambiar una dependencia, ejecuta los comandos de la tabla y registra el
 resultado en el mismo cambio.

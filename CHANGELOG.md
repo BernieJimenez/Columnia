@@ -6,8 +6,11 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.168.0] - 2026-09-21
+
 ### Añadido
 
+- Al guardar una tarea reutilizable sobre el dataset activo, Columnia comprueba su esquema y habilita la aplicación si es compatible.
 - En Revisar, la tendencia temporal ahora puede sumar o promediar una columna
   numérica por día, mes o año. El cálculo se ejecuta bajo demanda, conserva los
   periodos sin valores y muestra los conteos válidos; también admite cancelación

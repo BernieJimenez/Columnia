@@ -1,6 +1,6 @@
 # Red, privacidad y telemetría
 
-Columnia es local-first. En la versión `0.167.0` el flujo local de la aplicación
+Columnia es local-first. En la versión `0.168.0` el flujo local de la aplicación
 no inicia conexiones de red, no envía datasets y no incorpora telemetría, analytics ni
 crash reporting. La entrega ODBC es una acción explícita del usuario hacia el
 motor remoto que elija; no es un servicio obligatorio ni se ejecuta durante la

@@ -78,6 +78,12 @@ export function ReusableTaskPanel({
       setSelectedTaskId(saved.id);
       setReviewedSchema(null);
       setSaveMessage(`Tarea “${saved.name}” guardada en este equipo.`);
+      if (schema !== null && schemaFingerprint !== null) {
+        const compatibility = await reusableTasks.checkSchema(saved.id, schema);
+        if (compatibility) {
+          setReviewedSchema({ taskId: saved.id, fingerprint: schemaFingerprint });
+        }
+      }
     }
   }
 

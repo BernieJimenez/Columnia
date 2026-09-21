@@ -22,7 +22,7 @@ describe("contrato de diagnóstico local v1", () => {
 
   it("crea un preview tipado sin valores libres ni campos no declarados", () => {
     const report = createDiagnosticReport({
-      appVersion: "0.167.0",
+      appVersion: "0.168.0",
       phase: "prepare",
       status: "issue_reported",
       errorCodes: ["TRANSFORM_APPLY_FAILED"],
@@ -33,7 +33,7 @@ describe("contrato de diagnóstico local v1", () => {
     expect(report).toEqual({
       contract: "columnia-diagnostic-report",
       schemaVersion: 1,
-      appVersion: "0.167.0",
+      appVersion: "0.168.0",
       phase: "prepare",
       status: "issue_reported",
       errorCodes: ["TRANSFORM_APPLY_FAILED"],
@@ -45,13 +45,13 @@ describe("contrato de diagnóstico local v1", () => {
 
   it("limita códigos y exige coherencia entre el estado y los códigos seleccionados", () => {
     expect(() => createDiagnosticReport({
-      appVersion: "0.167.0", phase: "review", status: "issue_reported", errorCodes: [], metrics: null,
+      appVersion: "0.168.0", phase: "review", status: "issue_reported", errorCodes: [], metrics: null,
     })).toThrow();
     expect(() => createDiagnosticReport({
-      appVersion: "0.167.0", phase: "review", status: "ready", errorCodes: ["DATASET_LOAD_FAILED"], metrics: null,
+      appVersion: "0.168.0", phase: "review", status: "ready", errorCodes: ["DATASET_LOAD_FAILED"], metrics: null,
     })).toThrow();
     expect(() => createDiagnosticReport({
-      appVersion: "0.167.0",
+      appVersion: "0.168.0",
       phase: "review",
       status: "issue_reported",
       errorCodes: [

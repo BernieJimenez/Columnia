@@ -9,9 +9,11 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `9403de9`, versión
-`0.167.0`; desde ese corte se están verificando cambios de producto descritos
-abajo. La cola operativa vigente está en
+La base de este incremento fue `master` en `6053b87`, versión
+`0.167.0`; este corte verifica la revisión de esquema al guardar y reutilizar
+tareas y sincroniza el proyecto como `0.168.0`. Se mantiene la serie 0.x
+mientras siguen abiertos beta con datos reales, accesibilidad nativa, SQL Server
+y distribución binaria. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
 resume el estado; esas fuentes definen los criterios de cierre.
@@ -39,9 +41,11 @@ La alerta de validación del contrato de calidad se asocia con el grupo de la
 regla que identifica. Las etiquetas accesibles de límites, referencias y orden
 del contrato incluyen ahora el texto visible completo.
 
-La prueba `DeliveryPhase.test.tsx` pasa 32/32 y Playwright pasa 21/21 E2E; el
-mock de importación simula la inspección de hojas Excel como llamada separada
-`inspect_workbook_sheets`.
+La prueba `DeliveryPhase.test.tsx` pasa 32/32, `ReusableTaskPanel.test.tsx`
+pasa 7/7 y Playwright pasa 22/22 E2E. El mock de importación simula la
+inspección de hojas Excel como llamada separada `inspect_workbook_sheets`; el
+recorrido de tareas reutilizables confirma que guardar comprueba el esquema y
+habilita aplicar al dataset activo.
 
 En el código local están implementadas la importación CSV/TSV con convenciones
 explícitas de fecha y número, las políticas reutilizables de excepciones de
@@ -477,9 +481,9 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este incremento parte de `be2a035`; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-21; este incremento parte de `6053b87`; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.167.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.168.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
