@@ -29425,6 +29425,15 @@ pub fn cancel_operation(app: AppHandle, operation: String) -> Result<(), String>
         app.state::<crate::delivery_presets::DeliveryPresetState>()
             .cancel_catalog();
         Ok(())
+    } else if operation == "updateCheck" {
+        #[cfg(desktop)]
+        {
+            crate::updater::cancel_update_check(&app)
+        }
+        #[cfg(not(desktop))]
+        {
+            Err("La comprobación de actualizaciones no está disponible.".to_owned())
+        }
     } else {
         app.state::<DatasetState>().cancel(&operation)
     }

@@ -50,6 +50,13 @@ canceló. El comando independiente no tiene hoy un consumidor en la interfaz.
 Pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`,
 `npm run ipc:check` y `git diff --check`; no se ejecutaron pruebas de producto.
 
+El incremento actual sobre `c6d7bda` asocia la comprobación de red del updater
+con `updateCheck`. El panel permite cancelarla, `tokio::select!` descarta la
+consulta pendiente y un gate común decide entre cancelar y publicar el
+resultado. Pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`,
+`npm run ipc:check`, el checker documental y `git diff --check`; no se
+ejecutaron pruebas de producto.
+
 El incremento sobre `94b7fe5` añade `reusableTaskCatalog` para cancelar la
 enumeración local de tareas entre filas SQLite y deserializaciones, con
 «Cancelar carga» y reintento en el panel. Una operación SQLite o la

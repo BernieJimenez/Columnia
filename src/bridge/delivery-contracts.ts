@@ -15,6 +15,7 @@ export type CancellableOperation =
   | "qualityValidation"
   | "databasePreflight"
   | "databaseConnection"
+  | "updateCheck"
   | "reviewMutation"
   | "projectCatalog"
   | "projectVersions"

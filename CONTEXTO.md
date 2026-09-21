@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `10f8d43`, versión
+La base de este incremento fue `master` en `c6d7bda`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -223,6 +223,10 @@ En el preflight ODBC de RV04, `cargo fmt --check`, `cargo check --lib`,
 `npm run build`, el checker documental y `git diff --check` pasan; no se
 ejecutaron pruebas. El driver ODBC no se interrumpe durante una llamada síncrona;
 se descarta el resultado al regresar.
+En la comprobación de actualizaciones de RV04, `cargo fmt --check`,
+`cargo check --lib`, `npm run build`, `npm run ipc:check`, el checker documental
+y `git diff --check` pasan; no se ejecutaron pruebas. `updateCheck` cancela el
+futuro de red y serializa cancelación con la publicación del resultado.
 En la enumeración de hojas de Excel, `cargo fmt --check`, `cargo check --lib`,
 `npm run build` y `npm run ipc:check` pasan; también pasan el checker documental
 y `git diff --check`. No se ejecutaron pruebas. El inventario IPC ahora registra
@@ -427,7 +431,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este incremento parte de `ad10fb4`; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-21; este incremento parte de `c6d7bda`; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `0.167.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -438,7 +442,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
 | Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En esta revisión de cancelación del catálogo y de la vista previa CSV/TSV pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron pruebas de producto. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-21, posterior al commit base `ad10fb4`; incluye smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, más cancelación de apertura, restauración, guardado, eliminación, catálogo unificado y detección CSV/TSV cancelable por bloques antes de cargar o previsualizar. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Última revisión de este documento | 2026-09-21, posterior al commit base `c6d7bda`; incluye smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, más cancelación de apertura, restauración, guardado, eliminación, catálogo unificado, detección CSV/TSV cancelable por bloques y comprobación cancelable de actualizaciones. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 

@@ -1,4 +1,7 @@
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex,
+};
 
 use serde::Serialize;
 use tauri::{ipc::Channel, AppHandle, Manager};
@@ -7,6 +10,8 @@ use tokio_util::sync::CancellationToken;
 
 const UPDATER_NOT_CONFIGURED: &str =
     "El updater no está configurado para esta compilación; define COLUMNIA_UPDATER_ENDPOINT al compilar.";
+const UPDATE_CHECK_CANCELLED: &str = "La comprobación de actualizaciones fue cancelada.";
+const UPDATE_CHECK_IN_PROGRESS: &str = "Ya se está comprobando si hay actualizaciones.";
 const DOWNLOAD_CANCELLED: &str = "La descarga de la actualización fue cancelada.";
 const DOWNLOAD_SIZE_MISMATCH: &str =
     "La descarga de la actualización no coincide con el tamaño declarado por el canal.";
@@ -38,9 +43,94 @@ struct PendingUpdate {
     cancellation: Option<CancellationToken>,
 }
 
+struct ActiveUpdateCheck {
+    generation: u64,
+    cancellation: CancellationToken,
+}
+
 #[derive(Default)]
 pub struct UpdaterState {
     pending: Mutex<Option<PendingUpdate>>,
+    check_cancellation: Mutex<Option<ActiveUpdateCheck>>,
+    next_check_generation: AtomicU64,
+}
+
+struct UpdateCheckGuard {
+    app: AppHandle,
+    generation: u64,
+    cancellation: CancellationToken,
+}
+
+impl UpdateCheckGuard {
+    fn begin(app: &AppHandle) -> Result<Self, String> {
+        let state = app.state::<UpdaterState>();
+        let mut active = state
+            .check_cancellation
+            .lock()
+            .map_err(|_| "El estado del updater quedó bloqueado inesperadamente.".to_owned())?;
+        if active.is_some() {
+            return Err(UPDATE_CHECK_IN_PROGRESS.to_owned());
+        }
+
+        let generation = state.next_check_generation.fetch_add(1, Ordering::SeqCst);
+        let cancellation = CancellationToken::new();
+        *active = Some(ActiveUpdateCheck {
+            generation,
+            cancellation: cancellation.clone(),
+        });
+        Ok(Self {
+            app: app.clone(),
+            generation,
+            cancellation,
+        })
+    }
+
+    fn commit(self, update: Option<Update>) -> Result<Option<UpdateInfo>, String> {
+        let state = self.app.state::<UpdaterState>();
+        let mut active = state
+            .check_cancellation
+            .lock()
+            .map_err(|_| "El estado del updater quedó bloqueado inesperadamente.".to_owned())?;
+        let owns_active_check = active
+            .as_ref()
+            .is_some_and(|current| current.generation == self.generation);
+        if !owns_active_check || self.cancellation.is_cancelled() {
+            return Err(UPDATE_CHECK_CANCELLED.to_owned());
+        }
+
+        let info = update.as_ref().map(update_info);
+        with_pending(&self.app, |pending| {
+            if pending
+                .as_ref()
+                .and_then(|value| value.cancellation.as_ref())
+                .is_some()
+            {
+                return Err("Ya hay una descarga de actualización en curso.".to_owned());
+            }
+            *pending = update.map(|update| PendingUpdate {
+                update,
+                downloaded_bytes: None,
+                cancellation: None,
+            });
+            Ok(())
+        })?;
+        *active = None;
+        Ok(info)
+    }
+}
+
+impl Drop for UpdateCheckGuard {
+    fn drop(&mut self) {
+        let state = self.app.state::<UpdaterState>();
+        if let Ok(mut active) = state.check_cancellation.lock() {
+            if active
+                .as_ref()
+                .is_some_and(|current| current.generation == self.generation)
+            {
+                *active = None;
+            }
+        };
+    }
 }
 
 pub const fn configured() -> bool {
@@ -115,11 +205,15 @@ fn updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
 
 #[tauri::command]
 pub async fn check_for_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
+    let check = UpdateCheckGuard::begin(&app)?;
     let updater = updater(&app)?;
-    let update = updater
-        .check()
-        .await
-        .map_err(|error| format!("No se pudo comprobar si hay actualizaciones: {error}"))?;
+    let update = tokio::select! {
+        biased;
+        _ = check.cancellation.cancelled() => return Err(UPDATE_CHECK_CANCELLED.to_owned()),
+        result = updater.check() => {
+            result.map_err(|error| format!("No se pudo comprobar si hay actualizaciones: {error}"))?
+        }
+    };
     let update = match update {
         Some(update) if is_strictly_newer(&update.current_version, &update.version)? => {
             Some(update)
@@ -127,22 +221,19 @@ pub async fn check_for_update(app: AppHandle) -> Result<Option<UpdateInfo>, Stri
         Some(_) => return Err(UPDATE_NOT_NEWER.to_owned()),
         None => None,
     };
-    let info = update.as_ref().map(update_info);
-    with_pending(&app, |pending| {
-        if pending
-            .as_ref()
-            .and_then(|value| value.cancellation.as_ref())
-            .is_some()
-        {
-            return Err("Ya hay una descarga de actualización en curso.".to_owned());
-        }
-        *pending = update.map(|update| PendingUpdate {
-            update,
-            downloaded_bytes: None,
-            cancellation: None,
-        });
-        Ok(info)
-    })
+    check.commit(update)
+}
+
+pub(crate) fn cancel_update_check(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<UpdaterState>();
+    let active = state
+        .check_cancellation
+        .lock()
+        .map_err(|_| "El estado del updater quedó bloqueado inesperadamente.".to_owned())?;
+    if let Some(active) = active.as_ref() {
+        active.cancellation.cancel();
+    }
+    Ok(())
 }
 
 #[tauri::command]

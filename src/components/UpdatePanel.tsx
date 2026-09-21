@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 
 import {
+  cancelOperation,
   cancelUpdateDownload,
   checkForUpdate,
   downloadUpdate,
@@ -11,7 +12,7 @@ import {
 
 type UpdateState =
   | { kind: "idle" }
-  | { kind: "checking" }
+  | { kind: "checking"; cancelRequested: boolean; cancelError?: string }
   | { kind: "none" }
   | { kind: "available"; info: UpdateInfo }
   | { kind: "downloading"; info: UpdateInfo; downloadedBytes: number; contentLength: number | null; cancelRequested: boolean }
@@ -58,7 +59,7 @@ export function UpdatePanel({ enabled, currentVersion }: UpdatePanelProps) {
 
   const handleCheck = async () => {
     if (!enabled || busy) return;
-    setState({ kind: "checking" });
+    setState({ kind: "checking", cancelRequested: false });
     updateRef.current = null;
     try {
       const info = await checkForUpdate();
@@ -71,6 +72,20 @@ export function UpdatePanel({ enabled, currentVersion }: UpdatePanelProps) {
     } catch (error) {
       setState({ kind: "error", message: errorMessage(error) });
     }
+  };
+
+  const handleCancelCheck = () => {
+    if (state.kind !== "checking" || state.cancelRequested) return;
+    setState({ kind: "checking", cancelRequested: true });
+    void cancelOperation("updateCheck").catch((error) => {
+      setState((current) => current.kind === "checking"
+        ? {
+            kind: "checking",
+            cancelRequested: false,
+            cancelError: errorMessage(error),
+          }
+        : current);
+    });
   };
 
   const handleDownload = async () => {
@@ -146,6 +161,11 @@ export function UpdatePanel({ enabled, currentVersion }: UpdatePanelProps) {
         <button type="button" disabled={!enabled || busy} onClick={() => void handleCheck()}>
           {state.kind === "checking" ? "Comprobando…" : "Buscar actualizaciones"}
         </button>
+        {state.kind === "checking" && (
+          <button type="button" disabled={state.cancelRequested} onClick={handleCancelCheck}>
+            {state.cancelRequested ? "Cancelando…" : "Cancelar comprobación"}
+          </button>
+        )}
         {state.kind === "available" && (
           <button type="button" disabled={busy} onClick={() => void handleDownload()}>
             Descargar actualización
@@ -162,6 +182,9 @@ export function UpdatePanel({ enabled, currentVersion }: UpdatePanelProps) {
           </button>
         )}
       </div>
+      {state.kind === "checking" && state.cancelError && (
+        <p className="update-panel__status update-panel__status--error" role="alert">{state.cancelError}</p>
+      )}
       {(state.kind === "available" || state.kind === "downloading" || state.kind === "ready" || state.kind === "installing" || state.kind === "installed") && (
         <div className="update-panel__details" aria-live="polite">
           <p><strong>Disponible: {state.info.version}</strong></p>
