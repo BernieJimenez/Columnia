@@ -31,7 +31,10 @@ Parquet recopilan con Polars Streaming en bloques configurados en 8.192 filas y
 observan cancelación entre lotes.
 JSON/JSONL la comprueba entre registros. XLSX/XLSB lee celdas en dos pasadas y
 acumula filas por bloques; XLS/ODS conserva la lectura completa mediante
-`worksheet_range`.
+`worksheet_range`. Para XLS/ODS, el análisis del `Range`, la conversión a
+DataFrame y la escritura de snapshots consultan cancelación entre filas,
+columnas y bloques después de que Calamine devuelve el rango completo. La
+apertura del libro y `worksheet_range` siguen siendo llamadas monolíticas.
 El JOIN eager de Review recorre bloques de filas activas y comprueba cancelación
 entre bloques, repitiendo el JOIN contra el dataset comparado para cada bloque.
 Las materializaciones eager source-backed usadas como fallback por JOIN,
@@ -42,7 +45,8 @@ los índices y la comparación Parquet, entre bloques y registros derramados. Du
 interrumpe una conversión source-backed activa. El resultado de comparación solo se
 publica al final, bajo un gate que ordena cancelación y commit. El selector nativo
 es modal y no se puede cerrar desde este control mientras está abierto; XLS/ODS
-conserva la lectura `worksheet_range` monolítica. El conteo de snapshots Parquet
+conserva `worksheet_range` monolítico, pero su conversión posterior comprueba el
+token entre filas y celdas. El conteo de snapshots Parquet
 usa DuckDB con interrupción; la escritura de snapshots eager produce bloques y
 consulta el token entre ellos. El cierre del escritor y `sync_all` siguen siendo
 llamadas síncronas. La
@@ -52,9 +56,10 @@ si la cancelación gana. La paginación principal del dataset también admite
 cancelación con `datasetPage`: la lectura Parquet/CSV/TSV/TXT desde snapshots o
 fuentes source-backed usa Polars Streaming cancelable; el fallback eager y el
 armado de filas comprueban la generación. Review mantiene visible la página previa
-hasta completar o cancelar. Los lectores monolíticos `.xls`/`.ods` solo observan
-la cancelación al regresar. Otros comandos todavía tienen rutas sin token y las
-rutas canceladas descartan el resultado incompleto. En Entregar, la validación local de
+hasta completar o cancelar. La conversión de rangos `.xls`/`.ods` ahora consulta
+cancelación por lotes después de que Calamine devuelve el rango completo. Otros
+comandos todavía tienen rutas sin token y las rutas canceladas descartan el
+resultado incompleto. En Entregar, la validación local de
 reglas usa ahora el token `qualityValidation` y ofrece «Cancelar validación»; al
 cancelarse, conserva el gate previo y descarta el resultado incompleto. La fuente
 source-backed puede interrumpirse durante la materialización DuckDB, y la
@@ -132,6 +137,11 @@ En la paginación principal de Review, `cargo fmt --check`, `cargo check --lib`,
 `npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`
 pasan; no se ejecutaron pruebas. La lectura por lotes de snapshots Parquet y
 fuentes delimitadas source-backed comprueba cancelación durante Polars Streaming.
+En el fallback XLS/ODS de importación y comparación, `cargo fmt --check`,
+`cargo check --lib` y `git diff --check` pasan; no se ejecutaron pruebas. Tras
+recibir el rango completo, el análisis, la conversión de columnas y la escritura
+de snapshots consultan el token entre filas, celdas y bloques; el parser síncrono
+de Calamine aún no se puede interrumpir.
 Durante esta revisión, `cargo test --manifest-path src-tauri/Cargo.toml` compiló,
 pero Windows no inició el harness: terminó con `STATUS_ENTRYPOINT_NOT_FOUND`
 (`0xc0000139`) incluso al probar un manifiesto Common Controls v6 temporal. Por
@@ -141,9 +151,9 @@ Siguen abiertos los criterios con evidencia que no se puede fabricar localmente:
 la beta de tres participantes y su resumen sanitizado; accesibilidad manual con
 lector de pantalla/alto contraste; round-trip contra SQL Server real; y un
 candidato binario/canal autorizado probado en VM limpia.
-RV04 conserva los formatos `.xls`/`.ods` monolíticos y otros comandos sin token
-de cancelación, la apertura síncrona del libro durante la inspección de hojas,
-el selector nativo modal y tramos síncronos de
+RV04 conserva `worksheet_range` síncrono para `.xls`/`.ods` y otros comandos sin
+token de cancelación, la apertura del libro durante la inspección de hojas, el
+selector nativo modal y tramos síncronos de
 conteo/escritura de snapshots. También falta medir el coste del JOIN por bloques
 y validar cancelación con datos reales en una sesión nativa. RV14 requiere
 seleccionar y validar la herramienta BI a partir de beta.

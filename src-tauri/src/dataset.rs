@@ -14734,24 +14734,54 @@ fn unique_spreadsheet_headers(headers: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-fn spreadsheet_cells_to_column(
+fn map_spreadsheet_cells_with_cancel<T, C, F>(
+    cells: &[&Data],
+    is_cancelled: &C,
+    mut map: F,
+) -> Result<Vec<T>, String>
+where
+    C: Fn() -> bool + Sync,
+    F: FnMut(&Data) -> Result<T, String>,
+{
+    let mut values = Vec::with_capacity(cells.len());
+    for (index, cell) in cells.iter().enumerate() {
+        if index % CANCELLABLE_READ_BATCH_ROWS == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
+        values.push(map(cell)?);
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    Ok(values)
+}
+
+fn spreadsheet_cells_to_column<C>(
     name: &str,
     cells: &[&Data],
     forced_kind: Option<SpreadsheetColumnKind>,
-) -> Result<Column, String> {
-    let mut kind = forced_kind.unwrap_or_else(|| {
-        cells
-            .iter()
-            .fold(SpreadsheetColumnKind::Null, |kind, cell| {
-                merge_spreadsheet_kinds(kind, spreadsheet_cell_kind(cell))
-            })
-    });
-    if kind == SpreadsheetColumnKind::Float64
-        && cells
-            .iter()
-            .any(|cell| matches!(cell, Data::Int(value) if value.unsigned_abs() > (1_u64 << 53)))
-    {
-        kind = SpreadsheetColumnKind::String;
+    is_cancelled: &C,
+) -> Result<Column, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let mut kind = forced_kind.unwrap_or(SpreadsheetColumnKind::Null);
+    if forced_kind.is_none() {
+        for (index, cell) in cells.iter().enumerate() {
+            if index % CANCELLABLE_READ_BATCH_ROWS == 0 {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            kind = merge_spreadsheet_kinds(kind, spreadsheet_cell_kind(cell));
+        }
+    }
+    if kind == SpreadsheetColumnKind::Float64 {
+        for (index, cell) in cells.iter().enumerate() {
+            if index % CANCELLABLE_READ_BATCH_ROWS == 0 {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            if matches!(cell, Data::Int(value) if value.unsigned_abs() > (1_u64 << 53)) {
+                kind = SpreadsheetColumnKind::String;
+                break;
+            }
+        }
     }
     let column_name = name.into();
     let incompatible =
@@ -14764,31 +14794,26 @@ fn spreadsheet_cells_to_column(
             &polars::prelude::DataType::Null,
         )),
         SpreadsheetColumnKind::Boolean => {
-            let values = cells
-                .iter()
-                .map(|cell| match cell {
+            let values =
+                map_spreadsheet_cells_with_cancel(cells, is_cancelled, |cell| match cell {
                     Data::Empty => Ok(None),
                     Data::Bool(value) => Ok(Some(*value)),
                     other => Err(incompatible(other)),
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+                })?;
             Ok(Series::new(column_name, values).into_column())
         }
         SpreadsheetColumnKind::Int64 => {
-            let values = cells
-                .iter()
-                .map(|cell| match cell {
+            let values =
+                map_spreadsheet_cells_with_cancel(cells, is_cancelled, |cell| match cell {
                     Data::Empty => Ok(None),
                     Data::Int(value) => Ok(Some(*value)),
                     other => Err(incompatible(other)),
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+                })?;
             Ok(Series::new(column_name, values).into_column())
         }
         SpreadsheetColumnKind::Float64 => {
-            let values = cells
-                .iter()
-                .map(|cell| match cell {
+            let values =
+                map_spreadsheet_cells_with_cancel(cells, is_cancelled, |cell| match cell {
                     Data::Empty => Ok(None),
                     Data::Int(value) if value.unsigned_abs() <= (1_u64 << 53) => {
                         Ok(Some(*value as f64))
@@ -14798,14 +14823,12 @@ fn spreadsheet_cells_to_column(
                     )),
                     Data::Float(value) => Ok(Some(*value)),
                     other => Err(incompatible(other)),
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+                })?;
             Ok(Series::new(column_name, values).into_column())
         }
         SpreadsheetColumnKind::Datetime => {
-            let values = cells
-                .iter()
-                .map(|cell| match cell {
+            let values =
+                map_spreadsheet_cells_with_cancel(cells, is_cancelled, |cell| match cell {
                     Data::Empty => Ok(None),
                     Data::DateTime(value) if !value.is_duration() => value
                         .as_datetime()
@@ -14816,8 +14839,7 @@ fn spreadsheet_cells_to_column(
                         .map(|value| Some(value.and_utc().timestamp_millis()))
                         .ok_or_else(|| incompatible(cell)),
                     other => Err(incompatible(other)),
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+                })?;
             Ok(Series::new(column_name, values)
                 .cast(&polars::prelude::DataType::Datetime(
                     TimeUnit::Milliseconds,
@@ -14827,9 +14849,8 @@ fn spreadsheet_cells_to_column(
                 .into_column())
         }
         SpreadsheetColumnKind::Duration => {
-            let values = cells
-                .iter()
-                .map(|cell| match cell {
+            let values =
+                map_spreadsheet_cells_with_cancel(cells, is_cancelled, |cell| match cell {
                     Data::Empty => Ok(None),
                     Data::DateTime(value) if value.is_duration() => value
                         .as_duration()
@@ -14840,24 +14861,21 @@ fn spreadsheet_cells_to_column(
                         .map(|value| Some(value.num_milliseconds()))
                         .ok_or_else(|| incompatible(cell)),
                     other => Err(incompatible(other)),
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+                })?;
             Ok(Series::new(column_name, values)
                 .cast(&polars::prelude::DataType::Duration(TimeUnit::Milliseconds))
                 .map_err(|error| format!("No se pudo conservar una duración de '{name}': {error}"))?
                 .into_column())
         }
-        SpreadsheetColumnKind::String => Ok(Series::new(
-            column_name,
-            cells
-                .iter()
-                .map(|cell| match cell {
+        SpreadsheetColumnKind::String => {
+            let values = map_spreadsheet_cells_with_cancel(cells, is_cancelled, |cell| {
+                Ok(match cell {
                     Data::Empty => None,
                     value => Some(value.to_string()),
                 })
-                .collect::<Vec<_>>(),
-        )
-        .into_column()),
+            })?;
+            Ok(Series::new(column_name, values).into_column())
+        }
     }
 }
 
@@ -14972,10 +14990,15 @@ impl SpreadsheetSnapshotPlanBuilder {
     }
 }
 
-fn spreadsheet_snapshot_plan_from_range(
+fn spreadsheet_snapshot_plan_from_range<C>(
     range: &Range<Data>,
     header_mode: SpreadsheetHeaderMode,
-) -> Result<SpreadsheetSnapshotPlan, String> {
+    is_cancelled: &C,
+) -> Result<SpreadsheetSnapshotPlan, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     if range.is_empty() {
         return Err("La hoja seleccionada está vacía.".to_owned());
     }
@@ -14989,32 +15012,51 @@ fn spreadsheet_snapshot_plan_from_range(
     );
     let mut builder = SpreadsheetSnapshotPlanBuilder::new(dimensions, header_mode)?;
     for (row, values) in range.rows().enumerate() {
+        if row % CANCELLABLE_READ_BATCH_ROWS == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
         for (column, value) in values.iter().enumerate() {
+            if column % 256 == 0 {
+                ensure_not_cancelled(is_cancelled())?;
+            }
             builder.visit_relative((row, column), value.clone());
         }
     }
+    ensure_not_cancelled(is_cancelled())?;
     builder.finish(header_mode)
 }
 
-fn spreadsheet_block_frame(
+fn spreadsheet_block_frame_with_cancel<C>(
     plan: &SpreadsheetSnapshotPlan,
     rows: &[Vec<Data>],
-) -> Result<DataFrame, String> {
-    if rows.iter().any(|row| row.len() != plan.width) {
-        return Err("El bloque Excel no coincide con el esquema detectado.".to_owned());
+    is_cancelled: &C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    for (row_index, row) in rows.iter().enumerate() {
+        if row_index % CANCELLABLE_READ_BATCH_ROWS == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
+        if row.len() != plan.width {
+            return Err("El bloque Excel no coincide con el esquema detectado.".to_owned());
+        }
     }
-    let columns = plan
-        .headers
-        .iter()
-        .enumerate()
-        .map(|(column_index, name)| {
-            let cells = rows
-                .iter()
-                .map(|row| &row[column_index])
-                .collect::<Vec<_>>();
-            spreadsheet_cells_to_column(name, &cells, Some(plan.kinds[column_index]))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut columns = Vec::with_capacity(plan.width);
+    for (column_index, name) in plan.headers.iter().enumerate() {
+        ensure_not_cancelled(is_cancelled())?;
+        let cells = rows
+            .iter()
+            .map(|row| &row[column_index])
+            .collect::<Vec<_>>();
+        columns.push(spreadsheet_cells_to_column(
+            name,
+            &cells,
+            Some(plan.kinds[column_index]),
+            is_cancelled,
+        )?);
+    }
     DataFrame::new(rows.len(), columns)
         .map_err(|error| format!("No se pudo construir un bloque Excel: {error}"))
 }
@@ -15052,7 +15094,7 @@ where
     C: Fn() -> bool + Sync,
     F: FnMut(usize, usize) -> Result<Vec<Vec<Data>>, String>,
 {
-    let schema_frame = spreadsheet_block_frame(plan, &[])?;
+    let schema_frame = spreadsheet_block_frame_with_cancel(plan, &[], is_cancelled)?;
     let mut file = File::create(destination)
         .map_err(|error| format!("No se pudo crear el snapshot Excel: {error}"))?;
     let mut writer = ParquetWriter::new(&mut file)
@@ -15067,8 +15109,7 @@ where
         if rows.len() != expected_rows {
             return Err("El bloque Excel no contiene el número esperado de filas.".to_owned());
         }
-        let frame = spreadsheet_block_frame(plan, &rows)?;
-        ensure_not_cancelled(is_cancelled())?;
+        let frame = spreadsheet_block_frame_with_cancel(plan, &rows, is_cancelled)?;
         writer
             .write_batch(&frame)
             .map_err(|error| format!("No se pudo escribir el snapshot Excel: {error}"))?;
@@ -15099,7 +15140,7 @@ where
     C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
-    let plan = spreadsheet_snapshot_plan_from_range(range, header_mode)?;
+    let plan = spreadsheet_snapshot_plan_from_range(range, header_mode, is_cancelled)?;
     write_spreadsheet_blocks_with_cancel(
         destination,
         &plan,
@@ -15108,18 +15149,24 @@ where
             let first_row = plan
                 .data_start
                 .saturating_add(block_index.saturating_mul(SPREADSHEET_SNAPSHOT_BLOCK_ROWS));
-            Ok((0..expected_rows)
-                .map(|row_offset| {
-                    (0..plan.width)
-                        .map(|column| {
-                            range
-                                .get((first_row + row_offset, column))
-                                .cloned()
-                                .unwrap_or(Data::Empty)
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .collect())
+            let mut rows = Vec::with_capacity(expected_rows);
+            for row_offset in 0..expected_rows {
+                ensure_not_cancelled(is_cancelled())?;
+                let mut row = Vec::with_capacity(plan.width);
+                for column in 0..plan.width {
+                    if column % 256 == 0 {
+                        ensure_not_cancelled(is_cancelled())?;
+                    }
+                    row.push(
+                        range
+                            .get((first_row + row_offset, column))
+                            .cloned()
+                            .unwrap_or(Data::Empty),
+                    );
+                }
+                rows.push(row);
+            }
+            Ok(rows)
         },
     )?;
     ensure_not_cancelled(is_cancelled())?;
@@ -15232,11 +15279,11 @@ fn write_streamed_spreadsheet_cells<C, F>(
     mut next_cell: F,
 ) -> Result<(), String>
 where
-    C: Fn() -> bool,
+    C: Fn() -> bool + Sync,
     F: FnMut() -> Result<Option<((u32, u32), Data)>, String>,
 {
     ensure_not_cancelled(is_cancelled())?;
-    let schema_frame = spreadsheet_block_frame(plan, &[])?;
+    let schema_frame = spreadsheet_block_frame_with_cancel(plan, &[], &is_cancelled)?;
     let mut file = File::create(destination)
         .map_err(|error| format!("No se pudo crear el snapshot Excel: {error}"))?;
     let mut writer = ParquetWriter::new(&mut file)
@@ -15277,7 +15324,7 @@ where
         }
         while current_block < block_index {
             ensure_not_cancelled(is_cancelled())?;
-            let frame = spreadsheet_block_frame(plan, &rows)?;
+            let frame = spreadsheet_block_frame_with_cancel(plan, &rows, &is_cancelled)?;
             writer
                 .write_batch(&frame)
                 .map_err(|error| format!("No se pudo escribir el snapshot Excel: {error}"))?;
@@ -15291,7 +15338,7 @@ where
 
     while current_block < block_count {
         ensure_not_cancelled(is_cancelled())?;
-        let frame = spreadsheet_block_frame(plan, &rows)?;
+        let frame = spreadsheet_block_frame_with_cancel(plan, &rows, &is_cancelled)?;
         writer
             .write_batch(&frame)
             .map_err(|error| format!("No se pudo escribir el snapshot Excel: {error}"))?;
@@ -15314,10 +15361,10 @@ fn read_streamed_spreadsheet_frame<C>(
     is_cancelled: C,
 ) -> Result<DataFrame, String>
 where
-    C: Fn() -> bool,
+    C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
-    let mut frame = spreadsheet_block_frame(plan, &[])?;
+    let mut frame = spreadsheet_block_frame_with_cancel(plan, &[], &is_cancelled)?;
     let block_count = plan.data_rows.div_ceil(SPREADSHEET_SNAPSHOT_BLOCK_ROWS);
     if block_count == 0 {
         return Ok(frame);
@@ -15354,7 +15401,7 @@ where
             }
             while current_block < block_index {
                 ensure_not_cancelled(is_cancelled())?;
-                let block = spreadsheet_block_frame(plan, &rows)?;
+                let block = spreadsheet_block_frame_with_cancel(plan, &rows, &is_cancelled)?;
                 frame.vstack_mut(&block).map_err(|error| {
                     format!("No se pudo acumular un bloque de la hoja Excel: {error}")
                 })?;
@@ -15373,7 +15420,7 @@ where
 
     while current_block < block_count {
         ensure_not_cancelled(is_cancelled())?;
-        let block = spreadsheet_block_frame(plan, &rows)?;
+        let block = spreadsheet_block_frame_with_cancel(plan, &rows, &is_cancelled)?;
         frame
             .vstack_mut(&block)
             .map_err(|error| format!("No se pudo acumular un bloque de la hoja Excel: {error}"))?;
@@ -15391,7 +15438,7 @@ fn write_streamed_spreadsheet_snapshot(
     sheet_name: &str,
     plan: &SpreadsheetSnapshotPlan,
     destination: &Path,
-    is_cancelled: impl Fn() -> bool,
+    is_cancelled: impl Fn() -> bool + Sync,
 ) -> Result<(), String> {
     let mut workbook = open_workbook_auto(path)
         .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
@@ -15442,10 +15489,23 @@ fn write_streamed_spreadsheet_snapshot(
     }
 }
 
+#[cfg(test)]
 fn spreadsheet_range_to_frame(
     range: &Range<Data>,
     header_mode: SpreadsheetHeaderMode,
 ) -> Result<DataFrame, String> {
+    spreadsheet_range_to_frame_with_cancel(range, header_mode, &|| false)
+}
+
+fn spreadsheet_range_to_frame_with_cancel<C>(
+    range: &Range<Data>,
+    header_mode: SpreadsheetHeaderMode,
+    is_cancelled: &C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     if range.is_empty() {
         return Err("La hoja seleccionada está vacía.".to_owned());
     }
@@ -15453,27 +15513,43 @@ fn spreadsheet_range_to_frame(
     let height = range.height();
     let data_start = usize::from(header_mode == SpreadsheetHeaderMode::FirstRow);
     let headers = match header_mode {
-        SpreadsheetHeaderMode::FirstRow => unique_spreadsheet_headers(
-            (0..width)
-                .map(|column| {
+        SpreadsheetHeaderMode::FirstRow => {
+            let mut headers = Vec::with_capacity(width);
+            for column in 0..width {
+                if column % 256 == 0 {
+                    ensure_not_cancelled(is_cancelled())?;
+                }
+                headers.push(
                     range
                         .get((0, column))
                         .map(ToString::to_string)
-                        .unwrap_or_default()
-                })
-                .collect(),
-        ),
+                        .unwrap_or_default(),
+                );
+            }
+            unique_spreadsheet_headers(headers)
+        }
         SpreadsheetHeaderMode::Generated => {
             (1..=width).map(|index| format!("column_{index}")).collect()
         }
     };
     let mut columns = Vec::with_capacity(width);
     for (column_index, name) in headers.iter().enumerate() {
-        let cells = (data_start..height)
-            .map(|row| range.get((row, column_index)).expect("rango rectangular"))
-            .collect::<Vec<_>>();
-        columns.push(spreadsheet_cells_to_column(name, &cells, None)?);
+        ensure_not_cancelled(is_cancelled())?;
+        let mut cells = Vec::with_capacity(height.saturating_sub(data_start));
+        for (row_index, row) in (data_start..height).enumerate() {
+            if row_index % CANCELLABLE_READ_BATCH_ROWS == 0 {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            cells.push(range.get((row, column_index)).expect("rango rectangular"));
+        }
+        columns.push(spreadsheet_cells_to_column(
+            name,
+            &cells,
+            None,
+            is_cancelled,
+        )?);
     }
+    ensure_not_cancelled(is_cancelled())?;
     DataFrame::new(height.saturating_sub(data_start), columns)
         .map_err(|error| format!("No se pudo construir el dataset desde la hoja: {error}"))
 }
@@ -15494,14 +15570,14 @@ fn load_spreadsheet_sheet_with_cancel<C>(
     is_cancelled: C,
 ) -> Result<DataFrame, String>
 where
-    C: Fn() -> bool,
+    C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
     match spreadsheet_snapshot_plan_from_stream(path, sheet_name, header_mode, || is_cancelled()) {
         Ok(plan) => read_streamed_spreadsheet_frame(path, sheet_name, &plan, is_cancelled),
         Err(error) if error == SPREADSHEET_STREAMING_UNSUPPORTED => {
             ensure_not_cancelled(is_cancelled())?;
-            let frame = load_spreadsheet_sheet_range(path, sheet_name, header_mode)?;
+            let frame = load_spreadsheet_sheet_range(path, sheet_name, header_mode, &is_cancelled)?;
             ensure_not_cancelled(is_cancelled())?;
             Ok(frame)
         }
@@ -15509,11 +15585,16 @@ where
     }
 }
 
-fn load_spreadsheet_sheet_range(
+fn load_spreadsheet_sheet_range<C>(
     path: &Path,
     sheet_name: &str,
     header_mode: SpreadsheetHeaderMode,
-) -> Result<DataFrame, String> {
+    is_cancelled: &C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let mut workbook = open_workbook_auto(path)
         .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
     if !workbook.sheet_names().iter().any(|name| name == sheet_name) {
@@ -15522,7 +15603,8 @@ fn load_spreadsheet_sheet_range(
     let range = workbook
         .worksheet_range(sheet_name)
         .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
-    spreadsheet_range_to_frame(&range, header_mode)
+    ensure_not_cancelled(is_cancelled())?;
+    spreadsheet_range_to_frame_with_cancel(&range, header_mode, is_cancelled)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16529,7 +16611,7 @@ fn source_backed_spreadsheet_load<C>(
     is_cancelled: C,
 ) -> Result<(DataFrame, DatasetPreview, usize), String>
 where
-    C: Fn() -> bool + Clone,
+    C: Fn() -> bool + Clone + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
     let plan = spreadsheet_snapshot_plan_from_stream(path, sheet_name, header_mode, &is_cancelled)?;
