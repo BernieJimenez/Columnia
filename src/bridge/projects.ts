@@ -1,17 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ProjectCatalogSnapshot,
   ProjectSummary,
   ProjectOpenResult,
   ProjectWorkspace,
   ProjectVersionSummary,
 } from "./contracts";
 
-export function listProjects(): Promise<ProjectSummary[]> {
-  return invoke<ProjectSummary[]>("list_projects");
-}
-
-export function getRecoveryCandidate(): Promise<ProjectSummary | null> {
-  return invoke<ProjectSummary | null>("get_recovery_candidate");
+export function listProjects(): Promise<ProjectCatalogSnapshot> {
+  return invoke<ProjectCatalogSnapshot>("list_projects");
 }
 
 export function listProjectVersions(projectId: string): Promise<ProjectVersionSummary[]> {

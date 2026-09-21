@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `85856a7`, versión
+La base de este incremento fue `master` en `ca745d9`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -107,11 +107,13 @@ después del commit. SQLite y `remove_dir_all` siguen siendo llamadas síncronas
 un fallo de limpieza posterior al commit se informa como proyecto eliminado
 con archivos pendientes de limpieza. El panel ofrece «Cancelar eliminación».
 
-La carga del catálogo usa `projectCatalog`: consulta cancelación al leer cada
-proyecto y al medir su snapshot e historial, y descarta respuestas de una carga
-que haya quedado obsoleta. El panel ofrece «Cancelar carga» y, si se cancela la
-carga inicial, permite reintentar. La consulta del candidato de recuperación
-sigue siendo una lectura SQLite breve aparte y no observa este token.
+La carga del catálogo usa una sola invocación `list_projects` que devuelve los
+proyectos y el candidato de recuperación dentro de la misma transacción de
+lectura SQLite. Ambos observan `projectCatalog`; el token se comprueba entre
+filas, al medir bytes de snapshots/historial y antes y después de la consulta
+indexada del candidato.
+Esa consulta SQLite de una fila sigue siendo síncrona. El panel ofrece
+«Cancelar carga» y, si se cancela la carga inicial, permite reintentar.
 
 Las tareas reutilizables aplican reglas, formato, privacidad y receta como
 borrador al importar un archivo con el perfil y esquema guardados; la receta
@@ -368,7 +370,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este incremento parte de `85856a7`; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-21; este incremento parte de `ca745d9`; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `0.167.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -378,8 +380,8 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En esta revisión de cancelación del catálogo pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron pruebas de producto. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-21, posterior al commit base `85856a7`; incluye smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, más cancelación de apertura, restauración, guardado, eliminación y carga del catálogo de proyectos. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En esta revisión de catálogo unificado pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron pruebas de producto. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
+| Última revisión de este documento | 2026-09-21, posterior al commit base `ca745d9`; incluye smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, más cancelación de apertura, restauración, guardado, eliminación y carga unificada del catálogo/candidato de recuperación. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 
@@ -817,7 +819,7 @@ dataset source-backed. El benchmark de 512 MiB confirma conteos, paginación,
 working set y cleanup; la ejecución integral fuera de RAM aún no está cerrada.
 
 La preferencia del motor SQL de Revisar (`Polars`/`DuckDB`) se conserva por
-proyecto en el workspace SQLite v12, con validación cerrada y fallback a la
+proyecto en el workspace SQLite v15, con validación cerrada y fallback a la
 preferencia local para catálogos anteriores. No cambia el contrato IPC.
 
 El workspace conserva también el formato de exportación (`csv`, `json`,
@@ -952,7 +954,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src-tauri/src/resource.rs` | Obtiene CPU y memoria del proceso Columnia y del sistema mediante `sysinfo`, sin exponer rutas ni datos. |
 | `src-tauri/src/dataset.rs` | Motor de datos principal. Contiene carga, tipos, perfiles, recetas, historial y exportación; el fingerprinting de duplicados parecidos vive en el módulo interno acotado `dataset_fingerprints.rs`. |
 | `src-tauri/src/dataset_fingerprints.rs` | API interna para huellas exactas/normalizadas de filas, fast-path ASCII y normalización Unicode usada por perfilado y retiro de duplicados parecidos. |
-| `src-tauri/src/projects.rs` | Catálogo SQLite v12 compatible con v1/v2/v3/v4/v5/v6/v7/v8/v9/v10/v11, snapshots Parquet durables, perfil, historial, actividad SQL agregada, vista/etapa de Revisar, página de muestra, motor SQL, cobertura de correlaciones, perfil de rendimiento, preferencias de Entregar y preferencias de comparación versionados, y cinco comandos de proyectos. |
+| `src-tauri/src/projects.rs` | Catálogo SQLite v15 compatible con catálogos v1–v14; incluye snapshots Parquet durables, perfil, historial, actividad SQL agregada, vista/etapa de Revisar, página de muestra, motor SQL, cobertura de correlaciones, perfil de rendimiento y preferencias versionadas de Entregar y comparación. La migración v15 agrega un índice parcial para elegir el candidato de recuperación. |
 | `src-tauri/src/automation.rs` | Parser estricto, contratos JSON y orquestación reutilizable de datasets, lotes y los cinco comandos CLI de proyectos. |
 | `src-tauri/src/bin/columnia-cli.rs` | Ejecutable CLI mínimo que delega en el módulo de automatización. |
 | `src-tauri/capabilities/main.json` | Capability mínima para la ventana `main`: solamente `core:default`. |
@@ -1157,7 +1159,7 @@ Cada revisión reversible de la sesión se guarda como snapshot Parquet en un di
 - `publish_candidate` prepara la vista previa y registra el historial antes de sustituir el `DataFrame` activo;
 - la exportación escribe y sincroniza un temporal antes de reemplazar el destino.
 
-Los proyectos guardan el frame materializado como una nueva generación Parquet y actualizan después el puntero SQLite dentro de una transacción. El esquema SQLite v12 conserva reglas de calidad, borrador opcional de receta, perfil cacheado, historial con su cursor, actividad SQL agregada, vista y etapa de Revisar, página visible de la muestra del workspace, motor SQL elegido, cobertura de filas de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN, y migra catálogos v1/v2/v3/v4/v5/v6/v7/v8/v9/v10/v11 compatibles. El historial durable mantiene los mismos límites de 12 revisiones y 1 GiB; la actividad SQL conserva como máximo cinco estados, duraciones y conteos de filas, sin consultas, rutas ni valores; la vista solo admite `diagnosis` y `preview` y vuelve a Diagnóstico cuando falta; la etapa solo admite `load`, `review`, `prepare` y `deliver` y vuelve a Revisar cuando falta; el motor SQL solo admite `polars` o `duckdb` y vuelve a la preferencia local cuando falta; el perfil de rendimiento solo admite `conservative`, `balanced` o `maximum` y vuelve a la preferencia local cuando falta; el formato, la protección y el JOIN usan listas cerradas y vuelven a sus valores locales cuando faltan; las claves se validan sin duplicados y se filtran contra el esquema restaurado; el offset de página se valida contra el snapshot y vuelve a cero si ya no representa una página real. Abrir valida todos los artefactos antes de sustituir el dataset activo y copia el perfil, historial y actividad guardados a estructuras temporales de sesión; una corrupción hace fallar la apertura completa. La recuperación es explícita desde Cargar y no abre datos silenciosamente.
+Los proyectos guardan el frame materializado como una nueva generación Parquet y actualizan después el puntero SQLite dentro de una transacción. El esquema SQLite v15 conserva reglas de calidad, borrador opcional de receta, perfil cacheado, historial con su cursor, actividad SQL agregada, vista y etapa de Revisar, página visible de la muestra del workspace, motor SQL elegido, cobertura de filas de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN; migra catálogos v1–v14 y crea un índice parcial por `last_opened_at` para seleccionar el candidato de recuperación. El historial durable mantiene los mismos límites de 12 revisiones y 1 GiB; la actividad SQL conserva como máximo cinco estados, duraciones y conteos de filas, sin consultas, rutas ni valores; la vista solo admite `diagnosis` y `preview` y vuelve a Diagnóstico cuando falta; la etapa solo admite `load`, `review`, `prepare` y `deliver` y vuelve a Revisar cuando falta; el motor SQL solo admite `polars` o `duckdb` y vuelve a la preferencia local cuando falta; el perfil de rendimiento solo admite `conservative`, `balanced` o `maximum` y vuelve a la preferencia local cuando falta; el formato, la protección y el JOIN usan listas cerradas y vuelven a sus valores locales cuando faltan; las claves se validan sin duplicados y se filtran contra el esquema restaurado; el offset de página se valida contra el snapshot y vuelve a cero si ya no representa una página real. Abrir valida todos los artefactos antes de sustituir el dataset activo y copia el perfil, historial y actividad guardados a estructuras temporales de sesión; una corrupción hace fallar la apertura completa. La recuperación es explícita desde Cargar y no abre datos silenciosamente.
 
 ## Contrato React ↔ Rust
 
@@ -1196,12 +1198,11 @@ La superficie pública está centralizada en `src/bridge.ts` y registrada en `sr
 ### Proyectos y recuperación
 
 - `list_projects`
-- `get_recovery_candidate`
 - `save_project`
 - `open_project`
 - `delete_project`
 
-Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores y las 58 estructuras compartidas del inventario generado. Las subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
+Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en el bridge y en el inventario generado. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores y las 69 estructuras compartidas del inventario. Las subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
 
 ## Capacidades implementadas
 
@@ -1579,7 +1580,7 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.
 2. **Editor de recetas amplio**: las cuatro fases ya viven en módulos feature y `App.tsx` es un coordinador pequeño, pero `TransformRecipeEditor.tsx` reúne muchos subdominios de receta. Cualquier división futura debe preservar el orden, dependencias y confirmaciones destructivas.
-3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 58 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
+3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 69 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
 4. **Memoria**: los datasets no tienen un tope fijo de tamaño. Polars materializa el dataset y algunas operaciones crean candidatos completos, por lo que la capacidad efectiva depende de la RAM, el espacio disponible y los demás recursos del equipo.
 5. **Consumo de disco durable**: cada proyecto puede conservar generaciones e historial Parquet de hasta 12 revisiones/1 GiB; los límites por proyecto no forman un presupuesto global para todos los proyectos.
 6. **Cobertura de plataforma**: arranque y empaquetado están verificados en Windows; macOS y Linux aún requieren validación local real.

@@ -377,11 +377,6 @@
       "debug": false
     },
     {
-      "name": "get_recovery_candidate",
-      "module": "projects",
-      "debug": false
-    },
-    {
       "name": "list_project_versions",
       "module": "projects",
       "debug": false
@@ -727,6 +722,10 @@
     {
       "rust": "ProjectSummary",
       "typescript": "ProjectSummary"
+    },
+    {
+      "rust": "ProjectCatalogSnapshot",
+      "typescript": "ProjectCatalogSnapshot"
     },
     {
       "rust": "ProjectVersionSummary",

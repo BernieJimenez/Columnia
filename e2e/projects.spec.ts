@@ -35,9 +35,7 @@ async function installTauriProjectMock(page: Page, seedRecoveryCandidate = false
         case "list_reusable_tasks":
           return [];
         case "list_projects":
-          return projects;
-        case "get_recovery_candidate":
-          return recoveryCandidate;
+          return { projects, recoveryCandidate };
         case "pick_dataset_source":
           return {
             selectionId: "selection-e2e",

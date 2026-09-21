@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 #[path = "projects/import_profile_tests.rs"]
 mod import_profile_tests;
 
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 15;
 const ID_LENGTH: usize = 32;
 const MAX_PROJECT_VERSIONS: usize = 5;
 const AUTOSAVE_QUOTA_BYTES: u64 = 512 * 1024 * 1024;
@@ -48,6 +48,13 @@ pub struct ProjectSummary {
     pub updated_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_bytes: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCatalogSnapshot {
+    pub projects: Vec<ProjectSummary>,
+    pub recovery_candidate: Option<ProjectSummary>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -662,6 +669,20 @@ impl ProjectStore {
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
             }
+            14 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                transaction
+                    .execute_batch(
+                        "CREATE INDEX IF NOT EXISTS projects_recovery_candidate
+                           ON projects(last_opened_at DESC, id ASC)
+                           WHERE last_opened_at IS NOT NULL;
+                         PRAGMA user_version = 15;",
+                    )
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
             _ => Err(storage_error()),
         };
         if migration.is_ok() && version < SCHEMA_VERSION {
@@ -682,6 +703,49 @@ impl ProjectStore {
         self.ensure_initialized()?;
         ensure_project_operation_not_cancelled(is_cancelled())?;
         let connection = self.connection()?;
+        self.list_from_connection(&connection, &is_cancelled)
+    }
+
+    fn list_catalog_with_cancel<C>(&self, is_cancelled: C) -> Result<ProjectCatalogSnapshot, String>
+    where
+        C: Fn() -> bool + Sync,
+    {
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        self.ensure_initialized()?;
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(|_| storage_error())?;
+        let projects = self.list_from_connection(&transaction, &is_cancelled)?;
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        let candidate_id = transaction
+            .query_row(
+                "SELECT id FROM projects WHERE last_opened_at IS NOT NULL
+                 ORDER BY last_opened_at DESC, id ASC LIMIT 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|_| storage_error())?;
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        let recovery_candidate =
+            candidate_id.and_then(|id| projects.iter().find(|project| project.id == id).cloned());
+        ensure_project_operation_not_cancelled(is_cancelled())?;
+        transaction.commit().map_err(|_| storage_error())?;
+        Ok(ProjectCatalogSnapshot {
+            projects,
+            recovery_candidate,
+        })
+    }
+
+    fn list_from_connection<C>(
+        &self,
+        connection: &Connection,
+        is_cancelled: &C,
+    ) -> Result<Vec<ProjectSummary>, String>
+    where
+        C: Fn() -> bool + Sync,
+    {
+        ensure_project_operation_not_cancelled(is_cancelled())?;
         let mut statement = connection
             .prepare(
                 "SELECT id, name, dataset_file_name, row_count, column_count, created_at, updated_at
@@ -703,7 +767,7 @@ impl ProjectStore {
             projects.push(self.with_storage_usage_with_cancel(
                 &connection,
                 summary,
-                &is_cancelled,
+                is_cancelled,
             )?);
         }
         ensure_project_operation_not_cancelled(is_cancelled())?;
@@ -2733,20 +2797,15 @@ where
 }
 
 #[tauri::command]
-pub async fn list_projects(app: AppHandle) -> Result<Vec<ProjectSummary>, String> {
+pub async fn list_projects(app: AppHandle) -> Result<ProjectCatalogSnapshot, String> {
     let generation = app.state::<DatasetState>().begin_project_catalog()?;
     let cancellation = app
         .state::<DatasetState>()
         .project_catalog_cancellation(generation);
     run_project_operation(app, move |store, _| {
-        store.list_with_cancel(move || cancellation())
+        store.list_catalog_with_cancel(move || cancellation())
     })
     .await
-}
-
-#[tauri::command]
-pub async fn get_recovery_candidate(app: AppHandle) -> Result<Option<ProjectSummary>, String> {
-    run_project_operation(app, |store, _| store.recovery_candidate()).await
 }
 
 #[tauri::command]
@@ -3343,7 +3402,7 @@ mod tests {
         let version: i64 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 14);
+        assert_eq!(version, SCHEMA_VERSION);
         let tables = connection
             .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
             .unwrap()

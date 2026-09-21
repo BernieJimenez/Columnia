@@ -33,9 +33,7 @@ async function installTauriProjectMock(page: Page) {
         case "list_reusable_tasks":
           return [];
         case "list_projects":
-          return projects;
-        case "get_recovery_candidate":
-          return null;
+          return { projects, recoveryCandidate: null };
         case "pick_dataset_source":
           return {
             selectionId: "selection-a11y-e2e",

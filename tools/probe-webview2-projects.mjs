@@ -88,17 +88,21 @@ async function inspectNativeProjectIpc(page) {
           && forbiddenFields(value).length === 0;
       };
       const readCatalog = async () => {
-        const [projects, recoveryCandidate] = await Promise.all([
-          invoke("list_projects"),
-          invoke("get_recovery_candidate"),
-        ]);
+        const catalog = await invoke("list_projects");
+        const catalogObject = Boolean(catalog && typeof catalog === "object" && !Array.isArray(catalog));
+        const projects = catalogObject ? catalog.projects : undefined;
+        const recoveryCandidate = catalogObject ? catalog.recoveryCandidate : undefined;
         const projectsArray = Array.isArray(projects);
+        const recoveryFieldPresent = catalogObject
+          && Object.prototype.hasOwnProperty.call(catalog, "recoveryCandidate");
         const recoveryValid = recoveryCandidate === null || isSummary(recoveryCandidate);
-        const forbiddenPathFields = projectsArray
-          && (projects.some((project) => forbiddenFields(project).length > 0)
+        const forbiddenPathFields = catalogObject
+          && (forbiddenFields(catalog).length > 0
+            || (projectsArray && projects.some((project) => forbiddenFields(project).length > 0))
             || forbiddenFields(recoveryCandidate).length > 0);
         return {
-          valid: projectsArray && recoveryValid && projects.every(isSummary) && !forbiddenPathFields,
+          valid: catalogObject && projectsArray && recoveryFieldPresent && recoveryValid
+            && projects.every(isSummary) && !forbiddenPathFields,
           projects,
           recoveryCandidate,
           projectsCount: projectsArray ? projects.length : null,
@@ -115,7 +119,7 @@ async function inspectNativeProjectIpc(page) {
           return {
             status: "failed",
             phase: "native_project_ipc_catalog_invalid",
-            commands: ["list_projects", "get_recovery_candidate"],
+            commands: ["list_projects"],
             projectsCount: before.projectsCount,
             recoveryPresent: before.recoveryPresent,
             projectSummariesValid: before.projectSummariesValid,
@@ -131,7 +135,7 @@ async function inspectNativeProjectIpc(page) {
           return {
             status: "passed",
             phase: "native_project_ipc_read_only",
-            commands: ["list_projects", "get_recovery_candidate"],
+            commands: ["list_projects"],
             projectsCount: before.projectsCount,
             recoveryPresent: before.recoveryPresent,
             projectSummariesValid: before.projectSummariesValid,
@@ -183,7 +187,7 @@ async function inspectNativeProjectIpc(page) {
           "list_projects",
         ];
         const verifyInteractions = [
-          "get_recovery_candidate",
+          "list_projects",
           "probe_reopen_project",
           "open_project",
           "get_dataset_page",
@@ -196,8 +200,10 @@ async function inspectNativeProjectIpc(page) {
             : normalInteractions;
         try {
           if (currentRestartMode === "verify") {
-            const recovery = await invoke("get_recovery_candidate");
-            if (!isSummary(recovery) || !recovery.name.startsWith("__columnia_native_probe__")) {
+            const recoveryCatalog = await readCatalog();
+            const recovery = recoveryCatalog.recoveryCandidate;
+            if (!recoveryCatalog.valid || !isSummary(recovery)
+              || !recovery.name.startsWith("__columnia_native_probe__")) {
               throw new Error("recovery_invalid");
             }
             projectId = recovery.id;
@@ -404,7 +410,8 @@ async function inspectNativeProjectIpc(page) {
             && forbiddenFields(reopened).length === 0;
           if (!reopenedValid) throw new Error("reopen_invalid");
 
-          const listed = await invoke("list_projects");
+          const listedCatalog = await invoke("list_projects");
+          const listed = listedCatalog?.projects;
           const listedValid = Array.isArray(listed)
             && listed.length === before.projectsCount + 1
             && listed.some((project) => project.id === projectId && isSummary(project));
@@ -678,7 +685,7 @@ function snapshotResult(status, pages, extra = {}) {
       "list_projects",
     ]
     : restartMode === "verify"
-      ? ["get_recovery_candidate", "probe_reopen_project", "open_project", "get_dataset_page", "delete_project"]
+      ? ["list_projects", "probe_reopen_project", "open_project", "get_dataset_page", "delete_project"]
       : [
         "probe_seed_dataset",
         "probe_save_transform_recipe",
@@ -703,7 +710,7 @@ function snapshotResult(status, pages, extra = {}) {
       saveDisabledWithoutDataset: "project save controls stay hidden until a dataset is active",
       noVisibleRoutes: "visible route anchors",
       actionNames: "all visible ProjectsPanel buttons",
-      nativeIpc: runMutations ? nativeCommands : ["list_projects", "get_recovery_candidate"],
+      nativeIpc: runMutations ? nativeCommands : ["list_projects"],
     },
     interactions: [],
     ...extra,

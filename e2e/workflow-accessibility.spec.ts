@@ -22,10 +22,9 @@ async function installSyntheticTauriMock(page: Page) {
           return { name: "Columnia", version: "0.167.0", platform: "windows" };
         case "list_sample_datasets":
         case "list_reusable_tasks":
-        case "list_projects":
           return [];
-        case "get_recovery_candidate":
-          return null;
+        case "list_projects":
+          return { projects: [], recoveryCandidate: null };
         case "pick_dataset_source":
           return {
             selectionId: "selection-a11y-flow",

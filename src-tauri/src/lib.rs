@@ -238,7 +238,6 @@ pub fn run() {
             #[cfg(debug_assertions)]
             projects::probe_reopen_project,
             projects::list_projects,
-            projects::get_recovery_candidate,
             projects::list_project_versions,
             projects::save_project,
             projects::autosave_project,

@@ -28,6 +28,11 @@ export interface ProjectSummary {
   storageBytes?: number;
 }
 
+export interface ProjectCatalogSnapshot {
+  projects: ProjectSummary[];
+  recoveryCandidate: ProjectSummary | null;
+}
+
 export interface ProjectOpenResult {
   project: ProjectSummary;
   dataset: DatasetPreview;

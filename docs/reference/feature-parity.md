@@ -276,7 +276,7 @@ la fuente directamente a `current.parquet` con DuckDB y verifica el conteo antes
 de publicar la generación. La sesión conserva el esquema vacío y el historial
 diferido, mientras que los proyectos materializados mantienen la ruta eager.
 
-La interfaz no recibe rutas internas. El workspace SQLite v12 conserva también
+La interfaz no recibe rutas internas. El workspace SQLite v15 conserva también
 el formato de exportación, la protección de datos, las columnas clave de
 comparación y el tipo de JOIN con validación cerrada; las claves se filtran
 contra el esquema restaurado y no se guardan muestras ni valores. La cobertura

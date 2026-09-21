@@ -504,8 +504,7 @@ describe("App", () => {
       fileName: "ventas.csv", fileSizeBytes: 128, rowCount: 1, columnCount: 1,
       columns: [{ name: "total", dataType: "Int64" }], rows: [["10"]],
     };
-    vi.spyOn(bridge, "listProjects").mockResolvedValue([project]);
-    vi.spyOn(bridge, "getRecoveryCandidate").mockResolvedValue(null);
+    vi.spyOn(bridge, "listProjects").mockResolvedValue({ projects: [project], recoveryCandidate: null });
     vi.spyOn(bridge, "openProject").mockResolvedValue({
       project,
       dataset,
@@ -593,8 +592,7 @@ describe("App", () => {
       createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-21T00:00:00Z",
     };
     let catalog: ProjectSummary[] = [];
-    const listSpy = vi.spyOn(bridge, "listProjects").mockImplementation(async () => catalog);
-    vi.spyOn(bridge, "getRecoveryCandidate").mockResolvedValue(null);
+    const listSpy = vi.spyOn(bridge, "listProjects").mockImplementation(async () => ({ projects: catalog, recoveryCandidate: null }));
     const saveSpy = vi.spyOn(bridge, "saveProject").mockImplementation(async () => {
       catalog = [project];
       return project;
@@ -649,8 +647,7 @@ describe("App", () => {
       createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-21T00:00:00Z",
     };
     let catalog: ProjectSummary[] = [];
-    const listSpy = vi.spyOn(bridge, "listProjects").mockImplementation(async () => catalog);
-    vi.spyOn(bridge, "getRecoveryCandidate").mockResolvedValue(null);
+    const listSpy = vi.spyOn(bridge, "listProjects").mockImplementation(async () => ({ projects: catalog, recoveryCandidate: null }));
     const saveSpy = vi.spyOn(bridge, "saveProject").mockImplementation(async () => {
       catalog = [project];
       return project;
@@ -719,8 +716,7 @@ describe("App", () => {
       id: "project-without-profile", name: "Sin perfil", datasetFileName: "simple.csv",
       rowCount: 1, columnCount: 1, createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-21T00:00:00Z",
     };
-    vi.spyOn(bridge, "listProjects").mockResolvedValue([project]);
-    vi.spyOn(bridge, "getRecoveryCandidate").mockResolvedValue(null);
+    vi.spyOn(bridge, "listProjects").mockResolvedValue({ projects: [project], recoveryCandidate: null });
     vi.spyOn(bridge, "openProject").mockResolvedValue({
       project,
       dataset: {
@@ -2700,8 +2696,7 @@ describe("App", () => {
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });
     const listProjects = vi.spyOn(bridge, "listProjects")
       .mockRejectedValueOnce(new Error("catálogo temporalmente no disponible"))
-      .mockResolvedValue([]);
-    vi.spyOn(bridge, "getRecoveryCandidate").mockResolvedValue(null);
+      .mockResolvedValue({ projects: [], recoveryCandidate: null });
     const pick = vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue(null);
     localStorage.setItem("columnia.recent-datasets", JSON.stringify([
       { id: "recent-1", fileName: "C:\\datos\\ventas.csv", format: "csv", lastOpenedAt: 2 },

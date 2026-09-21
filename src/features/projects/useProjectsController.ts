@@ -4,7 +4,6 @@ import {
   autosaveProject,
   cancelOperation,
   deleteProject,
-  getRecoveryCandidate,
   listProjectVersions,
   listProjects,
   openProject,
@@ -122,12 +121,13 @@ export function useProjectsController({
     catalogRequestInProgress.current = true;
     setCatalog({ kind: "loading" });
     try {
-      const [projects, recoveryCandidate] = await Promise.all([
-        listProjects(),
-        getRecoveryCandidate(),
-      ]);
+      const snapshot = await listProjects();
       if (catalogRequestGeneration.current !== requestId) return;
-      const ready = { kind: "ready" as const, projects: sortProjects(projects), recoveryCandidate };
+      const ready = {
+        kind: "ready" as const,
+        projects: sortProjects(snapshot.projects),
+        recoveryCandidate: snapshot.recoveryCandidate,
+      };
       lastReadyCatalog.current = ready;
       setCatalog(ready);
     } catch (error: unknown) {

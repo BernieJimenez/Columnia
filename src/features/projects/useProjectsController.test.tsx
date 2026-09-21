@@ -7,7 +7,6 @@ import { useProjectsController } from "./useProjectsController";
 const bridge = vi.hoisted(() => ({
   autosaveProject: vi.fn(),
   deleteProject: vi.fn(),
-  getRecoveryCandidate: vi.fn(),
   listProjectVersions: vi.fn(),
   listProjects: vi.fn(),
   openProject: vi.fn(),
@@ -40,9 +39,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
   bridge.autosaveProject.mockResolvedValue(summary);
-  bridge.listProjects.mockResolvedValue([summary]);
+  bridge.listProjects.mockResolvedValue({ projects: [summary], recoveryCandidate: summary });
   bridge.listProjectVersions.mockResolvedValue([]);
-  bridge.getRecoveryCandidate.mockResolvedValue(summary);
   bridge.restoreProjectVersion.mockResolvedValue({ project: summary, dataset, workspace, profile: null });
   bridge.saveProject.mockResolvedValue(summary);
   bridge.openProject.mockResolvedValue({ project: summary, dataset, workspace, profile: null } satisfies ProjectOpenResult);
@@ -50,7 +48,7 @@ beforeEach(() => {
 });
 
 describe("useProjectsController", () => {
-  it("carga catálogo y recuperación en paralelo al conectar", async () => {
+  it("carga catálogo y recuperación en una llamada al conectar", async () => {
     const { result } = renderHook(() => useProjectsController({
       connected: true,
       blocked: false,
@@ -60,7 +58,6 @@ describe("useProjectsController", () => {
     }));
     await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
     expect(bridge.listProjects).toHaveBeenCalledOnce();
-    expect(bridge.getRecoveryCandidate).toHaveBeenCalledOnce();
   });
 
   it("abre un snapshot, lo marca activo y publica el dataset una sola vez", async () => {

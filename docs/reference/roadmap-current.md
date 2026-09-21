@@ -9,13 +9,15 @@ trabajo, protege resultados o aporta evidencia necesaria para declarar soporte.
 Las propuestas condicionadas a demanda se enumeran al final y no son trabajo
 comprometido.
 
-Último incremento verificado sobre `85856a7`: la lista de proyectos usa
-`projectCatalog` y comprueba cancelación al leer cada fila y medir el snapshot
-y el historial. Las respuestas obsoletas se descartan y el panel ofrece
-«Cancelar carga» y reintento. El candidato de recuperación sigue siendo una
-consulta SQLite breve separada, sin token. El guardado manual y automático
-usan `projectSave`, copian snapshots e historial por bloques y descartan la
-generación staged si cancelar gana antes del commit; `ParquetWriter::finish`,
+Último incremento verificado sobre `ca745d9`: `list_projects` devuelve proyectos
+y candidato de recuperación en una sola respuesta y transacción de lectura
+SQLite bajo el token `projectCatalog`. La migración SQLite v15 agrega el índice
+parcial que sirve a la consulta del candidato. La lista comprueba cancelación al leer cada fila y
+medir el snapshot y el historial; el candidato se selecciona por ID y consulta
+cancelación antes y después de su lectura SQLite síncrona. Las respuestas
+obsoletas se descartan y el panel ofrece «Cancelar carga» y reintento. El
+guardado manual y automático usan `projectSave`, copian snapshots e historial
+por bloques y descartan la generación staged si cancelar gana antes del commit; `ParquetWriter::finish`,
 `sync_all` y SQLite siguen siendo tramos síncronos. El borrado usa
 `projectDelete`: cancelar antes del gate conserva catálogo y archivos; si el
 gate gana, el borrado y la limpieza terminan bajo ese gate. SQLite y
