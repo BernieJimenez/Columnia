@@ -15,6 +15,9 @@ los artefactos de validación locales.
   persistencia nativa de receta, exportación, reapertura y restauración de fase.
 - El benchmark WebView2 de 100 MiB confirma carga, paginación, transformación,
   exportación, memoria dentro del presupuesto del benchmark y cleanup.
+- Las regresiones de `App` quedan alineadas con la inspección Excel separada, la
+  carga perezosa de Preparar, el análisis previo a Entregar y los nombres
+  accesibles vigentes; la suite frontend pasa 426/426 y Playwright 22/22.
 
 ## [1.25.0] - 2026-09-21
 

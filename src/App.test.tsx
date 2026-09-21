@@ -94,7 +94,7 @@ async function switchPhase(label: "Cargar" | "Revisar" | "Preparar" | "Entregar"
     expect(phaseButton).toBeEnabled();
     if (label !== "Cargar") expect(phaseButton).not.toHaveAttribute("aria-disabled", "true");
   });
-  fireEvent.click(phaseButton);
+  fireEvent.click(screen.getByRole("button", { name: label }));
   await waitFor(() => expect(screen.getByRole("region", { name: `Etapa ${label}` })).toBeInTheDocument());
   await screen.findByRole("heading", { name: stageHeading[label] });
 }
@@ -368,7 +368,6 @@ describe("App", () => {
     const applyRecipeSpy = vi.spyOn(bridge, "applyTransformRecipe");
 
     await prepareReusableTaskBeforeImport(task, summary);
-    await screen.findByRole("button", { name: "Cargar archivo" });
     await waitFor(() => expect(bridge.loadDatasetSelection).toHaveBeenCalledOnce());
     const importCall = vi.mocked(bridge.loadDatasetSelection).mock.calls[0];
     expect(importCall?.[4]).toEqual(task.importProfile);
@@ -379,7 +378,8 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
     expect(applyRecipeSpy).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    await screen.findByRole("heading", { name: "Prepara datos consistentes" }, { timeout: 5000 });
+    fireEvent.click(await screen.findByRole("tab", { name: "Transformaciones" }, { timeout: 5000 }));
     expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Renombrar id");
     expect(applyRecipeSpy).not.toHaveBeenCalled();
 
@@ -1269,6 +1269,8 @@ describe("App", () => {
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await screen.findByRole("heading", { name: "Revisa antes de modificar" });
+    await openQualityAndAnalyze();
     await switchPhase("Entregar");
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
@@ -1300,6 +1302,7 @@ describe("App", () => {
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await openQualityAndAnalyze();
     await switchPhase("Entregar");
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
@@ -1309,7 +1312,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
     expect(await screen.findByText("Contrato aprobado")).toBeInTheDocument();
     await waitFor(() => expect(exportSpy).toHaveBeenCalledTimes(1));
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Inválidos regla 1" }), { target: { value: "1" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Inválidos máximos regla 1" }), { target: { value: "1" } });
     expect(screen.getByText("Resultado desactualizado")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).toBeEnabled();
   });
@@ -1781,6 +1784,10 @@ describe("App", () => {
       isCompressedContainer: true,
       resourceEstimate: resourceEstimate(4096),
     });
+    vi.spyOn(bridge, "inspectWorkbookSheets").mockResolvedValue([
+      { id: "0", name: "Resumen" },
+      { id: "1", name: "Ventas 2026" },
+    ]);
     const loadSpy = vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue({
       fileName: "ventas.xlsx",
       fileSizeBytes: 4096,

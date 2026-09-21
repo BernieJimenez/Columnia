@@ -9,9 +9,10 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este ajuste de versión fue `master` en `5348360`, versión
-`0.168.0`. A petición del usuario, el proyecto adopta `1.25.0` para reflejar
-el alcance acumulado. La versión no implica que estén cerrados los gates de beta
+La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
+A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
+acumulado. El corte actual parte de `f961aa2` y mantiene esa versión sincronizada.
+La versión no implica que estén cerrados los gates de beta
 con datos reales, accesibilidad nativa, SQL Server o distribución binaria. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
@@ -56,6 +57,14 @@ cleanup. El benchmark nativo de 100 MiB
 (`.local/validation/performance-webview2/20260921T230202Z`) confirma 819.137
 filas, carga, paginación, transformación, exportación y memoria dentro de su
 presupuesto de benchmark.
+
+Las regresiones de `App` quedaron sincronizadas con la inspección Excel separada,
+la carga perezosa de Preparar, el análisis previo a navegar a Entregar y las
+etiquetas accesibles actuales. `npx vitest run --maxWorkers=1` pasa 426/426
+pruebas en 51 archivos; `npm run test:e2e` pasa 22/22 y ejecuta el build de
+producción. Los gates `beta:workflows:check`, `legal:check` e `ipc:check`
+también pasan. El límite de un worker hace reproducible la suite frontend en
+esta estación y no cambia el producto.
 
 En el código local están implementadas la importación CSV/TSV con convenciones
 explícitas de fecha y número, las políticas reutilizables de excepciones de
@@ -491,7 +500,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este corte parte de `520a1da`; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-21; este corte parte de `f961aa2`; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.25.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -501,8 +510,8 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | En el corte anterior pasaron 426 frontend, 21 E2E sintéticas y 490 pruebas Rust (0 fallidas, 5 ignoradas), además de build, IPC y smokes WebView2. En el incremento anterior, la reconciliación de generaciones huérfanas amplió los checkpoints alrededor de syscalls síncronas. En este incremento, los diálogos propios pasan a `dialog.showModal()` para aplicar modalidad nativa. Pasan `npm run build`, el checker documental y `git diff --check`; no se ejecutaron pruebas de producto. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-21, posterior al commit base `de6f960`; añade modalidad nativa `dialog.showModal()` con fondo inerte y conserva el trap/restauración de foco, además de los smokes WebView2 y round trips nativos CSV/XLSX/Parquet con datos sintéticos, cancelación de apertura/restauración/guardado/eliminación, catálogo unificado, detección CSV/TSV por bloques, comprobación cancelable del updater y exportación source-backed Parquet/JSON interrumpible en DuckDB. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 426/426 frontend en 51 archivos; `npm run test:e2e` pasa 22/22 y ejecuta build; `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. La suite Rust sigue sin verificarse en esta revisión por el fallo previo del loader de Windows (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
+| Última revisión de este documento | 2026-09-21, posterior al commit base `f961aa2`; sincroniza las regresiones de App con la inspección Excel separada, la carga perezosa de Preparar, el análisis previo a Entregar y las etiquetas accesibles actuales. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 
@@ -2010,6 +2019,7 @@ Al actualizarlo:
 | 2026-08-20 | Se creó este documento vivo a partir del código, las pruebas, `README.md`, `ROADMAP.md` y el índice CodeGraph. | Estado de `master` en `8fdcb3d` |
 | 2026-09-21 | RV01/RV02: el probe nativo actualiza su contrato para enumerar `inspect_workbook_sheets` después de seleccionar un Excel. `npm run smoke:native-selectors` pasa con diálogos reales de Windows y round-trips de bytes, filas, esquema y valores para CSV/XLSX/Parquet; la evidencia queda en `.local/validation/webview2-cdp/20260921T225717Z`. El presupuesto de memoria sigue marcado como diagnóstico del ejecutable debug y la aceptación con datasets de trabajo reales permanece pendiente. | `tools/probe-webview2-native-selectors.mjs`, `CONTEXTO.md`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `.local/validation/webview2-cdp/20260921T225717Z/summary.json` |
 | 2026-09-21 | RV12/RV01: el benchmark WebView2 de 100 MiB pasa con 819.137 filas y confirma carga, paginación, transformación, exportación, memoria dentro del presupuesto del benchmark y cleanup. El smoke CDP completo pasa Playwright, landmarks, foco y ProjectsPanel, además de receta, exportación, reapertura y restauración nativas con 18 operaciones IPC y cleanup. La aceptación con tareas reales y el presupuesto del ejecutable release siguen siendo gates separados. | `tools/benchmark-webview2-dataset.ps1`, `tools/probe-webview2-cdp.ps1`, `CONTEXTO.md`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `.local/validation/performance-webview2/20260921T230202Z/summary.json`, `.local/validation/webview2-cdp/20260921T230251Z/summary.json` |
+| 2026-09-21 | RV01/RV02/RV05/RV06: las regresiones de App quedan alineadas con la inspección Excel separada, la carga perezosa de Preparar, el análisis previo a Entregar y las etiquetas accesibles actuales. `npx vitest run --maxWorkers=1` pasa 426/426; `npm run test:e2e` pasa 22/22 y ejecuta build. Los gates beta, legal e IPC también pasan; RV07/RV09/RV10/RV11 siguen abiertos por evidencia externa. | `src/App.test.tsx`, `e2e/import-formats.spec.ts`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 ## Documentos relacionados
 
