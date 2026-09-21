@@ -2781,6 +2781,7 @@ pub struct DatasetState {
     comparison: Mutex<Option<PendingComparison>>,
     last_export_path: Mutex<Option<PathBuf>>,
     load_generation: AtomicU64,
+    load_commit_lock: Mutex<()>,
     profile_generation: AtomicU64,
     temporal_generation: AtomicU64,
     export_generation: AtomicU64,
@@ -3185,10 +3186,27 @@ impl DatasetState {
             .map(|mut pending| pending.take())
     }
 
-    fn begin_load(&self) -> u64 {
-        self.load_generation
+    fn begin_load(&self) -> Result<u64, String> {
+        let _guard = self
+            .load_commit_lock
+            .lock()
+            .map_err(|_| "La operación de carga quedó bloqueada inesperadamente.".to_owned())?;
+        Ok(self
+            .load_generation
             .fetch_add(1, Ordering::SeqCst)
-            .wrapping_add(1)
+            .wrapping_add(1))
+    }
+
+    fn commit_load<T>(
+        &self,
+        generation: u64,
+        operation: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _guard = self.load_commit_lock.lock().map_err(|_| {
+            "La publicación de la carga quedó bloqueada inesperadamente.".to_owned()
+        })?;
+        ensure_not_cancelled(self.load_was_cancelled(generation))?;
+        operation()
     }
 
     fn begin_profile(&self) -> u64 {
@@ -3324,6 +3342,14 @@ impl DatasetState {
     }
 
     fn cancel(&self, operation: &str) -> Result<(), String> {
+        if operation == "load" {
+            let _guard = self
+                .load_commit_lock
+                .lock()
+                .map_err(|_| "La cancelación de carga quedó bloqueada.".to_owned())?;
+            self.load_generation.fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
         if operation == "projectCatalog" {
             self.project_catalog_generation
                 .fetch_add(1, Ordering::SeqCst);
@@ -3397,7 +3423,6 @@ impl DatasetState {
             return Ok(());
         }
         let generation = match operation {
-            "load" => &self.load_generation,
             "profile" => &self.profile_generation,
             "temporal" => &self.temporal_generation,
             "export" => &self.export_generation,
@@ -28225,7 +28250,7 @@ async fn inspect_dataset_path(
 ) -> Result<DatasetSourceInspection, String> {
     let (path, file_size_bytes, extension) = validate_dataset_file(&path)?;
     let state = app.state::<DatasetState>();
-    let generation = state.begin_load();
+    let generation = state.begin_load()?;
     let selection_id = format!("selection-{generation}");
     let file_name = path
         .file_name()
@@ -28243,17 +28268,20 @@ async fn inspect_dataset_path(
     } else {
         "csv"
     };
-    *state
-        .pending_selection
-        .lock()
-        .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())? =
-        Some(PendingSelection {
-            id: selection_id.clone(),
-            generation,
-            path,
-            file_size_bytes,
-            sheets: Vec::new(),
-        });
+    state.commit_load(generation, || {
+        *state
+            .pending_selection
+            .lock()
+            .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())? =
+            Some(PendingSelection {
+                id: selection_id.clone(),
+                generation,
+                path,
+                file_size_bytes,
+                sheets: Vec::new(),
+            });
+        Ok(())
+    })?;
     Ok(DatasetSourceInspection {
         selection_id,
         file_name,
@@ -28332,18 +28360,20 @@ pub async fn inspect_workbook_sheets(
         .collect();
     {
         let state = app.state::<DatasetState>();
-        ensure_not_cancelled(state.load_was_cancelled(generation))?;
-        let mut selection = state
-            .pending_selection
-            .lock()
-            .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
-        let pending = selection
-            .as_mut()
-            .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
-        if pending.id != selection_id {
-            return Err("La selección ya no corresponde al archivo pendiente.".to_owned());
-        }
-        pending.sheets = sheet_names;
+        state.commit_load(generation, || {
+            let mut selection = state
+                .pending_selection
+                .lock()
+                .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+            let pending = selection
+                .as_mut()
+                .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
+            if pending.id != selection_id {
+                return Err("La selección ya no corresponde al archivo pendiente.".to_owned());
+            }
+            pending.sheets = sheet_names;
+            Ok(())
+        })?;
     }
 
     Ok(workbook_sheets)
@@ -28433,7 +28463,7 @@ pub async fn load_dataset_selection(
     number_convention: Option<ImportNumberConvention>,
     on_progress: Channel<OperationProgress>,
 ) -> Result<DatasetPreview, String> {
-    let generation = app.state::<DatasetState>().begin_load();
+    let generation = app.state::<DatasetState>().begin_load()?;
     let pending = {
         let state = app.state::<DatasetState>();
         let selection = state
@@ -28692,40 +28722,47 @@ pub async fn load_dataset_selection(
         } else {
             HistoryManager::new(&frame)?
         };
-        *state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())? =
-            Some(LoadedDataset {
-                source_path: Some(pending.path.clone()),
-                file_name: pending
-                    .path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("dataset.csv")
-                    .to_owned(),
-                file_size_bytes: pending.file_size_bytes,
-                row_count,
-                frame,
-                source_backed,
-                delimited_header_mode: is_delimited.then_some(selected_header_mode),
-                profile: None,
-                history,
-            });
-        *state
-            .comparison
-            .lock()
-            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
-        let mut selection = state
-            .pending_selection
-            .lock()
-            .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
-        if selection
-            .as_ref()
-            .is_some_and(|value| value.id == selection_id)
-        {
+        let loaded = LoadedDataset {
+            source_path: Some(pending.path.clone()),
+            file_name: pending
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("dataset.csv")
+                .to_owned(),
+            file_size_bytes: pending.file_size_bytes,
+            row_count,
+            frame,
+            source_backed,
+            delimited_header_mode: is_delimited.then_some(selected_header_mode),
+            profile: None,
+            history,
+        };
+        state.commit_load(generation, || {
+            let mut current = state
+                .current
+                .lock()
+                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            let mut comparison = state
+                .comparison
+                .lock()
+                .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+            let mut selection = state
+                .pending_selection
+                .lock()
+                .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+            let pending_selection = selection
+                .as_ref()
+                .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
+            if pending_selection.id != selection_id {
+                return Err("La selección ya no corresponde al archivo pendiente.".to_owned());
+            }
+
+            *current = Some(loaded);
+            *comparison = None;
             *selection = None;
-        }
+            Ok(())
+        })?;
         send_progress(&on_progress, "load", "Dataset listo", 100);
         Ok(preview)
     })

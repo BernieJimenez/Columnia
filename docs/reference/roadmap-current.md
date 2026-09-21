@@ -30,6 +30,16 @@ Polars. Pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`,
 `npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron
 pruebas de producto.
 
+El incremento actual sobre `0f4be2f` ordena inicio, cancelación y publicación de
+la carga con `load_commit_lock`. La selección inicial y las hojas inspeccionadas
+se publican solo si su generación sigue vigente. La carga prepara el historial
+fuera del gate y, antes de publicar, valida el token y el ID pendiente; dataset,
+comparación y selección se sustituyen juntos. Si cancelar gana durante la
+creación síncrona del historial, el candidato se descarta y la sesión anterior
+permanece activa. Pasan `cargo fmt --check`, `cargo check --lib`,
+`npm run build`, `npm run ipc:check` y `git diff --check`; no se ejecutaron
+pruebas de producto.
+
 El incremento sobre `94b7fe5` añade `reusableTaskCatalog` para cancelar la
 enumeración local de tareas entre filas SQLite y deserializaciones, con
 «Cancelar carga» y reintento en el panel. Una operación SQLite o la

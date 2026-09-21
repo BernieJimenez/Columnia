@@ -8772,7 +8772,9 @@ fn stops_profile_at_a_cooperative_cancellation_point() {
 #[test]
 fn invalidates_only_the_requested_operation_generation() {
     let state = DatasetState::default();
-    let load_generation = state.begin_load();
+    let load_generation = state
+        .begin_load()
+        .expect("la generación de carga debe poder iniciarse");
     let profile_generation = state.begin_profile();
     let temporal_generation = state.begin_temporal();
     let export_generation = state.begin_export();

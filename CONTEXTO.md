@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `ffe6d12`, versión
+La base de este incremento fue `master` en `0f4be2f`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -88,6 +88,15 @@ entre bloques, durante la detección del delimitador y entre los dos parseos de
 interpretación. La carga completa CSV/TSV/TXT también usa el detector cancelable
 antes de iniciar la lectura Polars. Las llamadas individuales de archivo y
 Polars siguen siendo síncronas y observan la cancelación cuando retornan.
+
+El inicio, cancelación y publicación de una carga se ordenan con
+`load_commit_lock`. La inspección publica la selección y las hojas solo si su
+generación sigue vigente; la carga valida la generación y el ID de selección
+después de preparar el historial, y sustituye dataset, comparación y selección
+juntos. Si cancelar gana durante la creación síncrona del historial, el
+candidato se descarta y permanece activa la sesión anterior. Pasan
+`cargo fmt --check`, `cargo check --lib`, `npm run build`, `npm run ipc:check`
+y `git diff --check`; no se ejecutaron pruebas de producto.
 
 El catálogo local de tareas reutilizables usa `reusableTaskCatalog` y consulta
 cancelación al avanzar por las filas SQLite y antes y después de deserializar
