@@ -30,11 +30,16 @@ Polars. Pasan `cargo fmt --check`, `cargo check --lib`, `npm run build`,
 `npm run ipc:check`, el checker documental y `git diff --check`; no se ejecutaron
 pruebas de producto.
 
-El incremento actual sobre `94b7fe5` añade `reusableTaskCatalog` para cancelar la
+El incremento sobre `94b7fe5` añade `reusableTaskCatalog` para cancelar la
 enumeración local de tareas entre filas SQLite y deserializaciones, con
 «Cancelar carga» y reintento en el panel. Una operación SQLite o la
 deserialización individual siguen siendo síncronas; la UI descarta respuestas
 obsoletas y el backend descarta el resultado si cancelar gana.
+
+El incremento actual sobre `2f6355d` asocia las versiones de proyecto con la
+generación y el ID activo: al cambiar de proyecto o desmontar el controlador,
+las respuestas obsoletas se descartan y no se muestran versiones del proyecto
+anterior. La retención limita el historial a cinco versiones.
 
 ## Ahora — completar el flujo automático
 

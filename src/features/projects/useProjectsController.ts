@@ -96,6 +96,8 @@ export function useProjectsController({
   const [deleteCancellationPending, setDeleteCancellationPending] = useState(false);
   const operationLock = useRef(false);
   const catalogRequestGeneration = useRef(0);
+  const versionsRequestGeneration = useRef(0);
+  const versionsProjectId = useRef<string | null>(null);
   const catalogRequestInProgress = useRef(false);
   const lastReadyCatalog = useRef<Extract<ProjectCatalogState, { kind: "ready" }> | null>(null);
   const autoSaveInProgress = useRef(false);
@@ -169,10 +171,15 @@ export function useProjectsController({
   }, [refresh]);
 
   const refreshVersions = useCallback(async (projectId: string) => {
+    const requestId = ++versionsRequestGeneration.current;
+    versionsProjectId.current = projectId;
     setVersions({ kind: "loading" });
     try {
-      setVersions({ kind: "ready", versions: await listProjectVersions(projectId) });
+      const projectVersions = await listProjectVersions(projectId);
+      if (versionsRequestGeneration.current !== requestId) return;
+      setVersions({ kind: "ready", versions: projectVersions });
     } catch (error: unknown) {
+      if (versionsRequestGeneration.current !== requestId) return;
       setVersions({ kind: "error", message: errorMessage(error) });
     }
   }, []);
@@ -180,10 +187,15 @@ export function useProjectsController({
   useEffect(() => {
     const projectId = activeProject?.id ?? null;
     if (!connected || !projectId) {
+      versionsRequestGeneration.current += 1;
+      versionsProjectId.current = null;
       setVersions({ kind: "ready", versions: [] });
       return;
     }
     void refreshVersions(projectId);
+    return () => {
+      versionsRequestGeneration.current += 1;
+    };
   }, [activeProject?.id, activeProject?.updatedAt, connected, refreshVersions]);
 
   useEffect(() => {
@@ -488,6 +500,12 @@ export function useProjectsController({
     }
   }, [deleteCancellationPending, operation]);
 
+  const visibleVersions: ProjectVersionsState = !connected || !activeProject
+    ? { kind: "ready", versions: [] }
+    : versionsProjectId.current === activeProject.id
+      ? versions
+      : { kind: "loading" };
+
   return {
     catalog,
     catalogCancellationPending,
@@ -503,7 +521,7 @@ export function useProjectsController({
     saveCancellationPending,
     cancelOpen,
     openCancellationPending,
-    versions,
+    versions: visibleVersions,
     refreshVersions,
     restore,
     cancelRestore,

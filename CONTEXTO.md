@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-21
 
-La base de este incremento fue `master` en `94b7fe5`, versión
+La base de este incremento fue `master` en `2f6355d`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -93,6 +93,11 @@ cada resumen. El panel ofrece «Cancelar carga» y reintento; la UI descarta
 respuestas obsoletas y no publica un catálogo parcial. Una lectura SQLite o la
 deserialización de un documento individual siguen siendo síncronas y observan
 la cancelación cuando retornan.
+
+La carga de versiones del proyecto lleva una generación asociada al proyecto
+activo. Al cambiar de proyecto o desmontar el controlador, las respuestas y
+errores anteriores se descartan; mientras las versiones no correspondan al
+proyecto activo, la interfaz mantiene el estado de carga.
 
 Abrir un proyecto y restaurar una versión usan `projectOpen`: consultan la
 cancelación durante el hash por bloques, el conteo DuckDB, la lectura Parquet y
