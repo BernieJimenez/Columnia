@@ -459,6 +459,7 @@ describe("App", () => {
         { name: "importe", dataType: "Float64" },
       ],
       schemaMismatch: {
+        code: "importProfileSchemaMismatch",
         missingColumns: ["id"],
         addedColumns: ["identificador", "importe"],
         changedTypes: [{ column: "id", expected: "Int64", actual: "String" }],

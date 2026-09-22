@@ -162,7 +162,7 @@ no se modifica.
 - Matriz sintética de rendimiento para 1 y 100 MiB en cuatro perfiles, más un
   benchmark WebView2 de 100 MiB con carga, paginación, transformación,
   exportación y limpieza.
-- Modularización gradual del motor: 25 módulos concentran responsabilidades
+- Modularización gradual del motor: 26 módulos concentran responsabilidades
   antes alojadas en `dataset.rs`, incluyendo historial, importación, calidad,
   recetas, consultas y coordinadores de cancelación; se mantienen nombres de
   comandos, contratos JSON y rutas Tauri.

@@ -9,6 +9,7 @@ const sourceFiles = [
   "src-tauri/src/lib.rs",
   "src-tauri/src/dataset.rs",
   "src-tauri/src/dataset/history.rs",
+  "src-tauri/src/dataset/json_reader.rs",
   "src-tauri/src/dataset/operation_cancellation.rs",
   "src-tauri/src/dataset/operation_state.rs",
   "src-tauri/src/dataset/quality_contracts.rs",
