@@ -31,10 +31,10 @@ los artefactos de validación locales.
   conservar una corrida reproducible en Windows y evitar procesos huérfanos al
   cancelar la verificación; también limitan a un worker la cobertura. El comando
   de producto no cambia.
-- RV16 continúa la extracción gradual de `dataset.rs`: la validación de
-  workspace/proyecto vive en `dataset/project_validation.rs`, y la validación de
-  perfiles de importación y excepciones vive en
-  `dataset/import_profile_validation.rs`. Las reexportaciones conservan la API.
+- RV16 continúa la extracción gradual de `dataset.rs`: workspace/proyecto en
+  `dataset/project_validation.rs`, perfiles y excepciones de importación en
+  `dataset/import_profile_validation.rs`, y comparación de revisiones del
+  historial en `dataset/snapshot_comparison.rs`. Se preservan API y contratos.
 - `check.ps1` y `incremental:check` incorporan Common Controls v6 al harness
   Rust de Windows durante las pruebas. `cargo check --tests` y `cargo test --lib`
   pasan; la suite registra 494 aprobadas, 5 ignoradas por servicios/drivers

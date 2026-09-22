@@ -7,20 +7,20 @@
 proceso de revisión. Se conserva como única fuente viva para no mantener dos
 documentos equivalentes que puedan divergir.
 
-## Estado operativo verificado — 2026-09-21
+## Estado operativo verificado — 2026-09-22
 
 La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
 A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
-acumulado. El estado anterior a este avance parte del commit `d44c5ed`; la
+acumulado. El estado anterior a este avance parte del commit `cd885c8`; la
 versión `1.25.0` sigue sincronizada en npm, Cargo y Tauri. La versión identifica
 el alcance del producto y no implica que estén cerrados los gates de beta con
 datos reales, accesibilidad nativa, SQL Server o distribución binaria. RV16 ya
 puede ejecutar su suite Rust de Windows: `cargo test --lib` pasa 494 pruebas,
-con 5 ignoradas por depender de servicios/drivers externos; `npm run
-incremental:check` pasa 16/16 regresiones nativas. Las validaciones de workspace
-y proyecto viven en `dataset/project_validation.rs`; las reglas de validación
-de perfiles de importación y excepciones están ahora en
-`dataset/import_profile_validation.rs`, con la API preservada. También se
+con 5 ignoradas por depender de servicios/drivers externos. Las validaciones de
+workspace/proyecto viven en `dataset/project_validation.rs`; las de perfiles de
+importación y excepciones, en `dataset/import_profile_validation.rs`; y la
+comparación de revisiones del historial, en `dataset/snapshot_comparison.rs`.
+Se conservan API y contratos, y la suite de comparación pasa 3/3. También se
 corrigen fixtures de migración obsoletos y se alinea la ruta eager de FULL JOIN
 con el orden preservado por la ejecución por bloques. La modularización gradual
 sigue en curso. La cola operativa vigente está en
@@ -531,7 +531,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este corte parte de `d44c5ed`; el harness Rust de Windows MSVC queda operativo y la suite pasa 494/499; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-22; este corte parte de `cd885c8`; el tercer módulo RV16 queda extraído y la suite Rust pasa 494/499; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.25.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -542,7 +542,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
 | Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 449/449 frontend en 51 archivos; `npm run test:coverage` pasa la cobertura global y las cinco capas críticas; `npm run test:e2e` pasa 22/22 y ejecuta build. `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. La suite Rust `cargo test --lib` pasa 494 pruebas con 5 ignoradas por requerir servicios/drivers externos; `npm run incremental:check` pasa 16/16. Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-21, posterior al commit base `d44c5ed`; registra la extracción del segundo módulo de RV16 y la suite Rust completa, con la versión `1.25.0`. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Última revisión de este documento | 2026-09-22, posterior al commit base `cd885c8`; registra la extracción del tercer módulo de RV16 y la suite Rust completa, con la versión `1.25.0`. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 
@@ -2058,6 +2058,7 @@ Al actualizarlo:
 | 2026-09-21 | RV16: extraídas las validaciones de workspace y perfil de proyecto desde `dataset.rs` hacia `dataset/project_validation.rs`, preservando la API y las reglas existentes; también se actualiza una prueba de tareas reutilizables al método cancelable vigente. `cargo check --tests` pasa. La prueba focalizada compila pero Windows no inicia el harness (`0xc0000139`, `STATUS_ENTRYPOINT_NOT_FOUND`), así que la ejecución Rust queda pendiente; RV16 continúa abierta. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/project_validation.rs`, `src-tauri/src/reusable_tasks.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-21 | RV16: el harness Rust de Windows MSVC incorpora el manifiesto de Common Controls v6 durante `cargo test --lib`; `tools/check.ps1` restaura la opción al acabar y `tools/check-incremental-matrix.mjs` la pasa a cada regresión nativa. Se corrigen fixtures de migración v6–v13 y el caso de versión futura, y se alinea el orden eager del FULL JOIN con la ruta por bloques. La suite Rust pasa 494/499; las 5 ignoradas requieren servicios/drivers externos. `npm run incremental:check` pasa 16/16 regresiones nativas. La versión continúa en `1.25.0`; los gates externos de RV07/RV09/RV10/RV11 siguen abiertos. | `src-tauri/build.rs`, `src-tauri/test-harness.manifest`, `tools/check.ps1`, `tools/check-incremental-matrix.mjs`, `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/tests.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md` |
 | 2026-09-21 | RV16: se extraen validación del perfil de importación y políticas de excepciones a `dataset/import_profile_validation.rs`; `dataset.rs` mantiene las reexportaciones públicas. `cargo check --tests` pasa; `cargo test --lib` registra 494 aprobadas, 5 ignoradas y ninguna fallida; `npm run incremental:check` pasa 16/16. La versión sigue en `1.25.0`; permanecen los gates externos de RV07/RV09/RV10/RV11. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/import_profile_validation.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV16: comparación de revisiones del historial y deltas de calidad extraídos a `dataset/snapshot_comparison.rs`. Las pruebas dedicadas pasan 3/3; `cargo check --tests` y `cargo test --lib` pasan, con 494 aprobadas, 5 ignoradas y ninguna fallida. La versión sigue en `1.25.0`; permanecen abiertos los gates externos de RV07/RV09/RV10/RV11. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/snapshot_comparison.rs`, `src-tauri/src/dataset/snapshot_comparison_tests.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 ## Documentos relacionados
 
