@@ -23,6 +23,13 @@ regresión App Revisar→Preparar→corrección pasa 1/1. La regresión previa c
 que exportar y luego consolidar invalida Entregar. La aceptación Cargar→Entregar
 con datasets de trabajo reales sigue pendiente.
 
+RV02: la revisión previa también detiene JSON/Parquet antes de activar el dataset
+y reúne recursos y perfil aplicable en el mismo diálogo. Hoja/encabezados solo
+aparecen para Excel/CSV/TSV; la muestra y las convenciones solo para CSV/TSV.
+El esquema de un perfil discrepante aún se confirma después de leer el candidato,
+por lo que la vista de esquema en la primera revisión queda pendiente. `npm run
+build` pasa; no se ejecutaron pruebas de producto en este corte.
+
 RV16: `dataset/file_validation.rs` concentra la validación segura de rutas y
 `dataset/page_reader.rs` la paginación en memoria/source-backed. Los puntos
 de entrada y las pruebas existentes mantienen sus rutas. La compilación de la
@@ -568,7 +575,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-22; este corte parte de `6cce4c5`; RV01 liga los estados de Cargar/Revisar a la revisión vigente; RV05 conserva evidencia de reinicio de tareas sintéticas; RV16 suma dieciséis módulos con el nuevo lector paginado. `cargo check --manifest-path src-tauri/Cargo.toml --lib` pasa; las 494 aprobadas/5 ignoradas corresponden al corte de pruebas previo. Cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-22; este corte parte de `bcf4f74`; RV01 liga Cargar/Revisar a la revisión vigente; RV02 reúne formato, recursos y perfil antes de activar y mantiene pendiente mostrar el esquema en la primera revisión; RV05 conserva evidencia de reinicio sintético; RV16 mantiene dieciséis módulos. `npm run build` y la compilación Rust del corte anterior pasan; no se ejecutaron pruebas de producto en este corte. Cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.25.0` (`v1.25.0` como referencia), sincronizada en npm, Cargo y Tauri; la app lee `CARGO_PKG_VERSION` |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -579,7 +586,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
 | Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 449/449 frontend en 51 archivos; `npm run test:coverage` pasa la cobertura global y las cinco capas críticas; `npm run test:e2e` pasa 22/22 y ejecuta build. `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. Con el manifiesto Common Controls v6, `cargo test --manifest-path src-tauri/Cargo.toml --lib -- --quiet` pasa 494/499; quedan 2 benchmarks opt-in y 3 integraciones ODBC ignorados. `npm run incremental:check` pasa 16/16. Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-22, posterior al commit base `6cce4c5`; registra el decimosexto módulo RV16 `dataset/page_reader.rs` y la compilación satisfactoria `cargo check --manifest-path src-tauri/Cargo.toml --lib`. La suite Rust de referencia registra 494 aprobadas, 0 fallidas y 5 ignoradas con el harness Windows Common Controls v6, pero no se repitió en este corte. La versión continúa en `1.25.0`; los gates abiertos están en `docs/reference/roadmap-current.md`. |
+| Última revisión de este documento | 2026-09-22, posterior al commit base `bcf4f74`; documenta la revisión previa unificada de RV02 y la compilación de frontend satisfactoria `npm run build`. El E2E 22/22, los smokes nativos y la suite Rust 494/499 son evidencias de cortes previos; no se repitieron en este corte. La versión vigente continúa en `1.25.0`; los gates abiertos están en `docs/reference/roadmap-current.md`. |
 
 ### Estado verificable de Tier 5
 
@@ -2168,6 +2175,8 @@ su prueba aislada pasa se descarta: JOIN → trazabilidad pierde filas activas.
 | 2026-09-22 | RV16: el decimoquinto módulo extrae a `dataset/file_validation.rs` la admisión de extensiones, canonicalización de rutas de entrada/salida y rechazo de enlaces simbólicos y reparse points; los comandos internos conservan sus contratos y errores. La suite Rust completa pasa 494 pruebas; 5 se ignoran por benchmarks opt-in y servicios ODBC externos. También pasan `cargo fmt --all -- --check`, `cargo check --tests` y el checker documental. La versión sigue en `1.25.0`; RV16 continúa abierta para extracciones graduales. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/file_validation.rs`, `src-tauri/src/dataset/tests.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 | 2026-09-22 | RV16: el decimosexto módulo mueve la paginación en memoria, Parquet con slice pushdown y lectura source-backed CSV/TSV/TXT a `dataset/page_reader.rs`. Se mantienen límites, cancelación, errores y detección de cambios en el origen; la API Tauri no cambia. `cargo fmt --manifest-path src-tauri/Cargo.toml --all` y `cargo check --manifest-path src-tauri/Cargo.toml --lib` pasan. No se ejecutó la suite existente de paginación en este corte. Versión `1.25.0`; RV16 sigue abierta. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/page_reader.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+
+| 2026-09-22 | RV02: todos los formatos muestran una revisión previa con recursos/perfil; hoja y encabezados solo aparecen en Excel/CSV/TSV, y la muestra/convenciones solo en CSV/TSV. JSON/Parquet ya no se activan automáticamente. La discrepancia del esquema guardado aún abre una confirmación secundaria tras leer el candidato; falta presentar el esquema antes de la primera aceptación y aceptar con datasets reales. `npm run build` pasa; no se ejecutaron pruebas de producto en este corte. Versión `1.25.0`; RV02 sigue parcial. | `src/App.tsx`, `src/features/load/LoadPhase.tsx`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 Pendiente para la siguiente sesión: aprobación y ejecución de T6-01–T6-11,
 aceptación jurídica T5-18/T5-20 y verificaciones externas expresamente enumeradas

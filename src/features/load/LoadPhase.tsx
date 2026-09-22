@@ -104,6 +104,8 @@ export function LoadPhase({
   const profileReview = inspection.kind === "profile_review" ? inspection : undefined;
   const resourcePreflight = inspection.kind === "resource_preflight" ? inspection : undefined;
   const schemaMismatch = inspection.kind === "schema_mismatch" ? inspection : undefined;
+  const isDelimitedSelection = sheetSelection?.source.format === "csv" || sheetSelection?.source.format === "tsv";
+  const hasHeaderSelection = isDelimitedSelection || sheetSelection?.source.format === "excel";
   const importError = inspection.kind === "error"
     ? inspection.message
     : undefined;
@@ -367,16 +369,24 @@ export function LoadPhase({
           describedBy="sheet-description"
           onDismiss={() => onSheetAction({ kind: "cancelled" })}
         >
-          <p className="eyebrow">{sheetSelection.source.format === "excel" ? "Libro seleccionado" : "Archivo delimitado seleccionado"}</p>
+          <p className="eyebrow">
+            {sheetSelection.source.format === "excel"
+              ? "Libro seleccionado"
+              : isDelimitedSelection ? "Archivo delimitado seleccionado" : "Archivo seleccionado"}
+          </p>
           <h3 id="sheet-title">
             {sheetSelection.source.format === "excel"
               ? `Elegir hoja de ${sheetSelection.source.fileName}`
-              : `Revisar encabezados de ${sheetSelection.source.fileName}`}
+              : isDelimitedSelection
+                ? `Revisar encabezados de ${sheetSelection.source.fileName}`
+                : `Revisar importación de ${sheetSelection.source.fileName}`}
           </h3>
           <p id="sheet-description">
             {sheetSelection.source.format === "excel"
-              ? "Columnia cargará únicamente la hoja elegida y conservará el dataset activo hasta terminar."
-              : "Compara una muestra con las dos interpretaciones. El dataset activo se conserva hasta que confirmes la carga."}
+              ? "Elige la hoja y los encabezados. La estimación de recursos está aquí antes de cargar; el dataset activo se conserva hasta terminar."
+              : isDelimitedSelection
+                ? "Compara las dos interpretaciones y revisa los recursos. El dataset activo se conserva hasta que confirmes la carga."
+                : "Revisa el formato, el perfil y los recursos antes de importar. El dataset activo se conserva hasta que confirmes la carga."}
           </p>
           {sheetSelection.source.isCompressedContainer && (
             <p className="notice" role="note">
@@ -400,34 +410,36 @@ export function LoadPhase({
               </select>
             </>
           )}
-          <fieldset className="sheet-dialog__options">
-            <legend>Encabezados</legend>
-            <label>
-              <input
-                type="radio"
-                name="spreadsheet-header-mode"
-                checked={sheetSelection.headerMode === "firstRow"}
-                onChange={() => onSheetAction({ kind: "header_mode_changed", headerMode: "firstRow" })}
-                disabled={Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
-              />
-              {sheetSelection.source.format === "excel"
-                ? "Usar la primera fila como encabezados"
-                : "Usar la primera fila como encabezados y excluirla de los datos"}
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="spreadsheet-header-mode"
-                checked={sheetSelection.headerMode === "generated"}
-                onChange={() => onSheetAction({ kind: "header_mode_changed", headerMode: "generated" })}
-                disabled={Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
-              />
-              {sheetSelection.source.format === "excel"
-                ? "Generar encabezados (column_1, column_2…)"
-                : "Conservar la primera fila como datos y generar nombres (column_1, column_2…)"}
-            </label>
-          </fieldset>
-          {sheetSelection.source.format !== "excel" && (
+          {hasHeaderSelection && (
+            <fieldset className="sheet-dialog__options">
+              <legend>Encabezados</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="spreadsheet-header-mode"
+                  checked={sheetSelection.headerMode === "firstRow"}
+                  onChange={() => onSheetAction({ kind: "header_mode_changed", headerMode: "firstRow" })}
+                  disabled={Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
+                />
+                {sheetSelection.source.format === "excel"
+                  ? "Usar la primera fila como encabezados"
+                  : "Usar la primera fila como encabezados y excluirla de los datos"}
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="spreadsheet-header-mode"
+                  checked={sheetSelection.headerMode === "generated"}
+                  onChange={() => onSheetAction({ kind: "header_mode_changed", headerMode: "generated" })}
+                  disabled={Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
+                />
+                {sheetSelection.source.format === "excel"
+                  ? "Generar encabezados (column_1, column_2…)"
+                  : "Conservar la primera fila como datos y generar nombres (column_1, column_2…)"}
+              </label>
+            </fieldset>
+          )}
+          {isDelimitedSelection && (
             <details className="sheet-import-options">
               <summary>Interpretación de fechas y números (opcional)</summary>
               <p role="note">
@@ -482,7 +494,7 @@ export function LoadPhase({
               {sheetSelection.profileCanBeApplied ? (
                 pendingTaskName ? (
                   <p role="note">
-                    Se usará el perfil de “{pendingTaskName}” para elegir {sheetSelection.source.format === "excel" ? "hoja y encabezado" : "encabezado"}. Si el esquema cambia, Columnia pedirá confirmación antes de importar.
+                    Se usará el perfil de “{pendingTaskName}” para elegir {sheetSelection.source.format === "excel" ? "hoja y encabezado" : isDelimitedSelection ? "encabezado" : "esquema"}. Si el esquema cambia, Columnia pedirá confirmación antes de importar.
                   </p>
                 ) : (
                   <label>
@@ -491,17 +503,23 @@ export function LoadPhase({
                       checked={sheetSelection.useSavedProfile}
                       onChange={(event) => onSheetAction({ kind: "profile_toggled", useProfile: event.target.checked })}
                     />
-                    Usar {sheetSelection.source.format === "excel" ? "la hoja, el encabezado" : "el encabezado"} y esquema guardados si coinciden
+                    Usar {sheetSelection.source.format === "excel"
+                      ? "la hoja, el encabezado y el esquema guardados"
+                      : isDelimitedSelection ? "el encabezado y el esquema guardados" : "el esquema guardado"} si coincide
                   </label>
                 )
               ) : (
                 <p role="note">
-                  La hoja guardada “{sheetSelection.suggestedProfile.sheetName}” no está disponible. No se elegirá otra hoja automáticamente.
+                  {sheetSelection.source.format === "excel"
+                    ? <>La hoja guardada “{sheetSelection.suggestedProfile.sheetName}” no está disponible. No se elegirá otra hoja automáticamente.</>
+                    : "El esquema del perfil guardado no coincide; no se aplicará automáticamente."}
                 </p>
               )}
-              <p role="note">
-                Convenciones seleccionadas: {dateConventionLabel(sheetSelection.dateConvention)} · {numberConventionLabel(sheetSelection.numberConvention)}.
-              </p>
+              {isDelimitedSelection && (
+                <p role="note">
+                  Convenciones seleccionadas: {dateConventionLabel(sheetSelection.dateConvention)} · {numberConventionLabel(sheetSelection.numberConvention)}.
+                </p>
+              )}
             </section>
           )}
           <section className="sheet-import-summary" aria-labelledby="sheet-import-summary-title" aria-live="polite">
@@ -511,7 +529,7 @@ export function LoadPhase({
                 <dt>Formato y tamaño</dt>
                 <dd>{sheetSelection.source.format.toUpperCase()} · {formatFileSize(sheetSelection.source.fileSizeBytes)}</dd>
               </div>
-              {sheetSelection.source.format === "excel" ? (
+              {sheetSelection.source.format === "excel" && (
                 <>
                   <div>
                     <dt>Hojas disponibles</dt>
@@ -522,7 +540,8 @@ export function LoadPhase({
                     <dd>{sheetSelection.source.sheets.find((sheet) => sheet.id === sheetSelection.selectedSheetId)?.name ?? "Selecciona una hoja"}</dd>
                   </div>
                 </>
-              ) : (
+              )}
+              {isDelimitedSelection && (
                 <div>
                   <dt>Separador detectado</dt>
                   <dd>
@@ -532,16 +551,14 @@ export function LoadPhase({
                   </dd>
                 </div>
               )}
-              <div>
-                <dt>Encabezados</dt>
-                <dd>{sheetSelection.headerMode === "firstRow" ? "Usar la primera fila" : "Generar nombres de columna"}</dd>
-              </div>
+              {hasHeaderSelection && (
+                <div>
+                  <dt>Encabezados</dt>
+                  <dd>{sheetSelection.headerMode === "firstRow" ? "Usar la primera fila" : "Generar nombres de columna"}</dd>
+                </div>
+              )}
             </dl>
-            {sheetSelection.source.format === "excel" ? (
-              <p role="note">
-                Esta inspección previa no muestra el esquema ni los tipos de las columnas. Podrás revisarlos en Diagnóstico después de cargar.
-              </p>
-            ) : (
+            {isDelimitedSelection ? (
               <>
                 {sheetSelection.headerReviewLoading && (
                   <p role="status">Preparando una muestra local de hasta 64 KiB…</p>
@@ -564,11 +581,19 @@ export function LoadPhase({
                     : ""}
                 </p>
               </>
+            ) : sheetSelection.source.format === "excel" ? (
+              <p role="note">
+                Esta inspección previa permite elegir hoja y encabezados; el esquema detallado y los tipos se podrán revisar en Diagnóstico después de cargar.
+              </p>
+            ) : (
+              <p role="note">
+                Este formato conserva su estructura propia y no requiere elegir encabezados. El esquema y los tipos estarán disponibles en Diagnóstico tras la carga.
+              </p>
             )}
           </section>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => onSheetAction({ kind: "cancelled" })}>Cancelar</button>
-            {sheetSelection.source.format !== "excel" && sheetSelection.error && (
+            {isDelimitedSelection && sheetSelection.error && (
               <button type="button" className="secondary-action" onClick={onRetryHeaderPreview}>Reintentar muestra</button>
             )}
             <button
@@ -577,7 +602,9 @@ export function LoadPhase({
               onClick={() => onSheetAction({ kind: "confirmed" })}
               disabled={sheetSelection.source.format === "excel"
                 ? !sheetSelection.selectedSheetId
-                : sheetSelection.headerReviewLoading === true || !sheetSelection.headerReview}
+                : isDelimitedSelection
+                  ? sheetSelection.headerReviewLoading === true || !sheetSelection.headerReview
+                  : false}
             >
               {sheetSelection.source.format === "excel" ? "Cargar hoja" : "Cargar archivo"}
             </button>

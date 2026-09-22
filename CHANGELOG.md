@@ -8,6 +8,12 @@ los artefactos de validación locales.
 
 ### Interno
 
+- RV02 unifica la revisión previa de importación: JSON/Parquet dejan de activarse
+  automáticamente y comparten con Excel/CSV/TSV un diálogo de recursos y perfil;
+  cada formato muestra solo los controles pertinentes. La revisión inicial aún no
+  presenta el esquema nuevo y un perfil incompatible puede abrir una confirmación
+  secundaria tras leer el candidato. `npm run build` pasa; no se ejecutaron pruebas
+  de producto en este corte.
 - RV16 mueve la lectura paginada en memoria y source-backed a
   `dataset/page_reader.rs`; conserva los límites de página, la cancelación,
   la lectura Parquet con slice pushdown y la detección de cambios en la fuente.

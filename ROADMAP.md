@@ -2811,6 +2811,17 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
 - [ ] **RV02 — Importación unificada y explicable.** Aceptar una sola vez hoja,
   encabezados, esquema, ambigüedades y recursos; permitir revisar encabezados
   CSV antes de activar el dataset.
+  - **Avance local: 2026-09-22.** La revisión previa ahora también detiene
+    JSON/Parquet antes de sustituir el dataset activo, y reúne en el mismo
+    diálogo el estimado de recursos y el perfil guardado aplicable. Hoja y
+    encabezados aparecen solo en Excel/CSV/TSV; las convenciones y la muestra
+    de encabezados solo en CSV/TSV. Los formatos restantes ya no se cargan
+    silenciosamente. La comparación de esquema de un perfil aún puede abrir
+    una confirmación adicional tras inspeccionar el candidato: mostrar el
+    esquema antes de la primera aceptación sigue pendiente. `npm run build`
+    pasa; no se ejecutaron pruebas de producto en este corte. RV02 permanece
+    parcial hasta revisar el esquema en esa primera confirmación y aceptar el
+    flujo con datasets de trabajo reales.
 - [x] **RV03 — Plan completo y resultado antes/después.** Reunir operaciones,
   motivos e impacto en una unidad reversible compatible y recalcular calidad al
   terminar.
@@ -3011,3 +3022,5 @@ la cola hasta demostrar demanda repetida.
 | 2026-09-22 | RV16: el decimoquinto módulo extrae a `dataset/file_validation.rs` la admisión de extensiones, canonicalización de rutas de entrada/salida y rechazo de enlaces simbólicos y reparse points; los comandos internos conservan sus contratos y errores. La suite Rust completa pasa 494 pruebas; 5 se ignoran por benchmarks opt-in y servicios ODBC externos. También pasan `cargo fmt --all -- --check`, `cargo check --tests` y el checker documental. La versión sigue en `1.25.0`; RV16 continúa abierta para extracciones graduales. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/file_validation.rs`, `src-tauri/src/dataset/tests.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 | 2026-09-22 | RV16: el decimosexto módulo mueve la paginación en memoria, el lector Parquet con slice pushdown y las páginas source-backed CSV/TSV/TXT a `dataset/page_reader.rs`. Se conservan límites, errores, comprobación del recuento frente al origen y cancelación cooperativa; la API Tauri no cambia. `cargo fmt --manifest-path src-tauri/Cargo.toml --all` y `cargo check --manifest-path src-tauri/Cargo.toml --lib` pasan. Las pruebas existentes de paginación no se ejecutaron en este corte. Versión `1.25.0`; RV16 continúa abierta. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/page_reader.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+
+| 2026-09-22 | RV02: JSON/Parquet ya no se activan automáticamente tras inspeccionar la fuente. Todos los formatos abren una sola revisión previa con recursos y perfil aplicable; hoja/encabezados se limitan a Excel/CSV/TSV y muestra/convenciones a CSV/TSV. La comparación del esquema guardado aún puede requerir confirmación secundaria tras leer el candidato; queda pendiente mostrarlo en la revisión inicial y aceptar con datasets reales. `npm run build` pasa; no se ejecutaron pruebas de producto en este corte. Versión `1.25.0`; RV02 sigue parcial. | `src/App.tsx`, `src/features/load/LoadPhase.tsx`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |

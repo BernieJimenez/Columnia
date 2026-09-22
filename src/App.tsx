@@ -36,7 +36,6 @@ import {
   updateSheetSelection,
   schemaMismatchInspection,
   workbookInspection,
-  needsResourcePreflight,
   type DatasetStatus,
   type LoadInspectionState,
   type ProfileReviewAction,
@@ -692,24 +691,9 @@ export function App() {
         void requestDelimitedHeaderReview(source);
         return;
       }
-      const applicability = selectedImportProfile
-        ? importProfileApplicability(selectedImportProfile, source)
-        : null;
-      if (selectedImportProfile && applicability?.kind === "applicable") {
-        if (!isCurrentRequest()) return;
-        setLoadInspection({
-          kind: "profile_review",
-          source,
-          profile: selectedImportProfile,
-        });
-        return;
-      }
-      if (needsResourcePreflight(source)) {
-        if (!isCurrentRequest()) return;
-        setLoadInspection({ kind: "resource_preflight", source });
-        return;
-      }
-      await loadSelection(source, source.sheets[0]?.id ?? null);
+      if (!isCurrentRequest()) return;
+      setLoadInspection(workbookInspection(source, selectedImportProfile));
+      return;
     } catch (error: unknown) {
       if (!isCurrentRequest()) return;
       if (isCancellationError(error)) {
@@ -798,7 +782,8 @@ export function App() {
     }
     if (action.kind === "confirmed") {
       if (loadInspection.kind === "sheet") {
-        if (loadInspection.source.format !== "excel" && !loadInspection.headerReview) return;
+        const requiresDelimitedPreview = loadInspection.source.format === "csv" || loadInspection.source.format === "tsv";
+        if (requiresDelimitedPreview && !loadInspection.headerReview) return;
         const queuedProfile = queuedReusableTask?.task.importProfile;
         const queuedProfileIsApplicable = queuedProfile !== undefined &&
           importProfileApplicability(queuedProfile, loadInspection.source).kind === "applicable";
@@ -815,7 +800,9 @@ export function App() {
         void loadSelection(
           loadInspection.source,
           loadInspection.source.format === "excel" ? loadInspection.selectedSheetId : null,
-          loadInspection.headerMode,
+          loadInspection.source.format === "excel" || loadInspection.source.format === "csv" || loadInspection.source.format === "tsv"
+            ? loadInspection.headerMode
+            : null,
           profileWithConventions,
           profileWithConventions,
           queuedReusableTask?.task ?? null,
