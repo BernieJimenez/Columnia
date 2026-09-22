@@ -8,6 +8,11 @@ los artefactos de validación locales.
 
 ### Interno
 
+- RV16 mueve la lectura paginada en memoria y source-backed a
+  `dataset/page_reader.rs`; conserva los límites de página, la cancelación,
+  la lectura Parquet con slice pushdown y la detección de cambios en la fuente.
+  `cargo fmt --manifest-path src-tauri/Cargo.toml --all` y `cargo check --manifest-path src-tauri/Cargo.toml --lib` pasan; las pruebas existentes
+  no se ejecutaron en este corte.
 - RV04 evita perder una operación activa cuando falla la orden de cancelación: mantiene progreso y dataset, informa el fallo y permite reintentar en carga, análisis, exportación y comparación. Una regresión App cubre la sustitución del dataset.
 - RV01 liga «Hecho» de Cargar y Revisar a la revisión actual del dataset: una mutación conserva Cargar en la revisión nueva e invalida la finalización de Revisar. La regresión Revisar→Preparar→corrección queda cubierta y la suite App pasa 65/65. La regresión de Entregar tras exportación→consolidación sigue cubierta (1/1).
 - RV02/RV16 aísla la revisión de encabezados CSV/TSV en
