@@ -115,7 +115,7 @@ Este snapshot técnico se conserva aquí para evitar una segunda auditoría
 independiente. No es otra cola de trabajo: los cambios necesarios siguen el orden
 de [`roadmap vigente`](docs/reference/roadmap-current.md).
 
-Snapshot de dependencias actualizado el **2026-09-07** sobre `0.167.0`. La ficha vigente se conserva sobre `1.25.0` porque este incremento solo cambia la versión del proyecto, no el grafo de dependencias. El inventario IPC quedó sincronizado el **2026-09-14**. Es una referencia local
+Snapshot de dependencias actualizado el **2026-09-07** sobre `0.167.0`. La ficha vigente se conserva sobre `1.26.0` porque este incremento solo cambia la versión del proyecto, no el grafo de dependencias. El inventario IPC quedó verificado y sincronizado el **2026-09-22**. Es una referencia local
 reproducible, no una aprobación permanente de actualizar a la última versión.
 Antes de cambiar una dependencia, ejecuta los comandos de la tabla y registra el
 resultado en el mismo cambio.
@@ -183,7 +183,7 @@ revisar Tauri/Vite, tests y build antes de modificar el lockfile.
 | `npm run network:check` | Aprobado | Sin APIs de red/telemetría en producción; CSP solo deja IPC interno |
 | `npm run notices:check` | Aprobado; 999 identidades de dependencia sin `UNKNOWN`, sin filas duplicadas | `THIRD_PARTY_NOTICES.md` se deriva offline de ambos lockfiles y rechaza licencias desconocidas, contradictorias o incompletas |
 | `npm run toolchains:check` | Aprobado; Node 24.14.0, npm 11.10.1 y Rust/Cargo 1.97.1 | Las versiones exactas están fijadas en `package.json` y `rust-toolchain.toml` |
-| `npm run ipc:check` | Aprobado; 84 comandos de producción, 4 debug y 69 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](docs/reference/ipc-inventory.json); incluye tareas reutilizables, catálogo de proyectos/candidato de recuperación combinado, preflight/presets de entrega, inspección de libros en dos pasos y updater autenticado |
+| `npm run ipc:check` | Aprobado; 85 comandos de producción, 4 debug y 70 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](docs/reference/ipc-inventory.json); incluye tareas reutilizables, catálogo de proyectos/candidato de recuperación combinado, preflight/presets de entrega, inspección de libros en dos pasos y updater autenticado |
 
 Las excepciones de `cargo audit`/`cargo deny` no ocultan una vulnerabilidad de
 la aplicación: están limitadas a advisories transitivos con razón, versión y
