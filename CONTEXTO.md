@@ -12,7 +12,7 @@ documentos equivalentes que puedan divergir.
 La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
 A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
 acumulado, y la versión sigue sincronizada en npm, Cargo y Tauri. Este corte parte
-del commit `690304e`. La versión identifica el alcance del producto y no implica
+del commit `e638c81`. La versión identifica el alcance del producto y no implica
 que estén cerrados los gates de beta con datos reales, accesibilidad nativa, SQL
 Server o distribución binaria. RV16 ya separa doce responsabilidades: validación
 de workspace/proyecto (`dataset/project_validation.rs`), perfiles y excepciones
@@ -87,7 +87,10 @@ ejecutable debug y no cierra el gate de memoria del release.
 El smoke CDP completo (`.local/validation/webview2-cdp/20260921T230251Z`)
 aprueba Playwright, landmarks, foco, ProjectsPanel y 18 operaciones IPC nativas
 de proyecto, incluidas receta, exportación, reapertura, restauración de fase y
-cleanup. El benchmark nativo de 100 MiB
+cleanup.
+El smoke `npm run smoke:restart` (`.local/validation/webview2-restart/20260922T015059Z`) confirma que `activePhase=prepare` y una tarea reutilizable sintética sobreviven a dos lanzamientos reales de la app. La tarea pasa de 0 a 1 entrada, se lista y reabre con sus campos intactos tras el reinicio, y luego se elimina (catálogo 1→0). La aceptación con tareas y archivos de trabajo sigue pendiente. El pico de memoria privada debug fue 302.895.104 bytes frente al presupuesto diagnóstico de 268.435.456 bytes, que no es requisito de este smoke.
+
+El benchmark nativo de 100 MiB
 (`.local/validation/performance-webview2/20260921T230202Z`) confirma 819.137
 filas, carga, paginación, transformación, exportación y memoria dentro de su
 presupuesto de benchmark.
@@ -542,7 +545,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-22; este corte parte de `690304e`; RV16 extrae la planificación y ejecución source-backed de recetas a `dataset/recipe_source_projection.rs` (doce módulos extraídos). `cargo fmt --check`, `cargo check --tests` y la suite Rust pasan (494 aprobadas, 5 ignoradas). Cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-22; este corte parte de `e638c81`; RV05 verifica persistencia de tareas reutilizables a través del reinicio real de la app; RV16 mantiene doce módulos extraídos. `npm run smoke:restart` pasa con limpieza confirmada; la suite Rust previa registra 494 aprobadas y 5 ignoradas. Cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.25.0` (`v1.25.0` como referencia), sincronizada en npm, Cargo y Tauri; la app lee `CARGO_PKG_VERSION` |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -553,7 +556,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
 | Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 449/449 frontend en 51 archivos; `npm run test:coverage` pasa la cobertura global y las cinco capas críticas; `npm run test:e2e` pasa 22/22 y ejecuta build. `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. Con el manifiesto Common Controls v6, `cargo test --manifest-path src-tauri/Cargo.toml --lib -- --quiet` pasa 494/499; quedan 2 benchmarks opt-in y 3 integraciones ODBC ignorados. `npm run incremental:check` pasa 16/16. Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-22, posterior al commit base `690304e`; registra el decimotercer corte de RV16. `cargo fmt --check`, `cargo check --tests` y la suite Rust completa pasan (494 aprobadas, 0 fallidas y 5 ignoradas). La versión vigente continúa en `1.25.0`. La cola y los límites abiertos están detallados en `docs/reference/roadmap-current.md`; las secciones fechadas más abajo son registro histórico. |
+| Última revisión de este documento | 2026-09-22, posterior al commit base `e638c81`; incorpora evidencia de reinicio real de tareas sintéticas para RV05 y conserva el decimotercer corte de RV16. `npm run smoke:restart` pasa y limpia la tarea de prueba; la suite Rust previa registra 494 aprobadas, 0 fallidas y 5 ignoradas. La versión vigente continúa en `1.25.0`. La cola y los límites abiertos están detallados en `docs/reference/roadmap-current.md`; las secciones fechadas más abajo son registro histórico. |
 
 ### Estado verificable de Tier 5
 

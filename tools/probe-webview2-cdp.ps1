@@ -12,6 +12,7 @@ param(
     [int]$NativeSustainedRuns = 3,
     [ValidateSet("normal", "restart-prepare", "restart-verify")]
     [string]$ProjectProbeMode = "normal",
+    [string]$ProjectProbeTaskName = "",
     [ValidateRange(64, 4096)]
     [int]$MemoryWorkingSetBudgetMiB = 512,
     [ValidateRange(64, 4096)]
@@ -21,6 +22,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ReusableTaskNamePattern = '^__columnia_native_probe__restart_[0-9a-f]{32}$'
+$RequiresReusableTaskName = $ProjectProbeMode -ne "normal"
+$HasReusableTaskName = -not [string]::IsNullOrWhiteSpace($ProjectProbeTaskName)
+if (($RequiresReusableTaskName -and -not $HasReusableTaskName) -or ($HasReusableTaskName -and $ProjectProbeTaskName -notmatch $ReusableTaskNamePattern)) {
+    throw "ProjectProbeTaskName must be a unique restart probe name."
+}
 
 # WebView2 reads WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS when its browser
 # process is created. The probe only adds a loopback CDP listener and restores
@@ -436,6 +443,10 @@ function Invoke-ProjectsProbe {
     }
     elseif ($ProjectProbeMode -eq "restart-verify") {
         $RunnerArguments += "--restart-verify"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ProjectProbeTaskName)) {
+        $RunnerArguments += "--reusable-task-name"
+        $RunnerArguments += $ProjectProbeTaskName
     }
     $Output = @(& $NodeCommand @RunnerArguments 2>&1)
     $OutputText = [string]::Join([Environment]::NewLine, @($Output | ForEach-Object { [string]$_ }))

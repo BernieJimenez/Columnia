@@ -13,9 +13,13 @@ $EvidenceDirectory = Join-Path $ProjectRoot ($EvidenceRelativePath -replace "/",
 $SummaryPath = Join-Path $EvidenceDirectory "summary.json"
 $Timer = [System.Diagnostics.Stopwatch]::StartNew()
 $StartedAt = [DateTimeOffset]::UtcNow
+$ReusableTaskName = "__columnia_native_probe__restart_$([Guid]::NewGuid().ToString('N').ToLowerInvariant())"
 
 function Invoke-RestartPhase {
-    param([ValidateSet("restart-prepare", "restart-verify")][string]$Mode)
+    param(
+        [ValidateSet("restart-prepare", "restart-verify")][string]$Mode,
+        [Parameter(Mandatory = $true)][string]$ReusableTaskName
+    )
 
     $ScriptPath = Join-Path $ProjectRoot "tools\probe-webview2-cdp.ps1"
     $PowerShellCommand = (Get-Command powershell.exe -ErrorAction Stop).Source
@@ -25,7 +29,8 @@ function Invoke-RestartPhase {
         -RunPlaywright `
         -RunProjects `
         -RunProjectMutations `
-        -ProjectProbeMode $Mode 2>&1)
+        -ProjectProbeMode $Mode `
+        -ProjectProbeTaskName $ReusableTaskName 2>&1)
     $ExitCode = $LASTEXITCODE
     $OutputText = [string]::Join([Environment]::NewLine, @($Output | ForEach-Object { [string]$_ }))
     $EvidenceLine = @($Output | Where-Object { ([string]$_) -match "^Evidencia:\s+" } | Select-Object -Last 1)
@@ -59,6 +64,11 @@ function Invoke-RestartPhase {
         activePhaseToPersist = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.activePhaseToPersist }
         activePhaseRestored = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.activePhaseRestored }
         restoredActivePhase = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.restoredActivePhase }
+        reusableTaskPersisted = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.reusableTaskPersisted }
+        reusableTaskRestored = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.reusableTaskRestored }
+        reusableTaskCleanupConfirmed = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.reusableTaskCleanupConfirmed }
+        reusableTaskCatalogCountBefore = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.reusableTaskCatalogCountBefore }
+        reusableTaskCatalogCountAfter = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.reusableTaskCatalogCountAfter }
     }
 }
 
@@ -69,13 +79,19 @@ $Prepare = $null
 $Verify = $null
 
 try {
-    $Prepare = Invoke-RestartPhase -Mode "restart-prepare"
-    $Verify = Invoke-RestartPhase -Mode "restart-verify"
+    $Prepare = Invoke-RestartPhase -Mode "restart-prepare" -ReusableTaskName $ReusableTaskName
+    $Verify = Invoke-RestartPhase -Mode "restart-verify" -ReusableTaskName $ReusableTaskName
     if ($Prepare.activePhaseToPersist -ne "prepare") {
         throw "El smoke no confirmó que guardó el proyecto en la fase prepare."
     }
     if ($Verify.activePhaseRestored -ne $true -or $Verify.restoredActivePhase -ne "prepare") {
         throw "El smoke no confirmó que activePhase=prepare sobrevivió al reinicio."
+    }
+    if ($Prepare.reusableTaskPersisted -ne $true) {
+        throw "El smoke no confirmó que guardó la tarea reutilizable antes del reinicio."
+    }
+    if ($Verify.reusableTaskRestored -ne $true -or $Verify.reusableTaskCleanupConfirmed -ne $true) {
+        throw "El smoke no confirmó la reapertura y limpieza de la tarea reutilizable después del reinicio."
     }
     $Status = "passed"
 }
@@ -94,6 +110,8 @@ finally {
         command = "npm run tauri dev"
         phases = @($Prepare, $Verify)
         activePhasePersistedAcrossRestart = [bool]($Prepare.activePhaseToPersist -eq "prepare" -and $Verify.activePhaseRestored -eq $true -and $Verify.restoredActivePhase -eq "prepare")
+        reusableTaskPersistedAcrossRestart = [bool]($Prepare.reusableTaskPersisted -eq $true -and $Verify.reusableTaskRestored -eq $true -and $Verify.reusableTaskCleanupConfirmed -eq $true)
+        reusableTaskName = $ReusableTaskName
         evidenceDirectory = $EvidenceRelativePath
         cleanupDelegatedToCdpPhases = $true
         error = $FailureMessage
@@ -101,7 +119,7 @@ finally {
 }
 
 if ($Status -eq "passed") {
-    Write-Host "Reinicio WebView2 aprobado: preparar→cerrar→reiniciar→reabrir→eliminar, con cleanup en ambas fases."
+    Write-Host "Reinicio WebView2 aprobado: proyecto y tarea reutilizable sobreviven al reinicio; cleanup confirmado."
     Write-Host "Evidencia: $EvidenceRelativePath"
     exit 0
 }

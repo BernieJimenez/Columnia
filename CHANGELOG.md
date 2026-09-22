@@ -11,8 +11,10 @@ los artefactos de validación locales.
 - El probe nativo enumera las hojas Excel mediante `inspect_workbook_sheets`
   después de seleccionar el archivo, y vuelve a verificar los round-trips CSV,
   XLSX y Parquet con diálogos reales de Windows.
-- El smoke CDP completo verifica render, landmarks, foco, ProjectsPanel y
-  persistencia nativa de receta, exportación, reapertura y restauración de fase.
+- `npm run smoke:restart` comprueba que una tarea reutilizable sintética se
+  guarda, aparece en el catálogo, conserva su contenido al cerrar y reiniciar
+  Columnia y se elimina con limpieza confirmada. El recorrido CDP también valida
+  render, landmarks, foco, ProjectsPanel, receta, exportación y reapertura.
 - El benchmark WebView2 de 100 MiB confirma carga, paginación, transformación,
   exportación, memoria dentro del presupuesto del benchmark y cleanup.
 - Las regresiones de `App` quedan alineadas con la inspección Excel separada, la

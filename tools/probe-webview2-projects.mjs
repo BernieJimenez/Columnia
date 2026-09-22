@@ -12,12 +12,17 @@ const restartMode = process.argv.includes("--restart-prepare")
   : process.argv.includes("--restart-verify")
     ? "verify"
     : "normal";
+const reusableTaskNameArgumentIndex = process.argv.indexOf("--reusable-task-name");
+const reusableTaskName = reusableTaskNameArgumentIndex >= 0
+  ? process.argv[reusableTaskNameArgumentIndex + 1]
+  : "";
 const probeTimeoutMs = 15_000;
 const pollIntervalMs = 250;
 
 if (!Number.isInteger(port) || port < 1024 || port > 65535
-  || !Number.isInteger(sustainedRuns) || sustainedRuns < 1 || sustainedRuns > 5) {
-  console.error(JSON.stringify({ status: "failed", error: "Invalid --port." }));
+  || !Number.isInteger(sustainedRuns) || sustainedRuns < 1 || sustainedRuns > 5
+  || (restartMode !== "normal" && !/^__columnia_native_probe__restart_[0-9a-f]{32}$/.test(reusableTaskName))) {
+  console.error(JSON.stringify({ status: "failed", error: "Invalid probe arguments or restart task name." }));
   process.exit(1);
 }
 
@@ -34,7 +39,7 @@ function isProvisionalUrl(url) {
 
 async function inspectNativeProjectIpc(page) {
   try {
-    return await page.evaluate(async ({ shouldMutate, restartMode: currentRestartMode, nativeSustainedRuns }) => {
+    return await page.evaluate(async ({ shouldMutate, restartMode: currentRestartMode, nativeSustainedRuns, nativeReusableTaskName }) => {
       const internals = window.__TAURI_INTERNALS__;
       if (!internals || typeof internals.invoke !== "function") {
         return {
@@ -112,6 +117,23 @@ async function inspectNativeProjectIpc(page) {
           forbiddenPathFields,
         };
       };
+      const isReusableTaskSummary = (value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+        return typeof value.id === "string" && value.id.length > 0
+          && typeof value.name === "string"
+          && typeof value.createdAt === "string"
+          && typeof value.updatedAt === "string"
+          && Number.isInteger(value.inputColumnCount) && value.inputColumnCount >= 0
+          && typeof value.hasRecipe === "boolean"
+          && Number.isInteger(value.qualityRuleCount) && value.qualityRuleCount >= 0
+          && typeof value.outputFormat === "string"
+          && forbiddenFields(value).length === 0;
+      };
+      const readReusableTaskCatalog = async () => {
+        const tasks = await invoke("list_reusable_tasks");
+        const valid = Array.isArray(tasks) && tasks.every(isReusableTaskSummary);
+        return { valid, tasks: valid ? tasks : [], taskCount: valid ? tasks.length : null };
+      };
 
       try {
         const before = await readCatalog();
@@ -148,6 +170,7 @@ async function inspectNativeProjectIpc(page) {
         }
 
         let projectId = null;
+        let reusableTaskId = null;
         let cleanupConfirmed = true;
         const projectName = `__columnia_native_probe__${crypto.randomUUID().slice(0, 8)}`;
         const recipe = {
@@ -185,6 +208,8 @@ async function inspectNativeProjectIpc(page) {
           "probe_export_dataset",
           "save_project",
           "list_projects",
+          "list_reusable_tasks",
+          "save_reusable_task",
         ];
         const verifyInteractions = [
           "list_projects",
@@ -192,6 +217,9 @@ async function inspectNativeProjectIpc(page) {
           "open_project",
           "get_dataset_page",
           "delete_project",
+          "list_reusable_tasks",
+          "open_reusable_task",
+          "delete_reusable_task",
         ];
         const interactions = currentRestartMode === "prepare"
           ? prepareInteractions
@@ -240,6 +268,37 @@ async function inspectNativeProjectIpc(page) {
               throw new Error("page_after_restart_invalid");
             }
 
+            const reusableTasksBefore = await readReusableTaskCatalog();
+            const matchingReusableTasks = reusableTasksBefore.tasks.filter((task) => task.name === nativeReusableTaskName);
+            if (!reusableTasksBefore.valid || matchingReusableTasks.length !== 1) {
+              throw new Error("reusable_task_not_restored");
+            }
+            reusableTaskId = matchingReusableTasks[0].id;
+            const reopenedReusableTask = await invoke("open_reusable_task", { taskId: reusableTaskId });
+            const reopenedTaskValid = Boolean(reopenedReusableTask)
+              && reopenedReusableTask.version === 1
+              && reopenedReusableTask.name === nativeReusableTaskName
+              && reopenedReusableTask.importProfile?.version === 1
+              && reopenedReusableTask.importProfile?.format === "csv"
+              && reopenedReusableTask.importProfile?.headerMode === "firstRow"
+              && reopenedReusableTask.importProfile?.dateConvention === "dmy"
+              && reopenedReusableTask.importProfile?.numberConvention === "dotDecimalCommaGrouping"
+              && reopenedReusableTask.importProfile?.schema?.map((column) => column.name + ":" + column.dataType).join(",") === "id:Int64,amount:Float64"
+              && (reopenedReusableTask.recipe === null || reopenedReusableTask.recipe === undefined)
+              && (reopenedReusableTask.exceptionPolicy === null || reopenedReusableTask.exceptionPolicy === undefined)
+              && Array.isArray(reopenedReusableTask.qualityRules)
+              && reopenedReusableTask.qualityRules.length === 0
+              && reopenedReusableTask.outputFormat === "csv"
+              && reopenedReusableTask.privacyMode === "mask"
+              && forbiddenFields(reopenedReusableTask).length === 0;
+            if (!reopenedTaskValid
+              || matchingReusableTasks[0].inputColumnCount !== 2
+              || matchingReusableTasks[0].hasRecipe !== false
+              || matchingReusableTasks[0].qualityRuleCount !== 0
+              || matchingReusableTasks[0].outputFormat !== "csv") {
+              throw new Error("reusable_task_content_invalid");
+            }
+
             const deletedProjectId = projectId;
             await invoke("delete_project", { projectId });
             projectId = null;
@@ -249,6 +308,18 @@ async function inspectNativeProjectIpc(page) {
               && !after.projects.some((project) => project.id === deletedProjectId))) {
               throw new Error("restart_cleanup_invalid");
             }
+            const deletedReusableTaskId = reusableTaskId;
+            cleanupConfirmed = false;
+            await invoke("delete_reusable_task", { taskId: reusableTaskId });
+            reusableTaskId = null;
+            const reusableTasksAfter = await readReusableTaskCatalog();
+            if (!reusableTasksAfter.valid
+              || reusableTasksAfter.taskCount !== reusableTasksBefore.taskCount - 1
+              || reusableTasksAfter.tasks.some((task) => task.id === deletedReusableTaskId
+                || task.name === nativeReusableTaskName)) {
+              throw new Error("reusable_task_cleanup_invalid");
+            }
+            cleanupConfirmed = true;
             return {
               status: "passed",
               phase: "native_project_restart_verify",
@@ -262,6 +333,11 @@ async function inspectNativeProjectIpc(page) {
               forbiddenPathFields: before.forbiddenPathFields || after.forbiddenPathFields,
               activePhaseRestored: true,
               restoredActivePhase: opened.workspace.activePhase,
+              reusableTaskRestored: true,
+              reusableTaskName: nativeReusableTaskName,
+              reusableTaskCatalogCountBefore: reusableTasksBefore.taskCount,
+              reusableTaskCatalogCountAfter: reusableTasksAfter.taskCount,
+              reusableTaskCleanupConfirmed: true,
               restartVerified: true,
               mutationRequested: true,
               cleanupConfirmed: true,
@@ -355,6 +431,54 @@ async function inspectNativeProjectIpc(page) {
             && saved.columnCount === 2;
           if (!savedValid) throw new Error("save_invalid");
 
+          let preparedReusableTaskCatalog = null;
+          let reusableTaskCountBefore = null;
+          if (currentRestartMode === "prepare") {
+            const reusableTasksBefore = await readReusableTaskCatalog();
+            if (!reusableTasksBefore.valid
+              || reusableTasksBefore.tasks.some((task) => task.name === nativeReusableTaskName)) {
+              throw new Error("reusable_task_catalog_invalid");
+            }
+            reusableTaskCountBefore = reusableTasksBefore.taskCount;
+            const reusableTask = {
+              version: 1,
+              name: nativeReusableTaskName,
+              importProfile: {
+                version: 1,
+                format: "csv",
+                headerMode: "firstRow",
+                dateConvention: "dmy",
+                numberConvention: "dotDecimalCommaGrouping",
+                schema: [
+                  { name: "id", dataType: "Int64" },
+                  { name: "amount", dataType: "Float64" },
+                ],
+              },
+              recipe: null,
+              exceptionPolicy: null,
+              qualityRules: [],
+              outputFormat: "csv",
+              privacyMode: "mask",
+            };
+            const savedReusableTask = await invoke("save_reusable_task", { taskId: null, task: reusableTask });
+            reusableTaskId = savedReusableTask?.id ?? null;
+            if (!isReusableTaskSummary(savedReusableTask)
+              || savedReusableTask.name !== nativeReusableTaskName
+              || savedReusableTask.inputColumnCount !== 2
+              || savedReusableTask.hasRecipe !== false
+              || savedReusableTask.qualityRuleCount !== 0
+              || savedReusableTask.outputFormat !== "csv") {
+              throw new Error("reusable_task_save_invalid");
+            }
+            preparedReusableTaskCatalog = await readReusableTaskCatalog();
+            if (!preparedReusableTaskCatalog.valid
+              || preparedReusableTaskCatalog.taskCount !== reusableTasksBefore.taskCount + 1
+              || !preparedReusableTaskCatalog.tasks.some((task) => task.id === reusableTaskId
+                && task.name === nativeReusableTaskName)) {
+              throw new Error("reusable_task_restart_prepare_invalid");
+            }
+          }
+
           const nativeSustainedTransformDurations = sustainedTimings
             .map(({ transformDurationMs }) => transformDurationMs)
             .filter((duration) => Number.isFinite(duration));
@@ -383,6 +507,10 @@ async function inspectNativeProjectIpc(page) {
               activePhaseToPersist: "prepare",
               restartReady: true,
               projectPersisted: true,
+              reusableTaskToPersist: nativeReusableTaskName,
+              reusableTaskPersisted: true,
+              reusableTaskCatalogCountBefore: reusableTaskCountBefore,
+              reusableTaskCatalogCountAfter: preparedReusableTaskCatalog.taskCount,
               mutationRequested: true,
               nativeSustainedRuns,
               nativeSustainedTransformMaxMs: nativeSustainedTransformDurations.length > 0
@@ -479,6 +607,23 @@ async function inspectNativeProjectIpc(page) {
               cleanupConfirmed = false;
             }
           }
+          if (reusableTaskId) {
+            try {
+              await invoke("delete_reusable_task", { taskId: reusableTaskId });
+            } catch {
+              cleanupConfirmed = false;
+            }
+          } else if (currentRestartMode === "prepare") {
+            try {
+              const failedPrepareTasks = await readReusableTaskCatalog();
+              if (!failedPrepareTasks.valid) cleanupConfirmed = false;
+              for (const task of failedPrepareTasks.tasks.filter((item) => item.name === nativeReusableTaskName)) {
+                await invoke("delete_reusable_task", { taskId: task.id });
+              }
+            } catch {
+              cleanupConfirmed = false;
+            }
+          }
           return {
             status: "failed",
             phase: currentRestartMode === "verify"
@@ -489,7 +634,7 @@ async function inspectNativeProjectIpc(page) {
             commands: interactions,
             mutationRequested: true,
             cleanupConfirmed,
-            errorCode: error instanceof Error && /^(recovery|reopen|open|page|restart|seed|recipe|export|sustained|save|list|cleanup)_/.test(error.message)
+            errorCode: error instanceof Error && /^(recovery|reopen|open|page|restart|seed|recipe|export|sustained|save|list|cleanup|reusable_task)_/.test(error.message)
               ? error.message
               : "invoke_failed",
             interactions,
@@ -506,7 +651,12 @@ async function inspectNativeProjectIpc(page) {
           ...timingEvidence(),
         };
       }
-    }, { shouldMutate: runMutations, restartMode, nativeSustainedRuns: sustainedRuns });
+    }, {
+      shouldMutate: runMutations,
+      restartMode,
+      nativeSustainedRuns: sustainedRuns,
+      nativeReusableTaskName: reusableTaskName,
+    });
   } catch {
     return {
       status: "failed",
@@ -683,9 +833,20 @@ function snapshotResult(status, pages, extra = {}) {
       "probe_export_dataset",
       "save_project",
       "list_projects",
+      "list_reusable_tasks",
+      "save_reusable_task",
     ]
     : restartMode === "verify"
-      ? ["list_projects", "probe_reopen_project", "open_project", "get_dataset_page", "delete_project"]
+      ? [
+        "list_projects",
+        "probe_reopen_project",
+        "open_project",
+        "get_dataset_page",
+        "delete_project",
+        "list_reusable_tasks",
+        "open_reusable_task",
+        "delete_reusable_task",
+      ]
       : [
         "probe_seed_dataset",
         "probe_save_transform_recipe",
