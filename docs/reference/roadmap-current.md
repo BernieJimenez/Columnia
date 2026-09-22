@@ -9,6 +9,12 @@ trabajo, protege resultados o aporta evidencia necesaria para declarar soporte.
 Las propuestas condicionadas a demanda se enumeran al final y no son trabajo
 comprometido.
 
+Avance RV16 del 2026-09-21: se extrajeron las validaciones del perfil y del
+workspace de proyecto de `dataset.rs` a `dataset/project_validation.rs`, con la
+API preservada. `cargo check --tests` pasa; el test Rust focalizado compila,
+pero Windows no inicia el harness (`0xc0000139`, `STATUS_ENTRYPOINT_NOT_FOUND`).
+La modularización gradual sigue abierta.
+
 La evidencia nativa más reciente está en
 `.local/validation/webview2-cdp/20260921T225717Z/summary.json`: el smoke pasa
 los diálogos reales de Windows y round-trips de bytes, filas, esquema y valores
@@ -189,7 +195,7 @@ borrado explícito continúa bajo el gate si gana el commit del catálogo.
 | RV12 | **Recursos y escala medibles.** Una matriz varía ancho, cardinalidad, texto y tamaño; mide RAM, disco, tiempo, cancelación y limpieza. Los avisos solo aparecen cuando cambian una decisión y no confunden estimación con reserva. | Rendimiento | Evidencia de RV07 | **Completada para la matriz sintética v1 y ampliada con smoke nativo.** `perf:matrix:summary` valida los ocho cruces (1 y 100 MiB × standard, wide, low-cardinality y long-text), cada uno con 3 transformaciones, 2 actualizaciones de proyecto, RAM/disco, cancelación source-backed, salida previa intacta y limpieza confirmada. El benchmark WebView2 de 100 MiB pasa con 819.137 filas, carga en 2,74 s, paginación en 38 ms, transformación en 2,62 s, exportación en 2,78 s y memoria dentro de su presupuesto de benchmark; confirma cleanup. El exportador CSV usa un hilo para mantener el orden con el límite de memoria; las mediciones cubren el motor nativo y excluyen UI/IPC. Las formas observadas en beta pueden añadirse como nuevas corridas. |
 | RV14 | **Preflight y presets de entrega.** Tipos, nulabilidad, longitud y política remota se explican antes de escribir; los presets locales se releen y se verifican en la herramienta BI elegida sin introducir conectores nuevos. | Entrega | Recorridos confirmados en RV07 | **Implementación local lista; aceptación externa pendiente.** El preflight se repite en backend y bloquea antes de DDL enteros fuera de `i64` y decimales no representables como `f64` finitos; el binding devuelve error en vez de fabricar `NULL`. Los nulos reales conservan binding tipado, los presets no guardan credenciales y `replace` se rebaja a `create_only` al reabrir. Falta elegir herramienta BI de beta y comprobar allí formatos y presets. |
 | RV15 | **Lotes gráficos.** Solo si RV07 confirma repetición frecuente: reutilizar el contrato batch con preflight conjunto, progreso por trabajo, resultados parciales honestos y ninguna sustitución implícita. | Automatización | RV05 y demanda observada | **Condicional — no iniciar hasta observar demanda frecuente en beta.** |
-| RV16 | **Modularización gradual del motor.** Extraer una responsabilidad de `dataset.rs` por cambio con contratos estables, paridad conductual y sin reescritura general. | Mantenimiento | Al tocar el área por RV02–RV05 o RV12 | **Oportunidad gradual — no justifica una reescritura aparte.** |
+| RV16 | **Modularización gradual del motor.** Extraer una responsabilidad de `dataset.rs` por cambio con contratos estables, paridad conductual y sin reescritura general. | Mantenimiento | Al tocar el área por RV02–RV05 o RV12 | **En curso — primer módulo extraído el 2026-09-21.** Las validaciones de workspace y perfil viven en `dataset/project_validation.rs`; `cargo check --tests` pasa. La ejecución del test focalizado queda sin verificar porque Windows no inicia el harness (`STATUS_ENTRYPOINT_NOT_FOUND`). Continúa como trabajo gradual al tocar otras áreas. |
 
 ## Fuera de la cola vigente
 

@@ -697,7 +697,10 @@ mod tests {
         assert_eq!(created.name, "Cierre mensual");
         assert_eq!(created.input_column_count, 2);
         assert_eq!(store.open(created.id.clone()).unwrap(), task());
-        assert_eq!(store.list().unwrap(), vec![created.clone()]);
+        assert_eq!(
+            store.list_with_cancel(|| false).unwrap(),
+            vec![created.clone()]
+        );
 
         let reopened = TaskStore::initialize(directory.path().join("data")).unwrap();
         assert_eq!(reopened.open(created.id.clone()).unwrap(), task());

@@ -2869,6 +2869,11 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
   frecuente, reutilizando el contrato batch existente.
 - [ ] **RV16 — Modularización gradual del motor.** Extraer responsabilidades de
   `dataset.rs` al tocar cada área, con paridad y sin reescritura general.
+  - **Avance 2026-09-21:** `validate_project_workspace` y las validaciones del
+    perfil de proyecto se movieron a `dataset/project_validation.rs`; se
+    conserva la API del módulo padre. `cargo check --tests` compila. La prueba
+    Rust focalizada no llegó a ejecutar por `STATUS_ENTRYPOINT_NOT_FOUND` del
+    loader de Windows; RV16 sigue abierta para extracciones graduales futuras.
 
 Diccionario de negocio, catálogos de equivalencias, reanudación avanzada de
 lotes, vigilancia de carpetas, macOS/Linux y nuevos conectores quedan fuera de
@@ -2947,3 +2952,4 @@ la cola hasta demostrar demanda repetida.
 | 2026-09-21 | RV07: se añade `npm run beta:check-summary` para validar el resumen Gate 1 directamente contra las tres sesiones y el reporte Full del mismo candidato, sin exigir todavía el commit posterior de Gate 2. La validación bloquea conteos inconsistentes y alias, correos, rutas o credenciales en el resumen sanitizado; el contrato beta pasa 13/13. RV07 sigue abierto porque aún faltan tres sesiones humanas con datos de trabajo reales. | `tools/check-beta-summary.mjs`, `tools/check-beta-gate-evidence.mjs`, `tools/check-beta-gate-evidence.test.mjs`, `docs/how-to/run-beta-validation.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-21 | El gate `tools/check.ps1` fija `--maxWorkers=1` para Vitest y cobertura. La ejecución frontend ya pasa 449/449 con ese límite y el ajuste hace reproducible `verify:tier` en Windows, evitando fan-out y procesos huérfanos tras una cancelación; el comando de producto no cambia. | `tools/check.ps1`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-21 | T5-04/T6-10: se amplían regresiones de App, Delivery, preparación y proyectos para las ramas faltantes sin bajar umbrales. `npm run test:coverage` pasa 51/51 suites y 449/449 pruebas; cobertura global 86,51 % sentencias, 81,49 % ramas, 87,94 % funciones y 90,60 % líneas; el checker aprueba las cinco capas críticas. | `src/App.test.tsx`, `src/features/delivery/DeliveryPhase.test.tsx`, `src/features/prepare/usePrepareController.test.tsx`, `src/features/projects/useProjectsController.test.tsx`, `tools/check-coverage.mjs`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-21 | RV16: extraídas las validaciones de workspace y perfil de proyecto desde `dataset.rs` hacia `dataset/project_validation.rs`, preservando la API y las reglas existentes; también se actualiza una prueba de tareas reutilizables al método cancelable vigente. `cargo check --tests` pasa. La prueba focalizada compila pero Windows no inicia el harness (`0xc0000139`, `STATUS_ENTRYPOINT_NOT_FOUND`), así que la ejecución Rust queda pendiente; RV16 continúa abierta. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/project_validation.rs`, `src-tauri/src/reusable_tasks.rs`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |

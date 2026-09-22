@@ -31,6 +31,10 @@ los artefactos de validación locales.
   conservar una corrida reproducible en Windows y evitar procesos huérfanos al
   cancelar la verificación; también limitan a un worker la cobertura. El comando
   de producto no cambia.
+- RV16 inicia la extracción gradual de la validación del workspace y del perfil
+  de proyecto a `dataset/project_validation.rs`, conservando la API. `cargo check --tests`
+  pasa; Windows no inicia el harness del test focalizado
+  (`STATUS_ENTRYPOINT_NOT_FOUND`).
 
 ## [1.25.0] - 2026-09-21
 
