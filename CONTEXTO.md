@@ -12,16 +12,17 @@ documentos equivalentes que puedan divergir.
 La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
 A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
 acumulado, y la versión sigue sincronizada en npm, Cargo y Tauri. El avance
-actual parte del commit `07a4aae`. La versión identifica el alcance del producto
+actual parte del commit `63873ef`. La versión identifica el alcance del producto
 y no implica que estén cerrados los gates de beta con datos reales, accesibilidad
 nativa, SQL Server o distribución binaria. RV16 separa validaciones de
 workspace/proyecto (`dataset/project_validation.rs`), perfiles de importación
 (`dataset/import_profile_validation.rs`), comparación del historial
-(`dataset/snapshot_comparison.rs`) y parser/planificación de consultas locales
-(`dataset/local_query.rs`). Se conservan API y contratos; `cargo check --tests`
-pasa para la extracción actual. La suite completa más reciente pasó 494 pruebas
-y dejó 5 ignoradas por servicios/drivers externos antes de este corte, así que
-falta repetirla. La modularización gradual sigue abierta. La cola operativa vigente
+(`dataset/snapshot_comparison.rs`), parser de consultas (`dataset/local_query.rs`)
+y estadísticas numéricas (`dataset/numeric_profile.rs`). Se conservan API y
+contratos; `cargo check --tests` pasa para esta extracción. La suite completa
+más reciente pasó 494 pruebas y dejó 5 ignoradas por servicios/drivers externos
+antes de extraer consultas y estadísticas, así que falta repetirla. La
+modularización gradual sigue abierta. La cola operativa vigente
 está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
