@@ -30,6 +30,12 @@ los artefactos de validación locales. La versión vigente del proyecto es
   nombres JSON; no cambia la API Tauri. `cargo fmt --manifest-path
   src-tauri/Cargo.toml --all -- --check` y `cargo check --manifest-path
   src-tauri/Cargo.toml --lib` pasan; no se ejecutaron pruebas de producto.
+- RV02/RV16 mueve el preflight de esquema de `preview_dataset_selection` a
+  `dataset/import_schema_preview.rs`. El comando conserva nombre, parámetros y
+  ruta Tauri; se mantienen la comparación del perfil, la cancelación y la
+  detección de cambios en la fuente. `cargo check --manifest-path
+  src-tauri/Cargo.toml --lib` y `npm run ipc:check` pasan. No se ejecutaron
+  pruebas de producto.
 - RV04 evita perder una operación activa cuando falla la orden de cancelación: mantiene progreso y dataset, informa el fallo y permite reintentar en carga, análisis, exportación y comparación. Una regresión App cubre la sustitución del dataset.
 - RV01 liga «Hecho» de Cargar y Revisar a la revisión actual del dataset: una mutación conserva Cargar en la revisión nueva e invalida la finalización de Revisar. La regresión Revisar→Preparar→corrección queda cubierta y la suite App pasa 65/65. La regresión de Entregar tras exportación→consolidación sigue cubierta (1/1).
 - RV02/RV16 aísla la revisión de encabezados CSV/TSV en

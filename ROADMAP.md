@@ -2895,10 +2895,11 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
   frecuente, reutilizando el contrato batch existente.
 - [ ] **RV16 — Modularización gradual del motor.** Extraer responsabilidades de
   `dataset.rs` al tocar cada área, con paridad y sin reescritura general.
-  - **Avance 2026-09-22:** RV16 cuenta con diecisiete módulos extraídos desde
+  - **Avance 2026-09-22:** RV16 cuenta con dieciocho módulos extraídos desde
     `dataset.rs`: validación de workspace/proyecto en
     `dataset/project_validation.rs`, perfiles y excepciones de importación en
-    `dataset/import_profile_validation.rs`, comparación de revisiones en
+    `dataset/import_profile_validation.rs`, previsualización de esquema en
+    `dataset/import_schema_preview.rs`, comparación de revisiones en
     `dataset/snapshot_comparison.rs`, planificación de consultas en
     `dataset/local_query.rs`, estadísticas y correlaciones numéricas en
     `dataset/numeric_profile.rs`, contratos de reglas en
@@ -2912,8 +2913,9 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
     `dataset/categorical_profile.rs`, tendencias temporales en
     `dataset/temporal_profile.rs`, admisión segura de archivos en
     `dataset/file_validation.rs` y paginación de frames/source-backed en
-    `dataset/page_reader.rs` y `dataset/history.rs`, que reúne los contratos
-    serializados con `HistoryManager`. Se conservan rutas de comandos, API, privacidad,
+    `dataset/page_reader.rs` y `dataset/history.rs`, que reúne `HistoryManager`
+    con sus contratos serializados, y `dataset/import_schema_preview.rs`, que
+    concentra el preflight de esquema y la comparación con el perfil guardado. Se conservan rutas de comandos, API, privacidad,
     JSON, límites de páginas, cancelación cooperativa, slice pushdown en Parquet
     y la detección de cambios en la fuente. El corte previo pasa la suite Rust
     completa (494 aprobadas, 0 fallidas, 5 ignoradas) con el harness Windows
@@ -3031,3 +3033,4 @@ la cola hasta demostrar demanda repetida.
 
 | 2026-09-22 | RV16: los contratos serializados `HistoryResult`, `HistoryEntryState` y `HistoryState` pasan a `dataset/history_contracts.rs` y se reexportan desde `dataset.rs` para conservar sus rutas y JSON. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` y `cargo check --manifest-path src-tauri/Cargo.toml --lib` pasan; no se ejecutaron pruebas de producto en este corte. La versión vigente es `1.26.0`; RV16 continúa abierta para extracciones graduales. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/history_contracts.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-22 | RV16: se consolida `HistoryManager` junto con `HistoryResult`, `HistoryEntryState` y `HistoryState` en `dataset/history.rs`; `dataset.rs` conserva la ruta de reexportación y los nombres JSON existentes. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `git diff --check` pasan. No se ejecutó la suite de producto en este corte. La versión sigue en `1.26.0`; RV16 continúa abierta para extracciones graduales. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/history.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV02/RV16: `preview_dataset_selection` mantiene su nombre, firma y ruta de comando Tauri; su implementación de preflight se mueve a `dataset/import_schema_preview.rs`. Conserva comparación con el perfil, selección de hoja/encabezado, cancelación y detección de cambios en la fuente. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib`, `npm run ipc:check` (85/4/70), `node tools/check-documentation.mjs` y `git diff --check` pasan. No se ejecutaron pruebas de producto; versión `1.26.0`. RV02 sigue pendiente de aceptación con datos reales y RV16 continúa abierta. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/import_schema_preview.rs`, `src-tauri/src/lib.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
