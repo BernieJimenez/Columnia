@@ -31,11 +31,14 @@ los artefactos de validación locales.
   conservar una corrida reproducible en Windows y evitar procesos huérfanos al
   cancelar la verificación; también limitan a un worker la cobertura. El comando
   de producto no cambia.
-- RV16 inicia la extracción gradual de la validación del workspace y del perfil
-  de proyecto a `dataset/project_validation.rs`, conservando la API. `check.ps1`
-  y `incremental:check` incorporan Common Controls v6 al harness Rust de Windows
-  durante las pruebas. `cargo test --lib` pasa 494 pruebas; 5 se omiten porque
-  requieren servicios/drivers externos. `npm run incremental:check` pasa 16/16.
+- RV16 continúa la extracción gradual de `dataset.rs`: la validación de
+  workspace/proyecto vive en `dataset/project_validation.rs`, y la validación de
+  perfiles de importación y excepciones vive en
+  `dataset/import_profile_validation.rs`. Las reexportaciones conservan la API.
+- `check.ps1` y `incremental:check` incorporan Common Controls v6 al harness
+  Rust de Windows durante las pruebas. `cargo check --tests` y `cargo test --lib`
+  pasan; la suite registra 494 aprobadas, 5 ignoradas por servicios/drivers
+  externos y ninguna fallida. `npm run incremental:check` pasa 16/16.
 - Se corrigen los fixtures de migración v6–v13 y el caso de versión futura; la
   referencia eager del FULL JOIN queda alineada con el orden de la ruta por
   bloques, que conserva primero las filas activas.
