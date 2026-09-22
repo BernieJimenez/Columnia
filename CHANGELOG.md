@@ -8,6 +8,10 @@ los artefactos de validación locales.
 
 ### Interno
 
+- RV16 extrae la protección contra fórmulas en exportaciones CSV/Bundle a
+  `dataset/csv_formula_safety.rs`; conserva valores nulos y no textuales,
+  cancelación cooperativa y la salida Parquet original. La suite Rust completa
+  registra 494 aprobadas y 5 ignoradas por benchmarks/ODBC.
 - El probe nativo enumera las hojas Excel mediante `inspect_workbook_sheets`
   después de seleccionar el archivo, y vuelve a verificar los round-trips CSV,
   XLSX y Parquet con diálogos reales de Windows.

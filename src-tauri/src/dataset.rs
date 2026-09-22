@@ -37,6 +37,8 @@ use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 use xxhash_rust::xxh3::xxh3_64;
 
 mod categorical_profile;
+#[path = "dataset/csv_formula_safety.rs"]
+mod csv_formula_safety;
 mod import_conventions;
 #[path = "dataset/import_profile_validation.rs"]
 mod import_profile_validation;
@@ -51,6 +53,9 @@ mod recipe_engine;
 #[path = "dataset/recipe_source_projection.rs"]
 mod recipe_source_projection;
 mod temporal_profile;
+#[cfg(test)]
+use csv_formula_safety::csv_formula_safe_frame;
+use csv_formula_safety::csv_formula_safe_frame_with_cancel;
 pub(crate) use import_profile_validation::validate_import_exception_policy;
 use import_profile_validation::{
     import_exception_schema_for_frame, validate_import_exception_policy_for_recipe,
@@ -14732,61 +14737,7 @@ fn migration_has_true_nullable(map: &JsonMap<String, JsonValue>) -> Result<bool,
         .ok_or_else(|| "El campo 'nullable' debe ser booleano.".to_owned())
 }
 
-fn starts_with_spreadsheet_formula_prefix(value: &str) -> bool {
-    matches!(
-        value.chars().next(),
-        Some('=' | '+' | '-' | '@' | '\t' | '\r' | '\n')
-    )
-}
-
-fn neutralize_spreadsheet_formula(value: &str) -> String {
-    if starts_with_spreadsheet_formula_prefix(value) {
-        format!("'{value}")
-    } else {
-        value.to_owned()
-    }
-}
-
 const EAGER_EXPORT_BATCH_ROWS: usize = 8_192;
-
-#[cfg(test)]
-fn csv_formula_safe_frame(frame: &DataFrame) -> Result<DataFrame, String> {
-    csv_formula_safe_frame_with_cancel(frame, &|| false)
-}
-
-fn csv_formula_safe_frame_with_cancel<C>(
-    frame: &DataFrame,
-    is_cancelled: &C,
-) -> Result<DataFrame, String>
-where
-    C: Fn() -> bool + ?Sized,
-{
-    ensure_not_cancelled(is_cancelled())?;
-    let mut safe = frame.clone();
-    for column in frame
-        .columns()
-        .iter()
-        .filter(|column| column.dtype() == &DataType::String)
-    {
-        ensure_not_cancelled(is_cancelled())?;
-        let name = column.name().as_str().to_owned();
-        let strings = column
-            .str()
-            .map_err(|_| "No se pudo preparar texto seguro para CSV.".to_owned())?;
-        let mut values = Vec::with_capacity(strings.len());
-        for (row_index, value) in strings.iter().enumerate() {
-            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-                ensure_not_cancelled(is_cancelled())?;
-            }
-            values.push(value.map(neutralize_spreadsheet_formula));
-        }
-        ensure_not_cancelled(is_cancelled())?;
-        safe.replace(&name, Column::new(name.clone().into(), values))
-            .map_err(|_| "No se pudo proteger una columna de texto para CSV.".to_owned())?;
-    }
-    ensure_not_cancelled(is_cancelled())?;
-    Ok(safe)
-}
 
 #[cfg(test)]
 fn frame_for_export(frame: &DataFrame, format: ExportFormat) -> Result<DataFrame, String> {
