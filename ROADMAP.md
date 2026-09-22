@@ -6,6 +6,8 @@
 
 ## Estado general
 
+- Versión vigente del proyecto: `1.25.0` (referencia `v1.25.0`), adoptada para representar el alcance acumulado. Está sincronizada en npm, Cargo y Tauri; la aplicación muestra `CARGO_PKG_VERSION`.
+
 Los criterios que todavía requieren aceptación o evidencia externa están
 resumidos en el [índice de trabajo vigente](docs/reference/roadmap-current.md).
 El detalle por etapa y el historial permanecen en este documento.
@@ -2869,19 +2871,20 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
   frecuente, reutilizando el contrato batch existente.
 - [ ] **RV16 — Modularización gradual del motor.** Extraer responsabilidades de
   `dataset.rs` al tocar cada área, con paridad y sin reescritura general.
-  - **Avance 2026-09-22:** RV16 cuenta con cinco fronteras extraídas desde
+  - **Avance 2026-09-22:** RV16 cuenta con seis fronteras extraídas desde
     `dataset.rs`: validación de workspace/proyecto en
     `dataset/project_validation.rs`, validación de perfiles de importación en
     `dataset/import_profile_validation.rs`, comparación de revisiones de
     historial en `dataset/snapshot_comparison.rs`, gramática y planificación
-    de consultas en `dataset/local_query.rs`, y estadísticas numéricas del
-    perfil en `dataset/numeric_profile.rs`. Se conservan los contratos y no
-    se pretende cambiar el comportamiento. `cargo check --tests` pasa para
-    este corte; la suite completa más reciente registró 494 aprobadas y 5
-    ignoradas por servicios/drivers externos antes de extraer consultas y
-    estadísticas numéricas, y queda pendiente repetirla. La última matriz
-    incremental del 2026-09-21 pasa 16/16. RV16 sigue abierta para
-    extracciones graduales futuras.
+    de consultas en `dataset/local_query.rs`, estadísticas numéricas del
+    perfil en `dataset/numeric_profile.rs`, y resumen categórico eager y
+    source-backed en `dataset/categorical_profile.rs`. Ambas rutas comparten
+    el mismo orden, umbral y cálculo del grupo «Resto». Se conservan los
+    contratos; `cargo check --tests` pasa para este corte. La suite completa
+    más reciente registró 494 aprobadas y 5 ignoradas por servicios/drivers
+    externos antes de extraer consultas, estadísticas y resúmenes
+    categóricos, y queda pendiente repetirla. La última matriz incremental
+    del 2026-09-21 pasa 16/16. RV16 sigue abierta para extracciones graduales.
 
 Diccionario de negocio, catálogos de equivalencias, reanudación avanzada de
 lotes, vigilancia de carpetas, macOS/Linux y nuevos conectores quedan fuera de
@@ -2966,3 +2969,5 @@ la cola hasta demostrar demanda repetida.
 | 2026-09-22 | RV16: se extrae la comparación de revisiones del historial y deltas de calidad a `dataset/snapshot_comparison.rs`; las tres pruebas dedicadas pasan y la suite Rust completa pasa 494/499 (cinco ignoradas por servicios/drivers externos). `cargo check --tests` también pasa. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/snapshot_comparison.rs`, `src-tauri/src/dataset/snapshot_comparison_tests.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-22 | RV16: el cuarto corte extrae los tipos, el parser y la planificación de consultas locales de `dataset.rs` a `dataset/local_query.rs`, manteniendo los contratos. `cargo check --tests` pasa; queda pendiente ejecutar la suite completa tras este corte. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/local_query.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-22 | RV16: el quinto corte extrae el cálculo de estadísticas numéricas del perfil a `dataset/numeric_profile.rs`, incluidos valores, histogramas y cuantiles con almacenamiento temporal acotado. Se mantienen los contratos; `cargo check --tests` pasa. La suite completa no se ejecutó para este corte. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/numeric_profile.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV16: el sexto corte extrae el resumen categórico eager y source-backed a `dataset/categorical_profile.rs`; ambas rutas comparten el filtrado, orden, límite y cálculo de «Resto». `cargo check --tests` pasa; no se ejecutó la suite completa tras esta extracción. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/categorical_profile.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV10: el intento de iniciar `MSSQLSERVER` desde esta sesión falla con `Cannot open 'MSSQLSERVER' service on computer '.'`; el puerto 1433 no responde y no hay comandos Docker/Podman disponibles. El servicio queda detenido; no se creó ni modificó una base. El round-trip sigue pendiente de una instancia accesible. | `CONTEXTO.md`, `docs/reference/roadmap-current.md` |

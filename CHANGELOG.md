@@ -35,8 +35,9 @@ los artefactos de validación locales.
   `dataset/project_validation.rs`, perfiles y excepciones de importación en
   `dataset/import_profile_validation.rs`, comparación de revisiones del
   historial en `dataset/snapshot_comparison.rs`, gramática y planificación de
-  consultas en `dataset/local_query.rs`, y estadísticas numéricas en
-  `dataset/numeric_profile.rs`. Se preservan API y contratos; `cargo check
+  consultas en `dataset/local_query.rs`, estadísticas numéricas en
+  `dataset/numeric_profile.rs`, y resúmenes categóricos eager/source-backed en
+  `dataset/categorical_profile.rs`. Se preservan API y contratos; `cargo check
   --tests` pasa para este corte. La suite completa queda pendiente de repetirse
   tras estas extracciones.
 - `check.ps1` y `incremental:check` incorporan Common Controls v6 al harness
