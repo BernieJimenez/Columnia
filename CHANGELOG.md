@@ -28,6 +28,11 @@ los artefactos de validación locales. La versión vigente del proyecto es
   calidad. El corte completo pasa 457/457 pruebas frontend, cobertura crítica
   (86,17 % de sentencias y 81,34 % de ramas), 22/22 E2E, 494 pruebas Rust
   ejecutables con 5 ignoradas justificadas, build, formato, IPC y documentación.
+- RV16 extrae los coordinadores de cancelación y publicación atómica de
+  Preparar, Review, calidad y preflight de base de datos a
+  `dataset/operation_cancellation.rs`; no cambia rutas Tauri, contratos JSON ni
+  la semántica de cancelación. `cargo fmt --check`, `cargo check --lib` y la
+  suite Rust pasan 494/494 ejecutables.
 - RV16 mueve la implementación de `undo_last_change`, `redo_last_change` y `get_history_state`, junto con la restauración source-backed del cursor, a `dataset/history.rs`; los wrappers Tauri conservan sus rutas y firmas, y se preservan restauración eager/source-backed, invalidación de perfil y publicación protegida. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `npm run ipc:check` pasan. No se ejecutaron pruebas de producto.
 - RV16 mueve la orquestación de `compare_history_snapshots` a `dataset/snapshot_comparison.rs`; el comando Tauri conserva nombre, firma y argumentos, junto con validación, progreso, cancelación y comprobación de vigencia. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `npm run ipc:check` pasan. No se ejecutaron pruebas de producto.
 - RV02/RV04/RV16 separa en `dataset/import_source_inspection.rs` la selección nativa, el drag/drop, la inspección de hojas Excel y la revisión previa de encabezados CSV/TSV. Los comandos Tauri conservan nombres, parámetros y ruta; el trabajo cancelable conserva la generación de carga. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib`, `npm run ipc:check` y el checker documental pasan. No se ejecutaron pruebas de producto.
