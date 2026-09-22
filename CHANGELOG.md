@@ -33,8 +33,11 @@ los artefactos de validación locales.
   de producto no cambia.
 - RV16 continúa la extracción gradual de `dataset.rs`: workspace/proyecto en
   `dataset/project_validation.rs`, perfiles y excepciones de importación en
-  `dataset/import_profile_validation.rs`, y comparación de revisiones del
-  historial en `dataset/snapshot_comparison.rs`. Se preservan API y contratos.
+  `dataset/import_profile_validation.rs`, comparación de revisiones del
+  historial en `dataset/snapshot_comparison.rs`, y gramática, parser y plan de
+  consulta local en `dataset/local_query.rs`. Se preservan API y contratos;
+  `cargo check --tests` pasa para este corte. La suite completa queda pendiente
+  de repetirse tras esta extracción.
 - `check.ps1` y `incremental:check` incorporan Common Controls v6 al harness
   Rust de Windows durante las pruebas. `cargo check --tests` y `cargo test --lib`
   pasan; la suite registra 494 aprobadas, 5 ignoradas por servicios/drivers

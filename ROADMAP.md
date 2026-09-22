@@ -2869,16 +2869,17 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
   frecuente, reutilizando el contrato batch existente.
 - [ ] **RV16 — Modularización gradual del motor.** Extraer responsabilidades de
   `dataset.rs` al tocar cada área, con paridad y sin reescritura general.
-  - **Avance 2026-09-22:** RV16 cuenta con tres fronteras extraídas desde
+  - **Avance 2026-09-22:** RV16 cuenta con cuatro fronteras extraídas desde
     `dataset.rs`: validación de workspace/proyecto en
     `dataset/project_validation.rs`, validación de perfiles de importación en
-    `dataset/import_profile_validation.rs` y comparación de revisiones de
-    historial en `dataset/snapshot_comparison.rs`. La comparación conserva los
-    contratos agregados, las reglas de calidad, el progreso y la cancelación.
-    `cargo check --tests` pasa; las 3 pruebas focalizadas y la suite completa
-    pasan (494 aprobadas, 5 ignoradas por servicios/drivers externos, ninguna
-    fallida). La última matriz incremental del 2026-09-21 pasa 16/16. RV16 sigue
-    abierta para extracciones graduales futuras.
+    `dataset/import_profile_validation.rs`, comparación de revisiones de
+    historial en `dataset/snapshot_comparison.rs` y gramática, parser y plan
+    de consulta local en `dataset/local_query.rs`. Se conservan los contratos
+    y no se pretende cambiar el comportamiento. `cargo check --tests` pasa
+    para este corte; la suite completa más reciente registró 494 aprobadas y
+    5 ignoradas por servicios/drivers externos antes de esta extracción, y
+    queda pendiente repetirla. La última matriz incremental del 2026-09-21
+    pasa 16/16. RV16 sigue abierta para extracciones graduales futuras.
 
 Diccionario de negocio, catálogos de equivalencias, reanudación avanzada de
 lotes, vigilancia de carpetas, macOS/Linux y nuevos conectores quedan fuera de
@@ -2961,3 +2962,4 @@ la cola hasta demostrar demanda repetida.
 | 2026-09-21 | RV16/calidad del motor: Windows ya inicia el harness Rust con manifiesto Common Controls v6; se corrigen fixtures de migración v6–v13 (`last_opened_at`) y la prueba de versión futura (`SCHEMA_VERSION + 1`). La ruta de referencia eager del FULL JOIN comparte el orden de las consultas por bloques (filas activas primero y filas exclusivas comparadas al final). `cargo test --lib` pasa 494 pruebas; 5 quedan ignoradas por servicios/drivers externos. | `src-tauri/build.rs`, `src-tauri/test-harness.manifest`, `tools/check.ps1`, `tools/check-incremental-matrix.mjs`, `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/tests.rs` |
 | 2026-09-21 | RV16: el segundo corte extrae validación de perfiles de importación y políticas de excepciones a `dataset/import_profile_validation.rs`, preservando reexportaciones y contratos públicos desde `dataset.rs`. `cargo check --tests` pasa; `cargo test --lib` pasa 494/499 (5 ignoradas por servicios/drivers externos) y `npm run incremental:check` pasa 16/16. La modularización gradual sigue abierta. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/import_profile_validation.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-22 | RV16: se extrae la comparación de revisiones del historial y deltas de calidad a `dataset/snapshot_comparison.rs`; las tres pruebas dedicadas pasan y la suite Rust completa pasa 494/499 (cinco ignoradas por servicios/drivers externos). `cargo check --tests` también pasa. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/snapshot_comparison.rs`, `src-tauri/src/dataset/snapshot_comparison_tests.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV16: el cuarto corte extrae los tipos, el parser y la planificación de consultas locales de `dataset.rs` a `dataset/local_query.rs`, manteniendo los contratos. `cargo check --tests` pasa; queda pendiente ejecutar la suite completa tras este corte. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/local_query.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |

@@ -11,19 +11,18 @@ documentos equivalentes que puedan divergir.
 
 La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
 A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
-acumulado. El estado anterior a este avance parte del commit `cd885c8`; la
-versión `1.25.0` sigue sincronizada en npm, Cargo y Tauri. La versión identifica
-el alcance del producto y no implica que estén cerrados los gates de beta con
-datos reales, accesibilidad nativa, SQL Server o distribución binaria. RV16 ya
-puede ejecutar su suite Rust de Windows: `cargo test --lib` pasa 494 pruebas,
-con 5 ignoradas por depender de servicios/drivers externos. Las validaciones de
-workspace/proyecto viven en `dataset/project_validation.rs`; las de perfiles de
-importación y excepciones, en `dataset/import_profile_validation.rs`; y la
-comparación de revisiones del historial, en `dataset/snapshot_comparison.rs`.
-Se conservan API y contratos, y la suite de comparación pasa 3/3. También se
-corrigen fixtures de migración obsoletos y se alinea la ruta eager de FULL JOIN
-con el orden preservado por la ejecución por bloques. La modularización gradual
-sigue en curso. La cola operativa vigente está en
+acumulado, y la versión sigue sincronizada en npm, Cargo y Tauri. El avance
+actual parte del commit `07a4aae`. La versión identifica el alcance del producto
+y no implica que estén cerrados los gates de beta con datos reales, accesibilidad
+nativa, SQL Server o distribución binaria. RV16 separa validaciones de
+workspace/proyecto (`dataset/project_validation.rs`), perfiles de importación
+(`dataset/import_profile_validation.rs`), comparación del historial
+(`dataset/snapshot_comparison.rs`) y parser/planificación de consultas locales
+(`dataset/local_query.rs`). Se conservan API y contratos; `cargo check --tests`
+pasa para la extracción actual. La suite completa más reciente pasó 494 pruebas
+y dejó 5 ignoradas por servicios/drivers externos antes de este corte, así que
+falta repetirla. La modularización gradual sigue abierta. La cola operativa vigente
+está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
 resume el estado; esas fuentes definen los criterios de cierre.
