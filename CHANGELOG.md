@@ -30,6 +30,7 @@ los artefactos de validación locales. La versión vigente del proyecto es
   final vuelve a leer el archivo. `npm run build`, `cargo check --manifest-path
   src-tauri/Cargo.toml --lib` e `npm run ipc:check` pasan; no se ejecutaron pruebas
   de producto en este corte.
+- RV02/RV04/RV16: la carga final y el descarte de la selección pasan a `dataset/import_loading.rs`. Los comandos Tauri conservan nombres, parámetros y rutas; también se mantienen la validación de fuente y perfil, la cancelación por generación y la publicación atómica. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `npm run ipc:check` pasan. No se ejecutaron pruebas de producto.
 - RV16 mueve la lectura paginada en memoria y source-backed a
   `dataset/page_reader.rs`; conserva los límites de página, la cancelación,
   la lectura Parquet con slice pushdown y la detección de cambios en la fuente.
