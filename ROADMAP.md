@@ -2882,7 +2882,7 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
   frecuente, reutilizando el contrato batch existente.
 - [ ] **RV16 — Modularización gradual del motor.** Extraer responsabilidades de
   `dataset.rs` al tocar cada área, con paridad y sin reescritura general.
-  - **Avance 2026-09-21:** RV16 cuenta con catorce módulos extraídos desde
+  - **Avance 2026-09-22:** RV16 cuenta con quince módulos extraídos desde
     `dataset.rs`: validación de workspace/proyecto en
     `dataset/project_validation.rs`, perfiles y excepciones de importación en
     `dataset/import_profile_validation.rs`, comparación de revisiones en
@@ -2895,7 +2895,8 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
     `dataset/recipe_engine.rs`, planificación y ejecución de recetas
     source-backed en `dataset/recipe_source_projection.rs`, protección de fórmulas de texto en exportaciones CSV/Bundle en `dataset/csv_formula_safety.rs`, revisión first-row/generated de encabezados y contratos en `dataset/delimited_header_import.rs`, resúmenes
     categóricos en `dataset/categorical_profile.rs` y tendencias temporales en
-    `dataset/temporal_profile.rs`. La ruta lazy mantiene el fallback eager y
+    `dataset/temporal_profile.rs`, y validación segura de archivos en
+    `dataset/file_validation.rs`. La ruta lazy mantiene el fallback eager y
     comparte con la planificación source-backed la validación de renombrados.
     Los perfiles eager/source-backed conservan sus contratos, la API, la
     cancelación, el enforcement previo a exportar y los límites de muestreo.
@@ -3004,3 +3005,5 @@ la cola hasta demostrar demanda repetida.
 | 2026-09-21 | RV04: si `cancel_operation` falla, la interfaz conserva progreso y dataset activo, presenta el error y permite reintentar en carga, análisis, exportación y comparación; la regresión App confirma el reintento y que una sustitución cancelada conserva el dataset anterior. `npm run test -- --run src/App.test.tsx` pasa 64/64 y `npm run build` pasa. RV04 permanece parcial: aceptación con datasets de trabajo y límites de APIs nativas síncronas. La versión se mantiene en `1.25.0`. | `src/App.tsx`, `src/App.test.tsx`, `src/components/OperationProgressView.tsx`, `src/features/load/loadModel.ts`, `src/features/review/reviewModel.ts`, `src/features/review/compareModel.ts`, `src/features/delivery/deliveryModel.ts`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md`, `CONTEXTO.md` |
 
 | 2026-09-22 | RV01: los estados «Hecho» de Cargar y Revisar quedan ligados a la revisión vigente del dataset; cada mutación restablece Cargar e invalida la finalización previa de Revisar, incluida la aplicación de cambios desde Preparar. La regresión Revisar→Preparar→corrección pasa; `npm run test -- --run src/App.test.tsx` registra 65/65 y pasan `npm run build`, `npm run docs:check` y `git diff --check`. RV01 sigue parcial hasta la aceptación Cargar→Entregar con datos de trabajo reales. Versión `1.25.0`. | `src/App.tsx`, `src/App.test.tsx`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+
+| 2026-09-22 | RV16: el decimoquinto módulo extrae a `dataset/file_validation.rs` la admisión de extensiones, canonicalización de rutas de entrada/salida y rechazo de enlaces simbólicos y reparse points; los comandos internos conservan sus contratos y errores. La suite Rust completa pasa 494 pruebas; 5 se ignoran por benchmarks opt-in y servicios ODBC externos. También pasan `cargo fmt --all -- --check`, `cargo check --tests` y el checker documental. La versión sigue en `1.25.0`; RV16 continúa abierta para extracciones graduales. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/file_validation.rs`, `src-tauri/src/dataset/tests.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |

@@ -14,6 +14,10 @@ los artefactos de validación locales.
   `dataset/delimited_header_import.rs`; conserva el payload, las opciones
   first-row/generated, el límite de muestra y la cancelación existente. La
   regresión focalizada pasa 2/2 y la suite Rust 494/494 ejecutables.
+- RV16 extrae la validación de extensiones y rutas seguras a
+  `dataset/file_validation.rs`; conserva canonicalización, errores y rechazo de
+  enlaces simbólicos/reparse points. `cargo fmt --all -- --check`,
+  `cargo check --tests` y `cargo test --lib` pasan (494 aprobadas, 5 ignoradas).
 - RV16 extrae la protección contra fórmulas en exportaciones CSV/Bundle a
   `dataset/csv_formula_safety.rs`; conserva valores nulos y no textuales,
   cancelación cooperativa y la salida Parquet original. La suite Rust completa

@@ -12,7 +12,7 @@ documentos equivalentes que puedan divergir.
 La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
 A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
 acumulado, y la versión sigue sincronizada en npm, Cargo y Tauri. Este corte parte
-del commit `4fd7f28`. La versión identifica el alcance del producto y no implica
+del commit `cf3f4a5`. La versión identifica el alcance del producto y no implica
 que estén cerrados los gates de beta con datos reales, accesibilidad nativa, SQL
 Server o distribución binaria.
 
@@ -22,6 +22,10 @@ finalización anterior de Revisar, también cuando Preparar publica un cambio; l
 regresión App Revisar→Preparar→corrección pasa 1/1. La regresión previa confirma
 que exportar y luego consolidar invalida Entregar. La aceptación Cargar→Entregar
 con datasets de trabajo reales sigue pendiente.
+
+RV16: `dataset/file_validation.rs` reúne la validación de extensiones y rutas
+seguras de lectura/escritura. `dataset.rs`, `samples.rs` y sus pruebas mantienen
+los mismos puntos de entrada; la suite Rust pasa 494 pruebas y deja 5 ignoradas.
 
 El smoke nativo de RV05 recorre con Playwright el panel de tareas y el selector
 Win32: el esquema distinto muestra `extra` y pide confirmación, mientras que un
@@ -564,7 +568,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-22; este corte parte de `4fd7f28`; RV01 liga «Hecho» de Cargar y Revisar a la revisión del dataset (regresión App 1/1); RV05 conserva evidencia de reinicio real de tareas sintéticas; RV16 mantiene catorce módulos extraídos. Cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-22; este corte parte de `cf3f4a5`; RV01 liga «Hecho» de Cargar y Revisar a la revisión del dataset (regresión App 1/1); RV05 conserva evidencia de reinicio real de tareas sintéticas; RV16 mantiene quince módulos extraídos. Cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.25.0` (`v1.25.0` como referencia), sincronizada en npm, Cargo y Tauri; la app lee `CARGO_PKG_VERSION` |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -2160,6 +2164,8 @@ su prueba aislada pasa se descarta: JOIN → trazabilidad pierde filas activas.
 | 2026-09-21 | RV04: una falla al solicitar cancelación deja el trabajo activo, pero antes reemplazaba su estado por un error y quitaba el progreso/reintento. Ahora se conserva el estado, se muestra el motivo y se habilita un segundo intento para carga, análisis, exportación y comparación. La regresión de App comprueba fallo del puente, reintento y conservación del dataset anterior; App pasa 64/64 y build pasa. RV04 sigue parcial por aceptación de datasets reales y tramos nativos síncronos. Versión `1.25.0`. | `src/App.tsx`, `src/App.test.tsx`, `src/components/OperationProgressView.tsx`, modelos de carga/revisión/entrega, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 | 2026-09-22 | RV01: los estados «Hecho» de Cargar y Revisar quedan ligados a la revisión vigente del dataset; cada mutación restablece Cargar e invalida la finalización previa de Revisar, incluida la aplicación de cambios desde Preparar. La regresión Revisar→Preparar→corrección pasa; `npm run test -- --run src/App.test.tsx` registra 65/65 y pasan `npm run build`, `npm run docs:check` y `git diff --check`. RV01 sigue parcial hasta la aceptación Cargar→Entregar con datos de trabajo reales. Versión `1.25.0`. | `src/App.tsx`, `src/App.test.tsx`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+
+| 2026-09-22 | RV16: el decimoquinto módulo extrae a `dataset/file_validation.rs` la admisión de extensiones, canonicalización de rutas de entrada/salida y rechazo de enlaces simbólicos y reparse points; los comandos internos conservan sus contratos y errores. La suite Rust completa pasa 494 pruebas; 5 se ignoran por benchmarks opt-in y servicios ODBC externos. También pasan `cargo fmt --all -- --check`, `cargo check --tests` y el checker documental. La versión sigue en `1.25.0`; RV16 continúa abierta para extracciones graduales. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/file_validation.rs`, `src-tauri/src/dataset/tests.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 Pendiente para la siguiente sesión: aprobación y ejecución de T6-01–T6-11,
 aceptación jurídica T5-18/T5-20 y verificaciones externas expresamente enumeradas
