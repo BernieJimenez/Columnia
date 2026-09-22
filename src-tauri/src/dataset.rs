@@ -46,7 +46,12 @@ mod file_validation;
 mod history;
 #[allow(unused_imports)] // Mantiene la ruta pública del contrato serializado.
 pub use history::HistoryEntryState;
-use history::{HistoryCommitResult, HistoryEntry, HistoryManager, PreparedHistorySnapshot};
+use history::{
+    get_history_state_impl, redo_last_change_impl, undo_last_change_impl, HistoryCommitResult,
+    HistoryEntry, HistoryManager, PreparedHistorySnapshot,
+};
+#[cfg(test)]
+use history::{redo_dataset, undo_dataset};
 pub use history::{HistoryResult, HistoryState};
 mod import_conventions;
 mod import_loading;
@@ -134,7 +139,7 @@ use numeric_profile::{
     source_numeric_correlation_matrix, source_numeric_statistics,
     validate_numeric_correlation_sample_rows, NumericRunWriter,
 };
-use snapshot_comparison::compare_snapshot_frames;
+use snapshot_comparison::compare_history_snapshots_impl;
 use temporal_profile::{
     source_temporal_series_summary, temporal_period_key, temporal_period_label,
     temporal_periods_between, temporal_series_summaries, TemporalPeriodKey,
@@ -3474,6 +3479,38 @@ fn read_parquet_query_block(path: &Path, start: usize, length: usize) -> Result<
     .map_err(|error| format!("{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} {error}"))
 }
 
+fn read_parquet_query_block_with_cancel<C>(
+    path: &Path,
+    start: usize,
+    length: usize,
+    is_cancelled: &C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync + ?Sized,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let slice_offset = i64::try_from(start).map_err(|_| {
+        format!(
+            "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el bloque solicitado excede la capacidad del lector."
+        )
+    })?;
+    let plan = parquet_scan(path)
+        .map_err(|error| format!("{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} {error}"))?
+        .slice(slice_offset, length as IdxSize);
+    collect_lazy_frame_streaming_with_cancel(
+        plan,
+        "No se pudo leer el bloque Parquet de la consulta local",
+        is_cancelled,
+    )
+    .map_err(|error| {
+        if error == OPERATION_CANCELLED_MESSAGE {
+            error
+        } else {
+            format!("{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} {error}")
+        }
+    })
+}
+
 fn for_each_parquet_block<F>(path: &Path, row_count: usize, mut visit: F) -> Result<(), String>
 where
     F: FnMut(usize, &DataFrame) -> Result<(), String>,
@@ -3539,7 +3576,7 @@ where
                 )
             })?;
         let length = LOCAL_QUERY_BLOCK_ROWS.min(row_count - start);
-        let block = read_parquet_query_block(path, start, length)?;
+        let block = read_parquet_query_block_with_cancel(path, start, length, is_cancelled)?;
         if block.height() != length {
             return Err(format!(
                 "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot Parquet cambió durante la lectura (se esperaban {length} filas en el bloque y se obtuvieron {}).",
@@ -3550,7 +3587,7 @@ where
         visit(start, &block)?;
     }
     ensure_not_cancelled(is_cancelled())?;
-    let trailing_block = read_parquet_query_block(path, row_count, 1)?;
+    let trailing_block = read_parquet_query_block_with_cancel(path, row_count, 1, is_cancelled)?;
     if trailing_block.height() != 0 {
         return Err(format!(
             "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot Parquet contiene más filas que las registradas."
@@ -3836,7 +3873,7 @@ where
                 )
             })?;
         let length = LOCAL_QUERY_BLOCK_ROWS.min(row_count - start);
-        let block = read_parquet_query_block(path, start, length)?;
+        let block = read_parquet_query_block_with_cancel(path, start, length, is_cancelled)?;
         if block.height() != length {
             return Err(format!(
                 "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} su número de filas no coincide con el dataset activo."
@@ -3850,7 +3887,7 @@ where
             is_cancelled,
         )?);
     }
-    let trailing_block = read_parquet_query_block(path, row_count, 1)?;
+    let trailing_block = read_parquet_query_block_with_cancel(path, row_count, 1, is_cancelled)?;
     if trailing_block.height() != 0 {
         return Err(format!(
             "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} su número de filas no coincide con el dataset activo."
@@ -3895,7 +3932,7 @@ where
                     )
                 })?;
             let length = LOCAL_QUERY_BLOCK_ROWS.min(row_count - start);
-            let block = read_parquet_query_block(path, start, length)?;
+            let block = read_parquet_query_block_with_cancel(path, start, length, is_cancelled)?;
             if block.height() != length {
                 return Err(format!(
                     "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} su número de filas no coincide con el dataset activo."
@@ -3957,7 +3994,7 @@ where
                 )
             })?;
         let length = LOCAL_QUERY_BLOCK_ROWS.min(row_count - start);
-        let block = read_parquet_query_block(path, start, length)?;
+        let block = read_parquet_query_block_with_cancel(path, start, length, is_cancelled)?;
         if block.height() != length {
             return Err(format!(
                 "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} su número de filas no coincide con el dataset activo."
@@ -12600,7 +12637,7 @@ fn collect_lazy_frame_streaming_with_cancel<C>(
     is_cancelled: &C,
 ) -> Result<DataFrame, String>
 where
-    C: Fn() -> bool + Sync,
+    C: Fn() -> bool + Sync + ?Sized,
 {
     ensure_not_cancelled(is_cancelled())?;
     let schema = plan
@@ -12752,6 +12789,7 @@ fn parquet_scan(path: &Path) -> Result<LazyFrame, String> {
         .map_err(|error| format!("No se pudo abrir el Parquet: {error}"))
 }
 
+#[cfg(test)]
 fn read_parquet_frame(path: &Path) -> Result<DataFrame, String> {
     read_parquet_frame_with_cancel(path, || false)
 }
@@ -12863,7 +12901,7 @@ fn source_backed_load<C>(
     is_cancelled: C,
 ) -> Result<(DataFrame, DatasetPreview, usize), String>
 where
-    C: Fn() -> bool + Clone + Send + 'static,
+    C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
     source_backed_load_with_header_mode(
         path,
@@ -12880,7 +12918,7 @@ fn source_backed_load_with_header_mode<C>(
     is_cancelled: C,
 ) -> Result<(DataFrame, DatasetPreview, usize), String>
 where
-    C: Fn() -> bool + Clone + Send + 'static,
+    C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
     ensure_not_cancelled(is_cancelled())?;
     let has_header = header_mode == SpreadsheetHeaderMode::FirstRow;
@@ -12908,10 +12946,11 @@ where
     let row_count =
         crate::duckdb_query::count_file_rows(path, source_format, is_cancelled.clone())?;
     ensure_not_cancelled(is_cancelled())?;
-    let page = collect_lazy_frame_streaming(
+    let page = collect_lazy_frame_streaming_with_cancel(
         source_scan_with_header(path, extension, has_header)?
             .slice(0, PREVIEW_ROW_LIMIT as IdxSize),
         "No se pudo leer la vista previa source-backed",
+        &is_cancelled,
     )?;
     ensure_not_cancelled(is_cancelled())?;
     let file_size_bytes = fs::metadata(path)
@@ -12938,7 +12977,7 @@ fn source_backed_json_load<C>(
     is_cancelled: C,
 ) -> Result<(DataFrame, DatasetPreview, usize), String>
 where
-    C: Fn() -> bool + Clone + Send + 'static,
+    C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
     ensure_not_cancelled(is_cancelled())?;
     let source_size_before = fs::metadata(path)
@@ -12972,9 +13011,10 @@ where
     let page = if row_count == 0 {
         schema.slice(0, 0)
     } else {
-        collect_lazy_frame_streaming(
+        collect_lazy_frame_streaming_with_cancel(
             parquet_scan(snapshot_path)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
             "No se pudo leer la vista previa JSON source-backed",
+            &is_cancelled,
         )?
     };
     ensure_not_cancelled(is_cancelled())?;
@@ -13012,9 +13052,10 @@ where
     let page = if plan.data_rows == 0 {
         schema_frame.slice(0, 0)
     } else {
-        collect_lazy_frame_streaming(
+        collect_lazy_frame_streaming_with_cancel(
             parquet_scan(snapshot_path)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
             "No se pudo leer la vista previa del libro source-backed",
+            &is_cancelled,
         )?
     };
     ensure_not_cancelled(is_cancelled())?;
@@ -18412,7 +18453,12 @@ where
         if cached_compared_start != Some(compared_start) {
             ensure_not_cancelled(is_cancelled())?;
             let length = LOCAL_QUERY_BLOCK_ROWS.min(compared_row_count - compared_start);
-            let block = read_parquet_query_block(compared_path, compared_start, length)?;
+            let block = read_parquet_query_block_with_cancel(
+                compared_path,
+                compared_start,
+                length,
+                is_cancelled,
+            )?;
             if block.height() != length {
                 return Err(format!(
                     "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot comparado cambió durante la lectura (se esperaban {length} filas en el bloque y se obtuvieron {}).",
@@ -18650,7 +18696,12 @@ where
                 if cached_compared_start != Some(compared_start) {
                     let length = LOCAL_QUERY_BLOCK_ROWS.min(compared.row_count - compared_start);
                     ensure_not_cancelled(is_cancelled())?;
-                    let block = read_parquet_query_block(compared.path, compared_start, length)?;
+                    let block = read_parquet_query_block_with_cancel(
+                        compared.path,
+                        compared_start,
+                        length,
+                        is_cancelled,
+                    )?;
                     if block.height() != length {
                         return Err("El snapshot comparado cambió durante la lectura.".to_owned());
                     }
@@ -20495,7 +20546,8 @@ pub async fn resolve_dataset_conflicts(
             }
         }
         cancellation_for_work.ensure()?;
-        let compared_frame = read_parquet_frame(&comparison.path)?;
+        let compared_frame =
+            read_parquet_frame_with_cancel(&comparison.path, || cancellation.is_cancelled())?;
         cancellation_for_work.ensure()?;
         let current_frame = match initial_eager_frame {
             Some(frame) => frame,
@@ -20602,7 +20654,7 @@ pub async fn use_consolidated_dataset(app: AppHandle) -> Result<DatasetPreview, 
         }
 
         cancellation.ensure()?;
-        let compared_frame = read_parquet_frame(&comparison.path)?;
+        let compared_frame = read_parquet_frame_with_cancel(&comparison.path, || cancellation.is_cancelled())?;
         if compared_frame.height() != comparison.row_count {
             return Err("El snapshot comparado cambió antes de consolidar.".to_owned());
         }
@@ -20957,7 +21009,11 @@ pub async fn query_dataset(
             })?;
             let compared_frame = comparison
                 .as_ref()
-                .map(|pending| read_parquet_frame(&pending.snapshot_path))
+                .map(|pending| {
+                    read_parquet_frame_with_cancel(&pending.snapshot_path, || {
+                        state.query_was_cancelled(generation)
+                    })
+                })
                 .transpose()?;
             let compared = compared_frame.as_ref();
             execute_local_query_with_comparison_and_cancel(
@@ -23245,226 +23301,6 @@ pub async fn apply_safe_corrections(
 }
 
 #[tauri::command]
-pub async fn undo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
-    let cancellation = PrepareCancellation::begin(&app);
-    tauri::async_runtime::spawn_blocking(move || {
-        cancellation.ensure()?;
-        let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        let dataset = current.as_mut().ok_or_else(|| {
-            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-        })?;
-        undo_dataset_with_cancellation(dataset, Some(&cancellation))
-    })
-    .await
-    .map_err(|error| format!("No se pudo deshacer el cambio: {error}"))?
-}
-
-fn restore_source_backed_history_cursor(
-    dataset: &mut LoadedDataset,
-    target: usize,
-    message: &str,
-    cancellation: Option<&PrepareCancellation>,
-) -> Result<HistoryResult, String> {
-    if let Some(cancellation) = cancellation {
-        cancellation.ensure()?;
-    }
-    let entry = dataset
-        .history
-        .entries
-        .get(target)
-        .ok_or_else(|| "La revisión solicitada ya no está disponible.".to_owned())?;
-    let label = entry.label.clone();
-    let entry_path = entry.path.clone();
-    let (snapshot_path, snapshot_size, extension) = validate_dataset_file(&entry_path)?;
-    if extension != "parquet" {
-        return Err("El snapshot del historial no es un Parquet válido.".to_owned());
-    }
-
-    // Validate and prepare every value before changing the active dataset or cursor. The
-    // cursor can therefore remain usable if a snapshot is truncated or corrupted.
-    let schema = read_parquet_schema_frame(&snapshot_path)?;
-    let row_count = parquet_row_count(&snapshot_path)?;
-    let page = if row_count == 0 {
-        schema.slice(0, 0)
-    } else {
-        let page = collect_lazy_frame_streaming(
-            parquet_scan(&snapshot_path)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
-            "No se pudo leer la vista previa del historial Parquet",
-        )?;
-        let expected_rows = row_count.min(PREVIEW_ROW_LIMIT);
-        if page.height() != expected_rows {
-            return Err(
-                "El snapshot del historial no coincide con su conteo registrado.".to_owned(),
-            );
-        }
-        page
-    };
-    let was_source_backed = dataset.source_backed;
-    let preview_size = if was_source_backed {
-        snapshot_size
-    } else {
-        dataset.file_size_bytes
-    };
-    let preview = dataset_preview_from_schema_and_page(
-        &dataset.file_name,
-        preview_size,
-        row_count,
-        &schema,
-        &page,
-    )?;
-
-    let publish = || {
-        dataset.history.cursor = target;
-        dataset.history.current_label = label;
-        dataset.history.source_snapshot_path = None;
-        dataset.row_count = row_count;
-        dataset.frame = schema;
-        dataset.profile = None;
-        if was_source_backed {
-            dataset.source_path = Some(snapshot_path);
-            dataset.file_size_bytes = snapshot_size;
-            dataset.source_backed = true;
-        }
-
-        Ok(HistoryResult {
-            dataset: preview,
-            history: dataset.history.state(),
-            message: message.to_owned(),
-        })
-    };
-    if let Some(cancellation) = cancellation {
-        cancellation.commit(publish)
-    } else {
-        publish()
-    }
-}
-
-#[cfg(test)]
-fn undo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
-    undo_dataset_with_cancellation(dataset, None)
-}
-
-fn undo_dataset_with_cancellation(
-    dataset: &mut LoadedDataset,
-    cancellation: Option<&PrepareCancellation>,
-) -> Result<HistoryResult, String> {
-    if let Some(cancellation) = cancellation {
-        cancellation.ensure()?;
-    }
-    if !dataset.history.state().can_undo {
-        return Err("No hay un cambio disponible para deshacer.".to_owned());
-    }
-    let target = dataset.history.cursor - 1;
-    if dataset.source_backed {
-        return restore_source_backed_history_cursor(
-            dataset,
-            target,
-            "Se deshizo el último cambio.",
-            cancellation,
-        );
-    }
-    let previous = dataset.history.restore(target)?;
-    let preview = loaded_dataset_preview(dataset, &previous)?;
-    let publish = || {
-        dataset.row_count = previous.height();
-        dataset.frame = previous;
-        dataset.source_backed = false;
-        dataset.history.cursor = target;
-        dataset.profile = None;
-        Ok(HistoryResult {
-            dataset: preview,
-            history: dataset.history.state(),
-            message: "Se deshizo el último cambio.".to_owned(),
-        })
-    };
-    if let Some(cancellation) = cancellation {
-        cancellation.commit(publish)
-    } else {
-        publish()
-    }
-}
-
-#[tauri::command]
-pub async fn redo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
-    let cancellation = PrepareCancellation::begin(&app);
-    tauri::async_runtime::spawn_blocking(move || {
-        cancellation.ensure()?;
-        let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        let dataset = current.as_mut().ok_or_else(|| {
-            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-        })?;
-        redo_dataset_with_cancellation(dataset, Some(&cancellation))
-    })
-    .await
-    .map_err(|error| format!("No se pudo rehacer el cambio: {error}"))?
-}
-
-#[cfg(test)]
-fn redo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
-    redo_dataset_with_cancellation(dataset, None)
-}
-
-fn redo_dataset_with_cancellation(
-    dataset: &mut LoadedDataset,
-    cancellation: Option<&PrepareCancellation>,
-) -> Result<HistoryResult, String> {
-    if let Some(cancellation) = cancellation {
-        cancellation.ensure()?;
-    }
-    if !dataset.history.state().can_redo {
-        return Err("No hay un cambio disponible para rehacer.".to_owned());
-    }
-    let target = dataset.history.cursor + 1;
-    if dataset.source_backed {
-        return restore_source_backed_history_cursor(
-            dataset,
-            target,
-            "Se rehízo el último cambio.",
-            cancellation,
-        );
-    }
-    let next = dataset.history.restore(target)?;
-    let preview = loaded_dataset_preview(dataset, &next)?;
-    let publish = || {
-        dataset.row_count = next.height();
-        dataset.frame = next;
-        dataset.source_backed = false;
-        dataset.history.cursor = target;
-        dataset.profile = None;
-        Ok(HistoryResult {
-            dataset: preview,
-            history: dataset.history.state(),
-            message: "Se rehízo el último cambio.".to_owned(),
-        })
-    };
-    if let Some(cancellation) = cancellation {
-        cancellation.commit(publish)
-    } else {
-        publish()
-    }
-}
-
-#[tauri::command]
-pub fn get_history_state(state: State<'_, DatasetState>) -> Result<HistoryState, String> {
-    let current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-    let dataset = current.as_ref().ok_or_else(|| {
-        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-    })?;
-    Ok(dataset.history.state())
-}
-
-#[tauri::command]
 pub async fn compare_history_snapshots(
     app: AppHandle,
     before_snapshot_id: String,
@@ -23472,68 +23308,29 @@ pub async fn compare_history_snapshots(
     quality_rules: Vec<QualityRule>,
     on_progress: Channel<OperationProgress>,
 ) -> Result<SnapshotRevisionComparison, String> {
-    validate_quality_rules_payload(&quality_rules)?;
-    validate_history_entry_id(&before_snapshot_id)?;
-    validate_history_entry_id(&after_snapshot_id)?;
-    if before_snapshot_id == after_snapshot_id {
-        return Err("Selecciona dos revisiones distintas para compararlas.".to_owned());
-    }
-
-    let generation = app.state::<DatasetState>().begin_snapshot_comparison();
-    tauri::async_runtime::spawn_blocking(move || {
-        let (before_frame, before_label, after_frame, after_label) = {
-            let state = app.state::<DatasetState>();
-            let current = state
-                .current
-                .lock()
-                .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
-            let dataset = current
-                .as_ref()
-                .ok_or_else(|| "No hay un dataset activo para comparar revisiones.".to_owned())?;
-            if !dataset.history.snapshots_enabled {
-                return Err(dataset.history.degraded_reason.clone().unwrap_or_else(|| {
-                    "La comparación no está disponible porque el historial está desactivado."
-                        .to_owned()
-                }));
-            }
-            let (before_frame, before_label) =
-                dataset.history.restore_by_id(&before_snapshot_id)?;
-            let (after_frame, after_label) = dataset.history.restore_by_id(&after_snapshot_id)?;
-            (before_frame, before_label, after_frame, after_label)
-        };
-
-        let state = app.state::<DatasetState>();
-        let comparison = compare_snapshot_frames(
-            before_snapshot_id.clone(),
-            after_snapshot_id.clone(),
-            before_label,
-            after_label,
-            &before_frame,
-            &after_frame,
-            &quality_rules,
-            |stage, percent| send_progress(&on_progress, "profile", stage, percent),
-            || state.snapshot_comparison_was_cancelled(generation),
-        )?;
-        ensure_not_cancelled(state.snapshot_comparison_was_cancelled(generation))?;
-
-        let current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
-        let dataset = current
-            .as_ref()
-            .ok_or_else(|| "El dataset cambió durante la comparación.".to_owned())?;
-        if !dataset.history.contains_id(&before_snapshot_id)
-            || !dataset.history.contains_id(&after_snapshot_id)
-        {
-            return Err(
-                "La comparación quedó obsoleta porque una revisión salió del historial.".to_owned(),
-            );
-        }
-        Ok(comparison)
-    })
+    compare_history_snapshots_impl(
+        app,
+        before_snapshot_id,
+        after_snapshot_id,
+        quality_rules,
+        on_progress,
+    )
     .await
-    .map_err(|error| format!("La comparación de revisiones se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn undo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
+    undo_last_change_impl(app).await
+}
+
+#[tauri::command]
+pub async fn redo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
+    redo_last_change_impl(app).await
+}
+
+#[tauri::command]
+pub fn get_history_state(state: State<'_, DatasetState>) -> Result<HistoryState, String> {
+    get_history_state_impl(state)
 }
 
 fn strict_column_text(column: &Column) -> Result<Vec<Option<String>>, String> {
@@ -26914,7 +26711,12 @@ impl DatasetState {
             let page = if row_count == 0 {
                 schema.slice(0, 0)
             } else {
-                read_parquet_query_block(&snapshot_path, 0, row_count.min(PREVIEW_ROW_LIMIT))?
+                read_parquet_query_block_with_cancel(
+                    &snapshot_path,
+                    0,
+                    row_count.min(PREVIEW_ROW_LIMIT),
+                    is_cancelled.as_ref(),
+                )?
             };
             ensure_not_cancelled(is_cancelled())?;
             let preview = dataset_preview_from_schema_and_page(

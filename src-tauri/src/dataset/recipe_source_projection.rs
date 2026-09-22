@@ -2369,6 +2369,7 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
     if let Some(cancellation) = cancellation {
         cancellation.ensure()?;
     }
+    let is_cancelled = || cancellation.is_some_and(|token| token.is_cancelled());
     let source_reference = dataset
         .source_path
         .as_deref()
@@ -2445,9 +2446,10 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
         && recipe.outlier_treatments.is_empty()
         && recipe.group_summary.is_none()
     {
-        let page_frame = collect_lazy_frame_streaming(
+        let page_frame = collect_lazy_frame_streaming_with_cancel(
             source_scan(&source_path, &extension)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
             "No se pudo leer la vista previa source-backed",
+            &is_cancelled,
         )?;
         let expected_page_rows = dataset.row_count.min(PREVIEW_ROW_LIMIT);
         if page_frame.height() != expected_page_rows {
@@ -2652,9 +2654,10 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
         || outlier_removed_row_count > 0;
     if !changed {
         let _ = fs::remove_file(&output_path);
-        let page_frame = collect_lazy_frame_streaming(
+        let page_frame = collect_lazy_frame_streaming_with_cancel(
             source_scan(&source_path, &extension)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
             "No se pudo leer la vista previa source-backed",
+            &is_cancelled,
         )?;
         if let Some(cancellation) = cancellation {
             cancellation.ensure()?;
@@ -2691,7 +2694,8 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
         });
     }
     let page = dataset_page_from_parquet(&output_path, output_row_count, 0, PREVIEW_ROW_LIMIT)?;
-    let page_frame = read_parquet_query_block(&output_path, 0, page.rows.len())?;
+    let page_frame =
+        read_parquet_query_block_with_cancel(&output_path, 0, page.rows.len(), &is_cancelled)?;
     let preview = dataset_preview_from_schema_and_page(
         &dataset.file_name,
         output_size,

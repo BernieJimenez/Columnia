@@ -1,12 +1,91 @@
 use std::collections::{HashMap, HashSet};
 
+use tauri::{ipc::Channel, AppHandle, Manager};
+
 use super::{
     ensure_not_cancelled, evaluate_quality_rules_with_cancel, profile_dataset_with_progress,
-    validate_quality_rules_payload, DataFrame, DatasetProfile, QualityRule, QualityRuleKind,
+    send_progress, validate_history_entry_id, validate_quality_rules_payload, DataFrame,
+    DatasetProfile, DatasetState, OperationProgress, QualityRule, QualityRuleKind,
     SnapshotColumnComparison, SnapshotColumnSummary, SnapshotQualityComparison,
     SnapshotQualityRuleComparison, SnapshotRevisionComparison, SnapshotRevisionDeltas,
     SnapshotRevisionSummary, MAX_NUMERIC_CORRELATION_SAMPLE_ROWS, QUALITY_DATASET_COLUMN,
 };
+
+pub(super) async fn compare_history_snapshots_impl(
+    app: AppHandle,
+    before_snapshot_id: String,
+    after_snapshot_id: String,
+    quality_rules: Vec<QualityRule>,
+    on_progress: Channel<OperationProgress>,
+) -> Result<SnapshotRevisionComparison, String> {
+    validate_quality_rules_payload(&quality_rules)?;
+    validate_history_entry_id(&before_snapshot_id)?;
+    validate_history_entry_id(&after_snapshot_id)?;
+    if before_snapshot_id == after_snapshot_id {
+        return Err("Selecciona dos revisiones distintas para compararlas.".to_owned());
+    }
+
+    let generation = app.state::<DatasetState>().begin_snapshot_comparison();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (before_frame, before_label, after_frame, after_label) = {
+            let state = app.state::<DatasetState>();
+            let current = state
+                .current
+                .lock()
+                .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+            let dataset = current
+                .as_ref()
+                .ok_or_else(|| "No hay un dataset activo para comparar revisiones.".to_owned())?;
+            if !dataset.history.snapshots_enabled {
+                return Err(dataset.history.degraded_reason.clone().unwrap_or_else(|| {
+                    "La comparación no está disponible porque el historial está desactivado."
+                        .to_owned()
+                }));
+            }
+            let is_cancelled = || state.snapshot_comparison_was_cancelled(generation);
+            let (before_frame, before_label) = dataset
+                .history
+                .restore_by_id_with_cancel(&before_snapshot_id, &is_cancelled)?;
+            let (after_frame, after_label) = dataset
+                .history
+                .restore_by_id_with_cancel(&after_snapshot_id, &is_cancelled)?;
+            (before_frame, before_label, after_frame, after_label)
+        };
+
+        let state = app.state::<DatasetState>();
+        let is_cancelled = || state.snapshot_comparison_was_cancelled(generation);
+        let comparison = compare_snapshot_frames(
+            before_snapshot_id.clone(),
+            after_snapshot_id.clone(),
+            before_label,
+            after_label,
+            &before_frame,
+            &after_frame,
+            &quality_rules,
+            |stage, percent| send_progress(&on_progress, "profile", stage, percent),
+            &is_cancelled,
+        )?;
+        ensure_not_cancelled(state.snapshot_comparison_was_cancelled(generation))?;
+
+        let current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+        let dataset = current
+            .as_ref()
+            .ok_or_else(|| "El dataset cambió durante la comparación.".to_owned())?;
+        if !dataset.history.contains_id(&before_snapshot_id)
+            || !dataset.history.contains_id(&after_snapshot_id)
+        {
+            return Err(
+                "La comparación quedó obsoleta porque una revisión salió del historial.".to_owned(),
+            );
+        }
+        Ok(comparison)
+    })
+    .await
+    .map_err(|error| format!("La comparación de revisiones se interrumpió: {error}"))?
+}
 
 fn snapshot_count_delta(before: usize, after: usize) -> Option<i64> {
     let before = i64::try_from(before).ok()?;

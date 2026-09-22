@@ -1,6 +1,10 @@
 use super::{
-    fresh_history_entry_id, read_parquet_frame, DatasetPreview, HISTORY_DISK_BUDGET_BYTES,
-    HISTORY_MAX_ENTRIES, HISTORY_SNAPSHOT_BATCH_ROWS, OPERATION_CANCELLED_MESSAGE,
+    collect_lazy_frame_streaming_with_cancel, dataset_preview_from_schema_and_page,
+    ensure_not_cancelled, fresh_history_entry_id, loaded_dataset_preview, parquet_row_count,
+    parquet_scan, read_parquet_frame_with_cancel, read_parquet_schema_frame, validate_dataset_file,
+    DatasetPreview, DatasetState, IdxSize, LoadedDataset, PrepareCancellation,
+    HISTORY_DISK_BUDGET_BYTES, HISTORY_MAX_ENTRIES, HISTORY_SNAPSHOT_BATCH_ROWS,
+    OPERATION_CANCELLED_MESSAGE, PREVIEW_ROW_LIMIT,
 };
 use polars::prelude::{DataFrame, ParquetWriter};
 use serde::Serialize;
@@ -9,6 +13,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
 };
+use tauri::{AppHandle, Manager, State};
 
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -491,15 +496,44 @@ impl HistoryManager {
     }
 
     pub(super) fn restore(&self, index: usize) -> Result<DataFrame, String> {
+        self.restore_with_cancel(index, || false)
+    }
+
+    pub(super) fn restore_with_cancel<C>(
+        &self,
+        index: usize,
+        is_cancelled: C,
+    ) -> Result<DataFrame, String>
+    where
+        C: Fn() -> bool + Sync,
+    {
+        ensure_not_cancelled(is_cancelled())?;
         let entry = self
             .entries
             .get(index)
             .ok_or_else(|| "La revisión solicitada ya no está disponible.".to_owned())?;
-        read_parquet_frame(&entry.path)
-            .map_err(|error| format!("No se pudo restaurar el snapshot del historial: {error}"))
+        read_parquet_frame_with_cancel(&entry.path, || is_cancelled()).map_err(|error| {
+            if error == OPERATION_CANCELLED_MESSAGE {
+                error
+            } else {
+                format!("No se pudo restaurar el snapshot del historial: {error}")
+            }
+        })
     }
 
     pub(super) fn restore_by_id(&self, id: &str) -> Result<(DataFrame, String), String> {
+        self.restore_by_id_with_cancel(id, || false)
+    }
+
+    pub(super) fn restore_by_id_with_cancel<C>(
+        &self,
+        id: &str,
+        is_cancelled: C,
+    ) -> Result<(DataFrame, String), String>
+    where
+        C: Fn() -> bool + Sync,
+    {
+        ensure_not_cancelled(is_cancelled())?;
         if !self.snapshots_enabled {
             return Err(self.degraded_reason.clone().unwrap_or_else(|| {
                 "La comparación no está disponible porque el historial está desactivado.".to_owned()
@@ -510,12 +544,244 @@ impl HistoryManager {
             .iter()
             .find(|entry| entry.id == id)
             .ok_or_else(|| "La revisión seleccionada ya no está disponible.".to_owned())?;
-        let frame = read_parquet_frame(&entry.path)
-            .map_err(|_| "No se pudo leer una revisión del historial.".to_owned())?;
+        let frame =
+            read_parquet_frame_with_cancel(&entry.path, || is_cancelled()).map_err(|error| {
+                if error == OPERATION_CANCELLED_MESSAGE {
+                    error
+                } else {
+                    "No se pudo leer una revisión del historial.".to_owned()
+                }
+            })?;
         Ok((frame, entry.label.clone()))
     }
 
     pub(super) fn contains_id(&self, id: &str) -> bool {
         self.snapshots_enabled && self.entries.iter().any(|entry| entry.id == id)
+    }
+}
+
+pub(super) async fn undo_last_change_impl(app: AppHandle) -> Result<HistoryResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        undo_dataset_with_cancellation(dataset, Some(&cancellation))
+    })
+    .await
+    .map_err(|error| format!("No se pudo deshacer el cambio: {error}"))?
+}
+fn restore_source_backed_history_cursor(
+    dataset: &mut LoadedDataset,
+    target: usize,
+    message: &str,
+    cancellation: Option<&PrepareCancellation>,
+) -> Result<HistoryResult, String> {
+    let check_cancellation = || cancellation.map_or(Ok(()), |token| token.ensure());
+    let is_cancelled = || cancellation.is_some_and(|token| token.is_cancelled());
+    check_cancellation()?;
+    let entry = dataset
+        .history
+        .entries
+        .get(target)
+        .ok_or_else(|| "La revisión solicitada ya no está disponible.".to_owned())?;
+    let label = entry.label.clone();
+    let entry_path = entry.path.clone();
+    let (snapshot_path, snapshot_size, extension) = validate_dataset_file(&entry_path)?;
+    check_cancellation()?;
+    if extension != "parquet" {
+        return Err("El snapshot del historial no es un Parquet válido.".to_owned());
+    }
+
+    // Validate and prepare every value before changing the active dataset or cursor. The
+    // cursor can therefore remain usable if a snapshot is truncated or corrupted.
+    let schema = read_parquet_schema_frame(&snapshot_path)?;
+    check_cancellation()?;
+    let row_count = parquet_row_count(&snapshot_path)?;
+    check_cancellation()?;
+    let page = if row_count == 0 {
+        schema.slice(0, 0)
+    } else {
+        let page = collect_lazy_frame_streaming_with_cancel(
+            parquet_scan(&snapshot_path)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
+            "No se pudo leer la vista previa del historial Parquet",
+            &is_cancelled,
+        )?;
+        check_cancellation()?;
+        let expected_rows = row_count.min(PREVIEW_ROW_LIMIT);
+        if page.height() != expected_rows {
+            return Err(
+                "El snapshot del historial no coincide con su conteo registrado.".to_owned(),
+            );
+        }
+        page
+    };
+    let was_source_backed = dataset.source_backed;
+    let preview_size = if was_source_backed {
+        snapshot_size
+    } else {
+        dataset.file_size_bytes
+    };
+    let preview = dataset_preview_from_schema_and_page(
+        &dataset.file_name,
+        preview_size,
+        row_count,
+        &schema,
+        &page,
+    )?;
+    check_cancellation()?;
+
+    let publish = || {
+        dataset.history.cursor = target;
+        dataset.history.current_label = label;
+        dataset.history.source_snapshot_path = None;
+        dataset.row_count = row_count;
+        dataset.frame = schema;
+        dataset.profile = None;
+        if was_source_backed {
+            dataset.source_path = Some(snapshot_path);
+            dataset.file_size_bytes = snapshot_size;
+            dataset.source_backed = true;
+        }
+
+        Ok(HistoryResult {
+            dataset: preview,
+            history: dataset.history.state(),
+            message: message.to_owned(),
+        })
+    };
+    if let Some(cancellation) = cancellation {
+        cancellation.commit(publish)
+    } else {
+        publish()
+    }
+}
+pub(super) async fn redo_last_change_impl(app: AppHandle) -> Result<HistoryResult, String> {
+    let cancellation = PrepareCancellation::begin(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        cancellation.ensure()?;
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        redo_dataset_with_cancellation(dataset, Some(&cancellation))
+    })
+    .await
+    .map_err(|error| format!("No se pudo rehacer el cambio: {error}"))?
+}
+pub(super) fn get_history_state_impl(
+    state: State<'_, DatasetState>,
+) -> Result<HistoryState, String> {
+    let current = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let dataset = current.as_ref().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    Ok(dataset.history.state())
+}
+
+#[cfg(test)]
+pub(super) fn undo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
+    undo_dataset_with_cancellation(dataset, None)
+}
+
+pub(super) fn undo_dataset_with_cancellation(
+    dataset: &mut LoadedDataset,
+    cancellation: Option<&PrepareCancellation>,
+) -> Result<HistoryResult, String> {
+    if let Some(cancellation) = cancellation {
+        cancellation.ensure()?;
+    }
+    if !dataset.history.state().can_undo {
+        return Err("No hay un cambio disponible para deshacer.".to_owned());
+    }
+    let target = dataset.history.cursor - 1;
+    if dataset.source_backed {
+        return restore_source_backed_history_cursor(
+            dataset,
+            target,
+            "Se deshizo el último cambio.",
+            cancellation,
+        );
+    }
+    let previous = dataset.history.restore_with_cancel(target, || {
+        cancellation.is_some_and(|token| token.is_cancelled())
+    })?;
+    let preview = loaded_dataset_preview(dataset, &previous)?;
+    let publish = || {
+        dataset.row_count = previous.height();
+        dataset.frame = previous;
+        dataset.source_backed = false;
+        dataset.history.cursor = target;
+        dataset.profile = None;
+        Ok(HistoryResult {
+            dataset: preview,
+            history: dataset.history.state(),
+            message: "Se deshizo el último cambio.".to_owned(),
+        })
+    };
+    if let Some(cancellation) = cancellation {
+        cancellation.commit(publish)
+    } else {
+        publish()
+    }
+}
+
+#[cfg(test)]
+pub(super) fn redo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
+    redo_dataset_with_cancellation(dataset, None)
+}
+
+pub(super) fn redo_dataset_with_cancellation(
+    dataset: &mut LoadedDataset,
+    cancellation: Option<&PrepareCancellation>,
+) -> Result<HistoryResult, String> {
+    if let Some(cancellation) = cancellation {
+        cancellation.ensure()?;
+    }
+    if !dataset.history.state().can_redo {
+        return Err("No hay un cambio disponible para rehacer.".to_owned());
+    }
+    let target = dataset.history.cursor + 1;
+    if dataset.source_backed {
+        return restore_source_backed_history_cursor(
+            dataset,
+            target,
+            "Se rehízo el último cambio.",
+            cancellation,
+        );
+    }
+    let next = dataset.history.restore_with_cancel(target, || {
+        cancellation.is_some_and(|token| token.is_cancelled())
+    })?;
+    let preview = loaded_dataset_preview(dataset, &next)?;
+    let publish = || {
+        dataset.row_count = next.height();
+        dataset.frame = next;
+        dataset.source_backed = false;
+        dataset.history.cursor = target;
+        dataset.profile = None;
+        Ok(HistoryResult {
+            dataset: preview,
+            history: dataset.history.state(),
+            message: "Se rehízo el último cambio.".to_owned(),
+        })
+    };
+    if let Some(cancellation) = cancellation {
+        cancellation.commit(publish)
+    } else {
+        publish()
     }
 }

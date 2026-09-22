@@ -9,6 +9,9 @@ los artefactos de validación locales. La versión vigente del proyecto es
 
 ### Corregido
 
+- RV04: las lecturas por bloques Parquet para consultas Polars, comparaciones/páginas de conflictos y apertura de proyectos consultan cancelación mientras se materializan. Las vistas previas source-backed de recetas también se pueden cancelar por lote; la cancelación conserva su error original y no publica el frame parcial.
+
+- RV04: la vista previa source-backed de CSV/TSV/TXT/Parquet, JSON y Excel consulta cancelación durante la lectura Parquet por lotes. Deshacer/Rehacer también consulta cancelación entre validaciones y durante la restauración eager/source-backed Parquet por lotes. La comparación de revisiones puede cancelar la carga de ambas snapshots. Resolver conflictos/Consolidar y la consulta local con Polars también cancelan la lectura eager del snapshot comparado; si cancelar gana, conservan la revisión activa y no publican un resultado parcial. El helper Parquet sin token queda limitado a tests tras auditar sus llamadas productivas.
 - RV04: si falla cancelar una importación pendiente o liberar su selección temporal, Columnia conserva el `selectionId`, identifica el paso pendiente y permite reintentarlo sin repetir el paso completado. Las nuevas inspecciones permanecen bloqueadas hasta completar la limpieza.
 
 ### Mejorado
@@ -17,6 +20,8 @@ los artefactos de validación locales. La versión vigente del proyecto es
 
 ### Interno
 
+- RV16 mueve la implementación de `undo_last_change`, `redo_last_change` y `get_history_state`, junto con la restauración source-backed del cursor, a `dataset/history.rs`; los wrappers Tauri conservan sus rutas y firmas, y se preservan restauración eager/source-backed, invalidación de perfil y publicación protegida. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `npm run ipc:check` pasan. No se ejecutaron pruebas de producto.
+- RV16 mueve la orquestación de `compare_history_snapshots` a `dataset/snapshot_comparison.rs`; el comando Tauri conserva nombre, firma y argumentos, junto con validación, progreso, cancelación y comprobación de vigencia. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `npm run ipc:check` pasan. No se ejecutaron pruebas de producto.
 - RV02/RV04/RV16 separa en `dataset/import_source_inspection.rs` la selección nativa, el drag/drop, la inspección de hojas Excel y la revisión previa de encabezados CSV/TSV. Los comandos Tauri conservan nombres, parámetros y ruta; el trabajo cancelable conserva la generación de carga. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib`, `npm run ipc:check` y el checker documental pasan. No se ejecutaron pruebas de producto.
 
 

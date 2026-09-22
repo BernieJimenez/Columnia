@@ -10,11 +10,11 @@ documentos equivalentes que puedan divergir.
 ## Estado operativo verificado — 2026-09-22
 
 La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
-A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
-acumulado, y la versión sigue sincronizada en npm, Cargo y Tauri. Este corte parte
-del commit `cf3f4a5`. La versión identifica el alcance del producto y no implica
-que estén cerrados los gates de beta con datos reales, accesibilidad nativa, SQL
-Server o distribución binaria.
+A petición del usuario, el proyecto adoptó `1.25.0` para representar el alcance
+acumulado; los cortes posteriores avanzaron los manifiestos sincronizados de npm,
+Cargo y Tauri a `1.26.0`. Este corte parte del commit `e705a5a`. La versión
+identifica el alcance del producto y no implica que estén cerrados los gates de
+beta con datos reales, accesibilidad nativa, SQL Server o distribución binaria.
 
 RV01: los marcadores «Hecho» de Cargar y Revisar llevan el número de revisión
 del dataset. Cada mutación reinicia Cargar en la revisión nueva e invalida la
@@ -46,20 +46,20 @@ sintética se elimina al terminar. Evidencia UTC: `.local/validation/webview2-cd
 alcanzó 441.495.552 bytes de memoria privada, por encima del presupuesto
 diagnóstico no aplicado de 268.435.456 bytes.
 
-RV16 mantiene veintidós módulos con veinticinco responsabilidades extraídas de
+RV16 mantiene veintidós módulos con veintisiete responsabilidades extraídas de
 `dataset.rs`. Incluye validación de proyectos y archivos, inspección de fuentes,
 previsualización de esquema, carga y descarte, paginación, lectura de perfiles,
-historial, comparación, perfiles numéricos/categóricos/temporales, recetas,
+historial con deshacer/rehacer, comparación, perfiles numéricos/categóricos/temporales, recetas,
 consultas, encabezados y reglas de calidad. `dataset/page_reader.rs` conserva la
 ruta Tauri de `get_dataset_page` y centraliza cancelación, snapshots y fallbacks.
 `dataset/profile_reader.rs` concentra `get_dataset_profile` y
 `get_temporal_aggregation`, incluidos cache, rutas eager/source-backed y
 cancelación por generación. `dataset/comparison_reader.rs` reúne la lectura inicial de la comparación y la
 paginación de conflictos; ambas conservan cancelación y vigencia del snapshot.
-Se mantienen los comandos y resultados existentes. La suite Rust previa registró 494 aprobadas, 0 fallidas y 5 ignoradas;
+`dataset/history.rs` contiene la navegación cancelable de deshacer/rehacer y restaura snapshots eager/source-backed con lectura Parquet por lotes cancelable; `dataset/snapshot_comparison.rs` carga ambas revisiones con cancelación por lotes y calcula/orquesta `compare_history_snapshots`. Resolver conflictos y Consolidar interrumpen la lectura eager del snapshot comparado; la consulta local con Polars cancela también esa lectura. Se mantienen los comandos y resultados existentes. La suite Rust previa registró 494 aprobadas, 0 fallidas y 5 ignoradas;
 en este corte pasan `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`,
-`cargo check --manifest-path src-tauri/Cargo.toml --lib` y `npm run ipc:check`,
-pero no se ejecutaron pruebas de producto. RV16 sigue
+`cargo check --manifest-path src-tauri/Cargo.toml --lib`, `npm run ipc:check` y
+`node tools/check-documentation.mjs`, pero no se ejecutaron pruebas de producto. RV16 sigue
 en curso y la cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
@@ -572,7 +572,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-22; RV04 conserva la selección pendiente y permite reintentar cancelación/liberación sin perder `selectionId`; RV02 revisa esquema candidato y discrepancias antes de activar, con aceptación en datasets reales pendiente; RV05 conserva evidencia de reinicio sintético; RV06 pliega por defecto la lista del historial de Preparar y deja visible su último resultado y Deshacer/Rehacer; RV16 mantiene veintidós módulos y veinticinco responsabilidades; `dataset/page_reader.rs` concentra el handler de paginación y sus fallbacks; `dataset/profile_reader.rs` concentra perfil y agregación temporal; `dataset/comparison_reader.rs` reúne comparación inicial y página de conflictos; `dataset/import_loading.rs` concentra carga final y descarte con publicación atómica; `dataset/import_source_inspection.rs` agrupa la selección y revisión de fuentes. `dataset/history.rs` reúne el historial y `dataset/import_schema_preview.rs` contiene el preflight de esquema. `npm run build` pasó en RV04; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `git diff --check` pasan en RV16. No se ejecutaron pruebas de producto. Cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-22; RV04 conserva selecciones fallidas para reintento mediante `selectionId` y cancela por lotes la lectura Parquet en consultas, conflictos, apertura de proyectos y vistas source-backed de recetas; no entrega resultados parciales. RV04 sigue parcial por aceptación nativa/datos reales y APIs síncronas.; RV02 revisa esquema candidato y discrepancias antes de activar, con aceptación en datasets reales pendiente; RV05 conserva evidencia de reinicio sintético; RV06 pliega por defecto la lista del historial de Preparar y deja visible su último resultado y Deshacer/Rehacer; RV16 mantiene veintidós módulos y veintisiete responsabilidades; `dataset/page_reader.rs` concentra el handler de paginación y sus fallbacks; `dataset/profile_reader.rs` concentra perfil y agregación temporal; `dataset/comparison_reader.rs` reúne comparación inicial y página de conflictos; `dataset/import_loading.rs` concentra carga final y descarte con publicación atómica; `dataset/import_source_inspection.rs` agrupa la selección y revisión de fuentes. `dataset/history.rs` reúne el historial, Deshacer/Rehacer con restauración cancelable y `dataset/import_schema_preview.rs` contiene el preflight de esquema. `npm run build` pasó en RV04; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `git diff --check` pasan en RV16. No se ejecutaron pruebas de producto. Cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.26.0` (`v1.26.0` como referencia), sincronizada en npm, Cargo y Tauri; la app lee `CARGO_PKG_VERSION` |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -583,7 +583,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
 | Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 449/449 frontend en 51 archivos; `npm run test:coverage` pasa la cobertura global y las cinco capas críticas; `npm run test:e2e` pasa 22/22 y ejecuta build. `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. Con el manifiesto Common Controls v6, `cargo test --manifest-path src-tauri/Cargo.toml --lib -- --quiet` pasa 494/499; quedan 2 benchmarks opt-in y 3 integraciones ODBC ignorados. `npm run incremental:check` pasa 16/16. Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-22; documenta el reintento de cancelación/liberación de selecciones pendientes de RV04, el historial compacto de RV06 y la consolidación del historial en `dataset/history.rs`, el preflight de esquema en `dataset/import_schema_preview.rs`, la inspección de fuentes en `dataset/import_source_inspection.rs`, la carga final en `dataset/import_loading.rs` y el handler de `get_dataset_page` en `dataset/page_reader.rs`. `npm run build` pasa en RV04; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` y `cargo check --manifest-path src-tauri/Cargo.toml --lib` pasan en RV16. No se ejecutaron pruebas de producto. La versión vigente es `1.26.0`; RV04 sigue parcial y los gates abiertos están en `docs/reference/roadmap-current.md`. |
+| Última revisión de este documento | 2026-09-22; incluye cancelación durante la lectura Parquet por lotes de consultas, conflictos, apertura de proyectos y vistas previas de recetas source-backed; documenta el reintento de cancelación/liberación de selecciones pendientes de RV04, el historial compacto de RV06 y la consolidación del historial en `dataset/history.rs`, el preflight de esquema en `dataset/import_schema_preview.rs`, la inspección de fuentes en `dataset/import_source_inspection.rs`, la carga final en `dataset/import_loading.rs` y el handler de `get_dataset_page` en `dataset/page_reader.rs`. `npm run build` pasa en RV04; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` y `cargo check --manifest-path src-tauri/Cargo.toml --lib` pasan en RV16. No se ejecutaron pruebas de producto. La versión vigente es `1.26.0`; RV04 sigue parcial y los gates abiertos están en `docs/reference/roadmap-current.md`. |
 
 ### Estado verificable de Tier 5
 
@@ -2125,6 +2125,9 @@ Al actualizarlo:
 
 
 | 2026-09-22 | RV16: `compare_dataset` se reúne con `get_dataset_conflict_page` en `dataset/comparison_reader.rs`; `dataset.rs` conserva los wrappers Tauri. Se mantienen la selección nativa, snapshots/fallbacks, cancelación, publicación atómica y comprobación de comparación vigente. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` (58 advertencias de código inactivo, sin errores), IPC (85/4/70), checker documental y `git diff --check` pasan. No se ejecutaron pruebas de producto; versión `1.26.0`; RV16 queda en veintidós módulos y veinticinco responsabilidades. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/comparison_reader.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV16: `compare_history_snapshots` delega validación, carga de revisiones, cálculo con progreso/cancelación y comprobación de vigencia en `dataset/snapshot_comparison.rs`; el wrapper Tauri conserva nombre, firma y argumentos. Pasa `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` (58 advertencias preexistentes de código inactivo, sin errores), `npm run ipc:check` (85/4/70), `node tools/check-documentation.mjs` y `git diff --check`. No se ejecutaron pruebas de producto; versión `1.26.0`; RV16 suma veintiséis responsabilidades repartidas en veintidós módulos y sigue abierta. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/snapshot_comparison.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV16: la implementación de `undo_last_change`, `redo_last_change` y `get_history_state`, junto con la restauración source-backed del cursor, pasa a `dataset/history.rs`; `dataset.rs` conserva los wrappers Tauri con sus rutas y firmas. Se preservan la restauración eager/source-backed, la invalidación del perfil y la publicación protegida por cancelación. Pasan `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` (58 advertencias de código inactivo, sin errores), `npm run ipc:check` (85/4/70), `node tools/check-documentation.mjs` y `git diff --check`. No se ejecutaron pruebas de producto; versión `1.26.0`; RV16 queda en veintidós módulos y veintisiete responsabilidades extraídas. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/history.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV04/RV16: Deshacer/Rehacer comprueba cancelación en las restauraciones eager/source-backed, incluida la lectura Parquet por lotes, y antes de publicar el cursor. `compare_history_snapshots` cancela al cargar ambas revisiones por lotes; Resolver conflictos/Consolidar cancelan la lectura eager y la consulta local con Polars cancela la carga del snapshot comparado. Si cancelar gana, conserva la revisión activa y no entrega un resultado parcial. La vista previa de las cargas source-backed CSV/TSV/TXT/Parquet, JSON y Excel consulta cancelación por lote; `read_parquet_frame` queda exclusivo para tests y las lecturas productivas usan la variante cancelable. Pasan `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` (58 advertencias de código inactivo, sin errores), `npm run ipc:check` (85/4/70), `node tools/check-documentation.mjs` y `git diff --check`. No se ejecutaron pruebas de producto; versión `1.26.0`. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/history.rs`, `src-tauri/src/dataset/snapshot_comparison.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 ## Documentos relacionados
 
