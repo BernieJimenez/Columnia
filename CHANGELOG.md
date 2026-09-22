@@ -36,12 +36,13 @@ los artefactos de validación locales.
   `dataset/import_profile_validation.rs`, comparación de revisiones del
   historial en `dataset/snapshot_comparison.rs`, consultas en
   `dataset/local_query.rs`, estadísticas numéricas en
-  `dataset/numeric_profile.rs`, perfiles categóricos en
-  `dataset/categorical_profile.rs` y tendencias temporales en
-  `dataset/temporal_profile.rs`. Los resúmenes eager/source-backed comparten el
-  cálculo de periodos; se preservan API y contratos. `cargo check --tests` pasa
-  y la suite Rust completa registra 494 aprobadas, 0 fallidas y 5 ignoradas
-  (dos benchmarks opt-in y tres integraciones ODBC externas).
+  `dataset/numeric_profile.rs` (estadísticas y correlaciones numéricas eager/
+  source-backed), perfiles categóricos en `dataset/categorical_profile.rs` y
+  tendencias temporales en `dataset/temporal_profile.rs`. Los resúmenes
+  eager/source-backed comparten el cálculo de periodos; se preservan API,
+  límites de muestreo y contratos. `cargo check --tests` pasa y la suite Rust
+  completa registra 494 aprobadas, 0 fallidas y 5 ignoradas (dos benchmarks
+  opt-in y tres integraciones ODBC externas).
 - `check.ps1` y `incremental:check` incorporan Common Controls v6 al harness
   Rust de Windows durante las pruebas. `cargo check --tests` y `cargo test --lib`
   pasan; la suite registra 494 aprobadas, 5 ignoradas por servicios/drivers

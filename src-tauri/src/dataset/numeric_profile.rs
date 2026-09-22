@@ -570,3 +570,219 @@ pub(super) fn numeric_statistics(
         histogram,
     }))
 }
+
+fn correlation_numeric_value(value: AnyValue<'_>) -> Option<f64> {
+    if let Some(value) = numeric_value(value.clone()) {
+        return Some(value);
+    }
+    match value {
+        AnyValue::String(value) => semantic_numeric_value(value),
+        AnyValue::StringOwned(value) => semantic_numeric_value(value.as_str()),
+        _ => None,
+    }
+}
+
+pub(super) fn numeric_correlation_matrix<C>(
+    frame: &DataFrame,
+    profiles: &[ColumnProfile],
+    is_cancelled: &C,
+    sample_row_limit: usize,
+) -> Result<Option<NumericCorrelationMatrix>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let numeric_columns = frame
+        .columns()
+        .iter()
+        .zip(profiles)
+        .filter(|(_, profile)| profile.outlier_count.is_some())
+        .take(MAX_NUMERIC_CORRELATION_COLUMNS)
+        .map(|(column, profile)| (column, profile.name.as_str()))
+        .collect::<Vec<_>>();
+
+    if numeric_columns.len() < 2 {
+        return Ok(None);
+    }
+
+    let row_count = frame.height();
+    if row_count == 0 {
+        return Ok(None);
+    }
+    let sampled_row_count = row_count.min(sample_row_limit);
+    let mut values = Vec::with_capacity(numeric_columns.len());
+    for (column_index, (column, _)) in numeric_columns.iter().enumerate() {
+        let mut column_values = Vec::with_capacity(sampled_row_count);
+        for sample_index in 0..sampled_row_count {
+            if sample_index % 4096 == 0 {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            // Evenly sample the frame so a large file is not represented only by its header.
+            let row_index = sample_index.saturating_mul(row_count) / sampled_row_count;
+            let value = column.get(row_index).map_err(|error| {
+                format!(
+                    "No se pudieron calcular correlaciones para la columna {}: {error}",
+                    numeric_columns[column_index].1
+                )
+            })?;
+            column_values.push(correlation_numeric_value(value));
+        }
+        values.push(column_values);
+    }
+
+    let mut pairs =
+        Vec::with_capacity(numeric_columns.len().saturating_mul(numeric_columns.len()) / 2);
+    for first_index in 0..numeric_columns.len() {
+        for second_index in (first_index + 1)..numeric_columns.len() {
+            let (coefficient, sample_count) =
+                pearson_correlation(&values[first_index], &values[second_index]);
+            pairs.push(NumericCorrelation {
+                first_column: numeric_columns[first_index].1.to_owned(),
+                second_column: numeric_columns[second_index].1.to_owned(),
+                coefficient,
+                sample_count,
+            });
+        }
+    }
+
+    Ok(Some(NumericCorrelationMatrix {
+        columns: numeric_columns
+            .into_iter()
+            .map(|(_, name)| name.to_owned())
+            .collect(),
+        pairs,
+        sampled_row_count,
+        truncated: profiles
+            .iter()
+            .filter(|profile| profile.outlier_count.is_some())
+            .count()
+            > MAX_NUMERIC_CORRELATION_COLUMNS,
+    }))
+}
+
+pub(super) fn validate_numeric_correlation_sample_rows(
+    sample_rows: usize,
+) -> Result<usize, String> {
+    if !(MIN_NUMERIC_CORRELATION_SAMPLE_ROWS..=MAX_NUMERIC_CORRELATION_SAMPLE_ROWS)
+        .contains(&sample_rows)
+    {
+        return Err(format!(
+            "La muestra de correlaciones debe estar entre {MIN_NUMERIC_CORRELATION_SAMPLE_ROWS} y {MAX_NUMERIC_CORRELATION_SAMPLE_ROWS} filas."
+        ));
+    }
+    Ok(sample_rows)
+}
+
+fn pearson_correlation(first: &[Option<f64>], second: &[Option<f64>]) -> (Option<f64>, usize) {
+    let mut paired = Vec::new();
+    for (first, second) in first.iter().zip(second) {
+        if let (Some(first), Some(second)) = (first, second) {
+            paired.push((*first, *second));
+        }
+    }
+
+    let sample_count = paired.len();
+    if sample_count < 2 {
+        return (None, sample_count);
+    }
+    let first_mean = paired.iter().map(|(first, _)| first).sum::<f64>() / sample_count as f64;
+    let second_mean = paired.iter().map(|(_, second)| second).sum::<f64>() / sample_count as f64;
+    let mut covariance = 0.0;
+    let mut first_variance = 0.0;
+    let mut second_variance = 0.0;
+    for (first, second) in paired {
+        let first_delta = first - first_mean;
+        let second_delta = second - second_mean;
+        covariance += first_delta * second_delta;
+        first_variance += first_delta * first_delta;
+        second_variance += second_delta * second_delta;
+    }
+    let denominator = (first_variance * second_variance).sqrt();
+    let coefficient = if denominator > 0.0 && denominator.is_finite() {
+        Some((covariance / denominator).clamp(-1.0, 1.0))
+    } else {
+        None
+    };
+    (coefficient, sample_count)
+}
+
+pub(super) fn source_numeric_correlation_matrix<C>(
+    path: &Path,
+    row_count: usize,
+    profiles: &[ColumnProfile],
+    is_cancelled: &C,
+    sample_row_limit: usize,
+) -> Result<Option<NumericCorrelationMatrix>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let numeric_columns = profiles
+        .iter()
+        .filter(|profile| profile.outlier_count.is_some())
+        .take(MAX_NUMERIC_CORRELATION_COLUMNS)
+        .map(|profile| profile.name.clone())
+        .collect::<Vec<_>>();
+    if numeric_columns.len() < 2 || row_count == 0 {
+        return Ok(None);
+    }
+    let sampled_row_count = row_count.min(sample_row_limit);
+    let mut values = (0..numeric_columns.len())
+        .map(|_| Vec::with_capacity(sampled_row_count))
+        .collect::<Vec<Vec<Option<f64>>>>();
+    let mut next_sample = 0usize;
+    for_each_parquet_columns_block_with_size(
+        path,
+        row_count,
+        &numeric_columns,
+        SOURCE_PROFILE_BLOCK_ROWS,
+        |start, block| {
+            while next_sample < sampled_row_count {
+                let row_index = next_sample.saturating_mul(row_count) / sampled_row_count;
+                if row_index < start {
+                    return Ok(());
+                }
+                if row_index >= start + block.height() {
+                    break;
+                }
+                ensure_not_cancelled(is_cancelled())?;
+                for (column_index, column_name) in numeric_columns.iter().enumerate() {
+                    let column = block.columns().get(column_index).ok_or_else(|| {
+                        format!("No se pudo leer la columna de correlación {column_name}.")
+                    })?;
+                    let value = column.get(row_index - start).map_err(|error| {
+                    format!("No se pudieron calcular correlaciones para la columna {column_name}: {error}")
+                })?;
+                    values[column_index].push(correlation_numeric_value(value));
+                }
+                next_sample += 1;
+            }
+            Ok(())
+        },
+    )?;
+    if next_sample != sampled_row_count {
+        return Err("No se pudo leer la muestra completa de correlaciones.".to_owned());
+    }
+    let mut pairs =
+        Vec::with_capacity(numeric_columns.len().saturating_mul(numeric_columns.len()) / 2);
+    for first_index in 0..numeric_columns.len() {
+        for second_index in (first_index + 1)..numeric_columns.len() {
+            let (coefficient, sample_count) =
+                pearson_correlation(&values[first_index], &values[second_index]);
+            pairs.push(NumericCorrelation {
+                first_column: numeric_columns[first_index].clone(),
+                second_column: numeric_columns[second_index].clone(),
+                coefficient,
+                sample_count,
+            });
+        }
+    }
+    Ok(Some(NumericCorrelationMatrix {
+        columns: numeric_columns,
+        pairs,
+        sampled_row_count,
+        truncated: profiles
+            .iter()
+            .filter(|profile| profile.outlier_count.is_some())
+            .count()
+            > MAX_NUMERIC_CORRELATION_COLUMNS,
+    }))
+}
