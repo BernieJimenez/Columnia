@@ -275,7 +275,7 @@ export function App() {
   const activeProfileRequestRef = useRef<{ revision: number; sequence: number } | null>(null);
   const pageRequestRef = useRef(0);
   const operationBusyRef = useRef(false);
-  const [completedPhases, setCompletedPhases] = useState<Set<WorkflowPhase>>(() => new Set());
+  const [completedPhaseRevisions, setCompletedPhaseRevisions] = useState<Partial<Record<WorkflowPhase, number>>>({});
   const [recipeSession, setRecipeSession] = useState(0);
   const stageRef = useRef<HTMLDivElement>(null);
   const previousPhaseRef = useRef(activePhase);
@@ -287,7 +287,9 @@ export function App() {
   }, [activePhase]);
 
   function bumpDatasetRevision() {
-    datasetRevisionRef.current += 1;
+    const nextRevision = datasetRevisionRef.current + 1;
+    datasetRevisionRef.current = nextRevision;
+    setCompletedPhaseRevisions({ load: nextRevision });
     profileRequestSequenceRef.current += 1;
     pageRequestRef.current += 1;
     pageCancellationRequestRef.current = null;
@@ -297,11 +299,7 @@ export function App() {
     joinRequestRef.current += 1;
     exportRequestRef.current += 1;
     setExportStatus({ kind: "idle" });
-    setDatasetRevision(datasetRevisionRef.current);
-  }
-
-  function resetCompletedPhases() {
-    setCompletedPhases(new Set(["load"]));
+    setDatasetRevision(nextRevision);
   }
   const [sidebarUtilitiesOpen, setSidebarUtilitiesOpen] = useState(false);
   const [sidebarLegalOpen, setSidebarLegalOpen] = useState(false);
@@ -382,7 +380,6 @@ export function App() {
     },
     onProjectOpened: async ({ dataset, workspace, profile }) => {
       bumpDatasetRevision();
-      resetCompletedPhases();
       const initialDataset = createReadyDatasetStatus(dataset);
       setDatasetStatus(initialDataset);
       const previewOffset = normalizePageOffset(workspace.previewOffset ?? 0, dataset.rowCount);
@@ -614,7 +611,6 @@ export function App() {
       }));
       setDatasetStatus(createReadyDatasetStatus(dataset));
       bumpDatasetRevision();
-      resetCompletedPhases();
       projects.unlinkActiveProject();
       setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
@@ -1043,7 +1039,6 @@ export function App() {
       setReviewMutationStatus({ kind: "finalizing", mutation: "consolidate" });
       setDatasetStatus(createReadyDatasetStatus(dataset));
       bumpDatasetRevision();
-      resetCompletedPhases();
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
@@ -1110,7 +1105,6 @@ export function App() {
       setReviewMutationStatus({ kind: "finalizing", mutation: "resolveConflicts" });
       setDatasetStatus(createReadyDatasetStatus(dataset));
       bumpDatasetRevision();
-      resetCompletedPhases();
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
@@ -1187,7 +1181,6 @@ export function App() {
       setReviewMutationStatus({ kind: "finalizing", mutation: "join" });
       setDatasetStatus(createReadyDatasetStatus(dataset));
       bumpDatasetRevision();
-      resetCompletedPhases();
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
@@ -1476,7 +1469,7 @@ export function App() {
     switch (phase) {
       case "load":
       case "review":
-        return completedPhases.has(phase);
+        return completedPhaseRevisions[phase] === datasetRevision;
       case "prepare":
         return prepare.changeStatus.kind === "applied";
       case "deliver":
@@ -1495,7 +1488,7 @@ export function App() {
     setPrivacyMode(task.privacyMode);
     setExportStatus({ kind: "idle" });
     setRecipeSession((current) => current + 1);
-    setCompletedPhases(new Set(["load"]));
+    setCompletedPhaseRevisions({ load: datasetRevisionRef.current });
     setActivePhase(task.recipe ? "prepare" : "review");
   }
 
@@ -1808,7 +1801,10 @@ export function App() {
                 onCancelProfile={() => cancelActiveOperation("profile")}
                 onContinueToPrepare={(target) => {
                   setPrepareFocusTarget(target ?? null);
-                  setCompletedPhases((current) => new Set(current).add("review"));
+                  setCompletedPhaseRevisions((current) => ({
+                    ...current,
+                    review: datasetRevisionRef.current,
+                  }));
                   setActivePhase("prepare");
                 }}
                 comparisonStatus={comparisonStatus}

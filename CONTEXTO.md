@@ -7,19 +7,21 @@
 proceso de revisión. Se conserva como única fuente viva para no mantener dos
 documentos equivalentes que puedan divergir.
 
-## Estado operativo verificado — 2026-09-21
+## Estado operativo verificado — 2026-09-22
 
 La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
 A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
 acumulado, y la versión sigue sincronizada en npm, Cargo y Tauri. Este corte parte
-del commit `d44552d`. La versión identifica el alcance del producto y no implica
+del commit `4fd7f28`. La versión identifica el alcance del producto y no implica
 que estén cerrados los gates de beta con datos reales, accesibilidad nativa, SQL
 Server o distribución binaria.
 
-RV01: `bumpDatasetRevision()` invalida el éxito anterior de Entregar cuando cambia
-la revisión del dataset. Una regresión de App exporta y luego consolida desde
-Revisar para comprobar que Entregar ya no aparece como «Hecho» (1/1). La
-aceptación Cargar→Entregar con datasets de trabajo reales sigue pendiente.
+RV01: los marcadores «Hecho» de Cargar y Revisar llevan el número de revisión
+del dataset. Cada mutación reinicia Cargar en la revisión nueva e invalida la
+finalización anterior de Revisar, también cuando Preparar publica un cambio; la
+regresión App Revisar→Preparar→corrección pasa 1/1. La regresión previa confirma
+que exportar y luego consolidar invalida Entregar. La aceptación Cargar→Entregar
+con datasets de trabajo reales sigue pendiente.
 
 El smoke nativo de RV05 recorre con Playwright el panel de tareas y el selector
 Win32: el esquema distinto muestra `extra` y pide confirmación, mientras que un
@@ -562,7 +564,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este corte parte de `d44552d`; RV01 invalida el éxito de Entregar al cambiar la revisión (regresión App 1/1); RV05 conserva evidencia de reinicio real de tareas sintéticas; RV16 mantiene catorce módulos extraídos. Cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-22; este corte parte de `4fd7f28`; RV01 liga «Hecho» de Cargar y Revisar a la revisión del dataset (regresión App 1/1); RV05 conserva evidencia de reinicio real de tareas sintéticas; RV16 mantiene catorce módulos extraídos. Cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.25.0` (`v1.25.0` como referencia), sincronizada en npm, Cargo y Tauri; la app lee `CARGO_PKG_VERSION` |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -2156,6 +2158,8 @@ su prueba aislada pasa se descarta: JOIN → trazabilidad pierde filas activas.
 | 2026-09-21 | RV02/RV16: las vistas first-row/generated de encabezados delimitados y sus contratos se extraen a `dataset/delimited_header_import.rs`; se conserva el comando Tauri y el muestreo acotado/cancelable. La suite Rust pasa 494 pruebas, 0 fallos y 5 ignoradas con el harness Common Controls v6; los dos tests de revisión pasan 2/2. La versión sigue en `1.25.0`; la aceptación con datos de trabajo sigue pendiente. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/delimited_header_import.rs`, `src-tauri/src/dataset/tests.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 | 2026-09-21 | RV04: una falla al solicitar cancelación deja el trabajo activo, pero antes reemplazaba su estado por un error y quitaba el progreso/reintento. Ahora se conserva el estado, se muestra el motivo y se habilita un segundo intento para carga, análisis, exportación y comparación. La regresión de App comprueba fallo del puente, reintento y conservación del dataset anterior; App pasa 64/64 y build pasa. RV04 sigue parcial por aceptación de datasets reales y tramos nativos síncronos. Versión `1.25.0`. | `src/App.tsx`, `src/App.test.tsx`, `src/components/OperationProgressView.tsx`, modelos de carga/revisión/entrega, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+
+| 2026-09-22 | RV01: los estados «Hecho» de Cargar y Revisar quedan ligados a la revisión vigente del dataset; cada mutación restablece Cargar e invalida la finalización previa de Revisar, incluida la aplicación de cambios desde Preparar. La regresión Revisar→Preparar→corrección pasa; `npm run test -- --run src/App.test.tsx` registra 65/65 y pasan `npm run build`, `npm run docs:check` y `git diff --check`. RV01 sigue parcial hasta la aceptación Cargar→Entregar con datos de trabajo reales. Versión `1.25.0`. | `src/App.tsx`, `src/App.test.tsx`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 Pendiente para la siguiente sesión: aprobación y ejecución de T6-01–T6-11,
 aceptación jurídica T5-18/T5-20 y verificaciones externas expresamente enumeradas

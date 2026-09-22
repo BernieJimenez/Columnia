@@ -207,6 +207,45 @@ describe("App", () => {
     expect(within(screen.getByRole("button", { name: "Revisar" })).getByText("Hecho")).toBeInTheDocument();
   });
 
+  it("invalida Revisar cuando Preparar modifica la revisión del dataset", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    const original: DatasetPreview = {
+      fileName: "clientes.csv",
+      fileSizeBytes: 128,
+      rowCount: 1,
+      columnCount: 1,
+      columns: [{ name: "city", dataType: "String" }],
+      rows: [[" Bogot\u00e1 "]],
+    };
+    mockDatasetLoad(original);
+    vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({
+      dataset: { ...original, rows: [["Bogot\u00e1"]] },
+      affectedRowCount: 1,
+      changedCellCount: 1,
+      removedRowCount: 0,
+      renamedColumnCount: 0,
+      renames: [],
+    });
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", {
+      name: /Continuar a Preparar|Empezar con la prioridad principal/,
+    }));
+    expect(within(screen.getByRole("button", { name: "Revisar" })).getByText("Hecho")).toBeInTheDocument();
+
+    await switchPhase("Preparar");
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
+    expect(await screen.findByText("Plan aplicado: 1 celda actualizada.")).toBeInTheDocument();
+
+    expect(within(screen.getByRole("button", { name: "Cargar" })).getByText("Hecho")).toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: "Revisar" })).queryByText("Hecho")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: "Preparar" })).getByText("Hecho")).toBeInTheDocument();
+  });
+
   it("no marca Preparar como completada por avanzar solo con el footer genérico", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({

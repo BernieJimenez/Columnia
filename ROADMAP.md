@@ -2802,10 +2802,12 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
 - [ ] **RV01 — Flujo contextual y estado central.** Una acción primaria por
   estado; las fases se completan por resultados y todas las tareas se ligan a la
   revisión vigente.
-  - **Avance local: 2026-09-21.** Al cambiar la revisión del dataset, App invalida
-    el éxito de Entregar; exportar y luego consolidar desde Revisar ya no deja
-    la fase marcada «Hecho». La regresión de App pasa 1/1. RV01 sigue parcial
-    hasta aceptar Cargar→Entregar con datos de trabajo reales.
+  - **Avance local: 2026-09-22.** Cargar y Revisar guardan la revisión del dataset
+    en que se completaron; cada mutación reinicia Cargar en la revisión nueva e
+    invalida «Hecho» de Revisar, incluso al aplicar cambios desde Preparar. La
+    regresión Revisar→Preparar→corrección pasa 1/1; sigue vigente la regresión
+    de exportación→consolidación que invalida Entregar. RV01 sigue parcial hasta
+    aceptar Cargar→Entregar con datos de trabajo reales.
 - [ ] **RV02 — Importación unificada y explicable.** Aceptar una sola vez hoja,
   encabezados, esquema, ambigüedades y recursos; permitir revisar encabezados
   CSV antes de activar el dataset.
@@ -3000,3 +3002,5 @@ la cola hasta demostrar demanda repetida.
 | 2026-09-21 | RV02/RV16: la revisión previa de encabezados CSV/TSV y sus contratos de respuesta pasan a `dataset/delimited_header_import.rs`; `dataset.rs` conserva el mismo comando Tauri y reexporta `DelimitedHeaderReview`. No cambian el JSON, las dos interpretaciones, el límite de 64 KiB, las cinco filas visibles ni la cancelación. `cargo fmt --all -- --check`, `cargo check --tests` y `cargo test --lib` con el harness Windows Common Controls v6 pasan: 494 aprobadas, 0 fallidas y 5 ignoradas; la regresión focalizada pasa 2/2. RV02 sigue pendiente de aceptación con datasets de trabajo reales; RV16 continúa en curso. La versión permanece en `1.25.0`. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/delimited_header_import.rs`, `src-tauri/src/dataset/tests.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-21 | RV01: al cambiar la revisión del dataset se invalida el resultado de exportación y Entregar deja de aparecer completada; se cubre la secuencia de exportación exitosa seguida de consolidación en Revisar (regresión App 1/1). El gate Cargar→Entregar con datos de trabajo reales continúa pendiente. La versión permanece en `1.25.0`. | `src/App.tsx`, `src/App.test.tsx`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-21 | RV04: si `cancel_operation` falla, la interfaz conserva progreso y dataset activo, presenta el error y permite reintentar en carga, análisis, exportación y comparación; la regresión App confirma el reintento y que una sustitución cancelada conserva el dataset anterior. `npm run test -- --run src/App.test.tsx` pasa 64/64 y `npm run build` pasa. RV04 permanece parcial: aceptación con datasets de trabajo y límites de APIs nativas síncronas. La versión se mantiene en `1.25.0`. | `src/App.tsx`, `src/App.test.tsx`, `src/components/OperationProgressView.tsx`, `src/features/load/loadModel.ts`, `src/features/review/reviewModel.ts`, `src/features/review/compareModel.ts`, `src/features/delivery/deliveryModel.ts`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md`, `CONTEXTO.md` |
+
+| 2026-09-22 | RV01: los estados «Hecho» de Cargar y Revisar quedan ligados a la revisión vigente del dataset; cada mutación restablece Cargar e invalida la finalización previa de Revisar, incluida la aplicación de cambios desde Preparar. La regresión Revisar→Preparar→corrección pasa; `npm run test -- --run src/App.test.tsx` registra 65/65 y pasan `npm run build`, `npm run docs:check` y `git diff --check`. RV01 sigue parcial hasta la aceptación Cargar→Entregar con datos de trabajo reales. Versión `1.25.0`. | `src/App.tsx`, `src/App.test.tsx`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
