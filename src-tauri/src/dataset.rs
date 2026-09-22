@@ -42,6 +42,8 @@ mod csv_formula_safety;
 #[path = "dataset/delimited_header_import.rs"]
 mod delimited_header_import;
 mod file_validation;
+mod history_contracts;
+pub use history_contracts::{HistoryEntryState, HistoryResult, HistoryState};
 mod import_conventions;
 #[path = "dataset/import_profile_validation.rs"]
 mod import_profile_validation;
@@ -941,38 +943,6 @@ pub struct PersonalDataMaskResult {
     dataset: DatasetPreview,
     changed_cell_count: usize,
     changed_column_count: usize,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryResult {
-    dataset: DatasetPreview,
-    history: HistoryState,
-    message: String,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryEntryState {
-    id: Option<String>,
-    index: usize,
-    label: String,
-    is_current: bool,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryState {
-    can_undo: bool,
-    can_redo: bool,
-    current_index: usize,
-    entry_count: usize,
-    entries: Vec<HistoryEntryState>,
-    snapshots_enabled: bool,
-    degraded_reason: Option<String>,
-    max_entries: usize,
-    disk_bytes: u64,
-    disk_budget_bytes: u64,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

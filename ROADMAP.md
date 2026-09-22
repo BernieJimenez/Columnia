@@ -2895,7 +2895,7 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
   frecuente, reutilizando el contrato batch existente.
 - [ ] **RV16 — Modularización gradual del motor.** Extraer responsabilidades de
   `dataset.rs` al tocar cada área, con paridad y sin reescritura general.
-  - **Avance 2026-09-22:** RV16 cuenta con dieciséis módulos extraídos desde
+  - **Avance 2026-09-22:** RV16 cuenta con diecisiete módulos extraídos desde
     `dataset.rs`: validación de workspace/proyecto en
     `dataset/project_validation.rs`, perfiles y excepciones de importación en
     `dataset/import_profile_validation.rs`, comparación de revisiones en
@@ -2912,7 +2912,8 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
     `dataset/categorical_profile.rs`, tendencias temporales en
     `dataset/temporal_profile.rs`, admisión segura de archivos en
     `dataset/file_validation.rs` y paginación de frames/source-backed en
-    `dataset/page_reader.rs`. Se conservan rutas de comandos, API, privacidad,
+    `dataset/page_reader.rs` y los contratos de historial en
+    `dataset/history_contracts.rs`. Se conservan rutas de comandos, API, privacidad,
     JSON, límites de páginas, cancelación cooperativa, slice pushdown en Parquet
     y la detección de cambios en la fuente. El corte previo pasa la suite Rust
     completa (494 aprobadas, 0 fallidas, 5 ignoradas) con el harness Windows
@@ -3027,3 +3028,5 @@ la cola hasta demostrar demanda repetida.
 
 | 2026-09-22 | RV02: JSON/Parquet ya no se activan automáticamente tras inspeccionar la fuente. Todos los formatos abren una sola revisión previa con recursos y perfil aplicable; hoja/encabezados se limitan a Excel/CSV/TSV y muestra/convenciones a CSV/TSV. La comparación del esquema guardado aún puede requerir confirmación secundaria tras leer el candidato; queda pendiente mostrarlo en la revisión inicial y aceptar con datasets reales. `npm run build` pasa; no se ejecutaron pruebas de producto en este corte. Versión `1.25.0`; RV02 sigue parcial. | `src/App.tsx`, `src/features/load/LoadPhase.tsx`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-22 | RV04: la cancelación de una selección pendiente conserva el `selectionId` y separa el reintento de `cancel_operation` de la liberación del archivo temporal; repite únicamente el paso que falló y mantiene bloqueadas nuevas inspecciones hasta completar. `npm run build` pasa; no se ejecutaron pruebas de producto en este corte. Versión `1.26.0`; RV04 sigue parcial por aceptación con datos reales/nativa y límites síncronos. | `src/App.tsx`, `src/features/load/LoadPhase.tsx`, `src/features/load/loadModel.ts`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+
+| 2026-09-22 | RV16: los contratos serializados `HistoryResult`, `HistoryEntryState` y `HistoryState` pasan a `dataset/history_contracts.rs` y se reexportan desde `dataset.rs` para conservar sus rutas y JSON. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` y `cargo check --manifest-path src-tauri/Cargo.toml --lib` pasan; no se ejecutaron pruebas de producto en este corte. La versión vigente es `1.26.0`; RV16 continúa abierta para extracciones graduales. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/history_contracts.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
