@@ -37,13 +37,14 @@ los artefactos de validación locales.
   `dataset/snapshot_comparison.rs`, consultas en `dataset/local_query.rs`,
   estadísticas y correlaciones numéricas en `dataset/numeric_profile.rs`,
   contratos de reglas de calidad en `dataset/quality_contracts.rs`, migración,
-  validación y persistencia en `dataset/quality_documents.rs`, perfiles
-  categóricos en `dataset/categorical_profile.rs` y tendencias temporales en
-  `dataset/temporal_profile.rs`. Los contratos de reglas conservan la ruta
-  pública, privacidad de campos, JSON y comportamiento; los comandos mantienen
-  sus rutas con la migración y el almacenamiento atómico dentro del nuevo módulo.
-  Se preservan los demás contratos y límites de muestreo. `cargo check --tests`
-  pasa; la suite Rust completa registra 494 aprobadas, 0 fallidas y 5 ignoradas (dos benchmarks
+  validación y persistencia en `dataset/quality_documents.rs`, evaluación y
+  enforcement de reglas en `dataset/quality_evaluation.rs`, perfiles categóricos
+  en `dataset/categorical_profile.rs` y tendencias temporales en
+  `dataset/temporal_profile.rs`. Los contratos conservan las rutas públicas,
+  privacidad de campos, JSON y comportamiento. La evaluación source-backed
+  mantiene cancelación y enforcement previo a la exportación. Se preservan los
+  demás contratos y límites de muestreo. `cargo check --tests` pasa; la suite
+  Rust completa registra 494 aprobadas, 0 fallidas y 5 ignoradas (dos benchmarks
   opt-in y tres integraciones ODBC externas).
 - `check.ps1` y `incremental:check` incorporan Common Controls v6 al harness
   Rust de Windows durante las pruebas. `cargo check --tests` y `cargo test --lib`
