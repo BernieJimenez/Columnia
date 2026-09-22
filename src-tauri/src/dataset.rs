@@ -26681,6 +26681,29 @@ fn collect_join_frame_on_keys_with_cancel<C>(
 where
     C: Fn() -> bool + Sync,
 {
+    collect_join_frame_on_keys_with_null_order(
+        current,
+        compared,
+        current_keys,
+        compared_keys,
+        join_type,
+        false,
+        is_cancelled,
+    )
+}
+
+fn collect_join_frame_on_keys_with_null_order<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    current_keys: &[String],
+    compared_keys: &[String],
+    join_type: DatasetJoinType,
+    nulls_last: bool,
+    is_cancelled: &C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
     ensure_not_cancelled(is_cancelled())?;
     let current_order_column = (0..)
         .map(|suffix| {
@@ -26729,7 +26752,7 @@ where
                 current_order_column.as_str(),
                 compared_order_column.as_str(),
             ],
-            SortMultipleOptions::default(),
+            SortMultipleOptions::default().with_nulls_last(nulls_last),
         );
     let mut joined =
         collect_lazy_frame_streaming(plan, "No se pudieron unir los datasets por clave")?;
@@ -26767,12 +26790,13 @@ where
         join_type,
         is_cancelled,
     )?;
-    collect_join_frame_on_keys_with_cancel(
+    collect_join_frame_on_keys_with_null_order(
         current,
         compared,
         current_keys,
         compared_keys,
         join_type,
+        matches!(join_type, DatasetJoinType::Full),
         is_cancelled,
     )
 }

@@ -32,9 +32,13 @@ los artefactos de validación locales.
   cancelar la verificación; también limitan a un worker la cobertura. El comando
   de producto no cambia.
 - RV16 inicia la extracción gradual de la validación del workspace y del perfil
-  de proyecto a `dataset/project_validation.rs`, conservando la API. `cargo check --tests`
-  pasa; Windows no inicia el harness del test focalizado
-  (`STATUS_ENTRYPOINT_NOT_FOUND`).
+  de proyecto a `dataset/project_validation.rs`, conservando la API. `check.ps1`
+  y `incremental:check` incorporan Common Controls v6 al harness Rust de Windows
+  durante las pruebas. `cargo test --lib` pasa 494 pruebas; 5 se omiten porque
+  requieren servicios/drivers externos. `npm run incremental:check` pasa 16/16.
+- Se corrigen los fixtures de migración v6–v13 y el caso de versión futura; la
+  referencia eager del FULL JOIN queda alineada con el orden de la ruta por
+  bloques, que conserva primero las filas activas.
 
 ## [1.25.0] - 2026-09-21
 

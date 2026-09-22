@@ -8158,7 +8158,10 @@ fn full_join_accumulates_ordered_blocks_without_repeating_right_only_rows() {
     )
     .expect("el JOIN completo por bloques debe ejecutarse");
 
-    assert!(actual.equals_missing(&expected));
+    assert!(
+        actual.equals_missing(&expected),
+        "actual:\n{actual:?}\nexpected:\n{expected:?}"
+    );
     assert_eq!(actual.height(), row_count + 5);
 }
 

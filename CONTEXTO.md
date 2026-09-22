@@ -7,19 +7,20 @@
 proceso de revisión. Se conserva como única fuente viva para no mantener dos
 documentos equivalentes que puedan divergir.
 
-## Estado operativo verificado — 2026-09-21
+## Estado operativo verificado — 2026-09-22
 
 La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
 A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
-acumulado. El estado anterior a este corte parte de `329fa2f`; la versión
-`1.25.0` se mantiene sincronizada en los manifiestos del proyecto.
-La versión no implica que estén cerrados los gates de beta
-con datos reales, accesibilidad nativa, SQL Server o distribución binaria. En
-este corte, RV16 inicia la extracción gradual de las validaciones del workspace
-y perfil de proyecto a `src-tauri/src/dataset/project_validation.rs`; la API se
-conserva y `cargo check --tests` pasa. El test focalizado no se pudo ejecutar
-porque Windows no inicia el harness Rust (`STATUS_ENTRYPOINT_NOT_FOUND`). La cola
-operativa vigente está en
+acumulado. El estado anterior a este avance parte del commit `b622a86`; la
+versión `1.25.0` sigue sincronizada en npm, Cargo y Tauri. La versión identifica
+el alcance del producto y no implica que estén cerrados los gates de beta con
+datos reales, accesibilidad nativa, SQL Server o distribución binaria. RV16 ya
+puede ejecutar su suite Rust de Windows: `cargo test --lib` pasa 494 pruebas,
+con 5 ignoradas por depender de servicios/drivers externos; `npm run
+incremental:check` pasa 16/16 regresiones nativas. También se corrigen
+fixtures de migración obsoletos y se alinea la ruta eager de FULL JOIN con el
+orden preservado por la ejecución por bloques. La modularización gradual sigue
+en curso. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
 resume el estado; esas fuentes definen los criterios de cierre.
@@ -527,7 +528,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este corte parte de `329fa2f`; RV16 inicia la extracción gradual del módulo de validación; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-22; este corte parte de `b622a86`; el harness Rust de Windows MSVC queda operativo y la suite pasa 494/499; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.25.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -537,8 +538,8 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 449/449 frontend en 51 archivos; `npm run test:coverage` pasa la cobertura global y las cinco capas críticas; `npm run test:e2e` pasa 22/22 y ejecuta build. `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. Para este corte, `cargo check --tests` compila; el test focalizado `reusable_tasks::tests::task_catalog_round_trips_and_survives_reopening` no pudo iniciar el harness Rust por `0xc0000139` (`STATUS_ENTRYPOINT_NOT_FOUND`). Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-21, posterior al commit base `329fa2f`; registra la extracción inicial de RV16, las regresiones ampliadas y la cobertura observada para la versión `1.25.0`. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 449/449 frontend en 51 archivos; `npm run test:coverage` pasa la cobertura global y las cinco capas críticas; `npm run test:e2e` pasa 22/22 y ejecuta build. `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. La suite Rust `cargo test --lib` pasa 494 pruebas con 5 ignoradas por requerir servicios/drivers externos; `npm run incremental:check` pasa 16/16. Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
+| Última revisión de este documento | 2026-09-22, posterior al commit base `b622a86`; registra la ejecución completa de la suite Rust para RV16 y conserva la versión `1.25.0`. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
 
 ### Estado verificable de Tier 5
 
@@ -2052,6 +2053,7 @@ Al actualizarlo:
 | 2026-09-21 | El gate `tools/check.ps1` fija un worker para Vitest en pruebas y cobertura. La suite frontend pasa 449/449 con `--maxWorkers=1`; este ajuste evita fan-out y procesos huérfanos en `verify:tier` sin cambiar el comando de producto. | `tools/check.ps1`, `CONTEXTO.md`, `CHANGELOG.md`, `ROADMAP.md` |
 | 2026-09-21 | T5-04/T6-10: se amplían regresiones de App, Delivery, preparación y proyectos para las ramas faltantes sin bajar umbrales. `npm run test:coverage` pasa 51/51 suites y 449/449 pruebas; cobertura global 86,51 % sentencias, 81,49 % ramas, 87,94 % funciones y 90,60 % líneas; el checker aprueba las cinco capas críticas. | `src/App.test.tsx`, `src/features/delivery/DeliveryPhase.test.tsx`, `src/features/prepare/usePrepareController.test.tsx`, `src/features/projects/useProjectsController.test.tsx`, `tools/check-coverage.mjs`, `ROADMAP.md` |
 | 2026-09-21 | RV16: extraídas las validaciones de workspace y perfil de proyecto desde `dataset.rs` hacia `dataset/project_validation.rs`, preservando la API y las reglas existentes; también se actualiza una prueba de tareas reutilizables al método cancelable vigente. `cargo check --tests` pasa. La prueba focalizada compila pero Windows no inicia el harness (`0xc0000139`, `STATUS_ENTRYPOINT_NOT_FOUND`), así que la ejecución Rust queda pendiente; RV16 continúa abierta. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/project_validation.rs`, `src-tauri/src/reusable_tasks.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV16: el harness Rust de Windows MSVC incorpora el manifiesto de Common Controls v6 durante `cargo test --lib`; `tools/check.ps1` restaura la opción al acabar y `tools/check-incremental-matrix.mjs` la pasa a cada regresión nativa. Se corrigen fixtures de migración v6–v13 y el caso de versión futura, y se alinea el orden eager del FULL JOIN con la ruta por bloques. La suite Rust pasa 494/499; las 5 ignoradas requieren servicios/drivers externos. `npm run incremental:check` pasa 16/16 regresiones nativas. La versión continúa en `1.25.0`; los gates externos de RV07/RV09/RV10/RV11 siguen abiertos. | `src-tauri/build.rs`, `src-tauri/test-harness.manifest`, `tools/check.ps1`, `tools/check-incremental-matrix.mjs`, `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/tests.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md` |
 
 ## Documentos relacionados
 

@@ -2869,11 +2869,13 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
   frecuente, reutilizando el contrato batch existente.
 - [ ] **RV16 — Modularización gradual del motor.** Extraer responsabilidades de
   `dataset.rs` al tocar cada área, con paridad y sin reescritura general.
-  - **Avance 2026-09-21:** `validate_project_workspace` y las validaciones del
-    perfil de proyecto se movieron a `dataset/project_validation.rs`; se
-    conserva la API del módulo padre. `cargo check --tests` compila. La prueba
-    Rust focalizada no llegó a ejecutar por `STATUS_ENTRYPOINT_NOT_FOUND` del
-    loader de Windows; RV16 sigue abierta para extracciones graduales futuras.
+  - **Avance 2026-09-22:** `validate_project_workspace` y las validaciones del
+    perfil de proyecto viven en `dataset/project_validation.rs`, conservando la
+    API. El harness Rust de Windows MSVC ahora incorpora el manifiesto de
+    Common Controls v6 solo durante `cargo test --lib`; `tools/check.ps1` establece y restaura esa opción;
+    `tools/check-incremental-matrix.mjs` la pasa a cada regresión nativa. La suite completa
+    pasa: 494 pruebas aprobadas, 5 ignoradas por servicios/drivers externos y
+    ninguna fallida; `npm run incremental:check` pasa sus 16 regresiones nativas. RV16 sigue abierta para extracciones graduales futuras.
 
 Diccionario de negocio, catálogos de equivalencias, reanudación avanzada de
 lotes, vigilancia de carpetas, macOS/Linux y nuevos conectores quedan fuera de
@@ -2953,3 +2955,4 @@ la cola hasta demostrar demanda repetida.
 | 2026-09-21 | El gate `tools/check.ps1` fija `--maxWorkers=1` para Vitest y cobertura. La ejecución frontend ya pasa 449/449 con ese límite y el ajuste hace reproducible `verify:tier` en Windows, evitando fan-out y procesos huérfanos tras una cancelación; el comando de producto no cambia. | `tools/check.ps1`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-21 | T5-04/T6-10: se amplían regresiones de App, Delivery, preparación y proyectos para las ramas faltantes sin bajar umbrales. `npm run test:coverage` pasa 51/51 suites y 449/449 pruebas; cobertura global 86,51 % sentencias, 81,49 % ramas, 87,94 % funciones y 90,60 % líneas; el checker aprueba las cinco capas críticas. | `src/App.test.tsx`, `src/features/delivery/DeliveryPhase.test.tsx`, `src/features/prepare/usePrepareController.test.tsx`, `src/features/projects/useProjectsController.test.tsx`, `tools/check-coverage.mjs`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-21 | RV16: extraídas las validaciones de workspace y perfil de proyecto desde `dataset.rs` hacia `dataset/project_validation.rs`, preservando la API y las reglas existentes; también se actualiza una prueba de tareas reutilizables al método cancelable vigente. `cargo check --tests` pasa. La prueba focalizada compila pero Windows no inicia el harness (`0xc0000139`, `STATUS_ENTRYPOINT_NOT_FOUND`), así que la ejecución Rust queda pendiente; RV16 continúa abierta. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/project_validation.rs`, `src-tauri/src/reusable_tasks.rs`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV16/calidad del motor: Windows ya inicia el harness Rust con manifiesto Common Controls v6; se corrigen fixtures de migración v6–v13 (`last_opened_at`) y la prueba de versión futura (`SCHEMA_VERSION + 1`). La ruta de referencia eager del FULL JOIN comparte el orden de las consultas por bloques (filas activas primero y filas exclusivas comparadas al final). `cargo test --lib` pasa 494 pruebas; 5 quedan ignoradas por servicios/drivers externos. | `src-tauri/build.rs`, `src-tauri/test-harness.manifest`, `tools/check.ps1`, `tools/check-incremental-matrix.mjs`, `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/tests.rs` |

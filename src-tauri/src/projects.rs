@@ -3226,7 +3226,7 @@ mod tests {
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
             .execute_batch(
-                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL);
+                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL, last_opened_at TEXT);
                  PRAGMA user_version = 6;",
             )
             .unwrap();
@@ -3259,7 +3259,7 @@ mod tests {
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
             .execute_batch(
-                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL);
+                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL, last_opened_at TEXT);
                  PRAGMA user_version = 7;",
             )
             .unwrap();
@@ -3291,7 +3291,7 @@ mod tests {
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
             .execute_batch(
-                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL);
+                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL, last_opened_at TEXT);
                  PRAGMA user_version = 8;",
             )
             .unwrap();
@@ -3322,7 +3322,7 @@ mod tests {
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
             .execute_batch(
-                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL);
+                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL, last_opened_at TEXT);
                  PRAGMA user_version = 9;",
             )
             .unwrap();
@@ -3351,7 +3351,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 15;")
+            .execute_batch(&format!("PRAGMA user_version = {};", SCHEMA_VERSION + 1))
             .unwrap();
 
         let error = ProjectStore::initialize(root.clone())
@@ -3398,7 +3398,7 @@ mod tests {
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
             .execute_batch(
-                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL);
+                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL, last_opened_at TEXT);
                  PRAGMA user_version = 10;",
             )
             .unwrap();
@@ -3427,7 +3427,7 @@ mod tests {
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
             .execute_batch(
-                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL);
+                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL, last_opened_at TEXT);
                  PRAGMA user_version = 11;",
             )
             .unwrap();
@@ -3459,7 +3459,7 @@ mod tests {
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
             .execute_batch(
-                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL);
+                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL, last_opened_at TEXT);
                  PRAGMA user_version = 13;",
             )
             .unwrap();

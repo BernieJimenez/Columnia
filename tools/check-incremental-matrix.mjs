@@ -79,6 +79,7 @@ for (const test of tests) {
   console.log(`Ejecutando ${test}`);
   const result = spawnSync("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml", "--lib", test], {
     cwd: projectRoot,
+    env: { ...process.env, COLUMNIA_TEST_HARNESS_MANIFEST: "1" },
     stdio: "inherit",
   });
   if (result.error) throw result.error;

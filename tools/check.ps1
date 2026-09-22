@@ -224,7 +224,17 @@ try {
 
     if ($Profile -in @("Full", "Release", "Package")) {
         Invoke-Checked "Rust clippy" $TauriRoot { cargo clippy --all-targets -- -D warnings }
-        Invoke-Checked "Rust tests" $TauriRoot { cargo test --lib }
+        Invoke-Checked "Rust tests" $TauriRoot {
+            $manifestVariable = "COLUMNIA_TEST_HARNESS_MANIFEST"
+            $previousManifestSetting = [System.Environment]::GetEnvironmentVariable($manifestVariable, "Process")
+            [System.Environment]::SetEnvironmentVariable($manifestVariable, "1", "Process")
+            try {
+                cargo test --lib
+            }
+            finally {
+                [System.Environment]::SetEnvironmentVariable($manifestVariable, $previousManifestSetting, "Process")
+            }
+        }
     }
 
     if ($ReleaseLike) {
