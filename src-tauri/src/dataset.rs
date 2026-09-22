@@ -43,6 +43,7 @@ mod import_profile_validation;
 #[path = "dataset/local_query.rs"]
 mod local_query;
 mod numeric_profile;
+mod quality_contracts;
 mod temporal_profile;
 pub(crate) use import_profile_validation::validate_import_exception_policy;
 use import_profile_validation::{
@@ -57,6 +58,11 @@ use local_query::{
     duckdb_identifier, parse_local_join_query_spec, parse_local_query,
     prepare_duckdb_query_with_row_count, unique_duckdb_internal_name, LocalAggregate,
     LocalPredicate, LocalPredicateOperator, LocalProjection, LocalQueryPlan,
+};
+pub use quality_contracts::{
+    QualityAggregate, QualityComparison, QualityCondition, QualityMigrationReport,
+    QualityMigrationResult, QualityMigrationWarning, QualityMonotonicDirection, QualityRule,
+    QualityRuleKind, QualityRuleResult, QualityRulesDocument, QualityValidationResult,
 };
 #[path = "dataset/snapshot_comparison.rs"]
 mod snapshot_comparison;
@@ -350,183 +356,6 @@ const QUALITY_MIGRATION_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const QUALITY_RULES_DOCUMENT_FORMAT: &str = "columnia-quality-rules";
 const QUALITY_RULES_DOCUMENT_VERSION: u8 = 1;
 const LEGACY_QUALITY_DOCUMENT_MAX_VERSION: u8 = 3;
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum QualityRuleKind {
-    NotNull,
-    NonEmpty,
-    Unique,
-    NumericRange,
-    AllowedValues,
-    Regex,
-    Dtype,
-    UniqueTogether,
-    ColumnCompare,
-    ReferentialIntegrity,
-    Monotonic,
-    AggregateCheck,
-    AggregateReconciliation,
-    DistributionDrift,
-    DateRange,
-    Conditional,
-    SchemaContract,
-    RowCount,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum QualityComparison {
-    Eq,
-    Ne,
-    Lt,
-    Lte,
-    Gt,
-    Gte,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum QualityMonotonicDirection {
-    Increasing,
-    Decreasing,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum QualityAggregate {
-    Count,
-    Sum,
-    Min,
-    Max,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct QualityCondition {
-    column: String,
-    operator: Option<QualityComparison>,
-    value: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct QualityRule {
-    column: String,
-    kind: QualityRuleKind,
-    max_invalid: Option<usize>,
-    max_invalid_pct: Option<f64>,
-    min: Option<f64>,
-    max: Option<f64>,
-    values: Option<Vec<String>>,
-    reference_values: Option<Vec<String>>,
-    baseline: Option<Vec<String>>,
-    direction: Option<QualityMonotonicDirection>,
-    expected: Option<f64>,
-    aggregate: Option<QualityAggregate>,
-    tolerance_abs: Option<f64>,
-    tolerance_rel: Option<f64>,
-    threshold: Option<f64>,
-    pattern: Option<String>,
-    dtype: Option<String>,
-    columns: Option<Vec<String>>,
-    operator: Option<QualityComparison>,
-    min_date: Option<String>,
-    max_date: Option<String>,
-    when: Option<QualityCondition>,
-    then: Option<Box<QualityRule>>,
-    allow_additional: Option<bool>,
-    required_order: Option<Vec<String>>,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct QualityRuleResult {
-    column: String,
-    kind: QualityRuleKind,
-    max_invalid: Option<usize>,
-    max_invalid_pct: Option<f64>,
-    min: Option<f64>,
-    max: Option<f64>,
-    values: Option<Vec<String>>,
-    reference_values: Option<Vec<String>>,
-    baseline: Option<Vec<String>>,
-    direction: Option<QualityMonotonicDirection>,
-    expected: Option<f64>,
-    aggregate: Option<QualityAggregate>,
-    tolerance_abs: Option<f64>,
-    tolerance_rel: Option<f64>,
-    threshold: Option<f64>,
-    pattern: Option<String>,
-    dtype: Option<String>,
-    columns: Option<Vec<String>>,
-    operator: Option<QualityComparison>,
-    min_date: Option<String>,
-    max_date: Option<String>,
-    when: Option<QualityCondition>,
-    then: Option<Box<QualityRule>>,
-    allow_additional: Option<bool>,
-    required_order: Option<Vec<String>>,
-    checked_count: usize,
-    invalid_count: usize,
-    invalid_pct: f64,
-    passed: bool,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct QualityValidationResult {
-    pub(crate) passed: bool,
-    pub(crate) row_count: usize,
-    pub(crate) total_rules: usize,
-    pub(crate) failed_rules: usize,
-    rules: Vec<QualityRuleResult>,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct QualityMigrationWarning {
-    rule_index: usize,
-    source_kind: String,
-    severity: &'static str,
-    message: String,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct QualityMigrationReport {
-    artifact_sha256: Option<String>,
-    total_items: usize,
-    converted_items: usize,
-    omitted_items: usize,
-    warning_count: usize,
-    manual_actions: Vec<String>,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct QualityMigrationResult {
-    source_format: &'static str,
-    source_version: Option<String>,
-    converted_rules: Vec<QualityRule>,
-    warnings: Vec<QualityMigrationWarning>,
-    omitted_rules: usize,
-    report: QualityMigrationReport,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct QualityRulesDocument {
-    format: String,
-    version: u8,
-    rules: Vec<QualityRule>,
-}
-
-impl QualityValidationResult {
-    pub(crate) fn total_invalid_count(&self) -> usize {
-        self.rules.iter().map(|rule| rule.invalid_count).sum()
-    }
-}
 
 pub(crate) fn send_progress(
     channel: &Channel<OperationProgress>,

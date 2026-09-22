@@ -33,14 +33,14 @@ los artefactos de validación locales.
   de producto no cambia.
 - RV16 continúa la extracción gradual de `dataset.rs`: workspace/proyecto en
   `dataset/project_validation.rs`, perfiles y excepciones de importación en
-  `dataset/import_profile_validation.rs`, comparación de revisiones del
-  historial en `dataset/snapshot_comparison.rs`, consultas en
-  `dataset/local_query.rs`, estadísticas numéricas en
-  `dataset/numeric_profile.rs` (estadísticas y correlaciones numéricas eager/
-  source-backed), perfiles categóricos en `dataset/categorical_profile.rs` y
-  tendencias temporales en `dataset/temporal_profile.rs`. Los resúmenes
-  eager/source-backed comparten el cálculo de periodos; se preservan API,
-  límites de muestreo y contratos. `cargo check --tests` pasa y la suite Rust
+  `dataset/import_profile_validation.rs`, comparación del historial en
+  `dataset/snapshot_comparison.rs`, consultas en `dataset/local_query.rs`,
+  estadísticas y correlaciones numéricas en `dataset/numeric_profile.rs`,
+  contratos de reglas de calidad en `dataset/quality_contracts.rs`, perfiles
+  categóricos en `dataset/categorical_profile.rs` y tendencias temporales en
+  `dataset/temporal_profile.rs`. Los contratos de reglas conservan la ruta
+  pública, privacidad de campos, JSON y comportamiento. Se preservan los demás
+  contratos y límites de muestreo. `cargo check --tests` pasa; la suite Rust
   completa registra 494 aprobadas, 0 fallidas y 5 ignoradas (dos benchmarks
   opt-in y tres integraciones ODBC externas).
 - `check.ps1` y `incremental:check` incorporan Common Controls v6 al harness

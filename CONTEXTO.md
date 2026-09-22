@@ -11,22 +11,23 @@ documentos equivalentes que puedan divergir.
 
 La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
 A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
-acumulado, y la versión sigue sincronizada en npm, Cargo y Tauri. El avance
-actual parte del commit `271a971`. La versión identifica el alcance del producto
-y no implica que estén cerrados los gates de beta con datos reales, accesibilidad
-nativa, SQL Server o distribución binaria. RV16 separa siete responsabilidades:
-validaciones de workspace/proyecto (`dataset/project_validation.rs`), perfiles de
-importación (`dataset/import_profile_validation.rs`), comparación del historial
-(`dataset/snapshot_comparison.rs`), consultas locales (`dataset/local_query.rs`),
-perfilado numérico y correlaciones eager/source-backed
-(`dataset/numeric_profile.rs`), resúmenes categóricos
+acumulado, y la versión sigue sincronizada en npm, Cargo y Tauri. Este corte parte
+del commit `9dcf9e7`. La versión identifica el alcance del producto y no implica
+que estén cerrados los gates de beta con datos reales, accesibilidad nativa, SQL
+Server o distribución binaria. RV16 ya separa ocho responsabilidades: validación
+de workspace/proyecto (`dataset/project_validation.rs`), perfiles y excepciones
+de importación (`dataset/import_profile_validation.rs`), comparación del
+historial (`dataset/snapshot_comparison.rs`), consultas locales
+(`dataset/local_query.rs`), estadísticas y correlaciones numéricas
+(`dataset/numeric_profile.rs`), contratos de reglas de calidad
+(`dataset/quality_contracts.rs`), resúmenes categóricos
 (`dataset/categorical_profile.rs`) y perfiles temporales
-(`dataset/temporal_profile.rs`). El perfilado numérico mantiene los mismos
-límites y contratos de muestreo. Se conservan API y contratos; `cargo check
---tests`, `cargo fmt --check` y la suite documental pasan. La suite Rust completa
-pasa 494 pruebas; 5 quedan ignoradas: dos benchmarks opt-in y tres integraciones
-ODBC que requieren servicios/drivers externos. RV16 sigue abierta para
-extracciones graduales. La cola operativa vigente está en
+(`dataset/temporal_profile.rs`). Los tipos públicos de reglas se reexportan desde
+la ruta anterior y mantienen el mismo JSON. Los límites de muestreo, la API y
+los contratos se conservan. `cargo check --tests`, `cargo fmt --check`, el
+verificador documental y la suite Rust completa pasan: 494 aprobadas, 0 fallidas
+y 5 ignoradas (dos benchmarks opt-in y tres integraciones ODBC externas). RV16
+sigue abierta para extracciones graduales. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
 resume el estado; esas fuentes definen los criterios de cierre.
@@ -535,7 +536,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-22; este corte parte de `271a971`; RV16 concentra estadísticas y correlaciones numéricas en `numeric_profile.rs`. `cargo check --tests`, formato, documentación y suite Rust completa pasan (494 aprobadas, 5 ignoradas); cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-22; este corte parte de `9dcf9e7`; RV16 mueve los contratos de reglas de calidad a `quality_contracts.rs` y conserva sus reexportaciones públicas. `cargo check --tests`, formato, documentación y suite Rust completa pasan (494 aprobadas, 5 ignoradas); cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.25.0` (`v1.25.0` como referencia), sincronizada en npm, Cargo y Tauri; la app lee `CARGO_PKG_VERSION` |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -546,7 +547,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
 | Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 449/449 frontend en 51 archivos; `npm run test:coverage` pasa la cobertura global y las cinco capas críticas; `npm run test:e2e` pasa 22/22 y ejecuta build. `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. Con el manifiesto Common Controls v6, `cargo test --manifest-path src-tauri/Cargo.toml --lib -- --quiet` pasa 494/499; quedan 2 benchmarks opt-in y 3 integraciones ODBC ignorados. `npm run incremental:check` pasa 16/16. Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-22, posterior al commit base `271a971`; registra el octavo corte de RV16, que reúne el cálculo de correlaciones en `numeric_profile.rs`, y la suite Rust completa (494 pasaron, 5 ignoradas). La versión vigente continúa en `1.25.0`. La cola y los límites abiertos están detallados en `docs/reference/roadmap-current.md`; las secciones fechadas más abajo son registro histórico. |
+| Última revisión de este documento | 2026-09-22, posterior al commit base `9dcf9e7`; registra el noveno corte de RV16 y la suite Rust completa (494 pasaron, 5 ignoradas). La versión vigente continúa en `1.25.0`. La cola y los límites abiertos están detallados en `docs/reference/roadmap-current.md`; las secciones fechadas más abajo son registro histórico. |
 
 ### Estado verificable de Tier 5
 
@@ -2064,6 +2065,7 @@ Al actualizarlo:
 | 2026-09-21 | RV16: se extraen validación del perfil de importación y políticas de excepciones a `dataset/import_profile_validation.rs`; `dataset.rs` mantiene las reexportaciones públicas. `cargo check --tests` pasa; `cargo test --lib` registra 494 aprobadas, 5 ignoradas y ninguna fallida; `npm run incremental:check` pasa 16/16. La versión sigue en `1.25.0`; permanecen los gates externos de RV07/RV09/RV10/RV11. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/import_profile_validation.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-22 | RV16: comparación de revisiones del historial y deltas de calidad extraídos a `dataset/snapshot_comparison.rs`. Las pruebas dedicadas pasan 3/3; `cargo check --tests` y `cargo test --lib` pasan, con 494 aprobadas, 5 ignoradas y ninguna fallida. La versión sigue en `1.25.0`; permanecen abiertos los gates externos de RV07/RV09/RV10/RV11. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/snapshot_comparison.rs`, `src-tauri/src/dataset/snapshot_comparison_tests.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-22 | RV16: el octavo corte mueve las correlaciones numéricas eager y source-backed, el muestreo y Pearson a `dataset/numeric_profile.rs`, preservando la API y los límites existentes. `cargo check --tests`, formato, documentación y la suite Rust completa pasan: 494 aprobadas, 0 fallidas y 5 ignoradas. La versión continúa en `1.25.0`; RV16 sigue abierta para extracciones graduales. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/numeric_profile.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV16: el noveno corte extrae los contratos de reglas de calidad y `QualityValidationResult::total_invalid_count` a `dataset/quality_contracts.rs`; `dataset.rs` conserva las mismas rutas públicas mediante reexportaciones. Se mantienen privacidad de campos, nombres JSON y comportamiento. `cargo check --tests`, formato, documentación y la suite Rust completa pasan: 494 aprobadas, 0 fallidas y 5 ignoradas. La versión sigue en `1.25.0`. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/quality_contracts.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 ## Documentos relacionados
 
