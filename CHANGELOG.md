@@ -13,6 +13,12 @@ los artefactos de validación locales. La versión vigente del proyecto es
 
 ### Interno
 
+- RV02/RV04/RV16 separa en `dataset/import_source_inspection.rs` la selección nativa, el drag/drop, la inspección de hojas Excel y la revisión previa de encabezados CSV/TSV. Los comandos Tauri conservan nombres, parámetros y ruta; el trabajo cancelable conserva la generación de carga. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib`, `npm run ipc:check` y el checker documental pasan. No se ejecutaron pruebas de producto.
+
+
+
+
+
 - RV02 reúne formatos, recursos y perfiles en una revisión previa. La inspección
   nativa muestra filas, columnas, tipos y diferencias con el perfil guardado antes
   de importar, sin activar el candidato ni reemplazar el dataset actual. Excel
@@ -116,6 +122,9 @@ los artefactos de validación locales. La versión vigente del proyecto es
   y procesamiento source-backed para CSV/TSV/TXT y Parquet.
 
 ### Interno
+
+
+
 
 - La importación eager comprueba cancelación entre bloques de CSV/TSV/TXT y
   Parquet, y entre registros JSON/JSONL. XLSX/XLSB recorre celdas por bloques;
@@ -2164,6 +2173,9 @@ los artefactos de validación locales. La versión vigente del proyecto es
   `perf:check` pasan con la evidencia renovada.
 
 ### Interno
+
+
+
 
 - Reauditoría profesional exhaustiva sobre `137520b`: se añadió
   `AUDITORIA.md` y se abrió Tier 5 con 20 tareas
