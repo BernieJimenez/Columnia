@@ -12,9 +12,14 @@ documentos equivalentes que puedan divergir.
 La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
 A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
 acumulado, y la versión sigue sincronizada en npm, Cargo y Tauri. Este corte parte
-del commit `5e38407`. La versión identifica el alcance del producto y no implica
+del commit `d44552d`. La versión identifica el alcance del producto y no implica
 que estén cerrados los gates de beta con datos reales, accesibilidad nativa, SQL
 Server o distribución binaria.
+
+RV01: `bumpDatasetRevision()` invalida el éxito anterior de Entregar cuando cambia
+la revisión del dataset. Una regresión de App exporta y luego consolida desde
+Revisar para comprobar que Entregar ya no aparece como «Hecho» (1/1). La
+aceptación Cargar→Entregar con datasets de trabajo reales sigue pendiente.
 
 El smoke nativo de RV05 recorre con Playwright el panel de tareas y el selector
 Win32: el esquema distinto muestra `extra` y pide confirmación, mientras que un
@@ -557,7 +562,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este corte parte de `5e38407`; RV05 verifica persistencia de tareas reutilizables a través del reinicio real de la app; RV16 mantiene catorce módulos extraídos. `npm run smoke:restart` pasa con limpieza confirmada; la suite Rust registra 494 aprobadas, 0 fallidas y 5 ignoradas con el harness Windows Common Controls v6. Cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-21; este corte parte de `d44552d`; RV01 invalida el éxito de Entregar al cambiar la revisión (regresión App 1/1); RV05 conserva evidencia de reinicio real de tareas sintéticas; RV16 mantiene catorce módulos extraídos. Cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.25.0` (`v1.25.0` como referencia), sincronizada en npm, Cargo y Tauri; la app lee `CARGO_PKG_VERSION` |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -568,7 +573,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
 | Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 449/449 frontend en 51 archivos; `npm run test:coverage` pasa la cobertura global y las cinco capas críticas; `npm run test:e2e` pasa 22/22 y ejecuta build. `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. Con el manifiesto Common Controls v6, `cargo test --manifest-path src-tauri/Cargo.toml --lib -- --quiet` pasa 494/499; quedan 2 benchmarks opt-in y 3 integraciones ODBC ignorados. `npm run incremental:check` pasa 16/16. Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-21, posterior al commit base `5e38407`; registra la evidencia de reinicio real de tareas sintéticas para RV05 y el decimoquinto corte de RV16. `npm run smoke:restart` pasa y limpia la tarea de prueba; la suite Rust registra 494 aprobadas, 0 fallidas y 5 ignoradas con el harness Windows Common Controls v6. La versión vigente continúa en `1.25.0`. La cola y los límites abiertos están detallados en `docs/reference/roadmap-current.md`; las secciones fechadas más abajo son registro histórico. |
+| Última revisión de este documento | 2026-09-21, posterior al commit base `d44552d`; registra la invalidación de Entregar al cambiar la revisión (regresión App 1/1), la evidencia sintética de reinicio para RV05 y el decimoquinto corte de RV16. La suite Rust registra 494 aprobadas, 0 fallidas y 5 ignoradas con el harness Windows Common Controls v6. La versión vigente continúa en `1.25.0`; la cola y los gates externos abiertos están en `docs/reference/roadmap-current.md`. |
 
 ### Estado verificable de Tier 5
 

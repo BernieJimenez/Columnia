@@ -294,6 +294,7 @@ export function App() {
     comparisonPageRequestRef.current += 1;
     joinRequestRef.current += 1;
     exportRequestRef.current += 1;
+    setExportStatus({ kind: "idle" });
     setDatasetRevision(datasetRevisionRef.current);
   }
 

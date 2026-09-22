@@ -8,6 +8,7 @@ los artefactos de validación locales.
 
 ### Interno
 
+- RV01 invalida el éxito de Entregar al cambiar la revisión del dataset; la regresión App exporta y consolida desde Revisar, y confirma que la fase deja de aparecer como completada (1/1).
 - RV02/RV16 aísla la revisión de encabezados CSV/TSV en
   `dataset/delimited_header_import.rs`; conserva el payload, las opciones
   first-row/generated, el límite de muestra y la cancelación existente. La

@@ -2676,8 +2676,23 @@ describe("App", () => {
     vi.spyOn(bridge, "clearDatasetComparison").mockResolvedValue(undefined);
     vi.spyOn(bridge, "useConsolidatedDataset").mockResolvedValue(dataset);
     const joinSpy = vi.spyOn(bridge, "joinDataset").mockResolvedValue(dataset);
+    vi.spyOn(bridge, "exportDataset").mockResolvedValue({
+      fileName: "actual.zip",
+      fileSizeBytes: 2048,
+      format: "Paquete Columnia",
+      protectedColumnCount: 0,
+      protectedColumns: [],
+    });
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await waitFor(() => expect(screen.getByText("Comparar con otro dataset")).toBeInTheDocument());
+    await switchPhase("Entregar");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), { target: { value: "bundle" } });
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
+    await screen.findByRole("heading", { name: "Copia lista" });
+    expect(within(screen.getByRole("button", { name: "Entregar" })).getByText("Hecho")).toBeInTheDocument();
+    await switchPhase("Revisar");
     await waitFor(() => expect(screen.getByText("Comparar con otro dataset")).toBeInTheDocument());
     fireEvent.click(screen.getByText("Comparar con otro dataset"));
     fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
@@ -2692,6 +2707,7 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("nuevo.csv")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Consolidar filas" }));
     await waitFor(() => expect(bridge.useConsolidatedDataset).toHaveBeenCalledOnce());
+    expect(within(screen.getByRole("button", { name: "Entregar" })).queryByText("Hecho")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
     fireEvent.click(screen.getByRole("radio", { name: /^Left/ }));
