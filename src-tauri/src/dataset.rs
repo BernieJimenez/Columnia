@@ -93,10 +93,7 @@ use local_query::{
 };
 #[cfg(test)]
 use page_reader::dataset_page_from_source;
-use page_reader::{
-    dataset_page, dataset_page_from_parquet, dataset_page_from_parquet_with_cancel,
-    dataset_page_from_source_with_header_and_cancel, dataset_page_with_cancel,
-};
+use page_reader::{dataset_page, dataset_page_from_parquet};
 pub use quality_contracts::{
     QualityAggregate, QualityComparison, QualityCondition, QualityMigrationReport,
     QualityMigrationResult, QualityMigrationWarning, QualityMonotonicDirection, QualityRule,
@@ -21024,64 +21021,7 @@ pub async fn get_dataset_page(
     offset: usize,
     limit: usize,
 ) -> Result<DatasetPage, String> {
-    let generation = app.state::<DatasetState>().begin_dataset_page();
-    tauri::async_runtime::spawn_blocking(move || {
-        let cancellation_app = app.clone();
-        let is_cancelled = || {
-            cancellation_app
-                .state::<DatasetState>()
-                .dataset_page_was_cancelled(generation)
-        };
-        ensure_not_cancelled(is_cancelled())?;
-
-        let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        let dataset = current.as_mut().ok_or_else(|| {
-            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-        })?;
-
-        if let Some((path, _, row_count)) = current_history_parquet_snapshot(dataset) {
-            return dataset_page_from_parquet_with_cancel(
-                &path,
-                row_count,
-                offset,
-                limit,
-                &is_cancelled,
-            );
-        }
-
-        // A degraded history still has a safe, immutable source reference while
-        // the dataset has not been mutated. Read only the requested page from
-        // disk instead of duplicating the whole active frame for the preview.
-        if let Some((path, _)) = current_duckdb_file_source(dataset) {
-            if let Ok(extension) = dataset_extension(&path) {
-                match dataset_page_from_source_with_header_and_cancel(
-                    &path,
-                    &extension,
-                    dataset.row_count,
-                    offset,
-                    limit,
-                    dataset
-                        .delimited_header_mode
-                        .unwrap_or(SpreadsheetHeaderMode::FirstRow),
-                    &is_cancelled,
-                ) {
-                    Ok(page) => return Ok(page),
-                    Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
-                    Err(_) => {}
-                }
-            }
-        }
-
-        materialize_loaded_dataset_with_cancel(dataset, &is_cancelled)?;
-        ensure_not_cancelled(is_cancelled())?;
-        dataset_page_with_cancel(&dataset.frame, offset, limit, &is_cancelled)
-    })
-    .await
-    .map_err(|error| format!("La paginación local se interrumpió: {error}"))?
+    page_reader::get_dataset_page_impl(app, offset, limit).await
 }
 
 #[tauri::command]

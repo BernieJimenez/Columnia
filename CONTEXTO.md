@@ -46,26 +46,18 @@ sintética se elimina al terminar. Evidencia UTC: `.local/validation/webview2-cd
 alcanzó 441.495.552 bytes de memoria privada, por encima del presupuesto
 diagnóstico no aplicado de 268.435.456 bytes.
 
-RV16 ya separa veinte responsabilidades: validación de workspace/proyecto
-(`dataset/project_validation.rs`), perfiles/excepciones de importación
-(`dataset/import_profile_validation.rs`), comparación del historial
-(`dataset/snapshot_comparison.rs`), consultas locales
-(`dataset/local_query.rs`), estadísticas/correlaciones numéricas
-(`dataset/numeric_profile.rs`), contratos, persistencia y evaluación de
-reglas (`dataset/quality_contracts.rs`, `dataset/quality_documents.rs` y
-`dataset/quality_evaluation.rs`), recetas eager/lazy y source-backed
-(`dataset/recipe_engine.rs` y `dataset/recipe_source_projection.rs`),
-protección de fórmulas CSV/Bundle (`dataset/csv_formula_safety.rs`), revisión
-de encabezados (`dataset/delimited_header_import.rs`), perfiles categóricos y
-temporales (`dataset/categorical_profile.rs` y `dataset/temporal_profile.rs`),
-validación de archivos (`dataset/file_validation.rs`) y lectura paginada
-(`dataset/page_reader.rs`), historial y preflight de esquema (`dataset/history.rs` y `dataset/import_schema_preview.rs`) y el ciclo de inspección (`dataset/import_source_inspection.rs`), con selector, drag/drop, hojas Excel y revisión CSV/TSV detrás de los mismos comandos; `dataset/import_loading.rs` contiene la carga final y el descarte con publicación atómica. El lector nuevo conserva límites, errores,
-cancelación, slice pushdown Parquet y verificación de que la fuente no haya
-cambiado. La API Tauri se mantiene. La suite Rust previa registró 494
-aprobadas, 0 fallidas y 5 ignoradas; en este corte `cargo fmt --manifest-path src-tauri/Cargo.toml --all` y
-`cargo check --manifest-path src-tauri/Cargo.toml --lib` pasan, pero no se volvió a ejecutar la suite. RV16 sigue
-abierta para extracciones graduales. La
-cola operativa vigente está en
+RV16 mantiene veinte módulos con veintiuna responsabilidades extraídas de
+`dataset.rs`. Incluye validación de proyectos y archivos, inspección de fuentes,
+previsualización de esquema, carga y descarte, paginación, historial,
+comparación, perfiles, recetas, consultas, encabezados y reglas de calidad. En
+`dataset/page_reader.rs`, `get_dataset_page` conserva la misma ruta Tauri y
+centraliza token de cancelación, lectura de snapshots y fallbacks eager y
+source-backed; se mantienen límites, errores y detección de cambios en la
+fuente. La suite Rust previa registró 494 aprobadas, 0 fallidas y 5 ignoradas;
+en este corte pasan `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`,
+`cargo check --manifest-path src-tauri/Cargo.toml --lib` y `npm run ipc:check`,
+pero no se ejecutaron pruebas de producto. RV16 sigue
+en curso y la cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
 resume el estado; esas fuentes definen los criterios de cierre.
@@ -577,7 +569,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-22; RV04 conserva la selección pendiente y permite reintentar cancelación/liberación sin perder `selectionId`; RV02 revisa esquema candidato y discrepancias antes de activar, con aceptación en datasets reales pendiente; RV05 conserva evidencia de reinicio sintético; RV06 pliega por defecto la lista del historial de Preparar y deja visible su último resultado y Deshacer/Rehacer; RV16 mantiene veinte módulos; `dataset/import_loading.rs` concentra carga final y descarte con publicación atómica; `dataset/import_source_inspection.rs` agrupa la selección y revisión de fuentes. `dataset/history.rs` reúne el historial y `dataset/import_schema_preview.rs` contiene el preflight de esquema. `npm run build` pasó en RV04; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `git diff --check` pasan en RV16. No se ejecutaron pruebas de producto. Cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-22; RV04 conserva la selección pendiente y permite reintentar cancelación/liberación sin perder `selectionId`; RV02 revisa esquema candidato y discrepancias antes de activar, con aceptación en datasets reales pendiente; RV05 conserva evidencia de reinicio sintético; RV06 pliega por defecto la lista del historial de Preparar y deja visible su último resultado y Deshacer/Rehacer; RV16 mantiene veinte módulos y veintiuna responsabilidades; `dataset/page_reader.rs` concentra el handler de paginación y sus fallbacks; `dataset/import_loading.rs` concentra carga final y descarte con publicación atómica; `dataset/import_source_inspection.rs` agrupa la selección y revisión de fuentes. `dataset/history.rs` reúne el historial y `dataset/import_schema_preview.rs` contiene el preflight de esquema. `npm run build` pasó en RV04; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `git diff --check` pasan en RV16. No se ejecutaron pruebas de producto. Cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.26.0` (`v1.26.0` como referencia), sincronizada en npm, Cargo y Tauri; la app lee `CARGO_PKG_VERSION` |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -588,7 +580,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
 | Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 449/449 frontend en 51 archivos; `npm run test:coverage` pasa la cobertura global y las cinco capas críticas; `npm run test:e2e` pasa 22/22 y ejecuta build. `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. Con el manifiesto Common Controls v6, `cargo test --manifest-path src-tauri/Cargo.toml --lib -- --quiet` pasa 494/499; quedan 2 benchmarks opt-in y 3 integraciones ODBC ignorados. `npm run incremental:check` pasa 16/16. Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-22; documenta el reintento de cancelación/liberación de selecciones pendientes de RV04, el historial compacto de RV06 y la consolidación del historial en `dataset/history.rs`, el preflight de esquema en `dataset/import_schema_preview.rs` y la inspección de fuentes en `dataset/import_source_inspection.rs` y la carga final en `dataset/import_loading.rs`. `npm run build` pasa en RV04; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` y `cargo check --manifest-path src-tauri/Cargo.toml --lib` pasan en RV16. No se ejecutaron pruebas de producto. La versión vigente es `1.26.0`; RV04 sigue parcial y los gates abiertos están en `docs/reference/roadmap-current.md`. |
+| Última revisión de este documento | 2026-09-22; documenta el reintento de cancelación/liberación de selecciones pendientes de RV04, el historial compacto de RV06 y la consolidación del historial en `dataset/history.rs`, el preflight de esquema en `dataset/import_schema_preview.rs`, la inspección de fuentes en `dataset/import_source_inspection.rs`, la carga final en `dataset/import_loading.rs` y el handler de `get_dataset_page` en `dataset/page_reader.rs`. `npm run build` pasa en RV04; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` y `cargo check --manifest-path src-tauri/Cargo.toml --lib` pasan en RV16. No se ejecutaron pruebas de producto. La versión vigente es `1.26.0`; RV04 sigue parcial y los gates abiertos están en `docs/reference/roadmap-current.md`. |
 
 ### Estado verificable de Tier 5
 
@@ -2117,6 +2109,9 @@ Al actualizarlo:
 | 2026-09-22 | RV16: se extraen `HistoryResult`, `HistoryEntryState` y `HistoryState` a `dataset/history_contracts.rs`; `dataset.rs` los reexporta para conservar las rutas existentes y los nombres JSON. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` y `cargo check --manifest-path src-tauri/Cargo.toml --lib` pasan; no se ejecutaron pruebas de producto. La versión sigue en `1.26.0`; RV16 permanece en curso. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/history_contracts.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-22 | RV16: `HistoryManager` y sus contratos serializados se consolidan en `dataset/history.rs`; `dataset.rs` mantiene los reexports y rutas de uso existentes, incluidos los nombres JSON. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `git diff --check` pasan. No se ejecutaron pruebas de producto. La versión sigue en `1.26.0`; RV16 permanece en curso. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/history.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-22 | RV02/RV16: `preview_dataset_selection` delega el preflight del esquema en `dataset/import_schema_preview.rs` y conserva nombre, argumentos y ruta Tauri. Se mantienen la validación del perfil, cancelación y comprobación de que la fuente no cambió. Pasan formato Rust, compilación de la biblioteca, inventario IPC (85/4/70), validador documental estático y `git diff --check`; no se ejecutaron pruebas de producto. Versión `1.26.0`; RV02 sigue parcial a la espera de datasets reales y RV16 en curso. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/import_schema_preview.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+
+
+| 2026-09-22 | RV16: `get_dataset_page` delega en `dataset/page_reader.rs`; el wrapper conserva la firma/ruta Tauri y el lector mantiene generación de cancelación, snapshot Parquet, fallback source-backed y materialización final. Pasan formato Rust, `cargo check --lib`, IPC (85/4/70), checker documental y `git diff --check`; no se ejecutaron pruebas de producto en este corte. Versión `1.26.0`; RV16 queda en 20 módulos y 21 responsabilidades. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/page_reader.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 ## Documentos relacionados
 
