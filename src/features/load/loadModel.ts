@@ -25,6 +25,7 @@ export type DatasetStatus =
       kind: "loading";
       progress: OperationProgress;
       cancelRequested: boolean;
+      cancellationError?: string;
       previous?: ReadyDatasetStatus;
     }
   | ReadyDatasetStatus
@@ -106,7 +107,18 @@ export function updateDatasetLoadProgress(
 }
 
 export function requestDatasetLoadCancellation(current: DatasetStatus): DatasetStatus {
-  return current.kind === "loading" ? { ...current, cancelRequested: true } : current;
+  return current.kind === "loading"
+    ? { ...current, cancelRequested: true, cancellationError: undefined }
+    : current;
+}
+
+export function recoverDatasetLoadCancellationFailure(
+  current: DatasetStatus,
+  message: string,
+): DatasetStatus {
+  return current.kind === "loading"
+    ? { ...current, cancelRequested: false, cancellationError: message }
+    : current;
 }
 
 export function restoreDatasetAfterLoadFailure(current: DatasetStatus): DatasetStatus {

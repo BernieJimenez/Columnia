@@ -82,7 +82,7 @@ export function writeAnalysisSampleRowsPreference(
 
 export type ProfileStatus =
   | { kind: "idle" }
-  | { kind: "loading"; progress: OperationProgress; cancelRequested: boolean }
+  | { kind: "loading"; progress: OperationProgress; cancelRequested: boolean; cancellationError?: string }
   | { kind: "cancelled" }
   | { kind: "ready"; profile: DatasetProfile }
   | { kind: "error"; message: string };
@@ -106,7 +106,18 @@ export function updateProfileProgress(
 }
 
 export function requestProfileCancellation(current: ProfileStatus): ProfileStatus {
-  return current.kind === "loading" ? { ...current, cancelRequested: true } : current;
+  return current.kind === "loading"
+    ? { ...current, cancelRequested: true, cancellationError: undefined }
+    : current;
+}
+
+export function recoverProfileCancellationFailure(
+  current: ProfileStatus,
+  message: string,
+): ProfileStatus {
+  return current.kind === "loading"
+    ? { ...current, cancelRequested: false, cancellationError: message }
+    : current;
 }
 
 export function beginPageLoad(current: ReadyDatasetStatus): ReadyDatasetStatus {

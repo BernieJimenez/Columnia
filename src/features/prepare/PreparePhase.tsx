@@ -474,7 +474,11 @@ export function PreparePhase({
             progress={profileStatus.progress}
             cancellation={profileStatus.cancelRequested
               ? { kind: "requested" }
-              : { kind: "available", onCancel: onCancelProfile }}
+              : {
+                  kind: "available",
+                  onCancel: onCancelProfile,
+                  ...(profileStatus.cancellationError ? { error: profileStatus.cancellationError } : {}),
+                }}
           />
         </section>
       )}

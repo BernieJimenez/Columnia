@@ -5,7 +5,7 @@ import type { OperationProgress } from "../bridge";
 interface OperationProgressViewProps {
   progress: OperationProgress;
   cancellation:
-    | { kind: "available"; onCancel: () => void }
+    | { kind: "available"; onCancel: () => void; error?: string }
     | { kind: "requested" };
 }
 
@@ -85,6 +85,12 @@ export function OperationProgressView({
         <p id={descriptionId} className="operation-progress__description">
           {copy.description}
         </p>
+
+        {cancellation.kind === "available" && cancellation.error && (
+          <p className="notice notice--error" role="alert">
+            No se pudo solicitar la cancelación: {cancellation.error}
+          </p>
+        )}
 
         <div className="operation-progress__current">
           <div className="operation-progress__stage">

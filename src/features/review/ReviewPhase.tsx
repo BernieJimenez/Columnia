@@ -468,11 +468,18 @@ function DatasetComparisonSection({
         </p>
       )}
       {status.kind === "loading" && (
-        <p className="notice" role="status">
-          {comparisonCancellationPending
-            ? "Cancelación solicitada. Si el selector de archivos sigue abierto, ciérralo para terminar."
-            : "Leyendo la segunda fuente local…"}
-        </p>
+        <>
+          {status.cancellationError && (
+            <p className="notice notice--error" role="alert">
+              No se pudo solicitar la cancelación: {status.cancellationError}
+            </p>
+          )}
+          <p className="notice" role="status">
+            {comparisonCancellationPending
+              ? "Cancelación solicitada. Si el selector de archivos sigue abierto, ciérralo para terminar."
+              : "Leyendo la segunda fuente local…"}
+          </p>
+        </>
       )}
       {status.kind === "error" && (
         <p className="notice notice--error" role="alert">
@@ -777,7 +784,11 @@ function QualitySection({
           progress={status.progress}
           cancellation={status.cancelRequested
             ? { kind: "requested" }
-            : { kind: "available", onCancel }}
+            : {
+                kind: "available",
+                onCancel,
+                ...(status.cancellationError ? { error: status.cancellationError } : {}),
+              }}
         />
       )}
       {status.kind === "cancelled" && (

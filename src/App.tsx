@@ -26,6 +26,7 @@ import {
   beginDatasetLoad,
   createReadyDatasetStatus,
   requestDatasetLoadCancellation,
+  recoverDatasetLoadCancellationFailure,
   restoreDatasetAfterLoadFailure,
   setLoadInspectionError,
   beginDelimitedHeaderReview,
@@ -83,6 +84,7 @@ import {
   readAnalysisSampleRowsPreference,
   readQueryEnginePreference,
   requestProfileCancellation,
+  recoverProfileCancellationFailure,
   updateProfileProgress,
   writeAnalysisSampleRowsPreference,
   writeQueryEnginePreference,
@@ -1270,10 +1272,15 @@ export function App() {
       setProfileStatus(requestProfileCancellation);
     } else if (operation === "export") {
       setExportStatus((current) =>
-        current.kind === "loading" ? { ...current, cancellation: "requested" } : current,
+        current.kind === "loading"
+          ? { ...current, cancellation: "requested", cancellationError: undefined }
+          : current,
       );
     } else if (operation === "datasetComparison") {
       setComparisonCancellationPending(true);
+      setComparisonStatus((current) =>
+        current.kind === "loading" ? { ...current, cancellationError: undefined } : current,
+      );
     }
 
     try {
@@ -1281,14 +1288,18 @@ export function App() {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       if (operation === "load") {
-        setDatasetStatus({ kind: "error", message });
+        setDatasetStatus((current) => recoverDatasetLoadCancellationFailure(current, message));
       } else if (operation === "profile") {
-        setProfileStatus({ kind: "error", message });
+        setProfileStatus((current) => recoverProfileCancellationFailure(current, message));
       } else if (operation === "export") {
-        setExportStatus({ kind: "error", message });
+        setExportStatus((current) => current.kind === "loading"
+          ? { ...current, cancellation: "available", cancellationError: message }
+          : current);
       } else if (operation === "datasetComparison") {
         setComparisonCancellationPending(false);
-        setComparisonStatus(failComparison(message));
+        setComparisonStatus((current) => current.kind === "loading"
+          ? { ...current, cancellationError: message }
+          : current);
       }
     }
   }

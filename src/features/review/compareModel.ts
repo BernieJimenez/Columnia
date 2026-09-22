@@ -2,7 +2,7 @@ import type { DatasetComparison } from "../../bridge";
 
 export type ComparisonStatus =
   | { kind: "idle" }
-  | { kind: "loading" }
+  | { kind: "loading"; cancellationError?: string }
   | { kind: "ready"; comparison: DatasetComparison }
   | { kind: "error"; message: string };
 

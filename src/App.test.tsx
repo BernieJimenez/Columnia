@@ -1120,7 +1120,7 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ })).toBeInTheDocument();
   });
 
-  it("conserva el dataset activo cuando se cancela una sustitución", async () => {
+  it("conserva el dataset activo y permite reintentar si falla la cancelación de una sustitución", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
       value: {},
@@ -1151,7 +1151,9 @@ describe("App", () => {
         onProgress?.({ operation: "load", stage: "Leyendo y detectando columnas", percent: 25 });
         return replacementPromise;
       });
-    const cancelSpy = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
+    const cancelSpy = vi.spyOn(bridge, "cancelOperation")
+      .mockRejectedValueOnce(new Error("bridge unavailable"))
+      .mockResolvedValue(undefined);
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
@@ -1164,9 +1166,12 @@ describe("App", () => {
     fireEvent.click(within(replacementHeaderDialog).getByRole("button", { name: "Cargar archivo" }));
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
 
-    expect(cancelSpy).toHaveBeenCalledWith("load");
-    expect(screen.getByRole("button", { name: "Cancelando…" })).toBeDisabled();
-
+    expect(cancelSpy).toHaveBeenNthCalledWith(1, "load");
+    expect(await screen.findByText("No se pudo solicitar la cancelación: bridge unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Cargando dataset" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(await screen.findByRole("button", { name: "Cancelando…" })).toBeDisabled();
+    expect(cancelSpy).toHaveBeenNthCalledWith(2, "load");
     rejectReplacement("Operación cancelada por el usuario.");
     expect(await screen.findByRole("heading", { name: "activo.csv" })).toBeInTheDocument();
   });

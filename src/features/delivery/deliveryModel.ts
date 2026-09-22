@@ -140,6 +140,7 @@ export type DeliveryExportState =
       format: ExportFormat;
       progress: OperationProgress;
       cancellation: "available" | "requested";
+      cancellationError?: string;
     }
   | { kind: "success"; result: ExportResult }
   | { kind: "cancelled" }

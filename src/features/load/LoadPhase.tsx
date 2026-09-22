@@ -256,7 +256,11 @@ export function LoadPhase({
           progress={datasetStatus.progress}
           cancellation={datasetStatus.cancelRequested
             ? { kind: "requested" }
-            : { kind: "available", onCancel: onCancelLoad }}
+            : {
+                kind: "available",
+                onCancel: onCancelLoad,
+                ...(datasetStatus.cancellationError ? { error: datasetStatus.cancellationError } : {}),
+              }}
         />
       )}
       {inspection.kind === "inspecting" && (

@@ -1944,7 +1944,11 @@ export function DeliveryPhase({
           progress={exportState.progress}
           cancellation={exportState.cancellation === "requested"
             ? { kind: "requested" }
-            : { kind: "available", onCancel: onCancelExport }}
+            : {
+                kind: "available",
+                onCancel: onCancelExport,
+                ...(exportState.cancellationError ? { error: exportState.cancellationError } : {}),
+              }}
         />
       )}
       {exportState.kind === "success" && (

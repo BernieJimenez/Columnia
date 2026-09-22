@@ -2155,6 +2155,8 @@ su prueba aislada pasa se descarta: JOIN → trazabilidad pierde filas activas.
 
 | 2026-09-21 | RV02/RV16: las vistas first-row/generated de encabezados delimitados y sus contratos se extraen a `dataset/delimited_header_import.rs`; se conserva el comando Tauri y el muestreo acotado/cancelable. La suite Rust pasa 494 pruebas, 0 fallos y 5 ignoradas con el harness Common Controls v6; los dos tests de revisión pasan 2/2. La versión sigue en `1.25.0`; la aceptación con datos de trabajo sigue pendiente. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/delimited_header_import.rs`, `src-tauri/src/dataset/tests.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
+| 2026-09-21 | RV04: una falla al solicitar cancelación deja el trabajo activo, pero antes reemplazaba su estado por un error y quitaba el progreso/reintento. Ahora se conserva el estado, se muestra el motivo y se habilita un segundo intento para carga, análisis, exportación y comparación. La regresión de App comprueba fallo del puente, reintento y conservación del dataset anterior; App pasa 64/64 y build pasa. RV04 sigue parcial por aceptación de datasets reales y tramos nativos síncronos. Versión `1.25.0`. | `src/App.tsx`, `src/App.test.tsx`, `src/components/OperationProgressView.tsx`, modelos de carga/revisión/entrega, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+
 Pendiente para la siguiente sesión: aprobación y ejecución de T6-01–T6-11,
 aceptación jurídica T5-18/T5-20 y verificaciones externas expresamente enumeradas
 en el informe. No crear CONTEXT.md ni tareas de CLI/workflows/Actions.
