@@ -12,7 +12,7 @@ documentos equivalentes que puedan divergir.
 La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
 A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
 acumulado, y la versión sigue sincronizada en npm, Cargo y Tauri. Este corte parte
-del commit `76cb69f`. La versión identifica el alcance del producto y no implica
+del commit `5e38407`. La versión identifica el alcance del producto y no implica
 que estén cerrados los gates de beta con datos reales, accesibilidad nativa, SQL
 Server o distribución binaria.
 
@@ -24,7 +24,7 @@ sintética se elimina al terminar. Evidencia UTC: `.local/validation/webview2-cd
 alcanzó 441.495.552 bytes de memoria privada, por encima del presupuesto
 diagnóstico no aplicado de 268.435.456 bytes.
 
-RV16 ya separa trece responsabilidades: validación
+RV16 ya separa catorce responsabilidades: validación
 de workspace/proyecto (`dataset/project_validation.rs`), perfiles y excepciones
 de importación (`dataset/import_profile_validation.rs`), comparación del
 historial (`dataset/snapshot_comparison.rs`), consultas locales
@@ -35,7 +35,7 @@ documentos (`dataset/quality_documents.rs`), validación/evaluación de reglas
 (`dataset/quality_evaluation.rs`), ejecución y validación lazy de recetas
 (`dataset/recipe_engine.rs`), planificación y ejecución de recetas source-backed
 (`dataset/recipe_source_projection.rs`), protección contra fórmulas en texto
-para CSV/Bundle con cancelación cooperativa (`dataset/csv_formula_safety.rs`),
+para CSV/Bundle con cancelación cooperativa (`dataset/csv_formula_safety.rs`), vistas y contratos de revisión first-row/generated para CSV/TSV (`dataset/delimited_header_import.rs`),
 resúmenes categóricos (`dataset/categorical_profile.rs`) y tendencias temporales
 (`dataset/temporal_profile.rs`). Los tipos públicos de reglas se reexportan desde
 la ruta anterior y mantienen el mismo JSON; los helpers compartidos con el
@@ -557,7 +557,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-21; este corte parte de `76cb69f`; RV05 verifica persistencia de tareas reutilizables a través del reinicio real de la app; RV16 mantiene trece módulos extraídos. `npm run smoke:restart` pasa con limpieza confirmada; la suite Rust registra 494 aprobadas, 0 fallidas y 5 ignoradas con el harness Windows Common Controls v6. Cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-21; este corte parte de `5e38407`; RV05 verifica persistencia de tareas reutilizables a través del reinicio real de la app; RV16 mantiene catorce módulos extraídos. `npm run smoke:restart` pasa con limpieza confirmada; la suite Rust registra 494 aprobadas, 0 fallidas y 5 ignoradas con el harness Windows Common Controls v6. Cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.25.0` (`v1.25.0` como referencia), sincronizada en npm, Cargo y Tauri; la app lee `CARGO_PKG_VERSION` |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -568,7 +568,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
 | Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 449/449 frontend en 51 archivos; `npm run test:coverage` pasa la cobertura global y las cinco capas críticas; `npm run test:e2e` pasa 22/22 y ejecuta build. `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. Con el manifiesto Common Controls v6, `cargo test --manifest-path src-tauri/Cargo.toml --lib -- --quiet` pasa 494/499; quedan 2 benchmarks opt-in y 3 integraciones ODBC ignorados. `npm run incremental:check` pasa 16/16. Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-21, posterior al commit base `76cb69f`; registra la evidencia de reinicio real de tareas sintéticas para RV05 y el decimocuarto corte de RV16. `npm run smoke:restart` pasa y limpia la tarea de prueba; la suite Rust registra 494 aprobadas, 0 fallidas y 5 ignoradas con el harness Windows Common Controls v6. La versión vigente continúa en `1.25.0`. La cola y los límites abiertos están detallados en `docs/reference/roadmap-current.md`; las secciones fechadas más abajo son registro histórico. |
+| Última revisión de este documento | 2026-09-21, posterior al commit base `5e38407`; registra la evidencia de reinicio real de tareas sintéticas para RV05 y el decimoquinto corte de RV16. `npm run smoke:restart` pasa y limpia la tarea de prueba; la suite Rust registra 494 aprobadas, 0 fallidas y 5 ignoradas con el harness Windows Common Controls v6. La versión vigente continúa en `1.25.0`. La cola y los límites abiertos están detallados en `docs/reference/roadmap-current.md`; las secciones fechadas más abajo son registro histórico. |
 
 ### Estado verificable de Tier 5
 
@@ -2147,6 +2147,8 @@ su prueba aislada pasa se descarta: JOIN → trazabilidad pierde filas activas.
 **Decisión:** mantener controles de memoria/cobertura; no borrar su incumplimiento.
 
 | 2026-09-21 | RV16: la neutralización de prefijos de fórmula en texto CSV/Bundle se extrae a `dataset/csv_formula_safety.rs`; se conservan nulos, valores no textuales, bytes de salida y cancelación cooperativa por lotes. El test de exportación CSV/Parquet pasa, así como `cargo fmt --all -- --check`, `cargo check --tests` y la suite Rust completa con el harness Common Controls v6 (494 aprobadas, 0 fallidas y 5 ignoradas). La versión sigue en `1.25.0`; RV16 continúa abierta. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/csv_formula_safety.rs`, `src-tauri/src/dataset/tests.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+
+| 2026-09-21 | RV02/RV16: las vistas first-row/generated de encabezados delimitados y sus contratos se extraen a `dataset/delimited_header_import.rs`; se conserva el comando Tauri y el muestreo acotado/cancelable. La suite Rust pasa 494 pruebas, 0 fallos y 5 ignoradas con el harness Common Controls v6; los dos tests de revisión pasan 2/2. La versión sigue en `1.25.0`; la aceptación con datos de trabajo sigue pendiente. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/delimited_header_import.rs`, `src-tauri/src/dataset/tests.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 Pendiente para la siguiente sesión: aprobación y ejecución de T6-01–T6-11,
 aceptación jurídica T5-18/T5-20 y verificaciones externas expresamente enumeradas

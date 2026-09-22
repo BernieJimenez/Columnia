@@ -8,6 +8,10 @@ los artefactos de validación locales.
 
 ### Interno
 
+- RV02/RV16 aísla la revisión de encabezados CSV/TSV en
+  `dataset/delimited_header_import.rs`; conserva el payload, las opciones
+  first-row/generated, el límite de muestra y la cancelación existente. La
+  regresión focalizada pasa 2/2 y la suite Rust 494/494 ejecutables.
 - RV16 extrae la protección contra fórmulas en exportaciones CSV/Bundle a
   `dataset/csv_formula_safety.rs`; conserva valores nulos y no textuales,
   cancelación cooperativa y la salida Parquet original. La suite Rust completa
