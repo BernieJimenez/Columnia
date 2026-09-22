@@ -11,6 +11,10 @@ los artefactos de validación locales. La versión vigente del proyecto es
 
 - RV04: si falla cancelar una importación pendiente o liberar su selección temporal, Columnia conserva el `selectionId`, identifica el paso pendiente y permite reintentarlo sin repetir el paso completado. Las nuevas inspecciones permanecen bloqueadas hasta completar la limpieza.
 
+### Mejorado
+
+- RV06: la lista de cambios del historial en Preparar inicia plegada para dar espacio al dataset y al resultado reciente. Deshacer/Rehacer y el resumen accesible del historial permanecen visibles.
+
 ### Interno
 
 - RV02/RV04/RV16 separa en `dataset/import_source_inspection.rs` la selección nativa, el drag/drop, la inspección de hojas Excel y la revisión previa de encabezados CSV/TSV. Los comandos Tauri conservan nombres, parámetros y ruta; el trabajo cancelable conserva la generación de carga. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib`, `npm run ipc:check` y el checker documental pasan. No se ejecutaron pruebas de producto.

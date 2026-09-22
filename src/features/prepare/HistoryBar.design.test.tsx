@@ -22,7 +22,7 @@ const history: HistoryState = {
 };
 
 describe("HistoryBar design", () => {
-  it("explica el último resultado y mantiene visibles los cambios reversibles", () => {
+  it("mantiene compacto el historial y permite desplegar cambios reversibles", () => {
     const onUndo = vi.fn();
     render(
       <HistoryBar
@@ -37,6 +37,8 @@ describe("HistoryBar design", () => {
     expect(screen.getByText("Último resultado")).toBeInTheDocument();
     expect(screen.getByText("Se imputaron 3 valores nulos en: monto.")).toBeInTheDocument();
     expect(screen.getByText("Cambios realizados (2)")).toBeInTheDocument();
+    expect(screen.queryByText("Cambio 2")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Cambios realizados (2)"));
     expect(screen.getByText("Cambio 2")).toBeInTheDocument();
     expect(screen.getByText("Imputación conservadora")).toBeInTheDocument();
     const retention = screen.getByLabelText("Uso y retención del historial");

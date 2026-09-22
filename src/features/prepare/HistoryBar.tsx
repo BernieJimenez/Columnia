@@ -47,7 +47,7 @@ export function HistoryBar({
           </div>
         )}
         {status.entries.length > 1 && (
-          <details className="history-details" open>
+          <details className="history-details">
             <summary>Cambios realizados ({status.entryCount - 1})</summary>
             <ol>
               {status.entries.slice(-12).map((entry) => (
