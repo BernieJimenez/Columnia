@@ -12,18 +12,20 @@ documentos equivalentes que puedan divergir.
 La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
 A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
 acumulado, y la versión sigue sincronizada en npm, Cargo y Tauri. El avance
-actual parte del commit `e471d89`. La versión identifica el alcance del producto
+actual parte del commit `cef548e`. La versión identifica el alcance del producto
 y no implica que estén cerrados los gates de beta con datos reales, accesibilidad
-nativa, SQL Server o distribución binaria. RV16 separa validaciones de
-workspace/proyecto (`dataset/project_validation.rs`), perfiles de importación
-(`dataset/import_profile_validation.rs`), comparación del historial
-(`dataset/snapshot_comparison.rs`), parser de consultas (`dataset/local_query.rs`)
-y estadísticas numéricas (`dataset/numeric_profile.rs`) y resúmenes categóricos (`dataset/categorical_profile.rs`). Se conservan API y
-contratos; `cargo check --tests` pasa para esta extracción. La suite completa
-más reciente pasó 494 pruebas y dejó 5 ignoradas por servicios/drivers externos
-antes de extraer consultas, estadísticas y resúmenes categóricos, así que falta repetirla. La
-modularización gradual sigue abierta. La cola operativa vigente
-está en
+nativa, SQL Server o distribución binaria. RV16 separa siete responsabilidades:
+validaciones de workspace/proyecto (`dataset/project_validation.rs`), perfiles de
+importación (`dataset/import_profile_validation.rs`), comparación del historial
+(`dataset/snapshot_comparison.rs`), consultas locales (`dataset/local_query.rs`),
+estadísticas numéricas (`dataset/numeric_profile.rs`), resúmenes categóricos
+(`dataset/categorical_profile.rs`) y perfiles temporales
+(`dataset/temporal_profile.rs`). Este último comparte el cálculo de periodos con
+la agregación temporal. Se conservan API y contratos; `cargo check --tests`,
+`cargo fmt --check` y la suite documental pasan. La suite Rust completa pasa
+494 pruebas; 5 quedan ignoradas: dos benchmarks opt-in y tres integraciones ODBC
+que requieren servicios/drivers externos. RV16 sigue abierta para extracciones
+graduales. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
 historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
 resume el estado; esas fuentes definen los criterios de cierre.
@@ -532,7 +534,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-22; este corte parte de `e471d89`; el sexto módulo RV16 queda extraído. `cargo check --tests`, `cargo fmt --check` y el validador de documentación pasan; la suite Rust completa más reciente es anterior a las tres últimas extracciones; cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-22; este corte parte de `cef548e`; séptimo módulo RV16 extraído y suite Rust completa aprobada (494 pasaron, 5 ignoradas). `cargo check --tests`, `cargo fmt --check` y validador documental pasan; cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.25.0` (`v1.25.0` como referencia), sincronizada en npm, Cargo y Tauri; la app lee `CARGO_PKG_VERSION` |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -542,8 +544,8 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 449/449 frontend en 51 archivos; `npm run test:coverage` pasa la cobertura global y las cinco capas críticas; `npm run test:e2e` pasa 22/22 y ejecuta build. `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. La suite Rust `cargo test --lib` pasó 494 pruebas con 5 ignoradas por requerir servicios/drivers externos antes de las tres últimas extracciones; debe repetirse después de ellas. `npm run incremental:check` pasa 16/16. Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
-| Última revisión de este documento | 2026-09-22, posterior al commit base `e471d89`; registra la sexta extracción de RV16, la verificación de formato, compilación y documentación, y la versión vigente `1.25.0`. La suite Rust completa más reciente se ejecutó antes de las extracciones de consultas, estadísticas numéricas y resúmenes categóricos. La cola y los límites abiertos están resumidos arriba y detallados en `docs/reference/roadmap-current.md`. Las secciones fechadas más abajo son registro histórico y no deben tratarse como estado actual. |
+| Pruebas observadas | `npx vitest run --maxWorkers=1` pasa 449/449 frontend en 51 archivos; `npm run test:coverage` pasa la cobertura global y las cinco capas críticas; `npm run test:e2e` pasa 22/22 y ejecuta build. `ipc:check`, `beta:workflows:check`, `legal:check` y los smokes WebView2 previos pasan. Con el manifiesto Common Controls v6, `cargo test --manifest-path src-tauri/Cargo.toml --lib` pasa 494/499; quedan 2 benchmarks opt-in y 3 integraciones ODBC ignorados. `npm run incremental:check` pasa 16/16. Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
+| Última revisión de este documento | 2026-09-22, posterior al commit base `cef548e`; registra la séptima extracción RV16, `cargo check --tests`, formato y validación documental, suite Rust completa (494 pasaron, 5 ignoradas) y la versión vigente `1.25.0`. La cola y los límites abiertos están detallados en `docs/reference/roadmap-current.md`; las secciones fechadas más abajo son registro histórico. |
 
 ### Estado verificable de Tier 5
 
