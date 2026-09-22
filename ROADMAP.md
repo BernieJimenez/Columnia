@@ -162,7 +162,7 @@ no se modifica.
 - Matriz sintética de rendimiento para 1 y 100 MiB en cuatro perfiles, más un
   benchmark WebView2 de 100 MiB con carga, paginación, transformación,
   exportación y limpieza.
-- Modularización gradual del motor: 24 módulos concentran responsabilidades
+- Modularización gradual del motor: 25 módulos concentran responsabilidades
   antes alojadas en `dataset.rs`, incluyendo historial, importación, calidad,
   recetas, consultas y coordinadores de cancelación; se mantienen nombres de
   comandos, contratos JSON y rutas Tauri.
@@ -196,7 +196,7 @@ revisión legal continúan abiertos donde corresponde.
 | RV04 | Parcial | Ejercitar cancelación y recuperación con datos reales y documentar los tramos síncronos inevitables de Calamine, SQLite, ODBC y sistema de archivos. La publicación atómica y la cancelación de las rutas principales ya existen. |
 | RV05 | Parcial | Confirmar tareas reutilizables con archivos de trabajo reales. Guardado, reinicio, compatibilidad de esquema y aplicación como borrador ya están cubiertos localmente. |
 | RV06 | Parcial | Completar aceptación nativa con lector de pantalla. Teclado, foco, zoom, alto contraste y compactación ya tienen cobertura automatizada. |
-| RV16 | En curso | Continuar extrayendo responsabilidades de `dataset.rs` solo al tocar cada área, sin reescritura general ni cambios de contrato. Los coordinadores de cancelación/publicación ya viven en `dataset/operation_cancellation.rs`. |
+| RV16 | En curso | Continuar extrayendo responsabilidades de `dataset.rs` solo al tocar cada área, sin reescritura general ni cambios de contrato. Los coordinadores de cancelación/publicación y el estado de generaciones ya viven en módulos dedicados. |
 
 RV03 —plan completo de preparación—, RV12 —matriz de recursos y escala— y
 RV13 —respaldo/autoguardado recuperable— están cerradas. No deben reabrirse sin
