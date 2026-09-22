@@ -6,6 +6,7 @@ import type { SampleDatasetDescriptor } from "../../bridge";
 import { LoadPhase } from "./LoadPhase";
 import {
   completeDelimitedHeaderReview,
+  completeSchemaPreview,
   delimitedHeaderInspection,
   workbookInspection,
 } from "./loadModel";
@@ -133,7 +134,7 @@ describe("LoadPhase", () => {
 
     expect(screen.getByRole("dialog", { name: "Revisar encabezados de ventas.csv" })).toBeInTheDocument();
     expect(screen.getByText("Preparando una muestra local de hasta 64 KiB…")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cargar archivo" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Revisar esquema" })).toBeDisabled();
     expect(screen.getByRole("heading", { name: "anterior.csv" })).toBeInTheDocument();
 
     const readyInspection = completeDelimitedHeaderReview(pendingInspection, delimitedHeaderReview);
@@ -151,8 +152,23 @@ describe("LoadPhase", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: /Conservar la primera fila como datos/ }));
     expect(onSheetAction).toHaveBeenCalledWith({ kind: "header_mode_changed", headerMode: "generated" });
-    fireEvent.click(screen.getByRole("button", { name: "Cargar archivo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Revisar esquema" }));
     expect(onSheetAction).toHaveBeenCalledWith({ kind: "confirmed" });
+    const reviewedInspection = completeSchemaPreview(readyInspection, {
+      rowCount: 2,
+      columns: delimitedHeaderReview.generated.columns,
+      schemaMismatch: null,
+    });
+    rerender(
+      <LoadPhase
+        {...loadPhaseProps({ onSheetAction })}
+        datasetStatus={previousDataset}
+        inspection={reviewedInspection}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cargar archivo" }));
+    expect(onSheetAction).toHaveBeenCalledTimes(3);
+    expect(onSheetAction).toHaveBeenLastCalledWith({ kind: "confirmed" });
     expect(screen.getByRole("heading", { name: "anterior.csv" })).toBeInTheDocument();
   });
 
@@ -175,7 +191,7 @@ describe("LoadPhase", () => {
     expect(summary.getByText(/2 KiB/)).toBeInTheDocument();
     expect(summary.getByText("Enero")).toBeInTheDocument();
     expect(summary.getByText("Usar la primera fila")).toBeInTheDocument();
-    expect(screen.getByText(/no muestra el esquema ni los tipos/)).toBeInTheDocument();
+    expect(screen.getByText(/esquema se calcula .* antes de activar el dataset/)).toBeInTheDocument();
     expect(screen.getByText(/pueden ocupar bastante más memoria/)).toBeInTheDocument();
     const resourceSummary = screen.getByRole("region", { name: "Estimación de recursos" });
     expect(resourceSummary).toHaveTextContent("Aprox. 256 MiB (4× archivo + 256 MiB)");
@@ -185,7 +201,7 @@ describe("LoadPhase", () => {
       target: { value: "sheet-2" },
     });
     fireEvent.click(screen.getByRole("radio", { name: "Generar encabezados (column_1, column_2…)" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cargar hoja" }));
+    fireEvent.click(screen.getByRole("button", { name: "Revisar esquema" }));
 
     expect(onSheetAction).toHaveBeenNthCalledWith(1, { kind: "sheet_changed", sheetId: "sheet-2" });
     expect(onSheetAction).toHaveBeenNthCalledWith(2, {

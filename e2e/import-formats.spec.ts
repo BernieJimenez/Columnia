@@ -154,6 +154,8 @@ async function installSyntheticImportBridge(page: Page, fixture: SyntheticImport
               sampleTruncated: false,
             },
           };
+        case "preview_dataset_selection":
+          return { rowCount: dataset.rowCount, columns: dataset.columns, schemaMismatch: null };
         case "load_dataset_selection":
           return dataset;
         case "get_dataset_profile":
@@ -220,13 +222,20 @@ for (const fixture of importCases) {
       await expect(dialog.getByRole("combobox", { name: "Números" })).toBeVisible();
       await expect(dialog.getByRole("columnheader").first()).toContainText("id");
       await expect(dialog.getByRole("radio", { name: /primera fila como encabezados/ })).toBeChecked();
+      await dialog.getByRole("button", { name: "Revisar esquema" }).click();
       await dialog.getByRole("button", { name: "Cargar archivo" }).click();
     } else if (fixture.format === "excel") {
       const dialog = page.getByRole("dialog", { name: `Elegir hoja de ${fixture.fileName}` });
       await expect(dialog).toBeVisible();
       await expect(dialog.getByLabel("Hoja")).toHaveValue("sheet-sales");
       await expect(dialog.getByRole("radio", { name: /primera fila como encabezados/ })).toBeChecked();
+      await dialog.getByRole("button", { name: "Revisar esquema" }).click();
       await dialog.getByRole("button", { name: "Cargar hoja" }).click();
+    } else {
+      const dialog = page.getByRole("dialog", { name: `Revisar importación de ${fixture.fileName}` });
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Revisar esquema" }).click();
+      await dialog.getByRole("button", { name: "Cargar archivo" }).click();
     }
 
     const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
@@ -267,6 +276,8 @@ test("revisa y permite aplicar una tarea recién guardada al esquema activo", as
 
   await page.getByRole("button", { name: "Seleccionar dataset" }).click();
   const dialog = page.getByRole("dialog", { name: `Revisar encabezados de ${fixture.fileName}` });
+  await expect(dialog.getByRole("button", { name: "Revisar esquema" })).toBeEnabled();
+  await dialog.getByRole("button", { name: "Revisar esquema" }).click();
   await expect(dialog.getByRole("button", { name: "Cargar archivo" })).toBeEnabled();
   await dialog.getByRole("button", { name: "Cargar archivo" }).click();
 

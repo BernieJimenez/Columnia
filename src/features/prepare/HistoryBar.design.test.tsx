@@ -36,9 +36,10 @@ describe("HistoryBar design", () => {
 
     expect(screen.getByText("Último resultado")).toBeInTheDocument();
     expect(screen.getByText("Se imputaron 3 valores nulos en: monto.")).toBeInTheDocument();
-    expect(screen.getByText("Cambios realizados (2)")).toBeInTheDocument();
-    expect(screen.queryByText("Cambio 2")).not.toBeInTheDocument();
+    const changes = screen.getByText("Cambios realizados (2)").closest("details");
+    expect(changes).not.toHaveAttribute("open");
     fireEvent.click(screen.getByText("Cambios realizados (2)"));
+    expect(changes).toHaveAttribute("open");
     expect(screen.getByText("Cambio 2")).toBeInTheDocument();
     expect(screen.getByText("Imputación conservadora")).toBeInTheDocument();
     const retention = screen.getByLabelText("Uso y retención del historial");

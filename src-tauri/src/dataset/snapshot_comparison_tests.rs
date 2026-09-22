@@ -1,3 +1,4 @@
+use super::snapshot_comparison::compare_snapshot_frames;
 use super::*;
 
 fn before_frame() -> DataFrame {

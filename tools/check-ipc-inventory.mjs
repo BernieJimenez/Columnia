@@ -8,6 +8,8 @@ const rustPath = resolve(projectRoot, "src-tauri/src/lib.rs");
 const sourceFiles = [
   "src-tauri/src/lib.rs",
   "src-tauri/src/dataset.rs",
+  "src-tauri/src/dataset/history.rs",
+  "src-tauri/src/dataset/quality_contracts.rs",
   "src-tauri/src/diagnostics.rs",
   "src-tauri/src/dataset/samples.rs",
   "src-tauri/src/projects.rs",

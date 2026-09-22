@@ -64,16 +64,25 @@ function defaultDelimitedHeaderReview(): DelimitedHeaderReview {
 
 beforeEach(() => {
   vi.spyOn(bridge, "previewDelimitedHeaderReview").mockResolvedValue(defaultDelimitedHeaderReview());
+  vi.spyOn(bridge, "previewDatasetSelection").mockImplementation(
+    async (_selectionId, _sheetId, _headerMode, expectedProfile) => ({
+      rowCount: 1,
+      columns: expectedProfile?.schema ?? [{ name: "value", dataType: "String" }],
+      schemaMismatch: null,
+    }),
+  );
 });
 
 function renderAppWithHeaderConfirmation() {
   const view = render(<App />);
   const timer = window.setInterval(() => {
     const button = [...document.querySelectorAll<HTMLButtonElement>("button")].find((candidate) =>
+      candidate.textContent?.trim() === "Revisar esquema" ||
       candidate.textContent?.trim() === "Cargar archivo",
     );
-    if (!button || button.disabled || button.dataset.testAutoConfirm === "true") return;
-    button.dataset.testAutoConfirm = "true";
+    const action = button?.textContent?.trim();
+    if (!button || !action || button.disabled || button.dataset.testAutoConfirm === action) return;
+    button.dataset.testAutoConfirm = action;
     act(() => fireEvent.click(button));
   }, 10);
   headerConfirmationTimers.add(timer);
@@ -429,6 +438,149 @@ describe("App", () => {
     expect(screen.getByRole("combobox", { name: "Protección de datos personales" })).toHaveValue("mask");
   });
 
+  it("detecta un esquema incompatible en el preflight y carga sin aplicar el perfil guardado", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    const { task, summary } = reusableTaskFixture();
+    const loadSpy = mockDatasetLoad({
+      fileName: "cierre-cambiado.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 2,
+      columns: [
+        { name: "identificador", dataType: "String" },
+        { name: "importe", dataType: "Float64" },
+      ],
+      rows: [["20", "12.5"]],
+    });
+    vi.mocked(bridge.previewDatasetSelection).mockResolvedValueOnce({
+      rowCount: 1,
+      columns: [
+        { name: "identificador", dataType: "String" },
+        { name: "importe", dataType: "Float64" },
+      ],
+      schemaMismatch: {
+        missingColumns: ["id"],
+        addedColumns: ["identificador", "importe"],
+        changedTypes: [{ column: "id", expected: "Int64", actual: "String" }],
+      },
+    });
+
+    await prepareReusableTaskBeforeImport(task, summary);
+
+    const importDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de cierre-cambiado.csv" });
+    expect(within(importDialog).getByRole("alert")).toHaveTextContent("El esquema no coincide con el perfil guardado");
+    expect(within(importDialog).getByText("Columnas faltantes: id")).toBeInTheDocument();
+    expect(within(importDialog).getByText("Columnas nuevas: identificador, importe")).toBeInTheDocument();
+    expect(within(importDialog).getByText("Tipos distintos: id (Int64 → String)")).toBeInTheDocument();
+    expect(loadSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(within(importDialog).getByRole("button", { name: "Importar con esquema nuevo" }));
+    const applicationReview = await screen.findByRole("dialog", { name: "Revisa la configuración guardada" });
+    expect(applicationReview).toHaveTextContent("Confirmaste un esquema distinto");
+    expect(loadSpy).toHaveBeenCalledWith(
+      "selection-test",
+      null,
+      "firstRow",
+      expect.any(Function),
+      null,
+      task.importProfile.dateConvention,
+      task.importProfile.numberConvention,
+    );
+    fireEvent.click(within(applicationReview).getByRole("button", { name: "Seguir sin esos ajustes" }));
+  });
+
+  it("permite reintentar el preflight de esquema sin activar un dataset parcial", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    const loadSpy = mockDatasetLoad({
+      fileName: "reintento.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
+      columns: [{ name: "value", dataType: "String" }], rows: [["ok"]],
+    });
+    vi.mocked(bridge.previewDatasetSelection)
+      .mockRejectedValueOnce(new Error("lectura temporal fallida"))
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        columns: [{ name: "value", dataType: "String" }],
+        schemaMismatch: null,
+      });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    const importDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de reintento.csv" });
+    const reviewButton = within(importDialog).getByRole("button", { name: "Revisar esquema" });
+    await waitFor(() => expect(reviewButton).toBeEnabled());
+    fireEvent.click(reviewButton);
+
+    expect(await within(importDialog).findByRole("alert")).toHaveTextContent(
+      "No se pudo revisar el esquema: lectura temporal fallida",
+    );
+    expect(loadSpy).not.toHaveBeenCalled();
+    fireEvent.click(within(importDialog).getByRole("button", { name: "Reintentar esquema" }));
+    fireEvent.click(await within(importDialog).findByRole("button", { name: "Cargar archivo" }));
+
+    expect(await screen.findByRole("heading", { name: "reintento.csv" })).toBeInTheDocument();
+    expect(loadSpy).toHaveBeenCalledOnce();
+  });
+
+  it("recupera el selector tras un error nativo no tipado", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    vi.spyOn(bridge, "pickDatasetSource").mockRejectedValue("selector nativo no disponible");
+
+    render(<App />);
+    const selectDataset = await screen.findByRole("button", { name: "Seleccionar dataset" });
+    fireEvent.click(selectDataset);
+    await waitFor(() => expect(bridge.pickDatasetSource).toHaveBeenCalledOnce());
+    await waitFor(() => expect(selectDataset).toBeEnabled());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("reintenta la muestra de encabezados después de un fallo nativo no tipado", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    mockDatasetLoad({
+      fileName: "encabezados.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
+      columns: [{ name: "value", dataType: "String" }], rows: [["ok"]],
+    });
+    vi.mocked(bridge.previewDelimitedHeaderReview)
+      .mockRejectedValueOnce("muestra temporal fallida")
+      .mockResolvedValueOnce(defaultDelimitedHeaderReview());
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    const importDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de encabezados.csv" });
+    expect(await within(importDialog).findByRole("alert")).toHaveTextContent("muestra temporal fallida");
+
+    fireEvent.click(within(importDialog).getByRole("button", { name: "Reintentar muestra" }));
+    expect(await within(importDialog).findByRole("region", { name: "Vista previa de la interpretación" }))
+      .toHaveTextContent("La primera fila se usa para nombrar columnas");
+    expect(bridge.previewDelimitedHeaderReview).toHaveBeenCalledTimes(2);
+  });
+
+  it("restaura el estado vacío si la carga falla con un error nativo no tipado", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    const loadSpy = mockDatasetLoad({
+      fileName: "fallida.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
+      columns: [{ name: "value", dataType: "String" }], rows: [["ok"]],
+    }).mockRejectedValueOnce("lectura nativa fallida");
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+
+    await waitFor(() => expect(loadSpy).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Seleccionar dataset" })).toBeEnabled());
+    expect(screen.queryByRole("heading", { name: "fallida.csv" })).not.toBeInTheDocument();
+  });
+
   it("reutiliza un perfil CSV con encabezados generados, conserva la primera fila y no muestra otra confirmación", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
@@ -510,6 +662,34 @@ describe("App", () => {
     expect(screen.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("csv");
     expect(screen.getByRole("combobox", { name: "Protección de datos personales" })).toHaveValue("none");
     expect(applyRecipeSpy).not.toHaveBeenCalled();
+  });
+
+  it("descarta de forma segura una selección cuyo perfil falla por cambio de esquema", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    const { task, summary } = reusableTaskFixture();
+    const mismatch = {
+      code: "importProfileSchemaMismatch",
+      missingColumns: ["id"],
+      addedColumns: ["identificador"],
+      changedTypes: [],
+    } as const;
+    mockDatasetLoad({
+      fileName: "cierre-cancelado.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
+      columns: [{ name: "identificador", dataType: "String" }], rows: [["20"]],
+    }).mockRejectedValueOnce(new Error(`__columnia_import_profile_mismatch__:${JSON.stringify(mismatch)}`));
+    const cancelSpy = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
+    const discardSpy = vi.spyOn(bridge, "discardDatasetSelection").mockResolvedValue(undefined);
+
+    await prepareReusableTaskBeforeImport(task, summary);
+    const mismatchDialog = await screen.findByRole("alertdialog", { name: "El esquema difiere del perfil guardado" });
+    fireEvent.click(within(mismatchDialog).getByRole("button", { name: "Cancelar y conservar dataset" }));
+
+    await waitFor(() => expect(discardSpy).toHaveBeenCalledWith("selection-test"));
+    expect(cancelSpy).toHaveBeenCalledWith("load");
+    expect(screen.queryByRole("alertdialog", { name: "El esquema difiere del perfil guardado" })).not.toBeInTheDocument();
   });
 
   it("abre el diagnóstico local desde las preferencias tras una acción explícita", async () => {
@@ -945,7 +1125,8 @@ describe("App", () => {
     fireEvent.click(within(headerDialog).getByText("Interpretación de fechas y números (opcional)"));
     fireEvent.change(within(headerDialog).getByRole("combobox", { name: "Fechas" }), { target: { value: "dmy" } });
     fireEvent.change(within(headerDialog).getByRole("combobox", { name: "Números" }), { target: { value: "commaDecimalDotGrouping" } });
-    fireEvent.click(within(headerDialog).getByRole("button", { name: "Cargar archivo" }));
+    fireEvent.click(within(headerDialog).getByRole("button", { name: "Revisar esquema" }));
+    fireEvent.click(await within(headerDialog).findByRole("button", { name: "Cargar archivo" }));
 
     expect(await screen.findByRole("heading", { name: "temperaturas.csv" })).toBeInTheDocument();
     expect(loadSpy).toHaveBeenCalledWith(
@@ -1020,7 +1201,8 @@ describe("App", () => {
     expect(within(dialog).getByText(/Lectura source-backed/)).toBeInTheDocument();
     expect(loadSpy).not.toHaveBeenCalled();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cargar archivo" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revisar esquema" }));
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Cargar archivo" }));
     expect(await screen.findByRole("heading", { name: "clientes-grande.csv" })).toBeInTheDocument();
     expect(loadSpy).toHaveBeenCalledWith("large-source-selection", null, "firstRow", expect.any(Function), null, null, null);
   });
@@ -1197,12 +1379,14 @@ describe("App", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     const activeHeaderDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de activo.csv" });
-    fireEvent.click(within(activeHeaderDialog).getByRole("button", { name: "Cargar archivo" }));
+    fireEvent.click(within(activeHeaderDialog).getByRole("button", { name: "Revisar esquema" }));
+    fireEvent.click(await within(activeHeaderDialog).findByRole("button", { name: "Cargar archivo" }));
     await screen.findByRole("heading", { name: "activo.csv" });
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
     const replacementHeaderDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de nuevo.csv" });
-    fireEvent.click(within(replacementHeaderDialog).getByRole("button", { name: "Cargar archivo" }));
+    fireEvent.click(within(replacementHeaderDialog).getByRole("button", { name: "Revisar esquema" }));
+    fireEvent.click(await within(replacementHeaderDialog).findByRole("button", { name: "Cargar archivo" }));
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
 
     expect(cancelSpy).toHaveBeenNthCalledWith(1, "load");
@@ -1842,7 +2026,7 @@ describe("App", () => {
       rows: [["125.5"]],
     });
 
-    renderAppWithHeaderConfirmation();
+    render(<App />);
     const selectDataset = await screen.findByRole("button", { name: "Seleccionar dataset" });
     selectDataset.focus();
     fireEvent.click(selectDataset);
@@ -1850,17 +2034,18 @@ describe("App", () => {
     expect(within(dialog).getByRole("option", { name: "Ventas 2026" })).toBeInTheDocument();
     expect(within(dialog).getByText(/ocupar bastante más memoria/)).toHaveAttribute("role", "note");
     const sheetSelect = within(dialog).getByLabelText("Hoja");
-    const loadSheet = within(dialog).getByRole("button", { name: "Cargar hoja" });
+    const reviewSchema = within(dialog).getByRole("button", { name: "Revisar esquema" });
     expect(sheetSelect).toHaveFocus();
-    loadSheet.focus();
-    fireEvent.keyDown(loadSheet, { key: "Tab" });
+    reviewSchema.focus();
+    fireEvent.keyDown(reviewSchema, { key: "Tab" });
     expect(sheetSelect).toHaveFocus();
     fireEvent.keyDown(sheetSelect, { key: "Tab", shiftKey: true });
-    expect(loadSheet).toHaveFocus();
+    expect(reviewSchema).toHaveFocus();
     expect(loadSpy).not.toHaveBeenCalled();
     fireEvent.change(sheetSelect, { target: { value: "1" } });
     fireEvent.click(within(dialog).getByRole("radio", { name: /Generar encabezados/ }));
-    fireEvent.click(loadSheet);
+    fireEvent.click(reviewSchema);
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Cargar hoja" }));
 
     expect(await screen.findByRole("heading", { name: "ventas.xlsx" })).toBeInTheDocument();
     expect(loadSpy).toHaveBeenCalledWith("opaque-workbook-1", "1", "generated", expect.any(Function), null, null, null);
@@ -2800,6 +2985,16 @@ describe("App", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Error del motor: motor no disponible");
   });
 
+  it("normaliza un rechazo no tipado al inicializar el motor", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockRejectedValue("motor no disponible");
+    vi.spyOn(bridge, "listProjects").mockResolvedValue({ projects: [], recoveryCandidate: null });
+    vi.spyOn(bridge, "listSampleDatasets").mockResolvedValue([]);
+
+    render(<App />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Error del motor: motor no disponible");
+  });
+
   it("tolera un selector cancelado y permite reintentar una muestra delimitada", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "1.25.0", platform: "windows" });
@@ -2879,8 +3074,10 @@ describe("App", () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    const dialog = await screen.findByRole("dialog", { name: "Revisa el costo estimado de la carga" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Continuar con la carga" }));
+    const dialog = await screen.findByRole("dialog", { name: "Revisar importación de ventas.json" });
+    expect(within(dialog).getByText(/Lectura source-backed/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revisar esquema" }));
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Cargar archivo" }));
     expect(await screen.findByRole("heading", { name: "ventas.json" })).toBeInTheDocument();
     expect(load).toHaveBeenCalledWith("json-source", null, null, expect.any(Function), null, null, null);
   });
@@ -2940,7 +3137,7 @@ describe("App", () => {
     ));
   });
 
-  it("permite revisar un perfil reutilizable y aplicar la tarea desde el diálogo final", async () => {
+  it("permite revisar un perfil reutilizable en el diálogo unificado y aplicar la tarea", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "1.25.0", platform: "windows" });
     const { task, summary } = reusableTaskFixture();
@@ -2976,21 +3173,30 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));
     await screen.findByText(/Tarea “Cierre recurrente” preparada/);
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar dataset" }));
-    const profileDialog = await screen.findByRole("dialog", { name: "Reutilizar interpretación guardada" });
-    fireEvent.click(within(profileDialog).getByRole("button", { name: "Importar sin perfil" }));
-    const applicationDialog = await screen.findByRole("dialog", { name: "Revisa la configuración guardada" });
-    fireEvent.click(within(applicationDialog).getByRole("button", { name: "Aplicar tarea guardada" }));
+    const profileDialog = await screen.findByRole("dialog", { name: "Revisar importación de perfil.json" });
+    expect(within(profileDialog).getByRole("heading", { name: "Perfil reutilizable del proyecto" }).parentElement)
+      .toHaveTextContent("Se usará el perfil de “Cierre recurrente”");
+    fireEvent.click(within(profileDialog).getByRole("button", { name: "Revisar esquema" }));
+    fireEvent.click(await within(profileDialog).findByRole("button", { name: "Cargar archivo" }));
     expect(await screen.findByRole("heading", { name: "Prepara datos consistentes" })).toBeInTheDocument();
+    expect(bridge.loadDatasetSelection).toHaveBeenLastCalledWith(
+      "profile-json", null, null, expect.any(Function), {
+        ...jsonTask.importProfile,
+        dateConvention: "unresolved",
+        numberConvention: "unresolved",
+      }, null, null,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
-    const secondProfileDialog = await screen.findByRole("dialog", { name: "Reutilizar interpretación guardada" });
-    fireEvent.click(within(secondProfileDialog).getByRole("button", { name: "Usar perfil y revisar esquema" }));
+    const secondProfileDialog = await screen.findByRole("dialog", { name: "Revisar importación de perfil.json" });
+    fireEvent.click(within(secondProfileDialog).getByRole("button", { name: "Revisar esquema" }));
+    fireEvent.click(await within(secondProfileDialog).findByRole("button", { name: "Cargar archivo" }));
     await waitFor(() => expect(bridge.loadDatasetSelection).toHaveBeenCalledTimes(2));
     await screen.findByRole("heading", { name: "Revisa antes de modificar" });
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
-    const cancelledProfileDialog = await screen.findByRole("dialog", { name: "Reutilizar interpretación guardada" });
+    const cancelledProfileDialog = await screen.findByRole("dialog", { name: "Revisar importación de perfil.json" });
     fireEvent.click(within(cancelledProfileDialog).getByRole("button", { name: "Cancelar" }));
     await waitFor(() => expect(discard).toHaveBeenCalledWith("profile-json"));
   });

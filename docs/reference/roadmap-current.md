@@ -48,10 +48,11 @@ El benchmark WebView2 de 100 MiB pasa con 819.137 filas en
 smoke CDP completo pasa Playwright, foco, ProjectsPanel y operaciones IPC de
 proyecto en `.local/validation/webview2-cdp/20260921T230251Z/summary.json`.
 
-La verificación frontend actual pasa `449/449` pruebas en 51 archivos con
+La verificación frontend actual pasa `457/457` pruebas en 51 archivos con
 `npx vitest run --maxWorkers=1`; `npm run test:coverage` aprueba la cobertura
-global y las cinco capas críticas (86,51 % de sentencias y 81,49 % de ramas
-globales). `npm run test:e2e` pasa `22/22` y ejecuta el build de producción.
+global y las cinco capas críticas (86,17 % de sentencias y 81,34 % de ramas
+globales). `npm run test:e2e` pasa `22/22` y ejecuta el build de producción; la
+suite Rust pasa 494 pruebas ejecutables, con 5 casos externos u opt-in ignorados.
 Las regresiones de App reflejan la inspección Excel en dos llamadas, la carga
 perezosa de Preparar, el análisis antes de Entregar y los nombres accesibles
 vigentes. Los gates beta, legal e IPC pasan; RV07, RV09, RV10 y RV11 siguen

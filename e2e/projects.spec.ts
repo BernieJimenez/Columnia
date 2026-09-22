@@ -69,6 +69,8 @@ async function installTauriProjectMock(page: Page, seedRecoveryCandidate = false
               sampleTruncated: false,
             },
           };
+        case "preview_dataset_selection":
+          return { rowCount: dataset.rowCount, columns: dataset.columns, schemaMismatch: null };
         case "load_dataset_selection":
           return dataset;
         case "get_dataset_profile":
@@ -142,6 +144,7 @@ async function installTauriProjectMock(page: Page, seedRecoveryCandidate = false
 async function selectAndConfirmDataset(page: Page) {
   await page.getByRole("button", { name: "Seleccionar dataset" }).click();
   const headerReview = page.getByRole("dialog", { name: "Revisar encabezados de ventas.csv" });
+  await headerReview.getByRole("button", { name: "Revisar esquema" }).click();
   const loadButton = headerReview.getByRole("button", { name: "Cargar archivo" });
   await expect(loadButton).toBeEnabled();
   await loadButton.click();
