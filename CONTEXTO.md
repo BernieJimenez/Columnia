@@ -46,14 +46,15 @@ sintética se elimina al terminar. Evidencia UTC: `.local/validation/webview2-cd
 alcanzó 441.495.552 bytes de memoria privada, por encima del presupuesto
 diagnóstico no aplicado de 268.435.456 bytes.
 
-RV16 mantiene veintiún módulos con veintidós responsabilidades extraídas de
+RV16 mantiene veintiún módulos con veintitrés responsabilidades extraídas de
 `dataset.rs`. Incluye validación de proyectos y archivos, inspección de fuentes,
 previsualización de esquema, carga y descarte, paginación, lectura de perfiles,
 historial, comparación, perfiles numéricos/categóricos/temporales, recetas,
 consultas, encabezados y reglas de calidad. `dataset/page_reader.rs` conserva la
 ruta Tauri de `get_dataset_page` y centraliza cancelación, snapshots y fallbacks.
-`dataset/profile_reader.rs` hace lo mismo con `get_dataset_profile`, incluido el
-cache, las rutas eager/source-backed y la cancelación. Se mantienen los comandos
+`dataset/profile_reader.rs` concentra `get_dataset_profile` y
+`get_temporal_aggregation`, incluidos cache, rutas eager/source-backed y
+cancelación por generación. Se mantienen los comandos
 y resultados existentes. La suite Rust previa registró 494 aprobadas, 0 fallidas y 5 ignoradas;
 en este corte pasan `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`,
 `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `npm run ipc:check`,
@@ -570,7 +571,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
-| Última actualización | 2026-09-22; RV04 conserva la selección pendiente y permite reintentar cancelación/liberación sin perder `selectionId`; RV02 revisa esquema candidato y discrepancias antes de activar, con aceptación en datasets reales pendiente; RV05 conserva evidencia de reinicio sintético; RV06 pliega por defecto la lista del historial de Preparar y deja visible su último resultado y Deshacer/Rehacer; RV16 mantiene veintiún módulos y veintidós responsabilidades; `dataset/page_reader.rs` concentra el handler de paginación y sus fallbacks; `dataset/profile_reader.rs` concentra la orquestación del perfil; `dataset/import_loading.rs` concentra carga final y descarte con publicación atómica; `dataset/import_source_inspection.rs` agrupa la selección y revisión de fuentes. `dataset/history.rs` reúne el historial y `dataset/import_schema_preview.rs` contiene el preflight de esquema. `npm run build` pasó en RV04; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `git diff --check` pasan en RV16. No se ejecutaron pruebas de producto. Cola vigente en `docs/reference/roadmap-current.md` |
+| Última actualización | 2026-09-22; RV04 conserva la selección pendiente y permite reintentar cancelación/liberación sin perder `selectionId`; RV02 revisa esquema candidato y discrepancias antes de activar, con aceptación en datasets reales pendiente; RV05 conserva evidencia de reinicio sintético; RV06 pliega por defecto la lista del historial de Preparar y deja visible su último resultado y Deshacer/Rehacer; RV16 mantiene veintiún módulos y veintitrés responsabilidades; `dataset/page_reader.rs` concentra el handler de paginación y sus fallbacks; `dataset/profile_reader.rs` concentra perfil y agregación temporal; `dataset/import_loading.rs` concentra carga final y descarte con publicación atómica; `dataset/import_source_inspection.rs` agrupa la selección y revisión de fuentes. `dataset/history.rs` reúne el historial y `dataset/import_schema_preview.rs` contiene el preflight de esquema. `npm run build` pasó en RV04; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y `git diff --check` pasan en RV16. No se ejecutaron pruebas de producto. Cola vigente en `docs/reference/roadmap-current.md` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `1.26.0` (`v1.26.0` como referencia), sincronizada en npm, Cargo y Tauri; la app lee `CARGO_PKG_VERSION` |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -2113,6 +2114,10 @@ Al actualizarlo:
 
 
 | 2026-09-22 | RV16: `get_dataset_page` delega en `dataset/page_reader.rs`; el wrapper conserva la firma/ruta Tauri y el lector mantiene generación de cancelación, snapshot Parquet, fallback source-backed y materialización final. Pasan formato Rust, `cargo check --lib`, IPC (85/4/70), checker documental y `git diff --check`; no se ejecutaron pruebas de producto en este corte. Versión `1.26.0`; RV16 queda en 20 módulos y 21 responsabilidades. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/page_reader.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+
+
+| 2026-09-22 | RV16: `get_dataset_profile` delega su orquestación en `dataset/profile_reader.rs`. El wrapper Tauri mantiene nombre, firma y parámetros; se preservan cache validado, lectura del snapshot, fallbacks source-backed/eager y cancelación por generación. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` (58 advertencias de código inactivo, sin errores) y `npm run ipc:check` (85/4/70) pasan. No se ejecutaron pruebas de producto; versión `1.26.0`; RV16 queda en veintiún módulos y veintidós responsabilidades extraídas. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/profile_reader.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV16: `get_temporal_aggregation` delega en `dataset/profile_reader.rs`. La ruta Tauri conserva nombre, firma y argumentos; se mantienen elegibilidad de columnas, snapshots temporales, fallback source-backed, detección de cambios en el archivo y cancelación por generación. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` (58 advertencias de código inactivo, sin errores) e `npm run ipc:check` (85/4/70) pasan. No se ejecutaron pruebas de producto; versión `1.26.0`; RV16 queda en veintiún módulos y veintitrés responsabilidades extraídas. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/profile_reader.rs`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 ## Documentos relacionados
 
