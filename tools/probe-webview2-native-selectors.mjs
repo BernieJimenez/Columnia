@@ -107,10 +107,10 @@ function forbiddenFields(value) {
   return Object.keys(value).filter((key) => /path|filepath|sourcepath/i.test(key));
 }
 
-function validSource(source) {
+function validSource(source, expectedFileName = sourceFileName) {
   return Boolean(source)
     && source.format === "csv"
-    && source.fileName === sourceFileName
+    && source.fileName === expectedFileName
     && Number.isInteger(source.fileSizeBytes)
     && source.fileSizeBytes > 0
     && Array.isArray(source.sheets)
@@ -369,6 +369,100 @@ async function runLargeDatasetBenchmark(page, source) {
   };
 }
 
+async function selectDatasetFromApp(page, targetPath) {
+  const button = page.getByRole("button", { name: "Seleccionar dataset" });
+  await button.waitFor({ state: "visible", timeout: probeTimeoutMs });
+  await withTimeout(Promise.all([
+    requestNativeDialog("open", targetPath),
+    button.click(),
+  ]), helperTimeoutMs, "native_dialog_timeout");
+  await sleep(750);
+}
+
+async function prepareReusableTaskInApp(page, taskId) {
+  await page.locator("details.reusable-task-panel > summary").click();
+  const taskSelect = page.locator("#reusable-task-select");
+  await taskSelect.waitFor({ state: "visible", timeout: probeTimeoutMs });
+  await taskSelect.locator('option[value="' + taskId + '"]').waitFor({ state: "attached", timeout: probeTimeoutMs });
+  await taskSelect.selectOption(taskId);
+  await page.getByRole("heading", { name: "Configuración que se reutilizará" })
+    .waitFor({ state: "visible", timeout: probeTimeoutMs });
+  await page.getByRole("button", { name: "Preparar próxima importación" }).click();
+  await page.getByRole("button", { name: "Tarea lista para importar" })
+    .waitFor({ state: "visible", timeout: probeTimeoutMs });
+}
+
+async function runReusableTaskFlow(page, emptyRecipe) {
+  const compatiblePath = join(temporaryDirectory, "native-reusable-compatible.csv");
+  const mismatchedPath = join(temporaryDirectory, "native-reusable-mismatched.csv");
+  writeFileSync(compatiblePath, "id,value\n1,probe-a\n2,probe-b\n", "utf8");
+  writeFileSync(mismatchedPath, "id,value,extra\n1,probe-a,x\n2,probe-b,y\n", "utf8");
+  let taskId = null;
+  let outcome;
+  try {
+    const source = await invokeWithNativeDialog(page, "pick_dataset_source", {}, "open", compatiblePath);
+    if (!validSource(source, basename(compatiblePath))) throw new Error("reusable_task_profile_source_invalid");
+    const dataset = await invoke(page, "load_dataset_selection", {
+      selectionId: source.selectionId, sheetId: null, headerMode: "firstRow", onProgress: null,
+    });
+    if (!validRoundTripDataset(dataset, source.fileName)) throw new Error("reusable_task_profile_dataset_invalid");
+    const importProfile = {
+      version: 1, format: "csv", headerMode: "firstRow",
+      dateConvention: "unresolved", numberConvention: "unresolved",
+      schema: dataset.columns.map(({ name, dataType }) => ({ name, dataType })),
+    };
+    const taskName = "Native reusable task " + Date.now();
+    const recipe = {
+      version: 2, name: taskName, savedAt: new Date().toISOString(),
+      recipe: { ...emptyRecipe, renames: [{ from: "value", to: "label" }] },
+      sourceSchema: importProfile.schema,
+    };
+    const savedTask = await invoke(page, "save_reusable_task", {
+      taskId: null,
+      task: { version: 1, name: taskName, importProfile, recipe, qualityRules: [], outputFormat: "csv", privacyMode: "none" },
+    });
+    if (!savedTask || typeof savedTask.id !== "string" || savedTask.name !== taskName) {
+      throw new Error("reusable_task_save_invalid");
+    }
+    taskId = savedTask.id;
+
+    await page.reload({ waitUntil: "domcontentloaded", timeout: probeTimeoutMs });
+    await page.locator("#app-title").waitFor({ state: "visible", timeout: probeTimeoutMs });
+    await prepareReusableTaskInApp(page, taskId);
+    await selectDatasetFromApp(page, mismatchedPath);
+    await page.getByRole("button", { name: "Cargar archivo" }).click({ timeout: probeTimeoutMs });
+    await page.getByRole("heading", { name: "El esquema difiere del perfil guardado" })
+      .waitFor({ state: "visible", timeout: probeTimeoutMs });
+    const mismatchDialog = page.locator(".sheet-dialog__panel").last();
+    await mismatchDialog.waitFor({ state: "visible", timeout: probeTimeoutMs });
+    const mismatchDialogText = await mismatchDialog.innerText();
+    if (!mismatchDialogText.includes("extra")) {
+      const error = new Error("reusable_task_mismatch_details_invalid");
+      error.diagnostics = [mismatchDialogText.slice(0, 400)];
+      throw error;
+    }
+    await page.getByRole("button", { name: "Cancelar y conservar dataset" }).click();
+
+    await page.reload({ waitUntil: "domcontentloaded", timeout: probeTimeoutMs });
+    await page.locator("#app-title").waitFor({ state: "visible", timeout: probeTimeoutMs });
+    await prepareReusableTaskInApp(page, taskId);
+    await selectDatasetFromApp(page, compatiblePath);
+    await page.getByRole("button", { name: "Cargar archivo" }).click({ timeout: probeTimeoutMs });
+    await page.locator(".workspace--prepare").waitFor({ state: "visible", timeout: probeTimeoutMs });
+    outcome = {
+      taskSavedAndReopened: true,
+      mismatchRequiredConfirmation: true,
+      mismatchDetailsVerified: true,
+      compatibleTaskAutoApplied: true,
+      compatibleImportFile: basename(compatiblePath),
+      recipeDraftLoaded: true,
+    };
+  } finally {
+    if (taskId) await invoke(page, "delete_reusable_task", { taskId });
+  }
+  return { ...outcome, syntheticTaskRemoved: true };
+}
+
 async function run() {
   temporaryDirectory = mkdtempSync(join(tmpdir(), "columnia-native-selectors-"));
   const recipePath = join(temporaryDirectory, "native-selector-probe.json");
@@ -477,6 +571,8 @@ async function run() {
     join(temporaryDirectory, "native-round-trip.parquet"),
   ));
 
+  const reusableTaskFlow = await runReusableTaskFlow(page, emptyRecipe);
+
   return {
     status: "passed",
     phase: "native_file_selectors",
@@ -487,6 +583,7 @@ async function run() {
     exportPickerVerified: true,
     outputsVerified: true,
     realImportRoundTrips: roundTrips,
+    reusableTaskFlow,
     csvBytesLoaded: true,
     excelAndParquetBytesLoaded: true,
     forbiddenPathFields: false,
@@ -506,6 +603,10 @@ async function run() {
       "export_dataset:parquet",
       "pick_dataset_source:parquet",
       "load_dataset_selection:parquet",
+      "save_reusable_task",
+      "reusable_task_schema_mismatch_requires_confirmation",
+      "reusable_task_compatible_import_auto_applies",
+      "delete_reusable_task",
     ],
   };
 }

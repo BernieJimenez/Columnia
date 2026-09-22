@@ -7,14 +7,24 @@
 proceso de revisión. Se conserva como única fuente viva para no mantener dos
 documentos equivalentes que puedan divergir.
 
-## Estado operativo verificado — 2026-09-22
+## Estado operativo verificado — 2026-09-21
 
 La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
 A petición del usuario, el proyecto adopta `1.25.0` para reflejar el alcance
 acumulado, y la versión sigue sincronizada en npm, Cargo y Tauri. Este corte parte
 del commit `e638c81`. La versión identifica el alcance del producto y no implica
 que estén cerrados los gates de beta con datos reales, accesibilidad nativa, SQL
-Server o distribución binaria. RV16 ya separa doce responsabilidades: validación
+Server o distribución binaria.
+
+El smoke nativo de RV05 recorre con Playwright el panel de tareas y el selector
+Win32: el esquema distinto muestra `extra` y pide confirmación, mientras que un
+archivo compatible carga la receta guardada como borrador en Preparar. La tarea
+sintética se elimina al terminar. Evidencia UTC: `.local/validation/webview2-cdp/20260922T022017Z/native-selectors.stdout.log` y
+`.local/validation/webview2-cdp/20260922T022017Z/summary.json`. El runtime debug
+alcanzó 441.495.552 bytes de memoria privada, por encima del presupuesto
+diagnóstico no aplicado de 268.435.456 bytes.
+
+RV16 ya separa doce responsabilidades: validación
 de workspace/proyecto (`dataset/project_validation.rs`), perfiles y excepciones
 de importación (`dataset/import_profile_validation.rs`), comparación del
 historial (`dataset/snapshot_comparison.rs`), consultas locales

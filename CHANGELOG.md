@@ -15,6 +15,12 @@ los artefactos de validación locales.
   guarda, aparece en el catálogo, conserva su contenido al cerrar y reiniciar
   Columnia y se elimina con limpieza confirmada. El recorrido CDP también valida
   render, landmarks, foco, ProjectsPanel, receta, exportación y reapertura.
+- `npm run smoke:native-selectors` también comprueba por UI el flujo de tarea
+  reutilizable: el CSV incompatible exige confirmación y el compatible carga la
+  receta como borrador en Preparar. Evidencia:
+  `.local/validation/webview2-cdp/20260922T022017Z/native-selectors.stdout.log`;
+  la tarea sintética se elimina. El pico privado del runtime debug excede el
+  presupuesto diagnóstico no aplicado.
 - El benchmark WebView2 de 100 MiB confirma carga, paginación, transformación,
   exportación, memoria dentro del presupuesto del benchmark y cleanup.
 - Las regresiones de `App` quedan alineadas con la inspección Excel separada, la
