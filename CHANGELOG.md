@@ -39,13 +39,14 @@ los artefactos de validación locales.
   contratos de reglas de calidad en `dataset/quality_contracts.rs`, migración,
   validación y persistencia en `dataset/quality_documents.rs`, evaluación y
   enforcement de reglas en `dataset/quality_evaluation.rs`, validación y
-  ejecución lazy de recetas en `dataset/recipe_engine.rs`, perfiles categóricos
-  en `dataset/categorical_profile.rs` y tendencias temporales en
+  ejecución lazy de recetas en `dataset/recipe_engine.rs`, proyección y
+  ejecución source-backed en `dataset/recipe_source_projection.rs`, perfiles
+  categóricos en `dataset/categorical_profile.rs` y tendencias temporales en
   `dataset/temporal_profile.rs`. Se conservan rutas públicas, JSON, cancelación,
-  fallback eager y límites de muestreo. `cargo fmt --check` y
-  `cargo check --tests` pasan tras este corte; la suite completa no se repitió.
-  La última ejecución previa registró 494 aprobadas, 0 fallidas y 5 ignoradas
-  (dos benchmarks opt-in y tres integraciones ODBC externas).
+  helpers DuckDB compartidos, fallback eager y límites de muestreo.
+  `cargo fmt --check`, `cargo check --tests` y `cargo test --lib` pasan: 494
+  aprobadas, 0 fallidas y 5 ignoradas (dos benchmarks opt-in y tres integraciones
+  ODBC externas).
 - `check.ps1` y `incremental:check` incorporan Common Controls v6 al harness
   Rust de Windows durante las pruebas. `cargo check --tests` y `cargo test --lib`
   pasan; la suite registra 494 aprobadas, 5 ignoradas por servicios/drivers

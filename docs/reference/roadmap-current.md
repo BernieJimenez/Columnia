@@ -9,7 +9,7 @@ trabajo, protege resultados o aporta evidencia necesaria para declarar soporte.
 Las propuestas condicionadas a demanda se enumeran al final y no son trabajo
 comprometido.
 
-Avance RV16 del 2026-09-22: el motor ya separa once áreas: validación de
+Avance RV16 del 2026-09-22: el motor ya separa doce áreas: validación de
 workspace/proyecto (`dataset/project_validation.rs`), perfiles y excepciones de
 importación (`dataset/import_profile_validation.rs`), comparación del historial
 (`dataset/snapshot_comparison.rs`), gramática y planificación de consultas
@@ -18,16 +18,17 @@ importación (`dataset/import_profile_validation.rs`), comparación del historia
 (`dataset/quality_contracts.rs`), migración, validación y persistencia de
 `dataset/quality_documents.rs`, evaluación eager/source-backed
 (`dataset/quality_evaluation.rs`), validación y ejecución lazy de recetas
-(`dataset/recipe_engine.rs`), resúmenes categóricos
+(`dataset/recipe_engine.rs`), planificación y ejecución source-backed de recetas
+(`dataset/recipe_source_projection.rs`), resúmenes categóricos
 (`dataset/categorical_profile.rs`) y tendencias temporales
 (`dataset/temporal_profile.rs`). El motor de recetas conserva el fallback eager
 para operaciones fuera del plan lazy; la validación de renombrados también queda
 disponible para el plan source-backed. Se preservan rutas públicas, comandos,
 privacidad externa, JSON, cancelación, enforcement previo a exportación y límites
-de muestreo. Tras esta extracción pasan `cargo fmt --check` y
-`cargo check --tests`; la suite Rust completa no se repitió. La corrida previa
-registró 494 aprobadas y 5 ignoradas (dos benchmarks opt-in y tres integraciones
-ODBC externas). La matriz incremental anterior pasó 16/16. RV16 sigue abierta.
+de muestreo. Tras esta extracción pasan `cargo fmt --check`,
+`cargo check --tests` y la suite Rust completa: 494 aprobadas, 0 fallidas y 5
+ignoradas (dos benchmarks opt-in y tres integraciones ODBC externas). La matriz
+incremental anterior pasó 16/16. RV16 sigue abierta.
 
 La evidencia nativa más reciente está en
 `.local/validation/webview2-cdp/20260921T225717Z/summary.json`: el smoke pasa
@@ -209,7 +210,7 @@ borrado explícito continúa bajo el gate si gana el commit del catálogo.
 | RV12 | **Recursos y escala medibles.** Una matriz varía ancho, cardinalidad, texto y tamaño; mide RAM, disco, tiempo, cancelación y limpieza. Los avisos solo aparecen cuando cambian una decisión y no confunden estimación con reserva. | Rendimiento | Evidencia de RV07 | **Completada para la matriz sintética v1 y ampliada con smoke nativo.** `perf:matrix:summary` valida los ocho cruces (1 y 100 MiB × standard, wide, low-cardinality y long-text), cada uno con 3 transformaciones, 2 actualizaciones de proyecto, RAM/disco, cancelación source-backed, salida previa intacta y limpieza confirmada. El benchmark WebView2 de 100 MiB pasa con 819.137 filas, carga en 2,74 s, paginación en 38 ms, transformación en 2,62 s, exportación en 2,78 s y memoria dentro de su presupuesto de benchmark; confirma cleanup. El exportador CSV usa un hilo para mantener el orden con el límite de memoria; las mediciones cubren el motor nativo y excluyen UI/IPC. Las formas observadas en beta pueden añadirse como nuevas corridas. |
 | RV14 | **Preflight y presets de entrega.** Tipos, nulabilidad, longitud y política remota se explican antes de escribir; los presets locales se releen y se verifican en la herramienta BI elegida sin introducir conectores nuevos. | Entrega | Recorridos confirmados en RV07 | **Implementación local lista; aceptación externa pendiente.** El preflight se repite en backend y bloquea antes de DDL enteros fuera de `i64` y decimales no representables como `f64` finitos; el binding devuelve error en vez de fabricar `NULL`. Los nulos reales conservan binding tipado, los presets no guardan credenciales y `replace` se rebaja a `create_only` al reabrir. Falta elegir herramienta BI de beta y comprobar allí formatos y presets. |
 | RV15 | **Lotes gráficos.** Solo si RV07 confirma repetición frecuente: reutilizar el contrato batch con preflight conjunto, progreso por trabajo, resultados parciales honestos y ninguna sustitución implícita. | Automatización | RV05 y demanda observada | **Condicional — no iniciar hasta observar demanda frecuente en beta.** |
-| RV16 | **Modularización gradual del motor.** Extraer una responsabilidad de `dataset.rs` por cambio con contratos estables, paridad conductual y sin reescritura general. | Mantenimiento | Al tocar el área por RV02–RV05 o RV12 | **En curso — once módulos extraídos.** `dataset/project_validation.rs` separa workspace/proyecto, `dataset/import_profile_validation.rs` valida perfiles y excepciones, `dataset/snapshot_comparison.rs` compara revisiones, `dataset/local_query.rs` contiene la gramática y planificación de consultas, `dataset/numeric_profile.rs` calcula estadísticas y correlaciones, `dataset/quality_contracts.rs` define contratos de reglas, `dataset/quality_documents.rs` migra, valida y persiste documentos, `dataset/quality_evaluation.rs` evalúa reglas y enforcement de exportación, `dataset/recipe_engine.rs` valida y ejecuta el plan lazy con fallback eager, `dataset/categorical_profile.rs` resume grupos y `dataset/temporal_profile.rs` perfila tendencias y comparte periodos. Se conservan rutas de comandos, API, privacidad, JSON, cancelación, límites de muestreo y contratos. Tras este corte pasan `cargo fmt --check` y `cargo check --tests`; la suite completa no se repitió (la corrida previa registró 494 aprobadas, 0 fallidas y 5 ignoradas). La matriz incremental anterior pasó 16/16. Continúa como trabajo gradual. |
+| RV16 | **Modularización gradual del motor.** Extraer una responsabilidad de `dataset.rs` por cambio con contratos estables, paridad conductual y sin reescritura general. | Mantenimiento | Al tocar el área por RV02–RV05 o RV12 | **En curso — doce módulos extraídos.** `dataset/project_validation.rs` separa workspace/proyecto, `dataset/import_profile_validation.rs` valida perfiles y excepciones, `dataset/snapshot_comparison.rs` compara revisiones, `dataset/local_query.rs` contiene la gramática y planificación de consultas, `dataset/numeric_profile.rs` calcula estadísticas y correlaciones, `dataset/quality_contracts.rs` define contratos de reglas, `dataset/quality_documents.rs` migra, valida y persiste documentos, `dataset/quality_evaluation.rs` evalúa reglas y enforcement de exportación, `dataset/recipe_engine.rs` valida y ejecuta el plan lazy con fallback eager, `dataset/recipe_source_projection.rs` compila y ejecuta la ruta source-backed con cancelación, `dataset/categorical_profile.rs` resume grupos y `dataset/temporal_profile.rs` perfila tendencias y comparte periodos. Se conservan rutas de comandos, API, privacidad, JSON, cancelación, límites de muestreo y contratos. Tras este corte pasan `cargo fmt --check`, `cargo check --tests` y la suite completa (494 aprobadas, 0 fallidas y 5 ignoradas). La matriz incremental anterior pasó 16/16. Continúa como trabajo gradual. |
 
 ## Fuera de la cola vigente
 

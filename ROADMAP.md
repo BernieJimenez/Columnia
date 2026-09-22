@@ -2871,7 +2871,7 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
   frecuente, reutilizando el contrato batch existente.
 - [ ] **RV16 — Modularización gradual del motor.** Extraer responsabilidades de
   `dataset.rs` al tocar cada área, con paridad y sin reescritura general.
-  - **Avance 2026-09-22:** RV16 cuenta con once módulos extraídos desde
+  - **Avance 2026-09-22:** RV16 cuenta con doce módulos extraídos desde
     `dataset.rs`: validación de workspace/proyecto en
     `dataset/project_validation.rs`, perfiles y excepciones de importación en
     `dataset/import_profile_validation.rs`, comparación de revisiones en
@@ -2881,16 +2881,17 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
     `dataset/quality_contracts.rs`, migración/validación/persistencia de
     documentos en `dataset/quality_documents.rs`, evaluación de reglas en
     `dataset/quality_evaluation.rs`, ejecución y validación lazy de recetas en
-    `dataset/recipe_engine.rs`, resúmenes categóricos en
-    `dataset/categorical_profile.rs` y tendencias temporales en
+    `dataset/recipe_engine.rs`, planificación y ejecución de recetas
+    source-backed en `dataset/recipe_source_projection.rs`, resúmenes
+    categóricos en `dataset/categorical_profile.rs` y tendencias temporales en
     `dataset/temporal_profile.rs`. La ruta lazy mantiene el fallback eager y
     comparte con la planificación source-backed la validación de renombrados.
     Los perfiles eager/source-backed conservan sus contratos, la API, la
     cancelación, el enforcement previo a exportar y los límites de muestreo.
-    Tras este corte pasan `cargo fmt --check` y `cargo check --tests`; la suite
-    completa más reciente, ejecutada antes de esta extracción, registró 494
-    aprobadas, 0 fallidas y 5 ignoradas. La matriz incremental previa pasó
-    16/16. RV16 sigue abierta para extracciones graduales.
+    Tras este corte pasan `cargo fmt --check` y `cargo check --tests`; la suite Rust
+    completa registra 494 aprobadas, 0 fallidas y 5 ignoradas (dos benchmarks
+    opt-in y tres integraciones ODBC externas). La matriz incremental previa
+    pasó 16/16. RV16 sigue abierta para extracciones graduales.
 
 Diccionario de negocio, catálogos de equivalencias, reanudación avanzada de
 lotes, vigilancia de carpetas, macOS/Linux y nuevos conectores quedan fuera de
@@ -2982,4 +2983,5 @@ la cola hasta demostrar demanda repetida.
 | 2026-09-22 | RV16: el noveno corte extrae los modelos públicos de reglas de calidad y el helper del resultado a `dataset/quality_contracts.rs`; `dataset.rs` reexporta los mismos tipos con sus rutas actuales. No cambia la forma JSON ni el comportamiento. `cargo check --tests` pasa; la suite Rust completa registra 494 aprobadas, 0 fallidas y 5 ignoradas (dos benchmarks opt-in y tres integraciones ODBC externas). La versión continúa en `1.25.0`; RV16 sigue abierta. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/quality_contracts.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-22 | RV16: el décimo corte extrae migración, validación, importación y persistencia de documentos de reglas de calidad a `dataset/quality_documents.rs`. Se conservan APIs de los comandos y migraciones compatibles; la carga y el guardado siguen acotados y atómicos. `cargo check --tests` pasa y `cargo test --lib` registra 494 aprobadas, 0 fallidas y 5 ignoradas. La versión continúa en `1.25.0`; RV16 permanece en curso. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/quality_documents.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 | 2026-09-22 | RV16: el undécimo corte extrae la validación y evaluación de calidad eager/source-backed a `dataset/quality_evaluation.rs`, junto con reglas, agregaciones, cancelación y enforcement previo a la exportación. Los helpers compartidos con tendencias temporales conservan su uso interno; rutas públicas, API y comportamiento se preservan. `cargo check --tests` pasa y `cargo test --lib` registra 494 aprobadas, 0 fallidas y 5 ignoradas. La versión continúa en `1.25.0`; RV16 permanece en curso. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/quality_evaluation.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md`
-| 2026-09-22 | RV16: el duodécimo corte extrae la validación y ejecución lazy de recetas a `dataset/recipe_engine.rs`, incluido el despacho al fallback eager y la comprobación de renombrados compartida con la ruta source-backed. `cargo fmt --check` y `cargo check --tests` pasan; la suite Rust completa no se vuelve a ejecutar tras este corte. La última corrida previa registró 494 aprobadas, 0 fallidas y 5 ignoradas. La versión continúa en `1.25.0`; RV16 permanece en curso. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/recipe_engine.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV16: el duodécimo corte extrae la validación y ejecución lazy de recetas a `dataset/recipe_engine.rs`, incluido el despacho al fallback eager y la comprobación de renombrados compartida con la ruta source-backed. `cargo fmt --check` y `cargo check --tests` pasan; la suite Rust completa registra 494 aprobadas, 0 fallidas y 5 ignoradas. La versión continúa en `1.25.0`; RV16 permanece en curso. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/recipe_engine.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md`
+| 2026-09-22 | RV16: el decimotercer corte extrae la planificación y ejecución source-backed de recetas a `dataset/recipe_source_projection.rs`. Se mantienen el despacho, la cancelación, la salida Parquet y los helpers DuckDB compartidos con otras operaciones; `cargo fmt --check`, `cargo check --tests` y la suite Rust completa pasan (494 aprobadas, 0 fallidas y 5 ignoradas). La versión permanece en `1.25.0`. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/recipe_source_projection.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
