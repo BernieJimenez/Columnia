@@ -2811,17 +2811,18 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
 - [ ] **RV02 — Importación unificada y explicable.** Aceptar una sola vez hoja,
   encabezados, esquema, ambigüedades y recursos; permitir revisar encabezados
   CSV antes de activar el dataset.
-  - **Avance local: 2026-09-22.** La revisión previa ahora también detiene
-    JSON/Parquet antes de sustituir el dataset activo, y reúne en el mismo
-    diálogo el estimado de recursos y el perfil guardado aplicable. Hoja y
-    encabezados aparecen solo en Excel/CSV/TSV; las convenciones y la muestra
-    de encabezados solo en CSV/TSV. Los formatos restantes ya no se cargan
-    silenciosamente. La comparación de esquema de un perfil aún puede abrir
-    una confirmación adicional tras inspeccionar el candidato: mostrar el
-    esquema antes de la primera aceptación sigue pendiente. `npm run build`
-    pasa; no se ejecutaron pruebas de producto en este corte. RV02 permanece
-    parcial hasta revisar el esquema en esa primera confirmación y aceptar el
-    flujo con datasets de trabajo reales.
+  - **Avance local: 2026-09-22.** Todos los formatos requieren revisión previa
+    con recursos y perfil; la nueva inspección nativa calcula filas, columnas,
+    tipos y diferencias con el perfil sin activar ni reemplazar el dataset
+    actual. El diálogo muestra el esquema candidato antes de la confirmación
+    final; Excel agrega hoja/encabezados, y CSV/TSV agregan muestra, ambas
+    interpretaciones y convenciones. El perfil solo se aplica cuando su esquema
+    coincide. La confirmación final vuelve a leer el archivo y conserva el
+    control de cambio de tamaño; una discrepancia sobrevenida conserva la vía de
+    recuperación existente. `npm run build`, `cargo check --manifest-path
+    src-tauri/Cargo.toml --lib` y `npm run ipc:check` pasan; no se ejecutaron
+    pruebas de producto en este corte. RV02 sigue parcial hasta aceptar el flujo
+    con datasets de trabajo reales.
 - [x] **RV03 — Plan completo y resultado antes/después.** Reunir operaciones,
   motivos e impacto en una unidad reversible compatible y recalcular calidad al
   terminar.

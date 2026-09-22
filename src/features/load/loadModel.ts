@@ -1,5 +1,6 @@
 import type {
   DatasetPreview,
+  DatasetImportSchemaPreview,
   DatasetSourceInspection,
   DelimitedHeaderReview,
   ImportDateConvention,
@@ -49,6 +50,9 @@ export type LoadInspectionState =
       useSavedProfile: boolean;
       headerReview?: DelimitedHeaderReview | null;
       headerReviewLoading?: boolean;
+      schemaPreview?: DatasetImportSchemaPreview | null;
+      schemaPreviewLoading?: boolean;
+      schemaPreviewError?: string | null;
       error: string | null;
     }
   | {
@@ -192,28 +196,52 @@ export function beginDelimitedHeaderReview(current: LoadInspectionState): LoadIn
   return { ...current, headerReview: null, headerReviewLoading: true, error: null };
 }
 
+export function beginSchemaPreview(current: LoadInspectionState): LoadInspectionState {
+  if (current.kind !== "sheet") return current;
+  return { ...current, schemaPreview: null, schemaPreviewLoading: true, schemaPreviewError: null };
+}
+
+export function completeSchemaPreview(
+  current: LoadInspectionState,
+  preview: DatasetImportSchemaPreview,
+): LoadInspectionState {
+  if (current.kind !== "sheet") return current;
+  return { ...current, schemaPreview: preview, schemaPreviewLoading: false, schemaPreviewError: null };
+}
+
+export function failSchemaPreview(current: LoadInspectionState, message: string): LoadInspectionState {
+  if (current.kind !== "sheet") return current;
+  return { ...current, schemaPreview: null, schemaPreviewLoading: false, schemaPreviewError: message };
+}
+
 export function updateSheetSelection(
   current: LoadInspectionState,
   action: Exclude<SheetSelectionAction, { kind: "confirmed" } | { kind: "cancelled" }>,
 ): LoadInspectionState {
   if (current.kind !== "sheet") return current;
+  const resetSchemaPreview = {
+    schemaPreview: null,
+    schemaPreviewLoading: false,
+    schemaPreviewError: null,
+  };
   if (action.kind === "sheet_changed") {
-    return { ...current, selectedSheetId: action.sheetId, useSavedProfile: false };
+    return { ...current, ...resetSchemaPreview, selectedSheetId: action.sheetId, useSavedProfile: false };
   }
   if (action.kind === "header_mode_changed") {
-    return { ...current, headerMode: action.headerMode, useSavedProfile: false };
+    return { ...current, ...resetSchemaPreview, headerMode: action.headerMode, useSavedProfile: false };
   }
   if (action.kind === "date_convention_changed") {
-    return { ...current, dateConvention: action.value };
+    return { ...current, ...resetSchemaPreview, dateConvention: action.value };
   }
   if (action.kind === "number_convention_changed") {
-    return { ...current, numberConvention: action.value };
+    return { ...current, ...resetSchemaPreview, numberConvention: action.value };
   }
   if (action.useProfile && current.profileCanBeApplied && current.savedProfile) {
     const applicability = importProfileApplicability(current.savedProfile, current.source);
     if (applicability.kind === "applicable") {
       return {
         ...current,
+        ...resetSchemaPreview,
         selectedSheetId: applicability.sheetId ?? current.selectedSheetId,
         headerMode: applicability.headerMode ?? current.headerMode,
         dateConvention: current.savedProfile.dateConvention ?? "unresolved",
@@ -222,7 +250,7 @@ export function updateSheetSelection(
       };
     }
   }
-  return { ...current, useSavedProfile: false };
+  return { ...current, ...resetSchemaPreview, useSavedProfile: false };
 }
 
 export function schemaMismatchInspection(

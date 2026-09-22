@@ -31,6 +31,9 @@ import {
   setLoadInspectionError,
   beginDelimitedHeaderReview,
   completeDelimitedHeaderReview,
+  beginSchemaPreview,
+  completeSchemaPreview,
+  failSchemaPreview,
   delimitedHeaderInspection,
   updateDatasetLoadProgress,
   updateSheetSelection,
@@ -118,6 +121,7 @@ import {
   loadDatasetSelection,
   pickDatasetSource,
   previewDelimitedHeaderReview,
+  previewDatasetSelection,
   resolveDatasetConflicts,
   useConsolidatedDataset,
   type AppInfo,
@@ -240,6 +244,9 @@ export function App() {
   const [workbookInspectionCancellationPending, setWorkbookInspectionCancellationPending] = useState(false);
   const [selectionFinalizing, setSelectionFinalizing] = useState(false);
   const headerPreviewRequestRef = useRef(0);
+  const schemaPreviewRequestRef = useRef(0);
+  const schemaPreviewActiveRequestRef = useRef<number | null>(null);
+  const schemaPreviewInFlightRef = useRef(false);
   const inspectionRequestRef = useRef(0);
   const inspectionInFlightRef = useRef(false);
   const loadRequestRef = useRef(0);
@@ -544,9 +551,53 @@ export function App() {
 
   function retryDelimitedHeaderReview() {
     if (loadInspection.kind !== "sheet" || loadInspection.source.format === "excel") return;
+    schemaPreviewRequestRef.current += 1;
     const source = loadInspection.source;
     setLoadInspection((current) => beginDelimitedHeaderReview(current));
     void requestDelimitedHeaderReview(source);
+  }
+
+  async function previewSelectedSchema(
+    selection: Extract<LoadInspectionState, { kind: "sheet" }>,
+    expectedProfile: ImportProfile | null,
+    conventions: Required<Pick<ImportProfile, "dateConvention" | "numberConvention">>,
+  ) {
+    if (schemaPreviewInFlightRef.current) return;
+    schemaPreviewInFlightRef.current = true;
+    const requestId = ++schemaPreviewRequestRef.current;
+    schemaPreviewActiveRequestRef.current = requestId;
+    const selectionId = selection.source.selectionId;
+    setLoadInspection((current) => beginSchemaPreview(current));
+    try {
+      const isDelimited = selection.source.format === "csv" || selection.source.format === "tsv";
+      const preview = await previewDatasetSelection(
+        selectionId,
+        selection.source.format === "excel" ? selection.selectedSheetId : null,
+        selection.source.format === "excel" || isDelimited ? selection.headerMode : null,
+        expectedProfile,
+        isDelimited ? conventions.dateConvention : null,
+        isDelimited ? conventions.numberConvention : null,
+      );
+      if (schemaPreviewRequestRef.current !== requestId) return;
+      setLoadInspection((current) =>
+        current.kind === "sheet" && current.source.selectionId === selectionId
+          ? completeSchemaPreview(current, preview)
+          : current,
+      );
+    } catch (error: unknown) {
+      if (schemaPreviewRequestRef.current !== requestId) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setLoadInspection((current) =>
+        current.kind === "sheet" && current.source.selectionId === selectionId
+          ? failSchemaPreview(current, message)
+          : current,
+      );
+    } finally {
+      if (schemaPreviewActiveRequestRef.current === requestId) {
+        schemaPreviewActiveRequestRef.current = null;
+        schemaPreviewInFlightRef.current = false;
+      }
+    }
   }
 
   async function loadSelection(
@@ -664,6 +715,7 @@ export function App() {
 
   async function inspectDatasetSource(sourcePromise: Promise<DatasetSourceInspection | null>) {
     if (inspectionInFlightRef.current || loadInFlightRef.current) return;
+    schemaPreviewRequestRef.current += 1;
     inspectionInFlightRef.current = true;
     const requestId = ++inspectionRequestRef.current;
     const isCurrentRequest = () => inspectionRequestRef.current === requestId;
@@ -750,6 +802,7 @@ export function App() {
     inspectionRequestRef.current += 1;
     loadRequestRef.current += 1;
     headerPreviewRequestRef.current += 1;
+    schemaPreviewRequestRef.current += 1;
     const source = loadInspection.kind === "sheet" || loadInspection.kind === "profile_review" || loadInspection.kind === "resource_preflight" || loadInspection.kind === "schema_mismatch"
       ? loadInspection.source
       : undefined;
@@ -797,21 +850,28 @@ export function App() {
         const profileWithConventions = selectedProfile
           ? { ...selectedProfile, ...conventions }
           : null;
+        if (!loadInspection.schemaPreview) {
+          void previewSelectedSchema(loadInspection, profileWithConventions, conventions);
+          return;
+        }
+        const schemaMismatch = loadInspection.schemaPreview.schemaMismatch !== null;
+        const profileToApply = schemaMismatch ? null : profileWithConventions;
         void loadSelection(
           loadInspection.source,
           loadInspection.source.format === "excel" ? loadInspection.selectedSheetId : null,
           loadInspection.source.format === "excel" || loadInspection.source.format === "csv" || loadInspection.source.format === "tsv"
             ? loadInspection.headerMode
             : null,
-          profileWithConventions,
-          profileWithConventions,
+          profileToApply,
+          profileToApply,
           queuedReusableTask?.task ?? null,
-          false,
+          schemaMismatch,
           conventions,
         );
       }
       return;
     }
+    schemaPreviewRequestRef.current += 1;
     setLoadInspection((current) => updateSheetSelection(current, action));
   }
 

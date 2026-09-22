@@ -87,6 +87,11 @@
       "debug": false
     },
     {
+      "name": "preview_dataset_selection",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "load_dataset_selection",
       "module": "dataset",
       "debug": false
@@ -538,6 +543,10 @@
     {
       "rust": "DatasetPreview",
       "typescript": "DatasetPreview"
+    },
+    {
+      "rust": "DatasetImportSchemaPreview",
+      "typescript": "DatasetImportSchemaPreview"
     },
     {
       "rust": "WorkbookSheet",

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   DatasetPreview,
+  DatasetImportSchemaPreview,
   DelimitedHeaderReview,
   DatasetComparison,
   DatasetConflictPage,
@@ -48,6 +49,24 @@ export function inspectWorkbookSheets(selectionId: string): Promise<WorkbookShee
 
 export function previewDelimitedHeaderReview(selectionId: string): Promise<DelimitedHeaderReview> {
   return invoke<DelimitedHeaderReview>("preview_delimited_header_review", { selectionId });
+}
+
+export function previewDatasetSelection(
+  selectionId: string,
+  sheetId: string | null,
+  headerMode: SpreadsheetHeaderMode | null,
+  expectedProfile: ImportProfile | null,
+  dateConvention: ImportDateConvention | null,
+  numberConvention: ImportNumberConvention | null,
+): Promise<DatasetImportSchemaPreview> {
+  return invoke<DatasetImportSchemaPreview>("preview_dataset_selection", {
+    selectionId,
+    sheetId,
+    headerMode,
+    expectedProfile,
+    dateConvention,
+    numberConvention,
+  });
 }
 
 export function loadDatasetSelection(

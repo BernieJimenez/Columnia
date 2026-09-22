@@ -39,6 +39,12 @@ export interface DelimitedHeaderReview {
   generated: DelimitedHeaderModePreview;
 }
 
+export interface DatasetImportSchemaPreview {
+  rowCount: number;
+  columns: DatasetColumn[];
+  schemaMismatch: ImportProfileMismatch | null;
+}
+
 export interface DatasetComparison {
   currentFileName: string;
   comparedFileName: string;

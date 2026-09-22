@@ -402,7 +402,7 @@ export function LoadPhase({
                 id="workbook-sheet"
                 value={sheetSelection.selectedSheetId}
                 onChange={(event) => onSheetAction({ kind: "sheet_changed", sheetId: event.target.value })}
-                disabled={Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
+                disabled={sheetSelection.schemaPreviewLoading === true || Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
               >
                 {sheetSelection.source.sheets.map((sheet) => (
                   <option key={sheet.id} value={sheet.id}>{sheet.name}</option>
@@ -419,7 +419,7 @@ export function LoadPhase({
                   name="spreadsheet-header-mode"
                   checked={sheetSelection.headerMode === "firstRow"}
                   onChange={() => onSheetAction({ kind: "header_mode_changed", headerMode: "firstRow" })}
-                  disabled={Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
+                  disabled={sheetSelection.schemaPreviewLoading === true || Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
                 />
                 {sheetSelection.source.format === "excel"
                   ? "Usar la primera fila como encabezados"
@@ -431,7 +431,7 @@ export function LoadPhase({
                   name="spreadsheet-header-mode"
                   checked={sheetSelection.headerMode === "generated"}
                   onChange={() => onSheetAction({ kind: "header_mode_changed", headerMode: "generated" })}
-                  disabled={Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
+                  disabled={sheetSelection.schemaPreviewLoading === true || Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
                 />
                 {sheetSelection.source.format === "excel"
                   ? "Generar encabezados (column_1, column_2…)"
@@ -452,6 +452,7 @@ export function LoadPhase({
               <select
                 id="delimited-date-convention"
                 value={sheetSelection.dateConvention}
+                disabled={sheetSelection.schemaPreviewLoading === true}
                 onChange={(event) => onSheetAction({
                   kind: "date_convention_changed",
                   value: event.target.value as ImportDateConvention,
@@ -461,7 +462,7 @@ export function LoadPhase({
                   <option
                     key={item.value}
                     value={item.value}
-                    disabled={sheetSelection.source.resourceEstimate.processingPath === "sourceBacked" && item.value !== "unresolved"}
+                    disabled={sheetSelection.schemaPreviewLoading === true || (sheetSelection.source.resourceEstimate.processingPath === "sourceBacked" && item.value !== "unresolved")}
                   >
                     {item.label}
                   </option>
@@ -471,6 +472,7 @@ export function LoadPhase({
               <select
                 id="delimited-number-convention"
                 value={sheetSelection.numberConvention}
+                disabled={sheetSelection.schemaPreviewLoading === true}
                 onChange={(event) => onSheetAction({
                   kind: "number_convention_changed",
                   value: event.target.value as ImportNumberConvention,
@@ -480,7 +482,7 @@ export function LoadPhase({
                   <option
                     key={item.value}
                     value={item.value}
-                    disabled={sheetSelection.source.resourceEstimate.processingPath === "sourceBacked" && item.value !== "unresolved"}
+                    disabled={sheetSelection.schemaPreviewLoading === true || (sheetSelection.source.resourceEstimate.processingPath === "sourceBacked" && item.value !== "unresolved")}
                   >
                     {item.label}
                   </option>
@@ -502,6 +504,7 @@ export function LoadPhase({
                       type="checkbox"
                       checked={sheetSelection.useSavedProfile}
                       onChange={(event) => onSheetAction({ kind: "profile_toggled", useProfile: event.target.checked })}
+                      disabled={sheetSelection.schemaPreviewLoading === true}
                     />
                     Usar {sheetSelection.source.format === "excel"
                       ? "la hoja, el encabezado y el esquema guardados"
@@ -572,7 +575,7 @@ export function LoadPhase({
                   />
                 )}
                 <p role="note">
-                  La muestra lee como máximo 64 KiB y enseña hasta cinco filas. La carga completa empieza solo al confirmar.
+                  La muestra lee como máximo 64 KiB y enseña hasta cinco filas. Revisar el esquema determina tipos sin activar ni reemplazar el dataset actual; la carga final empieza al confirmar.
                   {sheetSelection.dateConvention === "unresolved" && sheetSelection.numberConvention === "unresolved"
                     ? " Sin convenciones elegidas, los valores se conservan como texto."
                     : " Las conversiones elegidas se aplican solo cuando toda la columna cumple la convención."}
@@ -583,30 +586,86 @@ export function LoadPhase({
               </>
             ) : sheetSelection.source.format === "excel" ? (
               <p role="note">
-                Esta inspección previa permite elegir hoja y encabezados; el esquema detallado y los tipos se podrán revisar en Diagnóstico después de cargar.
+                El esquema se calcula para la hoja y los encabezados seleccionados antes de activar el dataset.
               </p>
             ) : (
               <p role="note">
-                Este formato conserva su estructura propia y no requiere elegir encabezados. El esquema y los tipos estarán disponibles en Diagnóstico tras la carga.
+                Este formato conserva su estructura propia y no requiere elegir encabezados. Revisa las columnas y tipos detectados antes de importar.
               </p>
+            )}
+            {sheetSelection.schemaPreviewLoading && (
+              <p role="status">Leyendo la estructura para mostrar columnas y tipos; el dataset actual permanece intacto…</p>
+            )}
+            {sheetSelection.schemaPreviewError && (
+              <p className="notice notice--error" role="alert">No se pudo revisar el esquema: {sheetSelection.schemaPreviewError}</p>
+            )}
+            {sheetSelection.schemaPreview && (
+              <section className="sheet-import-summary" aria-labelledby="schema-preview-title" aria-live="polite">
+                <h4 id="schema-preview-title">Esquema detectado antes de importar</h4>
+                <p role="note">{sheetSelection.schemaPreview.rowCount.toLocaleString()} filas · {sheetSelection.schemaPreview.columns.length} columnas</p>
+                {sheetSelection.schemaPreview.schemaMismatch ? (
+                  <div className="notice" role="alert">
+                    <strong>El esquema no coincide con el perfil guardado.</strong> Si continúas, se importará con el esquema detectado y ese perfil no se aplicará.
+                    {sheetSelection.schemaPreview.schemaMismatch.missingColumns.length > 0 && (
+                      <p>Columnas faltantes: {sheetSelection.schemaPreview.schemaMismatch.missingColumns.join(", ")}</p>
+                    )}
+                    {sheetSelection.schemaPreview.schemaMismatch.addedColumns.length > 0 && (
+                      <p>Columnas nuevas: {sheetSelection.schemaPreview.schemaMismatch.addedColumns.join(", ")}</p>
+                    )}
+                    {sheetSelection.schemaPreview.schemaMismatch.changedTypes.length > 0 && (
+                      <p>Tipos distintos: {sheetSelection.schemaPreview.schemaMismatch.changedTypes.map((item) => `${item.column} (${item.expected} → ${item.actual})`).join("; ")}</p>
+                    )}
+                  </div>
+                ) : sheetSelection.useSavedProfile ? (
+                  <p role="status">El esquema coincide con el perfil guardado; se aplicará al importar.</p>
+                ) : null}
+                {sheetSelection.schemaPreview.columns.length === 0 ? (
+                  <p role="note">No se detectaron columnas.</p>
+                ) : (
+                  <div className="table-region" tabIndex={0} aria-label="Columnas y tipos detectados">
+                    <table>
+                      <thead><tr><th scope="col">Columna</th><th scope="col">Tipo detectado</th></tr></thead>
+                      <tbody>
+                        {sheetSelection.schemaPreview.columns.map((column, index) => (
+                          <tr key={`${index}:${column.name}`}>
+                            <th scope="row">{column.name}</th>
+                            <td>{column.dataType}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
             )}
           </section>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => onSheetAction({ kind: "cancelled" })}>Cancelar</button>
             {isDelimitedSelection && sheetSelection.error && (
-              <button type="button" className="secondary-action" onClick={onRetryHeaderPreview}>Reintentar muestra</button>
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={onRetryHeaderPreview}
+                disabled={sheetSelection.schemaPreviewLoading === true}
+              >Reintentar muestra</button>
             )}
             <button
               type="button"
               className="primary-action"
               onClick={() => onSheetAction({ kind: "confirmed" })}
-              disabled={sheetSelection.source.format === "excel"
+              disabled={sheetSelection.schemaPreviewLoading === true || (sheetSelection.source.format === "excel"
                 ? !sheetSelection.selectedSheetId
                 : isDelimitedSelection
                   ? sheetSelection.headerReviewLoading === true || !sheetSelection.headerReview
-                  : false}
+                  : false)}
             >
-              {sheetSelection.source.format === "excel" ? "Cargar hoja" : "Cargar archivo"}
+              {sheetSelection.schemaPreviewLoading
+                ? "Revisando esquema…"
+                : !sheetSelection.schemaPreview
+                  ? sheetSelection.schemaPreviewError ? "Reintentar esquema" : "Revisar esquema"
+                  : sheetSelection.schemaPreview.schemaMismatch
+                    ? "Importar con esquema nuevo"
+                    : sheetSelection.source.format === "excel" ? "Cargar hoja" : "Cargar archivo"}
             </button>
           </div>
         </ModalDialog>
