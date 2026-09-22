@@ -36,6 +36,14 @@ export type LoadInspectionState =
   | { kind: "idle" }
   | { kind: "inspecting" }
   | { kind: "workbook_inspecting"; source: DatasetSourceInspection }
+  | { kind: "selection_cancelling"; source: DatasetSourceInspection }
+  | {
+      kind: "selection_cancellation_failed";
+      source: DatasetSourceInspection;
+      message: string;
+      cancelPending: boolean;
+      discardPending: boolean;
+    }
   | { kind: "resource_preflight"; source: DatasetSourceInspection }
   | {
       kind: "sheet";

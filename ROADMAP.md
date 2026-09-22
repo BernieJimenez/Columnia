@@ -6,7 +6,7 @@
 
 ## Estado general
 
-- Versión vigente del proyecto: `1.25.0` (referencia `v1.25.0`), adoptada para representar el alcance acumulado. Está sincronizada en npm, Cargo y Tauri; la aplicación muestra `CARGO_PKG_VERSION`.
+- Versión vigente del proyecto: `1.26.0` (referencia `v1.26.0`), adoptada para representar el alcance acumulado. Está sincronizada en npm, Cargo y Tauri; la aplicación muestra `CARGO_PKG_VERSION`.
 
 Los criterios que todavía requieren aceptación o evidencia externa están
 resumidos en el [índice de trabajo vigente](docs/reference/roadmap-current.md).
@@ -2832,11 +2832,12 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
     una vez. Cobertura nativa y de App.
 - [ ] **RV04 — Excepciones, cancelación y recuperación.** Resolver, conservar o
   excluir excepciones; una cancelación o fallo nunca publica éxito parcial.
-  - **Avance local: 2026-09-21.** Si el puente rechaza una solicitud de cancelar,
-    Columnia conserva la operación en curso y el dataset anterior, restaura el botón
-    para reintentar y explica el error. Cubre carga, análisis, exportación y comparación;
-    la regresión App recorre fallo, reintento y conservación del dataset. RV04 sigue
-    parcial hasta la aceptación con datos reales y los límites de APIs nativas síncronas.
+  - **Avance local: 2026-09-22.** Si falla cancelar o liberar una selección pendiente,
+    Columnia conserva su `selectionId`, registra cuál paso quedó pendiente y ofrece
+    reintentarlo sin repetir el paso que sí terminó. La interfaz bloquea nuevas
+    inspecciones hasta finalizar; si el puente rechaza otras cancelaciones, se mantiene
+    la operación activa, el dataset previo y una acción de reintento. RV04 sigue parcial
+    hasta la aceptación con datos reales y los límites de APIs nativas síncronas.
 - [ ] **RV05 — Tarea reutilizable.** Guardar importación, receta, reglas y salida
   sin credenciales ni autorización implícita de sobrescritura.
 - [ ] **RV06 — Interfaz compacta y accesible.** Reducir jerga y repetición,
@@ -3025,3 +3026,4 @@ la cola hasta demostrar demanda repetida.
 | 2026-09-22 | RV16: el decimosexto módulo mueve la paginación en memoria, el lector Parquet con slice pushdown y las páginas source-backed CSV/TSV/TXT a `dataset/page_reader.rs`. Se conservan límites, errores, comprobación del recuento frente al origen y cancelación cooperativa; la API Tauri no cambia. `cargo fmt --manifest-path src-tauri/Cargo.toml --all` y `cargo check --manifest-path src-tauri/Cargo.toml --lib` pasan. Las pruebas existentes de paginación no se ejecutaron en este corte. Versión `1.25.0`; RV16 continúa abierta. | `src-tauri/src/dataset.rs`, `src-tauri/src/dataset/page_reader.rs`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
 
 | 2026-09-22 | RV02: JSON/Parquet ya no se activan automáticamente tras inspeccionar la fuente. Todos los formatos abren una sola revisión previa con recursos y perfil aplicable; hoja/encabezados se limitan a Excel/CSV/TSV y muestra/convenciones a CSV/TSV. La comparación del esquema guardado aún puede requerir confirmación secundaria tras leer el candidato; queda pendiente mostrarlo en la revisión inicial y aceptar con datasets reales. `npm run build` pasa; no se ejecutaron pruebas de producto en este corte. Versión `1.25.0`; RV02 sigue parcial. | `src/App.tsx`, `src/features/load/LoadPhase.tsx`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |
+| 2026-09-22 | RV04: la cancelación de una selección pendiente conserva el `selectionId` y separa el reintento de `cancel_operation` de la liberación del archivo temporal; repite únicamente el paso que falló y mantiene bloqueadas nuevas inspecciones hasta completar. `npm run build` pasa; no se ejecutaron pruebas de producto en este corte. Versión `1.26.0`; RV04 sigue parcial por aceptación con datos reales/nativa y límites síncronos. | `src/App.tsx`, `src/features/load/LoadPhase.tsx`, `src/features/load/loadModel.ts`, `ROADMAP.md`, `docs/reference/roadmap-current.md`, `CHANGELOG.md` |

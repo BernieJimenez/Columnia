@@ -68,6 +68,7 @@ interface LoadPhaseProps {
   onCancelLoad: () => void;
   workbookInspectionCancellationPending?: boolean;
   onCancelWorkbookInspection?: () => void;
+  onRetrySelectionCancellation?: () => void;
 }
 
 export function LoadPhase({
@@ -93,6 +94,7 @@ export function LoadPhase({
   onCancelLoad,
   workbookInspectionCancellationPending = false,
   onCancelWorkbookInspection = () => undefined,
+  onRetrySelectionCancellation = () => undefined,
 }: LoadPhaseProps) {
   const current =
     datasetStatus.kind === "ready"
@@ -109,9 +111,12 @@ export function LoadPhase({
   const importError = inspection.kind === "error"
     ? inspection.message
     : undefined;
+  const selectionCancellationPending = inspection.kind === "selection_cancelling";
   const selectionDisabled = disabled || runtime.kind !== "connected" ||
     inspection.kind === "inspecting" ||
     inspection.kind === "workbook_inspecting" ||
+    selectionCancellationPending ||
+    inspection.kind === "selection_cancellation_failed" ||
     datasetStatus.kind === "loading" ||
     inspection.kind === "sheet" ||
     inspection.kind === "profile_review" ||
@@ -278,6 +283,27 @@ export function LoadPhase({
             disabled={workbookInspectionCancellationPending}
           >
             {workbookInspectionCancellationPending ? "Cancelando inspección…" : "Cancelar inspección"}
+          </button>
+        </div>
+      )}
+      {selectionCancellationPending && (
+        <p className="notice" role="status">
+          Cancelando la selección de {inspection.source.fileName} y liberando su lectura temporal…
+        </p>
+      )}
+      {inspection.kind === "selection_cancellation_failed" && (
+        <div className="notice notice--error" role="alert">
+          <p>
+            No se completó la cancelación de {inspection.source.fileName}. El dataset actual sigue sin cambios;
+            reintenta para detener la operación y liberar la selección temporal.
+          </p>
+          <p>{inspection.message}</p>
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={onRetrySelectionCancellation}
+          >
+            Reintentar cancelación
           </button>
         </div>
       )}

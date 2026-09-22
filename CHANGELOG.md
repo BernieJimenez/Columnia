@@ -6,6 +6,10 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+### Corregido
+
+- RV04: si falla cancelar una importación pendiente o liberar su selección temporal, Columnia conserva el `selectionId`, identifica el paso pendiente y permite reintentarlo sin repetir el paso completado. Las nuevas inspecciones permanecen bloqueadas hasta completar la limpieza.
+
 ### Interno
 
 - RV02 reúne formatos, recursos y perfiles en una revisión previa. La inspección

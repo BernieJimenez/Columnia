@@ -249,6 +249,7 @@ export function App() {
   const schemaPreviewInFlightRef = useRef(false);
   const inspectionRequestRef = useRef(0);
   const inspectionInFlightRef = useRef(false);
+  const selectionCancellationInFlightRef = useRef(false);
   const loadRequestRef = useRef(0);
   const loadInFlightRef = useRef(false);
   const comparisonRequestRef = useRef(0);
@@ -764,25 +765,13 @@ export function App() {
 
   async function cancelWorkbookInspection() {
     if (loadInspection.kind !== "workbook_inspecting" || workbookInspectionCancellationPending) return;
-    const selectionId = loadInspection.source.selectionId;
+    const source = loadInspection.source;
     setWorkbookInspectionCancellationPending(true);
-    inspectionRequestRef.current += 1;
-    let cancellationError: string | null = null;
     try {
-      await cancelOperation("load");
-    } catch (error: unknown) {
-      cancellationError = error instanceof Error ? error.message : String(error);
+      await cancelAndDiscardSelection(source);
+    } finally {
+      setWorkbookInspectionCancellationPending(false);
     }
-    try {
-      await discardDatasetSelection(selectionId);
-    } catch (error: unknown) {
-      cancellationError ??= error instanceof Error ? error.message : String(error);
-    }
-    inspectionInFlightRef.current = false;
-    setLoadInspection(cancellationError === null
-      ? { kind: "idle" }
-      : { kind: "error", message: cancellationError });
-    setWorkbookInspectionCancellationPending(false);
   }
 
   function selectDataset() {
@@ -798,34 +787,83 @@ export function App() {
     void selectDataset();
   }
 
-  async function cancelPendingSelection() {
+  function invalidateSelectionRequests() {
     inspectionRequestRef.current += 1;
     loadRequestRef.current += 1;
     headerPreviewRequestRef.current += 1;
     schemaPreviewRequestRef.current += 1;
+    schemaPreviewActiveRequestRef.current = null;
+    schemaPreviewInFlightRef.current = false;
+  }
+
+  async function cancelAndDiscardSelection(
+    source: DatasetSourceInspection,
+    pending: { cancelPending: boolean; discardPending: boolean } = {
+      cancelPending: true,
+      discardPending: true,
+    },
+  ) {
+    if (selectionCancellationInFlightRef.current) return;
+    selectionCancellationInFlightRef.current = true;
+    inspectionInFlightRef.current = true;
+    invalidateSelectionRequests();
+    setLoadInspection({ kind: "selection_cancelling", source });
+
+    let cancelPending = pending.cancelPending;
+    let discardPending = pending.discardPending;
+    const errors: string[] = [];
+    if (cancelPending) {
+      try {
+        await cancelOperation("load");
+        cancelPending = false;
+      } catch (error: unknown) {
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+    if (discardPending) {
+      try {
+        await discardDatasetSelection(source.selectionId);
+        discardPending = false;
+      } catch (error: unknown) {
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    if (cancelPending || discardPending) {
+      setLoadInspection({
+        kind: "selection_cancellation_failed",
+        source,
+        message: errors.join(" · "),
+        cancelPending,
+        discardPending,
+      });
+    } else {
+      setLoadInspection({ kind: "idle" });
+      inspectionInFlightRef.current = false;
+    }
+    selectionCancellationInFlightRef.current = false;
+  }
+
+  async function retrySelectionCancellation() {
+    if (loadInspection.kind !== "selection_cancellation_failed") return;
+    await cancelAndDiscardSelection(loadInspection.source, {
+      cancelPending: loadInspection.cancelPending,
+      discardPending: loadInspection.discardPending,
+    });
+  }
+
+  async function cancelPendingSelection() {
+    if (selectionCancellationInFlightRef.current) return;
     const source = loadInspection.kind === "sheet" || loadInspection.kind === "profile_review" || loadInspection.kind === "resource_preflight" || loadInspection.kind === "schema_mismatch"
       ? loadInspection.source
       : undefined;
-    setLoadInspection({ kind: "idle" });
     if (source) {
-      let cancellationError: string | null = null;
-      try {
-        await cancelOperation("load");
-      } catch (error: unknown) {
-        cancellationError = error instanceof Error ? error.message : String(error);
-      }
-      try {
-        await discardDatasetSelection(source.selectionId);
-      } catch (error: unknown) {
-        cancellationError ??= error instanceof Error ? error.message : String(error);
-      }
-      if (cancellationError) {
-        setLoadInspection({
-          kind: "error",
-          message: cancellationError,
-        });
-      }
+      await cancelAndDiscardSelection(source);
+      return;
     }
+    invalidateSelectionRequests();
+    setLoadInspection({ kind: "idle" });
+    inspectionInFlightRef.current = false;
   }
 
   function handleSheetSelection(action: SheetSelectionAction) {
@@ -1795,6 +1833,7 @@ export function App() {
                 onCancelLoad={() => cancelActiveOperation("load")}
                 workbookInspectionCancellationPending={workbookInspectionCancellationPending}
                 onCancelWorkbookInspection={() => void cancelWorkbookInspection()}
+                onRetrySelectionCancellation={() => void retrySelectionCancellation()}
               >
                 <ProjectsPanel
                   catalog={projects.catalog}
