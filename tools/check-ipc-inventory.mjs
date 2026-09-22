@@ -14,6 +14,7 @@ const sourceFiles = [
   "src-tauri/src/dataset/operation_state.rs",
   "src-tauri/src/dataset/quality_contracts.rs",
   "src-tauri/src/dataset/recipe_documents.rs",
+  "src-tauri/src/dataset/source_loading.rs",
   "src-tauri/src/diagnostics.rs",
   "src-tauri/src/dataset/samples.rs",
   "src-tauri/src/projects.rs",
