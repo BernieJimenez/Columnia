@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(test)]
 pub(super) fn load_compare_frame(path: &Path, extension: &str) -> Result<DataFrame, String> {
     load_compare_frame_with_cancel(path, extension, || false)
 }
@@ -29,12 +30,14 @@ where
     Ok(frame)
 }
 
+#[cfg(test)]
 pub(super) fn persist_comparison_snapshot(
     frame: &DataFrame,
 ) -> Result<(tempfile::TempDir, PathBuf), String> {
     persist_comparison_snapshot_with_cancel(frame, &|| false)
 }
 
+#[cfg(test)]
 pub(super) fn persist_comparison_source_file(
     path: &Path,
 ) -> Result<(tempfile::TempDir, PathBuf), String> {
@@ -63,6 +66,7 @@ pub(super) fn persist_comparison_source_file(
     Ok((directory, destination))
 }
 
+#[cfg(test)]
 pub(super) fn persist_delimited_comparison_source_file(
     path: &Path,
     extension: &str,
@@ -84,6 +88,7 @@ pub(super) fn persist_delimited_comparison_source_file(
     Ok((directory, destination))
 }
 
+#[cfg(test)]
 pub(super) fn persist_json_comparison_source_file(
     path: &Path,
 ) -> Result<(tempfile::TempDir, PathBuf), String> {
@@ -103,6 +108,7 @@ pub(super) fn persist_json_comparison_source_file(
     Ok((directory, destination))
 }
 
+#[cfg(test)]
 pub(super) fn persist_spreadsheet_comparison_source_file(
     path: &Path,
     extension: &str,
@@ -278,9 +284,9 @@ where
             path,
             sheet,
             SpreadsheetHeaderMode::FirstRow,
-            || is_cancelled(),
+            &is_cancelled,
         )?;
-        write_streamed_spreadsheet_snapshot(path, sheet, &plan, &temporary, || is_cancelled())?;
+        write_streamed_spreadsheet_snapshot(path, sheet, &plan, &temporary, &is_cancelled)?;
         plan.data_rows
     } else {
         let mut workbook = open_workbook_auto(path)

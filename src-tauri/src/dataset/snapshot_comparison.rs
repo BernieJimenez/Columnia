@@ -45,10 +45,10 @@ pub(super) async fn compare_history_snapshots_impl(
             let is_cancelled = || state.snapshot_comparison_was_cancelled(generation);
             let (before_frame, before_label) = dataset
                 .history
-                .restore_by_id_with_cancel(&before_snapshot_id, &is_cancelled)?;
+                .restore_by_id_with_cancel(&before_snapshot_id, is_cancelled)?;
             let (after_frame, after_label) = dataset
                 .history
-                .restore_by_id_with_cancel(&after_snapshot_id, &is_cancelled)?;
+                .restore_by_id_with_cancel(&after_snapshot_id, is_cancelled)?;
             (before_frame, before_label, after_frame, after_label)
         };
 
@@ -63,7 +63,7 @@ pub(super) async fn compare_history_snapshots_impl(
             &after_frame,
             &quality_rules,
             |stage, percent| send_progress(&on_progress, "profile", stage, percent),
-            &is_cancelled,
+            is_cancelled,
         )?;
         ensure_not_cancelled(state.snapshot_comparison_was_cancelled(generation))?;
 
@@ -235,7 +235,7 @@ where
 
 fn profile_snapshot_comparison_side<F, C>(
     frame: &DataFrame,
-    mut report: F,
+    report: F,
     is_cancelled: C,
 ) -> Result<DatasetProfile, String>
 where
@@ -246,12 +246,13 @@ where
     // el perfil cacheado del dataset activo.
     profile_dataset_with_progress(
         frame,
-        |stage, percent| report(stage, percent),
+        report,
         is_cancelled,
         MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn compare_snapshot_frames<F, C>(
     before_snapshot_id: String,
     after_snapshot_id: String,

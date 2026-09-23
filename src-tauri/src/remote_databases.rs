@@ -286,7 +286,7 @@ where
                 }
             }
         } else {
-            null_count = column.null_count() as usize;
+            null_count = column.null_count();
         }
         ensure_not_cancelled(is_cancelled)?;
         input_columns.push(RemoteInputColumn {

@@ -34,6 +34,7 @@ pub enum DiagnosticStatus {
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(clippy::enum_variant_names)]
 pub enum DiagnosticErrorCode {
     DatasetLoadFailed,
     DatasetProfileFailed,

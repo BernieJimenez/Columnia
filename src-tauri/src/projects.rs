@@ -366,7 +366,7 @@ impl ProjectStore {
             &active,
             SystemTime::now(),
             Duration::from_secs(60 * 60),
-            || is_cancelled(),
+            is_cancelled,
         )
         .map(|_| ())
         .map_err(|_| OPERATION_CANCELLED_MESSAGE.to_owned())
@@ -805,7 +805,7 @@ impl ProjectStore {
         for summary in summaries {
             ensure_project_operation_not_cancelled(is_cancelled())?;
             projects.push(self.with_storage_usage_with_cancel(
-                &connection,
+                connection,
                 summary,
                 is_cancelled,
             )?);
@@ -1197,6 +1197,7 @@ impl ProjectStore {
         )
     }
 
+    #[cfg(test)]
     fn autosave(
         &self,
         dataset_state: &DatasetState,
@@ -1263,6 +1264,7 @@ impl ProjectStore {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn save_inner_with_cancellation<C>(
         &self,
         dataset_state: &DatasetState,
@@ -1554,7 +1556,7 @@ impl ProjectStore {
             let generation = self.generation_path(&stored.summary.id, generation_name)?;
             let current = self.generation_file(&generation, "current.parquet")?;
             if profile.is_some()
-                && !profile_cache_matches_with_cancel(&stored, &current, || is_cancelled())?
+                && !profile_cache_matches_with_cancel(&stored, &current, &is_cancelled)?
             {
                 // A cache from a different generation is not fatal; Review can
                 // recompute the derived profile for the verified dataset.
@@ -2469,13 +2471,9 @@ where
     if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Ok(false);
     }
-    let actual = hash_file_sha256_with_cancel(current, || is_cancelled())?;
+    let actual = hash_file_sha256_with_cancel(current, &is_cancelled)?;
     ensure_project_open_not_cancelled(is_cancelled())?;
     Ok(actual.eq_ignore_ascii_case(expected))
-}
-
-fn hash_file_sha256(path: &Path) -> Result<String, String> {
-    hash_file_sha256_with_cancel(path, || false)
 }
 
 fn hash_file_sha256_with_cancel<C>(path: &Path, is_cancelled: C) -> Result<String, String>
@@ -2660,6 +2658,7 @@ fn write_snapshot(frame: &DataFrame, destination: &Path) -> Result<(), String> {
     write_snapshot_owned(frame.clone(), destination)
 }
 
+#[cfg(test)]
 fn write_snapshot_owned(frame: DataFrame, destination: &Path) -> Result<(), String> {
     write_snapshot_owned_with_cancel(frame, destination, || false)
 }
@@ -2698,6 +2697,7 @@ where
     Ok(())
 }
 
+#[cfg(test)]
 fn write_generation(
     frame: DataFrame,
     current_snapshot_path: Option<&Path>,
@@ -2762,10 +2762,6 @@ where
     }
     ensure_project_operation_not_cancelled(is_cancelled())?;
     Ok(())
-}
-
-fn copy_snapshot(source: &Path, destination: &Path) -> Result<(), String> {
-    copy_snapshot_with_cancel(source, destination, || false)
 }
 
 fn copy_snapshot_with_cancel<C>(

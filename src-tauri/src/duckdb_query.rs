@@ -539,6 +539,7 @@ pub(crate) struct DuckDbFileSourcesQuery<'a> {
     pub(crate) max_rows: Option<usize>,
 }
 
+#[cfg(test)]
 pub(crate) fn materialize_file_sources_query_to_parquet(
     request: DuckDbFileSourcesQuery<'_>,
 ) -> Result<usize, String> {
@@ -621,12 +622,6 @@ pub(crate) struct DuckDbFileSourcesScalarQuery<'a> {
     pub(crate) compared_path: &'a Path,
     pub(crate) compared_format: DuckDbFileFormat,
     pub(crate) query: &'a str,
-}
-
-pub(crate) fn query_file_sources_scalar(
-    request: DuckDbFileSourcesScalarQuery<'_>,
-) -> Result<i64, String> {
-    query_file_sources_scalar_with_cancel(request, || false)
 }
 
 pub(crate) fn query_file_sources_scalar_with_cancel<C>(
@@ -1106,7 +1101,9 @@ where
             })
             .map_err(|error| format!("DuckDB no pudo calcular la inferencia numérica: {error}"))?;
         counts
-            .chunks_exact(6)
+            .as_chunks::<6>()
+            .0
+            .iter()
             .map(|counts| {
                 let values = counts
                     .iter()
@@ -1221,7 +1218,9 @@ where
             })
             .map_err(|error| format!("DuckDB no pudo calcular la inferencia de fechas: {error}"))?;
         counts
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|counts| {
                 let values = counts
                     .iter()
@@ -1468,7 +1467,9 @@ where
             })
             .map_err(|error| format!("DuckDB no pudo contar candidatos booleanos: {error}"))?;
         counts
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|counts| {
                 let non_empty = usize::try_from(counts[0]).map_err(|_| {
                     "El conteo de valores booleanos excede la capacidad local.".to_owned()
@@ -1554,7 +1555,9 @@ where
                 format!("DuckDB no pudo calcular la inferencia de tipos de texto: {error}")
             })?;
         counts
-            .chunks_exact(5)
+            .as_chunks::<5>()
+            .0
+            .iter()
             .map(|counts| {
                 let values = counts
                     .iter()

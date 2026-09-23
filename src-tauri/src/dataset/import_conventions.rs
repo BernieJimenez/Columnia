@@ -210,7 +210,7 @@ fn check_cancellation<C>(index: usize, is_cancelled: &C) -> Result<(), String>
 where
     C: Fn() -> bool,
 {
-    if index % 8_192 == 0 {
+    if index.is_multiple_of(8_192) {
         super::ensure_not_cancelled(is_cancelled())?;
     }
     Ok(())

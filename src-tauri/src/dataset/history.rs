@@ -249,6 +249,7 @@ impl HistoryManager {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn record_parquet(&mut self, source: &Path, label: &str) -> Result<(), String> {
         self.current_label = label.to_owned();
         if !self.snapshots_enabled {
@@ -495,6 +496,7 @@ impl HistoryManager {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn restore(&self, index: usize) -> Result<DataFrame, String> {
         self.restore_with_cancel(index, || false)
     }
@@ -512,7 +514,7 @@ impl HistoryManager {
             .entries
             .get(index)
             .ok_or_else(|| "La revisión solicitada ya no está disponible.".to_owned())?;
-        read_parquet_frame_with_cancel(&entry.path, || is_cancelled()).map_err(|error| {
+        read_parquet_frame_with_cancel(&entry.path, is_cancelled).map_err(|error| {
             if error == OPERATION_CANCELLED_MESSAGE {
                 error
             } else {
@@ -521,6 +523,7 @@ impl HistoryManager {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn restore_by_id(&self, id: &str) -> Result<(DataFrame, String), String> {
         self.restore_by_id_with_cancel(id, || false)
     }
@@ -544,14 +547,13 @@ impl HistoryManager {
             .iter()
             .find(|entry| entry.id == id)
             .ok_or_else(|| "La revisión seleccionada ya no está disponible.".to_owned())?;
-        let frame =
-            read_parquet_frame_with_cancel(&entry.path, || is_cancelled()).map_err(|error| {
-                if error == OPERATION_CANCELLED_MESSAGE {
-                    error
-                } else {
-                    "No se pudo leer una revisión del historial.".to_owned()
-                }
-            })?;
+        let frame = read_parquet_frame_with_cancel(&entry.path, is_cancelled).map_err(|error| {
+            if error == OPERATION_CANCELLED_MESSAGE {
+                error
+            } else {
+                "No se pudo leer una revisión del historial.".to_owned()
+            }
+        })?;
         Ok((frame, entry.label.clone()))
     }
 

@@ -1195,10 +1195,6 @@ where
     Ok(())
 }
 
-fn duplicate_combination_count(frame: &DataFrame, columns: &[String]) -> Result<usize, String> {
-    duplicate_combination_count_with_cancel(frame, columns, &|| false)
-}
-
 fn duplicate_combination_count_with_cancel<C>(
     frame: &DataFrame,
     columns: &[String],

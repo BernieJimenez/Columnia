@@ -328,6 +328,7 @@ pub(super) fn source_backed_consolidation_plan(
     ))
 }
 
+#[cfg(test)]
 pub(super) fn validate_source_backed_consolidation(
     current_path: &Path,
     current_format: crate::duckdb_query::DuckDbFileFormat,

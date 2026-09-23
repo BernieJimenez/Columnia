@@ -216,6 +216,7 @@ where
     }
 }
 
+#[cfg(test)]
 pub(super) fn load_json_records(path: &Path) -> Result<DataFrame, String> {
     load_json_records_with_cancel(path, || false)
 }
@@ -366,6 +367,7 @@ where
     }
 }
 
+#[cfg(test)]
 pub(super) fn json_record_column_names(path: &Path) -> Result<Vec<String>, String> {
     json_record_column_names_with_cancel(path, || false)
 }

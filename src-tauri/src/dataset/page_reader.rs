@@ -191,7 +191,7 @@ pub(super) async fn get_dataset_page_impl(
                 row_count,
                 offset,
                 limit,
-                &is_cancelled,
+                is_cancelled,
             );
         }
 
@@ -209,7 +209,7 @@ pub(super) async fn get_dataset_page_impl(
                     dataset
                         .delimited_header_mode
                         .unwrap_or(SpreadsheetHeaderMode::FirstRow),
-                    &is_cancelled,
+                    is_cancelled,
                 ) {
                     Ok(page) => return Ok(page),
                     Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
@@ -218,9 +218,9 @@ pub(super) async fn get_dataset_page_impl(
             }
         }
 
-        materialize_loaded_dataset_with_cancel(dataset, &is_cancelled)?;
+        materialize_loaded_dataset_with_cancel(dataset, is_cancelled)?;
         ensure_not_cancelled(is_cancelled())?;
-        dataset_page_with_cancel(&dataset.frame, offset, limit, &is_cancelled)
+        dataset_page_with_cancel(&dataset.frame, offset, limit, is_cancelled)
     })
     .await
     .map_err(|error| format!("La paginación local se interrumpió: {error}"))?

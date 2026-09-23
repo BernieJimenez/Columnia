@@ -104,6 +104,7 @@ where
     Ok(spill)
 }
 
+#[cfg(test)]
 pub(super) fn spill_key_rows(
     frame: &DataFrame,
     key_columns: &[String],
@@ -173,6 +174,7 @@ pub(super) fn append_spilled_key_rows_with_writers(
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn spill_parquet_rows(
     path: &Path,
     row_count: usize,
@@ -295,21 +297,6 @@ where
     ensure_not_cancelled(is_cancelled())
 }
 
-pub(super) fn spill_parquet_key_payload_rows(
-    path: &Path,
-    row_count: usize,
-    key_columns: &[String],
-    payload_columns: &[String],
-) -> Result<SpilledKeyPayloadRows, String> {
-    spill_parquet_key_payload_rows_with_cancel(
-        path,
-        row_count,
-        key_columns,
-        payload_columns,
-        &|| false,
-    )
-}
-
 pub(super) fn spill_parquet_key_payload_rows_with_cancel<C>(
     path: &Path,
     row_count: usize,
@@ -414,13 +401,6 @@ where
             .ok_or_else(|| "La cubeta temporal supera la capacidad local.".to_owned())?;
     }
     ensure_not_cancelled(is_cancelled())
-}
-
-pub(super) fn read_spilled_key_payload_bucket(
-    spill: &SpilledKeyPayloadRows,
-    bucket: usize,
-) -> Result<HashMap<String, KeyPayloadGroup>, String> {
-    read_spilled_key_payload_bucket_with_cancel(spill, bucket, &|| false)
 }
 
 pub(super) fn read_spilled_key_payload_bucket_with_cancel<C>(
@@ -562,6 +542,7 @@ where
     Ok(rows_by_key)
 }
 
+#[cfg(test)]
 pub(super) fn read_spilled_key_bucket(
     spill: &SpilledKeyRows,
     bucket: usize,
@@ -569,6 +550,7 @@ pub(super) fn read_spilled_key_bucket(
     read_spilled_key_bucket_with_cancel(spill, bucket, &|| false)
 }
 
+#[cfg(test)]
 pub(super) fn common_row_count_from_spilled_indexes(
     current_signatures: &SpilledKeyRows,
     compared_signatures: &SpilledKeyRows,
@@ -612,16 +594,7 @@ where
     Ok(common)
 }
 
-pub(super) fn common_row_count_from_spilled_signatures(
-    current: &DataFrame,
-    compared: &DataFrame,
-    shared_columns: &[String],
-) -> Result<usize, String> {
-    common_row_count_from_spilled_signatures_with_cancel(current, compared, shared_columns, &|| {
-        false
-    })
-}
-
+#[cfg(test)]
 pub(super) fn common_row_count_from_spilled_signatures_with_cancel<C>(
     current: &DataFrame,
     compared: &DataFrame,
@@ -640,6 +613,7 @@ where
     )
 }
 
+#[cfg(test)]
 pub(super) fn common_row_count_from_parquet(
     current: &DataFrame,
     compared_path: &Path,
@@ -650,23 +624,6 @@ pub(super) fn common_row_count_from_parquet(
     let compared_signatures =
         spill_parquet_rows(compared_path, compared_row_count, shared_columns)?;
     common_row_count_from_spilled_indexes(&current_signatures, &compared_signatures)
-}
-
-pub(super) fn common_row_count_between_parquet(
-    current_path: &Path,
-    current_row_count: usize,
-    compared_path: &Path,
-    compared_row_count: usize,
-    shared_columns: &[String],
-) -> Result<usize, String> {
-    common_row_count_between_parquet_with_cancel(
-        current_path,
-        current_row_count,
-        compared_path,
-        compared_row_count,
-        shared_columns,
-        &|| false,
-    )
 }
 
 pub(super) fn common_row_count_between_parquet_with_cancel<C>(
@@ -981,15 +938,6 @@ pub(super) fn validate_key_columns(
     Ok(())
 }
 
-pub(super) fn compare_keyed_frames(
-    current: &DataFrame,
-    compared: &DataFrame,
-    key_columns: &[String],
-    shared_columns: &[String],
-) -> Result<KeyComparisonSummary, String> {
-    compare_keyed_frames_with_cancel(current, compared, key_columns, shared_columns, || false)
-}
-
 pub(super) fn compare_keyed_frames_with_cancel<C>(
     current: &DataFrame,
     compared: &DataFrame,
@@ -1070,6 +1018,7 @@ where
     Ok(summary)
 }
 
+#[cfg(test)]
 pub(super) fn compare_keyed_parquet(
     current: &DataFrame,
     compared_path: &Path,
@@ -1154,25 +1103,6 @@ pub(super) fn compare_keyed_parquet(
 pub(super) struct ParquetComparisonSource<'a> {
     pub(super) path: &'a Path,
     pub(super) row_count: usize,
-}
-
-pub(super) fn compare_keyed_parquet_sources(
-    current: ParquetComparisonSource<'_>,
-    compared: ParquetComparisonSource<'_>,
-    current_schema: &DataFrame,
-    compared_schema: &DataFrame,
-    key_columns: &[String],
-    shared_columns: &[String],
-) -> Result<KeyComparisonSummary, String> {
-    compare_keyed_parquet_sources_with_cancel(
-        current,
-        compared,
-        current_schema,
-        compared_schema,
-        key_columns,
-        shared_columns,
-        &|| false,
-    )
 }
 
 pub(super) fn compare_keyed_parquet_sources_with_cancel<C>(
@@ -1384,6 +1314,7 @@ pub(super) fn build_key_conflict(
     )?))
 }
 
+#[cfg(test)]
 pub(super) fn collect_key_conflicts_page(
     current: &DataFrame,
     compared: &DataFrame,
@@ -1550,6 +1481,7 @@ where
     Ok((conflicts, total > page_end))
 }
 
+#[cfg(test)]
 pub(super) fn collect_key_conflicts_page_from_parquet(
     current: &DataFrame,
     compared_path: &Path,
@@ -1571,6 +1503,7 @@ pub(super) fn collect_key_conflicts_page_from_parquet(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn collect_key_conflicts_page_from_parquet_with_cancel<C>(
     current: &DataFrame,
     compared_path: &Path,
@@ -1785,37 +1718,6 @@ where
     let page_end = offset.saturating_add(conflicts.len());
     ensure_not_cancelled(is_cancelled())?;
     Ok((conflicts, total > page_end))
-}
-
-pub(super) fn for_each_key_conflict_between_parquet<F>(
-    current: ParquetComparisonSource<'_>,
-    compared: ParquetComparisonSource<'_>,
-    key_columns: &[String],
-    shared_columns: &[String],
-    max_conflicts: Option<usize>,
-    visit: F,
-) -> Result<usize, String>
-where
-    F: FnMut(
-        usize,
-        &DataFrame,
-        usize,
-        &DataFrame,
-        usize,
-        usize,
-        usize,
-        KeyConflictShape,
-    ) -> Result<(), String>,
-{
-    for_each_key_conflict_between_parquet_with_cancel(
-        current,
-        compared,
-        key_columns,
-        shared_columns,
-        max_conflicts,
-        &|| false,
-        visit,
-    )
 }
 
 pub(super) fn for_each_key_conflict_between_parquet_with_cancel<C, F>(
@@ -2039,25 +1941,6 @@ where
     Ok(total)
 }
 
-pub(super) fn collect_key_conflicts_page_between_parquet(
-    current: ParquetComparisonSource<'_>,
-    compared: ParquetComparisonSource<'_>,
-    key_columns: &[String],
-    shared_columns: &[String],
-    offset: usize,
-    limit: usize,
-) -> Result<(Vec<KeyConflictRows>, bool), String> {
-    collect_key_conflicts_page_between_parquet_with_cancel(
-        current,
-        compared,
-        key_columns,
-        shared_columns,
-        offset,
-        limit,
-        &|| false,
-    )
-}
-
 pub(super) fn collect_key_conflicts_page_between_parquet_with_cancel<C>(
     current: ParquetComparisonSource<'_>,
     compared: ParquetComparisonSource<'_>,
@@ -2109,12 +1992,6 @@ where
     Ok((conflicts, total > page_end))
 }
 
-pub(super) fn source_backed_parquet_snapshot(
-    context: &SourceBackedJoinContext,
-) -> Result<Option<(PathBuf, usize, Option<tempfile::TempDir>)>, String> {
-    source_backed_parquet_snapshot_with_cancel(context, || false)
-}
-
 pub(super) fn source_backed_parquet_snapshot_with_cancel<C>(
     context: &SourceBackedJoinContext,
     is_cancelled: C,
@@ -2152,6 +2029,7 @@ where
     Ok(Some((path, row_count, Some(directory))))
 }
 
+#[cfg(test)]
 pub(super) fn disk_backed_conflict_page(
     state: &DatasetState,
     compared_path: &Path,
@@ -2269,6 +2147,7 @@ where
     }))
 }
 
+#[cfg(test)]
 pub(super) fn collect_key_conflicts(
     current: &DataFrame,
     compared: &DataFrame,
@@ -2283,15 +2162,6 @@ pub(super) fn collect_key_conflicts(
         0,
         MAX_CONFLICT_PREVIEW,
     )
-}
-
-pub(super) fn collect_all_key_conflicts(
-    current: &DataFrame,
-    compared: &DataFrame,
-    key_columns: &[String],
-    shared_columns: &[String],
-) -> Result<Vec<KeyConflictRows>, String> {
-    collect_all_key_conflicts_with_cancel(current, compared, key_columns, shared_columns, &|| false)
 }
 
 pub(super) fn collect_all_key_conflicts_with_cancel<C>(
@@ -2334,6 +2204,7 @@ pub(super) fn normalize_key_columns(
     Ok(normalized)
 }
 
+#[cfg(test)]
 pub(super) fn rows_with_new_keys(
     current: &DataFrame,
     compared: &DataFrame,
@@ -2379,6 +2250,7 @@ where
         .map_err(|error| format!("No se pudieron seleccionar las claves nuevas: {error}"))
 }
 
+#[cfg(test)]
 pub(super) fn join_frames(
     current: &DataFrame,
     compared: &DataFrame,
@@ -2691,6 +2563,7 @@ where
     )
 }
 
+#[cfg(test)]
 pub(super) fn compare_frames(
     current: &DataFrame,
     current_file_name: &str,
@@ -2708,6 +2581,7 @@ pub(super) fn compare_frames(
     )
 }
 
+#[cfg(test)]
 pub(super) fn compare_frames_with_cancel<C>(
     current: &DataFrame,
     current_file_name: &str,
@@ -2775,7 +2649,7 @@ where
             compared,
             key_columns,
             &shared_columns,
-            || is_cancelled(),
+            is_cancelled,
         )?;
         let (conflicts, truncated) = collect_key_conflicts_page_with_cancel(
             current,
@@ -2818,6 +2692,7 @@ where
     })
 }
 
+#[cfg(test)]
 pub(super) fn compare_parquet_source(
     current: &DataFrame,
     current_file_name: &str,
@@ -2924,6 +2799,7 @@ pub(super) fn compare_parquet_source(
     })
 }
 
+#[cfg(test)]
 pub(super) fn compare_parquet_sources(
     current_path: &Path,
     current_file_name: &str,
@@ -2945,6 +2821,7 @@ pub(super) fn compare_parquet_sources(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn compare_parquet_sources_with_cancel<C>(
     current_path: &Path,
     current_file_name: &str,

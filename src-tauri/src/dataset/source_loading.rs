@@ -378,12 +378,12 @@ where
             dataset
                 .delimited_header_mode
                 .unwrap_or(SpreadsheetHeaderMode::FirstRow),
-            || is_cancelled(),
+            &is_cancelled,
         )?,
         "json" | "jsonl" | "ndjson" => {
-            load_json_records_with_cancel(materialized_path, || is_cancelled())?
+            load_json_records_with_cancel(materialized_path, &is_cancelled)?
         }
-        "parquet" => read_parquet_frame_with_cancel(materialized_path, || is_cancelled())?,
+        "parquet" => read_parquet_frame_with_cancel(materialized_path, &is_cancelled)?,
         _ => return Err("El formato source-backed no se puede materializar.".to_owned()),
     };
     ensure_not_cancelled(is_cancelled())?;
@@ -430,12 +430,6 @@ pub(super) fn ensure_materialization_budget_for_path(path: &Path) -> Result<(), 
     ensure_materialization_budget(file_size_bytes)
 }
 
-pub(super) fn materialize_current_dataset(
-    state: &DatasetState,
-) -> Result<(DataFrame, String), String> {
-    materialize_current_dataset_with_cancel(state, &|| false)
-}
-
 pub(super) fn materialize_current_dataset_with_cancel<C>(
     state: &DatasetState,
     is_cancelled: &C,
@@ -451,7 +445,7 @@ where
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
-    materialize_loaded_dataset_with_cancel(dataset, || is_cancelled())?;
+    materialize_loaded_dataset_with_cancel(dataset, is_cancelled)?;
     ensure_not_cancelled(is_cancelled())?;
     Ok((dataset.frame.clone(), dataset.file_name.clone()))
 }
@@ -519,8 +513,8 @@ where
                 is_cancelled()
             })?
         }
-        "parquet" => read_parquet_frame_with_cancel(path, || is_cancelled())?,
-        "json" | "jsonl" | "ndjson" => load_json_records_with_cancel(path, || is_cancelled())?,
+        "parquet" => read_parquet_frame_with_cancel(path, &is_cancelled)?,
+        "json" | "jsonl" | "ndjson" => load_json_records_with_cancel(path, &is_cancelled)?,
         extension if spreadsheet_extensions(extension) => {
             return Err("Selecciona primero una hoja del libro.".to_owned());
         }

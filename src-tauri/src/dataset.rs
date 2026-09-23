@@ -212,11 +212,12 @@ use snapshot_comparison::compare_history_snapshots_impl;
 use spreadsheet_io::{
     import_format_for_extension, inspect_workbook, load_spreadsheet_sheet_with_cancel,
     spreadsheet_extensions, spreadsheet_snapshot_plan_from_stream,
-    write_spreadsheet_range_snapshot, write_spreadsheet_range_snapshot_with_cancel,
-    write_streamed_spreadsheet_snapshot,
+    write_spreadsheet_range_snapshot_with_cancel, write_streamed_spreadsheet_snapshot,
 };
 #[cfg(test)]
-use spreadsheet_io::{load_spreadsheet_sheet, spreadsheet_range_to_frame};
+use spreadsheet_io::{
+    load_spreadsheet_sheet, spreadsheet_range_to_frame, write_spreadsheet_range_snapshot,
+};
 use temporal_profile::{
     source_temporal_series_summary, temporal_period_key, temporal_period_label,
     temporal_periods_between, temporal_series_summaries, TemporalPeriodKey,
@@ -2297,6 +2298,7 @@ fn source_backed_near_duplicate_query(
     ))
 }
 
+#[cfg(test)]
 fn initialize_source_backed_history(
     dataset: &mut LoadedDataset,
     source_path: &Path,
@@ -2751,6 +2753,7 @@ fn publish_source_backed_query(
     Ok(committed)
 }
 
+#[cfg(test)]
 fn publish_source_backed_result_output(
     dataset: &mut LoadedDataset,
     context: &SourceBackedJoinContext,
@@ -2893,6 +2896,7 @@ fn publish_source_backed_result_output(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn publish_review_source_backed_result_output(
     dataset: &mut LoadedDataset,
     comparison: &mut Option<PendingComparison>,
@@ -3073,6 +3077,7 @@ fn publish_review_source_backed_result_output(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn publish_review_eager_candidate(
     state: &DatasetState,
     expected_stamp: &DatasetMutationStamp,
@@ -6344,10 +6349,10 @@ fn count_changed_text_cells(
             .column(name)
             .and_then(|column| column.str())
             .map_err(|error| format!("No se pudo leer la columna '{name}' corregida: {error}"))?;
-        for row_index in 0..before.height() {
+        for (row_index, changed) in changed_rows.iter_mut().enumerate() {
             if before_values.get(row_index) != after_values.get(row_index) {
                 changed_cell_count += 1;
-                changed_rows[row_index] = true;
+                *changed = true;
             }
         }
     }
@@ -6358,10 +6363,8 @@ fn count_changed_text_cells(
 }
 
 #[cfg(test)]
-use json_reader::load_json_records;
-use json_reader::{
-    json_record_column_names, json_record_column_names_with_cancel, load_json_records_with_cancel,
-};
+use json_reader::{json_record_column_names, load_json_records};
+use json_reader::{json_record_column_names_with_cancel, load_json_records_with_cancel};
 
 fn read_utf8_delimited_sample_with_cancel<C>(
     path: &Path,
@@ -6568,6 +6571,7 @@ where
         .map_err(|_| "No se pudo recuperar el dataset leído por bloques.".to_owned())
 }
 
+#[cfg(test)]
 fn delimited_scan(path: &Path, extension: &str) -> Result<LazyFrame, String> {
     delimited_scan_with_header(path, extension, true)
 }
@@ -6611,20 +6615,13 @@ fn delimited_scan_with_separator(
         .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))
 }
 
+#[cfg(test)]
 fn read_delimited_frame(path: &Path, extension: &str) -> Result<DataFrame, String> {
     let plan = delimited_scan(path, extension)?;
     collect_lazy_frame_streaming(
         plan,
         "No se pudo interpretar el archivo delimitado como UTF-8",
     )
-}
-
-fn read_delimited_frame_with_header(
-    path: &Path,
-    extension: &str,
-    header_mode: SpreadsheetHeaderMode,
-) -> Result<DataFrame, String> {
-    read_delimited_frame_with_header_and_cancel(path, extension, header_mode, || false)
 }
 
 fn read_delimited_frame_with_header_and_cancel<C>(
@@ -6676,21 +6673,6 @@ where
     )
 }
 
-fn validate_staged_history_snapshot(
-    path: &Path,
-    current_frame: &DataFrame,
-    is_cursor: bool,
-    error_message: &str,
-) -> Result<bool, String> {
-    validate_staged_history_snapshot_with_cancel(
-        path,
-        current_frame,
-        is_cursor,
-        error_message,
-        || false,
-    )
-}
-
 fn validate_staged_history_snapshot_with_cancel<C>(
     path: &Path,
     current_frame: &DataFrame,
@@ -6703,7 +6685,7 @@ where
 {
     ensure_not_cancelled(is_cancelled())?;
     if is_cursor {
-        let frame = read_parquet_frame_with_cancel(path, || is_cancelled()).map_err(|error| {
+        let frame = read_parquet_frame_with_cancel(path, &is_cancelled).map_err(|error| {
             if error == OPERATION_CANCELLED_MESSAGE {
                 error
             } else {
@@ -6934,13 +6916,6 @@ pub async fn join_dataset(
     .map_err(|error| format!("La unión se interrumpió: {error}"))?
 }
 
-fn validate_conflict_decisions(
-    conflicts: &[KeyConflictRows],
-    decisions: &[ConflictResolution],
-) -> Result<ConflictChoiceMap, String> {
-    validate_conflict_decisions_with_cancel(conflicts, decisions, &|| false)
-}
-
 fn validate_conflict_decisions_with_cancel<C>(
     conflicts: &[KeyConflictRows],
     decisions: &[ConflictResolution],
@@ -7035,6 +7010,7 @@ where
     Ok(choices)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn validate_source_backed_conflict_decisions(
     current_path: &Path,
     current_row_count: usize,
@@ -7322,6 +7298,7 @@ fn source_backed_conflict_resolution_plan(
     ))
 }
 
+#[cfg(test)]
 fn resolved_conflict_frame(
     current: &DataFrame,
     compared: &DataFrame,
@@ -7770,6 +7747,7 @@ pub async fn preview_dataset_selection(
     .await
 }
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn load_dataset_selection(
     app: AppHandle,
     selection_id: String,
@@ -10621,6 +10599,7 @@ impl DatasetState {
         Ok(profile)
     }
 
+    #[cfg(test)]
     pub(crate) fn active_project_snapshot(&self) -> Result<ActiveDatasetSnapshot, String> {
         self.active_project_snapshot_with_cancel(|| false)
     }
@@ -10682,7 +10661,7 @@ impl DatasetState {
             snapshot_temporary_guard = Some(snapshot_temporary);
             Some(snapshot_path)
         } else {
-            materialize_loaded_dataset_with_cancel(dataset, || is_cancelled())?;
+            materialize_loaded_dataset_with_cancel(dataset, &is_cancelled)?;
             None
         };
         ensure_not_cancelled(is_cancelled())?;
@@ -10708,6 +10687,7 @@ impl DatasetState {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn prepare_project_candidate(
         snapshot_path: PathBuf,
         file_name: String,
@@ -10715,6 +10695,7 @@ impl DatasetState {
         Self::prepare_durable_project_candidate(snapshot_path, file_name, None, None)
     }
 
+    #[cfg(test)]
     pub(crate) fn prepare_durable_project_candidate(
         snapshot_path: PathBuf,
         file_name: String,

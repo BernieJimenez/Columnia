@@ -24,6 +24,12 @@ los artefactos de validación locales. La versión vigente del proyecto es
 
 ### Interno
 
+- El gate Full vuelve a pasar Clippy con `-D warnings`: se eliminan 20 helpers
+  huérfanos tras la modularización de RV16, 42 helpers usados solo por pruebas
+  quedan bajo `#[cfg(test)]` y se corrigen closures, préstamos y casts
+  redundantes. No cambian rutas Tauri, contratos JSON ni comportamiento; el
+  gate Full pasa con 457/457 pruebas frontend, 494 pruebas Rust (5 ignoradas)
+  y 22/22 E2E.
 - El inventario IPC incluye los módulos extraídos de historial y contratos de
   calidad. El corte completo pasa 457/457 pruebas frontend, cobertura crítica
   (86,17 % de sentencias y 81,34 % de ramas), 22/22 E2E, 494 pruebas Rust

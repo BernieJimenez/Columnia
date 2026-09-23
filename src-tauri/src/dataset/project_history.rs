@@ -117,13 +117,6 @@ pub(super) fn validate_history_entry_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn capture_project_history(
-    history: &HistoryManager,
-    current_frame: &DataFrame,
-) -> Result<ProjectHistoryCapture, String> {
-    capture_project_history_with_cancel(history, current_frame, || false)
-}
-
 pub(super) fn capture_project_history_with_cancel<C>(
     history: &HistoryManager,
     current_frame: &DataFrame,
@@ -186,14 +179,14 @@ where
         let destination = directory.path().join(format!("entry-{index:03}.parquet"));
         let mut destination_file = File::create(&destination)
             .map_err(|_| "No se pudo preparar el historial del proyecto.".to_owned())?;
-        let copied = copy_file_with_cancel(&entry.path, &mut destination_file, || is_cancelled())
+        let copied = copy_file_with_cancel(&entry.path, &mut destination_file, &is_cancelled)
             .map_err(|error| {
-            if error == OPERATION_CANCELLED_MESSAGE {
-                error
-            } else {
-                "No se pudo preparar el historial del proyecto.".to_owned()
-            }
-        })?;
+                if error == OPERATION_CANCELLED_MESSAGE {
+                    error
+                } else {
+                    "No se pudo preparar el historial del proyecto.".to_owned()
+                }
+            })?;
         if copied != entry.bytes {
             return Err("El historial activo cambió mientras se guardaba.".to_owned());
         }
@@ -202,7 +195,7 @@ where
             current_frame,
             index == history.cursor,
             "El historial activo contiene un snapshot corrupto.",
-            || is_cancelled(),
+            &is_cancelled,
         )?;
         if index == history.cursor {
             cursor_matches = matches;
@@ -300,14 +293,14 @@ where
             .join(format!("snapshot-{index:020}.parquet"));
         let mut destination_file = File::create(&destination)
             .map_err(|_| "No se pudo copiar el historial restaurado.".to_owned())?;
-        let copied = copy_file_with_cancel(&entry.path, &mut destination_file, || is_cancelled())
+        let copied = copy_file_with_cancel(&entry.path, &mut destination_file, &is_cancelled)
             .map_err(|error| {
-            if error == OPERATION_CANCELLED_MESSAGE {
-                error
-            } else {
-                "No se pudo copiar el historial restaurado.".to_owned()
-            }
-        })?;
+                if error == OPERATION_CANCELLED_MESSAGE {
+                    error
+                } else {
+                    "No se pudo copiar el historial restaurado.".to_owned()
+                }
+            })?;
         ensure_not_cancelled(is_cancelled())?;
         destination_file
             .sync_all()
@@ -320,7 +313,7 @@ where
             current_frame,
             index == history.cursor,
             "Un snapshot del historial no contiene un Parquet válido.",
-            || is_cancelled(),
+            &is_cancelled,
         )?;
         if index == history.cursor {
             cursor_matches = matches;

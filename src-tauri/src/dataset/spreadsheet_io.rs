@@ -436,17 +436,6 @@ pub(super) fn empty_spreadsheet_block(
         .collect()
 }
 
-pub(super) fn write_spreadsheet_blocks<F>(
-    destination: &Path,
-    plan: &SpreadsheetSnapshotPlan,
-    fill_block: F,
-) -> Result<(), String>
-where
-    F: FnMut(usize, usize) -> Result<Vec<Vec<Data>>, String>,
-{
-    write_spreadsheet_blocks_with_cancel(destination, plan, &|| false, fill_block)
-}
-
 pub(super) fn write_spreadsheet_blocks_with_cancel<C, F>(
     destination: &Path,
     plan: &SpreadsheetSnapshotPlan,
@@ -485,6 +474,7 @@ where
         .map_err(|error| format!("No se pudo sincronizar el snapshot Excel: {error}"))
 }
 
+#[cfg(test)]
 pub(super) fn write_spreadsheet_range_snapshot(
     range: &Range<Data>,
     header_mode: SpreadsheetHeaderMode,
@@ -778,7 +768,7 @@ where
             }
             Ok(())
         },
-        || is_cancelled(),
+        &is_cancelled,
     )?;
 
     while current_block < block_count {
@@ -810,43 +800,33 @@ pub(super) fn write_streamed_spreadsheet_snapshot(
             let mut reader = workbook
                 .worksheet_cells_reader(sheet_name)
                 .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
-            write_streamed_spreadsheet_cells(
-                destination,
-                plan,
-                || is_cancelled(),
-                || {
-                    if is_cancelled() {
-                        return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
-                    }
-                    reader
-                        .next_cell()
-                        .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))
-                        .map(|cell| {
-                            cell.map(|cell| (cell.get_position(), cell.get_value().clone().into()))
-                        })
-                },
-            )
+            write_streamed_spreadsheet_cells(destination, plan, &is_cancelled, || {
+                if is_cancelled() {
+                    return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+                }
+                reader
+                    .next_cell()
+                    .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))
+                    .map(|cell| {
+                        cell.map(|cell| (cell.get_position(), cell.get_value().clone().into()))
+                    })
+            })
         }
         Sheets::Xlsb(workbook) => {
             let mut reader = workbook
                 .worksheet_cells_reader(sheet_name)
                 .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
-            write_streamed_spreadsheet_cells(
-                destination,
-                plan,
-                || is_cancelled(),
-                || {
-                    if is_cancelled() {
-                        return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
-                    }
-                    reader
-                        .next_cell()
-                        .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))
-                        .map(|cell| {
-                            cell.map(|cell| (cell.get_position(), cell.get_value().clone().into()))
-                        })
-                },
-            )
+            write_streamed_spreadsheet_cells(destination, plan, &is_cancelled, || {
+                if is_cancelled() {
+                    return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+                }
+                reader
+                    .next_cell()
+                    .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))
+                    .map(|cell| {
+                        cell.map(|cell| (cell.get_position(), cell.get_value().clone().into()))
+                    })
+            })
         }
         Sheets::Xls(_) | Sheets::Ods(_) => Err(SPREADSHEET_STREAMING_UNSUPPORTED.to_owned()),
     }
@@ -936,7 +916,7 @@ where
     C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
-    match spreadsheet_snapshot_plan_from_stream(path, sheet_name, header_mode, || is_cancelled()) {
+    match spreadsheet_snapshot_plan_from_stream(path, sheet_name, header_mode, &is_cancelled) {
         Ok(plan) => read_streamed_spreadsheet_frame(path, sheet_name, &plan, is_cancelled),
         Err(error) if error == SPREADSHEET_STREAMING_UNSUPPORTED => {
             ensure_not_cancelled(is_cancelled())?;

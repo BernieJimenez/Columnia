@@ -1,5 +1,6 @@
 use super::*;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn load_dataset_selection_impl(
     app: AppHandle,
     selection_id: String,
