@@ -40,6 +40,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
   [`ROADMAP.md`](ROADMAP.md) con 33 tareas (T10-01 a T10-33) y consolida el
   dictamen en [`AUDITORIA.md`](AUDITORIA.md). No cambia el producto. El
   motivo de cada decisión está en [`CONTEXTO.md`](CONTEXTO.md).
+- T10-09: la ficha de dependencias de `AUDITORIA.md` se regenera desde
+  `package.json` y `Cargo.toml` y `docs:check` falla ante cualquier
+  diferencia; registra la subida de versiones mayores de `cb86ea5`.
 - T10-08: el gate documental ya no acepta la versión mencionada en prosa:
   exige la cabecera `## [Unreleased]` o `## [x.y.z]`, y los perfiles Release y
   Package exigen la sección de la versión antes de publicar.

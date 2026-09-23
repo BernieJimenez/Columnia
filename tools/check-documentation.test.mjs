@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateChangelogVersion, validateReadmeSetupContract } from "./check-documentation.mjs";
+import { validateChangelogVersion, validateDependencySnapshot, validateReadmeSetupContract } from "./check-documentation.mjs";
+
+test("la ficha de dependencias debe coincidir con ambos manifiestos", () => {
+  const manifest = { dependencies: { react: "^19.3.0" }, devDependencies: { vite: "^8.3.0" } };
+  const cargo = '[dependencies]\npolars = { version = "0.55.2", features = ["csv"] }\nserde = "1"\n\n[dev-dependencies]\nproptest = "1"\n';
+  const sheet = (reactVersion) => [
+    "| runtime | `react` | `" + reactVersion + "` |",
+    "| desarrollo | `vite` | `^8.3.0` |",
+    "#### Cargo",
+    "`polars 0.55.2`, `serde 1`.",
+    "### Snapshot",
+  ].join("\n");
+  assert.deepEqual(validateDependencySnapshot(sheet("^19.3.0"), manifest, cargo), []);
+  assert.match(validateDependencySnapshot(sheet("^19.1.0"), manifest, cargo)[0], /react: manifiesto \^19\.3\.0, ficha \^19\.1\.0/);
+  assert.match(validateDependencySnapshot(sheet("^19.3.0"), manifest, cargo.replace('serde = "1"', 'serde = "1"\nduckdb = "1.10505.0"')).join(), /duckdb: manifiesto 1\.10505\.0, ficha ausente/);
+});
 
 test("una mención en prosa no cuenta como sección de versión", () => {
   const prose = "# Changelog\n\nLa versión vigente es [1.26.0].\n\n## [1.25.0] - 2026-09-21\n";

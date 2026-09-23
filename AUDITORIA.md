@@ -156,56 +156,52 @@ comprobación de CSP del gate de red y el retorno de foco de los diálogos.
 
 ## Inventario de dependencias y controles
 
-> **Aviso (2026-09-23):** la tabla de dependencias declaradas de esta sección
-> no refleja la subida de versiones del commit `cb86ea5` (2026-09-20); los
-> manifiestos son la fuente de verdad hasta cerrar T10-09.
-
 Este snapshot técnico se conserva aquí para evitar una segunda auditoría
 independiente. No es otra cola de trabajo: los cambios necesarios siguen el orden
 de [`roadmap vigente`](docs/reference/roadmap-current.md).
 
-Snapshot de dependencias actualizado el **2026-09-07** sobre `0.167.0`. La ficha vigente se conserva sobre `1.26.0` porque este incremento solo cambia la versión del proyecto, no el grafo de dependencias. El inventario IPC quedó verificado y sincronizado el **2026-09-22**. Es una referencia local
+Ficha de dependencias regenerada el **2026-09-23** sobre `1.26.0` desde los manifiestos. El commit `cb86ea5` (2026-09-20) subió versiones mayores de TypeScript (7), Vite (8), Vitest y su cobertura (5), jsdom (29), `@vitejs/plugin-react` (6) y `@testing-library/jest-dom` (7), además de `rusqlite` 0.40, `tokio` 1.53 y `tauri-plugin-updater` 2.12; el gate Full del 2026-09-23 pasa con ellas. El inventario IPC quedó verificado y sincronizado el **2026-09-22**. Es una referencia local
 reproducible, no una aprobación permanente de actualizar a la última versión.
 Antes de cambiar una dependencia, ejecuta los comandos de la tabla y registra el
 resultado en el mismo cambio.
 
 ### Dependencias directas declaradas
 
+`npm run docs:check` compara esta ficha con `package.json` y
+`src-tauri/Cargo.toml` y falla ante cualquier diferencia.
+
 #### npm
 
 | Grupo | Dependencia | Declaración |
 | --- | --- | --- |
 | runtime | `@tauri-apps/api` | `^2.11.1` |
-| runtime | `react` | `^19.1.0` |
-| runtime | `react-dom` | `^19.1.0` |
-| desarrollo | `@playwright/test` | `^1.62.1` |
-| desarrollo | `@tauri-apps/cli` | `^2.11.4` |
-| desarrollo | `@testing-library/jest-dom` | `^6.8.0` |
-| desarrollo | `@testing-library/react` | `^16.3.0` |
-| desarrollo | `@types/node` | `^24.0.0` |
-| desarrollo | `@types/react` | `^19.1.8` |
-| desarrollo | `@types/react-dom` | `^19.1.6` |
-| desarrollo | `@vitejs/plugin-react` | `^4.6.0` |
-| desarrollo | `jsdom` | `^26.1.0` |
-| desarrollo | `typescript` | `~5.8.3` |
-| desarrollo | `vite` | `^7.0.4` |
-| desarrollo | `vitest` | `^3.2.4` |
-| desarrollo | `@vitest/coverage-v8` | `^3.2.7` |
+| runtime | `react` | `^19.3.0` |
+| runtime | `react-dom` | `^19.3.0` |
+| desarrollo | `@playwright/test` | `^1.63.0` |
+| desarrollo | `@tauri-apps/cli` | `^2.11.5` |
+| desarrollo | `@testing-library/jest-dom` | `^7.0.1` |
+| desarrollo | `@testing-library/react` | `^16.3.3` |
+| desarrollo | `@types/node` | `^24.13.6` |
+| desarrollo | `@types/react` | `^19.3.0` |
+| desarrollo | `@types/react-dom` | `^19.3.0` |
+| desarrollo | `@vitejs/plugin-react` | `^6.1.1` |
+| desarrollo | `@vitest/coverage-v8` | `^5.0.1` |
+| desarrollo | `jsdom` | `^29.1.1` |
+| desarrollo | `typescript` | `~7.0.2` |
+| desarrollo | `vite` | `^8.3.0` |
+| desarrollo | `vitest` | `^5.0.1` |
 
 #### Cargo
 
 Las dependencias se resuelven desde `crates.io` mediante `Cargo.lock` y el gate
 de supply chain verifica checksums y fuentes. Las versiones declaradas son:
 
-`calamine 0.36.1`, `chrono 0.4.45`, `polars 0.55.2`, `rusqlite 0.37.0`,
-`serde 1`, `serde_json 1`, `tauri 2`, `tauri-plugin-dialog 2.7.2`, `tempfile 3`,
-`unicode-normalization 0.1`, `tokio 1.48`, `tokio-util 0.7`,
-`tauri-plugin-single-instance 2` y `tauri-plugin-updater 2.10.1` para escritorio,
-y `tauri-build 2` como dependencia de build.
+`calamine 0.36.1`, `chrono 0.4.45`, `duckdb 1.10505.0`, `hex 0.4.3`, `polars 0.55.2`, `odbc-api 29.1.0`, `rayon 1.12`, `regex 1`, `rusqlite 0.40.2`, `serde 1`, `serde_json 1`, `semver 1.0.28`, `sha2 0.11.0`, `sysinfo 0.39.6`, `tauri 2`, `tauri-plugin-dialog 2.7.3`, `tempfile 3`, `tokio 1.53.1`, `tokio-util 0.7.19`, `unicode-normalization 0.1`, `xxhash-rust 0.8.18`, `zip 8.6.0`;
+`tauri-plugin-single-instance 2`, `tauri-plugin-updater 2.12.0` para escritorio, y `tauri-build 2` como dependencia de build.
 
 ### Snapshot de actualización y auditorías ejecutadas
 
-`npm outdated --json` encontró versiones mayores disponibles para estas
+Snapshot histórico del 2026-09-07, anterior a `cb86ea5`, que aplicó estas subidas: `npm outdated --json` encontró versiones mayores disponibles para estas
 dependencias. El campo `wanted` coincide con la declaración actual; no se
 actualizaron automáticamente porque varias versiones cambian el major:
 
@@ -231,7 +227,7 @@ revisar Tauri/Vite, tests y build antes de modificar el lockfile.
 | `npm run secrets:check` | 0 hallazgos; 477 archivos inspeccionados | Escaneo local de claves privadas, tokens y credenciales asignadas |
 | `npm run network:check` | Aprobado | Sin APIs de red/telemetría en producción; CSP solo deja IPC interno |
 | `npm run notices:check` | Aprobado; 999 identidades de dependencia sin `UNKNOWN`, sin filas duplicadas | `THIRD_PARTY_NOTICES.md` se deriva offline de ambos lockfiles y rechaza licencias desconocidas, contradictorias o incompletas |
-| `npm run toolchains:check` | Aprobado; Node 24.14.0, npm 11.10.1 y Rust/Cargo 1.97.1 | Las versiones exactas están fijadas en `package.json` y `rust-toolchain.toml` |
+| `npm run toolchains:check` | Aprobado; Node 24.14.0, npm 11.10.1 y Rust/Cargo 1.98.1 | Las versiones exactas están fijadas en `package.json` y `rust-toolchain.toml` |
 | `npm run ipc:check` | Aprobado; 85 comandos de producción, 4 debug y 70 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](docs/reference/ipc-inventory.json); incluye tareas reutilizables, catálogo de proyectos/candidato de recuperación combinado, preflight/presets de entrega, inspección de libros en dos pasos y updater autenticado |
 
 Las excepciones de `cargo audit`/`cargo deny` no ocultan una vulnerabilidad de

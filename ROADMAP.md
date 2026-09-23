@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 4 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 5 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -350,13 +350,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
   - **Parcial 2026-09-23:** gate implementado (cabecera obligatoria, modo `--require-release-section` en Release/Package, 6/6 pruebas). Queda abierta hasta crear `## [1.26.0]` al cortar la versión; hoy el modo estricto falla, como debe.
-- [ ] **[T10-09] Regenerar la ficha de dependencias de AUDITORIA desde los manifiestos**
+- [x] **[T10-09] Regenerar la ficha de dependencias de AUDITORIA desde los manifiestos**
   - **Área:** Documentación · **Severidad:** Media
   - **Ubicación:** `AUDITORIA.md:118-186`; `tools/check-documentation.mjs:181`
   - **Qué hacer:** generar o comparar la tabla contra `package.json` y `src-tauri/Cargo.toml`; registrar la subida de versiones mayores de `cb86ea5` (2026-09-20) con fecha, motivo y resultado; incluir las dependencias Cargo que faltan.
   - **Criterio de aceptación:** el gate falla si una versión declarada difiere; la ficha coincide con los manifiestos.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — `validateDependencySnapshot` compara la ficha con ambos manifiestos (detectó 28 diferencias antes de regenerarla); `docs:check` verde, 7/7 pruebas.
 - [x] **[T10-10] Devolver el foco al disparador al cerrar el diálogo de importación**
   - **Área:** Accesibilidad · **Severidad:** Media
   - **Ubicación:** `src/features/load/LoadPhase.tsx:127`; `src/components/ModalDialog.tsx:66-68`, `:90`
@@ -547,7 +548,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 4 de 33 | Fase 2 en curso: cerradas hasta ahora T10-07 y anteriores de esta tanda. |
+| 2026-09-23 | 5 de 33 | Fase 2 en curso: cerradas hasta ahora T10-09 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 

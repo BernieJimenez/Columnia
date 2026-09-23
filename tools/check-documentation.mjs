@@ -61,6 +61,47 @@ export function validateChangelogVersion(changelog, version, { requireReleaseSec
   }
 }
 
+/** Declared Cargo dependencies (normal, target-specific and build) as name → version. */
+export function parseCargoDependencies(cargoToml) {
+  const dependencies = new Map();
+  let inDependencies = false;
+  for (const rawLine of cargoToml.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line.startsWith("[")) {
+      inDependencies = /dependencies\]$/.test(line) && !line.includes("dev-dependencies");
+      continue;
+    }
+    if (!inDependencies || !line || line.startsWith("#")) continue;
+    const match = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(?:"([^"]+)"|\{[^}]*version\s*=\s*"([^"]+)")/);
+    if (match) dependencies.set(match[1], match[2] ?? match[3]);
+  }
+  return dependencies;
+}
+
+/** The dependency sheet in AUDITORIA.md must match both manifests exactly. */
+export function validateDependencySnapshot(auditDocument, packageManifest, cargoToml) {
+  const problems = [];
+  const declaredNpm = new Map(Object.entries({ ...packageManifest.dependencies, ...packageManifest.devDependencies }));
+  const documentedNpm = new Map(
+    [...auditDocument.matchAll(/^\| (?:runtime|desarrollo) \| `([^`]+)` \| `([^`]+)` \|$/gm)].map((match) => [match[1], match[2]]),
+  );
+  const cargoSection = auditDocument.split(/^#### Cargo\s*$/m)[1]?.split(/^###/m)[0] ?? "";
+  const documentedCargo = new Map(
+    [...cargoSection.matchAll(/`([A-Za-z0-9_-]+) ([0-9][^`]*)`/g)].map((match) => [match[1], match[2]]),
+  );
+  const compare = (label, declared, documented) => {
+    for (const [name, version] of declared) {
+      if (documented.get(name) !== version) problems.push(`${label} ${name}: manifiesto ${version}, ficha ${documented.get(name) ?? "ausente"}`);
+    }
+    for (const name of documented.keys()) {
+      if (!declared.has(name)) problems.push(`${label} ${name}: en la ficha pero no en el manifiesto`);
+    }
+  };
+  compare("npm", declaredNpm, documentedNpm);
+  compare("Cargo", parseCargoDependencies(cargoToml), documentedCargo);
+  return problems;
+}
+
 export function validateReadmeSetupContract(readme, packageManifest) {
   const heading = "## Ejecutar desde el código fuente";
   const sectionStart = readme.indexOf(heading);
@@ -200,6 +241,8 @@ try {
     fail(error.message);
   }
   if (!auditDocument.includes(`sobre \`${version}\``)) fail("La ficha de dependencias no está actualizada a la versión del proyecto.");
+  const dependencyProblems = validateDependencySnapshot(auditDocument, packageManifest, cargoManifest);
+  if (dependencyProblems.length > 0) fail(`La ficha de dependencias de AUDITORIA.md no coincide con los manifiestos: ${dependencyProblems.join("; ")}.`);
   const npmAuditCount = auditDocument.match(/`npm audit --json --omit=optional`[^|]*\|[^|]*; (\d+) dependencias del lockfile/);
   if (!npmAuditCount || Number(npmAuditCount[1]) !== packageCount) {
     fail(`La ficha de dependencias no coincide con package-lock.json: declara ${npmAuditCount?.[1] ?? "sin conteo"}, actual ${packageCount}.`);
