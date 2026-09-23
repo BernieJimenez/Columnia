@@ -10,6 +10,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Seguridad
 
+- T10-04: la conexión DuckDB que ejecuta las consultas escritas en Revisar solo
+  puede leer los archivos del dataset activo, del comparado y su carpeta
+  temporal; queda sin acceso a otros archivos locales ni a la red, sin
+  instalar ni cargar extensiones, y con la configuración bloqueada.
 - T10-03: la consulta SQL local con DuckDB ya no reenvía el texto original del
   filtro ni de la agrupación: Columnia los reconstruye a partir de lo validado,
   con identificadores entre comillas y literales re-escapados. Un literal debe
