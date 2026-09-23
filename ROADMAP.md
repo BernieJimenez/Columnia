@@ -31,7 +31,8 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 - [x] **RV03 — Plan completo y resultado antes/después.** Implementado con una
   revisión reversible y comparación de calidad.
 - [ ] **RV04 — Excepciones, cancelación y recuperación.** Falta aceptación con
-  datos reales y documentar los límites de APIs nativas síncronas.
+  datos reales; los límites de APIs nativas síncronas están documentados en
+  [`roadmap-current.md`](docs/reference/roadmap-current.md).
 - [ ] **RV05 — Tarea reutilizable.** Falta aceptación con tareas y archivos de
   trabajo reales.
 - [ ] **RV06 — Interfaz compacta y accesible.** Falta aceptación nativa con
@@ -162,10 +163,10 @@ no se modifica.
 - Matriz sintética de rendimiento para 1 y 100 MiB en cuatro perfiles, más un
   benchmark WebView2 de 100 MiB con carga, paginación, transformación,
   exportación y limpieza.
-- Modularización gradual del motor: 37 módulos concentran responsabilidades
+- Modularización gradual del motor: 38 módulos concentran responsabilidades
   antes alojadas en `dataset.rs`, incluyendo historial, importación, calidad,
-  recetas, consultas y coordinadores de cancelación; se mantienen nombres de
-  comandos, contratos JSON y rutas Tauri.
+  recetas, consultas, limpieza de columnas y coordinadores de cancelación; se
+  mantienen nombres de comandos, contratos JSON y rutas Tauri.
 
 ## Estado verificable
 
@@ -193,7 +194,7 @@ revisión legal continúan abiertos donde corresponde.
 | --- | --- | --- |
 | RV01 | Parcial | Aceptar Cargar→Entregar con tareas y datos de trabajo reales. La coordinación, exclusión mutua y protección contra respuestas obsoletas ya están implementadas. |
 | RV02 | Parcial | Validar con datasets reales la revisión única de hoja, encabezados, esquema, ambigüedades y recursos. El preflight unificado ya está implementado. |
-| RV04 | Parcial | Ejercitar cancelación y recuperación con datos reales y documentar los tramos síncronos inevitables de Calamine, SQLite, ODBC y sistema de archivos. La publicación atómica y la cancelación de las rutas principales ya existen. |
+| RV04 | Parcial | Ejercitar cancelación y recuperación con datos reales; los tramos síncronos inevitables de Calamine, SQLite, ODBC y sistema de archivos están documentados en [`roadmap-current.md`](docs/reference/roadmap-current.md). La publicación atómica y la cancelación de las rutas principales ya existen. |
 | RV05 | Parcial | Confirmar tareas reutilizables con archivos de trabajo reales. Guardado, reinicio, compatibilidad de esquema y aplicación como borrador ya están cubiertos localmente. |
 | RV06 | Parcial | Completar aceptación nativa con lector de pantalla. Teclado, foco, zoom, alto contraste y compactación ya tienen cobertura automatizada. |
 | RV16 | En curso | Continuar extrayendo responsabilidades de `dataset.rs` solo al tocar cada área, sin reescritura general ni cambios de contrato. Los coordinadores de cancelación/publicación y el estado de generaciones ya viven en módulos dedicados. |
