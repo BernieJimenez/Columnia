@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 3 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 4 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -334,13 +334,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Criterio de aceptación:** un preflight sin cifrado exigido muestra el aviso y no escribe sin confirmación; pruebas por dialecto.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
-- [ ] **[T10-07] Hacer efectiva la comprobación de CSP del gate de red**
+- [x] **[T10-07] Hacer efectiva la comprobación de CSP del gate de red**
   - **Área:** DevOps y configuración · **Severidad:** Media
   - **Ubicación:** `tools/check-network-policy.mjs:55`; `tools/check-network-policy.test.mjs`
   - **Qué hacer:** leer `app.security.csp` y `devCsp` como objetos y recorrer sus directivas; añadir una prueba de mutación con un origen externo; declarar como salidas permitidas la entrega ODBC por acción explícita y el updater. Defecto latente desde `47aaa50` (2026-08-23), no cubierto por T7-03.
   - **Criterio de aceptación:** la prueba de mutación falla con un origen externo; `npm run network:check` sigue verde con la configuración actual.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — `findCspViolations` recorre `app.security.csp`/`devCsp`; pruebas de mutación (origen externo, comodín, CSP ausente) y de salidas declaradas: 8/8; `npm run network:check` verde.
 - [ ] **[T10-08] Crear la sección de versión del CHANGELOG y exigir cabecera en el gate**
   - **Área:** Documentación · **Severidad:** Media
   - **Ubicación:** `CHANGELOG.md:6`; `tools/check-documentation.mjs:180`
@@ -545,7 +546,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 3 de 33 | Fase 2 en curso: cerradas hasta ahora T10-02 y anteriores de esta tanda. |
+| 2026-09-23 | 4 de 33 | Fase 2 en curso: cerradas hasta ahora T10-07 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 

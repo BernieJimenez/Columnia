@@ -39,6 +39,10 @@ los artefactos de validación locales. La versión vigente del proyecto es
   [`ROADMAP.md`](ROADMAP.md) con 33 tareas (T10-01 a T10-33) y consolida el
   dictamen en [`AUDITORIA.md`](AUDITORIA.md). No cambia el producto. El
   motivo de cada decisión está en [`CONTEXTO.md`](CONTEXTO.md).
+- T10-07: `network:check` valida por fin la CSP real (`app.security.csp` y
+  `devCsp`, como objeto o texto) y exige que exista; desde su creación leía
+  una ruta inexistente y nunca podía fallar. Además, el uso de ODBC y del
+  updater queda limitado a sus módulos declarados.
 - Verificación nativa: el smoke de selectores Win32 sigue el preflight
   unificado de esquema para tareas reutilizables; el benchmark sostenido
   reintenta la medición de disco si un archivo temporal desaparece durante el
