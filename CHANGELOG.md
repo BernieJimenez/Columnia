@@ -56,6 +56,7 @@ los artefactos de validación locales. La versión vigente del proyecto es
 - RV02/RV04/RV16 separa en `dataset/query_execution.rs` los planes source-backed, la lectura por bloques Parquet, las agregaciones, la paginación de consultas y el JOIN local con cancelación. Se conservan las rutas Tauri y los contratos de consulta; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y la suite Rust (494/494 ejecutables) pasan.
 - RV02/RV04/RV16 separa en `dataset/automation.rs` la carga, inspección, transformación, validación y exportación usadas por el CLI, incluidos los caminos source-backed. Se conservan los contratos de automatización y los publicadores atómicos; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y la suite Rust (494/494 ejecutables) pasan.
 - RV16 separa en `dataset/project_history.rs` la captura, restauración y los resúmenes de snapshots de proyectos. Se conservan los contratos de proyectos, validación de IDs, cancelación y restauración transaccional; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib` y la suite Rust (494/494 ejecutables) pasan.
+- RV16 separa en `dataset/profile_engine.rs` la inferencia de tipos, estadísticas de texto, perfilado eager/source-backed y agregaciones temporales. Se conservan límites, cancelación, contratos y paridad de la suite Rust (494/494 ejecutables; 5 ignoradas).
 
 
 
