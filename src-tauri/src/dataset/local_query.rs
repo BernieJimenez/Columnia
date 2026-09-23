@@ -48,6 +48,9 @@ pub(super) struct LocalPredicate {
     pub(super) column: String,
     pub(super) operator: LocalPredicateOperator,
     pub(super) value: Option<String>,
+    /// Whether the literal was written as a quoted string rather than a number
+    /// or boolean; DuckDB compares both kinds differently.
+    pub(super) quoted_value: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -167,17 +170,21 @@ fn split_local_predicates(value: &str) -> Result<Vec<String>, String> {
     Ok(parts)
 }
 
-fn parse_local_literal(value: &str) -> Result<String, String> {
+/// Returns the literal value and whether it was a quoted string. A quoted
+/// literal must be a single token: interior quotes are only accepted doubled.
+fn parse_local_literal(value: &str) -> Result<(String, bool), String> {
     let value = value.trim();
-    if value.len() >= 2 && value.starts_with('\'') && value.ends_with('\'') {
-        return Ok(value[1..value.len() - 1].replace("''", "'"));
+    let quoted =
+        Regex::new(r"^'(?:[^']|'')*'$").expect("el patrón de literal local debe ser válido");
+    if quoted.is_match(value) {
+        return Ok((value[1..value.len() - 1].replace("''", "'"), true));
     }
     let numeric = Regex::new(r"^-?(?:\d+(?:\.\d*)?|\.\d+)$")
         .expect("el patrón numérico local debe ser válido");
     if numeric.is_match(value) || matches!(value.to_ascii_lowercase().as_str(), "true" | "false") {
-        return Ok(value.to_owned());
+        return Ok((value.to_owned(), false));
     }
-    Err("Los filtros solo permiten literales entre comillas, números o booleanos.".to_owned())
+    Err("Los filtros solo permiten un literal entre comillas, un número o un booleano.".to_owned())
 }
 
 fn parse_local_projection(
@@ -575,6 +582,7 @@ fn parse_local_predicates(
                         LocalPredicateOperator::IsNull
                     },
                     value: None,
+                    quoted_value: false,
                 });
             }
             let captures = comparison_pattern.captures(&condition).ok_or_else(|| {
@@ -594,12 +602,13 @@ fn parse_local_predicates(
                 "<=" => LocalPredicateOperator::Lte,
                 _ => unreachable!("el operador ya fue validado por el patrón"),
             };
+            let (value, quoted_value) =
+                parse_local_literal(captures.get(3).expect("el literal debe existir").as_str())?;
             Ok(LocalPredicate {
                 column,
                 operator,
-                value: Some(parse_local_literal(
-                    captures.get(3).expect("el literal debe existir").as_str(),
-                )?),
+                value: Some(value),
+                quoted_value,
             })
         })
         .collect()
@@ -840,11 +849,13 @@ pub(super) fn unique_duckdb_internal_name(used_names: &mut HashSet<String>, base
 }
 
 fn canonicalize_duckdb_query(query: &str, plan: &LocalQueryPlan) -> Result<String, String> {
-    let pattern = Regex::new(r"(?is)^\s*select\s+.+?\s+from\s+dataset(?P<tail>.*)$")
+    let pattern = Regex::new(r"(?is)^\s*select\s+.+?\s+from\s+dataset\b")
         .expect("el patrón de canonicalización DuckDB debe ser válido");
-    let captures = pattern.captures(query).ok_or_else(|| {
-        "La consulta local no contiene una sentencia SELECT válida para DuckDB.".to_owned()
-    })?;
+    if !pattern.is_match(query) {
+        return Err(
+            "La consulta local no contiene una sentencia SELECT válida para DuckDB.".to_owned(),
+        );
+    }
     let projection = plan
         .projections
         .iter()
@@ -884,9 +895,139 @@ fn canonicalize_duckdb_query(query: &str, plan: &LocalQueryPlan) -> Result<Strin
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let tail = captures
-        .name("tail")
-        .map(|value| value.as_str())
-        .unwrap_or_default();
-    Ok(format!("SELECT {projection} FROM dataset{tail}"))
+    // Rebuild the filter and grouping from the validated plan instead of
+    // forwarding the user's text: only identifiers and re-escaped literals
+    // reach DuckDB, never an unparsed fragment of the original query.
+    let mut canonical = format!("SELECT {projection} FROM dataset");
+    if !plan.predicates.is_empty() {
+        let predicates = plan
+            .predicates
+            .iter()
+            .map(duckdb_predicate)
+            .collect::<Result<Vec<_>, _>>()?;
+        canonical.push_str(" WHERE ");
+        canonical.push_str(&predicates.join(" AND "));
+    }
+    if let Some(groups) = &plan.group_by {
+        canonical.push_str(" GROUP BY ");
+        canonical.push_str(
+            &groups
+                .iter()
+                .map(|group| duckdb_identifier(group))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    }
+    Ok(canonical)
+}
+
+fn duckdb_predicate(predicate: &LocalPredicate) -> Result<String, String> {
+    let column = duckdb_identifier(&predicate.column);
+    let operator = match predicate.operator {
+        LocalPredicateOperator::IsNull => return Ok(format!("{column} IS NULL")),
+        LocalPredicateOperator::IsNotNull => return Ok(format!("{column} IS NOT NULL")),
+        LocalPredicateOperator::Eq => "=",
+        LocalPredicateOperator::Neq => "<>",
+        LocalPredicateOperator::Gt => ">",
+        LocalPredicateOperator::Gte => ">=",
+        LocalPredicateOperator::Lt => "<",
+        LocalPredicateOperator::Lte => "<=",
+    };
+    let value = predicate
+        .value
+        .as_deref()
+        .ok_or_else(|| "La comparación local no tiene un literal válido.".to_owned())?;
+    let literal = if predicate.quoted_value {
+        format!("'{}'", value.replace('\'', "''"))
+    } else {
+        // Unquoted literals were already restricted to numbers and booleans.
+        let numeric = Regex::new(r"^-?(?:\d+(?:\.\d*)?|\.\d+)$")
+            .expect("el patrón numérico local debe ser válido");
+        if !numeric.is_match(value)
+            && !matches!(value.to_ascii_lowercase().as_str(), "true" | "false")
+        {
+            return Err("La comparación local no tiene un literal válido.".to_owned());
+        }
+        value.to_owned()
+    };
+    Ok(format!("{column} {operator} {literal}"))
+}
+
+#[cfg(test)]
+mod duckdb_canonical_tests {
+    use polars::prelude::*;
+
+    use super::prepare_duckdb_query;
+
+    fn frame() -> DataFrame {
+        df!("city" => ["Santo Domingo", "O'Brien"], "value" => [10_i64, 20])
+            .expect("frame de prueba")
+    }
+
+    #[test]
+    fn rejects_a_quoted_literal_that_is_more_than_one_token() {
+        let error = prepare_duckdb_query(
+            "SELECT city FROM dataset WHERE city = 'a' OR 'b' = 'b'",
+            &frame(),
+            None,
+        )
+        .err()
+        .expect("un literal con varios tokens debe rechazarse");
+        assert!(error.contains("un literal entre comillas"), "{error}");
+    }
+
+    #[test]
+    fn rebuilds_the_filter_with_identifiers_and_escaped_literals() {
+        let spec = prepare_duckdb_query(
+            "select city from dataset where city = 'O''Brien' and value >= 10 limit 5",
+            &frame(),
+            None,
+        )
+        .expect("consulta válida");
+        assert!(
+            spec.bounded_query.starts_with(
+                r#"SELECT "city" FROM dataset WHERE "city" = 'O''Brien' AND "value" >= 10 ORDER BY"#
+            ),
+            "{}",
+            spec.bounded_query
+        );
+        assert!(
+            spec.bounded_query.ends_with("LIMIT 5 OFFSET 0"),
+            "{}",
+            spec.bounded_query
+        );
+    }
+
+    #[test]
+    fn rebuilds_group_by_from_the_plan() {
+        let spec = prepare_duckdb_query(
+            "SELECT city, COUNT(*) AS total FROM dataset WHERE value IS NOT NULL GROUP BY city",
+            &frame(),
+            None,
+        )
+        .expect("consulta agregada válida");
+        assert!(
+            spec.count_query
+                .contains(r#"WHERE "value" IS NOT NULL GROUP BY "city""#),
+            "{}",
+            spec.count_query
+        );
+    }
+
+    #[test]
+    fn no_unparsed_fragment_of_the_query_reaches_duckdb() {
+        let spec =
+            prepare_duckdb_query("SELECT city FROM dataset WHERE value = 10", &frame(), None)
+                .expect("consulta válida");
+        assert!(
+            !spec.bounded_query.contains("value = 10"),
+            "{}",
+            spec.bounded_query
+        );
+        assert!(
+            spec.bounded_query.contains(r#""value" = 10"#),
+            "{}",
+            spec.bounded_query
+        );
+    }
 }

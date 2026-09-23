@@ -8,6 +8,14 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ## [Unreleased]
 
+### Seguridad
+
+- T10-03: la consulta SQL local con DuckDB ya no reenvía el texto original del
+  filtro ni de la agrupación: Columnia los reconstruye a partir de lo validado,
+  con identificadores entre comillas y literales re-escapados. Un literal debe
+  ser un único valor entre comillas, un número o un booleano; cualquier otra
+  cosa se rechaza con un mensaje claro.
+
 ### Corregido
 
 - T10-02: en los temas oscuros, «Aplicar plan seleccionado» y los días más

@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 5 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 6 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -306,13 +306,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-23 — medido en Chrome (Sistema con SO oscuro / Oscuro / Claro): «Aplicar plan seleccionado» 9,64/9,64/6,18; valores ausentes 6,67/8,47/6,19; etiquetas de tipo 7,35/7,35/5,64; captura `.local/auditoria-2026-09-23/capturas/14-T10-02-aplicar-plan-corregido.png`; vitest 458/458. El día de nivel 4 del calendario usa el mismo token y no se midió en pantalla.
-- [ ] **[T10-03] Enviar a DuckDB solo SQL reconstruido desde el plan validado**
+- [x] **[T10-03] Enviar a DuckDB solo SQL reconstruido desde el plan validado**
   - **Área:** Seguridad · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/dataset/local_query.rs:170-181`, `:842-891`
   - **Qué hacer:** generar `WHERE` y `GROUP BY` desde `LocalQueryPlan`, igual que la proyección, con identificadores y literales re-escapados; exigir que un literal sea un único token entre comillas simples; añadir pruebas de rechazo.
   - **Criterio de aceptación:** la sentencia que llega a DuckDB no contiene texto del usuario salvo identificadores y literales re-escapados; las pruebas nuevas rechazan literales que no son un único token; suite Rust verde.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — `canonicalize_duckdb_query` genera `WHERE`/`GROUP BY` desde `LocalQueryPlan` y `parse_local_literal` exige un único token; 4 pruebas nuevas; suite Rust 498 aprobadas y 5 ignoradas; Clippy `-D warnings` y fmt verdes.
 - [ ] **[T10-04] Restringir el acceso externo de las conexiones DuckDB que ejecutan SQL del usuario**
   - **Área:** Seguridad · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/duckdb_query.rs:1661-1662`, `:1706-1765`, `:1803-1817`
@@ -548,7 +549,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 5 de 33 | Fase 2 en curso: cerradas hasta ahora T10-09 y anteriores de esta tanda. |
+| 2026-09-23 | 6 de 33 | Fase 2 en curso: cerradas hasta ahora T10-03 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 
