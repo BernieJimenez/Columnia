@@ -4,6 +4,8 @@
 
 **Versión del repositorio:** 1.26.0
 
+**Candidato vigente:** `v1.26.0-rc.1` (`fb58b9a`).
+
 **Estado:** prototipo local funcional para Windows x64; beta con personas y datos
 de trabajo, aceptación externa y distribución binaria todavía pendientes.
 
@@ -170,19 +172,22 @@ no se modifica.
 
 ## Estado verificable
 
-El corte local actual de 1.26.0 aprobó:
+El candidato `v1.26.0-rc.1` aprobó el 2026-09-23:
 
 | Gate | Resultado registrado |
 | --- | --- |
+| Full (`check.ps1 -Profile Full`) | Aprobado sobre `fb58b9a`, incluido Clippy con `-D warnings` |
 | Frontend | 457/457 pruebas en 51 archivos |
 | Cobertura | 86,17 % de sentencias y 81,34 % de ramas; capas críticas aprobadas |
 | E2E | 22/22 recorridos |
 | Rust | 494 aprobadas y 5 ignoradas por benchmarks opt-in o integraciones ODBC externas |
-| Rendimiento | 8/8 cruces de la matriz sintética y smoke WebView2 de 100 MiB |
+| Nativos | Smokes CLI, desktop, reinicio WebView2, selectores Win32 y CDP debug/release aprobados |
+| Rendimiento | Benchmark sostenido, WebView2 de 100 MiB y memoria release dentro de presupuesto |
 | Release | dry-run técnico aprobado hasta el sign-off jurídico obligatorio |
 
-Este corte repitió build, Vitest con cobertura, Playwright, Rust, formato,
-inventario IPC y documentación. No sustituye los gates externos: aceptación con
+El gate de rendimiento solo conserva abierto `frontend-bundle`, que exige un
+reporte del perfil Package y por tanto el sign-off jurídico de RV11; el
+presupuesto de bundle se verifica en el gate Full. No sustituye los gates externos: aceptación con
 datos reales, lector de pantalla, servidores ODBC/BI, beta humana, firma y
 revisión legal continúan abiertos donde corresponde.
 
@@ -229,7 +234,8 @@ previo a comercializar.
 
 ## Orden recomendado
 
-1. Repetir la suite completa sobre 1.26.0 y fijar un release candidate.
+1. ~~Repetir la suite completa sobre 1.26.0 y fijar un release candidate.~~
+   Hecho: `v1.26.0-rc.1`.
 2. Cerrar RV01, RV02, RV04, RV05 y RV06 con recorridos de trabajo y aceptación
    nativa, sin añadir alcance nuevo.
 3. Ejecutar RV07 y RV09 sobre el mismo candidato; convertir hallazgos en RV08.

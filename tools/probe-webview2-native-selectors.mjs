@@ -379,6 +379,11 @@ async function selectDatasetFromApp(page, targetPath) {
   await sleep(750);
 }
 
+function importDialogFor(page, targetPath) {
+  const fileName = basename(targetPath).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return page.getByRole("dialog", { name: new RegExp(`de ${fileName}$`) });
+}
+
 async function prepareReusableTaskInApp(page, taskId) {
   await page.locator("details.reusable-task-panel > summary").click();
   const taskSelect = page.locator("#reusable-task-select");
@@ -429,25 +434,32 @@ async function runReusableTaskFlow(page, emptyRecipe) {
     await page.reload({ waitUntil: "domcontentloaded", timeout: probeTimeoutMs });
     await page.locator("#app-title").waitFor({ state: "visible", timeout: probeTimeoutMs });
     await prepareReusableTaskInApp(page, taskId);
+    // The unified preflight reports a saved-profile mismatch inside the import
+    // dialog after "Revisar esquema", before any dataset is activated.
     await selectDatasetFromApp(page, mismatchedPath);
-    await page.getByRole("button", { name: "Cargar archivo" }).click({ timeout: probeTimeoutMs });
-    await page.getByRole("heading", { name: "El esquema difiere del perfil guardado" })
-      .waitFor({ state: "visible", timeout: probeTimeoutMs });
-    const mismatchDialog = page.locator(".sheet-dialog__panel").last();
-    await mismatchDialog.waitFor({ state: "visible", timeout: probeTimeoutMs });
-    const mismatchDialogText = await mismatchDialog.innerText();
-    if (!mismatchDialogText.includes("extra")) {
+    const mismatchImport = importDialogFor(page, mismatchedPath);
+    await mismatchImport.getByRole("button", { name: "Revisar esquema" }).click({ timeout: probeTimeoutMs });
+    const mismatchAlert = mismatchImport.getByRole("alert")
+      .filter({ hasText: "El esquema no coincide con el perfil guardado." });
+    await mismatchAlert.waitFor({ state: "visible", timeout: probeTimeoutMs });
+    const mismatchAlertText = await mismatchAlert.innerText();
+    if (!mismatchAlertText.includes("extra")) {
       const error = new Error("reusable_task_mismatch_details_invalid");
-      error.diagnostics = [mismatchDialogText.slice(0, 400)];
+      error.diagnostics = [mismatchAlertText.slice(0, 400)];
       throw error;
     }
-    await page.getByRole("button", { name: "Cancelar y conservar dataset" }).click();
+    await mismatchImport.getByRole("button", { name: "Importar con esquema nuevo" })
+      .waitFor({ state: "visible", timeout: probeTimeoutMs });
+    await mismatchImport.getByRole("button", { name: "Cancelar", exact: true }).click();
+    await mismatchImport.waitFor({ state: "hidden", timeout: probeTimeoutMs });
 
     await page.reload({ waitUntil: "domcontentloaded", timeout: probeTimeoutMs });
     await page.locator("#app-title").waitFor({ state: "visible", timeout: probeTimeoutMs });
     await prepareReusableTaskInApp(page, taskId);
     await selectDatasetFromApp(page, compatiblePath);
-    await page.getByRole("button", { name: "Cargar archivo" }).click({ timeout: probeTimeoutMs });
+    const compatibleImport = importDialogFor(page, compatiblePath);
+    await compatibleImport.getByRole("button", { name: "Revisar esquema" }).click({ timeout: probeTimeoutMs });
+    await compatibleImport.getByRole("button", { name: "Cargar archivo" }).click({ timeout: probeTimeoutMs });
     await page.locator(".workspace--prepare").waitFor({ state: "visible", timeout: probeTimeoutMs });
     outcome = {
       taskSavedAndReopened: true,

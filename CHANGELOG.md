@@ -24,6 +24,11 @@ los artefactos de validación locales. La versión vigente del proyecto es
 
 ### Interno
 
+- Verificación nativa: el smoke de selectores Win32 sigue el preflight
+  unificado de esquema para tareas reutilizables; el benchmark sostenido
+  reintenta la medición de disco si un archivo temporal desaparece durante el
+  recorrido; el gate de rendimiento interpreta `observedAt` sin depender de la
+  cultura de Windows cuando se ejecuta con PowerShell 7.
 - El gate Full vuelve a pasar Clippy con `-D warnings`: se eliminan 20 helpers
   huérfanos tras la modularización de RV16, 42 helpers usados solo por pruebas
   quedan bajo `#[cfg(test)]` y se corrigen closures, préstamos y casts

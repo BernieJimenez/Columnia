@@ -74,11 +74,23 @@ function Write-SanitizedEvidenceText {
 }
 
 function Get-WorkspaceDiskBytes {
-    $Files = @(Get-ChildItem -LiteralPath $WorkDirectory -File -Recurse -Force -ErrorAction SilentlyContinue)
-    if ($Files.Count -eq 0) {
-        return 0L
+    # The CLI creates and removes staging files while this samples the
+    # workspace; a file vanishing mid-enumeration throws a terminating
+    # Win32Exception that -ErrorAction does not suppress, so retry the sample.
+    for ($Attempt = 1; ; $Attempt++) {
+        try {
+            $Files = @(Get-ChildItem -LiteralPath $WorkDirectory -File -Recurse -Force -ErrorAction SilentlyContinue)
+            if ($Files.Count -eq 0) {
+                return 0L
+            }
+            return [int64](($Files | Measure-Object -Property Length -Sum).Sum)
+        }
+        catch [System.ComponentModel.Win32Exception], [System.IO.IOException] {
+            if ($Attempt -ge 5) {
+                throw
+            }
+        }
     }
-    return [int64](($Files | Measure-Object -Property Length -Sum).Sum)
 }
 
 function New-BenchmarkFiles {

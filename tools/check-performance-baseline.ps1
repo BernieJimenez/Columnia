@@ -119,11 +119,21 @@ function Test-SampleFreshness {
     if ($null -eq $EvidenceRequiredAfterUtc) {
         return $true
     }
-    if ([string]::IsNullOrWhiteSpace([string]$Sample.observedAt)) {
+    $ObservedAt = $Sample.observedAt
+    if ($null -eq $ObservedAt -or [string]::IsNullOrWhiteSpace([string]$ObservedAt)) {
         return $false
     }
     try {
-        return [DateTimeOffset]::Parse([string]$Sample.observedAt).ToUniversalTime() -ge $EvidenceRequiredAfterUtc
+        # PowerShell 7 ConvertFrom-Json already yields DateTime; a [string]
+        # round-trip would use the invariant format and break Parse under
+        # cultures such as es-DO (dd/MM).
+        $ObservedUtc = if ($ObservedAt -is [DateTime] -or $ObservedAt -is [DateTimeOffset]) {
+            ([DateTimeOffset]$ObservedAt).ToUniversalTime()
+        }
+        else {
+            [DateTimeOffset]::Parse([string]$ObservedAt, [System.Globalization.CultureInfo]::InvariantCulture).ToUniversalTime()
+        }
+        return $ObservedUtc -ge $EvidenceRequiredAfterUtc
     }
     catch {
         return $false
