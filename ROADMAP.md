@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 0 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 1 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -290,13 +290,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 
 ### Tareas
 
-- [ ] **[T10-01] Compilar el ejecutable release con subsistema gráfico**
+- [x] **[T10-01] Compilar el ejecutable release con subsistema gráfico**
   - **Área:** DevOps y configuración · **Severidad:** Alta
   - **Ubicación:** `src-tauri/src/main.rs:1-3`; `src-tauri/target/release/columnia.exe` (cabecera PE `Subsystem=3`, consola)
   - **Qué hacer:** añadir `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` y una comprobación del campo `Subsystem` del PE en el contrato del instalador o en el smoke release.
   - **Criterio de aceptación:** el ejecutable release tiene `Subsystem=2`; abrirlo desde el Explorador no muestra consola; el gate falla si vuelve a 3.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — `columnia.exe` release recompilado con `Subsystem=2` (WINDOWS_GUI); `tools/check-pe-subsystem.mjs` en el perfil Release; 3/3 pruebas.
 - [ ] **[T10-02] Corregir los contrastes por debajo de WCAG AA**
   - **Área:** Accesibilidad · **Severidad:** Alta
   - **Ubicación:** `src/styles.css:270`, `:608`, `:757`, `:1347`, `:1372`; `src/workflow-styles.css:268`, `:338-339`
@@ -542,6 +543,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
+| 2026-09-23 | 1 de 33 | Fase 2 en curso: cerradas hasta ahora T10-01 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 

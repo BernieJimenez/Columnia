@@ -275,6 +275,9 @@ try {
         }
         $TauriReleaseArguments = @("run", "tauri", "--", "build", "--no-bundle") + $TauriConfigArguments
         Invoke-Checked "Tauri release build" $ProjectRoot { & npm.cmd @TauriReleaseArguments }
+        Invoke-Checked "Release GUI subsystem" $ProjectRoot {
+            & node tools/check-pe-subsystem.mjs (Join-Path $TauriRoot "target\release\columnia.exe")
+        }
     }
 
     if ($Profile -eq "Package") {

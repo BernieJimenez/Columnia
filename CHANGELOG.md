@@ -9,6 +9,9 @@ los artefactos de validación locales. La versión vigente del proyecto es
 
 ### Corregido
 
+- T10-01: el ejecutable de Windows ya no abre una ventana de consola junto a
+  Columnia. Antes, cerrar esa consola terminaba la aplicación sin guardar. El
+  perfil Release comprueba ahora el subsistema gráfico del binario.
 - RV02/RV04: las regresiones de App y Playwright siguen el preflight unificado
   de esquema antes de cargar CSV, Excel, Parquet y tareas reutilizables. Se
   cubren incompatibilidad de perfil, reintentos y descarte seguro sin publicar
