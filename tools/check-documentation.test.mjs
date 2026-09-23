@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateReadmeSetupContract } from "./check-documentation.mjs";
+import { validateChangelogVersion, validateReadmeSetupContract } from "./check-documentation.mjs";
+
+test("una mención en prosa no cuenta como sección de versión", () => {
+  const prose = "# Changelog\n\nLa versión vigente es [1.26.0].\n\n## [1.25.0] - 2026-09-21\n";
+  assert.throws(() => validateChangelogVersion(prose, "1.26.0"), /ni "## \[Unreleased\]"/);
+});
+
+test("desarrollo acepta cambios pendientes bajo Unreleased; publicación exige la sección", () => {
+  const pending = "# Changelog\n\n## [Unreleased]\n\n## [1.25.0] - 2026-09-21\n";
+  assert.doesNotThrow(() => validateChangelogVersion(pending, "1.26.0"));
+  assert.throws(() => validateChangelogVersion(pending, "1.26.0", { requireReleaseSection: true }), /exige la publicación/);
+  const released = "# Changelog\n\n## [1.26.0] - 2026-09-30\n";
+  assert.doesNotThrow(() => validateChangelogVersion(released, "1.26.0", { requireReleaseSection: true }));
+});
 
 const packageManifest = {
   engines: { node: ">=24.14.0 <25", npm: ">=11.10.1 <12" },

@@ -44,6 +44,23 @@ function requireFragments(relativePath, contents, fragments) {
   }
 }
 
+/**
+ * A version counts only as a Keep a Changelog heading, never as a mention in
+ * prose. Release profiles require the version's own section; development
+ * accepts pending changes under [Unreleased].
+ */
+export function validateChangelogVersion(changelog, version, { requireReleaseSection = false } = {}) {
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const hasVersionSection = new RegExp(`^## \\[${escaped}\\](?:\\s|$)`, "m").test(changelog);
+  const hasUnreleasedSection = /^## \[Unreleased\]\s*$/m.test(changelog);
+  if (requireReleaseSection && !hasVersionSection) {
+    throw new Error(`CHANGELOG.md no tiene la sección "## [${version}]" que exige la publicación.`);
+  }
+  if (!hasVersionSection && !hasUnreleasedSection) {
+    throw new Error(`CHANGELOG.md no tiene la sección "## [${version}]" ni "## [Unreleased]".`);
+  }
+}
+
 export function validateReadmeSetupContract(readme, packageManifest) {
   const heading = "## Ejecutar desde el código fuente";
   const sectionStart = readme.indexOf(heading);
@@ -177,7 +194,11 @@ try {
   if (legalDecision.schemaVersion !== 1 || !["pending-legal-review", "source-publication-approved", "approved"].includes(legalDecision.status)) {
     fail("La ficha legal/distribución debe usar schemaVersion 1 y un estado conocido.");
   }
-  if (!changelog.includes(`[${version}]`)) fail(`CHANGELOG.md no contiene la versión ${version}.`);
+  try {
+    validateChangelogVersion(changelog, version, { requireReleaseSection: process.argv.includes("--require-release-section") });
+  } catch (error) {
+    fail(error.message);
+  }
   if (!auditDocument.includes(`sobre \`${version}\``)) fail("La ficha de dependencias no está actualizada a la versión del proyecto.");
   const npmAuditCount = auditDocument.match(/`npm audit --json --omit=optional`[^|]*\|[^|]*; (\d+) dependencias del lockfile/);
   if (!npmAuditCount || Number(npmAuditCount[1]) !== packageCount) {

@@ -194,6 +194,9 @@ try {
         & node tools/check-legal-distribution.mjs
     }
     if ($ReleaseLike) {
+        Invoke-Checked "Changelog release section" $ProjectRoot {
+            & node tools/check-documentation.mjs --require-release-section
+        }
         Invoke-Checked "Legal distribution sign-off" $ProjectRoot {
             & node tools/check-legal-distribution.mjs --require-signoff
         }

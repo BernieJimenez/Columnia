@@ -349,6 +349,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Criterio de aceptación:** el gate falla si la versión solo aparece en prosa; el CHANGELOG tiene la sección.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Parcial 2026-09-23:** gate implementado (cabecera obligatoria, modo `--require-release-section` en Release/Package, 6/6 pruebas). Queda abierta hasta crear `## [1.26.0]` al cortar la versión; hoy el modo estricto falla, como debe.
 - [ ] **[T10-09] Regenerar la ficha de dependencias de AUDITORIA desde los manifiestos**
   - **Área:** Documentación · **Severidad:** Media
   - **Ubicación:** `AUDITORIA.md:118-186`; `tools/check-documentation.mjs:181`
