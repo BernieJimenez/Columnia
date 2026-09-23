@@ -38,7 +38,9 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 - [ ] **RV05 — Tarea reutilizable.** Falta aceptación con tareas y archivos de
   trabajo reales.
 - [ ] **RV06 — Interfaz compacta y accesible.** Falta aceptación nativa con
-  lector de pantalla.
+  lector de pantalla. *Enriquecida el 2026-09-23:* el foco no vuelve al
+  disparador al cerrar el diálogo de importación ([T10-10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23))
+  y hay contrastes por debajo de WCAG AA en los temas oscuros y claro (T10-02).
 - [ ] **RV07 — Beta con tareas reales.** Faltan tres sesiones humanas sobre el
   mismo candidato y cumplir el gate 24/30 sin ayuda.
 - [ ] **RV08 — Regresiones derivadas de beta.** Depende de los hallazgos de
@@ -49,6 +51,8 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
   round-trip de booleanos y nulos.
 - [ ] **RV11 — Candidato instalable y distribución.** Faltan aprobación
   jurídica, VM limpia y verificación de instalador, updater, hashes y firmas.
+  *Enriquecida el 2026-09-23:* depende además de T10-01; el ejecutable release
+  se compila hoy con subsistema de consola.
 - [x] **RV12 — Recursos y escala medibles.** Cerrado para la matriz sintética v1
   y ampliado con el benchmark WebView2 de 100 MiB.
 - [x] **RV13 — Respaldo y autoguardado recuperables.** Implementado con
@@ -62,6 +66,10 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
+
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 0 de 33 tareas cerradas; 2 de
+  severidad alta (T10-01, T10-02). Detalle en
+  [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
 ## Dirección del producto
 
@@ -255,6 +263,285 @@ previo a comercializar.
 | Tier 7 — Regresiones de rediseño | Cerrado; build, pruebas y contratos recuperados tras la modularización de interfaz. |
 | Tier 8 — Beta local | El protocolo y sus checkers están listos; las sesiones humanas se consolidaron en RV07. |
 | Tier 9 — Valor operativo | Hito vigente: cerrar aceptación real, evidencia externa y distribución sin ampliar el producto por anticipación. |
+
+## Tier 10 — Reauditoría 2026-09-23: integridad de gates, frontera IPC y accesibilidad real (abierto 2026-09-23)
+
+Tanda temática abierta por la reauditoría del 2026-09-23 (áreas de código,
+seguridad, accesibilidad, UI/UX, arquitectura, QA, documentación y DevOps). El
+informe consolidado está en [`AUDITORIA.md`](AUDITORIA.md) y el contexto de la
+sesión en [`CONTEXTO.md`](CONTEXTO.md). Cada tarea declara su severidad real:
+un Tier alto no rebaja la prioridad. T10-01 y T10-02 son las únicas de
+severidad alta; T10-01 bloquea cualquier binario de RV11.
+
+### Índice
+
+| Severidad | Tareas | Esfuerzo bajo | Esfuerzo medio | Esfuerzo alto |
+| --- | ---: | ---: | ---: | ---: |
+| Alta | 2 | 2 | 0 | 0 |
+| Media | 22 | 10 | 12 | 0 |
+| Baja | 9 | 9 | 0 | 0 |
+| **Total** | **33** | **21** | **12** | **0** |
+
+Relación con tareas existentes: T10-02 y T10-10 enriquecen RV06; T10-01
+bloquea RV11; T10-13 y T10-14 preparan RV10/RV14; T10-07 corrige un defecto
+latente del gate de red que T7-03 (cerrada) no cubrió. No se detectaron
+regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
+(ver T10-07, T10-08, T10-09 y T10-10).
+
+### Tareas
+
+- [ ] **[T10-01] Compilar el ejecutable release con subsistema gráfico**
+  - **Área:** DevOps y configuración · **Severidad:** Alta
+  - **Ubicación:** `src-tauri/src/main.rs:1-3`; `src-tauri/target/release/columnia.exe` (cabecera PE `Subsystem=3`, consola)
+  - **Qué hacer:** añadir `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` y una comprobación del campo `Subsystem` del PE en el contrato del instalador o en el smoke release.
+  - **Criterio de aceptación:** el ejecutable release tiene `Subsystem=2`; abrirlo desde el Explorador no muestra consola; el gate falla si vuelve a 3.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-02] Corregir los contrastes por debajo de WCAG AA**
+  - **Área:** Accesibilidad · **Severidad:** Alta
+  - **Ubicación:** `src/styles.css:270`, `:608`, `:757`, `:1347`, `:1372`; `src/workflow-styles.css:268`, `:338-339`
+  - **Qué hacer:** introducir un token de texto sobre `--accent` por tema (botón «Aplicar plan seleccionado», día de nivel 4 del calendario temporal); aplicar el color oscuro de `.null-value` también al tema Sistema; subir `th small` a 4,5:1 en tema claro.
+  - **Criterio de aceptación:** ≥ 4,5:1 medido en claro, oscuro y sistema oscuro para «Aplicar plan seleccionado» (hoy 1,68:1), valores ausentes (hoy 2,07:1) y etiquetas de tipo (hoy 3,74:1).
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-03] Enviar a DuckDB solo SQL reconstruido desde el plan validado**
+  - **Área:** Seguridad · **Severidad:** Media
+  - **Ubicación:** `src-tauri/src/dataset/local_query.rs:170-181`, `:842-891`
+  - **Qué hacer:** generar `WHERE` y `GROUP BY` desde `LocalQueryPlan`, igual que la proyección, con identificadores y literales re-escapados; exigir que un literal sea un único token entre comillas simples; añadir pruebas de rechazo.
+  - **Criterio de aceptación:** la sentencia que llega a DuckDB no contiene texto del usuario salvo identificadores y literales re-escapados; las pruebas nuevas rechazan literales que no son un único token; suite Rust verde.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+- [ ] **[T10-04] Restringir el acceso externo de las conexiones DuckDB que ejecutan SQL del usuario**
+  - **Área:** Seguridad · **Severidad:** Media
+  - **Ubicación:** `src-tauri/src/duckdb_query.rs:1661-1662`, `:1706-1765`, `:1803-1817`
+  - **Qué hacer:** verificar los valores por defecto del build `bundled`; tras registrar las vistas, limitar rutas permitidas a los archivos del dataset y al temporal, desactivar el acceso externo y la autocarga/autoinstalación de extensiones, y bloquear la configuración.
+  - **Criterio de aceptación:** una prueba confirma que una consulta válida funciona y que leer un archivo fuera del conjunto permitido falla; la configuración queda bloqueada durante la consulta.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+- [ ] **[T10-05] Exigir confirmación nativa antes de cualquier conexión ODBC**
+  - **Área:** Seguridad · **Severidad:** Media
+  - **Ubicación:** `src-tauri/src/dataset.rs:8633`, `:8786-8795`; `src-tauri/src/remote_databases.rs:121-167`
+  - **Qué hacer:** mostrar desde Rust un diálogo nativo con controlador, servidor, base, tabla y política antes del preflight y de la entrega; retirar `test_database_connection` del handler si la interfaz no lo usa.
+  - **Criterio de aceptación:** sin confirmación nativa no se abre ninguna conexión; inventario IPC actualizado; prueba de rechazo sin confirmación.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+- [ ] **[T10-06] Advertir o bloquear entregas ODBC sin cifrado en tránsito**
+  - **Área:** Seguridad · **Severidad:** Media
+  - **Ubicación:** `src-tauri/src/remote_databases.rs:744-768`
+  - **Qué hacer:** detectar `Encrypt`, `TrustServerCertificate` y `sslmode` en la cadena; mostrar en el preflight un aviso que exija confirmación si no se pide cifrado. El texto del aviso requiere revisión legal (Ley 172-13).
+  - **Criterio de aceptación:** un preflight sin cifrado exigido muestra el aviso y no escribe sin confirmación; pruebas por dialecto.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-07] Hacer efectiva la comprobación de CSP del gate de red**
+  - **Área:** DevOps y configuración · **Severidad:** Media
+  - **Ubicación:** `tools/check-network-policy.mjs:55`; `tools/check-network-policy.test.mjs`
+  - **Qué hacer:** leer `app.security.csp` y `devCsp` como objetos y recorrer sus directivas; añadir una prueba de mutación con un origen externo; declarar como salidas permitidas la entrega ODBC por acción explícita y el updater. Defecto latente desde `47aaa50` (2026-08-23), no cubierto por T7-03.
+  - **Criterio de aceptación:** la prueba de mutación falla con un origen externo; `npm run network:check` sigue verde con la configuración actual.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-08] Crear la sección de versión del CHANGELOG y exigir cabecera en el gate**
+  - **Área:** Documentación · **Severidad:** Media
+  - **Ubicación:** `CHANGELOG.md:6`; `tools/check-documentation.mjs:180`
+  - **Qué hacer:** trasladar lo incluido en `v1.26.0-rc.1` a una sección `## [1.26.0]` (o de candidato) y cambiar la comprobación a una cabecera, no a una mención en prosa.
+  - **Criterio de aceptación:** el gate falla si la versión solo aparece en prosa; el CHANGELOG tiene la sección.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-09] Regenerar la ficha de dependencias de AUDITORIA desde los manifiestos**
+  - **Área:** Documentación · **Severidad:** Media
+  - **Ubicación:** `AUDITORIA.md:118-186`; `tools/check-documentation.mjs:181`
+  - **Qué hacer:** generar o comparar la tabla contra `package.json` y `src-tauri/Cargo.toml`; registrar la subida de versiones mayores de `cb86ea5` (2026-09-20) con fecha, motivo y resultado; incluir las dependencias Cargo que faltan.
+  - **Criterio de aceptación:** el gate falla si una versión declarada difiere; la ficha coincide con los manifiestos.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-10] Devolver el foco al disparador al cerrar el diálogo de importación**
+  - **Área:** Accesibilidad · **Severidad:** Media
+  - **Ubicación:** `src/features/load/LoadPhase.tsx:127`; `src/components/ModalDialog.tsx:66-68`, `:90`
+  - **Qué hacer:** pasar al diálogo el elemento al que debe volver el foco o capturarlo en el evento del usuario; usar `aria-disabled` durante la inspección; recurrir al contenedor de la etapa si el disparador ya no existe.
+  - **Criterio de aceptación:** E2E con teclado: Escape y «Cancelar» devuelven el foco a «Seleccionar dataset» (hoy queda en `BODY`).
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-11] Unificar la paleta oscura de los temas Oscuro y Sistema**
+  - **Área:** UI/UX · **Severidad:** Media
+  - **Ubicación:** `src/workflow-styles.css:338-345` y bloques `:root[data-theme="dark"]`; `src/styles.css:1347-1380`
+  - **Qué hacer:** definir una sola vez los tokens oscuros y aplicarlos desde ambos selectores; retirar los overrides por componente duplicados.
+  - **Criterio de aceptación:** una prueba compara estilos computados entre Oscuro y Sistema con SO oscuro y encuentra 0 diferencias (hoy 12 de 153 textos en Cargar).
+  - **Esfuerzo:** medio
+  - **Depende de:** T10-02
+- [ ] **[T10-12] Mostrar en Entregar las columnas con señales de datos personales**
+  - **Área:** UI/UX · **Severidad:** Media
+  - **Ubicación:** `src/features/delivery/DeliveryPhase.tsx:1673`; `src/features/prepare/PreparePhase.tsx:141-144`
+  - **Qué hacer:** junto a «Protección de datos personales», indicar cuántas columnas y cuáles se detectaron y ofrecer enmascarar o aplicar hash; pedir confirmación si se exporta sin protección habiendo señales. El texto requiere revisión legal (Ley 172-13).
+  - **Criterio de aceptación:** con un perfil con señales `email` o `name`, Entregar muestra el aviso; prueba de componente.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-13] Añadir timeouts explícitos a las llamadas ODBC**
+  - **Área:** Arquitectura · **Severidad:** Media
+  - **Ubicación:** `src-tauri/src/remote_databases.rs:154`, `:190`, `:786`, `:910`, `:1054`, `:853-862`, `:975-984`
+  - **Qué hacer:** fijar timeout de conexión y de sentencia en DDL e inserciones y traducirlo a un mensaje claro.
+  - **Criterio de aceptación:** una prueba contra un servidor inaccesible termina dentro del límite documentado con un mensaje comprensible.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-14] Entregar por lotes y evitar duplicados al reintentar `append`**
+  - **Área:** Arquitectura · **Severidad:** Media
+  - **Ubicación:** `src-tauri/src/remote_databases.rs:841-868`, `:958-999`
+  - **Qué hacer:** insertar por lotes dentro de la transacción; detectar una reentrega al mismo destino (marcador de lote o tabla de control) y pedir confirmación; medir antes y después.
+  - **Criterio de aceptación:** medición registrada antes y después; un reintento tras un commit dudoso no duplica filas sin confirmación.
+  - **Esfuerzo:** medio
+  - **Depende de:** T10-13
+- [ ] **[T10-15] Registrar pánicos y recuperar el estado envenenado**
+  - **Área:** Código · **Severidad:** Media
+  - **Ubicación:** `src-tauri/src/lib.rs:116-259`; `src-tauri/src/dataset.rs:1705-1737`
+  - **Qué hacer:** instalar un hook de pánico que escriba un informe local sin datos ni rutas, coherente con el contrato de diagnóstico; en las operaciones de datos, capturar el pánico y recuperar el mutex invalidando el estado afectado.
+  - **Criterio de aceptación:** una prueba provoca un pánico en una operación y comprueba que la siguiente responde y que existe el informe.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+- [ ] **[T10-16] Verificar si el mutex del dataset bloquea el hilo principal** *(pendiente de verificación)*
+  - **Área:** Arquitectura · **Severidad:** Media
+  - **Ubicación:** `src-tauri/src/dataset.rs:7791-7963`; `src-tauri/src/dataset/history.rs:684-695`
+  - **Qué hacer:** medir en WebView2 si `get_history_state`, que es síncrono y toma `current`, congela la ventana mientras una consulta larga mantiene el lock; si se confirma, convertir los comandos síncronos que toman locks en asíncronos o usar `try_lock` con estado ocupado.
+  - **Criterio de aceptación:** con una operación de al menos 5 s en curso, `get_app_info` responde en menos de 100 ms.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-17] Aislar los smokes nativos de los datos reales de la app**
+  - **Área:** DevOps y configuración · **Severidad:** Media
+  - **Ubicación:** `tools/probe-webview2-cdp.ps1`; `tools/probe-webview2-native-selectors.mjs:419`, `:472-474`
+  - **Qué hacer:** respaldar y restaurar `%APPDATA%\app.columnia.desktop` en cada corrida o usar un directorio de datos alternativo en debug; eliminar, con aprobación, las 3 tareas sintéticas «Native reusable task …» del 2026-09-23 que quedaron en el catálogo real.
+  - **Criterio de aceptación:** una corrida abortada no deja entradas en el catálogo real; la restauración queda en la evidencia.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+- [ ] **[T10-18] Medir la cobertura del motor Rust**
+  - **Área:** QA y testing · **Severidad:** Media
+  - **Ubicación:** `tools/check.ps1:241-253`; `tools/check-coverage.mjs:4-8`
+  - **Qué hacer:** añadir cobertura Rust al perfil Full como línea base por módulo; añadir umbrales para `deliveryModel.ts` y `ReviewPhase.tsx`.
+  - **Criterio de aceptación:** informe de cobertura Rust en `.local/validation`; umbrales nuevos aplicados.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+- [ ] **[T10-19] Comprobar contraste y reglas axe por tema en los E2E**
+  - **Área:** QA y testing · **Severidad:** Media
+  - **Ubicación:** `e2e/workflow-accessibility.spec.ts`; `e2e/design-preferences.spec.ts`
+  - **Qué hacer:** ejecutar comprobaciones automáticas de accesibilidad y contraste en las cuatro fases para claro, oscuro y sistema oscuro.
+  - **Criterio de aceptación:** la suite falla con los contrastes actuales y pasa tras T10-02.
+  - **Esfuerzo:** bajo
+  - **Depende de:** T10-02
+- [ ] **[T10-20] Actualizar THREAT_MODEL.md**
+  - **Área:** Documentación · **Severidad:** Media
+  - **Ubicación:** `THREAT_MODEL.md:3`, `:72`, `:77`
+  - **Qué hacer:** añadir las superficies de entrega ODBC, SQL local con DuckDB, catálogos de tareas y presets y updater; actualizar las cifras (85 comandos de producción, esquema v15, 70 estructuras) y los riesgos de T10-03 a T10-06.
+  - **Criterio de aceptación:** fecha actualizada; ninguna cifra contradice el inventario IPC; la checklist cubre las salidas de red.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+- [ ] **[T10-21] Corregir contradicciones documentales puntuales**
+  - **Área:** Documentación · **Severidad:** Media
+  - **Ubicación:** `CONTEXTO.md:69`, `:138-166`, `:422-425`, `:608`, `:1819`, `:2178-2181`; `README.md:7`
+  - **Qué hacer:** unificar el recuento de módulos (38) y las cifras de pruebas; retirar la nota obsoleta de `STATUS_ENTRYPOINT_NOT_FOUND`; corregir la descripción de `App.tsx`; devolver las filas huérfanas del registro a su tabla; actualizar la insignia de versión del README.
+  - **Criterio de aceptación:** ninguna contradicción de las listadas; `npm run docs:check` verde.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-22] Compactar CONTEXTO.md y la cola vigente**
+  - **Área:** Documentación · **Severidad:** Media
+  - **Ubicación:** `CONTEXTO.md:10-438`; `docs/reference/roadmap-current.md:210`
+  - **Qué hacer:** reducir el estado vigente a una pantalla con cifras tomadas del último informe JSON del gate; llevar el historial por corte al CHANGELOG o a la evidencia; limitar las celdas de la cola y enlazar la evidencia.
+  - **Criterio de aceptación:** estado vigente ≤ 600 palabras (hoy 4.191); ninguna celda > 80 palabras (hoy 1.302 en RV04); tabla de traslado sin afirmaciones perdidas.
+  - **Esfuerzo:** medio
+  - **Depende de:** T10-21
+- [ ] **[T10-23] Extraer el controlador de Revisar de App.tsx**
+  - **Área:** Arquitectura · **Severidad:** Media
+  - **Ubicación:** `src/App.tsx` (39 `useState`, 28 `useRef`); `src/features/review/ReviewPhase.tsx` (unas 106 props)
+  - **Qué hacer:** crear un controlador de Revisar análogo a `usePrepareController` y reducir las props de la fase.
+  - **Criterio de aceptación:** `App.tsx` deja de contener el estado de Revisar; `ReviewPhase` recibe menos de 30 props; pruebas y E2E verdes.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+- [ ] **[T10-24] Extraer el controlador de Entregar de App.tsx**
+  - **Área:** Arquitectura · **Severidad:** Media
+  - **Ubicación:** `src/App.tsx`; `src/features/delivery/DeliveryPhase.tsx` (25 `useState`)
+  - **Qué hacer:** crear un controlador de Entregar y trasladar a él el estado de exportación, preflight y presets.
+  - **Criterio de aceptación:** `App.tsx` deja de contener el estado de Entregar; pruebas y E2E verdes.
+  - **Esfuerzo:** medio
+  - **Depende de:** T10-23
+- [ ] **[T10-25] Añadir un linter de frontend con reglas de hooks**
+  - **Área:** Código · **Severidad:** Baja
+  - **Ubicación:** `package.json`; `tsconfig.json:17`
+  - **Qué hacer:** incorporar un linter con reglas de hooks de React al perfil Fast y separar los tipos de pruebas (`node`, `vitest/globals`) del tsconfig de producción.
+  - **Criterio de aceptación:** el linter corre en Fast con 0 errores; el código de producción no compila si usa tipos de Node.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-26] Formatear números, tamaños y tipos desde un único módulo**
+  - **Área:** UI/UX · **Severidad:** Baja
+  - **Ubicación:** `src/components/UpdatePanel.tsx:36`; `src/features/delivery/DatasetMetrics.tsx:4`; `src/features/load/LoadPhase.tsx:37`; `src/features/prepare/HistoryBar.tsx:79`; `src/features/projects/ProjectsPanel.tsx:436`
+  - **Qué hacer:** un formateador con locale explícito y una sola convención de unidades; nombres de tipo en español en lugar de `Int64`, `String` o `Float64`.
+  - **Criterio de aceptación:** un mismo archivo muestra el mismo tamaño en el diálogo, Revisar y Entregar (hoy «1 KiB» y «1.0 KB»); sin `toFixed` en textos visibles.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-27] Resolver los avisos menores de accesibilidad**
+  - **Área:** Accesibilidad · **Severidad:** Baja
+  - **Ubicación:** `src/features/load/LoadPhase.tsx:739`; `src/features/review/ReviewPhase.tsx:1253`; `src/App.tsx:1641`
+  - **Qué hacer:** anunciar los valores ausentes como tales y no como la palabra «null»; dejar solo `dt`/`dd` en el `<dl>` de calidad; hacer que el nombre accesible de cada paso contenga su texto visible.
+  - **Criterio de aceptación:** Lighthouse 100 en accesibilidad en las cuatro fases (hoy 97 en Revisar y 96 en Preparar).
+  - **Esfuerzo:** bajo
+  - **Depende de:** T10-02
+- [ ] **[T10-28] Hacer visibles los espacios iniciales y finales en las vistas previas**
+  - **Área:** UI/UX · **Severidad:** Baja
+  - **Ubicación:** `src/styles.css:604`; `src/features/load/LoadPhase.tsx:739`
+  - **Qué hacer:** mostrar un marcador para los espacios que el HTML colapsa.
+  - **Criterio de aceptación:** una celda con espacios alrededor los muestra marcados en la muestra y en la vista previa.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-29] Guardar evidencia JSON completa en los smokes**
+  - **Área:** DevOps y configuración · **Severidad:** Baja
+  - **Ubicación:** `tools/probe-webview2-cdp.ps1:929`
+  - **Qué hacer:** aumentar la profundidad de serialización y validar que la evidencia no contenga `System.Object[]` ni `@{`.
+  - **Criterio de aceptación:** `summary.json` sin representaciones de objetos de PowerShell.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-30] Alinear el perfil Full con lo que se declara de él**
+  - **Área:** DevOps y configuración · **Severidad:** Baja
+  - **Ubicación:** `tools/check.ps1:206-266`
+  - **Qué hacer:** incluir en Full los E2E y los escaneos de secretos y red, o declarar explícitamente que no los cubre; ejecutar las pruebas de todos los objetivos Rust.
+  - **Criterio de aceptación:** el informe JSON del perfil Full lista E2E, secretos y red.
+  - **Esfuerzo:** bajo
+  - **Depende de:** T10-07
+- [ ] **[T10-31] Dar un significado real a `-DryRun` en release.ps1**
+  - **Área:** DevOps y configuración · **Severidad:** Baja
+  - **Ubicación:** `tools/release.ps1:3`, `:237-242`
+  - **Qué hacer:** que `-DryRun` muestre el plan sin empaquetar, o retirar el parámetro.
+  - **Criterio de aceptación:** con y sin `-DryRun` el comportamiento difiere de forma documentada.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-32] Ofrecer un hook local de pre-push con el perfil Fast**
+  - **Área:** DevOps y configuración · **Severidad:** Baja
+  - **Ubicación:** `CONTRIBUTING.md`
+  - **Qué hacer:** versionar un hook opcional que ejecute el perfil Fast y Clippy antes de publicar. No es CI y respeta la decisión vigente.
+  - **Criterio de aceptación:** documentado en CONTRIBUTING; un push con Clippy en rojo se detiene localmente.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+- [ ] **[T10-33] Redactar de forma robusta los secretos en los errores ODBC**
+  - **Área:** Seguridad · **Severidad:** Baja
+  - **Ubicación:** `src-tauri/src/remote_databases.rs:1256-1271`
+  - **Qué hacer:** analizar la cadena de conexión respetando los valores entre llaves y ampliar la lista de claves sensibles.
+  - **Criterio de aceptación:** pruebas con valores entre llaves que contienen `;` quedan redactadas por completo.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+
+### Decisiones cerradas de esta reauditoría
+
+- **CI:** no se propone. La decisión vigente está en `CONTEXTO.md` (sin CI
+  por política); T10-32 es un hook local opcional.
+- **FlaUI:** no se propone. La interfaz es web dentro de WebView2 y ya se
+  conduce por CDP y Playwright.
+- **RV03, RV12 y RV13:** no se reabren. No se re-verificaron a fondo en esta
+  pasada y no hay evidencia de regresión.
+- **Excepciones RUSTSEC-2026-0194/0195 (`quick-xml` 0.39.4):** se mantienen.
+  Se verificó que solo llegan por `object_store`; `calamine` usa `quick-xml`
+  0.41 y 0.42, ya corregidas.
+- **SEO:** no aplica a una aplicación de escritorio.
+- **Criterio de salida de V1:** no se modifica en esta reauditoría; incluir
+  T10-01 y T10-02 queda como decisión del responsable.
+
+### Progreso del Tier 10
+
+| Fecha | Cerradas | Nota |
+| --- | ---: | --- |
+| 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
 
 ## Criterio de salida de V1
 

@@ -1,6 +1,7 @@
 # Auditoría consolidada de Columnia
 
-Revisada: 2026-09-14. Este documento sustituye las auditorías fechadas de
+Revisada: 2026-09-23 (reauditoría; ver
+[Reauditoría 2026-09-23](#reauditoría-2026-09-23)). Este documento sustituye las auditorías fechadas de
 producto, diseño, ingeniería, usabilidad y automatización. Conserva las
 conclusiones que explican decisiones ya tomadas e integra el inventario de
 dependencias y gates locales; el trabajo pendiente vive en
@@ -53,6 +54,7 @@ roadmap deben integrarlas y simplificar su uso.
 | 2026-09-07 | Reauditoría incremental | Cerró Tier 7: presupuesto CSS, inventario IPC, falso positivo del gate de red y evidencia de dependencias. |
 | 2026-09-13 | Auditoría general | Confirmó que beta, repetición de tareas, explicabilidad y robustez aportan más valor que ampliar funciones. Corrigió la entrada documental y verificó suites frontend/nativas. |
 | 2026-09-13–14 | Usabilidad y automatización | Simplificó inicio, carga automática, herramientas contextuales, plan acotado, validación integrada, reglas resumidas y resultado de exportación accionable. El resto se fusionó en Tier 9. |
+| 2026-09-23 | Reauditoría de código, seguridad, accesibilidad, UI/UX, arquitectura, QA, documentación y DevOps | Abrió el Tier 10 (33 tareas; 2 altas). Confirmó las cifras del candidato ejecutándolas y encontró defectos que los gates no detectan: ejecutable release con subsistema de consola, contrastes por debajo de AA, cola SQL sin validar hacia DuckDB, salida ODBC sin confirmación nativa, gates de red y documentación que aprueban sin comprobar lo que afirman y retorno de foco fallido. |
 
 La evidencia detallada permanece en los commits, `CHANGELOG.md`, `CONTEXTO.md`,
 las carpetas locales de validación y las tareas históricas de `ROADMAP.md`.
@@ -109,7 +111,54 @@ estados y contratos explícitos.
 Los identificadores antiguos sirven solo para rastrear decisiones y commits. No
 son una segunda lista de trabajo.
 
+## Reauditoría 2026-09-23
+
+**Alcance acordado:** código, seguridad, accesibilidad, UI/UX, arquitectura,
+QA, documentación y DevOps. Rendimiento, refactorización, redacción y legal
+quedaron fuera por decisión del responsable; SEO no aplica. Profundidad
+exhaustiva con muestreo declarado. Referencia normativa: República Dominicana
+(Ley 172-13) y WCAG 2.2 AA; lo jurídico requiere revisión legal.
+
+**Dictamen:** no hay defectos críticos. El producto y su ingeniería son
+sólidos: las cifras declaradas del candidato se reprodujeron (gate Full,
+E2E 22/22 y smoke CDP en WebView2) y la frontera de rutas, la persistencia y
+la exportación están bien protegidas. Los riesgos nuevos se concentran en
+tres puntos: controles que los gates dan por verificados sin comprobarlos,
+dos entradas IPC que dejan a la interfaz más autoridad de la que declara el
+modelo de amenazas, y accesibilidad que solo se ve con la app en marcha.
+Todos los hallazgos son nuevos respecto de las revisiones anteriores; no se
+detectaron regresiones de tareas cerradas. Sí hay afirmaciones documentadas
+que no se cumplen: la ficha de dependencias de este documento, la
+comprobación de CSP del gate de red y el retorno de foco de los diálogos.
+
+| Hallazgo | Severidad | Tarea |
+| --- | --- | --- |
+| Ejecutable release con subsistema de consola | Alta | T10-01 |
+| Contraste por debajo de AA: acción principal de Preparar, valores ausentes y etiquetas de tipo | Alta | T10-02 |
+| Cola `WHERE`/`GROUP BY` sin reconstruir hacia DuckDB con acceso externo por defecto | Media | T10-03, T10-04 |
+| Entrega ODBC controlada por la interfaz sin confirmación nativa | Media | T10-05 |
+| Cifrado en tránsito ODBC no exigido ni advertido | Media | T10-06 |
+| Gate de red: la comprobación de CSP nunca se ejecuta | Media | T10-07 |
+| Gate documental satisfecho con menciones; falta la sección 1.26.0 del CHANGELOG; ficha de dependencias desactualizada | Media | T10-08, T10-09 |
+| Foco en `BODY` al cerrar el diálogo de importación | Media | T10-10 |
+| Temas Oscuro y Sistema divergentes | Media | T10-11 |
+| Señales de datos personales ausentes en Entregar | Media | T10-12 |
+| ODBC sin timeouts, fila a fila y `append` no idempotente | Media | T10-13, T10-14 |
+| Pánico envenena la sesión sin registro local | Media | T10-15 |
+| Posible bloqueo del hilo principal por el mutex del dataset (pendiente de verificación) | Media | T10-16 |
+| Smokes nativos sobre datos reales, con residuos | Media | T10-17 |
+| Motor Rust sin medición de cobertura | Media | T10-18 |
+| Sin comprobación automática de contraste por tema | Media | T10-19 |
+| Modelo de amenazas desactualizado | Media | T10-20 |
+| Contradicciones y volumen documental | Media | T10-21, T10-22 |
+| Estado del frontend concentrado en `App.tsx` | Media | T10-23, T10-24 |
+| Menores de código, UI, accesibilidad y DevOps | Baja | T10-25 a T10-33 |
+
 ## Inventario de dependencias y controles
+
+> **Aviso (2026-09-23):** la tabla de dependencias declaradas de esta sección
+> no refleja la subida de versiones del commit `cb86ea5` (2026-09-20); los
+> manifiestos son la fuente de verdad hasta cerrar T10-09.
 
 Este snapshot técnico se conserva aquí para evitar una segunda auditoría
 independiente. No es otra cola de trabajo: los cambios necesarios siguen el orden

@@ -1835,6 +1835,20 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 12. **Distribución no promovible aún**: Package, notices, updater firmado y el
     orquestador local existen; instalación en VM, canal, rotación de clave y
     decisiones legales siguen abiertos.
+13. **Dos temas oscuros separados** (detectado el 2026-09-23): los overrides de
+    `:root[data-theme="dark"]` no llegan al tema Sistema con SO oscuro, que
+    usa su propio bloque `prefers-color-scheme`. Una corrección de color en
+    uno no corrige el otro; ver T10-02 y T10-11.
+14. **Gates que comprueban cadenas** (2026-09-23): `check-documentation.mjs`
+    acepta la versión mencionada en prosa y `check-network-policy.mjs` lee una
+    ruta de configuración que no existe. Un gate verde no prueba lo que el
+    documento afirma; ver T10-07, T10-08 y T10-09.
+15. **Estado envenenable** (2026-09-23): un pánico con el mutex `current`
+    tomado deja la sesión inutilizable hasta reiniciar y sin rastro local;
+    ver T10-15.
+16. **Smokes sobre datos reales** (2026-09-23): los probes nativos escriben en
+    `%APPDATA%\app.columnia.desktop`; una corrida abortada deja entradas
+    sintéticas en el catálogo de la persona; ver T10-17.
 
 ## Cómo trabajar en este repositorio
 
@@ -1872,6 +1886,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-09-23 | Reauditoría de código, seguridad, accesibilidad, UI/UX, arquitectura, QA, documentación y DevOps (exhaustiva con muestreo declarado; referencia normativa: República Dominicana, Ley 172-13, y WCAG 2.2 AA). Se verificaron ejecutándolas las cifras del candidato: gate Full (457/457, 86,17 %/81,34 %, Rust 494 + 5 ignoradas, Clippy), E2E 22/22 y smoke CDP en WebView2; `npm audit` sin vulnerabilidades y `cargo deny` sin errores. Se abre el Tier 10 (33 tareas; altas: ejecutable release con subsistema de consola y contrastes por debajo de AA). Además: el validador SQL deja pasar la cola original de la consulta a DuckDB; la entrega ODBC no pide confirmación nativa; el gate de red nunca comprobó la CSP; el gate documental acepta menciones en prosa; el foco no vuelve al cerrar el diálogo de importación; los smokes dejaron 3 tareas sintéticas en el catálogo real. Pendiente: lector de pantalla, posible bloqueo del hilo principal (T10-16) y comprobación dinámica del SQL (no ejercitada). | `AUDITORIA.md`, `ROADMAP.md` (Tier 10), `.local/validation/20260923T171338Z-2343adf-full.json`, `.local/validation/webview2-cdp/20260923T174241Z`, `.local/auditoria-2026-09-23/` |
 | 2026-09-07 | Reauditoría incremental posterior al rediseño y la modularización: producto, suites y recorrido nativo aprobados; Tier 7 registra presupuesto CSS excedido, inventario IPC desincronizado, falso positivo del gate de red y evidencia documental anterior. Usuario, escala, canal, jurisdicción y normativa quedan pendientes. | `AUDITORIA.md`, `ROADMAP.md`, `CHANGELOG.md`, `.local/validation/accessibility-visual/20260907T223346Z`, `.local/validation/webview2-cdp/20260907T223458Z` |
 | 2026-09-07 | T7-03: el gate de red distingue patrones por lenguaje y conserva cobertura de cursor ODBC permitido, `fetch` web bloqueado y cliente HTTP Rust bloqueado; red y supply chain pasan. | `tools/check-network-policy.mjs`, `tools/check-network-policy.test.mjs`, `package.json`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-09-07 | T7-02: inventario IPC regenerado con módulos reales; checker y prueba de paridad comparten `sourceFiles` y validan su existencia. | `docs/reference/ipc-inventory.json`, `tools/check-ipc-inventory.mjs`, `src/ipc-contract.test.ts`, `ROADMAP.md`, `CHANGELOG.md` |

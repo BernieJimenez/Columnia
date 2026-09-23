@@ -24,6 +24,11 @@ los artefactos de validación locales. La versión vigente del proyecto es
 
 ### Interno
 
+- Reauditoría del 2026-09-23 (código, seguridad, accesibilidad, UI/UX,
+  arquitectura, QA, documentación y DevOps): abre el Tier 10 en
+  [`ROADMAP.md`](ROADMAP.md) con 33 tareas (T10-01 a T10-33) y consolida el
+  dictamen en [`AUDITORIA.md`](AUDITORIA.md). No cambia el producto. El
+  motivo de cada decisión está en [`CONTEXTO.md`](CONTEXTO.md).
 - Verificación nativa: el smoke de selectores Win32 sigue el preflight
   unificado de esquema para tareas reutilizables; el benchmark sostenido
   reintenta la medición de disco si un archivo temporal desaparece durante el
