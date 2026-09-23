@@ -207,7 +207,23 @@ try {
     if ($Profile -in @("Full", "Release", "Package")) {
         Invoke-Checked "Frontend coverage" $ProjectRoot { npm run test:coverage }
     }
-    Invoke-Checked "Frontend build" $ProjectRoot { npm run build }
+    Invoke-Checked "Frontend build" $ProjectRoot {
+        $PreviousTauriEnvPlatform = $env:TAURI_ENV_PLATFORM
+        try {
+            # Full verifica la app Tauri para Windows y debe usar el mismo
+            # target WebView2 que la compilación de escritorio.
+            $env:TAURI_ENV_PLATFORM = "windows"
+            npm run build
+        }
+        finally {
+            if ($null -eq $PreviousTauriEnvPlatform) {
+                Remove-Item Env:TAURI_ENV_PLATFORM -ErrorAction SilentlyContinue
+            }
+            else {
+                $env:TAURI_ENV_PLATFORM = $PreviousTauriEnvPlatform
+            }
+        }
+    }
     Invoke-Checked "Frontend bundle budget" $ProjectRoot {
         node tools/check-bundle.mjs budget --dist dist --output $FrontendBundlePath
         if ($LASTEXITCODE -ne 0 -and (Test-Path -LiteralPath $FrontendBundlePath -PathType Leaf)) {
