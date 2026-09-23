@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 2 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 3 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -298,13 +298,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-23 — `columnia.exe` release recompilado con `Subsystem=2` (WINDOWS_GUI); `tools/check-pe-subsystem.mjs` en el perfil Release; 3/3 pruebas.
-- [ ] **[T10-02] Corregir los contrastes por debajo de WCAG AA**
+- [x] **[T10-02] Corregir los contrastes por debajo de WCAG AA**
   - **Área:** Accesibilidad · **Severidad:** Alta
   - **Ubicación:** `src/styles.css:270`, `:608`, `:757`, `:1347`, `:1372`; `src/workflow-styles.css:268`, `:338-339`
   - **Qué hacer:** introducir un token de texto sobre `--accent` por tema (botón «Aplicar plan seleccionado», día de nivel 4 del calendario temporal); aplicar el color oscuro de `.null-value` también al tema Sistema; subir `th small` a 4,5:1 en tema claro.
   - **Criterio de aceptación:** ≥ 4,5:1 medido en claro, oscuro y sistema oscuro para «Aplicar plan seleccionado» (hoy 1,68:1), valores ausentes (hoy 2,07:1) y etiquetas de tipo (hoy 3,74:1).
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — medido en Chrome (Sistema con SO oscuro / Oscuro / Claro): «Aplicar plan seleccionado» 9,64/9,64/6,18; valores ausentes 6,67/8,47/6,19; etiquetas de tipo 7,35/7,35/5,64; captura `.local/auditoria-2026-09-23/capturas/14-T10-02-aplicar-plan-corregido.png`; vitest 458/458. El día de nivel 4 del calendario usa el mismo token y no se midió en pantalla.
 - [ ] **[T10-03] Enviar a DuckDB solo SQL reconstruido desde el plan validado**
   - **Área:** Seguridad · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/dataset/local_query.rs:170-181`, `:842-891`
@@ -544,7 +545,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 2 de 33 | Fase 2 en curso: cerradas hasta ahora T10-10 y anteriores de esta tanda. |
+| 2026-09-23 | 3 de 33 | Fase 2 en curso: cerradas hasta ahora T10-02 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 

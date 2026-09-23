@@ -265,7 +265,7 @@
 .runtime,
 .pagination,
 .resource-monitor { font-variant-numeric: tabular-nums; }
-.null-value { color: #536964; }
+.null-value { color: var(--text-secondary); }
 .text-cleaning-options label,
 .keep-columns label,
 .comparison-key-options label,
@@ -335,7 +335,6 @@ input[type="radio"] { width: 20px; height: 20px; }
 }
 :root[data-theme="dark"] .workspace .primary-action:hover:not(:disabled) { background: #10564d; }
 :root[data-theme="dark"] .side-nav .side-nav__item--current { border-color: var(--border-subtle); background: var(--surface-subtle); }
-:root[data-theme="dark"] .null-value { color: #a7bab6; }
 @media (prefers-color-scheme: dark) {
   :root:is(:not([data-theme]), [data-theme="system"]) :is(.eyebrow, .step, .flow-overview__step) { color: var(--focus-ring); }
   :root:is(:not([data-theme]), [data-theme="system"]) .workspace .primary-action:not(:disabled) {

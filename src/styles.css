@@ -267,7 +267,7 @@ summary:focus-visible,
 .recommended-batch { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 16px; padding: 18px 20px; border: 1px solid #79aaa1; background: #e8f4f0; }
 .recommended-batch h3 { margin: 5px 0 0; font-size: 1.15rem; }
 .recommended-batch p:last-child { margin: 7px 0 0; color: var(--text-secondary); }
-.recommended-batch button { flex: 0 0 auto; padding: 9px 14px; border: 0; border-radius: 4px; background: var(--accent); color: white; font-weight: 750; cursor: pointer; }
+.recommended-batch button { flex: 0 0 auto; padding: 9px 14px; border: 0; border-radius: 4px; background: var(--accent); color: var(--on-accent); font-weight: 750; cursor: pointer; }
 .recommended-batch button:disabled { cursor: wait; opacity: .45; }
 .prepare-plan { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
 .prepare-plan__choices { display: grid; gap: 8px; margin: 12px 0 0; padding: 12px; border: 1px solid var(--border-subtle); }
@@ -605,7 +605,7 @@ td { min-width: 140px; padding: 10px 12px; border-right: 1px solid #dce4e1; bord
 th { position: sticky; top: 0; z-index: 1; background: #e6efeb; color: #173e44; padding: 14px 16px; font-size: .875rem; font-weight: 600; }
 th span,
 th small { display: block; }
-th small { margin-top: 3px; color: #687d77; font-size: .75rem; font-weight: 600; }
+th small { margin-top: 3px; color: var(--text-secondary); font-size: .75rem; font-weight: 600; }
 tbody tr:nth-child(even) { background: #f8faf9; }
 .null-value { font-style: italic; }
 .preview-note { margin: 10px 0 0; color: var(--text-secondary); font-size: .82rem; }
@@ -754,7 +754,7 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 .quality-temporal-calendar__day--level-1 { border-color: #a6d4c7; background: #e7f3ef; }
 .quality-temporal-calendar__day--level-2 { border-color: #76bfae; background: #c8e6dc; }
 .quality-temporal-calendar__day--level-3 { border-color: #4aa992; background: #8ccbb9; }
-.quality-temporal-calendar__day--level-4 { border-color: var(--accent); background: var(--accent); color: #fff; }
+.quality-temporal-calendar__day--level-4 { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
 .quality-temporal-calendar__day--level-4 strong,
 .quality-temporal-calendar__day--level-4 small { color: #fff; }
 .quality-temporal-calendar--empty { min-height: 0; }

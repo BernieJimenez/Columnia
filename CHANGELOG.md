@@ -9,6 +9,10 @@ los artefactos de validación locales. La versión vigente del proyecto es
 
 ### Corregido
 
+- T10-02: en los temas oscuros, «Aplicar plan seleccionado» y los días más
+  intensos del calendario temporal ya no muestran texto blanco sobre menta
+  (1,68:1); los valores ausentes y las etiquetas de tipo alcanzan también el
+  contraste mínimo de WCAG AA en los temas claro, oscuro y Sistema.
 - T10-10: al cerrar la revisión de encabezados con Escape o «Cancelar», el foco
   vuelve a «Seleccionar dataset». Antes quedaba al inicio del documento y quien
   navega con teclado o lector de pantalla perdía su posición.
