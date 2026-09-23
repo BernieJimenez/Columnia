@@ -55,6 +55,43 @@ describe("ModalDialog", () => {
     expect(trigger).toHaveFocus();
   });
 
+  it("devuelve el foco al disparador aunque se haya deshabilitado antes de abrir el diálogo", () => {
+    function BusyTriggerHarness() {
+      const [open, setOpen] = useState(false);
+      const [busy, setBusy] = useState(false);
+      return (
+        <>
+          <button type="button" disabled={busy} onClick={() => setBusy(true)}>Seleccionar dataset</button>
+          <button type="button" onClick={() => setOpen(true)}>Mostrar revisión</button>
+          {open && (
+            <ModalDialog role="dialog" labelledBy="busy-title" onDismiss={() => { setOpen(false); setBusy(false); }}>
+              <h2 id="busy-title">Revisar encabezados</h2>
+              <button type="button">Cancelar</button>
+            </ModalDialog>
+          )}
+        </>
+      );
+    }
+
+    render(<BusyTriggerHarness />);
+    const trigger = screen.getByRole("button", { name: "Seleccionar dataset" });
+    trigger.focus();
+    // Browsers drop focus to <body> when the focused trigger becomes disabled;
+    // jsdom needs the blur before disabling to reach the same state.
+    trigger.blur();
+    fireEvent.click(trigger);
+    expect(trigger).toBeDisabled();
+    expect(document.body).toHaveFocus();
+
+    // Simulates the async inspection result opening the dialog without moving focus.
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar revisión" }));
+    const dialog = screen.getByRole("dialog", { name: "Revisar encabezados" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   it("permite llegar a la acción e incluye el resumen, pero omite campos de un disclosure cerrado", () => {
     render(
       <ModalDialog

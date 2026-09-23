@@ -86,6 +86,8 @@ async function installSyntheticTauriMock(page: Page) {
         case "get_dataset_page":
           return { offset: args.offset ?? 0, rows: dataset.rows };
         case "clear_dataset_comparison":
+        case "cancel_operation":
+        case "discard_dataset_selection":
           return null;
         case "export_dataset":
           return {
@@ -198,6 +200,28 @@ async function loadSyntheticDataset(page: Page, stopAt: "review" | "delivery" = 
 }
 
 test.describe("recorrido cargado de accesibilidad", () => {
+  test("devuelve el foco a Seleccionar dataset al cerrar la revisión de encabezados", async ({ page }) => {
+    await installSyntheticTauriMock(page);
+    await page.goto("/", { waitUntil: "commit" });
+    await expect(page.locator("#app-title")).toBeVisible();
+    const selectDataset = page.getByRole("button", { name: "Seleccionar dataset" });
+    const headerReview = page.getByRole("dialog", { name: "Revisar encabezados de ventas-e2e.csv" });
+
+    for (const close of ["Escape", "Cancelar"] as const) {
+      await selectDataset.focus();
+      await page.keyboard.press("Enter");
+      await expect(headerReview).toBeVisible();
+      if (close === "Escape") {
+        await page.keyboard.press("Escape");
+      } else {
+        await headerReview.getByRole("button", { name: "Cancelar" }).focus();
+        await page.keyboard.press("Enter");
+      }
+      await expect(headerReview).toBeHidden();
+      await expect(selectDataset, `el foco debe volver tras cerrar con ${close}`).toBeFocused();
+    }
+  });
+
   test("mantiene el foco en la etapa nueva después de avanzar desde Revisar con teclado", async ({ page }) => {
     await installSyntheticTauriMock(page);
     await loadSyntheticDataset(page, "review");

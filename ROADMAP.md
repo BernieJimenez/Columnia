@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 1 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 2 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -354,13 +354,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Criterio de aceptación:** el gate falla si una versión declarada difiere; la ficha coincide con los manifiestos.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
-- [ ] **[T10-10] Devolver el foco al disparador al cerrar el diálogo de importación**
+- [x] **[T10-10] Devolver el foco al disparador al cerrar el diálogo de importación**
   - **Área:** Accesibilidad · **Severidad:** Media
   - **Ubicación:** `src/features/load/LoadPhase.tsx:127`; `src/components/ModalDialog.tsx:66-68`, `:90`
   - **Qué hacer:** pasar al diálogo el elemento al que debe volver el foco o capturarlo en el evento del usuario; usar `aria-disabled` durante la inspección; recurrir al contenedor de la etapa si el disparador ya no existe.
   - **Criterio de aceptación:** E2E con teclado: Escape y «Cancelar» devuelven el foco a «Seleccionar dataset» (hoy queda en `BODY`).
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — prueba unitaria y E2E de teclado (Escape y Cancelar) que fallan sin el arreglo y pasan con él; suite frontend 458/458 y E2E 23/23.
 - [ ] **[T10-11] Unificar la paleta oscura de los temas Oscuro y Sistema**
   - **Área:** UI/UX · **Severidad:** Media
   - **Ubicación:** `src/workflow-styles.css:338-345` y bloques `:root[data-theme="dark"]`; `src/styles.css:1347-1380`
@@ -543,7 +544,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 1 de 33 | Fase 2 en curso: cerradas hasta ahora T10-01 y anteriores de esta tanda. |
+| 2026-09-23 | 2 de 33 | Fase 2 en curso: cerradas hasta ahora T10-10 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 

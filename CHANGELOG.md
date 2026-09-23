@@ -9,6 +9,9 @@ los artefactos de validación locales. La versión vigente del proyecto es
 
 ### Corregido
 
+- T10-10: al cerrar la revisión de encabezados con Escape o «Cancelar», el foco
+  vuelve a «Seleccionar dataset». Antes quedaba al inicio del documento y quien
+  navega con teclado o lector de pantalla perdía su posición.
 - T10-01: el ejecutable de Windows ya no abre una ventana de consola junto a
   Columnia. Antes, cerrar esa consola terminaba la aplicación sin guardar. El
   perfil Release comprueba ahora el subsistema gráfico del binario.

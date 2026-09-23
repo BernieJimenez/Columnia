@@ -1,5 +1,41 @@
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 
+// A trigger that becomes disabled while an async action runs (for example
+// "Seleccionar dataset" while inspecting) drops focus to <body> before the
+// dialog mounts. Remember the last element focused outside any dialog so the
+// dialog can still return focus to it on close.
+let lastFocusedOutsideDialog: HTMLElement | null = null;
+
+if (typeof document !== "undefined") {
+  document.addEventListener(
+    "focusin",
+    (event) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target !== document.body && !target.closest("dialog")) {
+        lastFocusedOutsideDialog = target;
+      }
+    },
+    true,
+  );
+}
+
+function resolveReturnFocusTarget(): HTMLElement | null {
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && active !== document.body) return active;
+  return lastFocusedOutsideDialog?.isConnected ? lastFocusedOutsideDialog : null;
+}
+
+function restoreFocus(target: HTMLElement | null) {
+  if (!target?.isConnected) return;
+  target.focus();
+  if (document.activeElement !== target && typeof requestAnimationFrame === "function") {
+    // The trigger may re-enable in the same commit that closes the dialog.
+    requestAnimationFrame(() => {
+      if (target.isConnected) target.focus();
+    });
+  }
+}
+
 const FOCUSABLE_SELECTOR =
   'button:not(:disabled), a[href], input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])';
 
@@ -63,9 +99,7 @@ export function ModalDialog({
   const panelRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
-    const previouslyFocused = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
+    const previouslyFocused = resolveReturnFocusTarget();
     const panel = panelRef.current;
     if (panel && !panel.open) {
       if (typeof panel.showModal === "function") {
@@ -87,7 +121,7 @@ export function ModalDialog({
           panel.removeAttribute("open");
         }
       }
-      previouslyFocused?.focus();
+      restoreFocus(previouslyFocused);
     };
   }, []);
 
