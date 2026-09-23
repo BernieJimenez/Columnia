@@ -259,6 +259,7 @@ function Invoke-CancellationBenchmark {
             }
         }) -join " "
     }
+    $StartInfo.Environment["COLUMNIA_TEST_HARNESS_MANIFEST"] = "1"
     $StartInfo.Environment["COLUMNIA_BENCHMARK_CANCELLATION_INPUT"] = $InputPath
     $StartInfo.Environment["COLUMNIA_BENCHMARK_CANCELLATION_OUTPUT"] = $CancellationOutputDirectory
 

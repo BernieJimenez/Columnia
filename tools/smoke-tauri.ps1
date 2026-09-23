@@ -132,7 +132,8 @@ function Test-ProjectsPanelContract {
             'saveProject(',
             'openProject(projectId)',
             'deleteProject(target.id)',
-            'setCatalog({ kind: "ready"'
+            'kind: "ready" as const',
+            'setCatalog(ready)'
         )
     }
 
