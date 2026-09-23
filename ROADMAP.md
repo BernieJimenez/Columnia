@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 7 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 8 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -382,13 +382,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Criterio de aceptación:** con un perfil con señales `email` o `name`, Entregar muestra el aviso; prueba de componente.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
-- [ ] **[T10-13] Añadir timeouts explícitos a las llamadas ODBC**
+- [x] **[T10-13] Añadir timeouts explícitos a las llamadas ODBC**
   - **Área:** Arquitectura · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/remote_databases.rs:154`, `:190`, `:786`, `:910`, `:1054`, `:853-862`, `:975-984`
   - **Qué hacer:** fijar timeout de conexión y de sentencia en DDL e inserciones y traducirlo a un mensaje claro.
   - **Criterio de aceptación:** una prueba contra un servidor inaccesible termina dentro del límite documentado con un mensaje comprensible.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — login 15 s y sentencias 300 s (DDL e inserciones preparadas); mensaje para HYT00/HYT01 sin secretos; prueba manual contra dirección inalcanzable con ODBC Driver 18: falla en 15,17 s. Suite Rust 501 aprobadas y 6 ignoradas; Clippy verde.
 - [ ] **[T10-14] Entregar por lotes y evitar duplicados al reintentar `append`**
   - **Área:** Arquitectura · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/remote_databases.rs:841-868`, `:958-999`
@@ -550,7 +551,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 7 de 33 | Fase 2 en curso: cerradas hasta ahora T10-04 y anteriores de esta tanda. |
+| 2026-09-23 | 8 de 33 | Fase 2 en curso: cerradas hasta ahora T10-13 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 

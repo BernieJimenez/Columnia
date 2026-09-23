@@ -22,6 +22,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- T10-13: una entrega ODBC ya no puede quedarse esperando indefinidamente a un
+  servidor que no responde: la conexión tiene 15 s de límite y cada sentencia
+  300 s, y el error lo explica en lugar de mostrar solo el código del driver.
 - T10-02: en los temas oscuros, «Aplicar plan seleccionado» y los días más
   intensos del calendario temporal ya no muestran texto blanco sobre menta
   (1,68:1); los valores ausentes y las etiquetas de tipo alcanzan también el

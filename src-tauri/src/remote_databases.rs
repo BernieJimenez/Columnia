@@ -14,6 +14,17 @@ use crate::duckdb_query::DuckDbFileFormat;
 const MAX_CONNECTION_STRING_CHARS: usize = 16 * 1024;
 const MAX_IDENTIFIER_CHARS: usize = 128;
 const PREFLIGHT_CANCEL_CHECK_ROWS: usize = 1_024;
+/// A remote server that never answers must not block a delivery forever:
+/// cancellation is only observed between driver calls.
+const ODBC_LOGIN_TIMEOUT_SEC: u32 = 15;
+const ODBC_STATEMENT_TIMEOUT_SEC: usize = 300;
+
+fn odbc_connection_options() -> ConnectionOptions {
+    ConnectionOptions {
+        login_timeout_sec: Some(ODBC_LOGIN_TIMEOUT_SEC),
+        ..ConnectionOptions::default()
+    }
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -151,7 +162,7 @@ where
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
 
     let connection = environment
-        .connect_with_connection_string(&target.connection_string, ConnectionOptions::default());
+        .connect_with_connection_string(&target.connection_string, odbc_connection_options());
     ensure_connection_test_not_cancelled(&is_cancelled)?;
     let connection = connection
         .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
@@ -187,7 +198,7 @@ where
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
     let connection = environment
-        .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
+        .connect_with_connection_string(&target.connection_string, odbc_connection_options())
         .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
     ensure_not_cancelled(is_cancelled)?;
     connection
@@ -783,7 +794,7 @@ where
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
     let connection = environment
-        .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
+        .connect_with_connection_string(&target.connection_string, odbc_connection_options())
         .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
     ensure_not_cancelled(&is_cancelled)?;
     connection
@@ -837,6 +848,15 @@ where
     let mut statement = connection.prepare(&statement_sql).map_err(|error| {
         format_driver_error("No se pudo preparar la inserción remota", error, target)
     })?;
+    statement
+        .set_query_timeout_sec(ODBC_STATEMENT_TIMEOUT_SEC)
+        .map_err(|error| {
+            format_driver_error(
+                "No se pudo limitar el tiempo de la inserción remota",
+                error,
+                target,
+            )
+        })?;
     let mut rows_written = 0usize;
     for row_index in 0..frame.height() {
         ensure_not_cancelled(&is_cancelled)?;
@@ -907,7 +927,7 @@ where
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
     let connection = environment
-        .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
+        .connect_with_connection_string(&target.connection_string, odbc_connection_options())
         .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
     connection
         .execute("SELECT 1", (), Some(10))
@@ -954,6 +974,15 @@ where
     let mut statement = connection.prepare(&statement_sql).map_err(|error| {
         format_driver_error("No se pudo preparar la inserción remota", error, target)
     })?;
+    statement
+        .set_query_timeout_sec(ODBC_STATEMENT_TIMEOUT_SEC)
+        .map_err(|error| {
+            format_driver_error(
+                "No se pudo limitar el tiempo de la inserción remota",
+                error,
+                target,
+            )
+        })?;
     let mut rows_written = 0usize;
     let streamed_columns = crate::duckdb_query::stream_file_rows(
         source_path,
@@ -1051,7 +1080,7 @@ fn execute_statement(
     target: &DatabaseTarget,
 ) -> Result<(), String> {
     connection
-        .execute(statement, (), None)
+        .execute(statement, (), Some(ODBC_STATEMENT_TIMEOUT_SEC))
         .map(|_| ())
         .map_err(|error| format_driver_error(context, error, target))
 }
@@ -1267,6 +1296,12 @@ fn format_driver_error<E: Debug>(context: &str, error: E, target: &DatabaseTarge
             detail = detail.replace(value.trim(), "[REDACTED]");
         }
     }
+    if detail.contains("HYT00") || detail.contains("HYT01") {
+        return format!(
+            "{context} para {}: la base remota no respondió a tiempo (conexión {ODBC_LOGIN_TIMEOUT_SEC} s, sentencia {ODBC_STATEMENT_TIMEOUT_SEC} s). Comprueba la red o los bloqueos de la tabla y vuelve a intentarlo. Detalle: {detail}",
+            target.kind.label()
+        );
+    }
     format!("{context} para {}: {detail}", target.kind.label())
 }
 
@@ -1295,6 +1330,47 @@ mod tests {
             table: "ventas".to_owned(),
             table_policy: DatabaseTablePolicy::CreateOnly,
         }
+    }
+
+    #[test]
+    fn connections_use_an_explicit_login_timeout() {
+        assert_eq!(
+            odbc_connection_options().login_timeout_sec,
+            Some(ODBC_LOGIN_TIMEOUT_SEC)
+        );
+    }
+
+    #[test]
+    fn driver_timeouts_are_explained_without_leaking_secrets() {
+        let error = format_driver_error(
+            "No se pudo insertar una fila en la tabla remota",
+            "State: HYT00, Native error: 0, Message: Query timeout expired; Pwd=secret",
+            &target(DatabaseKind::SqlServer),
+        );
+        assert!(error.contains("no respondió a tiempo"), "{error}");
+        assert!(!error.contains("secret"), "{error}");
+    }
+
+    /// Manual check against an unroutable address; needs an installed SQL
+    /// Server ODBC driver: `cargo test --lib unreachable_server -- --ignored`.
+    #[test]
+    #[ignore = "requiere un controlador ODBC de SQL Server instalado"]
+    fn unreachable_server_fails_within_the_login_timeout() {
+        let target = DatabaseTarget {
+            kind: DatabaseKind::SqlServer,
+            connection_string: "Driver={ODBC Driver 18 for SQL Server};Server=tcp:10.255.255.1,1433;Uid=auditoria;Pwd=no-es-real;Encrypt=yes;TrustServerCertificate=no".to_owned(),
+            schema: String::new(),
+            table: "ventas".to_owned(),
+            table_policy: DatabaseTablePolicy::CreateOnly,
+        };
+        let started = std::time::Instant::now();
+        let result = test_database_connection_with_cancel(&target, || false);
+        assert!(result.is_err());
+        assert!(
+            started.elapsed().as_secs() <= u64::from(ODBC_LOGIN_TIMEOUT_SEC) + 10,
+            "tardó {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]
