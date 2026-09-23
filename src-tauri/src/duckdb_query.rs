@@ -1747,6 +1747,15 @@ fn execute_query_with_connection(
             spec.current_order_column.as_deref(),
         )?;
     }
+    let source_files = [Some(current), compared]
+        .into_iter()
+        .flatten()
+        .filter_map(|source| match source {
+            DatasetSource::Frame(_) => None,
+            DatasetSource::Parquet(path) | DatasetSource::File { path, .. } => Some(path),
+        })
+        .collect::<Vec<_>>();
+    restrict_external_access(connection, &[directory.path()], &source_files)?;
 
     let total_i64 = connection
         .query_row(&spec.count_query, [], |row| row.get::<_, i64>(0))
@@ -1798,6 +1807,47 @@ fn execute_query_with_connection(
         rows: result_rows,
         truncated: spec.offset.saturating_add(spec.limit) < row_count,
     })
+}
+
+fn duckdb_path_string(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn duckdb_string_list(values: impl IntoIterator<Item = String>) -> String {
+    let items = values
+        .into_iter()
+        .map(|value| format!("'{}'", value.replace('\'', "''")))
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        "[]::VARCHAR[]".to_owned()
+    } else {
+        format!("[{}]", items.join(", "))
+    }
+}
+
+/// Confines a connection that is about to run user-written SQL to the files it
+/// was prepared with: no other local file, no network and no extension
+/// install or autoload. The configuration is locked so the query cannot undo it.
+fn restrict_external_access(
+    connection: &Connection,
+    directories: &[&Path],
+    files: &[&Path],
+) -> Result<(), String> {
+    let directories = duckdb_string_list(directories.iter().map(|directory| {
+        let mut value = duckdb_path_string(directory);
+        if !value.ends_with('/') {
+            value.push('/');
+        }
+        value
+    }));
+    let files = duckdb_string_list(files.iter().map(|file| duckdb_path_string(file)));
+    connection
+        .execute_batch(&format!(
+            "SET autoinstall_known_extensions = false; SET autoload_known_extensions = false; SET allowed_directories = {directories}; SET allowed_paths = {files}; SET enable_external_access = false; SET lock_configuration = true;"
+        ))
+        .map_err(|error| {
+            format!("DuckDB no pudo restringir el acceso externo de la consulta: {error}")
+        })
 }
 
 fn configure_duckdb_resources(connection: &Connection, directory: &Path) -> Result<(), String> {
@@ -2221,6 +2271,83 @@ mod tests {
     use polars::df;
 
     use super::*;
+
+    fn simple_spec(bounded_query: String) -> DuckDbQuerySpec {
+        DuckDbQuerySpec {
+            bounded_query,
+            count_query: "SELECT COUNT(*) FROM dataset".to_owned(),
+            offset: 0,
+            limit: 10,
+            dataset_view_query: None,
+            current_order_column: None,
+            compared_order_column: None,
+        }
+    }
+
+    #[test]
+    fn user_queries_only_read_the_prepared_sources() {
+        let allowed = tempfile::tempdir().expect("directorio del dataset");
+        let parquet_path = allowed.path().join("current.parquet");
+        let mut frame = df!["value" => &[1_i64, 2]].expect("frame de prueba");
+        ParquetWriter::new(File::create(&parquet_path).expect("parquet de prueba"))
+            .finish(&mut frame)
+            .expect("escritura parquet");
+        // The app passes canonical paths, which carry the \\?\ prefix on Windows.
+        let parquet_path = fs::canonicalize(&parquet_path).expect("ruta canónica");
+        let outside = tempfile::tempdir().expect("directorio ajeno");
+        let outside_csv = outside.path().join("ajeno.csv");
+        fs::write(&outside_csv, "value\n99\n").expect("csv ajeno");
+
+        let valid = execute_duckdb_query_from_parquet_sources(
+            &parquet_path,
+            None,
+            &simple_spec("SELECT value FROM dataset ORDER BY value".to_owned()),
+            || false,
+        )
+        .expect("la vista preparada debe seguir siendo legible");
+        assert_eq!(valid.row_count, 2);
+
+        let csv_path = allowed.path().join("current.csv");
+        fs::write(&csv_path, "value\n1\n2\n3\n").expect("csv de prueba");
+        let csv_path = fs::canonicalize(&csv_path).expect("ruta canónica csv");
+        let csv_result = execute_duckdb_query_from_file_sources(
+            &csv_path,
+            DuckDbFileFormat::Delimited { delimiter: b',' },
+            None,
+            &simple_spec("SELECT value FROM dataset".to_owned()),
+            || false,
+        )
+        .expect("una fuente CSV preparada debe seguir siendo legible");
+        assert_eq!(csv_result.row_count, 3);
+
+        let setting = execute_duckdb_query_from_parquet_sources(
+            &parquet_path,
+            None,
+            &simple_spec(
+                "SELECT current_setting('enable_external_access')::VARCHAR AS access FROM dataset LIMIT 1"
+                    .to_owned(),
+            ),
+            || false,
+        )
+        .expect("la configuración debe poder leerse");
+        assert_eq!(
+            format!("{:?}", setting.rows[0][0]),
+            format!("{:?}", Some("false"))
+        );
+
+        let outside_query = format!(
+            "SELECT * FROM read_csv('{}')",
+            outside_csv.to_string_lossy().replace('\\', "/")
+        );
+        let error = execute_duckdb_query_from_parquet_sources(
+            &parquet_path,
+            None,
+            &simple_spec(outside_query),
+            || false,
+        )
+        .expect_err("un archivo fuera de las rutas preparadas debe rechazarse");
+        assert!(error.contains("DuckDB"), "{error}");
+    }
 
     #[test]
     fn executes_a_bounded_query_against_parquet_views() {

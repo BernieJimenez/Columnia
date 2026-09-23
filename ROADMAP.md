@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 6 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 7 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -314,13 +314,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-23 — `canonicalize_duckdb_query` genera `WHERE`/`GROUP BY` desde `LocalQueryPlan` y `parse_local_literal` exige un único token; 4 pruebas nuevas; suite Rust 498 aprobadas y 5 ignoradas; Clippy `-D warnings` y fmt verdes.
-- [ ] **[T10-04] Restringir el acceso externo de las conexiones DuckDB que ejecutan SQL del usuario**
+- [x] **[T10-04] Restringir el acceso externo de las conexiones DuckDB que ejecutan SQL del usuario**
   - **Área:** Seguridad · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/duckdb_query.rs:1661-1662`, `:1706-1765`, `:1803-1817`
   - **Qué hacer:** verificar los valores por defecto del build `bundled`; tras registrar las vistas, limitar rutas permitidas a los archivos del dataset y al temporal, desactivar el acceso externo y la autocarga/autoinstalación de extensiones, y bloquear la configuración.
   - **Criterio de aceptación:** una prueba confirma que una consulta válida funciona y que leer un archivo fuera del conjunto permitido falla; la configuración queda bloqueada durante la consulta.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — `restrict_external_access` (rutas permitidas, sin acceso externo ni extensiones, configuración bloqueada); la prueba cubre Parquet y CSV con rutas canónicas `\?\`, confirma `enable_external_access=false` y rechaza un archivo ajeno; falla sin la restricción. Suite Rust 499 aprobadas y 5 ignoradas; Clippy verde.
 - [ ] **[T10-05] Exigir confirmación nativa antes de cualquier conexión ODBC**
   - **Área:** Seguridad · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/dataset.rs:8633`, `:8786-8795`; `src-tauri/src/remote_databases.rs:121-167`
@@ -549,7 +550,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 6 de 33 | Fase 2 en curso: cerradas hasta ahora T10-03 y anteriores de esta tanda. |
+| 2026-09-23 | 7 de 33 | Fase 2 en curso: cerradas hasta ahora T10-04 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 
