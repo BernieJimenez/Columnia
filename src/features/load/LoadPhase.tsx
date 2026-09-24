@@ -128,11 +128,6 @@ export function LoadPhase({
           <p className="eyebrow">Cargar · Fuente local</p>
           <h2>{current ? "Dataset listo para continuar" : "Selecciona un dataset"}</h2>
           {current && <h3 className="phase-file">{current.fileName}</h3>}
-          <p>
-            {current
-              ? "Se admiten CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS sin un límite fijo de tamaño. La capacidad depende de los recursos disponibles del equipo."
-              : "Revisa, prepara y exporta tus datos desde un solo espacio, en tu equipo."}
-          </p>
         </div>
         {current && selectionAction}
       </header>
@@ -157,17 +152,9 @@ export function LoadPhase({
               <h3 id="load-brief-title">Trae tus datos a un espacio de trabajo local.</h3>
               <p>Selecciona un archivo{runtime.kind === "connected" ? " o arrástralo a esta ventana" : " desde la aplicación de escritorio"}. Conservamos el original mientras trabajas.</p>
               {selectionAction}
-              <p className="load-brief__formats">CSV · TSV · TXT · JSON · Parquet · Excel · ODS</p>
+              <p className="load-brief__formats">CSV · TSV · TXT · JSON · Parquet · Excel · ODS · sin límite fijo de tamaño</p>
             </div>
           </div>
-          <p className="load-brief__meta">
-            <span>7 formatos</span>
-            <span aria-hidden="true">·</span>
-            <span><strong>Sin límite fijo</strong></span>
-            <span aria-hidden="true">·</span>
-            <span>Procesamiento local</span>
-          </p>
-          <p className="load-brief__capacity">La capacidad depende de la memoria y el espacio disponibles en tu equipo.</p>
         </section>
       )}
 

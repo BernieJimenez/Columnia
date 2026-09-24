@@ -2008,13 +2008,14 @@ export function App() {
             )}
           </Suspense>
           </div>
+          {(previousPhase || activeDataset) && (
           <footer className={`flow-footer${nextPhase ? "" : " flow-footer--terminal"}`} aria-label="Navegación entre etapas">
-            {nextPhase && !reviewHasContextualContinue && (
+            {nextPhase && activeDataset && !reviewHasContextualContinue && (
               <div className="flow-footer__copy">
                 <p className="step">Siguiente paso</p>
                 <strong>{activePhase === "review" && profileStatus.kind === "ready" ? "Plan de preparación" : nextPhase.label}</strong>
                 {/* Only when it tells the user something the button does not. */}
-                {(!activeDataset || (profileGatedPhase && profileStatus.kind !== "ready")) && (
+                {profileGatedPhase && profileStatus.kind !== "ready" && (
                   <p>{primaryNextDescription}</p>
                 )}
               </div>
@@ -2044,6 +2045,7 @@ export function App() {
               )}
             </div>
           </footer>
+          )}
         </section>
       </main>
 
