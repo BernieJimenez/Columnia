@@ -10,6 +10,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Seguridad
 
+- T10-06: el preflight ODBC bloquea la entrega a un servidor remoto si la
+  cadena de conexión no exige cifrado (`Encrypt=yes`, `sslmode=require` o
+  `SSLMODE=REQUIRED`); si se desactiva expresamente o se acepta cualquier
+  certificado, lo muestra como advertencia. El texto está pendiente de
+  revisión legal.
 - T10-04: la conexión DuckDB que ejecuta las consultas escritas en Revisar solo
   puede leer los archivos del dataset activo, del comparado y su carpeta
   temporal; queda sin acceso a otros archivos locales ni a la red, sin

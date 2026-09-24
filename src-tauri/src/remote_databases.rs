@@ -495,6 +495,79 @@ fn inspect_destination(
     Ok((table_exists, is_base_table, columns))
 }
 
+fn connection_string_pairs(connection_string: &str) -> Vec<(String, String)> {
+    connection_string
+        .split(';')
+        .filter_map(|part| part.split_once('='))
+        .map(|(key, value)| {
+            (
+                key.trim().to_ascii_lowercase(),
+                value
+                    .trim()
+                    .trim_start_matches('{')
+                    .trim_end_matches('}')
+                    .to_ascii_lowercase(),
+            )
+        })
+        .collect()
+}
+
+/// Personal data may travel to the remote server; the delivery must state
+/// whether the channel is encrypted. Missing settings block the write, an
+/// explicit opt-out stays visible as a warning, and a local server is noted.
+fn transport_encryption_issue(target: &DatabaseTarget) -> Option<(&'static str, String)> {
+    let pairs = connection_string_pairs(&target.connection_string);
+    let value_of = |keys: &[&str]| {
+        pairs
+            .iter()
+            .find(|(key, _)| keys.contains(&key.as_str()))
+            .map(|(_, value)| value.as_str())
+    };
+    let setting = value_of(&["encrypt", "sslmode", "ssl-mode", "ssl_mode"]);
+    let enabled = setting.is_some_and(|value| {
+        matches!(
+            value,
+            "yes"
+                | "true"
+                | "mandatory"
+                | "strict"
+                | "require"
+                | "required"
+                | "verify-ca"
+                | "verify-full"
+                | "verify_ca"
+                | "verify_identity"
+        )
+    });
+    let trusts_any_certificate =
+        value_of(&["trustservercertificate"]).is_some_and(|value| matches!(value, "yes" | "true"));
+    let server = value_of(&["server", "host", "servername", "data source"]).unwrap_or_default();
+    let is_local = ["localhost", "127.0.0.1", "(local)", "::1"]
+        .iter()
+        .any(|local| server.contains(local))
+        || server == ".";
+    let label = target.kind.label();
+    if enabled {
+        return trusts_any_certificate.then(|| ("warning", format!(
+            "La conexión con {label} cifra el canal pero acepta cualquier certificado (TrustServerCertificate); valida el certificado del servidor si los datos contienen información personal."
+        )));
+    }
+    if is_local {
+        return Some((
+            "info",
+            format!("La conexión con {label} apunta a este equipo y no exige cifrado del canal."),
+        ));
+    }
+    if setting.is_some() {
+        return Some(("warning", format!(
+            "La cadena de conexión desactiva expresamente el cifrado con {label}: los datos viajarán sin cifrar por la red."
+        )));
+    }
+    Some(("blocking", format!(
+        "La cadena de conexión no exige cifrado con {label}. Añade Encrypt=yes (SQL Server), sslmode=require (PostgreSQL) o SSLMODE=REQUIRED (MySQL), o indica expresamente que no quieres cifrado."
+    )))
+}
+
 fn assess_remote_export(
     target: &DatabaseTarget,
     input_columns: &[RemoteInputColumn],
@@ -503,6 +576,9 @@ fn assess_remote_export(
     existing_columns: &[ExistingColumn],
 ) -> RemoteExportPreflight {
     let mut issues = Vec::new();
+    if let Some((severity, message)) = transport_encryption_issue(target) {
+        push_issue(&mut issues, severity, "policy", None, message);
+    }
     if input_columns.is_empty() {
         push_issue(
             &mut issues,
@@ -1330,6 +1406,58 @@ mod tests {
             table: "ventas".to_owned(),
             table_policy: DatabaseTablePolicy::CreateOnly,
         }
+    }
+
+    #[test]
+    fn transport_encryption_is_required_stated_or_local() {
+        let with = |kind, connection_string: &str| {
+            let mut value = target(kind);
+            value.connection_string = connection_string.to_owned();
+            transport_encryption_issue(&value).map(|(severity, _)| severity)
+        };
+        assert_eq!(
+            with(
+                DatabaseKind::SqlServer,
+                "Driver={x};Server=db.example.com;Encrypt=yes"
+            ),
+            None
+        );
+        assert_eq!(
+            with(
+                DatabaseKind::Postgresql,
+                "Driver={x};Server=db.example.com;SSLMode=verify-full"
+            ),
+            None
+        );
+        assert_eq!(
+            with(
+                DatabaseKind::Mysql,
+                "Driver={x};Server=db.example.com;SSLMODE=REQUIRED"
+            ),
+            None
+        );
+        assert_eq!(
+            with(DatabaseKind::SqlServer, "Driver={x};Server=db.example.com"),
+            Some("blocking")
+        );
+        assert_eq!(
+            with(
+                DatabaseKind::SqlServer,
+                "Driver={x};Server=db.example.com;Encrypt=no"
+            ),
+            Some("warning")
+        );
+        assert_eq!(
+            with(
+                DatabaseKind::SqlServer,
+                "Driver={x};Server=db.example.com;Encrypt=yes;TrustServerCertificate=yes"
+            ),
+            Some("warning")
+        );
+        assert_eq!(
+            with(DatabaseKind::Postgresql, "Driver={x};Server=localhost"),
+            Some("info")
+        );
     }
 
     #[test]

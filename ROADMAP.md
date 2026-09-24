@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 8 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 9 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -329,13 +329,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Criterio de aceptación:** sin confirmación nativa no se abre ninguna conexión; inventario IPC actualizado; prueba de rechazo sin confirmación.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
-- [ ] **[T10-06] Advertir o bloquear entregas ODBC sin cifrado en tránsito**
+- [x] **[T10-06] Advertir o bloquear entregas ODBC sin cifrado en tránsito**
   - **Área:** Seguridad · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/remote_databases.rs:744-768`
   - **Qué hacer:** detectar `Encrypt`, `TrustServerCertificate` y `sslmode` en la cadena; mostrar en el preflight un aviso que exija confirmación si no se pide cifrado. El texto del aviso requiere revisión legal (Ley 172-13).
   - **Criterio de aceptación:** un preflight sin cifrado exigido muestra el aviso y no escribe sin confirmación; pruebas por dialecto.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — `transport_encryption_issue` en el preflight (bloqueo sin cifrado, advertencia con desactivación expresa o certificado no validado, información en servidor local); prueba por dialecto; suite Rust 502 aprobadas. El texto del aviso sigue pendiente de revisión legal.
 - [x] **[T10-07] Hacer efectiva la comprobación de CSP del gate de red**
   - **Área:** DevOps y configuración · **Severidad:** Media
   - **Ubicación:** `tools/check-network-policy.mjs:55`; `tools/check-network-policy.test.mjs`
@@ -551,7 +552,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 8 de 33 | Fase 2 en curso: cerradas hasta ahora T10-13 y anteriores de esta tanda. |
+| 2026-09-23 | 9 de 33 | Fase 2 en curso: cerradas hasta ahora T10-06 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 
