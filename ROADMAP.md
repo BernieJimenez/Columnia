@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 27 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 28 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -370,13 +370,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-23 — prueba unitaria y E2E de teclado (Escape y Cancelar) que fallan sin el arreglo y pasan con él; suite frontend 458/458 y E2E 23/23.
-- [ ] **[T10-11] Unificar la paleta oscura de los temas Oscuro y Sistema**
+- [x] **[T10-11] Unificar la paleta oscura de los temas Oscuro y Sistema**
   - **Área:** UI/UX · **Severidad:** Media
   - **Ubicación:** `src/workflow-styles.css:338-345` y bloques `:root[data-theme="dark"]`; `src/styles.css:1347-1380`
   - **Qué hacer:** definir una sola vez los tokens oscuros y aplicarlos desde ambos selectores; retirar los overrides por componente duplicados.
   - **Criterio de aceptación:** una prueba compara estilos computados entre Oscuro y Sistema con SO oscuro y encuentra 0 diferencias (hoy 12 de 153 textos en Cargar).
   - **Esfuerzo:** medio
   - **Depende de:** T10-02
+  - **Cerrada:** 2026-09-23 — Todas las reglas oscuras cuelgan de `data-resolved-theme` (fijado en `index.html` y `applyThemePreference`; Sistema sigue al SO); ya no queda ningún `@media (prefers-color-scheme: dark)`. La prueba nueva de `e2e/theme-contrast.spec.ts` compara colores, fondos, bordes y sombras de cada elemento visible en las cuatro fases entre Oscuro y Sistema con SO oscuro: 0 diferencias (antes 70). Instantáneas adicionales: Claro, Oscuro y Sistema coinciden al 100 % con sus referencias con SO claro y oscuro; Papel, Océano y Pizarra sin cambios con SO claro. E2E 27/27, vitest 476/476, bundle dentro del presupuesto.
 - [x] **[T10-12] Mostrar en Entregar las columnas con señales de datos personales**
   - **Área:** UI/UX · **Severidad:** Media
   - **Ubicación:** `src/features/delivery/DeliveryPhase.tsx:1673`; `src/features/prepare/PreparePhase.tsx:141-144`
@@ -572,7 +573,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 27 de 33 | Fase 2 en curso: cerradas hasta ahora T10-16 y anteriores de esta tanda. |
+| 2026-09-23 | 28 de 33 | Fase 2 en curso: cerradas hasta ahora T10-11 y anteriores de esta tanda. |
 | 2026-09-23 | 20 de 33 | Fase 2 en curso; T10-05 y T10-08 parciales. |
 
 ## Criterio de salida de V1

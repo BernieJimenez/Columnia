@@ -315,8 +315,8 @@ input[type="radio"] { width: 20px; height: 20px; }
   color: var(--disabled-text);
   opacity: 1;
 }
-:root[data-theme="light"] .workspace .primary-action:disabled,
-:root[data-theme="dark"] .workspace .primary-action:disabled {
+:root[data-resolved-theme="light"] .workspace .primary-action:disabled,
+:root[data-resolved-theme="dark"] .workspace .primary-action:disabled {
   border-color: var(--border-subtle);
   background: var(--disabled-surface);
   color: var(--disabled-text);
@@ -324,26 +324,26 @@ input[type="radio"] { width: 20px; height: 20px; }
 .stage-tabs button:disabled { background: transparent; }
 .sheet-dialog__panel { max-height: calc(100dvh - 24px); overflow-y: auto; }
 
-:root[data-theme="light"] .workspace :is(p, small, li, dt, label, .phase-header p:last-child, .preview-note),
-:root[data-theme="light"] .side-nav__copy small,
-:root[data-theme="dark"] .workspace :is(p, small, li, dt, label, .phase-header p:last-child, .preview-note),
-:root[data-theme="dark"] .side-nav__copy small { color: var(--text-secondary); }
-:root[data-theme="dark"] .workspace .primary-action:not(:disabled) {
+:root[data-resolved-theme="light"] .workspace :is(p, small, li, dt, label, .phase-header p:last-child, .preview-note),
+:root[data-resolved-theme="light"] .side-nav__copy small,
+:root[data-resolved-theme="dark"] .workspace :is(p, small, li, dt, label, .phase-header p:last-child, .preview-note),
+:root[data-resolved-theme="dark"] .side-nav__copy small { color: var(--text-secondary); }
+:root[data-resolved-theme="dark"] .workspace .primary-action:not(:disabled) {
   border-color: var(--accent);
   background: #176d62;
   color: #f0fffb;
 }
-:root[data-theme="dark"] .workspace .primary-action:hover:not(:disabled) { background: #10564d; }
-:root[data-theme="dark"] .side-nav .side-nav__item--current { border-color: var(--border-subtle); background: var(--surface-subtle); }
-@media (prefers-color-scheme: dark) {
-  :root:is(:not([data-theme]), [data-theme="system"]) :is(.eyebrow, .step, .flow-overview__step) { color: var(--focus-ring); }
-  :root:is(:not([data-theme]), [data-theme="system"]) .workspace .primary-action:not(:disabled) {
+:root[data-resolved-theme="dark"] .workspace .primary-action:hover:not(:disabled) { background: #10564d; }
+:root[data-resolved-theme="dark"] .side-nav .side-nav__item--current { border-color: var(--border-subtle); background: var(--surface-subtle); }
+/* Dark rules keyed on the resolved theme (T10-11). */
+  :root[data-resolved-theme="dark"] :is(.eyebrow, .step) { color: var(--focus-ring); }
+  :root[data-resolved-theme="dark"] .workspace .primary-action:not(:disabled) {
     border-color: var(--accent);
     background: #176d62;
     color: #f0fffb;
   }
-  :root:is(:not([data-theme]), [data-theme="system"]) .workspace .primary-action:hover:not(:disabled) { background: #10564d; }
-}
+  :root[data-resolved-theme="dark"] .workspace .primary-action:hover:not(:disabled) { background: #10564d; }
+
 
 @media (max-width: 900px) {
   .sidebar { padding: 16px 20px; }
@@ -745,10 +745,10 @@ summary:focus-visible,
 /* Final shell polish: preserve context on small screens and make state changes
  * visible without relying on color alone. */
 :root { --accent-soft: #e3f0ec; }
-:root[data-theme="dark"] { --accent-soft: #21463f; }
-@media (prefers-color-scheme: dark) {
-  :root:is(:not([data-theme]), [data-theme="system"]) { --accent-soft: #21463f; }
-}
+:root[data-resolved-theme="dark"] { --accent-soft: #21463f; }
+/* Dark rules keyed on the resolved theme (T10-11). */
+  :root[data-resolved-theme="dark"] { --accent-soft: #21463f; }
+
 
 button:focus-visible,
 input:focus-visible,

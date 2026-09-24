@@ -48,4 +48,17 @@ describe("modelo de temas", () => {
     expect(root.dataset.theme).toBe("system");
     expect(root.style.colorScheme).toBe("light dark");
   });
+
+  it("resuelve Sistema al tema claro u oscuro que pintan los estilos", () => {
+    const root = document.createElement("html");
+
+    applyThemePreference("system", root, true);
+    expect(root.dataset.resolvedTheme).toBe("dark");
+    applyThemePreference("system", root, false);
+    expect(root.dataset.resolvedTheme).toBe("light");
+    applyThemePreference("dark", root, false);
+    expect(root.dataset.resolvedTheme).toBe("dark");
+    applyThemePreference("paper", root, true);
+    expect(root.dataset.resolvedTheme).toBe("paper");
+  });
 });

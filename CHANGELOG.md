@@ -76,6 +76,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- T10-11: los temas se ven igual sin depender del modo del sistema operativo.
+  «Sistema» pinta exactamente como «Claro» u «Oscuro» (antes había 57 y 70
+  diferencias), «Claro» y «Oscuro» ya no cambian si Windows está en modo oscuro,
+  y Papel, Océano y Pizarra dejan de recibir estilos oscuros sueltos.
 - T10-16: el análisis de calidad ya no retiene el dataset mientras calcula. Con
   un archivo grande, la app pasaba minutos en Cargar sin avanzar porque la
   lectura del historial esperaba a que terminara el análisis; ahora pasa a

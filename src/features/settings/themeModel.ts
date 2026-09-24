@@ -45,13 +45,36 @@ export function writeThemePreference(
   }
 }
 
+function systemPrefersDark(): boolean {
+  try {
+    return typeof window !== "undefined"
+      && typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  } catch {
+    return false;
+  }
+}
+
+/** "system" becomes light or dark; every other theme keeps its name. */
+export function resolveThemePreference(
+  preference: ThemePreference,
+  prefersDark: boolean = systemPrefersDark(),
+): Exclude<ThemePreference, "system"> {
+  if (preference !== "system") return preference;
+  return prefersDark ? "dark" : "light";
+}
+
 export function applyThemePreference(
   preference: ThemePreference,
   root: HTMLElement | undefined = typeof document === "undefined" ? undefined : document.documentElement,
+  prefersDark: boolean = systemPrefersDark(),
 ): void {
   if (!root) return;
 
   root.dataset.theme = preference;
+  // Styles key on the resolved theme, so "Sistema" paints exactly like the
+  // theme it resolves to and no rule depends on the OS media query (T10-11).
+  root.dataset.resolvedTheme = resolveThemePreference(preference, prefersDark);
   root.style.colorScheme = preference === "system"
     ? "light dark"
     : preference === "dark" ? "dark" : "light";

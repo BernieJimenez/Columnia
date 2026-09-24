@@ -25,6 +25,12 @@ export function ThemeSwitcher() {
 
   useEffect(() => {
     applyThemePreference(preference);
+    if (preference !== "system" || typeof window.matchMedia !== "function") return undefined;
+    // Follow the OS while "Sistema" is selected.
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const follow = () => applyThemePreference(preference);
+    query.addEventListener("change", follow);
+    return () => query.removeEventListener("change", follow);
   }, [preference]);
 
   const chooseTheme = (nextPreference: ThemePreference) => {

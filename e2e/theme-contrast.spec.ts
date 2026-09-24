@@ -123,3 +123,64 @@ for (const theme of themes) {
     expect(failures, failures.join("\n")).toEqual([]);
   });
 }
+
+/** Colors of every visible element in document order, for theme parity checks. */
+async function colorSnapshot(page: Page) {
+  return page.evaluate(() => {
+    const rows: string[] = [];
+    for (const element of document.querySelectorAll("body *")) {
+      if (!element.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true })) continue;
+      const style = getComputedStyle(element);
+      const label = `${element.tagName.toLowerCase()}.${[...element.classList].join(".")}`;
+      rows.push(`${label}|${style.color}|${style.backgroundColor}|${style.borderTopColor}|${style.borderLeftColor}|${style.boxShadow}`);
+    }
+    return rows;
+  });
+}
+
+async function phaseSnapshots(page: Page, colorScheme: "dark", dataTheme: "dark" | "system") {
+  await installContrastMock(page);
+  await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+  await page.addInitScript((value) => localStorage.setItem("columnia.theme", value), dataTheme);
+  await page.goto("/");
+  const snapshots: Record<string, string[]> = {};
+  await page.getByRole("button", { name: "Seleccionar dataset" }).waitFor();
+  await page.waitForTimeout(300);
+  snapshots.Cargar = await colorSnapshot(page);
+  await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+  const review = page.getByRole("dialog", { name: "Revisar encabezados de contraste.csv" });
+  await review.getByRole("button", { name: "Revisar esquema" }).click();
+  await review.getByRole("button", { name: "Cargar archivo" }).click();
+  await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
+  await page.waitForTimeout(300);
+  snapshots.Revisar = await colorSnapshot(page);
+  const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
+  await workflow.getByRole("button", { name: "Preparar", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Aplicar \d+ cambios?$/ })).toBeVisible();
+  await page.waitForTimeout(300);
+  snapshots.Preparar = await colorSnapshot(page);
+  await workflow.getByRole("button", { name: "Entregar", exact: true }).click();
+  await expect(page.getByText(/Datos personales detectados/)).toBeVisible();
+  await page.waitForTimeout(300);
+  snapshots.Entregar = await colorSnapshot(page);
+  return snapshots;
+}
+
+test("los temas Oscuro y Sistema con SO oscuro pintan lo mismo (T10-11)", async ({ browser }) => {
+  const darkPage = await browser.newPage();
+  const systemPage = await browser.newPage();
+  const dark = await phaseSnapshots(darkPage, "dark", "dark");
+  const system = await phaseSnapshots(systemPage, "dark", "system");
+  const differences: string[] = [];
+  for (const phase of Object.keys(dark)) {
+    const length = Math.max(dark[phase].length, system[phase].length);
+    for (let index = 0; index < length; index += 1) {
+      if (dark[phase][index] !== system[phase][index]) {
+        differences.push(`${phase}: ${dark[phase][index]} ≠ ${system[phase][index]}`);
+      }
+    }
+  }
+  await darkPage.close();
+  await systemPage.close();
+  expect(differences, `${differences.length} diferencias\n${differences.slice(0, 25).join("\n")}`).toEqual([]);
+});

@@ -7,10 +7,13 @@
     <script>
       try {
         const storedTheme = localStorage.getItem("columnia.theme");
-        const theme = ["system", "light", "dark"].includes(storedTheme) ? storedTheme : "system";
+        const theme = ["system", "light", "dark", "paper", "ocean", "slate"].includes(storedTheme) ? storedTheme : "system";
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
         document.documentElement.dataset.theme = theme;
+        document.documentElement.dataset.resolvedTheme = theme === "system" ? (prefersDark ? "dark" : "light") : theme;
       } catch {
         document.documentElement.dataset.theme = "system";
+        document.documentElement.dataset.resolvedTheme = "light";
       }
     </script>
     <title>Columnia</title>
