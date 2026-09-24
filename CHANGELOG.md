@@ -53,6 +53,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Imputar nulos, aplicar las correcciones recomendadas y otras correcciones que
+  reconstruyen columnas ya no fallan con «expected equal chunks» sobre datasets
+  cargados por lotes (por ejemplo, un CSV grande). El historial y el snapshot de
+  comparación alinean los bloques de cada lote antes de escribirlo, como ya hacía
+  la exportación.
 - T10-26: tamaños, decimales, porcentajes y tipos de columna se muestran igual en
   todas las pantallas: unidades binarias (KiB, MiB), el separador decimal del
   sistema y nombres de tipo en español (Entero, Decimal, Texto…). Antes el mismo

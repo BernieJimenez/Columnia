@@ -339,7 +339,9 @@ where
         let row_count = LOCAL_QUERY_BLOCK_ROWS.min(frame.height() - offset);
         let slice_offset = i64::try_from(offset)
             .map_err(|_| "El snapshot comparado supera la capacidad del escritor.".to_owned())?;
-        let batch = frame.slice(slice_offset, row_count);
+        let mut batch = frame.slice(slice_offset, row_count);
+        // The batched writer requires every column to share the chunk layout.
+        batch.align_chunks_par();
         ensure_not_cancelled(is_cancelled())?;
         writer
             .write_batch(&batch)

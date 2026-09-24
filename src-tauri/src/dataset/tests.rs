@@ -16947,3 +16947,58 @@ fn source_backed_project_import_profiles_and_snapshots_without_materializing_row
 
     let _ = fs::remove_file(input);
 }
+
+#[test]
+fn imputation_snapshot_accepts_columns_with_different_chunk_layouts() {
+    // CSV loaded in streaming batches keeps several chunks per column, while an
+    // imputed column is rebuilt as a single chunk.
+    let first = df!(
+        "ciudad" => [Some("Santo Domingo"), None, Some("Santo Domingo")],
+        "monto" => [Some(10_i64), None, Some(30)],
+        "estado" => ["a", "b", "c"],
+    )
+    .expect("primer bloque");
+    let second = df!(
+        "ciudad" => [Some("Santiago"), Some("Santo Domingo"), None],
+        "monto" => [Some(40_i64), None, Some(60)],
+        "estado" => ["d", "e", "f"],
+    )
+    .expect("segundo bloque");
+    let mut frame = first;
+    frame.vstack_mut(&second).expect("vstack sin rechunk");
+    assert!(
+        frame
+            .column("estado")
+            .unwrap()
+            .as_materialized_series()
+            .n_chunks()
+            > 1
+    );
+
+    let (cleaned, _, changed_cells, _) =
+        impute_missing_values_in_frame(&frame).expect("imputación");
+    assert_eq!(changed_cells, 4);
+
+    let history = HistoryManager::new(&frame).expect("el historial debe inicializarse");
+    history
+        .prepare_frame_snapshot(&cleaned, || false)
+        .expect("el snapshot debe escribirse con columnas de distinta fragmentación");
+}
+
+#[test]
+fn comparison_snapshot_accepts_columns_with_different_chunk_layouts() {
+    let mut frame = df!("id" => [1_i64, 2], "valor" => ["a", "b"]).expect("primer bloque");
+    frame
+        .vstack_mut(&df!("id" => [3_i64, 4], "valor" => ["c", "d"]).expect("segundo bloque"))
+        .expect("vstack sin rechunk");
+    frame
+        .replace("valor", Column::new("valor".into(), ["w", "x", "y", "z"]))
+        .expect("columna reconstruida en un solo bloque");
+
+    let (_directory, path) = persist_comparison_snapshot_with_cancel(&frame, &|| false)
+        .expect("el snapshot comparado debe escribirse");
+    let written = ParquetReader::new(File::open(path).expect("snapshot legible"))
+        .finish()
+        .expect("snapshot válido");
+    assert!(written.equals(&frame));
+}

@@ -383,7 +383,10 @@ impl HistoryManager {
                 return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
             }
             let row_count = HISTORY_SNAPSHOT_BATCH_ROWS.min(frame.height() - offset);
-            let batch = frame.slice(offset as i64, row_count);
+            let mut batch = frame.slice(offset as i64, row_count);
+            // Mutations rebuild some columns as one chunk while streamed loads
+            // keep several; the batched writer requires equal chunk layouts.
+            batch.align_chunks_par();
             writer.write_batch(&batch).map_err(|error| {
                 format!("No se pudo escribir el snapshot del historial: {error}")
             })?;
