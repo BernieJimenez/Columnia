@@ -35,6 +35,7 @@ Desde la raíz del repositorio:
 
 ```powershell
 npm run governance:check
+npm run lint
 .\tools\check.ps1 -Profile Fast
 ```
 

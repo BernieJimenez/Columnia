@@ -2655,7 +2655,7 @@ describe("App", () => {
     const mutationPromise = new Promise<DatasetPreview>((_resolve, reject) => {
       rejectMutation = reject;
     });
-    const consolidateSpy = vi.spyOn(bridge, "useConsolidatedDataset").mockReturnValue(
+    const consolidateSpy = vi.spyOn(bridge, "adoptConsolidatedDataset").mockReturnValue(
       mutation === "consolidate" ? mutationPromise : Promise.resolve(dataset),
     );
     const joinSpy = vi.spyOn(bridge, "joinDataset").mockReturnValue(
@@ -2917,7 +2917,7 @@ describe("App", () => {
     };
     const compareSpy = vi.spyOn(bridge, "compareDataset").mockResolvedValue(comparison);
     vi.spyOn(bridge, "clearDatasetComparison").mockResolvedValue(undefined);
-    vi.spyOn(bridge, "useConsolidatedDataset").mockResolvedValue(dataset);
+    vi.spyOn(bridge, "adoptConsolidatedDataset").mockResolvedValue(dataset);
     const joinSpy = vi.spyOn(bridge, "joinDataset").mockResolvedValue(dataset);
     vi.spyOn(bridge, "exportDataset").mockResolvedValue({
       fileName: "actual.zip",
@@ -2949,7 +2949,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Elegir dataset para comparar" }));
     await waitFor(() => expect(screen.getByText("nuevo.csv")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Consolidar filas" }));
-    await waitFor(() => expect(bridge.useConsolidatedDataset).toHaveBeenCalledOnce());
+    await waitFor(() => expect(bridge.adoptConsolidatedDataset).toHaveBeenCalledOnce());
     expect(within(screen.getByRole("button", { name: "Entregar" })).queryByText("Hecho")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));

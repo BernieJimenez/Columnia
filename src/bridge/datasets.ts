@@ -121,7 +121,7 @@ export function clearDatasetComparison(): Promise<void> {
   return invoke<void>("clear_dataset_comparison");
 }
 
-export function useConsolidatedDataset(): Promise<DatasetPreview> {
+export function adoptConsolidatedDataset(): Promise<DatasetPreview> {
   return invoke<DatasetPreview>("use_consolidated_dataset");
 }
 

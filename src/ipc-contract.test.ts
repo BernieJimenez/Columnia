@@ -212,7 +212,7 @@ function rustCommandReturnTypes(
         }
       }
 
-      const returnMatch = source.slice(closingIndex + 1).match(/^\s*->\s*([^\{]+)\{/);
+      const returnMatch = source.slice(closingIndex + 1).match(/^\s*->\s*([^{]+)\{/);
       if (!returnMatch) throw new Error(`No se encontró el retorno Rust de ${command}.`);
       return [command, normalizeRustReturnType(returnMatch[1].trim())];
     }),

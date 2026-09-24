@@ -187,6 +187,7 @@ resultado en el mismo cambio.
 | desarrollo | `@vitejs/plugin-react` | `^6.1.1` |
 | desarrollo | `@vitest/coverage-v8` | `^5.0.1` |
 | desarrollo | `jsdom` | `^29.1.1` |
+| desarrollo | `oxlint` | `1.85.0` |
 | desarrollo | `typescript` | `~7.0.2` |
 | desarrollo | `vite` | `^8.3.0` |
 | desarrollo | `vitest` | `^5.0.1` |
@@ -220,7 +221,7 @@ revisar Tauri/Vite, tests y build antes de modificar el lockfile.
 
 | Comando | Resultado del snapshot | Interpretación |
 | --- | --- | --- |
-| `npm audit --json --omit=optional` | 0 vulnerabilidades reportadas; 180 dependencias del lockfile | Reauditado el 2026-09-20; repetir antes de release |
+| `npm audit --json --omit=optional` | 0 vulnerabilidades reportadas; 200 dependencias del lockfile | Reauditado el 2026-09-24 tras añadir `oxlint`; repetir antes de release |
 | `cargo audit --json` | `cargo-audit 0.22.2`; 0 vulnerabilidades después de las excepciones documentadas; los avisos informativos no son bloqueantes | `quick-xml 0.39.4` llega transitivamente por `object_store 0.13.2`; Columnia no habilita los features cloud ni expone un flujo remoto. La razón vigente está en `src-tauri/deny.toml` |
 | `cargo deny --format json check` | `cargo-deny 0.20.2`; advisories/licencias/fuentes sin errores; 48 duplicados en warning | Política explícita en `src-tauri/deny.toml`; excepciones upstream tienen razón y se revisan al actualizar Tauri/Polars |
 | `cargo outdated --version` | Herramienta no instalada | No se inventa un estado de actualización Cargo |

@@ -131,7 +131,7 @@ async function installTauriProjectMock(page: Page, seedRecoveryCandidate = false
       configurable: true,
       value: {
         invoke,
-        transformCallback: (callback: unknown) => {
+        transformCallback: () => {
           callbackId += 1;
           return callbackId;
         },

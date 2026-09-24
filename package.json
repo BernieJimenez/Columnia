@@ -11,9 +11,10 @@
   "scripts": {
     "dev": "vite",
     "preview": "vite preview",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc -p tsconfig.app.json && tsc --noEmit && vite build",
     "brand:check": "node tools/check-retired-brand.mjs",
     "test": "vitest run",
+    "lint": "oxlint -c .oxlintrc.json src e2e tools",
     "test:network-policy": "node --test tools/check-network-policy.test.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage --maxWorkers=1 && node tools/check-coverage.mjs",
@@ -82,6 +83,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^5.0.1",
     "jsdom": "^29.1.1",
+    "oxlint": "1.85.0",
     "typescript": "~7.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.1"

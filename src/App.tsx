@@ -124,11 +124,10 @@ import {
   previewDelimitedHeaderReview,
   previewDatasetSelection,
   resolveDatasetConflicts,
-  useConsolidatedDataset,
+  adoptConsolidatedDataset,
   type AppInfo,
   type CancellableOperation,
   type DatasetJoinType,
-  type DatasetPreview,
   type ConflictResolution,
   type DatasetSourceInspection,
   type ImportProfile,
@@ -1116,7 +1115,7 @@ export function App() {
     reviewMutationRef.current = mutation;
     setReviewMutationStatus({ kind: "running", mutation: "consolidate", cancellation: "available" });
     try {
-      const dataset = await useConsolidatedDataset();
+      const dataset = await adoptConsolidatedDataset();
       if (
         reviewMutationRef.current !== mutation
         || comparisonRequestRef.current !== requestId

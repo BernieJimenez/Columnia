@@ -97,7 +97,6 @@ export function PreparePhase({
   onUndo,
   onRedo,
 }: PreparePhaseProps) {
-  const duplicateCount = profileStatus.kind === "ready" ? profileStatus.profile.duplicateRowCount : null;
   const nearDuplicateCount = profileStatus.kind === "ready" ? profileStatus.profile.nearDuplicateRowCount : null;
   const changing = changeStatus.kind === "working";
   const textColumns = dataset.columns.filter((column) => column.dataType === "String" && column.name !== "_cambios");
@@ -127,15 +126,10 @@ export function PreparePhase({
   const typeDriftColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => (column.invalidTypeCount ?? 0) > 0)
     : [];
-  const sentinelColumns = profileStatus.kind === "ready"
-    ? profileStatus.profile.columns.filter((column) => (column.sentinelCount ?? 0) > 0)
-    : [];
   const outlierColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => (column.outlierCount ?? 0) > 0 && column.name !== "_cambios")
     : [];
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
-  const textColumnSignature = textColumns.map((column) => column.name).join("\u0000");
-  const sentinelColumnSignature = sentinelColumns.map((column) => column.name).join("\u0000");
 
   useEffect(() => {
     const available = new Set(textColumns.map((column) => column.name));
@@ -769,7 +763,6 @@ function CleaningSignals({
   const typeDrift = profile.columns.filter(
     (column) => (column.invalidTypeCount ?? 0) > 0,
   );
-  const typeDriftColumns = typeDrift;
   const outliers = profile.columns.filter(
     (column) => (column.outlierCount ?? 0) > 0 && column.name !== "_cambios",
   );

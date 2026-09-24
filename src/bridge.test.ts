@@ -58,8 +58,6 @@ import {
   loadDatasetSelection,
   pickDatasetSource,
   previewDelimitedHeaderReview,
-  pickQualityRulesMigration,
-  pickTransformRecipe,
   queryDataset,
   removeDuplicates,
   removeNearDuplicates,
@@ -75,13 +73,11 @@ import {
   setPerformanceProfile,
   trimTextValues,
   testDatabaseConnection,
-  useConsolidatedDataset,
+  adoptConsolidatedDataset,
   undoLastChange,
   validateQualityRules,
   type QualityRule,
   type ProjectWorkspace,
-  type OperationProgress,
-  type RecipeExportOptions,
   type TransformRecipe,
   type DatabaseTarget,
   type ReusableTask,
@@ -299,7 +295,7 @@ describe("desktop bridge", () => {
 
     await compareDataset(["id"]);
     await joinDataset(["id"], "left");
-    await useConsolidatedDataset();
+    await adoptConsolidatedDataset();
     await clearDatasetComparison();
 
     expect(invoke).toHaveBeenNthCalledWith(1, "compare_dataset", { keyColumns: ["id"] });

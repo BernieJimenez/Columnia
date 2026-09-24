@@ -126,6 +126,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Interno
 
+- T10-25: `npm run lint` ejecuta oxlint (reglas de hooks de React y de
+  corrección) en todos los perfiles de `check.ps1`, incluido Fast. `npm run build`
+  comprueba el código de producción con `tsconfig.app.json`, sin tipos de Node
+  ni de Vitest. Se corrigieron 15 errores (imports y variables sin uso, un
+  escape innecesario) y `useConsolidatedDataset` pasa a llamarse
+  `adoptConsolidatedDataset` porque no es un hook.
 - T10-18: el perfil Full mide la cobertura Rust con `cargo llvm-cov` y guarda
   una línea base por módulo en `.local/validation` (sin umbral todavía). La
   cobertura crítica del frontend añade umbrales de no retroceso para

@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 25 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 26 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -478,13 +478,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Criterio de aceptación:** `App.tsx` deja de contener el estado de Entregar; pruebas y E2E verdes.
   - **Esfuerzo:** medio
   - **Depende de:** T10-23
-- [ ] **[T10-25] Añadir un linter de frontend con reglas de hooks**
+- [x] **[T10-25] Añadir un linter de frontend con reglas de hooks**
   - **Área:** Código · **Severidad:** Baja
   - **Ubicación:** `package.json`; `tsconfig.json:17`
   - **Qué hacer:** incorporar un linter con reglas de hooks de React al perfil Fast y separar los tipos de pruebas (`node`, `vitest/globals`) del tsconfig de producción.
   - **Criterio de aceptación:** el linter corre en Fast con 0 errores; el código de producción no compila si usa tipos de Node.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — `npm run lint` (oxlint 1.85.0, `.oxlintrc.json`) corre en todos los perfiles de `check.ps1`, incluido Fast, con 0 errores y 9 avisos de `exhaustive-deps`; se corrigieron 15 errores. `tsconfig.app.json` compila `src` sin pruebas ni tipos de Node/Vitest y forma parte de `npm run build`: un archivo de producción con `Buffer` falla con TS2591 (comprobado). Notices regenerados (solo se añaden oxlint y sus binarios, MIT) y `npm audit` con 0 vulnerabilidades en 200 dependencias. Las reglas de React Compiler quedan desactivadas y documentadas en CONTEXTO.
 - [x] **[T10-26] Formatear números, tamaños y tipos desde un único módulo**
   - **Área:** UI/UX · **Severidad:** Baja
   - **Ubicación:** `src/components/UpdatePanel.tsx:36`; `src/features/delivery/DatasetMetrics.tsx:4`; `src/features/load/LoadPhase.tsx:37`; `src/features/prepare/HistoryBar.tsx:79`; `src/features/projects/ProjectsPanel.tsx:436`
@@ -570,7 +571,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 25 de 33 | Fase 2 en curso: cerradas hasta ahora T10-18 y anteriores de esta tanda. |
+| 2026-09-23 | 26 de 33 | Fase 2 en curso: cerradas hasta ahora T10-25 y anteriores de esta tanda. |
 | 2026-09-23 | 20 de 33 | Fase 2 en curso; T10-05 y T10-08 parciales. |
 
 ## Criterio de salida de V1
