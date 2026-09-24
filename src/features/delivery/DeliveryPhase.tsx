@@ -840,16 +840,13 @@ export function DeliveryPhase({
           <p className="eyebrow">Entregar · Exportación local</p>
           <h2>Valida y crea una copia</h2>
           <h3 className="phase-file">{dataset.fileName}</h3>
-          <p>Genera una copia del dataset preparado. El archivo original nunca se modifica.</p>
         </div>
       </header>
       <DatasetMetrics dataset={dataset} />
       <section className="quality-contract" aria-labelledby="quality-contract-title">
         <div className="quality-contract__header">
           <div>
-            <p className="step">Control de entrega</p>
             <h3 id="quality-contract-title">Elige cómo validar la entrega</h3>
-            <p>Usa reglas locales para comprobar el resultado o continúa sin validación de calidad.</p>
           </div>
         </div>
 
@@ -870,9 +867,6 @@ export function DeliveryPhase({
             <span>
               <strong>Validar calidad</strong>
               <small>Recomendado · define hasta {MAX_QUALITY_RULES} comprobaciones locales</small>
-              <span className="delivery-route__state">
-                {contract.kind === "with_contract" ? "Ruta seleccionada" : "Disponible"}
-              </span>
             </span>
           </label>
           <label data-selected={contract.kind === "without_contract" || undefined}>
@@ -886,9 +880,6 @@ export function DeliveryPhase({
             <span>
               <strong>Exportar sin validar</strong>
               <small>Requiere una confirmación explícita durante esta sesión</small>
-              <span className="delivery-route__state">
-                {contract.kind === "without_contract" ? "Ruta seleccionada" : "Disponible"}
-              </span>
             </span>
           </label>
         </fieldset>
@@ -1650,9 +1641,7 @@ export function DeliveryPhase({
       </section>
       <section className="export-panel" aria-labelledby="export-title">
         <div>
-          <p className="step">Formato de entrega</p>
           <h3 id="export-title">Exportar dataset activo</h3>
-          <p>Elige el formato y la protección antes de crear la copia.</p>
         </div>
         <div className="export-controls">
           <label className="export-format">
@@ -1681,7 +1670,7 @@ export function DeliveryPhase({
             Protección de datos personales
             <select
               aria-label="Protección de datos personales"
-              aria-describedby="privacy-mode-note"
+              aria-describedby={selectedPrivacyMode === "hash" ? "privacy-mode-note" : undefined}
               value={selectedPrivacyMode}
               onChange={(event) => changePrivacyMode(event.target.value as PrivacyMode)}
               disabled={busy}
@@ -1690,9 +1679,11 @@ export function DeliveryPhase({
               <option value="mask">Enmascarar columnas detectadas</option>
               <option value="hash">Aplicar hash SHA-256 a columnas detectadas</option>
             </select>
-            <small id="privacy-mode-note" className="privacy-mode__note">
-              SHA-256 es determinista y no usa salt: valores predecibles pueden adivinarse. No equivale a anonimización; revisa el archivo antes de compartirlo.
-            </small>
+            {selectedPrivacyMode === "hash" && (
+              <small id="privacy-mode-note" className="privacy-mode__note">
+                SHA-256 es determinista y no usa salt: valores predecibles pueden adivinarse. No equivale a anonimización; revisa el archivo antes de compartirlo.
+              </small>
+            )}
           </label>
           {personalDataColumns.length > 0 && (
             <div className="notice privacy-signals" role="note" aria-labelledby="privacy-signals-title">

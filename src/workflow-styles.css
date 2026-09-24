@@ -1261,16 +1261,6 @@ a:visited { color: #80548b; }
 }
 button:active:not(:disabled) { transform: translateY(1px); }
 .delivery-route > label[data-selected="true"] { position: relative; }
-.delivery-route__state {
-  width: max-content;
-  margin-top: 3px;
-  color: var(--text-secondary);
-  font-size: .75rem;
-  font-weight: 650;
-}
-.delivery-route > label[data-selected="true"] .delivery-route__state {
-  color: var(--accent);
-}
 
 @keyframes stage-enter {
   from { opacity: 0; transform: translateY(6px); }

@@ -10,6 +10,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- Entregar muestra menos texto: la advertencia sobre SHA-256 aparece solo al
+  elegir el hash y se quitan explicaciones repetidas. Las confirmaciones de
+  exportar sin validar y de datos personales siguen igual.
 - Revisar muestra solo el resumen del análisis y una acción, «Ver cambios
   propuestos». Las cifras ya no se repiten tres veces; el análisis detallado,
   el perfil por columna, la configuración y el SQL local están en «Más
