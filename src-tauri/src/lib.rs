@@ -128,6 +128,7 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .manage(dataset::DatasetState::default())
+        .manage(remote_databases::RemoteTargetConfirmations::default())
         .setup(|app| {
             let app_data_dir = app
                 .path()

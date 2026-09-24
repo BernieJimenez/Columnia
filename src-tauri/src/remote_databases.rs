@@ -19,6 +19,103 @@ const PREFLIGHT_CANCEL_CHECK_ROWS: usize = 1_024;
 const ODBC_LOGIN_TIMEOUT_SEC: u32 = 15;
 const ODBC_STATEMENT_TIMEOUT_SEC: usize = 300;
 
+const REMOTE_TARGET_NOT_CONFIRMED: &str =
+    "La conexión remota se canceló: no se confirmó el destino en el diálogo de Windows.";
+
+/// Remote targets the person confirmed in a native dialog during this session.
+/// Only SHA-256 fingerprints are kept, never the connection string.
+#[derive(Default)]
+pub struct RemoteTargetConfirmations(std::sync::Mutex<std::collections::HashSet<String>>);
+
+fn remote_target_fingerprint(target: &DatabaseTarget) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for part in [
+        target.kind.label(),
+        target.connection_string.as_str(),
+        target.schema.as_str(),
+        target.table.as_str(),
+        match target.table_policy {
+            DatabaseTablePolicy::Append => "append",
+            DatabaseTablePolicy::CreateOnly => "create_only",
+            DatabaseTablePolicy::Replace => "replace",
+        },
+    ] {
+        hasher.update(part.as_bytes());
+        hasher.update([0]);
+    }
+    hex::encode(hasher.finalize())
+}
+
+/// Human description of a delivery target without credentials.
+fn describe_remote_target(target: &DatabaseTarget) -> String {
+    let server = odbc_attributes(&target.connection_string)
+        .into_iter()
+        .find(|(key, _)| {
+            matches!(
+                key.as_str(),
+                "server" | "host" | "servername" | "data source"
+            )
+        })
+        .map(|(_, value)| {
+            value
+                .trim_start_matches('{')
+                .trim_end_matches('}')
+                .to_owned()
+        })
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "un servidor indicado por el controlador".to_owned());
+    let policy = match target.table_policy {
+        DatabaseTablePolicy::Append => "añadir filas",
+        DatabaseTablePolicy::CreateOnly => "crear la tabla",
+        DatabaseTablePolicy::Replace => "reemplazar la tabla",
+    };
+    format!(
+        "Columnia se conectará a {} en {} y podrá escribir en la tabla {} ({policy}). Los datos del dataset activo saldrán de este equipo.\n\n¿Confirmas este destino?",
+        target.kind.label(),
+        server,
+        qualified_table(target)
+    )
+}
+
+/// A compromised interface can invoke any IPC command, so every remote
+/// connection needs a native confirmation that the webview cannot fake.
+pub(crate) fn confirm_remote_target(
+    app: &AppHandle,
+    target: &DatabaseTarget,
+) -> Result<(), String> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let fingerprint = remote_target_fingerprint(target);
+    let confirmations = app.state::<RemoteTargetConfirmations>();
+    let already_confirmed = confirmations
+        .0
+        .lock()
+        .map_err(|_| "El registro de destinos confirmados quedó bloqueado.".to_owned())?
+        .contains(&fingerprint);
+    if already_confirmed {
+        return Ok(());
+    }
+    let confirmed = app
+        .dialog()
+        .message(describe_remote_target(target))
+        .title("Confirmar conexión remota")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Conectar".to_owned(),
+            "Cancelar".to_owned(),
+        ))
+        .blocking_show();
+    if !confirmed {
+        return Err(REMOTE_TARGET_NOT_CONFIRMED.to_owned());
+    }
+    confirmations
+        .0
+        .lock()
+        .map_err(|_| "El registro de destinos confirmados quedó bloqueado.".to_owned())?
+        .insert(fingerprint);
+    Ok(())
+}
+
 fn odbc_connection_options() -> ConnectionOptions {
     ConnectionOptions {
         login_timeout_sec: Some(ODBC_LOGIN_TIMEOUT_SEC),
@@ -133,6 +230,14 @@ pub async fn test_database_connection(
     app: AppHandle,
     target: DatabaseTarget,
 ) -> Result<DatabaseConnectionResult, String> {
+    validate_database_target(&target)?;
+    let confirmation_app = app.clone();
+    let confirmation_target = target.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        confirm_remote_target(&confirmation_app, &confirmation_target)
+    })
+    .await
+    .map_err(|_| "La confirmación de la conexión se interrumpió.".to_owned())??;
     let generation = app.state::<DatasetState>().begin_database_connection();
     let cancellation_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -1456,6 +1561,33 @@ mod tests {
             table: "ventas".to_owned(),
             table_policy: DatabaseTablePolicy::CreateOnly,
         }
+    }
+
+    #[test]
+    fn confirmation_describes_the_target_without_secrets() {
+        let mut value = target(DatabaseKind::SqlServer);
+        value.connection_string =
+            "Driver={ODBC Driver 18};Server=tcp:db.example.com,1433;Uid=ana;Pwd=secret;Encrypt=yes"
+                .to_owned();
+        let message = describe_remote_target(&value);
+        assert!(message.contains("SQL Server"), "{message}");
+        assert!(message.contains("tcp:db.example.com,1433"), "{message}");
+        assert!(message.contains("[public].[ventas]"), "{message}");
+        assert!(!message.contains("secret"), "{message}");
+    }
+
+    #[test]
+    fn confirmation_fingerprint_changes_with_the_destination() {
+        let base = target(DatabaseKind::Postgresql);
+        let mut other_table = base.clone();
+        other_table.table = "otra".to_owned();
+        let mut other_policy = base.clone();
+        other_policy.table_policy = DatabaseTablePolicy::Append;
+        let fingerprint = remote_target_fingerprint(&base);
+        assert_eq!(fingerprint, remote_target_fingerprint(&base.clone()));
+        assert_ne!(fingerprint, remote_target_fingerprint(&other_table));
+        assert_ne!(fingerprint, remote_target_fingerprint(&other_policy));
+        assert!(!fingerprint.contains("secret"));
     }
 
     #[test]

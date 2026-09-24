@@ -8629,6 +8629,20 @@ pub async fn export_dataset(
     Ok(result)
 }
 
+/// The native dialog blocks, so it runs on a blocking worker, not the async runtime.
+async fn confirm_remote_target_off_main_thread(
+    app: &AppHandle,
+    target: &DatabaseTarget,
+) -> Result<(), String> {
+    let app = app.clone();
+    let target = target.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        remote_databases::confirm_remote_target(&app, &target)
+    })
+    .await
+    .map_err(|_| "La confirmación de la conexión se interrumpió.".to_owned())?
+}
+
 #[tauri::command]
 pub async fn preflight_database_export(
     app: AppHandle,
@@ -8636,6 +8650,7 @@ pub async fn preflight_database_export(
     privacy_mode: PrivacyMode,
 ) -> Result<remote_databases::RemoteExportPreflight, String> {
     remote_databases::validate_database_target(&target)?;
+    confirm_remote_target_off_main_thread(&app, &target).await?;
     let cancellation = DatabasePreflightCancellation::begin(&app);
     cancellation.ensure()?;
     let is_cancelled = cancellation.callback();
@@ -8793,6 +8808,7 @@ pub async fn export_dataset_to_database(
 ) -> Result<ExportResult, String> {
     remote_databases::validate_database_target(&target)?;
     validate_quality_rules_payload(&quality_rules)?;
+    confirm_remote_target_off_main_thread(&app, &target).await?;
 
     let source_context = {
         let state = app.state::<DatasetState>();
