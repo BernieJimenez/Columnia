@@ -57,6 +57,11 @@ namespace ColumniaWebView2CdpProbe {
 "@
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "app-data-guard.ps1")
+# Restart phases must share state across two launches; probe-webview2-restart.ps1
+# guards both phases, so only standalone runs guard the app data here.
+$AppDataGuard = if ($ProjectProbeMode -eq "normal") { Backup-ColumniaAppData } else { $null }
+$AppDataRestored = $null
 $Timestamp = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssZ")
 $EvidenceCategory = if ($UseReleaseExecutable) { "webview2-cdp-release" } else { "webview2-cdp" }
 $EvidenceRelativePath = ".local/validation/$EvidenceCategory/$Timestamp"
@@ -869,6 +874,15 @@ finally {
         $FailureMessage = "El perfil de memoria excedió el presupuesto configurado: working set <= $MemoryWorkingSetBudgetMiB MiB y memoria privada <= $MemoryPrivateBudgetMiB MiB."
     }
     $CleanupConfirmed = Stop-CreatedProcesses
+    if ($null -ne $AppDataGuard) {
+        try {
+            $AppDataRestored = if ($CleanupConfirmed) { Restore-ColumniaAppData -Guard $AppDataGuard } else { $false }
+        }
+        catch {
+            $AppDataRestored = $false
+            Write-Warning "No se pudieron restaurar los datos de Columnia; la copia sigue en $($AppDataGuard.Backup)."
+        }
+    }
     if (-not $CleanupConfirmed) {
         if ($Status -eq "supported") {
             $Status = "failed"
@@ -922,6 +936,7 @@ finally {
         processProfile = $ProcessProfile
         performanceBudget = $PerformanceBudget
         cleanupConfirmed = $CleanupConfirmed
+        appDataRestored = $AppDataRestored
         command = $LaunchCommand
         environmentVariable = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
         evidenceDirectory = $EvidenceRelativePath

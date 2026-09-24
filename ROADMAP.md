@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 19 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 20 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -413,13 +413,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Criterio de aceptación:** con una operación de al menos 5 s en curso, `get_app_info` responde en menos de 100 ms.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
-- [ ] **[T10-17] Aislar los smokes nativos de los datos reales de la app**
+- [x] **[T10-17] Aislar los smokes nativos de los datos reales de la app**
   - **Área:** DevOps y configuración · **Severidad:** Media
   - **Ubicación:** `tools/probe-webview2-cdp.ps1`; `tools/probe-webview2-native-selectors.mjs:419`, `:472-474`
   - **Qué hacer:** respaldar y restaurar `%APPDATA%\app.columnia.desktop` en cada corrida o usar un directorio de datos alternativo en debug; eliminar, con aprobación, las 3 tareas sintéticas «Native reusable task …» del 2026-09-23 que quedaron en el catálogo real.
   - **Criterio de aceptación:** una corrida abortada no deja entradas en el catálogo real; la restauración queda en la evidencia.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — `tools/app-data-guard.ps1` respalda `%APPDATA%\app.columnia.desktop` en el temporal del sistema y lo restaura tras detener la app (`probe-webview2-cdp.ps1` en modo normal, `probe-webview2-restart.ps1` envolviendo ambas fases); `smoke:cdp` y `smoke:restart` aprobados con datos byte a byte idénticos, `appDataRestored: true` y ninguna copia residual. Se borraron las 3 tareas sintéticas del 2026-09-23 tras respaldar el catálogo.
 - [ ] **[T10-18] Medir la cobertura del motor Rust**
   - **Área:** QA y testing · **Severidad:** Media
   - **Ubicación:** `tools/check.ps1:241-253`; `tools/check-coverage.mjs:4-8`
@@ -562,7 +563,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 19 de 33 | Fase 2 en curso: cerradas hasta ahora T10-19 y anteriores de esta tanda. |
+| 2026-09-23 | 20 de 33 | Fase 2 en curso: cerradas hasta ahora T10-17 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 

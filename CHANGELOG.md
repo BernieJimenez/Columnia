@@ -71,6 +71,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
   [`ROADMAP.md`](ROADMAP.md) con 33 tareas (T10-01 a T10-33) y consolida el
   dictamen en [`AUDITORIA.md`](AUDITORIA.md). No cambia el producto. El
   motivo de cada decisión está en [`CONTEXTO.md`](CONTEXTO.md).
+- T10-17: los smokes nativos respaldan y restauran los datos reales de Columnia,
+  así una corrida interrumpida ya no deja proyectos ni tareas sintéticas en el
+  catálogo de la persona.
 - T10-19: los E2E comprueban el contraste WCAG AA de las fases cargadas en los
   temas claro, oscuro y sistema con SO oscuro.
 - T10-32: hook opcional de pre-push (`.githooks/pre-push`) que ejecuta el perfil

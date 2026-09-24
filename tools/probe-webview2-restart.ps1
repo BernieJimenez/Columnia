@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "app-data-guard.ps1")
 $Timestamp = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssZ")
 $EvidenceRelativePath = ".local/validation/webview2-restart/$Timestamp"
 $EvidenceDirectory = Join-Path $ProjectRoot ($EvidenceRelativePath -replace "/", "\")
@@ -77,6 +78,8 @@ $Status = "failed"
 $FailureMessage = $null
 $Prepare = $null
 $Verify = $null
+$AppDataGuard = Backup-ColumniaAppData
+$AppDataRestored = $false
 
 try {
     $Prepare = Invoke-RestartPhase -Mode "restart-prepare" -ReusableTaskName $ReusableTaskName
@@ -99,6 +102,13 @@ catch {
     $FailureMessage = $_.Exception.Message
 }
 finally {
+    # Both phases stop their app processes before returning.
+    try {
+        $AppDataRestored = Restore-ColumniaAppData -Guard $AppDataGuard
+    }
+    catch {
+        Write-Warning "No se pudieron restaurar los datos de Columnia; la copia sigue en $($AppDataGuard.Backup)."
+    }
     $Timer.Stop()
     [ordered]@{
         schemaVersion = 1
@@ -114,6 +124,7 @@ finally {
         reusableTaskName = $ReusableTaskName
         evidenceDirectory = $EvidenceRelativePath
         cleanupDelegatedToCdpPhases = $true
+        appDataRestored = $AppDataRestored
         error = $FailureMessage
     } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
 }
