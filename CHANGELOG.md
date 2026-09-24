@@ -74,6 +74,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- T10-16: el análisis de calidad ya no retiene el dataset mientras calcula. Con
+  un archivo grande, la app pasaba minutos en Cargar sin avanzar porque la
+  lectura del historial esperaba a que terminara el análisis; ahora pasa a
+  Revisar enseguida y muestra el progreso.
 - La app real envía los tipos de columna con los nombres cortos del motor (`str`,
   `i64`, `f64`), pero el frontend comparaba con `String` e `Int64`. En la app real
   eso ocultaba sin aviso recortar y rellenar en la propuesta de Preparar,

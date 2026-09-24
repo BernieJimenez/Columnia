@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 26 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 27 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -408,13 +408,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-23 — `crash_report.rs`: hook de pánico con informe local mínimo (sin mensaje ni rutas, máx. 20) y `LockRecovering` aplicado a 123 bloqueos; pruebas de recuperación de un mutex envenenado y de contenido del informe; suite Rust 507 aprobadas y Clippy verde. Se recupera el último estado publicado en lugar de invalidarlo (decisión en CONTEXTO).
-- [ ] **[T10-16] Verificar si el mutex del dataset bloquea el hilo principal** *(pendiente de verificación)*
+- [x] **[T10-16] Verificar si el mutex del dataset bloquea el hilo principal** *(pendiente de verificación)*
   - **Área:** Arquitectura · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/dataset.rs:7791-7963`; `src-tauri/src/dataset/history.rs:684-695`
   - **Qué hacer:** medir en WebView2 si `get_history_state`, que es síncrono y toma `current`, congela la ventana mientras una consulta larga mantiene el lock; si se confirma, convertir los comandos síncronos que toman locks en asíncronos o usar `try_lock` con estado ocupado.
   - **Criterio de aceptación:** con una operación de al menos 5 s en curso, `get_app_info` responde en menos de 100 ms.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — Medido en WebView2 (binario debug) con `-RunNativeSelectors -RunPrepareFlow` y un CSV de 111 MiB: durante los 204 s de «Aplicar 4 cambios» (incluido el nuevo análisis), `get_app_info` respondió con mediana 2,3 ms y máximo 21,9 ms en 3.266 muestras (criterio < 100 ms). La medición confirmó el bloqueo previo: el análisis retenía `current` y la carga esperaba en `get_history_state`; ahora el análisis calcula sin el candado y los comandos síncronos con candado son asíncronos. Evidencia: `.local/validation/webview2-cdp/20260924T182652Z`.
   - **Parcial 2026-09-24:** aplicado el remedio sin la medición: `get_history_state`, `clear_dataset_comparison` y `discard_dataset_selection`, los únicos comandos síncronos que tomaban candados compartidos (`current`, `comparison`, `pending_selection`), pasan a asíncronos con `spawn_blocking`, así que ya no esperan en el hilo de la ventana. Nombres y respuestas IPC sin cambios; inventario IPC aprobado; suite Rust 512 aprobadas; smoke CDP nativo aprobado con el ejecutable recompilado (`.local/validation/webview2-cdp/20260924T171632Z`). Queda abierta hasta medir en WebView2 que `get_app_info` responde en menos de 100 ms con una operación de 5 s en curso, lo que requiere cargar un dataset grande en la app real.
 - [x] **[T10-17] Aislar los smokes nativos de los datos reales de la app**
   - **Área:** DevOps y configuración · **Severidad:** Media
@@ -571,7 +572,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 26 de 33 | Fase 2 en curso: cerradas hasta ahora T10-25 y anteriores de esta tanda. |
+| 2026-09-23 | 27 de 33 | Fase 2 en curso: cerradas hasta ahora T10-16 y anteriores de esta tanda. |
 | 2026-09-23 | 20 de 33 | Fase 2 en curso; T10-05 y T10-08 parciales. |
 
 ## Criterio de salida de V1
