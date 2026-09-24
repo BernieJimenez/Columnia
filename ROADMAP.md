@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 18 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 19 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -427,13 +427,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Criterio de aceptación:** informe de cobertura Rust en `.local/validation`; umbrales nuevos aplicados.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
-- [ ] **[T10-19] Comprobar contraste y reglas axe por tema en los E2E**
+- [x] **[T10-19] Comprobar contraste y reglas axe por tema en los E2E**
   - **Área:** QA y testing · **Severidad:** Media
   - **Ubicación:** `e2e/workflow-accessibility.spec.ts`; `e2e/design-preferences.spec.ts`
   - **Qué hacer:** ejecutar comprobaciones automáticas de accesibilidad y contraste en las cuatro fases para claro, oscuro y sistema oscuro.
   - **Criterio de aceptación:** la suite falla con los contrastes actuales y pasa tras T10-02.
   - **Esfuerzo:** bajo
   - **Depende de:** T10-02
+  - **Cerrada:** 2026-09-23 — `e2e/theme-contrast.spec.ts` mide contraste AA de los textos visibles de Revisar, Preparar y Entregar en claro, oscuro y sistema oscuro, sin dependencias nuevas; con el CSS anterior a T10-02 falla en oscuro y sistema oscuro (1,69:1 y 2,28:1) y pasa con el actual; E2E 26/26. Límite: con ese CSS no detectó las etiquetas de tipo en claro.
 - [x] **[T10-20] Actualizar THREAT_MODEL.md**
   - **Área:** Documentación · **Severidad:** Media
   - **Ubicación:** `THREAT_MODEL.md:3`, `:72`, `:77`
@@ -561,7 +562,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 18 de 33 | Fase 2 en curso: cerradas hasta ahora T10-28 y anteriores de esta tanda. |
+| 2026-09-23 | 19 de 33 | Fase 2 en curso: cerradas hasta ahora T10-19 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 

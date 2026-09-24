@@ -71,6 +71,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
   [`ROADMAP.md`](ROADMAP.md) con 33 tareas (T10-01 a T10-33) y consolida el
   dictamen en [`AUDITORIA.md`](AUDITORIA.md). No cambia el producto. El
   motivo de cada decisión está en [`CONTEXTO.md`](CONTEXTO.md).
+- T10-19: los E2E comprueban el contraste WCAG AA de las fases cargadas en los
+  temas claro, oscuro y sistema con SO oscuro.
 - T10-32: hook opcional de pre-push (`.githooks/pre-push`) que ejecuta el perfil
   Fast y Clippy antes de publicar; no es CI y se activa por clon.
 - T10-20: `THREAT_MODEL.md` cubre ahora la entrega ODBC, el SQL local con
