@@ -119,7 +119,9 @@ pub(super) async fn get_dataset_profile_impl(
         Ok(profile)
     })
     .await
-    .map_err(|error| format!("El análisis de calidad se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("El análisis de calidad se interrumpió", &error)
+    })?
 }
 
 pub(super) async fn get_temporal_aggregation_impl(
@@ -244,5 +246,7 @@ pub(super) async fn get_temporal_aggregation_impl(
         }
     })
     .await
-    .map_err(|error| format!("El cálculo temporal se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("El cálculo temporal se interrumpió", &error)
+    })?
 }

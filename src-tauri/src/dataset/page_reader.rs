@@ -221,5 +221,7 @@ pub(super) async fn get_dataset_page_impl(
         dataset_page_with_cancel(&dataset.frame, offset, limit, is_cancelled)
     })
     .await
-    .map_err(|error| format!("La paginación local se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La paginación local se interrumpió", &error)
+    })?
 }

@@ -72,6 +72,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Cuando una operación falla por un error interno, el aviso ya no muestra el
+  texto técnico del motor (por ejemplo «task 122 panicked with message…»): dice
+  qué se interrumpió, que se puede reintentar y dónde está el informe local.
 - Imputar nulos, aplicar las correcciones recomendadas y otras correcciones que
   reconstruyen columnas ya no fallan con «expected equal chunks» sobre datasets
   cargados por lotes (por ejemplo, un CSV grande). El historial y el snapshot de

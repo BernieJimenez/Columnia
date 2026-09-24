@@ -1859,7 +1859,12 @@ pub async fn probe_save_transform_recipe(
         load_recipe_file(&destination)
     })
     .await
-    .map_err(|error| format!("El guardado nativo de la receta se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "El guardado nativo de la receta se interrumpió",
+            &error,
+        )
+    })?
 }
 
 #[cfg(debug_assertions)]
@@ -1906,7 +1911,12 @@ pub async fn probe_export_dataset(
         )
     })
     .await
-    .map_err(|error| format!("La exportación nativa de prueba se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La exportación nativa de prueba se interrumpió",
+            &error,
+        )
+    })?
 }
 
 #[cfg(test)]
@@ -6864,7 +6874,9 @@ pub async fn join_dataset(
             )
         })
         .await
-        .map_err(|error| format!("La unión source-backed se interrumpió: {error}"))??;
+        .map_err(|error| {
+            crate::crash_report::task_interrupted("La unión source-backed se interrumpió", &error)
+        })??;
         if source_result.is_some() {
             return Ok(source_result);
         }
@@ -6923,7 +6935,7 @@ pub async fn join_dataset(
         .map(Some)
     })
     .await
-    .map_err(|error| format!("La unión se interrumpió: {error}"))?
+    .map_err(|error| crate::crash_report::task_interrupted("La unión se interrumpió", &error))?
 }
 
 fn validate_conflict_decisions_with_cancel<C>(
@@ -7539,7 +7551,9 @@ pub async fn resolve_dataset_conflicts(
         )
     })
     .await
-    .map_err(|error| format!("La resolución de conflictos se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La resolución de conflictos se interrumpió", &error)
+    })?
 }
 
 #[tauri::command]
@@ -7677,7 +7691,7 @@ pub async fn use_consolidated_dataset(app: AppHandle) -> Result<DatasetPreview, 
         )
     })
     .await
-    .map_err(|error| format!("La consolidación se interrumpió: {error}"))?
+    .map_err(|error| crate::crash_report::task_interrupted("La consolidación se interrumpió", &error))?
 }
 
 async fn inspect_dataset_path(
@@ -8066,7 +8080,9 @@ pub async fn query_dataset(
         }
     })
     .await
-    .map_err(|error| format!("La consulta local se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La consulta local se interrumpió", &error)
+    })?
 }
 
 #[tauri::command]
@@ -8175,7 +8191,12 @@ pub async fn validate_quality_rules(
                 Ok(result)
             })
             .await
-            .map_err(|error| format!("La validación de calidad se interrumpió: {error}"))?;
+            .map_err(|error| {
+                crate::crash_report::task_interrupted(
+                    "La validación de calidad se interrumpió",
+                    &error,
+                )
+            })?;
         }
     }
     let state = app.state::<DatasetState>();
@@ -8189,7 +8210,9 @@ pub async fn validate_quality_rules(
         Ok(result)
     })
     .await
-    .map_err(|error| format!("La validación de calidad se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La validación de calidad se interrumpió", &error)
+    })?
 }
 
 #[tauri::command]
@@ -8300,9 +8323,7 @@ pub async fn export_dataset(
                 )
             })
             .await
-            .map_err(|error| {
-                format!("La validación previa a la exportación se interrumpió: {error}")
-            })??;
+            .map_err(|error| crate::crash_report::task_interrupted("La validación previa a la exportación se interrumpió", &error))??;
             ensure_not_cancelled(app.state::<DatasetState>().export_was_cancelled(generation))?;
 
             let stem = Path::new(&file_name)
@@ -8503,7 +8524,9 @@ pub async fn export_dataset(
                 Ok(Some(result))
             })
             .await
-            .map_err(|error| format!("La exportación se interrumpió: {error}"))??;
+            .map_err(|error| {
+                crate::crash_report::task_interrupted("La exportación se interrumpió", &error)
+            })??;
             if result.is_some() {
                 export_state
                     .state::<DatasetState>()
@@ -8532,7 +8555,12 @@ pub async fn export_dataset(
         ))
     })
     .await
-    .map_err(|error| format!("La preparación previa a la exportación se interrumpió: {error}"))??;
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La preparación previa a la exportación se interrumpió",
+            &error,
+        )
+    })??;
 
     // La compuerta se evalúa sobre el mismo snapshot que después será escrito y
     // antes de abrir el selector, para que una exportación bloqueada no solicite destino.
@@ -8558,7 +8586,10 @@ pub async fn export_dataset(
         })
         .await
         .map_err(|error| {
-            format!("La validación previa a la exportación se interrumpió: {error}")
+            crate::crash_report::task_interrupted(
+                "La validación previa a la exportación se interrumpió",
+                &error,
+            )
         })??;
     ensure_not_cancelled(app.state::<DatasetState>().export_was_cancelled(generation))?;
 
@@ -8595,7 +8626,9 @@ pub async fn export_dataset(
         .map(Some)
     })
     .await
-    .map_err(|error| format!("La exportación se interrumpió: {error}"))??;
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La exportación se interrumpió", &error)
+    })??;
     if result.is_some() {
         export_state
             .state::<DatasetState>()
@@ -8764,7 +8797,9 @@ pub async fn preflight_database_export(
         }
     })
     .await
-    .map_err(|error| format!("El preflight remoto se interrumpió: {error}"))?;
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("El preflight remoto se interrumpió", &error)
+    })?;
     cancellation.ensure()?;
     result
 }
@@ -8976,7 +9011,7 @@ pub async fn export_dataset_to_database(
                 })
             })
             .await
-            .map_err(|error| format!("La entrega remota se interrumpió: {error}"))??;
+            .map_err(|error| crate::crash_report::task_interrupted("La entrega remota se interrumpió", &error))??;
             return Ok(result);
         }
     }
@@ -9011,7 +9046,12 @@ pub async fn export_dataset_to_database(
         privacy_safe_frame(&frame, privacy_mode)
     })
     .await
-    .map_err(|error| format!("La preparación de la entrega remota se interrumpió: {error}"))??;
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La preparación de la entrega remota se interrumpió",
+            &error,
+        )
+    })??;
     ensure_not_cancelled(app.state::<DatasetState>().export_was_cancelled(generation))?;
 
     send_progress(&on_progress, "export", "Conectando con destino remoto", 0);
@@ -9029,7 +9069,9 @@ pub async fn export_dataset_to_database(
         )
     })
     .await
-    .map_err(|error| format!("La entrega remota se interrumpió: {error}"))??;
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La entrega remota se interrumpió", &error)
+    })??;
 
     Ok(ExportResult {
         file_name: result.table_name,
@@ -9110,7 +9152,9 @@ pub async fn save_transform_recipe(
     let saved = document.clone();
     tauri::async_runtime::spawn_blocking(move || save_recipe_atomic(&document, &destination))
         .await
-        .map_err(|error| format!("El guardado de la receta se interrumpió: {error}"))??;
+        .map_err(|error| {
+            crate::crash_report::task_interrupted("El guardado de la receta se interrumpió", &error)
+        })??;
     Ok(Some(saved))
 }
 
@@ -9131,7 +9175,9 @@ pub async fn pick_transform_recipe(
         .map_err(|error| format!("No se pudo resolver la receta seleccionada: {error}"))?;
     let loaded = tauri::async_runtime::spawn_blocking(move || load_recipe_file(&path))
         .await
-        .map_err(|error| format!("La carga de la receta se interrumpió: {error}"))??;
+        .map_err(|error| {
+            crate::crash_report::task_interrupted("La carga de la receta se interrumpió", &error)
+        })??;
     Ok(Some(loaded))
 }
 
@@ -9160,7 +9206,9 @@ pub async fn save_quality_rules_document(
         save_quality_rules_atomic(&document, &destination)
     })
     .await
-    .map_err(|error| format!("El guardado del contrato se interrumpió: {error}"))??;
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("El guardado del contrato se interrumpió", &error)
+    })??;
     Ok(Some(saved))
 }
 
@@ -9181,7 +9229,12 @@ pub async fn pick_quality_rules_migration(
         .map_err(|error| format!("No se pudo resolver el contrato seleccionado: {error}"))?;
     let loaded = tauri::async_runtime::spawn_blocking(move || load_quality_migration_file(&path))
         .await
-        .map_err(|error| format!("La migración del contrato se interrumpió: {error}"))??;
+        .map_err(|error| {
+            crate::crash_report::task_interrupted(
+                "La migración del contrato se interrumpió",
+                &error,
+            )
+        })??;
     Ok(Some(loaded))
 }
 
@@ -9224,7 +9277,9 @@ pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String
         })
     })
     .await
-    .map_err(|error| format!("La eliminación de duplicados se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La eliminación de duplicados se interrumpió", &error)
+    })?
 }
 
 #[tauri::command]
@@ -9266,7 +9321,12 @@ pub async fn remove_near_duplicates(app: AppHandle) -> Result<DatasetMutation, S
         })
     })
     .await
-    .map_err(|error| format!("La eliminación de duplicados parecidos se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La eliminación de duplicados parecidos se interrumpió",
+            &error,
+        )
+    })?
 }
 
 #[tauri::command]
@@ -9306,7 +9366,12 @@ pub async fn remove_empty_rows(app: AppHandle) -> Result<DatasetMutation, String
         })
     })
     .await
-    .map_err(|error| format!("La eliminación de filas vacías se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La eliminación de filas vacías se interrumpió",
+            &error,
+        )
+    })?
 }
 
 #[tauri::command]
@@ -9346,7 +9411,12 @@ pub async fn enable_row_audit(app: AppHandle) -> Result<DatasetMutation, String>
         })
     })
     .await
-    .map_err(|error| format!("La activación de trazabilidad se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La activación de trazabilidad se interrumpió",
+            &error,
+        )
+    })?
 }
 
 #[tauri::command]
@@ -9390,7 +9460,12 @@ pub async fn remove_constant_columns(app: AppHandle) -> Result<ColumnRemovalResu
         })
     })
     .await
-    .map_err(|error| format!("La eliminación de columnas constantes se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La eliminación de columnas constantes se interrumpió",
+            &error,
+        )
+    })?
 }
 
 #[tauri::command]
@@ -9434,7 +9509,12 @@ pub async fn remove_empty_columns(app: AppHandle) -> Result<ColumnRemovalResult,
         })
     })
     .await
-    .map_err(|error| format!("La eliminación de columnas vacías se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La eliminación de columnas vacías se interrumpió",
+            &error,
+        )
+    })?
 }
 
 #[tauri::command]
@@ -9479,7 +9559,10 @@ pub async fn remove_high_null_columns(app: AppHandle) -> Result<ColumnRemovalRes
     })
     .await
     .map_err(|error| {
-        format!("La eliminación de columnas con alta nulidad se interrumpió: {error}")
+        crate::crash_report::task_interrupted(
+            "La eliminación de columnas con alta nulidad se interrumpió",
+            &error,
+        )
     })?
 }
 
@@ -9525,7 +9608,10 @@ pub async fn remove_identifier_columns(app: AppHandle) -> Result<ColumnRemovalRe
     })
     .await
     .map_err(|error| {
-        format!("La eliminación de columnas identificadoras se interrumpió: {error}")
+        crate::crash_report::task_interrupted(
+            "La eliminación de columnas identificadoras se interrumpió",
+            &error,
+        )
     })?
 }
 
@@ -9574,7 +9660,10 @@ pub async fn remove_personal_columns(app: AppHandle) -> Result<ColumnRemovalResu
     })
     .await
     .map_err(|error| {
-        format!("La eliminación de columnas con datos personales se interrumpió: {error}")
+        crate::crash_report::task_interrupted(
+            "La eliminación de columnas con datos personales se interrumpió",
+            &error,
+        )
     })?
 }
 
@@ -9617,7 +9706,12 @@ pub async fn mask_personal_values(app: AppHandle) -> Result<PersonalDataMaskResu
         })
     })
     .await
-    .map_err(|error| format!("La protección de datos personales se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La protección de datos personales se interrumpió",
+            &error,
+        )
+    })?
 }
 
 #[tauri::command]
@@ -9664,7 +9758,9 @@ pub async fn normalize_column_names(app: AppHandle) -> Result<ColumnNormalizatio
         })
     })
     .await
-    .map_err(|error| format!("La normalización de columnas se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La normalización de columnas se interrumpió", &error)
+    })?
 }
 
 fn apply_text_cleaning(
@@ -9804,7 +9900,9 @@ pub async fn trim_text_values(app: AppHandle) -> Result<TextCleaningResult, Stri
         apply_text_cleaning(app, None, TextCleaningMode::Trim, cancellation)
     })
     .await
-    .map_err(|error| format!("La limpieza de espacios se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La limpieza de espacios se interrumpió", &error)
+    })?
 }
 
 #[tauri::command]
@@ -9823,7 +9921,9 @@ pub async fn normalize_text_values(
         )
     })
     .await
-    .map_err(|error| format!("La normalización de texto se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La normalización de texto se interrumpió", &error)
+    })?
 }
 
 #[tauri::command]
@@ -9831,7 +9931,12 @@ pub async fn parse_date_values(app: AppHandle) -> Result<TextCleaningResult, Str
     let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || apply_date_parsing(app, cancellation))
         .await
-        .map_err(|error| format!("La interpretación de fechas se interrumpió: {error}"))?
+        .map_err(|error| {
+            crate::crash_report::task_interrupted(
+                "La interpretación de fechas se interrumpió",
+                &error,
+            )
+        })?
 }
 
 #[tauri::command]
@@ -9839,7 +9944,9 @@ pub async fn cast_numeric_values(app: AppHandle) -> Result<TextCleaningResult, S
     let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || apply_numeric_cast(app, cancellation))
         .await
-        .map_err(|error| format!("La conversión numérica se interrumpió: {error}"))?
+        .map_err(|error| {
+            crate::crash_report::task_interrupted("La conversión numérica se interrumpió", &error)
+        })?
 }
 
 #[tauri::command]
@@ -9849,7 +9956,12 @@ pub async fn normalize_sentinel_values(app: AppHandle) -> Result<TextCleaningRes
         apply_text_cleaning(app, None, TextCleaningMode::Sentinels, cancellation)
     })
     .await
-    .map_err(|error| format!("La normalización de valores centinela se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La normalización de valores centinela se interrumpió",
+            &error,
+        )
+    })?
 }
 
 #[tauri::command]
@@ -9859,7 +9971,12 @@ pub async fn normalize_boolean_values(app: AppHandle) -> Result<TextCleaningResu
         apply_text_cleaning(app, None, TextCleaningMode::Booleans, cancellation)
     })
     .await
-    .map_err(|error| format!("La normalización de booleanos se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La normalización de booleanos se interrumpió",
+            &error,
+        )
+    })?
 }
 
 #[tauri::command]
@@ -9869,7 +9986,12 @@ pub async fn fix_encoding_values(app: AppHandle) -> Result<TextCleaningResult, S
         apply_text_cleaning(app, None, TextCleaningMode::FixEncoding, cancellation)
     })
     .await
-    .map_err(|error| format!("La corrección de codificación se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La corrección de codificación se interrumpió",
+            &error,
+        )
+    })?
 }
 
 #[tauri::command]
@@ -9884,7 +10006,12 @@ pub async fn nullify_invalid_type_values(app: AppHandle) -> Result<TextCleaningR
         )
     })
     .await
-    .map_err(|error| format!("La corrección de tipos incompatibles se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La corrección de tipos incompatibles se interrumpió",
+            &error,
+        )
+    })?
 }
 
 #[tauri::command]
@@ -9927,7 +10054,12 @@ pub async fn impute_missing_values(app: AppHandle) -> Result<TextCleaningResult,
         })
     })
     .await
-    .map_err(|error| format!("La imputación de valores nulos se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La imputación de valores nulos se interrumpió",
+            &error,
+        )
+    })?
 }
 
 #[tauri::command]
@@ -9970,7 +10102,9 @@ pub async fn impute_categorical_values(app: AppHandle) -> Result<TextCleaningRes
         })
     })
     .await
-    .map_err(|error| format!("La imputación categórica se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La imputación categórica se interrumpió", &error)
+    })?
 }
 
 #[tauri::command]
@@ -10016,7 +10150,9 @@ pub async fn impute_outlier_values(app: AppHandle) -> Result<TextCleaningResult,
         })
     })
     .await
-    .map_err(|error| format!("La imputación de outliers se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La imputación de outliers se interrumpió", &error)
+    })?
 }
 
 fn apply_direct_outlier_mode(
@@ -10074,7 +10210,9 @@ pub async fn cap_outlier_values(app: AppHandle) -> Result<TextCleaningResult, St
         )
     })
     .await
-    .map_err(|error| format!("La limitación de outliers se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La limitación de outliers se interrumpió", &error)
+    })?
 }
 
 #[tauri::command]
@@ -10089,7 +10227,9 @@ pub async fn drop_outlier_values(app: AppHandle) -> Result<TextCleaningResult, S
         )
     })
     .await
-    .map_err(|error| format!("La eliminación de outliers se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La eliminación de outliers se interrumpió", &error)
+    })?
 }
 
 #[tauri::command]
@@ -10173,7 +10313,12 @@ pub async fn apply_safe_corrections(
         })
     })
     .await
-    .map_err(|error| format!("Las correcciones recomendadas se interrumpieron: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "Las correcciones recomendadas se interrumpieron",
+            &error,
+        )
+    })?
 }
 
 #[tauri::command]
@@ -10971,7 +11116,9 @@ pub async fn apply_transform_recipe(
         )
     })
     .await
-    .map_err(|error| format!("La receta estructural se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La receta estructural se interrumpió", &error)
+    })?
 }
 
 #[cfg(test)]

@@ -578,7 +578,9 @@ pub(super) async fn undo_last_change_impl(app: AppHandle) -> Result<HistoryResul
         undo_dataset_with_cancellation(dataset, Some(&cancellation))
     })
     .await
-    .map_err(|error| format!("No se pudo deshacer el cambio: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("No se pudo deshacer el cambio", &error)
+    })?
 }
 fn restore_source_backed_history_cursor(
     dataset: &mut LoadedDataset,
@@ -677,7 +679,9 @@ pub(super) async fn redo_last_change_impl(app: AppHandle) -> Result<HistoryResul
         redo_dataset_with_cancellation(dataset, Some(&cancellation))
     })
     .await
-    .map_err(|error| format!("No se pudo rehacer el cambio: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("No se pudo rehacer el cambio", &error)
+    })?
 }
 pub(super) fn get_history_state_impl(
     state: State<'_, DatasetState>,

@@ -351,7 +351,12 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
             .map_err(|error| format!("No se pudo instalar la actualización: {error}"))
     })
     .await
-    .map_err(|error| format!("La instalación de la actualización se interrumpió: {error}"))??;
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La instalación de la actualización se interrumpió",
+            &error,
+        )
+    })??;
     Ok(())
 }
 

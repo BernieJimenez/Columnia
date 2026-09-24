@@ -138,7 +138,9 @@ pub(super) async fn compare_dataset_impl(
         })
     })
     .await
-    .map_err(|error| format!("La comparación se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La comparación se interrumpió", &error)
+    })?
 }
 
 pub(super) async fn get_dataset_conflict_page_impl(
@@ -229,5 +231,7 @@ pub(super) async fn get_dataset_conflict_page_impl(
         cancellation.commit(|| Ok(Some(page)))
     })
     .await
-    .map_err(|error| format!("La página de conflictos se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La página de conflictos se interrumpió", &error)
+    })?
 }

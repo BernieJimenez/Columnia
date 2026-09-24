@@ -122,7 +122,9 @@ pub(super) async fn inspect_workbook_sheets_impl(
         Ok(sheets)
     })
     .await
-    .map_err(|error| format!("La inspección del libro se interrumpió: {error}"))??;
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La inspección del libro se interrumpió", &error)
+    })??;
 
     let workbook_sheets = sheet_names
         .iter()
@@ -215,5 +217,10 @@ pub(super) async fn preview_delimited_header_review_impl(
         Ok(review)
     })
     .await
-    .map_err(|error| format!("La vista previa de encabezados se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La vista previa de encabezados se interrumpió",
+            &error,
+        )
+    })?
 }

@@ -310,7 +310,7 @@ pub(super) async fn load_dataset_selection_impl(
         Ok(preview)
     })
     .await
-    .map_err(|error| format!("La carga del dataset se interrumpió: {error}"))?
+    .map_err(|error| crate::crash_report::task_interrupted("La carga del dataset se interrumpió", &error))?
 }
 
 pub(super) fn discard_dataset_selection_impl(

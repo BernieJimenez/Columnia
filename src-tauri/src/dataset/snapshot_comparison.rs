@@ -79,7 +79,9 @@ pub(super) async fn compare_history_snapshots_impl(
         Ok(comparison)
     })
     .await
-    .map_err(|error| format!("La comparación de revisiones se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La comparación de revisiones se interrumpió", &error)
+    })?
 }
 
 fn snapshot_count_delta(before: usize, after: usize) -> Option<i64> {

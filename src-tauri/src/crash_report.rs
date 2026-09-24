@@ -92,6 +92,16 @@ fn prune(directory: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// User-facing message for a background task that ended abnormally (a panic
+/// or an aborted task). The runtime's text can hold engine internals or data,
+/// so only the action and the next step are shown; the panic hook already wrote
+/// a minimal local report.
+pub(crate) fn task_interrupted(action: &str, _error: &impl std::fmt::Display) -> String {
+    format!(
+        "{action} por un error interno. Puedes reintentarlo; si se repite, en la carpeta de datos de Columnia hay un informe local en crash-reports."
+    )
+}
+
 /// Locks a mutex and recovers it if a previous holder panicked. The protected
 /// state is published atomically by the dataset operations, so the last
 /// committed value remains usable instead of blocking the whole session.
@@ -112,7 +122,7 @@ impl<T> LockRecovering<T> for Mutex<T> {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::{write_report, LockRecovering};
+    use super::{task_interrupted, write_report, LockRecovering};
 
     #[test]
     fn a_poisoned_lock_recovers_its_last_value() {
@@ -149,5 +159,17 @@ mod tests {
             write_report(directory.path(), None, None).expect("informe escrito");
         }
         assert!(std::fs::read_dir(directory.path()).unwrap().count() <= 20);
+    }
+
+    #[test]
+    fn interrupted_tasks_never_echo_the_runtime_message() {
+        let message = task_interrupted(
+            "La imputación de valores nulos se interrumpió",
+            &"task 122 panicked with message \"expected equal chunks\"",
+        );
+        assert!(message
+            .starts_with("La imputación de valores nulos se interrumpió por un error interno."));
+        assert!(!message.contains("panicked"));
+        assert!(!message.contains("chunks"));
     }
 }

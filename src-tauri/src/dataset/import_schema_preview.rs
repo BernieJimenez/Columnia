@@ -225,5 +225,5 @@ pub(super) async fn preview_dataset_selection_impl(
         })
     })
     .await
-    .map_err(|error| format!("La revisión del esquema se interrumpió: {error}"))?
+    .map_err(|error| crate::crash_report::task_interrupted("La revisión del esquema se interrumpió", &error))?
 }

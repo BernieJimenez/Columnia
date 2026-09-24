@@ -2960,7 +2960,12 @@ pub async fn probe_reopen_project(
         })
     })
     .await
-    .map_err(|error| format!("La reapertura nativa del proyecto se interrumpió: {error}"))?
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La reapertura nativa del proyecto se interrumpió",
+            &error,
+        )
+    })?
 }
 
 // Los proyectos v4 persisten el historial y la actividad SQL agregada, pero cada apertura lo copia a un TempDir nuevo:
