@@ -62,6 +62,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
   [`ROADMAP.md`](ROADMAP.md) con 33 tareas (T10-01 a T10-33) y consolida el
   dictamen en [`AUDITORIA.md`](AUDITORIA.md). No cambia el producto. El
   motivo de cada decisión está en [`CONTEXTO.md`](CONTEXTO.md).
+- T10-21: `CONTEXTO.md`, `README.md` y `ROADMAP.md` dejan de contradecirse en
+  módulos RV16, cifras de pruebas, estado del harness Rust y versión publicada.
 - T10-29: la evidencia JSON del smoke CDP conserva los objetos anidados en
   lugar de guardarlos como `System.Object[]` o `@{…}`.
 - T10-31: `release.ps1 -DryRun` muestra el plan antes de ejecutarlo y documenta

@@ -51,8 +51,8 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
   round-trip de booleanos y nulos.
 - [ ] **RV11 — Candidato instalable y distribución.** Faltan aprobación
   jurídica, VM limpia y verificación de instalador, updater, hashes y firmas.
-  *Enriquecida el 2026-09-23:* depende además de T10-01; el ejecutable release
-  se compila hoy con subsistema de consola.
+  *Enriquecida el 2026-09-23:* T10-01 ya corrigió el subsistema de consola del
+  ejecutable release.
 - [x] **RV12 — Recursos y escala medibles.** Cerrado para la matriz sintética v1
   y ampliado con el benchmark WebView2 de 100 MiB.
 - [x] **RV13 — Respaldo y autoguardado recuperables.** Implementado con
@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 12 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 13 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -440,13 +440,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Criterio de aceptación:** fecha actualizada; ninguna cifra contradice el inventario IPC; la checklist cubre las salidas de red.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
-- [ ] **[T10-21] Corregir contradicciones documentales puntuales**
+- [x] **[T10-21] Corregir contradicciones documentales puntuales**
   - **Área:** Documentación · **Severidad:** Media
   - **Ubicación:** `CONTEXTO.md:69`, `:138-166`, `:422-425`, `:608`, `:1819`, `:2178-2181`; `README.md:7`
   - **Qué hacer:** unificar el recuento de módulos (38) y las cifras de pruebas; retirar la nota obsoleta de `STATUS_ENTRYPOINT_NOT_FOUND`; corregir la descripción de `App.tsx`; devolver las filas huérfanas del registro a su tabla; actualizar la insignia de versión del README.
   - **Criterio de aceptación:** ninguna contradicción de las listadas; `npm run docs:check` verde.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — 38 módulos, cifras de pruebas y cobertura del gate Full, nota de `STATUS_ENTRYPOINT_NOT_FOUND` marcada como superada, descripción de `App.tsx` corregida, 4 filas huérfanas devueltas a la tabla del registro e insignia 1.26.0 en el README; `docs:check` verde. La fila «Pruebas observadas» de la ficha se actualiza al cierre de la tanda.
 - [ ] **[T10-22] Compactar CONTEXTO.md y la cola vigente**
   - **Área:** Documentación · **Severidad:** Media
   - **Ubicación:** `CONTEXTO.md:10-438`; `docs/reference/roadmap-current.md:210`
@@ -555,7 +556,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 12 de 33 | Fase 2 en curso: cerradas hasta ahora T10-29 y anteriores de esta tanda. |
+| 2026-09-23 | 13 de 33 | Fase 2 en curso: cerradas hasta ahora T10-21 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 
