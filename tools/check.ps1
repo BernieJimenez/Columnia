@@ -248,12 +248,29 @@ try {
             $previousManifestSetting = [System.Environment]::GetEnvironmentVariable($manifestVariable, "Process")
             [System.Environment]::SetEnvironmentVariable($manifestVariable, "1", "Process")
             try {
+                # Every Rust test lives in the library; the binaries have none and
+                # clippy --all-targets already compiles them. --all-targets would
+                # also link the bins' test harness with both the Tauri manifest and
+                # the harness manifest (CVT1100 duplicate resource).
                 cargo test --lib
             }
             finally {
                 [System.Environment]::SetEnvironmentVariable($manifestVariable, $previousManifestSetting, "Process")
             }
         }
+    }
+
+    if ($Profile -eq "Full") {
+        # Release/Package run these scans inside the supply-chain audit below.
+        Invoke-Checked "Secrets scan" $ProjectRoot {
+            & (Join-Path $ProjectRoot "tools\check-secrets.ps1")
+        }
+        Invoke-Checked "Network policy" $ProjectRoot {
+            & node tools/check-network-policy.mjs
+        }
+    }
+    if ($Profile -in @("Full", "Release", "Package")) {
+        Invoke-Checked "End-to-end tests" $ProjectRoot { npm run test:e2e }
     }
 
     if ($ReleaseLike) {
