@@ -1368,6 +1368,8 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .prepare-proposal__option:has(input:checked) { border: 2px solid var(--accent); }
 .prepare-proposal__option input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
 .prepare-advanced { margin-top: 24px; }
+.review-more { margin-top: 20px; }
+.review-more__content { display: grid; gap: 16px; padding-top: 12px; }
 
 @media (forced-colors: active) {
   /* Keep this demoted action on system colors after primary-action theme overrides. */

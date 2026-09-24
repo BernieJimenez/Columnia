@@ -339,7 +339,7 @@ describe("ReviewPhase", () => {
     expect(plan).toHaveTextContent("6 celdas no coinciden con un tipo sugerido");
     expect(plan).toHaveTextContent("puede cambiar la interpretación");
     expect(within(plan).queryAllByRole("button")).toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "Empezar con la prioridad principal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ver cambios propuestos" }));
     expect(onContinueToPrepare).toHaveBeenCalledWith("missingValues");
   });
 

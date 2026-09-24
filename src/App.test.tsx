@@ -209,17 +209,17 @@ describe("App", () => {
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ });
+    await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ });
 
     const actions = screen.getByLabelText("Navegación entre etapas");
     expect(within(actions).queryByText("Siguiente paso")).not.toBeInTheDocument();
     expect(within(actions).queryByRole("button", { name: "Ver plan de preparación" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", {
-      name: /Continuar a Preparar|Empezar con la prioridad principal/,
+      name: /Continuar a Preparar|Ver cambios propuestos/,
     })).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", {
-      name: /Continuar a Preparar|Empezar con la prioridad principal/,
+      name: /Continuar a Preparar|Ver cambios propuestos/,
     }));
     expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
     expect(within(screen.getByRole("button", { name: "Revisar" })).getByText("Hecho")).toBeInTheDocument();
@@ -252,7 +252,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     fireEvent.click(await screen.findByRole("button", {
-      name: /Continuar a Preparar|Empezar con la prioridad principal/,
+      name: /Continuar a Preparar|Ver cambios propuestos/,
     }));
     expect(within(screen.getByRole("button", { name: "Revisar" })).getByText("Hecho")).toBeInTheDocument();
 
@@ -277,7 +277,7 @@ describe("App", () => {
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ });
+    await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ });
     expect(within(screen.getByRole("button", { name: "Cargar" })).getByText("Hecho")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
@@ -777,7 +777,7 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
     expect(await screen.findByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-current", "step");
-    expect(screen.getByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
     expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
 
     await switchPhase("Entregar");
@@ -796,7 +796,7 @@ describe("App", () => {
     await switchPhase("Cargar");
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
     expect(await screen.findByRole("heading", { name: "externo.csv" })).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
     fireEvent.click(screen.getByText("Preferencias y recursos"));
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Modo de rendimiento" })).toHaveValue("balanced"));
     await switchPhase("Entregar");
@@ -969,7 +969,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
 
-    expect(await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
     expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
     expect(profileSpy).toHaveBeenCalledOnce();
   });
@@ -1037,7 +1037,7 @@ describe("App", () => {
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ });
+    await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ });
     await switchPhase("Preparar");
     fireEvent.click(screen.getByText("Más herramientas"));
     fireEvent.click(screen.getByRole("button", { name: "Eliminar filas vacías" }));
@@ -1144,7 +1144,7 @@ describe("App", () => {
       "selection-test", null, "generated", expect.any(Function), null, "dmy", "commaDecimalDotGrouping",
     );
     expect(screen.getByRole("progressbar", { name: "Progreso del flujo" })).toHaveAttribute("aria-valuetext", "Paso 2 de 4: Revisar");
-    expect(await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Seleccionar dataset" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Exportar CSV" })).not.toBeInTheDocument();
     expect(screen.getByText(/^2[.,]0 KiB$/)).toBeInTheDocument();
@@ -1349,7 +1349,7 @@ describe("App", () => {
       duplicatePercentage: 0,
       columns: [],
     });
-    expect(await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
   });
 
   it("conserva el dataset activo y permite reintentar si falla la cancelación de una sustitución", async () => {

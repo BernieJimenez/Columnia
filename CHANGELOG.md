@@ -10,6 +10,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- Revisar muestra solo el resumen del análisis y una acción, «Ver cambios
+  propuestos». Las cifras ya no se repiten tres veces; el análisis detallado,
+  el perfil por columna, la configuración y el SQL local están en «Más
+  análisis y herramientas».
 - Preparar muestra una sola propuesta: «Columnia propone N cambios», con una
   casilla por cambio, «Ver ejemplos» (antes → después) y un botón «Aplicar N
   cambios». Nada se aplica sin tu clic. Después se ve cómo quedaron los datos y

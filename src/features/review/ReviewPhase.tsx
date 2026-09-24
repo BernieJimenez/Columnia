@@ -134,7 +134,6 @@ export function ReviewPhase({
           <p className="eyebrow">Revisar · Dataset activo</p>
           <h2>Revisa antes de modificar</h2>
           <h3 className="phase-file">{datasetStatus.dataset.fileName}</h3>
-          <p>Comprueba la estructura, la calidad y una muestra de los datos antes de modificarlos.</p>
         </div>
       </header>
       <ReviewTabList activeTab={reviewTab} onTabChange={onTabChange} />
@@ -772,45 +771,8 @@ function QualitySection({
   onAnalysisSampleRowsChange: (sampleRows: AnalysisSampleRows) => void;
   datasetRevision: number;
 }) {
-  return (
-    <section className="phase-section" aria-labelledby="quality-title">
-      <div className="section-heading">
-        <div>
-          <p className="step">Calidad inicial</p>
-          <h3 id="quality-title">Diagnóstico del dataset</h3>
-        </div>
-      </div>
-      <DatasetMetrics dataset={dataset} />
-      {status.kind === "loading" && (
-        <OperationProgressView
-          progress={status.progress}
-          cancellation={status.cancelRequested
-            ? { kind: "requested" }
-            : {
-                kind: "available",
-                onCancel,
-                ...(status.cancellationError ? { error: status.cancellationError } : {}),
-              }}
-        />
-      )}
-      {status.kind === "cancelled" && (
-        <p className="notice" role="status">
-          El análisis se canceló. No se publicó ningún resultado parcial; puedes
-          reintentarlo desde la acción principal.
-        </p>
-      )}
-      {status.kind === "error" && (
-        <p className="notice notice--error" role="alert">
-          No se pudo analizar la calidad: {status.message}
-        </p>
-      )}
-      {status.kind === "ready" && (
-        <QualityProfile
-          profile={status.profile}
-          onContinueToPrepare={onContinueToPrepare}
-          datasetRevision={datasetRevision}
-        />
-      )}
+  const tools = (
+    <>
       <details className="review-tool review-tool--nested quality-settings">
         <summary>
           <span>Configuración del análisis</span>
@@ -845,6 +807,49 @@ function QualitySection({
         onQueryEngineChange={onQueryEngineChange}
         datasetRevision={datasetRevision}
       />
+    </>
+  );
+  return (
+    <section className="phase-section" aria-labelledby="quality-title">
+      <div className="section-heading">
+        <div>
+          <h3 id="quality-title">Diagnóstico del dataset</h3>
+        </div>
+      </div>
+      <DatasetMetrics dataset={dataset} />
+      {status.kind === "loading" && (
+        <OperationProgressView
+          progress={status.progress}
+          cancellation={status.cancelRequested
+            ? { kind: "requested" }
+            : {
+                kind: "available",
+                onCancel,
+                ...(status.cancellationError ? { error: status.cancellationError } : {}),
+              }}
+        />
+      )}
+      {status.kind === "cancelled" && (
+        <p className="notice" role="status">
+          El análisis se canceló. No se publicó ningún resultado parcial; puedes
+          reintentarlo desde la acción principal.
+        </p>
+      )}
+      {status.kind === "error" && (
+        <p className="notice notice--error" role="alert">
+          No se pudo analizar la calidad: {status.message}
+        </p>
+      )}
+      {status.kind === "ready" ? (
+        <QualityProfile
+          profile={status.profile}
+          onContinueToPrepare={onContinueToPrepare}
+          datasetRevision={datasetRevision}
+          extraTools={tools}
+        />
+      ) : (
+        <ReviewMoreTools>{tools}</ReviewMoreTools>
+      )}
     </section>
   );
 }
@@ -1214,14 +1219,29 @@ export function DatasetPreviewPanel({
   );
 }
 
+/** One disclosure for everything beyond the summary, so Revisar shows one decision. */
+function ReviewMoreTools({ children }: { children: ReactNode }) {
+  return (
+    <details className="review-tool review-more">
+      <summary>
+        <span>Más análisis y herramientas</span>
+        <small>Detalle, perfil por columna, configuración y SQL</small>
+      </summary>
+      <div className="review-more__content">{children}</div>
+    </details>
+  );
+}
+
 function QualityProfile({
   profile,
   onContinueToPrepare,
   datasetRevision,
+  extraTools,
 }: {
   profile: DatasetProfile;
   onContinueToPrepare: (target?: QualityActionTarget) => void;
   datasetRevision: number;
+  extraTools: ReactNode;
 }) {
   const textColumns = profile.columns.filter((column) => column.emptyCount !== null);
   const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
@@ -1269,6 +1289,15 @@ function QualityProfile({
           <dd className="quality-summary__detail">según el tipo sugerido</dd>
         </div>
         </dl>
+        <button
+          className="primary-action quality-overview__continue"
+          type="button"
+          onClick={() => onContinueToPrepare(actionPlan[0]?.target)}
+        >
+          {actionPlan.length > 0 ? "Ver cambios propuestos" : "Continuar a Preparar"}
+        </button>
+      </section>
+      <ReviewMoreTools>
         <QualitySnapshot
           rowCount={profile.rowCount}
           columnCount={profile.columns.filter((column) => column.name !== "_cambios").length}
@@ -1290,29 +1319,10 @@ function QualityProfile({
             ))}
           </ol>
         )}
-        <button
-          className="primary-action quality-overview__continue"
-          type="button"
-          onClick={() => onContinueToPrepare(actionPlan[0]?.target)}
-        >
-          {actionPlan.length > 0 ? "Empezar con la prioridad principal" : "Continuar a Preparar"}
-        </button>
         <p className="quality-overview__meta">
           <span>Filas analizadas</span>
           <strong>{profile.rowCount.toLocaleString()}</strong>
         </p>
-        <p className="quality-overview__note">
-          {priorityCount === 0
-            ? `Se analizaron ${profile.rowCount.toLocaleString()} filas. Puedes explorar el detalle o continuar a Preparar.`
-            : totalNullCount > 0 && invalidTypeCount > 0
-              ? "Empieza por los valores nulos y los tipos incompatibles; todas las correcciones son reversibles."
-              : totalNullCount > 0
-                ? "Empieza por los valores nulos; las correcciones propuestas son reversibles."
-                : invalidTypeCount > 0
-                  ? "Empieza por los tipos incompatibles; las correcciones propuestas son reversibles."
-                  : "Revisa los duplicados detectados antes de continuar; su eliminación es reversible."}
-        </p>
-      </section>
       <details className="review-tool quality-details">
         <summary>
           <span>Explorar análisis detallado</span>
@@ -1461,6 +1471,8 @@ function QualityProfile({
       )}
         </div>
       </details>
+      {extraTools}
+      </ReviewMoreTools>
     </>
   );
 }
