@@ -14,6 +14,10 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $StartedAt = [DateTimeOffset]::UtcNow
 $Stamp = $StartedAt.ToString("yyyyMMddTHHmmssZ")
+# This orchestrator never tags or publishes: publication is always manual.
+# -DryRun therefore runs the same gates and builds (so the signed updater
+# dry-run still verifies real artifacts), prints the plan first and marks the
+# report as a dry run. Use -SkipPackage to avoid building installers.
 $Profile = if ($SkipPackage) { "Release" } else { "Package" }
 $ProjectVersion = (Get-Content -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json).version
 $EvidenceRelativePath = ".local/validation/release-orchestration/$Stamp"
@@ -126,6 +130,9 @@ try {
     }
     if ($Git.dirty) {
         throw "El release requiere un árbol Git limpio; registra primero todos los cambios."
+    }
+    if ($DryRun) {
+        Write-Host "Plan de dry-run (sin tag ni publicación): Toolchains, Documentation, IPC inventory, perfil $Profile$(if ($Profile -eq 'Package') { ' con instaladores' } else { ' sin instaladores' }), smokes WebView2 y CLI, evidencia de accesibilidad, rendimiento$(if ($WithUpdater) { ' y manifiesto updater firmado' })."
     }
     if ($WithUpdater -and $SkipPackage) {
         throw "-WithUpdater requiere empaquetado; no puede combinarse con -SkipPackage."
