@@ -26,6 +26,7 @@ import {
   formatRecentDatasetFormat,
   type RecentDataset,
 } from "./recentFilesModel";
+import { formatBytes, formatDataType } from "../../format";
 
 export type LoadRuntimeState =
   | { kind: "connected" }
@@ -33,17 +34,7 @@ export type LoadRuntimeState =
   | { kind: "unavailable" };
 
 function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${new Intl.NumberFormat("es-DO").format(bytes)} bytes`;
-
-  const units = ["KiB", "MiB", "GiB", "TiB"];
-  let size = bytes;
-  let unitIndex = -1;
-  do {
-    size /= 1024;
-    unitIndex += 1;
-  } while (size >= 1024 && unitIndex < units.length - 1);
-
-  return `${new Intl.NumberFormat("es-DO", { maximumFractionDigits: 1 }).format(size)} ${units[unitIndex]}`;
+  return formatBytes(bytes);
 }
 
 interface LoadPhaseProps {
@@ -656,7 +647,7 @@ export function LoadPhase({
                         {sheetSelection.schemaPreview.columns.map((column, index) => (
                           <tr key={`${index}:${column.name}`}>
                             <th scope="row">{column.name}</th>
-                            <td>{column.dataType}</td>
+                            <td>{formatDataType(column.dataType)}</td>
                           </tr>
                         ))}
                       </tbody>

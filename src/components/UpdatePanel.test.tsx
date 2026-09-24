@@ -65,12 +65,12 @@ describe("UpdatePanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Buscar actualizaciones" }));
     expect(await screen.findByText("Disponible: 0.58.0")).toBeInTheDocument();
     expect(screen.getByText("Correcciones de estabilidad")).toBeInTheDocument();
-    expect(screen.getByText("Tamaño: 2.0 KB")).toBeInTheDocument();
+    expect(screen.getByText(/^Tamaño: 2[.,]0 KiB$/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Descargar actualización" }));
     await waitFor(() => expect(download).toHaveBeenCalledOnce());
     expect(await screen.findByRole("button", { name: "Instalar y reiniciar" })).toBeInTheDocument();
-    expect(screen.getByText("100% · 2.0 KB de 2.0 KB")).toBeInTheDocument();
+    expect(screen.getByText(/^100% · 2[.,]0 KiB de 2[.,]0 KiB$/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Instalar y reiniciar" }));
     await waitFor(() => expect(install).toHaveBeenCalledOnce());

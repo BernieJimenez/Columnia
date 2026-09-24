@@ -12,6 +12,7 @@ import {
   type ProjectOperationState,
   type ProjectVersionsState,
 } from "./projectModel";
+import { formatBytes } from "../../format";
 
 interface ProjectsPanelProps {
   catalog: ProjectCatalogState;
@@ -432,13 +433,5 @@ function formatProjectStorage(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes) || bytes < 0) {
     return "tamaño no disponible";
   }
-  if (bytes < 1024) return `${Math.round(bytes)} B`;
-  const units = ["KiB", "MiB", "GiB", "TiB"];
-  let value = bytes;
-  let unitIndex = -1;
-  do {
-    value /= 1024;
-    unitIndex += 1;
-  } while (value >= 1024 && unitIndex < units.length - 1);
-  return `${value.toLocaleString("es", { maximumFractionDigits: 1 })} ${units[unitIndex]}`;
+  return formatBytes(bytes);
 }

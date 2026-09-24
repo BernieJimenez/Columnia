@@ -43,7 +43,7 @@ describe("HistoryBar design", () => {
     expect(screen.getByText("Cambio 2")).toBeInTheDocument();
     expect(screen.getByText("Imputación conservadora")).toBeInTheDocument();
     const retention = screen.getByLabelText("Uso y retención del historial");
-    expect(retention).toHaveTextContent("3 / 12 estados · 512 B / 1 KiB de historial local");
+    expect(retention).toHaveTextContent(/3 \/ 12 estados · 512 B \/ 1[.,]0 KiB de historial local/);
     fireEvent.click(screen.getByText("Política local"));
     expect(retention).toHaveTextContent("se retiran primero los estados más antiguos");
     expect(retention).toHaveTextContent("la operación puede quedar sin historial reversible");

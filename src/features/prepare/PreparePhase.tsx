@@ -11,6 +11,7 @@ import type { ChangeStatus } from "./prepareModel";
 import { qualityActionTargetDomId } from "../review/qualityActionPlan";
 import type { QualityActionTarget } from "../review/qualityActionPlan";
 
+import { formatPercent } from "../../format";
 interface PreparePhaseProps {
   dataset: DatasetPreview;
   datasetRevision?: number;
@@ -921,7 +922,7 @@ function CleaningSignals({
           <div className="missing-data-plan__metrics" aria-label="Resumen de valores nulos">
             <span><strong>{totalNullCount.toLocaleString()}</strong> nulos</span>
             <span><strong>{columnsWithNulls.length.toLocaleString()}</strong> columnas afectadas</span>
-            <span><strong>{datasetCompleteness.toFixed(1)}%</strong> completitud total</span>
+            <span><strong>{formatPercent(datasetCompleteness, 1)}</strong> completitud total</span>
           </div>
         </div>
         {totalNullCount === 0 && sentinels.length === 0 ? (

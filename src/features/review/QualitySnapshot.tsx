@@ -1,3 +1,4 @@
+import { formatPercent } from "../../format";
 interface QualitySnapshotProps {
   rowCount: number;
   columnCount: number;
@@ -36,7 +37,7 @@ export function QualitySnapshot({
       <div className="quality-snapshot__completeness">
         <div>
           <strong>Completitud global</strong>
-          <span>{completeness.toFixed(1)}%</span>
+          <span>{formatPercent(completeness, 1)}</span>
         </div>
         <div
           className="quality-snapshot__track"
@@ -54,7 +55,7 @@ export function QualitySnapshot({
           <li key={signal.label}>
             <span className={`quality-snapshot__dot quality-snapshot__dot--${signal.tone}`} aria-hidden="true" />
             <span>{signal.label}</span>
-            <strong>{signal.count.toLocaleString()} · {signal.percentage.toFixed(1)}%</strong>
+            <strong>{signal.count.toLocaleString()} · {formatPercent(signal.percentage, 1)}</strong>
           </li>
         ))}
       </ul>

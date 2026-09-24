@@ -13,6 +13,7 @@ import {
   readPerformanceProfile,
   writePerformanceProfile,
 } from "../features/settings/performanceModel";
+import { formatDecimal, formatPercent } from "../format";
 
 type ResourceMonitorState =
   | { kind: "disabled" }
@@ -41,13 +42,13 @@ function clampMeter(value: number, maximum: number): number {
 }
 
 function formatSystemCpu(value: number): string {
-  return `${Math.max(value, 0).toFixed(1)}%`;
+  return `${formatPercent(Math.max(value, 0), 1)}`;
 }
 
 function formatProcessCpu(value: number, logicalCpuCount: number): string {
   const logicalCpus = Math.max(Math.round(logicalCpuCount), 1);
   const usedCpus = Math.max(value, 0) / 100;
-  return `${usedCpus.toFixed(1)} / ${logicalCpus} hilos`;
+  return `${formatDecimal(usedCpus, 1)} / ${logicalCpus} hilos`;
 }
 
 function formatProcessMemory(bytes: number): string {
@@ -57,12 +58,12 @@ function formatProcessMemory(bytes: number): string {
 function formatSystemMemory(usedBytes: number, totalBytes: number): string {
   const used = Math.max(usedBytes, 0) / 1024 / 1024 / 1024;
   const total = Math.max(totalBytes, 0) / 1024 / 1024 / 1024;
-  return `${used.toFixed(1)} / ${total.toFixed(1)} GB`;
+  return `${formatDecimal(used, 1)} / ${formatDecimal(total, 1)} GB`;
 }
 
 function formatAvailableMemory(bytes: number | undefined): string {
   if (bytes === undefined || !Number.isFinite(bytes)) return "no disponible";
-  return `${(Math.max(bytes, 0) / 1024 / 1024 / 1024).toFixed(1)} GB`;
+  return `${formatDecimal(Math.max(bytes, 0) / 1024 / 1024 / 1024, 1)} GB`;
 }
 
 export const ResourceMonitor = memo(function ResourceMonitor({
@@ -266,7 +267,7 @@ export const ResourceMonitor = memo(function ResourceMonitor({
       <div className="resource-monitor__metric resource-monitor__metric--gpu">
         <div className="resource-monitor__label">
           <span>GPU</span>
-          <strong>{gpu?.status === "available" ? `${Math.max(gpu.usagePercentage ?? 0, 0).toFixed(1)}%` : "No disponible"}</strong>
+          <strong>{gpu?.status === "available" ? `${formatPercent(Math.max(gpu.usagePercentage ?? 0, 0), 1)}` : "No disponible"}</strong>
         </div>
         <div className="resource-monitor__system">
           <span>{gpu?.status === "available" ? "Aceleración" : "Motor local"}</span>

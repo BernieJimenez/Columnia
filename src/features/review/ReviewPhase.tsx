@@ -41,6 +41,7 @@ import type { JoinStatus, ReviewMutationStatus } from "./joinModel";
 import { QualitySnapshot } from "./QualitySnapshot";
 import { buildQualityActionPlan } from "./qualityActionPlan";
 import type { QualityActionTarget } from "./qualityActionPlan";
+import { formatDataType, formatDecimal, formatPercent } from "../../format";
 
 const CONFLICT_PAGE_SIZE = 50;
 
@@ -399,7 +400,7 @@ function DatasetComparisonSection({
               />
               <span>
                 <strong>{column.name}</strong>
-                <small>{column.dataType}</small>
+                <small>{formatDataType(column.dataType)}</small>
               </span>
             </label>
           ))}
@@ -1108,7 +1109,7 @@ function LocalQueryPanel({
 function formatQueryDuration(durationMs: number): string {
   return durationMs < 1000
     ? `${durationMs} ms`
-    : `${(durationMs / 1000).toFixed(1)} s`;
+    : `${formatDecimal(durationMs / 1000, 1)} s`;
 }
 
 function LocalQueryResult({ result }: { result: DatasetQueryResult }) {
@@ -1117,7 +1118,7 @@ function LocalQueryResult({ result }: { result: DatasetQueryResult }) {
       <p>{result.rowCount.toLocaleString()} filas disponibles · mostrando desde {result.offset + 1}{result.truncated ? " · resultado truncado por LIMIT" : ""}</p>
       <div className="profile-region" role="region" tabIndex={0} aria-label="Resultado de consulta SQL">
         <table>
-          <thead><tr>{result.columns.map((column) => <th key={column.name} scope="col"><span>{column.name}</span><small>{column.dataType}</small></th>)}</tr></thead>
+          <thead><tr>{result.columns.map((column) => <th key={column.name} scope="col"><span>{column.name}</span><small>{formatDataType(column.dataType)}</small></th>)}</tr></thead>
           <tbody>{result.rows.map((row, rowIndex) => <tr key={result.offset + rowIndex}>{row.map((value, columnIndex) => <td key={columnIndex}>{renderCellValue(value)}</td>)}</tr>)}</tbody>
         </table>
       </div>
@@ -1153,9 +1154,9 @@ export function DatasetPreviewPanel({
           <thead>
             <tr>
               {dataset.columns.map((column) => (
-                <th key={column.name} scope="col" aria-label={`${column.name} ${column.dataType}`}>
+                <th key={column.name} scope="col" aria-label={`${column.name} ${formatDataType(column.dataType)}`}>
                   <span>{column.name}</span>
-                  <small>{column.dataType}</small>
+                  <small>{formatDataType(column.dataType)}</small>
                 </th>
               ))}
             </tr>
@@ -1259,7 +1260,7 @@ function QualityProfile({
         </div>
         <div>
           <dt>Duplicados</dt>
-          <dd>{profile.duplicateRowCount.toLocaleString()} ({profile.duplicatePercentage.toFixed(1)}%)</dd>
+          <dd>{profile.duplicateRowCount.toLocaleString()} ({formatPercent(profile.duplicatePercentage, 1)})</dd>
           <dd className="quality-summary__detail">filas adicionales</dd>
         </div>
         <div>
@@ -1350,7 +1351,7 @@ function QualityProfile({
                   <span>{column.name}</span>
                   <small>{profileColumnTypeLabel(column)}</small>
                 </th>
-                <td>{column.completenessPercentage.toFixed(1)}%</td>
+                <td>{formatPercent(column.completenessPercentage, 1)}</td>
                 <td>{column.nullCount.toLocaleString()}</td>
                 <td>{column.uniqueCount.toLocaleString()}</td>
                 <td>{column.minimum ?? "—"}</td>
@@ -1444,7 +1445,7 @@ function QualityProfile({
                     <td>
                       {column.typeMatchPercentage === null
                         ? "—"
-                        : `${column.typeMatchPercentage.toFixed(1)}%`}
+                        : `${formatPercent(column.typeMatchPercentage, 1)}`}
                     </td>
                     <td>{column.invalidTypeCount?.toLocaleString() ?? "—"}</td>
                   </tr>
@@ -1523,7 +1524,7 @@ function QualityVisuals({ profile, datasetRevision }: { profile: DatasetProfile;
                 <div className="quality-chart__item" role="listitem" key={column.name}>
                   <div className="quality-chart__label">
                     <span title={column.name}>{column.name}</span>
-                    <strong>{percentage.toFixed(1)}%</strong>
+                    <strong>{formatPercent(percentage, 1)}</strong>
                   </div>
                   <div className="quality-chart__track" aria-hidden="true">
                     <span style={{ width: `${percentage}%` }} />
@@ -1571,7 +1572,7 @@ function QualityVisuals({ profile, datasetRevision }: { profile: DatasetProfile;
                   <div className="quality-chart__item" role="listitem" key={column.name}>
                     <div className="quality-chart__label">
                       <span title={column.name}>{column.name}</span>
-                      <strong>{column.nullCount.toLocaleString()} nulos · {percentage.toFixed(1)}%</strong>
+                      <strong>{column.nullCount.toLocaleString()} nulos · {formatPercent(percentage, 1)}</strong>
                     </div>
                     <div className="quality-chart__track" aria-hidden="true">
                       <span className="quality-chart__track-fill--warning" style={{ width: `${percentage}%` }} />
@@ -1595,7 +1596,7 @@ function QualityVisuals({ profile, datasetRevision }: { profile: DatasetProfile;
                     <tr key={column.name}>
                       <th scope="row">{column.name}</th>
                       <td>{column.nullCount.toLocaleString()}</td>
-                      <td>{clampPercentage(100 - column.completenessPercentage).toFixed(1)}%</td>
+                      <td>{formatPercent(clampPercentage(100 - column.completenessPercentage), 1)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1618,7 +1619,7 @@ function QualityVisuals({ profile, datasetRevision }: { profile: DatasetProfile;
                   <div className="quality-chart__item" role="listitem" key={column.name}>
                     <div className="quality-chart__label">
                       <span title={column.name}>{column.name}</span>
-                      <strong>{percentage.toFixed(1)}% · {invalidCount.toLocaleString()} inválidos</strong>
+                      <strong>{formatPercent(percentage, 1)} · {invalidCount.toLocaleString()} inválidos</strong>
                     </div>
                     <div className="quality-chart__track" aria-hidden="true">
                       <span style={{ width: `${percentage}%` }} />
@@ -1650,10 +1651,10 @@ function QualityVisuals({ profile, datasetRevision }: { profile: DatasetProfile;
                       </td>
                       <td>
                         <span aria-hidden="true">
-                          {clampPercentage(column.typeMatchPercentage ?? 0).toFixed(1)}%
+                          {formatPercent(clampPercentage(column.typeMatchPercentage ?? 0), 1)}
                         </span>
                         <span className="visually-hidden">
-                          Coincidencia: {clampPercentage(column.typeMatchPercentage ?? 0).toFixed(1)}%
+                          Coincidencia: {formatPercent(clampPercentage(column.typeMatchPercentage ?? 0), 1)}
                         </span>
                       </td>
                       <td>{Math.max(0, column.invalidTypeCount ?? 0).toLocaleString()}</td>
@@ -1859,7 +1860,7 @@ function TemporalCoverageChart({
                     )}
                   </td>
                   <td>{availableRows.toLocaleString()} de {Math.max(0, rowCount).toLocaleString()}</td>
-                  <td>{coverage.toFixed(1)}%</td>
+                  <td>{formatPercent(coverage, 1)}</td>
                 </tr>
               );
             })}
@@ -2164,7 +2165,7 @@ function TemporalTrendChart({
                   <tr key={`table-${period.period}`}>
                     <th scope="row">{period.period}</th>
                     <td>{period.rowCount.toLocaleString()}</td>
-                    <td>{clampPercentage(period.percentage).toFixed(1)}%</td>
+                    <td>{formatPercent(clampPercentage(period.percentage), 1)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2502,7 +2503,7 @@ function DailyTemporalCalendar({ summary }: { summary: TemporalSeriesSummary }) 
             <li
               className={`quality-temporal-calendar__day quality-temporal-calendar__day--level-${level}`}
               key={period.period}
-              aria-label={`${period.period}: ${rowLabel}, ${clampPercentage(period.percentage).toFixed(1)}% de los valores interpretables`}
+              aria-label={`${period.period}: ${rowLabel}, ${formatPercent(clampPercentage(period.percentage), 1)} de los valores interpretables`}
             >
               <time dateTime={period.period}>{formatCalendarDay(period.period)}</time>
               <strong>{period.rowCount.toLocaleString()}</strong>
@@ -2541,7 +2542,7 @@ function CategoricalGroupChart({
             <div className="quality-chart__item" role="listitem" key={`${group.label}-${group.isOther}`}>
               <div className="quality-chart__label">
                 <span title={group.label}>{group.label}</span>
-                <strong>{group.rowCount.toLocaleString()} filas · {percentage.toFixed(1)}%</strong>
+                <strong>{group.rowCount.toLocaleString()} filas · {formatPercent(percentage, 1)}</strong>
               </div>
               <div className="quality-chart__track" aria-hidden="true">
                 <span
@@ -2571,7 +2572,7 @@ function CategoricalGroupChart({
                   {group.isOther && <span className="visually-hidden">, categorías restantes</span>}
                 </th>
                 <td>{group.rowCount.toLocaleString()}</td>
-                <td>{clampPercentage(group.percentage).toFixed(1)}%</td>
+                <td>{formatPercent(clampPercentage(group.percentage), 1)}</td>
               </tr>
             ))}
           </tbody>
@@ -2650,7 +2651,7 @@ function correlationAt(matrix: NumericCorrelationMatrix, rowIndex: number, colum
 }
 
 function correlationLabel(coefficient: number | null): string {
-  return coefficient === null || !Number.isFinite(coefficient) ? "—" : coefficient.toFixed(2);
+  return coefficient === null || !Number.isFinite(coefficient) ? "—" : formatDecimal(coefficient, 2);
 }
 
 function correlationClass(coefficient: number | null, isDiagonal: boolean): string {
@@ -2695,7 +2696,7 @@ function temporalMetricValue(
 }
 
 function temporalMetricDisplay(value: number, metric: Exclude<TemporalMetric, "numeric">): string {
-  return metric === "rows" ? Math.round(value).toLocaleString() : `${clampPercentage(value).toFixed(0)}%`;
+  return metric === "rows" ? Math.round(value).toLocaleString() : `${formatPercent(clampPercentage(value), 0)}`;
 }
 
 function temporalAxisIndexes(periodCount: number): number[] {

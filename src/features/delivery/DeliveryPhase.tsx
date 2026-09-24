@@ -42,6 +42,7 @@ import {
   validateDatabaseTargetDraft,
   validateQualityRuleDraft,
 } from "./deliveryModel";
+import { formatPercent } from "../../format";
 
 interface DeliveryPhaseProps {
   dataset: DatasetPreview;
@@ -1631,7 +1632,7 @@ export function DeliveryPhase({
                         <strong>{guidance.title} · {result.column === QUALITY_DATASET_COLUMN ? "Dataset" : result.column}</strong>
                         <span>
                           {result.invalidCount.toLocaleString()} incumplimientos entre {result.checkedCount.toLocaleString()} elementos evaluados
-                          ({result.invalidPct.toFixed(2)}%). {guidance.nextStep}
+                          ({formatPercent(result.invalidPct, 2)}). {guidance.nextStep}
                         </span>
                         {contract.gate.kind === "ready" && rules[index] && (
                           <button type="button" onClick={() => editQualityRule(index)}>

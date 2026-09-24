@@ -1,3 +1,4 @@
+import { formatDataType } from "../src/format";
 import { expect, test, type Page } from "@playwright/test";
 
 type SyntheticImport = {
@@ -263,7 +264,7 @@ for (const fixture of importCases) {
     const headers = await preview.locator("thead th").evaluateAll((cells) =>
       cells.map((cell) => `${cell.querySelector("span")?.textContent ?? ""} ${cell.querySelector("small")?.textContent ?? ""}`.trim()),
     );
-    expect(headers).toEqual(fixture.columns.map((column) => `${column.name} ${column.dataType}`));
+    expect(headers).toEqual(fixture.columns.map((column) => `${column.name} ${formatDataType(column.dataType)}`));
     const firstRow = await preview.locator("tbody tr").first().locator("td").allTextContents();
     expect(firstRow.map((value) => value.trim())).toEqual(fixture.rows[0]);
   });

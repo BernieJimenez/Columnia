@@ -9,6 +9,7 @@ import {
   type SnapshotRevisionComparison as SnapshotComparisonResult,
 } from "../../bridge";
 import { OperationProgressView } from "../../components/OperationProgressView";
+import { formatPercent } from "../../format";
 
 type ComparisonState =
   | { kind: "idle" }
@@ -236,7 +237,7 @@ function SnapshotComparisonResultView({ result }: { result: SnapshotComparisonRe
               <li key={rule.ruleIndex}>
                 <strong>Regla {rule.ruleIndex} · {rule.kind}</strong>{rule.column ? ` · ${rule.column}` : ""}{": "}
                 {rule.comparable
-                  ? `${rule.beforeInvalidCount?.toLocaleString()} → ${rule.afterInvalidCount?.toLocaleString()} valores inválidos; tasa ${rule.beforeInvalidPercentage?.toFixed(1)}% → ${rule.afterInvalidPercentage?.toFixed(1)}%; pasó ${metricLabel(rule.beforePassed)} → ${metricLabel(rule.afterPassed)}`
+                  ? `${rule.beforeInvalidCount?.toLocaleString()} → ${rule.afterInvalidCount?.toLocaleString()} valores inválidos; tasa ${rule.beforeInvalidPercentage == null ? "—" : formatPercent(rule.beforeInvalidPercentage, 1)} → ${rule.afterInvalidPercentage == null ? "—" : formatPercent(rule.afterInvalidPercentage, 1)}; pasó ${metricLabel(rule.beforePassed)} → ${metricLabel(rule.afterPassed)}`
                   : rule.reason ?? "No comparable"}
               </li>
             ))}

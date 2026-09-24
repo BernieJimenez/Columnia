@@ -1,5 +1,6 @@
 import type { HistoryState } from "../../bridge";
-import { changeProgressMessage, type ChangeStatus } from "./prepareModel";
+import { changeProgressMessage, type ChangeStatus } from "./prepareModel";
+import { formatBytes } from "../../format";
 
 export function HistoryBar({
   status,
@@ -75,15 +76,7 @@ export function HistoryBar({
 
 function formatHistoryBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "No disponible";
-  if (bytes < 1024) return `${Math.round(bytes)} B`;
-  const units = ["KiB", "MiB", "GiB", "TiB"];
-  let value = bytes;
-  let unitIndex = -1;
-  do {
-    value /= 1024;
-    unitIndex += 1;
-  } while (value >= 1024 && unitIndex < units.length - 1);
-  return `${value.toLocaleString("es", { maximumFractionDigits: 1 })} ${units[unitIndex]}`;
+  return formatBytes(bytes);
 }
 
 export function ChangeFeedback({ status, onCancel }: { status: ChangeStatus; onCancel?: () => void }) {

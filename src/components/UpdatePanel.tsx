@@ -9,6 +9,7 @@ import {
   type UpdateInfo,
   type UpdaterProgress,
 } from "../bridge";
+import { formatBytes } from "../format";
 
 type UpdateState =
   | { kind: "idle" }
@@ -30,17 +31,9 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function formatBytes(bytes: number | null): string {
+function formatUpdateBytes(bytes: number | null): string {
   if (bytes === null || !Number.isFinite(bytes) || bytes < 0) return "tamaño no informado";
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB"];
-  let value = bytes;
-  let unitIndex = -1;
-  do {
-    value /= 1024;
-    unitIndex += 1;
-  } while (value >= 1024 && unitIndex < units.length - 1);
-  return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unitIndex]}`;
+  return formatBytes(bytes);
 }
 
 function updateProgress(current: UpdateState, progress: UpdaterProgress): UpdateState {
@@ -188,18 +181,18 @@ export function UpdatePanel({ enabled, currentVersion }: UpdatePanelProps) {
       {(state.kind === "available" || state.kind === "downloading" || state.kind === "ready" || state.kind === "installing" || state.kind === "installed") && (
         <div className="update-panel__details" aria-live="polite">
           <p><strong>Disponible: {state.info.version}</strong></p>
-          <p>Tamaño: {formatBytes(state.info.sizeBytes)}</p>
+          <p>Tamaño: {formatUpdateBytes(state.info.sizeBytes)}</p>
           {state.info.notes && <p className="update-panel__notes">{state.info.notes}</p>}
         </div>
       )}
       {(state.kind === "downloading" || state.kind === "ready") && (
         <div className="update-panel__progress" aria-live="polite">
           {downloadPercent === null ? (
-            <p>Descargados: {formatBytes(state.downloadedBytes)}</p>
+            <p>Descargados: {formatUpdateBytes(state.downloadedBytes)}</p>
           ) : (
             <>
               <progress max={100} value={downloadPercent} aria-label="Progreso de actualización" />
-              <p>{Math.round(downloadPercent)}% · {formatBytes(state.downloadedBytes)} de {formatBytes(state.contentLength)}</p>
+              <p>{Math.round(downloadPercent)}% · {formatUpdateBytes(state.downloadedBytes)} de {formatUpdateBytes(state.contentLength)}</p>
             </>
           )}
         </div>

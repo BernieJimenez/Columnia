@@ -1010,7 +1010,7 @@ describe("DeliveryPhase", () => {
     const result = screen.getByRole("region", { name: "Copia lista" });
     expect(within(result).getByRole("heading", { name: "Copia lista" })).toBeInTheDocument();
     expect(within(result).getByText("entrega.zip")).toBeInTheDocument();
-    expect(within(result).getByText("2.0 KB")).toBeInTheDocument();
+    expect(within(result).getByText(/^2[.,]0 KiB$/)).toBeInTheDocument();
     expect(within(result).getByText("Salida confirmada sin reglas de calidad")).toBeInTheDocument();
     expect(within(result).getByText("2 cambios del historial activo")).toBeInTheDocument();
     expect(within(result).getByText("1 columnas: email")).toBeInTheDocument();

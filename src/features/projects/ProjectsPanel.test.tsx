@@ -57,7 +57,7 @@ describe("ProjectsPanel", () => {
 
     fireEvent.click(summary);
     expect(options).toHaveAttribute("open");
-    expect(screen.getByText("Espacio persistente (snapshot + historial): 1,5 KiB")).toBeInTheDocument();
+    expect(screen.getByText(/^Espacio persistente \(snapshot \+ historial\): 1[.,]5 KiB$/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Recuperar proyecto" }));
     expect(props.onOpen).toHaveBeenCalledWith("recovery-id");
     expect(screen.queryByText(/C:\\/)).not.toBeInTheDocument();

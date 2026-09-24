@@ -33,6 +33,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- T10-26: tamaños, decimales, porcentajes y tipos de columna se muestran igual en
+  todas las pantallas: unidades binarias (KiB, MiB), el separador decimal del
+  sistema y nombres de tipo en español (Entero, Decimal, Texto…). Antes el mismo
+  archivo aparecía como «1 KiB» y «1.0 KB».
 - T10-28: las vistas previas muestran con «·» los espacios al inicio o al final
   de un valor; antes el navegador los ocultaba y no se veía qué corregiría el
   recorte de espacios.

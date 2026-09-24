@@ -188,7 +188,7 @@ describe("LoadPhase", () => {
       "sheet-description",
     );
     const summary = within(screen.getByRole("region", { name: "Resumen antes de cargar" }));
-    expect(summary.getByText(/2 KiB/)).toBeInTheDocument();
+    expect(summary.getByText(/2[.,]0 KiB/)).toBeInTheDocument();
     expect(summary.getByText("Enero")).toBeInTheDocument();
     expect(summary.getByText("Usar la primera fila")).toBeInTheDocument();
     expect(screen.getByText(/esquema se calcula .* antes de activar el dataset/)).toBeInTheDocument();

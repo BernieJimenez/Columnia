@@ -1137,7 +1137,7 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Seleccionar dataset" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Exportar CSV" })).not.toBeInTheDocument();
-    expect(screen.getByText("2.0 KB")).toBeInTheDocument();
+    expect(screen.getByText(/^2[.,]0 KiB$/)).toBeInTheDocument();
     const diagnosisTab = screen.getByRole("tab", { name: "Diagnóstico" });
     const previewTab = screen.getByRole("tab", { name: "Vista previa" });
     expect(diagnosisTab).toHaveAttribute("aria-controls", "review-diagnosis-panel");
@@ -1448,7 +1448,7 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "Copia lista" })).toBeInTheDocument();
     expect(screen.getByText("ventas-columnia.parquet")).toBeInTheDocument();
-    expect(screen.getByText(/2\.0 KB/)).toBeInTheDocument();
+    expect(screen.getByText(/2[.,]0 KiB/)).toBeInTheDocument();
     expect(exportSpy).toHaveBeenCalledOnce();
     expect(screen.queryByLabelText("Ruta de exportación")).not.toBeInTheDocument();
   });
