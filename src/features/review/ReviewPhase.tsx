@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { MissingValue } from "../../components/MissingValue";
+import { renderCellValue } from "../../components/CellText";
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ReviewTabList, type ReviewTab } from "../../components/ReviewTabList";
 import { cancelOperation, getTemporalAggregation, queryDataset } from "../../bridge";
@@ -1118,7 +1118,7 @@ function LocalQueryResult({ result }: { result: DatasetQueryResult }) {
       <div className="profile-region" role="region" tabIndex={0} aria-label="Resultado de consulta SQL">
         <table>
           <thead><tr>{result.columns.map((column) => <th key={column.name} scope="col"><span>{column.name}</span><small>{column.dataType}</small></th>)}</tr></thead>
-          <tbody>{result.rows.map((row, rowIndex) => <tr key={result.offset + rowIndex}>{row.map((value, columnIndex) => <td key={columnIndex}>{value ?? <MissingValue />}</td>)}</tr>)}</tbody>
+          <tbody>{result.rows.map((row, rowIndex) => <tr key={result.offset + rowIndex}>{row.map((value, columnIndex) => <td key={columnIndex}>{renderCellValue(value)}</td>)}</tr>)}</tbody>
         </table>
       </div>
     </div>
@@ -1164,7 +1164,7 @@ export function DatasetPreviewPanel({
             {dataset.rows.map((row, rowIndex) => (
               <tr key={pageOffset + rowIndex}>
                 {row.map((value, columnIndex) => (
-                  <td key={columnIndex}>{value ?? <MissingValue />}</td>
+                  <td key={columnIndex}>{renderCellValue(value)}</td>
                 ))}
               </tr>
             ))}

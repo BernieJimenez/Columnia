@@ -608,6 +608,7 @@ th small { display: block; }
 th small { margin-top: 3px; color: var(--text-secondary); font-size: .75rem; font-weight: 600; }
 tbody tr:nth-child(even) { background: #f8faf9; }
 .null-value { font-style: italic; }
+.whitespace-marker { color: var(--text-secondary); font-weight: 700; }
 .preview-note { margin: 10px 0 0; color: var(--text-secondary); font-size: .82rem; }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .pagination div { display: flex; gap: 8px; margin-top: 10px; }

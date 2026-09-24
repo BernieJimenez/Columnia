@@ -29,6 +29,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- T10-28: las vistas previas muestran con «·» los espacios al inicio o al final
+  de un valor; antes el navegador los ocultaba y no se veía qué corregiría el
+  recorte de espacios.
 - T10-27: los lectores de pantalla anuncian «valor ausente» en lugar de «null»;
   el resumen de calidad de Revisar y los pasos del flujo tienen una estructura
   y nombres accesibles válidos.

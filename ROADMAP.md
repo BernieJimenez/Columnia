@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 17 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 18 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -493,13 +493,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** bajo
   - **Depende de:** T10-02
   - **Cerrada:** 2026-09-23 — `MissingValue` anuncia «valor ausente»; `<dl>` de calidad solo con `dt`/`dd`; pasos laterales sin `aria-label` redundante. Lighthouse accesibilidad 100 en Revisar, Preparar y Entregar (`.local/auditoria-2026-09-23/lighthouse-T10-27-*`); vitest 460/460, E2E 23/23.
-- [ ] **[T10-28] Hacer visibles los espacios iniciales y finales en las vistas previas**
+- [x] **[T10-28] Hacer visibles los espacios iniciales y finales en las vistas previas**
   - **Área:** UI/UX · **Severidad:** Baja
   - **Ubicación:** `src/styles.css:604`; `src/features/load/LoadPhase.tsx:739`
   - **Qué hacer:** mostrar un marcador para los espacios que el HTML colapsa.
   - **Criterio de aceptación:** una celda con espacios alrededor los muestra marcados en la muestra y en la vista previa.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — `CellText`/`renderCellValue` marcan con «·» los espacios exteriores en la muestra de importación y en las vistas previas de Revisar, con aviso para lectores de pantalla; 3 pruebas; vitest 463/463 y E2E 23/23.
 - [x] **[T10-29] Guardar evidencia JSON completa en los smokes**
   - **Área:** DevOps y configuración · **Severidad:** Baja
   - **Ubicación:** `tools/probe-webview2-cdp.ps1:929`
@@ -560,7 +561,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 17 de 33 | Fase 2 en curso: cerradas hasta ahora T10-27 y anteriores de esta tanda. |
+| 2026-09-23 | 18 de 33 | Fase 2 en curso: cerradas hasta ahora T10-28 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 

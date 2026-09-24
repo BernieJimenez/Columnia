@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { MissingValue } from "../../components/MissingValue";
+import { renderCellValue } from "../../components/CellText";
 import { ModalDialog } from "../../components/ModalDialog";
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { DatasetMetrics } from "../delivery/DatasetMetrics";
@@ -737,7 +737,7 @@ function HeaderInterpretationPreview({ preview }: { preview: DelimitedHeaderMode
               {preview.rows.map((row, rowIndex) => (
                 <tr key={rowIndex}>
                   {preview.columns.map((column, columnIndex) => (
-                    <td key={`${column.name}:${columnIndex}`}>{row[columnIndex] ?? <MissingValue />}</td>
+                    <td key={`${column.name}:${columnIndex}`}>{renderCellValue(row[columnIndex])}</td>
                   ))}
                 </tr>
               ))}
