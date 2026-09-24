@@ -7,11 +7,14 @@ import type { ProfileStatus } from "../review/reviewModel";
 import { ChangeFeedback, HistoryBar } from "./HistoryBar";
 import { TransformRecipeEditor } from "./TransformRecipeEditor";
 import { RevisionComparison } from "./RevisionComparison";
+import { PrepareProposal, type ProposalResult } from "./PrepareProposal";
+import { buildPrepareProposal } from "./proposalModel";
 import type { ChangeStatus } from "./prepareModel";
 import { qualityActionTargetDomId } from "../review/qualityActionPlan";
 import type { QualityActionTarget } from "../review/qualityActionPlan";
 
 import { formatPercent } from "../../format";
+
 interface PreparePhaseProps {
   dataset: DatasetPreview;
   datasetRevision?: number;
@@ -53,14 +56,6 @@ interface PreparePhaseProps {
   onRecipeDraftChange: (draft: SavedRecipe) => void;
   onUndo: () => void;
   onRedo: () => void;
-}
-
-function profileNullCount(profile: DatasetProfile): number {
-  return profile.columns.reduce((total, column) => total + column.nullCount, 0);
-}
-
-function profileInvalidTypeCount(profile: DatasetProfile): number {
-  return profile.columns.reduce((total, column) => total + (column.invalidTypeCount ?? 0), 0);
 }
 
 export function PreparePhase({
@@ -111,26 +106,11 @@ export function PreparePhase({
   const hasRowAuditColumn = dataset.columns.some((column) => column.name === "_cambios");
   const [selectedTextColumns, setSelectedTextColumns] = useState<string[]>([]);
   const [removeAccents, setRemoveAccents] = useState(true);
-  const [planSelection, setPlanSelection] = useState<SafeCorrectionOptions>(() => ({
-    trimText: textColumns.length > 0,
-    normalizeSentinels: false,
-    normalizeColumnNames: false,
-    removeDuplicates: duplicateCount !== null && duplicateCount > 0,
-  }));
-  const [planRevision, setPlanRevision] = useState(datasetRevision);
   const pendingPlanComparison = useRef<{
     sourceRevision: number;
-    sourceLabel: string;
     profile: DatasetProfile;
   } | null>(null);
-  const [planComparison, setPlanComparison] = useState<{
-    beforeRevision: number;
-    afterRevision: number;
-    beforeLabel: string;
-    afterLabel: string;
-    before: DatasetProfile;
-    after: DatasetProfile;
-  } | null>(null);
+  const [planComparison, setPlanComparison] = useState<ProposalResult | null>(null);
   const [activeTab, setActiveTab] = useState<"corrections" | "transformations">("corrections");
   const [nearDuplicateConfirmation, setNearDuplicateConfirmation] = useState(false);
   const [identifierConfirmation, setIdentifierConfirmation] = useState(false);
@@ -163,16 +143,6 @@ export function PreparePhase({
   }, [dataset.columns]);
 
   useEffect(() => {
-    setPlanRevision(datasetRevision);
-    setPlanSelection({
-      trimText: textColumns.length > 0,
-      normalizeSentinels: false,
-      normalizeColumnNames: false,
-      removeDuplicates: duplicateCount !== null && duplicateCount > 0,
-    });
-  }, [datasetRevision, textColumnSignature, sentinelColumnSignature, duplicateCount]);
-
-  useEffect(() => {
     const pending = pendingPlanComparison.current;
     if (!pending) return;
     if (changeStatus.kind === "error"
@@ -185,33 +155,20 @@ export function PreparePhase({
       return;
     }
     if (datasetRevision !== pending.sourceRevision + 1 || profileStatus.kind !== "ready") return;
-    const currentEntry = historyStatus.entries.find((entry) => entry.isCurrent);
-    setPlanComparison({
-      beforeRevision: pending.sourceRevision,
-      afterRevision: datasetRevision,
-      beforeLabel: pending.sourceLabel,
-      afterLabel: currentEntry?.label ?? "Preparación aplicada",
-      before: pending.profile,
-      after: profileStatus.profile,
-    });
+    setPlanComparison({ before: pending.profile, after: profileStatus.profile });
     pendingPlanComparison.current = null;
-  }, [changeStatus.kind, datasetRevision, historyStatus.entries, profileStatus]);
+  }, [changeStatus.kind, datasetRevision, profileStatus]);
 
-  function applySelectedPlan() {
-    if (
-      planRevision !== datasetRevision ||
-      profileStatus.kind !== "ready" ||
-      changing ||
-      (!planSelection.trimText && !planSelection.normalizeSentinels && !planSelection.normalizeColumnNames && !planSelection.removeDuplicates)
-    ) return;
-    const currentEntry = historyStatus.entries.find((entry) => entry.isCurrent);
-    pendingPlanComparison.current = {
-      sourceRevision: datasetRevision,
-      sourceLabel: currentEntry?.label ?? "Revisión anterior",
-      profile: profileStatus.profile,
-    };
+  function applyProposal(options: SafeCorrectionOptions) {
+    if (profileStatus.kind !== "ready" || changing) return;
+    pendingPlanComparison.current = { sourceRevision: datasetRevision, profile: profileStatus.profile };
     setPlanComparison(null);
-    onApplyRecommended(planSelection);
+    onApplyRecommended(options);
+  }
+
+  function undoFromProposal() {
+    setPlanComparison(null);
+    onUndo();
   }
 
   useEffect(() => {
@@ -234,12 +191,66 @@ export function PreparePhase({
     <>
       <header className="phase-header phase-header--compact">
         <div>
-          <p className="eyebrow">Preparar · {activeTab === "corrections" ? "Correcciones" : "Transformaciones"}</p>
+          <p className="eyebrow">Preparar</p>
           <h2>Prepara datos consistentes</h2>
           <h3 className="phase-file">{dataset.fileName}</h3>
-          <p>Aplica cambios controlados al dataset activo. Cada corrección indica su impacto.</p>
         </div>
       </header>
+      <ChangeFeedback status={changeStatus} onCancel={onCancelPrepare} />
+      {profileStatus.kind === "idle" && (
+        <section className="prepare-analysis-prompt" aria-labelledby="prepare-analysis-title" role="status">
+          <div>
+            <h3 id="prepare-analysis-title">Analizando tus datos</h3>
+            <p>En cuanto termine verás los cambios propuestos.</p>
+          </div>
+        </section>
+      )}
+      {profileStatus.kind === "loading" && (
+        <section className="prepare-analysis-prompt" aria-labelledby="prepare-analysis-loading-title">
+          <div>
+            <h3 id="prepare-analysis-loading-title">Actualizando el análisis</h3>
+          </div>
+          <OperationProgressView
+            progress={profileStatus.progress}
+            cancellation={profileStatus.cancelRequested
+              ? { kind: "requested" }
+              : {
+                  kind: "available",
+                  onCancel: onCancelProfile,
+                  ...(profileStatus.cancellationError ? { error: profileStatus.cancellationError } : {}),
+                }}
+          />
+        </section>
+      )}
+      {profileStatus.kind === "error" && (
+        <p className="notice notice--error" role="alert">
+          No se pudo analizar la calidad: {profileStatus.message} Reintenta desde el pie de la aplicación.
+        </p>
+      )}
+      {profileStatus.kind === "cancelled" && (
+        <p className="notice" role="status">
+          El diagnóstico se canceló y no publicó resultados parciales. Puedes
+          reintentarlo desde el pie de la aplicación.
+        </p>
+      )}
+      {profileStatus.kind === "ready" && hasColumns && (
+        <PrepareProposal
+          items={buildPrepareProposal(profileStatus.profile, dataset)}
+          columnCount={dataset.columns.length}
+          busy={changing}
+          canUndo={historyStatus.canUndo}
+          result={planComparison}
+          onApply={applyProposal}
+          onUndo={undoFromProposal}
+          onDismissResult={() => setPlanComparison(null)}
+        />
+      )}
+      <details className="advanced-corrections prepare-advanced">
+        <summary>
+          <span>Diagnóstico y herramientas avanzadas</span>
+          <small>Historial, señales individuales y transformaciones</small>
+        </summary>
+        <div className="advanced-corrections__content">
       <HistoryBar
         status={historyStatus}
         busy={changing}
@@ -259,22 +270,6 @@ export function PreparePhase({
           busy={changing || profileStatus.kind === "loading"}
         />
       </details>
-      <ChangeFeedback status={changeStatus} onCancel={onCancelPrepare} />
-      {planComparison && (
-        <section className="revision-comparison__result prepare-plan__result" aria-label="Resultado de la última preparación">
-          <p role="status">
-            <strong>{planComparison.beforeLabel}</strong> → <strong>{planComparison.afterLabel}</strong>
-            <span className="profile-note"> (revisión {planComparison.beforeRevision + 1} → {planComparison.afterRevision + 1})</span>
-          </p>
-          <dl className="revision-comparison__metrics">
-            <div><dt>Filas</dt><dd>{planComparison.before.rowCount.toLocaleString()} → {planComparison.after.rowCount.toLocaleString()}</dd></div>
-            <div><dt>Columnas</dt><dd>{planComparison.before.columns.length.toLocaleString()} → {planComparison.after.columns.length.toLocaleString()}</dd></div>
-            <div><dt>Nulos</dt><dd>{profileNullCount(planComparison.before).toLocaleString()} → {profileNullCount(planComparison.after).toLocaleString()}</dd></div>
-            <div><dt>Valores incompatibles</dt><dd>{profileInvalidTypeCount(planComparison.before).toLocaleString()} → {profileInvalidTypeCount(planComparison.after).toLocaleString()}</dd></div>
-            <div><dt>Filas duplicadas</dt><dd>{planComparison.before.duplicateRowCount.toLocaleString()} → {planComparison.after.duplicateRowCount.toLocaleString()}</dd></div>
-          </dl>
-        </section>
-      )}
       <div className="stage-tabs" role="tablist" aria-label="Herramientas de preparación">
         <button
           id="prepare-corrections-tab"
@@ -386,114 +381,6 @@ export function PreparePhase({
           </div>
         </details>
       )}
-      {profileStatus.kind === "ready" && hasColumns && (
-        <section className="recommended-batch prepare-plan" aria-labelledby="prepare-plan-title">
-          <div>
-            <p className="step">Plan para esta revisión</p>
-            <h3 id="prepare-plan-title">Revisa las correcciones antes de aplicarlas</h3>
-            <p>
-              Selecciona cambios reversibles. El plan queda ligado a la revisión actual y no modifica
-              los datos hasta que lo apliques.
-            </p>
-            <fieldset className="prepare-plan__choices" disabled={changing || planRevision !== datasetRevision}>
-              <legend>Correcciones incluidas</legend>
-              {textColumns.length > 0 && (
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={planSelection.trimText}
-                    onChange={(event) => setPlanSelection((current) => ({ ...current, trimText: event.target.checked }))}
-                  />
-                  Recortar espacios exteriores en {textColumns.length} {textColumns.length === 1 ? "columna de texto" : "columnas de texto"}
-                </label>
-              )}
-              {sentinelColumns.length > 0 && (
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={planSelection.normalizeSentinels}
-                    onChange={(event) => setPlanSelection((current) => ({ ...current, normalizeSentinels: event.target.checked }))}
-                  />
-                  Convertir marcadores de ausencia detectados en {sentinelColumns.length} {sentinelColumns.length === 1 ? "columna" : "columnas"}
-                </label>
-              )}
-              {duplicateCount !== null && duplicateCount > 0 && (
-                <label>
-                  <input
-                    id={qualityActionTargetDomId("duplicates")}
-                    type="checkbox"
-                    checked={planSelection.removeDuplicates}
-                    onChange={(event) => setPlanSelection((current) => ({ ...current, removeDuplicates: event.target.checked }))}
-                  />
-                  Retirar {duplicateCount.toLocaleString()} {duplicateCount === 1 ? "fila duplicada exacta" : "filas duplicadas exactas"} y conservar la primera
-                </label>
-              )}
-              <label>
-                <input
-                  type="checkbox"
-                  checked={planSelection.normalizeColumnNames}
-                  onChange={(event) => setPlanSelection((current) => ({ ...current, normalizeColumnNames: event.target.checked }))}
-                />
-                Normalizar nombres de las {dataset.columns.length} columnas
-              </label>
-            </fieldset>
-            <p className="prepare-plan__note">
-              {sentinelColumns.length > 0 && "Convertir marcadores conocidos como N/A a nulos reales. "}
-              {duplicateCount !== null && duplicateCount > 0 && "Los duplicados exactos se retiran solo al aplicar el plan; se conserva la primera fila y puedes deshacer el resultado. "}
-              Normalizar encabezados puede afectar consultas e integraciones. Puedes deshacer el resultado desde el historial.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={applySelectedPlan}
-            disabled={changing || planRevision !== datasetRevision || (!planSelection.trimText && !planSelection.normalizeSentinels && !planSelection.normalizeColumnNames && !planSelection.removeDuplicates)}
-          >
-            Aplicar plan seleccionado
-          </button>
-        </section>
-      )}
-      {profileStatus.kind === "idle" && (
-        <section className="prepare-analysis-prompt" aria-labelledby="prepare-analysis-title" role="status">
-          <div>
-            <p className="step">Diagnóstico automático</p>
-            <h3 id="prepare-analysis-title">Preparando el diagnóstico del dataset</h3>
-            <p>
-              El análisis se ejecuta automáticamente. Aquí aparecerán las señales detectadas y las
-              correcciones que aplican a este archivo.
-            </p>
-          </div>
-        </section>
-      )}
-      {profileStatus.kind === "loading" && (
-        <section className="prepare-analysis-prompt" aria-labelledby="prepare-analysis-loading-title">
-          <div>
-            <p className="step">Diagnóstico automático</p>
-            <h3 id="prepare-analysis-loading-title">Actualizando el diagnóstico</h3>
-            <p>Las correcciones basadas en señales estarán disponibles cuando termine el análisis.</p>
-          </div>
-          <OperationProgressView
-            progress={profileStatus.progress}
-            cancellation={profileStatus.cancelRequested
-              ? { kind: "requested" }
-              : {
-                  kind: "available",
-                  onCancel: onCancelProfile,
-                  ...(profileStatus.cancellationError ? { error: profileStatus.cancellationError } : {}),
-                }}
-          />
-        </section>
-      )}
-      {profileStatus.kind === "error" && (
-        <p className="notice notice--error" role="alert">
-          No se pudo analizar la calidad: {profileStatus.message} Reintenta desde el pie de la aplicación.
-        </p>
-      )}
-      {profileStatus.kind === "cancelled" && (
-        <p className="notice" role="status">
-          El diagnóstico se canceló y no publicó resultados parciales. Puedes
-          reintentarlo desde el pie de la aplicación.
-        </p>
-      )}
       {hasColumns && (
       <details className="advanced-corrections">
         <summary>
@@ -584,6 +471,8 @@ export function PreparePhase({
       )}
       </div>
       )}
+        </div>
+      </details>
       {nearDuplicateConfirmation && nearDuplicateCount !== null && nearDuplicateCount > 0 && (
         <ModalDialog
           role="alertdialog"

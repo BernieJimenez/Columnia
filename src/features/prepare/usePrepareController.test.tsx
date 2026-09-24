@@ -691,7 +691,7 @@ describe("usePrepareController", () => {
       dataset, affectedRowCount: 0, changedCellCount: 0, changedColumns: [],
     });
     vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({
-      dataset, changedCellCount: 0, affectedRowCount: 0, removedRowCount: 0, renamedColumnCount: 0, renames: [],
+      dataset, changedCellCount: 0, affectedRowCount: 0, removedRowCount: 0, renamedColumnCount: 0, renames: [], imputedCellCount: 0,
     });
     vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
       dataset, changed: false, renamedColumnCount: 0, convertedColumnCount: 0,
@@ -790,7 +790,7 @@ describe("usePrepareController", () => {
     vi.spyOn(bridge, "normalizeColumnNames").mockResolvedValue({ dataset, renamedColumnCount: 1, renames: [{ from: " Nombre ", to: "nombre" }] });
     vi.spyOn(bridge, "trimTextValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 1, changedColumns: [{ name: "nombre", changedCellCount: 1 }] });
     vi.spyOn(bridge, "normalizeTextValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 1, changedColumns: [{ name: "nombre", changedCellCount: 1 }] });
-    vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({ dataset, changedCellCount: 1, affectedRowCount: 1, removedRowCount: 0, renamedColumnCount: 0, renames: [] });
+    vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({ dataset, changedCellCount: 1, affectedRowCount: 1, removedRowCount: 0, renamedColumnCount: 0, renames: [], imputedCellCount: 0 });
     const callbacks = {
       onDatasetChanged: vi.fn(),
       onProfileInvalidated: vi.fn(),

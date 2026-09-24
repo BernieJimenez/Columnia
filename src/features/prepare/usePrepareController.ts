@@ -573,7 +573,7 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "safe" });
     try {
       const result = await applySafeCorrections(options);
-      const imputedCellCount = result.imputedCellCount ?? 0;
+      const imputedCellCount = result.imputedCellCount;
       const changed = result.changedCellCount > 0
         || result.removedRowCount > 0
         || result.renamedColumnCount > 0

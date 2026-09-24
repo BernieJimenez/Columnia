@@ -187,6 +187,15 @@ async function prepareReusableTaskBeforeImport(task: ReusableTask, summary: Reus
   fireEvent.click(screen.getByRole("button", { name: "Seleccionar dataset" }));
 }
 
+function applyProposalWithColumnNames() {
+  fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
+  while (screen.queryByRole("button", { name: "Siguiente" })) {
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+  }
+  fireEvent.click(screen.getByRole("radio", { name: "Sí, normalizar" }));
+  fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+}
+
 describe("App", () => {
   it("usa la acción contextual de Review y marca Review como hecha al continuar explícitamente", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
@@ -237,6 +246,7 @@ describe("App", () => {
       removedRowCount: 0,
       renamedColumnCount: 0,
       renames: [],
+      imputedCellCount: 0,
     });
 
     renderAppWithHeaderConfirmation();
@@ -247,7 +257,7 @@ describe("App", () => {
     expect(within(screen.getByRole("button", { name: "Revisar" })).getByText("Hecho")).toBeInTheDocument();
 
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Aplicar \d+ cambios?$/ }));
     expect(await screen.findByText("Plan aplicado: 1 celda actualizada.")).toBeInTheDocument();
 
     expect(within(screen.getByRole("button", { name: "Cargar" })).getByText("Hecho")).toBeInTheDocument();
@@ -1032,12 +1042,12 @@ describe("App", () => {
     fireEvent.click(screen.getByText("Más herramientas"));
     fireEvent.click(screen.getByRole("button", { name: "Eliminar filas vacías" }));
     await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(2));
-    await screen.findByRole("heading", { name: "Actualizando el diagnóstico" });
+    await screen.findByRole("heading", { name: "Actualizando el análisis" });
 
     fireEvent.click(screen.getByRole("button", { name: "Eliminar filas vacías" }));
     await waitFor(() => expect(removeRowsSpy).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(3));
-    const currentDuplicatePlan = screen.getByRole("checkbox", { name: /Retirar 1 fila duplicada exacta/ });
+    const currentDuplicatePlan = screen.getByRole("checkbox", { name: "Quitar 1 fila duplicada" });
     await waitFor(() => expect(currentDuplicatePlan).toBeChecked());
 
     await act(async () => {
@@ -1045,7 +1055,7 @@ describe("App", () => {
       await staleProfilePromise;
     });
     await waitFor(() => {
-      expect(screen.getByRole("checkbox", { name: /Retirar 1 fila duplicada exacta/ })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Quitar 1 fila duplicada" })).toBeChecked();
     });
   });
 
@@ -1576,18 +1586,18 @@ describe("App", () => {
       removedRowCount: 0,
       renamedColumnCount: 1,
       renames: [{ from: "Año Venta", to: "ano_venta" }],
+      imputedCellCount: 0,
     });
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("checkbox", { name: /Normalizar nombres de las 1 columnas/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
+    applyProposalWithColumnNames();
 
     expect(await screen.findByText("Plan aplicado: 1 columna renombrada.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeInTheDocument();
     expect(within(screen.getByRole("button", { name: "Preparar" })).getByText("Hecho")).toBeInTheDocument();
-    expect(normalizeSpy).toHaveBeenCalledWith({ trimText: false, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false });
+    expect(normalizeSpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: false, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false }));
 
     await switchPhase("Revisar");
     fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
@@ -1623,6 +1633,7 @@ describe("App", () => {
       removedRowCount: 0,
       renamedColumnCount: 0,
       renames: [],
+      imputedCellCount: 0,
     });
     const normalizeSpy = vi.spyOn(bridge, "normalizeTextValues").mockResolvedValue({
       dataset: { ...original, rows: [["bogota", "A1"]] },
@@ -1634,10 +1645,10 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Aplicar \d+ cambios?$/ }));
 
     expect(await screen.findByText("Plan aplicado: 1 celda actualizada.")).toBeInTheDocument();
-    expect(trimSpy).toHaveBeenCalledWith({ trimText: true, normalizeSentinels: false, normalizeColumnNames: false, removeDuplicates: false });
+    expect(trimSpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: true, normalizeSentinels: false, normalizeColumnNames: false, removeDuplicates: false }));
 
     fireEvent.click(screen.getByRole("checkbox", { name: "city" }));
     fireEvent.click(screen.getByRole("button", { name: "Normalizar texto seleccionado" }));
@@ -1676,20 +1687,20 @@ describe("App", () => {
       removedRowCount: 0,
       renamedColumnCount: 1,
       renames: [{ from: "Ciudad Nombre", to: "ciudad_nombre" }],
+      imputedCellCount: 0,
     });
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("checkbox", { name: /Normalizar nombres de las 1 columnas/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
+    applyProposalWithColumnNames();
 
     expect(
       await screen.findByText(/Plan aplicado: 1 celda actualizada y 1 columna renombrada/),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
-    expect(applySpy).toHaveBeenCalledWith({ trimText: true, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false });
+    expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: true, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false }));
   });
 
   it("calcula y presenta el perfil de calidad del dataset", async () => {
@@ -1758,6 +1769,7 @@ describe("App", () => {
       removedRowCount: 1,
       renamedColumnCount: 0,
       renames: [],
+      imputedCellCount: 0,
     });
     const undoSpy = vi.spyOn(bridge, "undoLastChange").mockResolvedValue({
       dataset: {
@@ -1797,15 +1809,16 @@ describe("App", () => {
     expect(profileSpy).toHaveBeenCalledOnce();
 
     await switchPhase("Preparar");
-    expect(screen.getByRole("checkbox", { name: /Retirar 1 fila duplicada exacta/ })).toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
+    expect(screen.getByRole("checkbox", { name: "Quitar 1 fila duplicada" })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: /^Aplicar \d+ cambios?$/ }));
     expect(await screen.findByText(/^Plan aplicado:/)).toBeInTheDocument();
-    expect(safeCorrectionSpy).toHaveBeenCalledWith({
+    expect(safeCorrectionSpy).toHaveBeenCalledWith(expect.objectContaining({
       trimText: false, normalizeSentinels: false, normalizeColumnNames: false, removeDuplicates: true,
-    });
+    }));
     await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(2));
 
-    fireEvent.click(screen.getByRole("button", { name: "Deshacer" }));
+    const result = await screen.findByRole("region", { name: "Listo: cambios aplicados" });
+    fireEvent.click(within(result).getByRole("button", { name: "Deshacer" }));
     await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(3));
     expect(undoSpy).toHaveBeenCalledOnce();
 

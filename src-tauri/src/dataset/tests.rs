@@ -17027,3 +17027,51 @@ fn safe_correction_plan_can_include_conservative_imputation() {
         Some("Santiago")
     );
 }
+
+#[test]
+fn full_proposal_plan_on_a_streamed_csv_publishes_a_writable_snapshot() {
+    // Large enough for the streaming reader to keep several chunks per column,
+    // like the user's CSV that exposed the "expected equal chunks" panic.
+    let mut contents = String::from("ciudad,monto,estado\n");
+    for index in 0..30_000 {
+        let city = match index % 4 {
+            0 => " Santiago ",
+            1 => "Santiago",
+            2 => "",
+            _ => "La Vega",
+        };
+        let amount = if index % 7 == 0 {
+            String::new()
+        } else {
+            (index % 100).to_string()
+        };
+        contents.push_str(&format!("{city},{amount},activo\n"));
+        if index % 1_000 == 0 {
+            contents.push_str("La Vega,5,activo\nLa Vega,5,activo\n");
+        }
+    }
+    let path = temporary_delimited("csv", &contents);
+    let (frame, _) = load_csv(&path).expect("carga CSV");
+    assert!(
+        frame
+            .column("monto")
+            .unwrap()
+            .as_materialized_series()
+            .n_chunks()
+            > 1,
+        "la carga debe conservar varios bloques"
+    );
+
+    let plan =
+        safe_corrected_plan_frame(&frame, true, false, true, true, true).expect("plan completo");
+    assert!(plan.changed_cell_count > 0, "recorta espacios");
+    assert!(plan.removed_row_count > 0, "quita duplicados");
+    assert!(plan.imputed_cell_count > 0, "rellena vacíos");
+    assert_eq!(plan.frame.column("monto").unwrap().null_count(), 0);
+
+    let history = HistoryManager::new(&frame).expect("historial");
+    history
+        .prepare_frame_snapshot(&plan.frame, || false)
+        .expect("el snapshot del plan completo debe escribirse");
+    let _ = fs::remove_file(path);
+}

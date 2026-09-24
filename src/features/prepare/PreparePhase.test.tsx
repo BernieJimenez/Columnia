@@ -30,7 +30,12 @@ const emptyRecipe: TransformRecipe = {
   outlierTreatments: [], groupSummary: null, contactNormalizations: [], textExtractions: [],
 };
 
+function openAdvancedTools() {
+  fireEvent.click(screen.getByText("Diagnóstico y herramientas avanzadas"));
+}
+
 function openIndividualSignalActions() {
+  openAdvancedTools();
   fireEvent.click(screen.getByText("Revisar señales individuales"));
 }
 
@@ -281,6 +286,7 @@ describe("PreparePhase", () => {
     expect(summary).not.toBeNull();
     const disclosure = summary?.closest("details");
     expect(disclosure).not.toHaveAttribute("open");
+    openAdvancedTools();
     expect(screen.getByRole("region", { name: "Historial de cambios" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
     const beforeSelector = screen.getByLabelText("Antes");
@@ -446,7 +452,7 @@ describe("PreparePhase", () => {
     expect(signals).toHaveTextContent("Tipos sugeridos:");
     expect(signals).toHaveTextContent("Fechas detectadas: fecha_alta coincide con un formato de fecha cerrado.");
     expect(screen.queryByRole("button", { name: "Eliminar duplicados" })).not.toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /Retirar 1 fila duplicada exacta/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Quitar 1 fila duplicada" })).toBeChecked();
     expect(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }).closest("details")).toHaveClass("prepare-signal-details");
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas constantes" }));
     expect(onRemoveConstantColumns).toHaveBeenCalledOnce();
@@ -454,7 +460,7 @@ describe("PreparePhase", () => {
     expect(onRemoveEmptyColumns).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas con alta nulidad" }));
     expect(onRemoveHighNullColumns).toHaveBeenCalledOnce();
-    expect(screen.getByRole("checkbox", { name: /Convertir marcadores de ausencia detectados/ })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Convertir 1 marcador de «sin dato» en 1 columna" })).toBeChecked();
     expect(screen.queryByRole("button", { name: "Convertir centinelas a nulos" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Corregir codificación" }));
     expect(onFixEncoding).toHaveBeenCalledOnce();
@@ -768,8 +774,8 @@ describe("PreparePhase", () => {
       {...callbacks}
     />);
 
-    expect(screen.getByRole("heading", { name: "Preparando el diagnóstico del dataset" })).toBeInTheDocument();
-    expect(screen.getByText(/El análisis se ejecuta automáticamente/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Analizando tus datos" })).toBeInTheDocument();
+    expect(screen.getByText("En cuanto termine verás los cambios propuestos.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Analizar antes de preparar" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Analizar calidad" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
@@ -866,19 +872,29 @@ describe("PreparePhase", () => {
     fireEvent.click(screen.getByLabelText("Eliminar acentos"));
     fireEvent.click(screen.getByRole("button", { name: "Normalizar texto seleccionado" }));
     expect(callbacks.onNormalizeText).toHaveBeenCalledWith(["nombre"], false);
-    expect(screen.getByRole("heading", { name: "Revisa las correcciones antes de aplicarlas" })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /Recortar espacios exteriores/ })).toBeChecked();
-    expect(screen.getAllByText(/Normalizar encabezados puede afectar consultas e integraciones/).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("checkbox", { name: /Normalizar nombres de las 2 columnas/ }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /Convertir marcadores de ausencia detectados/ }));
-    expect(screen.getByRole("checkbox", { name: /Convertir marcadores de ausencia detectados/ })).toBeChecked();
-    expect(screen.queryByRole("button", { name: "Convertir centinelas a nulos" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
+    expect(screen.getByRole("heading", { name: "Columnia propone 4 cambios" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Recortar espacios al inicio y al final del texto" })).toBeChecked();
+    const examplesToggle = screen.getAllByRole("button", { name: "Ver ejemplos" })[0];
+    fireEvent.click(examplesToggle);
+    expect(examplesToggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("list", { name: "Ejemplos: Recortar espacios al inicio y al final del texto" })).toHaveTextContent("·Ana·");
+    // Manual mode: one question per screen, then the optional column-name step.
+    fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
+    expect(screen.getByText("Paso 1 de 5")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    fireEvent.click(screen.getByRole("radio", { name: "No, dejarlos" }));
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    expect(screen.getByRole("group", { name: "¿Normalizamos los nombres de las 2 columnas?" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Sí, normalizar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
     expect(callbacks.onApplyRecommended).toHaveBeenCalledWith({
-      trimText: true,
+      trimText: false,
       normalizeSentinels: true,
       normalizeColumnNames: true,
       removeDuplicates: true,
+      imputeMissing: true,
     });
 
     cleanup();
@@ -929,7 +945,7 @@ describe("PreparePhase", () => {
     };
     const { rerender } = render(<PreparePhase {...props} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar 4 cambios" }));
     expect(onApplyRecommended).toHaveBeenCalledOnce();
 
     const afterProfile: DatasetProfile = {
@@ -949,18 +965,20 @@ describe("PreparePhase", () => {
       changeStatus={{ kind: "applied", message: "Se retiraron 1 filas duplicadas exactas" }}
       historyStatus={{
         ...props.historyStatus,
+        canUndo: true,
         entries: [
           { id: "after", index: 9, label: "Aplicar correcciones recomendadas", isCurrent: true },
         ],
       }}
     />);
 
-    const result = screen.getByRole("region", { name: "Resultado de la última preparación" });
-    expect(result).toHaveTextContent("Dataset inicial → Aplicar correcciones recomendadas");
-    expect(result).toHaveTextContent("9 → 10");
-    expect(result).toHaveTextContent("5 → 4");
+    const result = screen.getByRole("region", { name: "Listo: cambios aplicados" });
+    expect(result).toHaveTextContent(/Filas\s*5 → 4/);
     expect(result).toHaveTextContent(/Filas duplicadas\s*1 → 0/);
-    expect(result).toHaveTextContent(/Valores incompatibles\s*\d+ → 0/);
+    expect(result).toHaveTextContent(/Valores vacíos\s*\d+ → 0/);
+    fireEvent.click(within(result).getByRole("button", { name: "Deshacer" }));
+    expect(props.onUndo).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("region", { name: "Listo: cambios aplicados" })).not.toBeInTheDocument();
   });
 
   it("prioriza correcciones con señal y oculta herramientas sin columnas compatibles", () => {
@@ -1026,11 +1044,10 @@ describe("PreparePhase", () => {
     expect(screen.queryByRole("heading", { name: "Duplicados parecidos" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Eliminar espacios exteriores" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Normalizar texto" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Aplicar plan seleccionado" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "No hay cambios que proponer" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Eliminar filas vacías" }).closest("details")).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: /Recortar espacios exteriores/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: /Convertir marcadores de ausencia detectados/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /Normalizar nombres de las 1 columnas/ })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Recortar espacios/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /sin dato/ })).not.toBeInTheDocument();
   });
 });
 

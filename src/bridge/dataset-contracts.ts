@@ -415,8 +415,8 @@ export interface SafeCorrectionsResult {
   removedRowCount: number;
   renamedColumnCount: number;
   renames: ColumnRename[];
-  /** Absent in desktop builds older than the one-revision plan. */
-  imputedCellCount?: number;
+  /** Cells filled by the optional imputation of the same plan. */
+  imputedCellCount: number;
 }
 
 export interface SafeCorrectionOptions {

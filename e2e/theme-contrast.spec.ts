@@ -115,7 +115,7 @@ for (const theme of themes) {
     const failures: string[] = [];
     failures.push(...(await contrastFailures(page)).map((failure) => `Revisar: ${failure}`));
     await workflow.getByRole("button", { name: "Preparar", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Aplicar plan seleccionado" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Aplicar \d+ cambios?$/ })).toBeVisible();
     failures.push(...(await contrastFailures(page)).map((failure) => `Preparar: ${failure}`));
     await workflow.getByRole("button", { name: "Entregar", exact: true }).click();
     await expect(page.getByText(/Datos personales detectados/)).toBeVisible();

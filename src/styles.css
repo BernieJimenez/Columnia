@@ -264,21 +264,6 @@ summary:focus-visible,
 .history-details li[aria-current="step"] { color: var(--accent); background: #e3f0ec; }
 .history-details li span:first-child { color: var(--text-secondary); font-size: .68rem; font-weight: 800; text-transform: uppercase; }
 .history-details li strong { font-size: .75rem; text-transform: uppercase; }
-.recommended-batch { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 16px; padding: 18px 20px; border: 1px solid #79aaa1; background: #e8f4f0; }
-.recommended-batch h3 { margin: 5px 0 0; font-size: 1.15rem; }
-.recommended-batch p:last-child { margin: 7px 0 0; color: var(--text-secondary); }
-.recommended-batch button { flex: 0 0 auto; padding: 9px 14px; border: 0; border-radius: 4px; background: var(--accent); color: var(--on-accent); font-weight: 750; cursor: pointer; }
-.recommended-batch button:disabled { cursor: wait; opacity: .45; }
-.prepare-plan { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
-.prepare-plan__choices { display: grid; gap: 8px; margin: 12px 0 0; padding: 12px; border: 1px solid var(--border-subtle); }
-.prepare-plan__choices legend { padding: 0 6px; color: var(--text-secondary); font-size: .75rem; font-weight: 750; }
-.prepare-plan__choices label { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; font-size: .86rem; }
-.prepare-plan__choices input { margin-top: 3px; }
-.prepare-plan__note { font-size: .82rem; }
-@media (max-width: 680px) {
-  .prepare-plan { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
-  .prepare-plan > button { justify-self: start; }
-}
 .prepare-card--stacked { align-items: stretch; flex-direction: column; }
 .text-cleaning-options { display: grid; gap: 14px; }
 .text-cleaning-options fieldset { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 12px; border: 1px solid var(--border-subtle); }
@@ -871,7 +856,6 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 .section-heading,
 .prepare-card,
 .history-bar,
-.recommended-batch,
 .prepare-analysis-prompt,
 .transform-recipe__intro,
 .transform-recipe__footer,
@@ -993,8 +977,6 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .history-actions button { border-color: var(--accent); color: var(--accent); }
   .history-details { color: var(--text-secondary); }
   .history-details li[aria-current="step"] { color: var(--accent); background: var(--surface-subtle); }
-  .recommended-batch { border-color: #527e76; background: #21463f; }
-  .recommended-batch p:last-child { color: var(--text-secondary); }
   .text-cleaning-options fieldset { border-color: var(--border-subtle); }
   .text-cleaning-options legend { color: var(--text-secondary); }
   .text-cleaning-options label { background: var(--surface-subtle); }
@@ -1494,7 +1476,7 @@ body { color: var(--text-primary); background: var(--canvas); }
 .sidebar { background: var(--sidebar-surface); border-color: var(--border-subtle); }
 .workspace { color: var(--text-primary); background: var(--surface); border-color: var(--border-subtle); }
 .workspace :is(input, select, textarea) { background: var(--surface-raised); color: var(--text-primary); border-color: var(--border-subtle); }
-.workspace :is(.history-bar, .recommended-batch, .comparison-key-selector, .comparison-key-summary, .join-selector, .recipe-files, .transform-recipe fieldset) {
+.workspace :is(.history-bar, .comparison-key-selector, .comparison-key-summary, .join-selector, .recipe-files, .transform-recipe fieldset) {
   color: var(--text-primary);
   background: var(--surface-subtle);
   border-color: var(--border-subtle);
@@ -1503,8 +1485,8 @@ body { color: var(--text-primary); background: var(--canvas); }
   background: var(--surface-raised);
   border-color: var(--border-subtle);
 }
-.workspace :is(.history-bar, .recommended-batch, .comparison-key-selector, .comparison-key-summary, .join-selector, .recipe-files, .transform-recipe fieldset) :is(h3, h4, strong, legend) { color: var(--text-primary); }
-.workspace :is(.history-bar, .recommended-batch, .comparison-key-selector, .comparison-key-summary, .join-selector, .recipe-files, .transform-recipe fieldset) :is(p, small, label, span) { color: var(--text-secondary); }
+.workspace :is(.history-bar, .comparison-key-selector, .comparison-key-summary, .join-selector, .recipe-files, .transform-recipe fieldset) :is(h3, h4, strong, legend) { color: var(--text-primary); }
+.workspace :is(.history-bar, .comparison-key-selector, .comparison-key-summary, .join-selector, .recipe-files, .transform-recipe fieldset) :is(p, small, label, span) { color: var(--text-secondary); }
 .stage-tabs button { color: var(--text-secondary); padding: 12px 4px; font-weight: 600; }
 .stage-tabs .stage-tab--active { color: var(--accent); border-bottom-color: var(--accent); }
 .recipe-files button,
@@ -1761,7 +1743,6 @@ body { color: var(--text-primary); background: var(--canvas); }
 .prepare-card > button { min-width: 190px; }
 .prepare-card:last-child { border-bottom: 0; }
 .prepare-card p:last-child { max-width: 760px; font-size: .875rem; line-height: 1.5; }
-.recommended-batch { border-left-width: 1px; }
 .cleaning-signals { border-left: 0; }
 .prepare-analysis-prompt {
   display: flex;

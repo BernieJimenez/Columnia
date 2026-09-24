@@ -10,6 +10,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- Preparar muestra una sola propuesta: «Columnia propone N cambios», con una
+  casilla por cambio, «Ver ejemplos» (antes → después) y un botón «Aplicar N
+  cambios». Nada se aplica sin tu clic. Después se ve cómo quedaron los datos y
+  se puede deshacer todo de una vez. «Personalizar paso a paso» hace una
+  pregunta por pantalla. El diagnóstico completo, el historial y las
+  transformaciones quedan en «Diagnóstico y herramientas avanzadas».
 - Las correcciones recomendadas de Preparar pueden incluir la imputación
   conservadora (mediana en números, valor más frecuente en texto) en la misma
   revisión: un solo «Deshacer» revierte todo el plan.

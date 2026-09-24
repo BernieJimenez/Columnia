@@ -317,7 +317,7 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await activateWithKeyboard(page, page.getByRole("button", { name: "Volver a Preparar", exact: true }), "Volver a Preparar");
     await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
     await inspectHorizontalLayout("zoom 200 % · Preparar");
-    const prepareAction = page.getByRole("button", { name: "Aplicar plan seleccionado" });
+    const prepareAction = page.getByRole("button", { name: /^Aplicar \d+ cambios?$/ });
     const nextAction = page.getByRole("button", { name: "Revisar opciones de entrega" });
     await expect(prepareAction).toBeEnabled();
     await expect(nextAction).toBeEnabled();
