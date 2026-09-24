@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 14 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 15 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -521,13 +521,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-23 — `-DryRun` imprime el plan y marca el informe; se conserva a propósito el mismo recorrido de gates y build porque `release:updater:dry-run` debe verificar artefactos firmados reales (docs/reference/legal-distribution-review.md). Documentado en la cabecera del script; parseo PowerShell sin errores.
-- [ ] **[T10-32] Ofrecer un hook local de pre-push con el perfil Fast**
+- [x] **[T10-32] Ofrecer un hook local de pre-push con el perfil Fast**
   - **Área:** DevOps y configuración · **Severidad:** Baja
   - **Ubicación:** `CONTRIBUTING.md`
   - **Qué hacer:** versionar un hook opcional que ejecute el perfil Fast y Clippy antes de publicar. No es CI y respeta la decisión vigente.
   - **Criterio de aceptación:** documentado en CONTRIBUTING; un push con Clippy en rojo se detiene localmente.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — `.githooks/pre-push` (perfil Fast + Clippy `-D warnings`, `set -e`) documentado en CONTRIBUTING; ejecutado de principio a fin con código 0. Activación opcional por clon con `git config core.hooksPath .githooks` (no activado aquí).
 - [x] **[T10-33] Redactar de forma robusta los secretos en los errores ODBC**
   - **Área:** Seguridad · **Severidad:** Baja
   - **Ubicación:** `src-tauri/src/remote_databases.rs:1256-1271`
@@ -557,7 +558,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 14 de 33 | Fase 2 en curso: cerradas hasta ahora T10-20 y anteriores de esta tanda. |
+| 2026-09-23 | 15 de 33 | Fase 2 en curso: cerradas hasta ahora T10-32 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 

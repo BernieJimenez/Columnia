@@ -44,6 +44,16 @@ Para cambios Rust, IPC, persistencia o seguridad ejecuta también:
 .\tools\check.ps1 -Profile Full
 ```
 
+Como no hay CI, puedes activar en tu clon un hook de pre-push que ejecuta el
+perfil Fast y Clippy con `-D warnings` antes de publicar:
+
+```powershell
+git config core.hooksPath .githooks
+```
+
+El hook es opcional y local; `git push --no-verify` lo omite para un envío
+concreto.
+
 Para cambios de release o empaquetado ejecuta `Release` o `Package` según
 corresponda. Los smokes de WebView2 y los recorridos que requieren un escritorio
 interactivo se documentan junto con su evidencia; no se sustituyen por una
