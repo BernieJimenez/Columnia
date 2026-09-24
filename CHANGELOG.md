@@ -74,6 +74,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- T10-16 (parcial): leer el historial, limpiar la comparación y descartar una
+  selección ya no se ejecutan en el hilo de la ventana, así que no pueden
+  congelarla mientras otra operación larga usa el dataset.
 - Cuando una operación falla por un error interno, el aviso ya no muestra el
   texto técnico del motor (por ejemplo «task 122 panicked with message…»): dice
   qué se interrumpió, que se puede reintentar y dónde está el informe local.

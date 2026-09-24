@@ -7556,10 +7556,21 @@ pub async fn resolve_dataset_conflicts(
     })?
 }
 
+// Commands that take a shared lock run off the main thread: a synchronous
+// Tauri command waits on the window's thread, so a long operation holding the
+// lock would freeze the window (T10-16).
 #[tauri::command]
-pub fn clear_dataset_comparison(state: State<'_, DatasetState>) -> Result<(), String> {
-    *state.comparison.lock_recovering() = None;
-    Ok(())
+pub async fn clear_dataset_comparison(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        *app.state::<DatasetState>().comparison.lock_recovering() = None;
+    })
+    .await
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La limpieza de la comparación se interrumpió",
+            &error,
+        )
+    })
 }
 
 #[tauri::command]
@@ -7786,11 +7797,14 @@ pub async fn load_dataset_selection(
 }
 
 #[tauri::command]
-pub fn discard_dataset_selection(
-    state: State<'_, DatasetState>,
-    selection_id: String,
-) -> Result<(), String> {
-    import_loading::discard_dataset_selection_impl(state, selection_id)
+pub async fn discard_dataset_selection(app: AppHandle, selection_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        import_loading::discard_dataset_selection_impl(app.state::<DatasetState>(), selection_id)
+    })
+    .await
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("El descarte de la selección se interrumpió", &error)
+    })?
 }
 #[tauri::command]
 pub async fn get_dataset_page(
@@ -10350,8 +10364,14 @@ pub async fn redo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
 }
 
 #[tauri::command]
-pub fn get_history_state(state: State<'_, DatasetState>) -> Result<HistoryState, String> {
-    get_history_state_impl(state)
+pub async fn get_history_state(app: AppHandle) -> Result<HistoryState, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        get_history_state_impl(app.state::<DatasetState>())
+    })
+    .await
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La lectura del historial se interrumpió", &error)
+    })?
 }
 
 impl DatasetState {

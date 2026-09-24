@@ -415,6 +415,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Criterio de aceptación:** con una operación de al menos 5 s en curso, `get_app_info` responde en menos de 100 ms.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Parcial 2026-09-24:** aplicado el remedio sin la medición: `get_history_state`, `clear_dataset_comparison` y `discard_dataset_selection`, los únicos comandos síncronos que tomaban candados compartidos (`current`, `comparison`, `pending_selection`), pasan a asíncronos con `spawn_blocking`, así que ya no esperan en el hilo de la ventana. Nombres y respuestas IPC sin cambios; inventario IPC aprobado; suite Rust 512 aprobadas; smoke CDP nativo aprobado con el ejecutable recompilado (`.local/validation/webview2-cdp/20260924T171632Z`). Queda abierta hasta medir en WebView2 que `get_app_info` responde en menos de 100 ms con una operación de 5 s en curso, lo que requiere cargar un dataset grande en la app real.
 - [x] **[T10-17] Aislar los smokes nativos de los datos reales de la app**
   - **Área:** DevOps y configuración · **Severidad:** Media
   - **Ubicación:** `tools/probe-webview2-cdp.ps1`; `tools/probe-webview2-native-selectors.mjs:419`, `:472-474`
