@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 24 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 25 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -423,13 +423,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-23 — `tools/app-data-guard.ps1` respalda `%APPDATA%\app.columnia.desktop` en el temporal del sistema y lo restaura tras detener la app (`probe-webview2-cdp.ps1` en modo normal, `probe-webview2-restart.ps1` envolviendo ambas fases); `smoke:cdp` y `smoke:restart` aprobados con datos byte a byte idénticos, `appDataRestored: true` y ninguna copia residual. Se borraron las 3 tareas sintéticas del 2026-09-23 tras respaldar el catálogo.
-- [ ] **[T10-18] Medir la cobertura del motor Rust**
+- [x] **[T10-18] Medir la cobertura del motor Rust**
   - **Área:** QA y testing · **Severidad:** Media
   - **Ubicación:** `tools/check.ps1:241-253`; `tools/check-coverage.mjs:4-8`
   - **Qué hacer:** añadir cobertura Rust al perfil Full como línea base por módulo; añadir umbrales para `deliveryModel.ts` y `ReviewPhase.tsx`.
   - **Criterio de aceptación:** informe de cobertura Rust en `.local/validation`; umbrales nuevos aplicados.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — El perfil Full añade «Rust coverage baseline» (`cargo llvm-cov --lib` + `tools/summarize-rust-coverage.mjs`, con pruebas 2/2) y guarda el informe por módulo en `.local/validation`; verificado ejecutando los comandos del paso: 511 pruebas, 70,94 % de líneas en 15 módulos. `tools/check-coverage.mjs` aplica umbrales a `deliveryModel.ts` y `ReviewPhase.tsx` (7 archivos aprobados). La cobertura Rust aún no tiene umbral: queda como línea base hasta disponer de historial.
 - [x] **[T10-19] Comprobar contraste y reglas axe por tema en los E2E**
   - **Área:** QA y testing · **Severidad:** Media
   - **Ubicación:** `e2e/workflow-accessibility.spec.ts`; `e2e/design-preferences.spec.ts`
@@ -568,7 +569,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 24 de 33 | Fase 2 en curso: cerradas hasta ahora T10-22 y anteriores de esta tanda. |
+| 2026-09-23 | 25 de 33 | Fase 2 en curso: cerradas hasta ahora T10-18 y anteriores de esta tanda. |
 | 2026-09-23 | 20 de 33 | Fase 2 en curso; T10-05 y T10-08 parciales. |
 
 ## Criterio de salida de V1

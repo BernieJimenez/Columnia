@@ -118,6 +118,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Interno
 
+- T10-18: el perfil Full mide la cobertura Rust con `cargo llvm-cov` y guarda
+  una línea base por módulo en `.local/validation` (sin umbral todavía). La
+  cobertura crítica del frontend añade umbrales de no retroceso para
+  `deliveryModel.ts` y `ReviewPhase.tsx`.
 - Reauditoría del 2026-09-23 (código, seguridad, accesibilidad, UI/UX,
   arquitectura, QA, documentación y DevOps): abre el Tier 10 en
   [`ROADMAP.md`](ROADMAP.md) con 33 tareas (T10-01 a T10-33) y consolida el

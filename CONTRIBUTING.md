@@ -44,6 +44,14 @@ Para cambios Rust, IPC, persistencia o seguridad ejecuta también:
 .\tools\check.ps1 -Profile Full
 ```
 
+`Full` también ejecuta los E2E, el escaneo de secretos, la política de red y una
+línea base de cobertura Rust por módulo. Esta última necesita `cargo-llvm-cov`:
+
+```powershell
+cargo install cargo-llvm-cov
+rustup component add llvm-tools-preview
+```
+
 Como no hay CI, puedes activar en tu clon un hook de pre-push que ejecuta el
 perfil Fast y Clippy con `-D warnings` antes de publicar:
 

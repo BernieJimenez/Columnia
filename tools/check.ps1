@@ -268,6 +268,27 @@ try {
         Invoke-Checked "Network policy" $ProjectRoot {
             & node tools/check-network-policy.mjs
         }
+        # Baseline only: the per-module report is recorded, not enforced, until
+        # there is a history to set thresholds from (T10-18).
+        Invoke-Checked "Rust coverage baseline" $TauriRoot {
+            if (-not (Get-Command cargo-llvm-cov -ErrorAction SilentlyContinue)) {
+                throw "Falta cargo-llvm-cov. Instálalo con: cargo install cargo-llvm-cov; rustup component add llvm-tools-preview"
+            }
+            $rawCoverage = Join-Path $ProjectRoot ".local\validation\$RunStamp-$ShortCommit-rust-coverage-llvm.json"
+            $coverageBaseline = Join-Path $ProjectRoot ".local\validation\$RunStamp-$ShortCommit-rust-coverage.json"
+            $manifestVariable = "COLUMNIA_TEST_HARNESS_MANIFEST"
+            $previousManifestSetting = [System.Environment]::GetEnvironmentVariable($manifestVariable, "Process")
+            [System.Environment]::SetEnvironmentVariable($manifestVariable, "1", "Process")
+            try {
+                cargo llvm-cov --lib --json --summary-only --output-path $rawCoverage
+                if ($LASTEXITCODE -eq 0) {
+                    node (Join-Path $ProjectRoot "tools\summarize-rust-coverage.mjs") $rawCoverage $coverageBaseline
+                }
+            }
+            finally {
+                [System.Environment]::SetEnvironmentVariable($manifestVariable, $previousManifestSetting, "Process")
+            }
+        }
     }
     if ($Profile -in @("Full", "Release", "Package")) {
         Invoke-Checked "End-to-end tests" $ProjectRoot { npm run test:e2e }
