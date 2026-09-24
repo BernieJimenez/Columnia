@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 22 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 23 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -514,13 +514,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-23 — `ConvertTo-Json -Depth 32` y aviso si reaparecen objetos sin serializar; `npm run smoke:cdp` en WebView2 aprobado con evidencia `.local/validation/webview2-cdp/20260924T013549Z` sin `System.Object[]` ni `@{`.
-- [ ] **[T10-30] Alinear el perfil Full con lo que se declara de él**
+- [x] **[T10-30] Alinear el perfil Full con lo que se declara de él**
   - **Área:** DevOps y configuración · **Severidad:** Baja
   - **Ubicación:** `tools/check.ps1:206-266`
   - **Qué hacer:** incluir en Full los E2E y los escaneos de secretos y red, o declarar explícitamente que no los cubre; ejecutar las pruebas de todos los objetivos Rust.
   - **Criterio de aceptación:** el informe JSON del perfil Full lista E2E, secretos y red.
   - **Esfuerzo:** bajo
   - **Depende de:** T10-07
+  - **Cerrada:** 2026-09-23 — Informe `.local/validation/20260924T023448Z-1bde062-full.json`: 18/18 etapas aprobadas, incluidas «Secrets scan», «Network policy» y «End-to-end tests» (26/26); frontend 468/468 y Rust 507 aprobadas / 6 ignoradas. El gate corrió con el `check.ps1` del commit de esta tarea, idéntico al del árbol de trabajo. Las pruebas Rust siguen en `--lib`: `--all-targets` duplica el manifiesto de Windows al enlazar los binarios, que no tienen pruebas.
 - [x] **[T10-31] Dar un significado real a `-DryRun` en release.ps1**
   - **Área:** DevOps y configuración · **Severidad:** Baja
   - **Ubicación:** `tools/release.ps1:3`, `:237-242`
@@ -566,7 +567,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 22 de 33 | Fase 2 en curso: cerradas hasta ahora T10-15 y anteriores de esta tanda. |
+| 2026-09-23 | 23 de 33 | Fase 2 en curso: cerradas hasta ahora T10-30 y anteriores de esta tanda. |
 | 2026-09-23 | 20 de 33 | Fase 2 en curso; T10-05 y T10-08 parciales. |
 
 ## Criterio de salida de V1
