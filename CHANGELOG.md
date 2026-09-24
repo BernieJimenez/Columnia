@@ -10,6 +10,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Seguridad
 
+- T10-33: los mensajes de error ODBC ocultan también las contraseñas entre
+  llaves que contienen `;` y los tokens de acceso de la cadena de conexión.
 - T10-06: el preflight ODBC bloquea la entrega a un servidor remoto si la
   cadena de conexión no exige cifrado (`Encrypt=yes`, `sslmode=require` o
   `SSLMODE=REQUIRED`); si se desactiva expresamente o se acepta cualquier

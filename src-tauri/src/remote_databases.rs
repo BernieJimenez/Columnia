@@ -1358,18 +1358,68 @@ fn is_decimal_dtype(dtype: &str) -> bool {
         || matches!(dtype, "f32" | "f64")
 }
 
+/// Splits an ODBC connection string into `key=value` attributes. Values in
+/// braces may contain `;`, so separators are only honored outside braces.
+fn odbc_attributes(connection_string: &str) -> Vec<(String, String)> {
+    let mut attributes = Vec::new();
+    let mut current = String::new();
+    let mut in_braces = false;
+    for character in connection_string.chars() {
+        match character {
+            '{' => {
+                in_braces = true;
+                current.push(character);
+            }
+            '}' => {
+                in_braces = false;
+                current.push(character);
+            }
+            ';' if !in_braces => {
+                attributes.push(std::mem::take(&mut current));
+            }
+            _ => current.push(character),
+        }
+    }
+    attributes.push(current);
+    attributes
+        .into_iter()
+        .filter_map(|part| {
+            part.split_once('=')
+                .map(|(key, value)| (key.trim().to_ascii_lowercase(), value.trim().to_owned()))
+        })
+        .collect()
+}
+
+fn is_secret_attribute(key: &str) -> bool {
+    matches!(
+        key,
+        "pwd"
+            | "password"
+            | "pass"
+            | "secret"
+            | "token"
+            | "accesstoken"
+            | "access_token"
+            | "apikey"
+            | "api_key"
+            | "sslpassword"
+            | "clientsecret"
+            | "client_secret"
+    )
+}
+
 fn format_driver_error<E: Debug>(context: &str, error: E, target: &DatabaseTarget) -> String {
     let mut detail = format!("{error:?}");
-    for part in target.connection_string.split(';') {
-        let Some((key, value)) = part.split_once('=') else {
+    for (key, value) in odbc_attributes(&target.connection_string) {
+        if !is_secret_attribute(&key) {
             continue;
-        };
-        if matches!(
-            key.trim().to_ascii_lowercase().as_str(),
-            "pwd" | "password" | "pass" | "secret" | "token"
-        ) && !value.trim().is_empty()
-        {
-            detail = detail.replace(value.trim(), "[REDACTED]");
+        }
+        // Redact both the braced form and the bare value the driver may echo.
+        let bare = value.trim_start_matches('{').trim_end_matches('}');
+        for candidate in [value.as_str(), bare] {
+            if !candidate.is_empty() {
+                detail = detail.replace(candidate, "[REDACTED]");
+            }
         }
     }
     if detail.contains("HYT00") || detail.contains("HYT01") {
@@ -1406,6 +1456,21 @@ mod tests {
             table: "ventas".to_owned(),
             table_policy: DatabaseTablePolicy::CreateOnly,
         }
+    }
+
+    #[test]
+    fn redacts_braced_secrets_that_contain_separators() {
+        let mut value = target(DatabaseKind::SqlServer);
+        value.connection_string =
+            "Driver={ODBC Driver 18};Server=db;PWD={p;a=ss};AccessToken=tok-123".to_owned();
+        let error = format_driver_error(
+            "falló",
+            "Login failed; PWD={p;a=ss} p;a=ss AccessToken=tok-123",
+            &value,
+        );
+        assert!(!error.contains("p;a=ss"), "{error}");
+        assert!(!error.contains("tok-123"), "{error}");
+        assert!(error.contains("[REDACTED]"), "{error}");
     }
 
     #[test]
