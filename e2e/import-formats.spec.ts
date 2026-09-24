@@ -214,7 +214,7 @@ for (const fixture of importCases) {
     if (fixture.format === "csv") {
       const dialog = page.getByRole("dialog", { name: `Revisar encabezados de ${fixture.fileName}` });
       await expect(dialog).toBeVisible();
-      const importOptions = dialog.locator("details.sheet-import-options");
+      const importOptions = dialog.locator("details.sheet-import-options").filter({ hasText: "Interpretación de fechas y números" });
       await expect(importOptions).not.toHaveAttribute("open", "");
       await importOptions.locator("summary").focus();
       await page.keyboard.press("Enter");
