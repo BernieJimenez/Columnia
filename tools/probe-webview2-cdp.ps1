@@ -926,7 +926,12 @@ finally {
         environmentVariable = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
         evidenceDirectory = $EvidenceRelativePath
         error = $FailureMessage
-    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
+    } | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
+    # ConvertTo-Json silently stringifies anything deeper than -Depth; keep the
+    # evidence re-verifiable by flagging PowerShell object representations.
+    if ((Get-Content -LiteralPath $SummaryPath -Raw) -match 'System\.Object\[\]|"@\{') {
+        Write-Warning "La evidencia $SummaryPath contiene objetos de PowerShell sin serializar; aumenta la profundidad de ConvertTo-Json."
+    }
 }
 
 if (-not $PerformanceBudget.enforced -and $PerformanceBudget.status -eq "exceeded") {

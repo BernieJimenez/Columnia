@@ -1,0 +1,15 @@
+#!/bin/sh
+# Optional local gate before publishing commits. It is not CI: the project keeps
+# validation local by decision. Enable it once per clone with:
+#   git config core.hooksPath .githooks
+# Skip it for a single push with: git push --no-verify
+set -e
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+echo "[pre-push] Perfil Fast"
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/check.ps1 -Profile Fast
+
+echo "[pre-push] Clippy con -D warnings"
+(cd src-tauri && cargo clippy --all-targets -- -D warnings)
