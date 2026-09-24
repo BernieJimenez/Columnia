@@ -1994,7 +1994,10 @@ export function App() {
               <div className="flow-footer__copy">
                 <p className="step">Siguiente paso</p>
                 <strong>{activePhase === "review" && profileStatus.kind === "ready" ? "Plan de preparación" : nextPhase.label}</strong>
-                <p>{primaryNextDescription}</p>
+                {/* Only when it tells the user something the button does not. */}
+                {(!activeDataset || (profileGatedPhase && profileStatus.kind !== "ready")) && (
+                  <p>{primaryNextDescription}</p>
+                )}
               </div>
             )}
             <div className="flow-footer__actions">
