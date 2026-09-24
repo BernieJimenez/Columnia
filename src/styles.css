@@ -633,6 +633,7 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 .quality-summary div { padding: 12px 14px; border: 1px solid var(--border-subtle); background: var(--surface-subtle); }
 .quality-summary dt { color: var(--text-secondary); font-size: .72rem; font-weight: 750; letter-spacing: 0; text-transform: uppercase; }
 .quality-summary dd { margin: 5px 0 0; color: var(--text-primary); font-size: 1.15rem; font-weight: 800; }
+.quality-summary dd.quality-summary__detail { margin-top: 2px; color: var(--text-secondary); font-size: .78rem; font-weight: 500; }
 .quality-action-plan { display: grid; gap: 10px; margin: 16px 0 0; padding: 0; list-style: none; }
 .quality-action-plan li { display: grid; grid-template-columns: 1fr; align-items: center; gap: 16px; padding: 14px; border: 1px solid var(--border-subtle); background: var(--surface-subtle); }
 .quality-action-plan h5 { margin: 0; color: var(--text-primary); font-size: .9rem; }

@@ -29,6 +29,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- T10-27: los lectores de pantalla anuncian «valor ausente» en lugar de «null»;
+  el resumen de calidad de Revisar y los pasos del flujo tienen una estructura
+  y nombres accesibles válidos.
 - T10-12: Entregar muestra qué columnas contienen datos personales detectados
   (correo, teléfono, dirección o nombre) y pide confirmación antes de exportarlas
   sin enmascarar ni aplicar hash. Antes solo aparecía el selector de protección.

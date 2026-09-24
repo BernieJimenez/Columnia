@@ -1636,7 +1636,6 @@ export function App() {
               <button
                 key={phase.id}
                 type="button"
-                aria-label={phase.label}
                 aria-description={phaseComplete ? "Completada" : undefined}
                 className={`side-nav__item side-nav__item--${phaseState}${activePhase === phase.id ? " side-nav__active" : ""}`}
                 aria-current={activePhase === phase.id ? "step" : undefined}

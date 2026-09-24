@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { MissingValue } from "../../components/MissingValue";
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ReviewTabList, type ReviewTab } from "../../components/ReviewTabList";
 import { cancelOperation, getTemporalAggregation, queryDataset } from "../../bridge";
@@ -1117,7 +1118,7 @@ function LocalQueryResult({ result }: { result: DatasetQueryResult }) {
       <div className="profile-region" role="region" tabIndex={0} aria-label="Resultado de consulta SQL">
         <table>
           <thead><tr>{result.columns.map((column) => <th key={column.name} scope="col"><span>{column.name}</span><small>{column.dataType}</small></th>)}</tr></thead>
-          <tbody>{result.rows.map((row, rowIndex) => <tr key={result.offset + rowIndex}>{row.map((value, columnIndex) => <td key={columnIndex}>{value ?? <span className="null-value">null</span>}</td>)}</tr>)}</tbody>
+          <tbody>{result.rows.map((row, rowIndex) => <tr key={result.offset + rowIndex}>{row.map((value, columnIndex) => <td key={columnIndex}>{value ?? <MissingValue />}</td>)}</tr>)}</tbody>
         </table>
       </div>
     </div>
@@ -1163,7 +1164,7 @@ export function DatasetPreviewPanel({
             {dataset.rows.map((row, rowIndex) => (
               <tr key={pageOffset + rowIndex}>
                 {row.map((value, columnIndex) => (
-                  <td key={columnIndex}>{value ?? <span className="null-value">null</span>}</td>
+                  <td key={columnIndex}>{value ?? <MissingValue />}</td>
                 ))}
               </tr>
             ))}
@@ -1254,17 +1255,17 @@ function QualityProfile({
         <div>
           <dt>Valores nulos</dt>
           <dd>{totalNullCount.toLocaleString()}</dd>
-          <small>{columnsWithNulls.length.toLocaleString()} columnas afectadas</small>
+          <dd className="quality-summary__detail">{columnsWithNulls.length.toLocaleString()} columnas afectadas</dd>
         </div>
         <div>
           <dt>Duplicados</dt>
           <dd>{profile.duplicateRowCount.toLocaleString()} ({profile.duplicatePercentage.toFixed(1)}%)</dd>
-          <small>filas adicionales</small>
+          <dd className="quality-summary__detail">filas adicionales</dd>
         </div>
         <div>
           <dt>Tipos incompatibles</dt>
           <dd>{invalidTypeCount.toLocaleString()}</dd>
-          <small>según el tipo sugerido</small>
+          <dd className="quality-summary__detail">según el tipo sugerido</dd>
         </div>
         </dl>
         <QualitySnapshot

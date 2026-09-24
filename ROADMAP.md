@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 16 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 17 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -485,13 +485,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Criterio de aceptación:** un mismo archivo muestra el mismo tamaño en el diálogo, Revisar y Entregar (hoy «1 KiB» y «1.0 KB»); sin `toFixed` en textos visibles.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
-- [ ] **[T10-27] Resolver los avisos menores de accesibilidad**
+- [x] **[T10-27] Resolver los avisos menores de accesibilidad**
   - **Área:** Accesibilidad · **Severidad:** Baja
   - **Ubicación:** `src/features/load/LoadPhase.tsx:739`; `src/features/review/ReviewPhase.tsx:1253`; `src/App.tsx:1641`
   - **Qué hacer:** anunciar los valores ausentes como tales y no como la palabra «null»; dejar solo `dt`/`dd` en el `<dl>` de calidad; hacer que el nombre accesible de cada paso contenga su texto visible.
   - **Criterio de aceptación:** Lighthouse 100 en accesibilidad en las cuatro fases (hoy 97 en Revisar y 96 en Preparar).
   - **Esfuerzo:** bajo
   - **Depende de:** T10-02
+  - **Cerrada:** 2026-09-23 — `MissingValue` anuncia «valor ausente»; `<dl>` de calidad solo con `dt`/`dd`; pasos laterales sin `aria-label` redundante. Lighthouse accesibilidad 100 en Revisar, Preparar y Entregar (`.local/auditoria-2026-09-23/lighthouse-T10-27-*`); vitest 460/460, E2E 23/23.
 - [ ] **[T10-28] Hacer visibles los espacios iniciales y finales en las vistas previas**
   - **Área:** UI/UX · **Severidad:** Baja
   - **Ubicación:** `src/styles.css:604`; `src/features/load/LoadPhase.tsx:739`
@@ -559,7 +560,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 16 de 33 | Fase 2 en curso: cerradas hasta ahora T10-12 y anteriores de esta tanda. |
+| 2026-09-23 | 17 de 33 | Fase 2 en curso: cerradas hasta ahora T10-27 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 
