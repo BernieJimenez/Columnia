@@ -15,12 +15,13 @@ beta con datos reales, accesibilidad nativa, SQL Server ni distribución binaria
 Los párrafos detallados de cortes anteriores, con sus rutas de evidencia, están
 en [`docs/reference/historial-verificacion.md`](docs/reference/historial-verificacion.md).
 
-**Último gate Full** (2026-09-23, rama `fix/tier-10-reauditoria`, informe
-`.local/validation/20260924T023448Z-1bde062-full.json`): 18/18 etapas aprobadas. Frontend 468/468 pruebas en
-53 archivos, con los umbrales de cobertura por capa aprobados; Rust
-507 aprobadas y 6 ignoradas; Clippy sin avisos; E2E 26/26; escaneo de secretos y
-política de red aprobados. Los smokes nativos CDP y de reinicio pasan y
-restauran los datos de la app byte a byte (T10-17).
+**Último gate Full** (2026-09-24, rama `feat/preparar-simplificado`, informe
+`.local/validation/20260924T172316Z-db8b438-full.json`): 20/20 etapas aprobadas. Lint sin errores;
+frontend 471/471 pruebas en 54 archivos, con los umbrales de cobertura por capa aprobados; Rust
+512 aprobadas y 6 ignoradas; Clippy sin avisos; E2E 26/26; secretos, política de red y
+línea base de cobertura Rust aprobados. El smoke nativo CDP pasa con la interfaz
+simplificada (`.local/validation/webview2-cdp/20260924T171632Z`) y restaura los
+datos de la app byte a byte (T10-17).
 
 **Tier 10 (reauditoría del 2026-09-23).** El progreso por tarea está en
 [`ROADMAP.md`](ROADMAP.md#progreso-del-tier-10). Ya aplicado en esta rama:
