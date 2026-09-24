@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 13 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 14 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -433,13 +433,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Criterio de aceptación:** la suite falla con los contrastes actuales y pasa tras T10-02.
   - **Esfuerzo:** bajo
   - **Depende de:** T10-02
-- [ ] **[T10-20] Actualizar THREAT_MODEL.md**
+- [x] **[T10-20] Actualizar THREAT_MODEL.md**
   - **Área:** Documentación · **Severidad:** Media
   - **Ubicación:** `THREAT_MODEL.md:3`, `:72`, `:77`
   - **Qué hacer:** añadir las superficies de entrega ODBC, SQL local con DuckDB, catálogos de tareas y presets y updater; actualizar las cifras (85 comandos de producción, esquema v15, 70 estructuras) y los riesgos de T10-03 a T10-06.
   - **Criterio de aceptación:** fecha actualizada; ninguna cifra contradice el inventario IPC; la checklist cubre las salidas de red.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — fecha 2026-09-23; 85 comandos, 70 estructuras y esquema v15 coinciden con el inventario IPC y `projects.rs`; superficies de SQL local, entrega ODBC y catálogos con controles y riesgos residuales (T10-05, T10-14, T10-17 abiertas); la checklist pregunta por salidas de red.
 - [x] **[T10-21] Corregir contradicciones documentales puntuales**
   - **Área:** Documentación · **Severidad:** Media
   - **Ubicación:** `CONTEXTO.md:69`, `:138-166`, `:422-425`, `:608`, `:1819`, `:2178-2181`; `README.md:7`
@@ -556,7 +557,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 13 de 33 | Fase 2 en curso: cerradas hasta ahora T10-21 y anteriores de esta tanda. |
+| 2026-09-23 | 14 de 33 | Fase 2 en curso: cerradas hasta ahora T10-20 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 
