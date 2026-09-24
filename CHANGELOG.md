@@ -10,6 +10,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- El diálogo de importación empieza por la decisión: hoja, encabezados y una
+  muestra de los datos. Las opciones de fechas y números y el perfil guardado van
+  después, y la estimación de memoria y disco queda en «Detalles técnicos».
 - La cabecera ya no repite dónde estás: se quitan la fila «Paso N de 4 · Fase ·
   Después: …» con su barra de progreso y los rótulos pequeños sobre cada título. La
   barra lateral marca el paso actual.

@@ -387,10 +387,10 @@ export function LoadPhase({
           </h3>
           <p id="sheet-description">
             {sheetSelection.source.format === "excel"
-              ? "Elige la hoja y los encabezados. La estimación de recursos está aquí antes de cargar; el dataset activo se conserva hasta terminar."
+              ? "Elige la hoja y los encabezados. Tu dataset actual no cambia hasta que confirmes."
               : isDelimitedSelection
-                ? "Compara las dos interpretaciones y revisa los recursos. El dataset activo se conserva hasta que confirmes la carga."
-                : "Revisa el formato, el perfil y los recursos antes de importar. El dataset activo se conserva hasta que confirmes la carga."}
+                ? "Comprueba cómo se leen las columnas. Tu dataset actual no cambia hasta que confirmes."
+                : "Revisa las columnas antes de importar. Tu dataset actual no cambia hasta que confirmes."}
           </p>
           {sheetSelection.source.isCompressedContainer && (
             <p className="notice" role="note">
@@ -398,7 +398,6 @@ export function LoadPhase({
               Cierra otras aplicaciones si el archivo es grande.
             </p>
           )}
-          <ResourceEstimateSummary source={sheetSelection.source} />
           {sheetSelection.source.format === "excel" && (
             <>
               <label htmlFor="workbook-sheet">Hoja</label>
@@ -443,6 +442,114 @@ export function LoadPhase({
               </label>
             </fieldset>
           )}
+          <section className="sheet-import-summary" aria-labelledby="sheet-import-summary-title" aria-live="polite">
+            <h4 id="sheet-import-summary-title">Resumen antes de cargar</h4>
+            <dl>
+              <div>
+                <dt>Formato y tamaño</dt>
+                <dd>{sheetSelection.source.format.toUpperCase()} · {formatFileSize(sheetSelection.source.fileSizeBytes)}</dd>
+              </div>
+              {sheetSelection.source.format === "excel" && (
+                <>
+                  <div>
+                    <dt>Hojas disponibles</dt>
+                    <dd>{sheetSelection.source.sheets.length}</dd>
+                  </div>
+                  <div>
+                    <dt>Se cargará</dt>
+                    <dd>{sheetSelection.source.sheets.find((sheet) => sheet.id === sheetSelection.selectedSheetId)?.name ?? "Selecciona una hoja"}</dd>
+                  </div>
+                </>
+              )}
+              {isDelimitedSelection && (
+                <div>
+                  <dt>Separador detectado</dt>
+                  <dd>
+                    {sheetSelection.headerReview
+                      ? sheetSelection.headerReview.delimiter === "\t" ? "Tabulador" : `“${sheetSelection.headerReview.delimiter}”`
+                      : "Calculando muestra…"}
+                  </dd>
+                </div>
+              )}
+            </dl>
+            {isDelimitedSelection ? (
+              <>
+                {sheetSelection.headerReviewLoading && (
+                  <p role="status">Preparando una muestra local de hasta 64 KiB…</p>
+                )}
+                {sheetSelection.error && (
+                  <p className="notice notice--error" role="alert">No se pudo previsualizar el archivo: {sheetSelection.error}</p>
+                )}
+                {sheetSelection.headerReview && (
+                  <HeaderInterpretationPreview
+                    preview={sheetSelection.headerReview[sheetSelection.headerMode === "firstRow" ? "firstRow" : "generated"]}
+                  />
+                )}
+                <p role="note">
+                  Muestra de hasta cinco filas.
+                  {sheetSelection.dateConvention === "unresolved" && sheetSelection.numberConvention === "unresolved"
+                    ? " Sin convenciones elegidas, los valores se conservan como texto."
+                    : " Las conversiones elegidas se aplican solo cuando toda la columna cumple la convención."}
+                  {sheetSelection.headerReview?.[sheetSelection.headerMode === "firstRow" ? "firstRow" : "generated"].sampleTruncated
+                    ? " La muestra quedó truncada y puede no representar el archivo entero."
+                    : ""}
+                </p>
+              </>
+            ) : sheetSelection.source.format === "excel" ? (
+              <p role="note">
+                El esquema se calcula para la hoja y los encabezados seleccionados antes de activar el dataset.
+              </p>
+            ) : (
+              <p role="note">
+                Este formato conserva su estructura propia y no requiere elegir encabezados. Revisa las columnas y tipos detectados antes de importar.
+              </p>
+            )}
+            {sheetSelection.schemaPreviewLoading && (
+              <p role="status">Leyendo la estructura para mostrar columnas y tipos; el dataset actual permanece intacto…</p>
+            )}
+            {sheetSelection.schemaPreviewError && (
+              <p className="notice notice--error" role="alert">No se pudo revisar el esquema: {sheetSelection.schemaPreviewError}</p>
+            )}
+            {sheetSelection.schemaPreview && (
+              <section className="sheet-import-summary" aria-labelledby="schema-preview-title" aria-live="polite">
+                <h4 id="schema-preview-title">Esquema detectado antes de importar</h4>
+                <p role="note">{sheetSelection.schemaPreview.rowCount.toLocaleString()} filas · {sheetSelection.schemaPreview.columns.length} columnas</p>
+                {sheetSelection.schemaPreview.schemaMismatch ? (
+                  <div className="notice" role="alert">
+                    <strong>El esquema no coincide con el perfil guardado.</strong> Si continúas, se importará con el esquema detectado y ese perfil no se aplicará.
+                    {sheetSelection.schemaPreview.schemaMismatch.missingColumns.length > 0 && (
+                      <p>Columnas faltantes: {sheetSelection.schemaPreview.schemaMismatch.missingColumns.join(", ")}</p>
+                    )}
+                    {sheetSelection.schemaPreview.schemaMismatch.addedColumns.length > 0 && (
+                      <p>Columnas nuevas: {sheetSelection.schemaPreview.schemaMismatch.addedColumns.join(", ")}</p>
+                    )}
+                    {sheetSelection.schemaPreview.schemaMismatch.changedTypes.length > 0 && (
+                      <p>Tipos distintos: {sheetSelection.schemaPreview.schemaMismatch.changedTypes.map((item) => `${item.column} (${item.expected} → ${item.actual})`).join("; ")}</p>
+                    )}
+                  </div>
+                ) : sheetSelection.useSavedProfile ? (
+                  <p role="status">El esquema coincide con el perfil guardado; se aplicará al importar.</p>
+                ) : null}
+                {sheetSelection.schemaPreview.columns.length === 0 ? (
+                  <p role="note">No se detectaron columnas.</p>
+                ) : (
+                  <div className="table-region" tabIndex={0} aria-label="Columnas y tipos detectados">
+                    <table>
+                      <thead><tr><th scope="col">Columna</th><th scope="col">Tipo detectado</th></tr></thead>
+                      <tbody>
+                        {sheetSelection.schemaPreview.columns.map((column, index) => (
+                          <tr key={`${index}:${column.name}`}>
+                            <th scope="row">{column.name}</th>
+                            <td>{formatDataType(column.dataType)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            )}
+          </section>
           {isDelimitedSelection && (
             <details className="sheet-import-options">
               <summary>Interpretación de fechas y números (opcional)</summary>
@@ -529,120 +636,10 @@ export function LoadPhase({
               )}
             </section>
           )}
-          <section className="sheet-import-summary" aria-labelledby="sheet-import-summary-title" aria-live="polite">
-            <h4 id="sheet-import-summary-title">Resumen antes de cargar</h4>
-            <dl>
-              <div>
-                <dt>Formato y tamaño</dt>
-                <dd>{sheetSelection.source.format.toUpperCase()} · {formatFileSize(sheetSelection.source.fileSizeBytes)}</dd>
-              </div>
-              {sheetSelection.source.format === "excel" && (
-                <>
-                  <div>
-                    <dt>Hojas disponibles</dt>
-                    <dd>{sheetSelection.source.sheets.length}</dd>
-                  </div>
-                  <div>
-                    <dt>Se cargará</dt>
-                    <dd>{sheetSelection.source.sheets.find((sheet) => sheet.id === sheetSelection.selectedSheetId)?.name ?? "Selecciona una hoja"}</dd>
-                  </div>
-                </>
-              )}
-              {isDelimitedSelection && (
-                <div>
-                  <dt>Separador detectado</dt>
-                  <dd>
-                    {sheetSelection.headerReview
-                      ? sheetSelection.headerReview.delimiter === "\t" ? "Tabulador" : `“${sheetSelection.headerReview.delimiter}”`
-                      : "Calculando muestra…"}
-                  </dd>
-                </div>
-              )}
-              {hasHeaderSelection && (
-                <div>
-                  <dt>Encabezados</dt>
-                  <dd>{sheetSelection.headerMode === "firstRow" ? "Usar la primera fila" : "Generar nombres de columna"}</dd>
-                </div>
-              )}
-            </dl>
-            {isDelimitedSelection ? (
-              <>
-                {sheetSelection.headerReviewLoading && (
-                  <p role="status">Preparando una muestra local de hasta 64 KiB…</p>
-                )}
-                {sheetSelection.error && (
-                  <p className="notice notice--error" role="alert">No se pudo previsualizar el archivo: {sheetSelection.error}</p>
-                )}
-                {sheetSelection.headerReview && (
-                  <HeaderInterpretationPreview
-                    preview={sheetSelection.headerReview[sheetSelection.headerMode === "firstRow" ? "firstRow" : "generated"]}
-                  />
-                )}
-                <p role="note">
-                  La muestra lee como máximo 64 KiB y enseña hasta cinco filas. Revisar el esquema determina tipos sin activar ni reemplazar el dataset actual; la carga final empieza al confirmar.
-                  {sheetSelection.dateConvention === "unresolved" && sheetSelection.numberConvention === "unresolved"
-                    ? " Sin convenciones elegidas, los valores se conservan como texto."
-                    : " Las conversiones elegidas se aplican solo cuando toda la columna cumple la convención."}
-                  {sheetSelection.headerReview?.[sheetSelection.headerMode === "firstRow" ? "firstRow" : "generated"].sampleTruncated
-                    ? " La muestra quedó truncada y puede no representar el archivo entero."
-                    : ""}
-                </p>
-              </>
-            ) : sheetSelection.source.format === "excel" ? (
-              <p role="note">
-                El esquema se calcula para la hoja y los encabezados seleccionados antes de activar el dataset.
-              </p>
-            ) : (
-              <p role="note">
-                Este formato conserva su estructura propia y no requiere elegir encabezados. Revisa las columnas y tipos detectados antes de importar.
-              </p>
-            )}
-            {sheetSelection.schemaPreviewLoading && (
-              <p role="status">Leyendo la estructura para mostrar columnas y tipos; el dataset actual permanece intacto…</p>
-            )}
-            {sheetSelection.schemaPreviewError && (
-              <p className="notice notice--error" role="alert">No se pudo revisar el esquema: {sheetSelection.schemaPreviewError}</p>
-            )}
-            {sheetSelection.schemaPreview && (
-              <section className="sheet-import-summary" aria-labelledby="schema-preview-title" aria-live="polite">
-                <h4 id="schema-preview-title">Esquema detectado antes de importar</h4>
-                <p role="note">{sheetSelection.schemaPreview.rowCount.toLocaleString()} filas · {sheetSelection.schemaPreview.columns.length} columnas</p>
-                {sheetSelection.schemaPreview.schemaMismatch ? (
-                  <div className="notice" role="alert">
-                    <strong>El esquema no coincide con el perfil guardado.</strong> Si continúas, se importará con el esquema detectado y ese perfil no se aplicará.
-                    {sheetSelection.schemaPreview.schemaMismatch.missingColumns.length > 0 && (
-                      <p>Columnas faltantes: {sheetSelection.schemaPreview.schemaMismatch.missingColumns.join(", ")}</p>
-                    )}
-                    {sheetSelection.schemaPreview.schemaMismatch.addedColumns.length > 0 && (
-                      <p>Columnas nuevas: {sheetSelection.schemaPreview.schemaMismatch.addedColumns.join(", ")}</p>
-                    )}
-                    {sheetSelection.schemaPreview.schemaMismatch.changedTypes.length > 0 && (
-                      <p>Tipos distintos: {sheetSelection.schemaPreview.schemaMismatch.changedTypes.map((item) => `${item.column} (${item.expected} → ${item.actual})`).join("; ")}</p>
-                    )}
-                  </div>
-                ) : sheetSelection.useSavedProfile ? (
-                  <p role="status">El esquema coincide con el perfil guardado; se aplicará al importar.</p>
-                ) : null}
-                {sheetSelection.schemaPreview.columns.length === 0 ? (
-                  <p role="note">No se detectaron columnas.</p>
-                ) : (
-                  <div className="table-region" tabIndex={0} aria-label="Columnas y tipos detectados">
-                    <table>
-                      <thead><tr><th scope="col">Columna</th><th scope="col">Tipo detectado</th></tr></thead>
-                      <tbody>
-                        {sheetSelection.schemaPreview.columns.map((column, index) => (
-                          <tr key={`${index}:${column.name}`}>
-                            <th scope="row">{column.name}</th>
-                            <td>{formatDataType(column.dataType)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-            )}
-          </section>
+          <details className="sheet-import-options">
+            <summary>Detalles técnicos: memoria y disco</summary>
+            <ResourceEstimateSummary source={sheetSelection.source} />
+          </details>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => onSheetAction({ kind: "cancelled" })}>Cancelar</button>
             {isDelimitedSelection && sheetSelection.error && (

@@ -190,7 +190,7 @@ describe("LoadPhase", () => {
     const summary = within(screen.getByRole("region", { name: "Resumen antes de cargar" }));
     expect(summary.getByText(/2[.,]0 KiB/)).toBeInTheDocument();
     expect(summary.getByText("Enero")).toBeInTheDocument();
-    expect(summary.getByText("Usar la primera fila")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Usar la primera fila como encabezados" })).toBeChecked();
     expect(screen.getByText(/esquema se calcula .* antes de activar el dataset/)).toBeInTheDocument();
     expect(screen.getByText(/pueden ocupar bastante más memoria/)).toBeInTheDocument();
     const resourceSummary = screen.getByRole("region", { name: "Estimación de recursos" });
@@ -373,8 +373,7 @@ describe("LoadPhase", () => {
 
     const summary = within(screen.getByRole("region", { name: "Resumen antes de cargar" }));
     expect(summary.getByText("Febrero")).toBeInTheDocument();
-    expect(summary.getByText("Generar nombres de columna")).toBeInTheDocument();
-    expect(summary.queryByText("Usar la primera fila")).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Generar encabezados (column_1, column_2…)" })).toBeChecked();
   });
 
   it("pide confirmación nominal antes de cargar una fuente costosa", () => {
