@@ -3254,6 +3254,31 @@ describe("App", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("página de conflictos no disponible");
   });
 
+  it("permite moverse entre fases mientras el análisis de calidad sigue en curso", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "1.26.0", platform: "windows" });
+    mockDatasetLoad({
+      fileName: "grande.csv", fileSizeBytes: 64, rowCount: 1, columnCount: 1,
+      columns: [{ name: "id", dataType: "Int64" }], rows: [["1"]],
+    });
+    let resolveProfile!: (value: DatasetProfile) => void;
+    vi.spyOn(bridge, "getDatasetProfile").mockReturnValue(new Promise((resolve) => { resolveProfile = resolve; }));
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await waitFor(() => expect(bridge.getDatasetProfile).toHaveBeenCalled());
+
+    // A long analysis used to disable every phase button with no visible reason.
+    await switchPhase("Cargar");
+    const toReview = screen.getByRole("button", { name: "Continuar a Revisar" });
+    expect(toReview).toBeEnabled();
+    fireEvent.click(toReview);
+    expect(await screen.findByRole("heading", { name: "Revisa antes de modificar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancelar" })).toBeInTheDocument();
+    await act(async () => {
+      resolveProfile({ rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] });
+    });
+  });
+
   it("muestra el error al rechazar la cancelación del diagnóstico activo", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "1.25.0", platform: "windows" });

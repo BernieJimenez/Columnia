@@ -74,6 +74,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Con un archivo grande, los botones para cambiar de fase ya no quedan
+  deshabilitados sin explicación mientras corre el análisis de calidad o el
+  autoguardado: se puede pasar a Revisar, que muestra el progreso y permite
+  cancelarlo.
 - T10-16 (parcial): leer el historial, limpiar la comparación y descartar una
   selección ya no se ejecutan en el hilo de la ventana, así que no pueden
   congelarla mientras otra operación larga usa el dataset.

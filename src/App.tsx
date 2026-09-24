@@ -331,10 +331,12 @@ export function App() {
     onProfileInvalidated: () => setProfileStatus({ kind: "idle" }),
     onDeliveryInvalidated: invalidateDeliveryGate,
   });
-  const coreOperationBusy =
+  // Work the user started in the current phase. The quality analysis and the
+  // autosave run in the background and show their own progress, so they block
+  // new operations but not moving between phases.
+  const foregroundOperationBusy =
     datasetStatus.kind === "loading" ||
     (datasetStatus.kind === "ready" && datasetStatus.pageLoading) ||
-    profileStatus.kind === "loading" ||
     prepare.changeStatus.kind === "working" ||
     deliveryContract.gate.kind === "loading" ||
     exportStatus.kind === "loading" ||
@@ -342,6 +344,7 @@ export function App() {
     joinStatus.kind === "loading" ||
     reviewMutationStatus.kind === "running" ||
     reviewMutationStatus.kind === "finalizing";
+  const coreOperationBusy = foregroundOperationBusy || profileStatus.kind === "loading";
   const loadSelectionBusy = loadInspection.kind === "inspecting" ||
     loadInspection.kind === "workbook_inspecting" ||
     loadInspection.kind === "sheet" ||
@@ -1506,6 +1509,7 @@ export function App() {
     : null;
   const operationBusy = coreOperationBusy || loadSelectionBusy || projects.isBusy;
   operationBusyRef.current = operationBusy;
+  const navigationBusy = foregroundOperationBusy || loadSelectionBusy || projects.operation.kind === "working";
   const activePhaseIndex = Math.max(0, workflowPhases.findIndex((phase) => phase.id === activePhase));
   const activePhaseMeta = workflowPhases[activePhaseIndex];
   const previousPhase = workflowPhases[activePhaseIndex - 1];
@@ -1644,7 +1648,7 @@ export function App() {
                 onMouseEnter={() => preloadPhase(phase.id)}
                 onFocus={() => preloadPhase(phase.id)}
                 onClick={() => available && setActivePhase(phase.id)}
-                disabled={operationBusy}
+                disabled={navigationBusy}
                 title={!available ? "Carga un dataset para habilitar esta etapa" : undefined}
               >
                 <span className="side-nav__marker" aria-hidden="true">
@@ -2005,7 +2009,7 @@ export function App() {
                   type="button"
                   className="secondary-action"
                   onClick={() => setActivePhase(previousPhase.id)}
-                  disabled={operationBusy}
+                  disabled={navigationBusy}
                 >
                   Volver a {previousPhase.label}
                 </button>
@@ -2017,7 +2021,7 @@ export function App() {
                   onMouseEnter={() => preloadPhase(nextPhase.id)}
                   onFocus={() => preloadPhase(nextPhase.id)}
                   onClick={handleNextPhase}
-                  disabled={!activeDataset || operationBusy}
+                  disabled={!activeDataset || navigationBusy || (profileGatedPhase && profileStatus.kind === "loading")}
                 >
                   {primaryNextLabel}
                 </button>
