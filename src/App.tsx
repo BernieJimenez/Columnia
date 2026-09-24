@@ -1529,7 +1529,6 @@ export function App() {
   const activePhaseMeta = workflowPhases[activePhaseIndex];
   const previousPhase = workflowPhases[activePhaseIndex - 1];
   const nextPhase = workflowPhases[activePhaseIndex + 1];
-  const progressValue = activePhaseIndex + 1;
   const profileGatedPhase = activePhase === "review" || activePhase === "prepare";
   const primaryNextLabel = profileGatedPhase && profileStatus.kind !== "ready"
     ? profileStatus.kind === "error" || profileStatus.kind === "cancelled"
@@ -1769,27 +1768,8 @@ export function App() {
       </aside>
 
       <main id="main-content" className="main-content" tabIndex={-1}>
+        {/* The side navigation already marks the current step; the top bar only reports the engine. */}
         <header className="topbar">
-          <div className="flow-overview">
-            <div className="flow-overview__copy">
-              <p className="flow-overview__step">Paso {progressValue} de {workflowPhases.length}</p>
-              <p className="page-title">{activePhaseMeta.label}</p>
-              <p className="flow-overview__next">
-                {nextPhase ? `Después: ${nextPhase.label}` : "Última etapa del flujo"}
-              </p>
-            </div>
-            <div
-              className="flow-progress"
-              role="progressbar"
-              aria-label="Progreso del flujo"
-              aria-valuemin={1}
-              aria-valuemax={workflowPhases.length}
-              aria-valuenow={progressValue}
-              aria-valuetext={`Paso ${progressValue} de ${workflowPhases.length}: ${activePhaseMeta.label}`}
-            >
-              <span style={{ width: `${(progressValue / workflowPhases.length) * 100}%` }} />
-            </div>
-          </div>
           <div
             className={`runtime runtime--${status.kind}`}
             role={status.kind === "error" ? "alert" : "status"}

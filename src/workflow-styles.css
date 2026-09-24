@@ -5,7 +5,6 @@
   padding: 30px 18px 22px;
   gap: 0; }
 .brand h1,
-.page-title,
 .workspace :is(h2, h3, h4, h5) {
   font-family: var(--font-display);
   letter-spacing: 0;
@@ -45,13 +44,7 @@
 }
 
 .topbar { align-items: center; }
-.flow-overview { display: grid; flex: 1 1 560px; min-width: 0; max-width: 480px; gap: 10px; }
-.flow-overview__copy { display: flex; align-items: baseline; gap: 10px 14px; min-width: 0; }
-.flow-overview__step { flex: 0 0 auto; margin: 0; color: var(--eyebrow); font-size: .875rem; font-weight: 700; }
-.page-title { flex: 0 0 auto; margin: 0; font-size: 1.45rem; font-weight: 700; line-height: 1.2; }
-.flow-overview__next { min-width: 0; margin: 0; color: var(--text-secondary); font-size: .875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.flow-progress { width: 100%; overflow: hidden; border-radius: 3px; background: var(--border-subtle); height: 3px; }
-.flow-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: none; }
+
 .runtime { flex: 0 0 auto; font-variant-numeric: tabular-nums; border-radius: 6px; font-size: .8125rem; }
 
 .side-nav {
@@ -344,7 +337,6 @@ input[type="radio"] { width: 20px; height: 20px; }
   }
   :root[data-resolved-theme="dark"] .workspace .primary-action:hover:not(:disabled) { background: #10564d; }
 
-
 @media (max-width: 900px) {
   .sidebar { padding: 16px 20px; }
   .side-nav button { min-height: 58px; }
@@ -379,12 +371,7 @@ input[type="radio"] { width: 20px; height: 20px; }
     border-bottom: 1px solid var(--border-subtle);
     background: var(--canvas);
   }
-  .topbar > div.flow-overview { display: grid; }
-  .flow-overview { gap: 7px; min-width: 0; }
-  .flow-overview__copy { gap: 1px 8px; }
-  .flow-overview__step { font-size: .75rem; }
-  .page-title { font-size: 1.05rem; }
-  .flow-overview__next { font-size: .75rem; }
+
   .runtime { align-self: center; min-height: 36px; padding: 6px 9px; font-size: .75rem; line-height: 1.25; white-space: normal; }
   .phase-file { font-size: .9375rem; }
   :is(.advanced-corrections > summary, .detected-signals > summary, .transform-recipe__operations > summary, .review-tool > summary) {
@@ -549,16 +536,7 @@ html[data-columnia-zoom="2"] .topbar {
   border-bottom: 1px solid var(--border-subtle);
   background: var(--canvas);
 }
-html[data-columnia-zoom="2"] .topbar > div.flow-overview { display: grid; }
-html[data-columnia-zoom="2"] .flow-overview { gap: 7px; min-width: 0; }
-html[data-columnia-zoom="2"] .flow-overview__copy {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 1px 8px;
-}
-html[data-columnia-zoom="2"] .flow-overview__step { font-size: .75rem; }
-html[data-columnia-zoom="2"] .page-title { font-size: 1.05rem; }
-html[data-columnia-zoom="2"] .flow-overview__next { grid-column: 1 / -1; font-size: .75rem; }
+
 html[data-columnia-zoom="2"] .runtime {
   align-self: center;
   max-width: 132px;
@@ -625,8 +603,7 @@ body { color: CanvasText; background: Canvas; }
 .transform-recipe__group,
 .recipe-steps,
 .recipe-steps li { border-color: ButtonText; background: Canvas; color: CanvasText; }
-  .flow-progress { border: 1px solid ButtonText; background: Canvas; }
-  .flow-progress > span { background: Highlight; }
+
   .workspace { box-shadow: none; }
   .resource-monitor,
 .operation-progress__elapsed,
@@ -749,7 +726,6 @@ summary:focus-visible,
 /* Dark rules keyed on the resolved theme (T10-11). */
   :root[data-resolved-theme="dark"] { --accent-soft: #21463f; }
 
-
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
@@ -790,16 +766,7 @@ summary:focus-visible,
     align-items: center;
   }
   .topbar > div:first-child { display: grid; }
-  .flow-overview { width: 100%; max-width: none; gap: 6px; }
-  .flow-overview__copy {
-    align-items: baseline;
-    gap: 2px 8px;
-  }
-  .flow-overview__next {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+
   .runtime {
     width: 100%;
     min-width: 0;
@@ -881,7 +848,6 @@ td {
 
 .load-brief__lead .load-brief__formats { margin-top: 16px; font-size: .8125rem; }
 
-
 .workspace :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { border-radius: 5px; }
 
 tbody tr:hover { background: var(--surface-subtle); }
@@ -892,7 +858,7 @@ a:visited { color: #80548b; }
  .shell { grid-template-columns: 232px minmax(0, 1fr); }
  .main-content,
 .workspace { padding: 24px; }
- .flow-overview__next { display: none; }
+
  .load-brief { grid-template-columns: 100px minmax(0, 1fr); padding: 24px; gap: 16px; }
 }
 

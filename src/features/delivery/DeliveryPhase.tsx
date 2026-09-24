@@ -837,7 +837,6 @@ export function DeliveryPhase({
     <>
       <header className="phase-header phase-header--compact">
         <div>
-          <p className="eyebrow">Entregar · Exportación local</p>
           <h2>Valida y crea una copia</h2>
           <h3 className="phase-file">{dataset.fileName}</h3>
         </div>

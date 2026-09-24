@@ -1064,13 +1064,13 @@ describe("App", () => {
 
     expect(screen.getByRole("heading", { name: "Columnia" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Flujo de preparación de datos" })).toBeInTheDocument();
-    expect(screen.getByRole("progressbar", { name: "Progreso del flujo" })).toHaveAttribute("aria-valuenow", "1");
+    expect(screen.getByRole("button", { name: /Cargar/ })).toHaveAttribute("aria-current", "step");
     expect(screen.queryByRole("button", { name: "Continuar a Revisar" })).not.toBeInTheDocument();
     const lockedReview = screen.getByRole("button", { name: "Revisar" });
     expect(lockedReview).toHaveAttribute("aria-disabled", "true");
     expect(lockedReview).toHaveAttribute("aria-describedby", "dataset-required-hint");
     fireEvent.click(lockedReview);
-    expect(screen.getByRole("progressbar", { name: "Progreso del flujo" })).toHaveAttribute("aria-valuenow", "1");
+    expect(screen.getByRole("button", { name: /Cargar/ })).toHaveAttribute("aria-current", "step");
     expect(screen.getByRole("link", { name: "Saltar al contenido principal" })).toHaveAttribute(
       "href",
       "#main-content",
@@ -1143,7 +1143,7 @@ describe("App", () => {
     expect(loadSpy).toHaveBeenCalledWith(
       "selection-test", null, "generated", expect.any(Function), null, "dmy", "commaDecimalDotGrouping",
     );
-    expect(screen.getByRole("progressbar", { name: "Progreso del flujo" })).toHaveAttribute("aria-valuetext", "Paso 2 de 4: Revisar");
+    expect(within(screen.getByRole("navigation", { name: "Flujo de preparación de datos" })).getByRole("button", { name: /Revisar/ })).toHaveAttribute("aria-current", "step");
     expect(await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Seleccionar dataset" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Exportar CSV" })).not.toBeInTheDocument();

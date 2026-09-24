@@ -186,7 +186,6 @@ export function PreparePhase({
     <>
       <header className="phase-header phase-header--compact">
         <div>
-          <p className="eyebrow">Preparar</p>
           <h2>Prepara datos consistentes</h2>
           <h3 className="phase-file">{dataset.fileName}</h3>
         </div>

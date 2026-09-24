@@ -147,8 +147,8 @@ summary:focus-visible,
 .theme-switcher__option--active::after { position: absolute; top: 3px; right: 4px; color: var(--accent); font-size: .65rem; line-height: 1; content: "✓"; }
 .theme-switcher__status { margin: 9px 0 0; color: var(--text-secondary); font-size: .75rem; line-height: 1.35; }
 .main-content { min-width: 0; padding: 28px 40px 48px; }
-.topbar { display: flex; justify-content: space-between; gap: 24px; max-width: 1400px; margin: 0 auto 22px; }
-.page-title { color: var(--text-primary); font-family: Bahnschrift, "Arial Narrow", sans-serif; }
+.topbar { display: flex; justify-content: flex-end; gap: 24px; max-width: 1400px; margin: 0 auto 22px; }
+
 .eyebrow,
 .step { margin: 0; color: var(--eyebrow); font-size: .75rem; font-weight: 800; letter-spacing: 0; text-transform: uppercase; }
 .runtime { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--border-subtle); background: #f7faf8; color: var(--text-secondary); }
@@ -947,8 +947,7 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   :where(:root[data-resolved-theme="dark"]) .side-nav .side-nav__active > span:first-child { border-color: var(--accent); background: var(--accent); color: #142d33; }
   :where(:root[data-resolved-theme="dark"]) .sidebar__dataset { border-color: var(--border-subtle); }
   :where(:root[data-resolved-theme="dark"]) .sidebar__dataset span { color: var(--text-secondary); }
-  :where(:root[data-resolved-theme="dark"]) .sidebar__dataset strong,
-:where(:root[data-resolved-theme="dark"]) .page-title { color: var(--text-primary); }
+  :where(:root[data-resolved-theme="dark"]) .sidebar__dataset strong { color: var(--text-primary); }
   :where(:root[data-resolved-theme="dark"]) .runtime,
 :where(:root[data-resolved-theme="dark"]) .workspace { border-color: var(--border-subtle); background: var(--surface); }
   :where(:root[data-resolved-theme="dark"]) .runtime { color: #c6e8df; }
@@ -1183,7 +1182,6 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 :where(:root[data-resolved-theme="dark"]) .operation-progress progress::-moz-progress-bar { background: var(--accent); }
   :where(:root[data-resolved-theme="dark"]) .operation-progress button { border-color: #d3a258; color: #efc47f; }
 
-
 /* Explicit theme choices. The system preference keeps the legacy media query above. */
 :root[data-resolved-theme="dark"] {
   color-scheme: dark;
@@ -1342,7 +1340,6 @@ tbody tr:nth-child(even) { background: #f8faf9; }
     --info: #75b9d0;
     --on-accent: #102326;
   }
-
 
 :root[data-resolved-theme="dark"] {
   --canvas: #141c1f;

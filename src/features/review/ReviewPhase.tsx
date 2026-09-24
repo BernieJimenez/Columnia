@@ -131,7 +131,6 @@ export function ReviewPhase({
     <>
       <header className="phase-header phase-header--compact">
         <div>
-          <p className="eyebrow">Revisar · Dataset activo</p>
           <h2>Revisa antes de modificar</h2>
           <h3 className="phase-file">{datasetStatus.dataset.fileName}</h3>
         </div>

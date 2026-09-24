@@ -10,6 +10,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- La cabecera ya no repite dónde estás: se quitan la fila «Paso N de 4 · Fase ·
+  Después: …» con su barra de progreso y los rótulos pequeños sobre cada título. La
+  barra lateral marca el paso actual.
 - Cargar muestra menos texto: sin subtítulos repetidos, los formatos admitidos
   en una sola línea y sin el pie «Siguiente paso» cuando todavía no hay dataset.
 - El pie «Siguiente paso» solo añade una explicación cuando aporta algo: sin

@@ -125,7 +125,6 @@ export function LoadPhase({
     <>
       <header className="phase-header">
         <div>
-          <p className="eyebrow">Cargar · Fuente local</p>
           <h2>{current ? "Dataset listo para continuar" : "Selecciona un dataset"}</h2>
           {current && <h3 className="phase-file">{current.fileName}</h3>}
         </div>
