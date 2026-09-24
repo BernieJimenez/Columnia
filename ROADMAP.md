@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 21 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 20 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -322,14 +322,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-23 — `restrict_external_access` (rutas permitidas, sin acceso externo ni extensiones, configuración bloqueada); la prueba cubre Parquet y CSV con rutas canónicas `\?\`, confirma `enable_external_access=false` y rechaza un archivo ajeno; falla sin la restricción. Suite Rust 499 aprobadas y 5 ignoradas; Clippy verde.
-- [x] **[T10-05] Exigir confirmación nativa antes de cualquier conexión ODBC**
+- [ ] **[T10-05] Exigir confirmación nativa antes de cualquier conexión ODBC**
   - **Área:** Seguridad · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/dataset.rs:8633`, `:8786-8795`; `src-tauri/src/remote_databases.rs:121-167`
   - **Qué hacer:** mostrar desde Rust un diálogo nativo con controlador, servidor, base, tabla y política antes del preflight y de la entrega; retirar `test_database_connection` del handler si la interfaz no lo usa.
   - **Criterio de aceptación:** sin confirmación nativa no se abre ninguna conexión; inventario IPC actualizado; prueba de rechazo sin confirmación.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
-  - **Cerrada:** 2026-09-23 — `confirm_remote_target` (diálogo nativo con tipo, servidor, tabla y política, sin secretos; huella SHA-256 por sesión) en preflight, entrega y `test_database_connection`, que se conserva protegido porque retirarlo arrastraba contadores y contratos compartidos. Pruebas de descripción y huella; suite Rust 505 aprobadas; inventario IPC sin cambios. El diálogo no se ejercitó de extremo a extremo: requiere un servidor ODBC y un clic humano.
+  - **Parcial 2026-09-23:** implementado `confirm_remote_target` (diálogo nativo con tipo, servidor, tabla y política, sin secretos; huella SHA-256 por sesión) en preflight, entrega y `test_database_connection`, que se conserva protegido porque retirarlo arrastraba contadores y contratos compartidos. Pruebas de descripción y huella; suite Rust 505 aprobadas; inventario IPC sin cambios. El diálogo no se ejercitó de extremo a extremo: requiere un servidor ODBC y un clic humano. Queda abierta hasta verificar en la app real que cancelar el diálogo impide la conexión.
 - [x] **[T10-06] Advertir o bloquear entregas ODBC sin cifrado en tránsito**
   - **Área:** Seguridad · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/remote_databases.rs:744-768`
@@ -564,7 +564,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 21 de 33 | Fase 2 en curso: cerradas hasta ahora T10-05 y anteriores de esta tanda. |
+| 2026-09-23 | 20 de 33 | Fase 2 en curso; T10-05 y T10-08 parciales. |
 
 ## Criterio de salida de V1
 
