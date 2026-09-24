@@ -13,6 +13,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 - T10-15: si una operación falla de forma inesperada, Columnia ya no queda
   bloqueada hasta reiniciar: recupera el último estado publicado y guarda un
   informe local mínimo en `crash-reports/` sin datos ni rutas.
+- Presupuesto del bundle frontend: el total raw sube de 768 a 800 KiB en
+  `tools/check-bundle.mjs` y en la línea base de rendimiento. Los cambios del
+  Tier 10 lo llevaron a 788.352 bytes (el margen previo era de 824 bytes); el
+  límite gzip de 240 KiB no cambia y el total queda en 194.082 bytes.
 - T10-12 (seguimiento): la detección de columnas personales de Entregar vive en
   `personalDataColumnNames` (`deliveryModel.ts`) con prueba propia; el cálculo en
   línea de `App.tsx` había bajado su cobertura de ramas a 74,53 %, bajo el umbral

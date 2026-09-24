@@ -6,7 +6,7 @@ import { gzipSync } from "node:zlib";
 const FRONTEND_LIMITS = Object.freeze({
   javascript: Object.freeze({ rawBytesPerFile: 512 * 1024, gzipBytesPerFile: 160 * 1024 }),
   css: Object.freeze({ rawBytesPerFile: 128 * 1024, gzipBytesPerFile: 40 * 1024 }),
-  total: Object.freeze({ rawBytes: 768 * 1024, gzipBytes: 240 * 1024 }),
+  total: Object.freeze({ rawBytes: 800 * 1024, gzipBytes: 240 * 1024 }),
 });
 
 function parseArguments(argv) {

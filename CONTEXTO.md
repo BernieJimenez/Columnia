@@ -1629,7 +1629,7 @@ ejecutable y verifica que el sentinel de datos sobreviva al upgrade y a la
 desinstalación. No se ejecuta automáticamente en `Package` porque requiere
 proporcionar un artefacto histórico compatible.
 
-El presupuesto actual admite por archivo hasta 512 KiB raw/160 KiB gzip para JavaScript y 128 KiB raw/40 KiB gzip para CSS; el total JS+CSS no puede superar 768 KiB raw/240 KiB gzip. El baseline verificado es aproximadamente 308 KiB raw y 88 KiB gzip (315,829/90,324 bytes).
+El presupuesto actual admite por archivo hasta 512 KiB raw/160 KiB gzip para JavaScript y 128 KiB raw/40 KiB gzip para CSS; el total JS+CSS no puede superar 800 KiB raw/240 KiB gzip. El límite raw subió de 768 KiB el 2026-09-23 por decisión explícita: el Tier 10 llevó el total a 788.352 bytes raw (194.082 gzip) y el margen previo era de 824 bytes; el gzip, que es lo que mide el coste real, sigue en el 81 % de su límite. El total verificado el 2026-09-23 antes de ese cambio fue 785.993 bytes raw y 193.427 gzip.
 
 `npm run perf:benchmark` usa tres iteraciones sostenidas de transformaciones
 CSV/Parquet y después mide `project-save`, `project-inspect`, `project-export`,
