@@ -1,4 +1,5 @@
 import type {
+  ColumnProfile,
   DatabaseTarget,
   DatasetPreview,
   ExportFormat,
@@ -11,6 +12,17 @@ import type {
 import { QUALITY_DATASET_COLUMN } from "../../bridge";
 
 export const MAX_QUALITY_RULES = 16;
+
+const PERSONAL_DATA_SIGNALS = new Set<ColumnProfile["privacySignal"]>(["email", "phone", "address", "name"]);
+const ROW_AUDIT_COLUMN = "_cambios";
+
+/** Columns whose profile detected personal data; identifiers are excluded because they are not contact data. */
+export function personalDataColumnNames(columns: readonly ColumnProfile[] | null): string[] {
+  if (!columns) return [];
+  return columns
+    .filter((column) => column.name !== ROW_AUDIT_COLUMN && PERSONAL_DATA_SIGNALS.has(column.privacySignal))
+    .map((column) => column.name);
+}
 export const INITIAL_DATABASE_TARGET: DatabaseTarget = {
   kind: "postgresql",
   connectionString: "",

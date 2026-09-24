@@ -9,6 +9,7 @@ import {
   invalidateDeliveryContract,
   reduceDeliveryContract,
   isDatabaseExportFormat,
+  personalDataColumnNames,
   type DeliveryContractAction,
   type DeliveryContractState,
   type DeliveryExportRequest,
@@ -1968,13 +1969,9 @@ export function App() {
             {activePhase === "deliver" && readyDataset && (
               <DeliveryPhase
                 dataset={readyDataset.dataset}
-                personalDataColumns={profileStatus.kind === "ready"
-                  ? profileStatus.profile.columns
-                    .filter((column) => column.name !== "_cambios"
-                      && (column.privacySignal === "email" || column.privacySignal === "phone"
-                        || column.privacySignal === "address" || column.privacySignal === "name"))
-                    .map((column) => column.name)
-                  : []}
+                personalDataColumns={personalDataColumnNames(
+                  profileStatus.kind === "ready" ? profileStatus.profile.columns : null,
+                )}
                 recipeDraft={recipeDraft}
                 preparationChanges={prepare.historyStatus.entries
                   .filter((entry) => entry.index > 0 && entry.index <= prepare.historyStatus.currentIndex)

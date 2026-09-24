@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { QUALITY_DATASET_COLUMN, type DatasetPreview, type QualityRule, type QualityValidationResult } from "../../bridge";
+import { QUALITY_DATASET_COLUMN, type ColumnProfile, type DatasetPreview, type QualityRule, type QualityValidationResult } from "../../bridge";
 import {
   INITIAL_DELIVERY_CONTRACT,
   MAX_QUALITY_RULES,
@@ -8,6 +8,7 @@ import {
   deliveryContractFromRules,
   deliveryRules,
   invalidateDeliveryContract,
+  personalDataColumnNames,
   reduceDeliveryContract,
   validateDatabaseTargetDraft,
   validateQualityRuleDraft,
@@ -220,5 +221,28 @@ describe("estado de entrega", () => {
     expect(restored).toEqual({ kind: "with_contract", rules: [validRule], gate: { kind: "idle" } });
     expect(deliveryRules(restored)).toEqual([validRule]);
     expect(deliveryContractFromRules([])).toEqual(INITIAL_DELIVERY_CONTRACT);
+  });
+});
+
+describe("personalDataColumnNames", () => {
+  const column = (name: string, privacySignal: ColumnProfile["privacySignal"]) =>
+    ({ name, privacySignal }) as ColumnProfile;
+
+  it("lists contact signals and ignores identifiers, unsignaled and audit columns", () => {
+    expect(
+      personalDataColumnNames([
+        column("correo", "email"),
+        column("telefono", "phone"),
+        column("direccion", "address"),
+        column("nombre", "name"),
+        column("cedula", "identifier"),
+        column("monto", null),
+        column("_cambios", "name"),
+      ]),
+    ).toEqual(["correo", "telefono", "direccion", "nombre"]);
+  });
+
+  it("returns no columns while the profile is not ready", () => {
+    expect(personalDataColumnNames(null)).toEqual([]);
   });
 });

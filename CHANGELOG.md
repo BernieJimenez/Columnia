@@ -13,6 +13,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 - T10-15: si una operación falla de forma inesperada, Columnia ya no queda
   bloqueada hasta reiniciar: recupera el último estado publicado y guarda un
   informe local mínimo en `crash-reports/` sin datos ni rutas.
+- T10-12 (seguimiento): la detección de columnas personales de Entregar vive en
+  `personalDataColumnNames` (`deliveryModel.ts`) con prueba propia; el cálculo en
+  línea de `App.tsx` había bajado su cobertura de ramas a 74,53 %, bajo el umbral
+  de 75 % del gate Full.
 - T10-33: los mensajes de error ODBC ocultan también las contraseñas entre
   llaves que contienen `;` y los tokens de acceso de la cadena de conexión.
 - T10-05: antes de conectarse a una base de datos remota, Columnia pide confirmar
