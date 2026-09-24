@@ -1,4 +1,5 @@
 use super::*;
+use crate::crash_report::LockRecovering;
 
 pub(super) async fn pick_dataset_source_impl(
     app: AppHandle,
@@ -50,17 +51,13 @@ pub(super) async fn inspect_dataset_path_impl(
         "csv"
     };
     state.commit_load(generation, || {
-        *state
-            .pending_selection
-            .lock()
-            .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())? =
-            Some(PendingSelection {
-                id: selection_id.clone(),
-                generation,
-                path,
-                file_size_bytes,
-                sheets: Vec::new(),
-            });
+        *state.pending_selection.lock_recovering() = Some(PendingSelection {
+            id: selection_id.clone(),
+            generation,
+            path,
+            file_size_bytes,
+            sheets: Vec::new(),
+        });
         Ok(())
     })?;
     Ok(DatasetSourceInspection {
@@ -85,10 +82,7 @@ pub(super) async fn inspect_workbook_sheets_impl(
 ) -> Result<Vec<WorkbookSheet>, String> {
     let pending = {
         let state = app.state::<DatasetState>();
-        let selection = state
-            .pending_selection
-            .lock()
-            .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+        let selection = state.pending_selection.lock_recovering();
         let pending = selection
             .as_ref()
             .cloned()
@@ -141,10 +135,7 @@ pub(super) async fn inspect_workbook_sheets_impl(
     {
         let state = app.state::<DatasetState>();
         state.commit_load(generation, || {
-            let mut selection = state
-                .pending_selection
-                .lock()
-                .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+            let mut selection = state.pending_selection.lock_recovering();
             let pending = selection
                 .as_mut()
                 .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
@@ -176,10 +167,7 @@ pub(super) async fn preview_delimited_header_review_impl(
 ) -> Result<DelimitedHeaderReview, String> {
     let state = app.state::<DatasetState>();
     let pending = {
-        let selection = state
-            .pending_selection
-            .lock()
-            .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+        let selection = state.pending_selection.lock_recovering();
         let pending = selection
             .as_ref()
             .cloned()

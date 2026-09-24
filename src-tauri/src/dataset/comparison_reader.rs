@@ -1,4 +1,5 @@
 use super::*;
+use crate::crash_report::LockRecovering;
 
 pub(super) async fn compare_dataset_impl(
     app: AppHandle,
@@ -9,10 +10,7 @@ pub(super) async fn compare_dataset_impl(
     cancellation.ensure()?;
     let (current_file_name, current_row_count, current_snapshot, current_source) = {
         let state = app.state::<DatasetState>();
-        let current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let current = state.current.lock_recovering();
         let dataset = current.as_ref().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -128,18 +126,14 @@ pub(super) async fn compare_dataset_impl(
         let _ = &current_directory;
         cancellation_for_work.ensure()?;
         cancellation_for_work.commit(|| {
-            *state
-                .comparison
-                .lock()
-                .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? =
-                Some(PendingComparison {
-                    file_name: compared_file_name,
-                    file_size_bytes,
-                    row_count: compared_row_count,
-                    _directory: directory,
-                    snapshot_path,
-                    key_columns,
-                });
+            *state.comparison.lock_recovering() = Some(PendingComparison {
+                file_name: compared_file_name,
+                file_size_bytes,
+                row_count: compared_row_count,
+                _directory: directory,
+                snapshot_path,
+                key_columns,
+            });
             Ok(Some(comparison))
         })
     })
@@ -163,10 +157,7 @@ pub(super) async fn get_dataset_conflict_page_impl(
         ensure_not_cancelled(is_cancelled())?;
         let state = app.state::<DatasetState>();
         let (compared_path, compared_row_count, key_columns) = {
-            let comparison = state
-                .comparison
-                .lock()
-                .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+            let comparison = state.comparison.lock_recovering();
             let pending = comparison
                 .as_ref()
                 .ok_or_else(|| "No hay una comparación activa para paginar.".to_owned())?;
@@ -225,10 +216,7 @@ pub(super) async fn get_dataset_conflict_page_impl(
         };
         ensure_not_cancelled(is_cancelled())?;
         let comparison_is_current = {
-            let comparison = state
-                .comparison
-                .lock()
-                .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+            let comparison = state.comparison.lock_recovering();
             comparison.as_ref().is_some_and(|pending| {
                 pending.snapshot_path == compared_path
                     && pending.row_count == compared_row_count

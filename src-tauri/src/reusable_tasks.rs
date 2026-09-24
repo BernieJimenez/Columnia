@@ -1,3 +1,4 @@
+use crate::crash_report::LockRecovering;
 use std::{
     collections::HashSet,
     fs,
@@ -475,10 +476,7 @@ where
 {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<ReusableTaskState>();
-        let _guard = state
-            .operation
-            .lock()
-            .map_err(|_| "El catálogo local de tareas no está disponible.".to_owned())?;
+        let _guard = state.operation.lock_recovering();
         operation(&state.store)
     })
     .await

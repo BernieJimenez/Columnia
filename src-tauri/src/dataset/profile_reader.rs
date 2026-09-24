@@ -1,4 +1,5 @@
 use super::*;
+use crate::crash_report::LockRecovering;
 
 pub(super) async fn get_dataset_profile_impl(
     app: AppHandle,
@@ -11,10 +12,7 @@ pub(super) async fn get_dataset_profile_impl(
     let generation = app.state::<DatasetState>().begin_profile();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -140,10 +138,7 @@ pub(super) async fn get_temporal_aggregation_impl(
     let generation = app.state::<DatasetState>().begin_temporal();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;

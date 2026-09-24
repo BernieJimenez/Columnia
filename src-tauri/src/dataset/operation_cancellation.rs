@@ -1,4 +1,5 @@
 use super::*;
+use crate::crash_report::LockRecovering;
 
 #[derive(Clone)]
 pub(super) struct PrepareCancellation {
@@ -43,10 +44,7 @@ impl DatasetComparisonCancellation {
         operation: impl FnOnce() -> Result<T, String>,
     ) -> Result<T, String> {
         let state = self.app.state::<DatasetState>();
-        let _guard = state
-            .dataset_comparison_commit_lock
-            .lock()
-            .map_err(|_| "La publicación de la comparación quedó bloqueada.".to_owned())?;
+        let _guard = state.dataset_comparison_commit_lock.lock_recovering();
         self.ensure()?;
         operation()
     }
@@ -168,10 +166,7 @@ impl PrepareCancellation {
     ) -> Result<T, String> {
         if let Some(app) = &self.app {
             let state = app.state::<DatasetState>();
-            let _guard = state
-                .prepare_commit_lock
-                .lock()
-                .map_err(|_| "La publicación de la preparación quedó bloqueada.".to_owned())?;
+            let _guard = state.prepare_commit_lock.lock_recovering();
             self.ensure()?;
             operation()
         } else {
@@ -271,10 +266,7 @@ impl ReviewMutationCancellation {
     ) -> Result<T, String> {
         if let Some(app) = &self.app {
             let state = app.state::<DatasetState>();
-            let _guard = state
-                .review_mutation_commit_lock
-                .lock()
-                .map_err(|_| "La publicación de Review quedó bloqueada.".to_owned())?;
+            let _guard = state.review_mutation_commit_lock.lock_recovering();
             #[cfg(test)]
             self.cancel_test_operation_at_commit();
             self.ensure()?;

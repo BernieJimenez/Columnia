@@ -1,4 +1,5 @@
 use super::*;
+use crate::crash_report::LockRecovering;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn load_dataset_selection_impl(
@@ -14,10 +15,7 @@ pub(super) async fn load_dataset_selection_impl(
     let generation = app.state::<DatasetState>().begin_load()?;
     let pending = {
         let state = app.state::<DatasetState>();
-        let selection = state
-            .pending_selection
-            .lock()
-            .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+        let selection = state.pending_selection.lock_recovering();
         let pending = selection
             .as_ref()
             .cloned()
@@ -289,16 +287,13 @@ pub(super) async fn load_dataset_selection_impl(
         state.commit_load(generation, || {
             let mut current = state
                 .current
-                .lock()
-                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+                .lock_recovering();
             let mut comparison = state
                 .comparison
-                .lock()
-                .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+                .lock_recovering();
             let mut selection = state
                 .pending_selection
-                .lock()
-                .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+                .lock_recovering();
             let pending_selection = selection
                 .as_ref()
                 .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
@@ -322,10 +317,7 @@ pub(super) fn discard_dataset_selection_impl(
     state: State<'_, DatasetState>,
     selection_id: String,
 ) -> Result<(), String> {
-    let mut selection = state
-        .pending_selection
-        .lock()
-        .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+    let mut selection = state.pending_selection.lock_recovering();
     if selection
         .as_ref()
         .is_some_and(|pending| pending.id == selection_id)

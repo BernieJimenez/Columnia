@@ -1844,9 +1844,13 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
     acepta la versión mencionada en prosa y `check-network-policy.mjs` lee una
     ruta de configuración que no existe. Un gate verde no prueba lo que el
     documento afirma; ver T10-07, T10-08 y T10-09.
-15. **Estado envenenable** (2026-09-23): un pánico con el mutex `current`
-    tomado deja la sesión inutilizable hasta reiniciar y sin rastro local;
-    ver T10-15.
+15. **Estado envenenable** (2026-09-23, mitigado en T10-15): los mutex de estado
+    se toman con `lock_recovering()` (`crash_report.rs`), que recupera el último
+    valor publicado tras un pánico, y un hook escribe en `crash-reports/` un
+    informe mínimo (versión, fecha, archivo:línea; nunca el mensaje). Decisión:
+    se prefiere recuperar el último estado publicado a bloquear la sesión, porque
+    las operaciones publican de forma atómica; la alternativa descartada era
+    invalidar el dataset activo y perder el trabajo en memoria.
 16. **Smokes sobre datos reales** (2026-09-23): los probes nativos escriben en
     `%APPDATA%\app.columnia.desktop`; una corrida abortada deja entradas
     sintéticas en el catálogo de la persona; ver T10-17.

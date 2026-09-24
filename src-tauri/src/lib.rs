@@ -3,6 +3,7 @@ use serde::Serialize;
 use tauri::{DragDropEvent, Emitter, Manager, WindowEvent};
 
 pub mod automation;
+mod crash_report;
 mod dataset;
 mod dataset_fingerprints;
 mod delivery_presets;
@@ -134,6 +135,7 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .map_err(Box::<dyn std::error::Error>::from)?;
+            crash_report::install(&app_data_dir);
             let projects = projects::ProjectState::initialize(app_data_dir.clone())
                 .map_err(std::io::Error::other)?;
             app.manage(projects);

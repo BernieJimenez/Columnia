@@ -1,3 +1,4 @@
+use crate::crash_report::LockRecovering;
 use std::collections::{HashMap, HashSet};
 
 use tauri::{ipc::Channel, AppHandle, Manager};
@@ -29,10 +30,7 @@ pub(super) async fn compare_history_snapshots_impl(
     tauri::async_runtime::spawn_blocking(move || {
         let (before_frame, before_label, after_frame, after_label) = {
             let state = app.state::<DatasetState>();
-            let current = state
-                .current
-                .lock()
-                .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+            let current = state.current.lock_recovering();
             let dataset = current
                 .as_ref()
                 .ok_or_else(|| "No hay un dataset activo para comparar revisiones.".to_owned())?;
@@ -67,10 +65,7 @@ pub(super) async fn compare_history_snapshots_impl(
         )?;
         ensure_not_cancelled(state.snapshot_comparison_was_cancelled(generation))?;
 
-        let current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+        let current = state.current.lock_recovering();
         let dataset = current
             .as_ref()
             .ok_or_else(|| "El dataset cambió durante la comparación.".to_owned())?;

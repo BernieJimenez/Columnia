@@ -1,4 +1,5 @@
 use super::*;
+use crate::crash_report::LockRecovering;
 
 pub(super) fn source_scan(path: &Path, extension: &str) -> Result<LazyFrame, String> {
     source_scan_with_header(path, extension, true)
@@ -438,10 +439,7 @@ where
     C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let mut current = state.current.lock_recovering();
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;

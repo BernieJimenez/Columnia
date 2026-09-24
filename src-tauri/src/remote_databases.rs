@@ -1,3 +1,4 @@
+use crate::crash_report::LockRecovering;
 use std::{fmt::Debug, path::Path};
 
 use odbc_api::{
@@ -87,11 +88,7 @@ pub(crate) fn confirm_remote_target(
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
     let fingerprint = remote_target_fingerprint(target);
     let confirmations = app.state::<RemoteTargetConfirmations>();
-    let already_confirmed = confirmations
-        .0
-        .lock()
-        .map_err(|_| "El registro de destinos confirmados quedó bloqueado.".to_owned())?
-        .contains(&fingerprint);
+    let already_confirmed = confirmations.0.lock_recovering().contains(&fingerprint);
     if already_confirmed {
         return Ok(());
     }
@@ -108,11 +105,7 @@ pub(crate) fn confirm_remote_target(
     if !confirmed {
         return Err(REMOTE_TARGET_NOT_CONFIRMED.to_owned());
     }
-    confirmations
-        .0
-        .lock()
-        .map_err(|_| "El registro de destinos confirmados quedó bloqueado.".to_owned())?
-        .insert(fingerprint);
+    confirmations.0.lock_recovering().insert(fingerprint);
     Ok(())
 }
 

@@ -1,4 +1,5 @@
 use super::*;
+use crate::crash_report::LockRecovering;
 
 pub(super) fn row_signature(
     frame: &DataFrame,
@@ -2064,8 +2065,7 @@ where
     ensure_not_cancelled(is_cancelled())?;
     let Some(context) = state
         .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?
+        .lock_recovering()
         .as_ref()
         .and_then(current_join_context)
     else {
@@ -2127,8 +2127,7 @@ where
     }
     let current_context = state
         .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?
+        .lock_recovering()
         .as_ref()
         .and_then(current_join_context);
     if current_context.as_ref().map(|value| &value.source_path) != Some(&context.source_path)

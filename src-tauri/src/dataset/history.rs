@@ -6,6 +6,7 @@ use super::{
     HISTORY_DISK_BUDGET_BYTES, HISTORY_MAX_ENTRIES, HISTORY_SNAPSHOT_BATCH_ROWS,
     OPERATION_CANCELLED_MESSAGE, PREVIEW_ROW_LIMIT,
 };
+use crate::crash_report::LockRecovering;
 use polars::prelude::{DataFrame, ParquetWriter};
 use serde::Serialize;
 use std::{
@@ -567,10 +568,7 @@ pub(super) async fn undo_last_change_impl(app: AppHandle) -> Result<HistoryResul
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -669,10 +667,7 @@ pub(super) async fn redo_last_change_impl(app: AppHandle) -> Result<HistoryResul
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -684,10 +679,7 @@ pub(super) async fn redo_last_change_impl(app: AppHandle) -> Result<HistoryResul
 pub(super) fn get_history_state_impl(
     state: State<'_, DatasetState>,
 ) -> Result<HistoryState, String> {
-    let current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let current = state.current.lock_recovering();
     let dataset = current.as_ref().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;

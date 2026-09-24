@@ -1,3 +1,4 @@
+use crate::crash_report::LockRecovering;
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 
@@ -97,9 +98,7 @@ pub fn get_performance_settings() -> Result<PerformanceSettings, String> {
 
 pub fn set_performance_profile(profile: PerformanceProfile) -> Result<PerformanceSettings, String> {
     let requested_threads = profile_thread_count(profile, logical_cpu_count());
-    let mut state = performance_state()
-        .lock()
-        .map_err(|_| "La configuración de rendimiento quedó bloqueada.".to_owned())?;
+    let mut state = performance_state().lock_recovering();
 
     state.requested_profile = profile;
     state.requested_threads = requested_threads;
@@ -152,9 +151,7 @@ fn system_snapshot() -> &'static Mutex<System> {
 pub fn get_resource_usage() -> Result<ResourceUsage, String> {
     let pid =
         get_current_pid().map_err(|error| format!("No se pudo identificar Columnia: {error}"))?;
-    let mut system = system_snapshot()
-        .lock()
-        .map_err(|_| "El monitor de recursos quedó bloqueado.".to_owned())?;
+    let mut system = system_snapshot().lock_recovering();
 
     system.refresh_memory();
     system.refresh_cpu_usage();

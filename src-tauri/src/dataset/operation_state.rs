@@ -1,4 +1,5 @@
 use super::*;
+use crate::crash_report::LockRecovering;
 
 impl DatasetState {
     pub(crate) fn queue_dropped_path(&self, path: PathBuf) {
@@ -8,17 +9,11 @@ impl DatasetState {
     }
 
     pub(crate) fn take_dropped_path(&self) -> Result<Option<PathBuf>, String> {
-        self.pending_drop
-            .lock()
-            .map_err(|_| "La selección arrastrada quedó bloqueada inesperadamente.".to_owned())
-            .map(|mut pending| pending.take())
+        Ok(self.pending_drop.lock_recovering().take())
     }
 
     pub(super) fn begin_load(&self) -> Result<u64, String> {
-        let _guard = self
-            .load_commit_lock
-            .lock()
-            .map_err(|_| "La operación de carga quedó bloqueada inesperadamente.".to_owned())?;
+        let _guard = self.load_commit_lock.lock_recovering();
         Ok(self
             .load_generation
             .fetch_add(1, Ordering::SeqCst)
@@ -30,9 +25,7 @@ impl DatasetState {
         generation: u64,
         operation: impl FnOnce() -> Result<T, String>,
     ) -> Result<T, String> {
-        let _guard = self.load_commit_lock.lock().map_err(|_| {
-            "La publicación de la carga quedó bloqueada inesperadamente.".to_owned()
-        })?;
+        let _guard = self.load_commit_lock.lock_recovering();
         ensure_not_cancelled(self.load_was_cancelled(generation))?;
         operation()
     }
@@ -173,18 +166,14 @@ impl DatasetState {
 
     pub(super) fn last_export(&self) -> Result<PathBuf, String> {
         self.last_export_path
-            .lock()
-            .map_err(|_| "La salida exportada no está disponible.".to_owned())?
+            .lock_recovering()
             .clone()
             .ok_or_else(|| "Todavía no hay una exportación disponible para abrir.".to_owned())
     }
 
     pub(super) fn cancel(&self, operation: &str) -> Result<(), String> {
         if operation == "load" {
-            let _guard = self
-                .load_commit_lock
-                .lock()
-                .map_err(|_| "La cancelación de carga quedó bloqueada.".to_owned())?;
+            let _guard = self.load_commit_lock.lock_recovering();
             self.load_generation.fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
@@ -199,49 +188,34 @@ impl DatasetState {
             return Ok(());
         }
         if operation == "projectDelete" {
-            let _guard = self.project_delete_commit_lock.lock().map_err(|_| {
-                "La cancelación de eliminación del proyecto quedó bloqueada.".to_owned()
-            })?;
+            let _guard = self.project_delete_commit_lock.lock_recovering();
             self.project_delete_generation
                 .fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
         if operation == "projectSave" {
-            let _guard = self.project_save_commit_lock.lock().map_err(|_| {
-                "La cancelación del guardado del proyecto quedó bloqueada.".to_owned()
-            })?;
+            let _guard = self.project_save_commit_lock.lock_recovering();
             self.project_save_generation.fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
         if operation == "projectOpen" {
-            let _guard = self.project_open_commit_lock.lock().map_err(|_| {
-                "La cancelación de apertura del proyecto quedó bloqueada.".to_owned()
-            })?;
+            let _guard = self.project_open_commit_lock.lock_recovering();
             self.project_open_generation.fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
         if operation == "prepare" {
-            let _guard = self
-                .prepare_commit_lock
-                .lock()
-                .map_err(|_| "La cancelación de preparación quedó bloqueada.".to_owned())?;
+            let _guard = self.prepare_commit_lock.lock_recovering();
             self.prepare_generation.fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
         if operation == "reviewMutation" {
-            let _guard = self
-                .review_mutation_commit_lock
-                .lock()
-                .map_err(|_| "La cancelación de Review quedó bloqueada.".to_owned())?;
+            let _guard = self.review_mutation_commit_lock.lock_recovering();
             self.review_mutation_generation
                 .fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
         if operation == "datasetComparison" {
-            let _guard = self
-                .dataset_comparison_commit_lock
-                .lock()
-                .map_err(|_| "La cancelación de la comparación quedó bloqueada.".to_owned())?;
+            let _guard = self.dataset_comparison_commit_lock.lock_recovering();
             self.dataset_comparison_generation
                 .fetch_add(1, Ordering::SeqCst);
             return Ok(());

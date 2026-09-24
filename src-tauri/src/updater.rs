@@ -1,3 +1,4 @@
+use crate::crash_report::LockRecovering;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Mutex,
@@ -64,10 +65,7 @@ struct UpdateCheckGuard {
 impl UpdateCheckGuard {
     fn begin(app: &AppHandle) -> Result<Self, String> {
         let state = app.state::<UpdaterState>();
-        let mut active = state
-            .check_cancellation
-            .lock()
-            .map_err(|_| "El estado del updater quedó bloqueado inesperadamente.".to_owned())?;
+        let mut active = state.check_cancellation.lock_recovering();
         if active.is_some() {
             return Err(UPDATE_CHECK_IN_PROGRESS.to_owned());
         }
@@ -87,10 +85,7 @@ impl UpdateCheckGuard {
 
     fn commit(self, update: Option<Update>) -> Result<Option<UpdateInfo>, String> {
         let state = self.app.state::<UpdaterState>();
-        let mut active = state
-            .check_cancellation
-            .lock()
-            .map_err(|_| "El estado del updater quedó bloqueado inesperadamente.".to_owned())?;
+        let mut active = state.check_cancellation.lock_recovering();
         let owns_active_check = active
             .as_ref()
             .is_some_and(|current| current.generation == self.generation);
@@ -142,10 +137,7 @@ fn with_pending<T>(
     operation: impl FnOnce(&mut Option<PendingUpdate>) -> Result<T, String>,
 ) -> Result<T, String> {
     let state = app.state::<UpdaterState>();
-    let mut pending = state
-        .pending
-        .lock()
-        .map_err(|_| "El estado del updater quedó bloqueado inesperadamente.".to_owned())?;
+    let mut pending = state.pending.lock_recovering();
     operation(&mut pending)
 }
 
@@ -226,10 +218,7 @@ pub async fn check_for_update(app: AppHandle) -> Result<Option<UpdateInfo>, Stri
 
 pub(crate) fn cancel_update_check(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<UpdaterState>();
-    let active = state
-        .check_cancellation
-        .lock()
-        .map_err(|_| "El estado del updater quedó bloqueado inesperadamente.".to_owned())?;
+    let active = state.check_cancellation.lock_recovering();
     if let Some(active) = active.as_ref() {
         active.cancellation.cancel();
     }

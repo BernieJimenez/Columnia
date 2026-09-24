@@ -1,3 +1,4 @@
+use crate::crash_report::LockRecovering;
 use std::{
     collections::HashSet,
     fs::{self},
@@ -301,10 +302,7 @@ impl ProjectStore {
         C: Fn() -> bool + Sync,
     {
         ensure_project_operation_not_cancelled(is_cancelled())?;
-        let mut initialized = self
-            .initialized
-            .lock()
-            .map_err(|_| "El catálogo de proyectos no está disponible.".to_owned())?;
+        let mut initialized = self.initialized.lock_recovering();
         if *initialized {
             ensure_project_operation_not_cancelled(is_cancelled())?;
             return Ok(());
@@ -2841,10 +2839,7 @@ where
 {
     tauri::async_runtime::spawn_blocking(move || {
         let project_state = app.state::<ProjectState>();
-        let _guard = project_state
-            .operation
-            .lock()
-            .map_err(|_| "El catálogo de proyectos no está disponible.".to_owned())?;
+        let _guard = project_state.operation.lock_recovering();
         let dataset_state = app.state::<DatasetState>();
         operation(&project_state.store, &dataset_state)
     })

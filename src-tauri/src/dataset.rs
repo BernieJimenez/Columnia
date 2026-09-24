@@ -1,3 +1,4 @@
+use crate::crash_report::LockRecovering;
 use ::zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 use calamine::{
     open_workbook_auto, Data, DataType as CalamineDataType, Dimensions, Range, Reader, Sheets,
@@ -1741,10 +1742,7 @@ fn snapshot_pending_comparison_for_review(
     cancellation: &ReviewMutationCancellation,
 ) -> Result<ReviewComparisonSnapshot, String> {
     cancellation.ensure()?;
-    let comparison = state
-        .comparison
-        .lock()
-        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+    let comparison = state.comparison.lock_recovering();
     let pending = comparison
         .as_ref()
         .ok_or_else(|| "No hay un dataset comparado listo para consolidar.".to_owned())?;
@@ -1821,10 +1819,7 @@ pub fn probe_seed_dataset(state: State<'_, DatasetState>) -> Result<DatasetPrevi
     .map_err(|error| format!("No se pudo preparar el dataset nativo de prueba: {error}"))?;
     let history = HistoryManager::new(&frame)?;
     let preview = dataset_preview_with_size("native-probe.csv", 96, &frame)?;
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+    let mut current = state.current.lock_recovering();
     if current.is_some() {
         return Err("El probe nativo requiere una sesión de datos vacía.".to_owned());
     }
@@ -1877,10 +1872,7 @@ pub async fn probe_export_dataset(
     let generation = app.state::<DatasetState>().begin_export();
     let (frame, suggested_name) = {
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current
             .as_mut()
             .ok_or_else(|| "No hay un dataset activo para el probe nativo.".to_owned())?;
@@ -1918,27 +1910,27 @@ pub async fn probe_export_dataset(
 #[cfg(test)]
 impl DatasetState {
     pub(crate) fn project_test_record(&self, frame: DataFrame, label: &str) -> Result<(), String> {
-        let mut current = self.current.lock().map_err(|_| "lock".to_owned())?;
+        let mut current = self.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| "missing".to_owned())?;
         publish_candidate_with_cancellation(dataset, frame, label, None).map(|_| ())
     }
 
     pub(crate) fn project_test_undo(&self) -> Result<DataFrame, String> {
-        let mut current = self.current.lock().map_err(|_| "lock".to_owned())?;
+        let mut current = self.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| "missing".to_owned())?;
         undo_dataset(dataset)?;
         Ok(dataset.frame.clone())
     }
 
     pub(crate) fn project_test_redo(&self) -> Result<DataFrame, String> {
-        let mut current = self.current.lock().map_err(|_| "lock".to_owned())?;
+        let mut current = self.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| "missing".to_owned())?;
         redo_dataset(dataset)?;
         Ok(dataset.frame.clone())
     }
 
     pub(crate) fn project_test_cache_profile(&self) -> Result<DatasetProfile, String> {
-        let mut current = self.current.lock().map_err(|_| "lock".to_owned())?;
+        let mut current = self.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| "missing".to_owned())?;
         materialize_loaded_dataset(dataset)?;
         let profile = profile_dataset(&dataset.frame)?;
@@ -1947,7 +1939,7 @@ impl DatasetState {
     }
 
     pub(crate) fn project_test_degrade_history(&self) -> Result<(), String> {
-        let mut current = self.current.lock().map_err(|_| "lock".to_owned())?;
+        let mut current = self.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| "missing".to_owned())?;
         materialize_loaded_dataset(dataset)?;
         dataset.history = HistoryManager::with_limits(&dataset.frame, HISTORY_MAX_ENTRIES, 0)?;
@@ -3090,20 +3082,14 @@ fn publish_review_eager_candidate(
     cancellation: &ReviewMutationCancellation,
 ) -> Result<DatasetPreview, String> {
     cancellation.ensure()?;
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let mut current = state.current.lock_recovering();
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
     if !expected_stamp.matches(dataset) {
         return Err("El dataset activo cambió durante la operación de Review.".to_owned());
     }
-    let mut comparison = state
-        .comparison
-        .lock()
-        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+    let mut comparison = state.comparison.lock_recovering();
     if let Some(expected_path) = expected_comparison_path {
         if !comparison
             .as_ref()
@@ -3254,10 +3240,7 @@ fn join_source_backed_dataset(
             }
         };
 
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let mut current = state.current.lock_recovering();
     let dataset = current.as_mut().ok_or_else(|| {
         let _ = fs::remove_file(&output_path);
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
@@ -3268,10 +3251,7 @@ fn join_source_backed_dataset(
         context.file_name
     );
     let label = format!("Unir datasets ({})", join_type.label());
-    let mut comparison = state
-        .comparison
-        .lock()
-        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+    let mut comparison = state.comparison.lock_recovering();
     let preview = publish_review_source_backed_result_output(
         dataset,
         &mut comparison,
@@ -3371,20 +3351,14 @@ fn consolidate_source_backed_dataset(
             Err(_) => return Ok(None),
         };
 
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let mut current = state.current.lock_recovering();
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
     if !expected_stamp.matches(dataset) {
         return Err("El dataset activo cambió durante la consolidación.".to_owned());
     }
-    let mut comparison = state
-        .comparison
-        .lock()
-        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+    let mut comparison = state.comparison.lock_recovering();
     let file_name = format!("Consolidado · {} + {compared_file_name}", context.file_name);
     let preview = publish_review_source_backed_result_output(
         dataset,
@@ -3507,17 +3481,11 @@ fn resolve_source_backed_conflicts(
             }
         };
     cancellation.ensure()?;
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let mut current = state.current.lock_recovering();
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
-    let mut comparison = state
-        .comparison
-        .lock()
-        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+    let mut comparison = state.comparison.lock_recovering();
     let file_name = format!("Resuelto · {} + {compared_file_name}", context.file_name);
     let preview = publish_review_source_backed_result_output(
         dataset,
@@ -6764,10 +6732,7 @@ pub async fn join_dataset(
         expected_comparison_path,
     ) = {
         let state = app.state::<DatasetState>();
-        let current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let current = state.current.lock_recovering();
         let dataset = current.as_ref().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -6780,8 +6745,7 @@ pub async fn join_dataset(
         drop(current);
         let comparison_path = state
             .comparison
-            .lock()
-            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?
+            .lock_recovering()
             .as_ref()
             .map(|pending| pending.snapshot_path.clone());
         (
@@ -6865,9 +6829,7 @@ pub async fn join_dataset(
             Some(frame) => frame,
             None => {
                 let state = app.state::<DatasetState>();
-                let current = state.current.lock().map_err(|_| {
-                    "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
-                })?;
+                let current = state.current.lock_recovering();
                 let dataset = current.as_ref().ok_or_else(|| {
                     "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
                 })?;
@@ -7440,10 +7402,7 @@ pub async fn resolve_dataset_conflicts(
         let comparison = snapshot_pending_comparison_for_review(&state, &cancellation_for_work)?;
         cancellation_for_work.ensure()?;
         let (source_context, initial_eager_frame, expected_stamp) = {
-            let current = state
-                .current
-                .lock()
-                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            let current = state.current.lock_recovering();
             let dataset = current.as_ref().ok_or_else(|| {
                 "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
             })?;
@@ -7489,9 +7448,7 @@ pub async fn resolve_dataset_conflicts(
         let current_frame = match initial_eager_frame {
             Some(frame) => frame,
             None => {
-                let current = state.current.lock().map_err(|_| {
-                    "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
-                })?;
+                let current = state.current.lock_recovering();
                 let dataset = current.as_ref().ok_or_else(|| {
                     "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
                 })?;
@@ -7539,10 +7496,7 @@ pub async fn resolve_dataset_conflicts(
 
 #[tauri::command]
 pub fn clear_dataset_comparison(state: State<'_, DatasetState>) -> Result<(), String> {
-    *state
-        .comparison
-        .lock()
-        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
+    *state.comparison.lock_recovering() = None;
     Ok(())
 }
 
@@ -7556,8 +7510,7 @@ pub async fn use_consolidated_dataset(app: AppHandle) -> Result<DatasetPreview, 
         let (expected_stamp, source_context) = {
             let current = state
                 .current
-                .lock()
-                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+                .lock_recovering();
             let dataset = current.as_ref().ok_or_else(|| {
                 "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
             })?;
@@ -7599,8 +7552,7 @@ pub async fn use_consolidated_dataset(app: AppHandle) -> Result<DatasetPreview, 
         let current_frame = {
             let current = state
                 .current
-                .lock()
-                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+                .lock_recovering();
             let dataset = current.as_ref().ok_or_else(|| {
                 "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
             })?;
@@ -7799,17 +7751,11 @@ pub async fn query_dataset(
     tauri::async_runtime::spawn_blocking(move || match engine {
         DatasetQueryEngine::Polars => {
             let state = query_app.state::<DatasetState>();
-            let mut current = state
-                .current
-                .lock()
-                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            let mut current = state.current.lock_recovering();
             let dataset = current
                 .as_mut()
                 .ok_or_else(|| "No hay un dataset activo para consultar.".to_owned())?;
-            let comparison = state
-                .comparison
-                .lock()
-                .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+            let comparison = state.comparison.lock_recovering();
             let current_snapshot =
                 current_history_parquet_snapshot(dataset).map(|(path, _, _)| path);
             let current_file_source = current_duckdb_file_source(dataset);
@@ -7963,17 +7909,11 @@ pub async fn query_dataset(
         }
         DatasetQueryEngine::Duckdb => {
             let state = query_app.state::<DatasetState>();
-            let mut current = state
-                .current
-                .lock()
-                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            let mut current = state.current.lock_recovering();
             let dataset = current
                 .as_mut()
                 .ok_or_else(|| "No hay un dataset activo para consultar.".to_owned())?;
-            let comparison = state
-                .comparison
-                .lock()
-                .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+            let comparison = state.comparison.lock_recovering();
             let compared_snapshot = comparison
                 .as_ref()
                 .map(|pending| pending.snapshot_path.as_path());
@@ -8135,10 +8075,7 @@ pub async fn validate_quality_rules(
     let is_cancelled = cancellation.callback();
     let source_context = {
         let state = app.state::<DatasetState>();
-        let current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let current = state.current.lock_recovering();
         current.as_ref().and_then(|dataset| {
             if dataset.source_backed {
                 current_source_backed_context(dataset)
@@ -8172,9 +8109,7 @@ pub async fn validate_quality_rules(
                 cancellation.ensure()?;
                 let current_context = {
                     let state = app.state::<DatasetState>();
-                    let current = state.current.lock().map_err(|_| {
-                        "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
-                    })?;
+                    let current = state.current.lock_recovering();
                     current.as_ref().and_then(|dataset| {
                         if dataset.source_backed {
                             current_source_backed_context(dataset)
@@ -8225,10 +8160,7 @@ pub async fn export_dataset(
     }
     let source_context = {
         let state = app.state::<DatasetState>();
-        let current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let current = state.current.lock_recovering();
         current.as_ref().and_then(|dataset| {
             if dataset.source_backed {
                 let (source_path, source_size, row_count) = current_source_backed_context(dataset)?;
@@ -8493,9 +8425,7 @@ pub async fn export_dataset(
                 if snapshot_only {
                     let current_snapshot = {
                         let state = app.state::<DatasetState>();
-                        let current = state.current.lock().map_err(|_| {
-                            "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
-                        })?;
+                        let current = state.current.lock_recovering();
                         current.as_ref().and_then(current_history_parquet_snapshot)
                     };
                     let snapshot_is_current = current_snapshot.is_some_and(
@@ -8539,10 +8469,7 @@ pub async fn export_dataset(
     let output_extension = format.extension().to_owned();
     let (frame, suggested_name) = tauri::async_runtime::spawn_blocking(move || {
         let state = preparation_app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -8656,10 +8583,7 @@ pub async fn preflight_database_export(
     let is_cancelled = cancellation.callback();
     let (source_context, frame) = {
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -8812,10 +8736,7 @@ pub async fn export_dataset_to_database(
 
     let source_context = {
         let state = app.state::<DatasetState>();
-        let current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let current = state.current.lock_recovering();
         current.as_ref().and_then(|dataset| {
             if dataset.source_backed {
                 let (_, source_size, row_count) = current_source_backed_context(dataset)?;
@@ -8973,9 +8894,7 @@ pub async fn export_dataset_to_database(
                 if snapshot_only {
                     let current_snapshot = {
                         let state = validation_app.state::<DatasetState>();
-                        let current = state.current.lock().map_err(|_| {
-                            "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
-                        })?;
+                        let current = state.current.lock_recovering();
                         current.as_ref().and_then(current_history_parquet_snapshot)
                     };
                     let snapshot_is_current = current_snapshot.is_some_and(
@@ -9019,10 +8938,7 @@ pub async fn export_dataset_to_database(
     let (protected_frame, protected_columns) = tauri::async_runtime::spawn_blocking(move || {
         let frame = {
             let state = preparation_app.state::<DatasetState>();
-            let mut current = state
-                .current
-                .lock()
-                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            let mut current = state.current.lock_recovering();
             let dataset = current.as_mut().ok_or_else(|| {
                 "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
             })?;
@@ -9227,10 +9143,7 @@ pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -9272,10 +9185,7 @@ pub async fn remove_near_duplicates(app: AppHandle) -> Result<DatasetMutation, S
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -9317,10 +9227,7 @@ pub async fn remove_empty_rows(app: AppHandle) -> Result<DatasetMutation, String
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -9360,10 +9267,7 @@ pub async fn enable_row_audit(app: AppHandle) -> Result<DatasetMutation, String>
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -9403,10 +9307,7 @@ pub async fn remove_constant_columns(app: AppHandle) -> Result<ColumnRemovalResu
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -9450,10 +9351,7 @@ pub async fn remove_empty_columns(app: AppHandle) -> Result<ColumnRemovalResult,
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -9497,10 +9395,7 @@ pub async fn remove_high_null_columns(app: AppHandle) -> Result<ColumnRemovalRes
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -9546,10 +9441,7 @@ pub async fn remove_identifier_columns(app: AppHandle) -> Result<ColumnRemovalRe
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -9595,10 +9487,7 @@ pub async fn remove_personal_columns(app: AppHandle) -> Result<ColumnRemovalResu
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -9647,10 +9536,7 @@ pub async fn mask_personal_values(app: AppHandle) -> Result<PersonalDataMaskResu
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -9692,10 +9578,7 @@ pub async fn normalize_column_names(app: AppHandle) -> Result<ColumnNormalizatio
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -9744,10 +9627,7 @@ fn apply_text_cleaning(
 ) -> Result<TextCleaningResult, String> {
     cancellation.ensure()?;
     let state = app.state::<DatasetState>();
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let mut current = state.current.lock_recovering();
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
@@ -9795,10 +9675,7 @@ fn apply_date_parsing(
 ) -> Result<TextCleaningResult, String> {
     cancellation.ensure()?;
     let state = app.state::<DatasetState>();
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let mut current = state.current.lock_recovering();
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
@@ -9838,10 +9715,7 @@ fn apply_numeric_cast(
 ) -> Result<TextCleaningResult, String> {
     cancellation.ensure()?;
     let state = app.state::<DatasetState>();
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let mut current = state.current.lock_recovering();
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
@@ -9971,10 +9845,7 @@ pub async fn impute_missing_values(app: AppHandle) -> Result<TextCleaningResult,
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -10017,10 +9888,7 @@ pub async fn impute_categorical_values(app: AppHandle) -> Result<TextCleaningRes
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -10063,10 +9931,7 @@ pub async fn impute_outlier_values(app: AppHandle) -> Result<TextCleaningResult,
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -10114,10 +9979,7 @@ fn apply_direct_outlier_mode(
 ) -> Result<TextCleaningResult, String> {
     cancellation.ensure()?;
     let state = app.state::<DatasetState>();
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let mut current = state.current.lock_recovering();
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
@@ -10196,10 +10058,7 @@ pub async fn apply_safe_corrections(
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
@@ -10289,10 +10148,7 @@ pub fn get_history_state(state: State<'_, DatasetState>) -> Result<HistoryState,
 
 impl DatasetState {
     pub(crate) fn begin_project_open(&self) -> Result<u64, String> {
-        let _guard = self
-            .project_open_commit_lock
-            .lock()
-            .map_err(|_| "La apertura del proyecto quedó bloqueada.".to_owned())?;
+        let _guard = self.project_open_commit_lock.lock_recovering();
         Ok(self
             .project_open_generation
             .fetch_add(1, Ordering::SeqCst)
@@ -10300,10 +10156,7 @@ impl DatasetState {
     }
 
     pub(crate) fn begin_project_save(&self) -> Result<u64, String> {
-        let _guard = self
-            .project_save_commit_lock
-            .lock()
-            .map_err(|_| "El guardado del proyecto quedó bloqueado.".to_owned())?;
+        let _guard = self.project_save_commit_lock.lock_recovering();
         Ok(self
             .project_save_generation
             .fetch_add(1, Ordering::SeqCst)
@@ -10327,19 +10180,13 @@ impl DatasetState {
         generation: u64,
         operation: impl FnOnce() -> Result<T, String>,
     ) -> Result<T, String> {
-        let _guard = self
-            .project_save_commit_lock
-            .lock()
-            .map_err(|_| "La publicación del proyecto quedó bloqueada.".to_owned())?;
+        let _guard = self.project_save_commit_lock.lock_recovering();
         ensure_not_cancelled(self.project_save_was_cancelled(generation))?;
         operation()
     }
 
     pub(crate) fn begin_project_delete(&self) -> Result<u64, String> {
-        let _guard = self
-            .project_delete_commit_lock
-            .lock()
-            .map_err(|_| "La eliminación del proyecto quedó bloqueada.".to_owned())?;
+        let _guard = self.project_delete_commit_lock.lock_recovering();
         Ok(self
             .project_delete_generation
             .fetch_add(1, Ordering::SeqCst)
@@ -10363,9 +10210,7 @@ impl DatasetState {
         generation: u64,
         operation: impl FnOnce() -> Result<T, String>,
     ) -> Result<T, String> {
-        let _guard = self.project_delete_commit_lock.lock().map_err(|_| {
-            "La publicación de eliminación del proyecto quedó bloqueada.".to_owned()
-        })?;
+        let _guard = self.project_delete_commit_lock.lock_recovering();
         ensure_not_cancelled(self.project_delete_was_cancelled(generation))?;
         operation()
     }
@@ -10417,10 +10262,7 @@ impl DatasetState {
         generation: u64,
         operation: impl FnOnce() -> Result<T, String>,
     ) -> Result<T, String> {
-        let _guard = self
-            .project_open_commit_lock
-            .lock()
-            .map_err(|_| "La publicación de apertura del proyecto quedó bloqueada.".to_owned())?;
+        let _guard = self.project_open_commit_lock.lock_recovering();
         ensure_not_cancelled(self.project_open_was_cancelled(generation))?;
         operation()
     }
@@ -10433,14 +10275,8 @@ impl DatasetState {
     ) -> Result<(T, DatasetPreview), String> {
         ensure_not_cancelled(self.project_open_was_cancelled(generation))?;
         // Esperar aquí deja que cancelar gane mientras la sesión esté ocupada.
-        let mut current = self
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
-        let _guard = self
-            .project_open_commit_lock
-            .lock()
-            .map_err(|_| "La publicación de apertura del proyecto quedó bloqueada.".to_owned())?;
+        let mut current = self.current.lock_recovering();
+        let _guard = self.project_open_commit_lock.lock_recovering();
         ensure_not_cancelled(self.project_open_was_cancelled(generation))?;
 
         let ProjectDatasetCandidate { loaded, preview } = candidate;
@@ -10504,10 +10340,7 @@ impl DatasetState {
         &self,
         recipe: &TransformRecipe,
     ) -> Result<bool, String> {
-        let mut current = self
-            .current
-            .lock()
-            .map_err(|_| "La sesión de importación no está disponible.".to_owned())?;
+        let mut current = self.current.lock_recovering();
         let dataset = current
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
@@ -10518,10 +10351,7 @@ impl DatasetState {
         &self,
         quality_rules: &[QualityRule],
     ) -> Result<QualityValidationResult, String> {
-        let current = self
-            .current
-            .lock()
-            .map_err(|_| "La sesión del proyecto no está disponible.".to_owned())?;
+        let current = self.current.lock_recovering();
         let dataset = current
             .as_ref()
             .ok_or_else(|| "El proyecto no contiene un dataset activo.".to_owned())?;
@@ -10540,10 +10370,7 @@ impl DatasetState {
     }
 
     pub(crate) fn dimensions_for_automation(&self) -> Result<(usize, usize), String> {
-        let current = self
-            .current
-            .lock()
-            .map_err(|_| "La sesión del proyecto no está disponible.".to_owned())?;
+        let current = self.current.lock_recovering();
         let dataset = current
             .as_ref()
             .ok_or_else(|| "El proyecto no contiene un dataset activo.".to_owned())?;
@@ -10557,10 +10384,7 @@ impl DatasetState {
         quality_validation: Option<&QualityValidationResult>,
         recipe: Option<&StoredTransformRecipe>,
     ) -> Result<ExportResult, String> {
-        let current = self
-            .current
-            .lock()
-            .map_err(|_| "La sesión del proyecto no está disponible.".to_owned())?;
+        let current = self.current.lock_recovering();
         let dataset = current
             .as_ref()
             .ok_or_else(|| "El proyecto no contiene un dataset activo.".to_owned())?;
@@ -10580,10 +10404,7 @@ impl DatasetState {
         F: FnMut(&'static str, u8),
         C: Fn() -> bool + Sync,
     {
-        let mut current = self
-            .current
-            .lock()
-            .map_err(|_| "La sesión de importación no está disponible.".to_owned())?;
+        let mut current = self.current.lock_recovering();
         let dataset = current
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
@@ -10628,10 +10449,7 @@ impl DatasetState {
         C: Fn() -> bool + Clone + Send + Sync + 'static,
     {
         ensure_not_cancelled(is_cancelled())?;
-        let mut current = self
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+        let mut current = self.current.lock_recovering();
         ensure_not_cancelled(is_cancelled())?;
         let dataset = current
             .as_mut()
@@ -10845,14 +10663,8 @@ impl DatasetState {
         candidate: ProjectDatasetCandidate,
     ) -> Result<DatasetPreview, String> {
         let ProjectDatasetCandidate { loaded, preview } = candidate;
-        *self
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos no está disponible.".to_owned())? = Some(loaded);
-        self.pending_selection
-            .lock()
-            .map_err(|_| "La selección local no está disponible.".to_owned())?
-            .take();
+        *self.current.lock_recovering() = Some(loaded);
+        self.pending_selection.lock_recovering().take();
         self.profile_generation.fetch_add(1, Ordering::SeqCst);
         self.export_generation.fetch_add(1, Ordering::SeqCst);
         Ok(preview)
@@ -11084,10 +10896,7 @@ pub async fn apply_transform_recipe(
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;

@@ -1,4 +1,5 @@
 use super::*;
+use crate::crash_report::LockRecovering;
 
 fn validate_dataset_page_request(
     row_count: usize,
@@ -177,10 +178,7 @@ pub(super) async fn get_dataset_page_impl(
         ensure_not_cancelled(is_cancelled())?;
 
         let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let mut current = state.current.lock_recovering();
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;

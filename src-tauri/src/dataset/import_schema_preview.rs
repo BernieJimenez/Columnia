@@ -1,4 +1,5 @@
 use super::*;
+use crate::crash_report::LockRecovering;
 
 pub(super) async fn preview_dataset_selection_impl(
     app: AppHandle,
@@ -12,10 +13,7 @@ pub(super) async fn preview_dataset_selection_impl(
     let generation = app.state::<DatasetState>().begin_load()?;
     let pending = {
         let state = app.state::<DatasetState>();
-        let selection = state
-            .pending_selection
-            .lock()
-            .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+        let selection = state.pending_selection.lock_recovering();
         let pending = selection
             .as_ref()
             .cloned()
