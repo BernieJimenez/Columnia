@@ -63,6 +63,17 @@ git config core.hooksPath .githooks
 El hook es opcional y local; `git push --no-verify` lo omite para un envío
 concreto.
 
+Para cambios en Preparar o en el manejo de archivos grandes, recorre la interfaz
+real con un CSV sintético grande (Columnia debe estar cerrada):
+
+```powershell
+node tools/generate-prepare-probe-csv.mjs "$env:TEMP\columnia-prepare-probe.csv" 1800000
+.\tools\probe-webview2-cdp.ps1 -RunNativeSelectors -RunPrepareFlow -NativeDatasetPath "$env:TEMP\columnia-prepare-probe.csv" -TimeoutSeconds 900
+```
+
+Importa el archivo, aplica la propuesta de Preparar y mide cuánto tarda
+`get_app_info` en responder mientras tanto.
+
 Para cambios de release o empaquetado ejecuta `Release` o `Package` según
 corresponda. Los smokes de WebView2 y los recorridos que requieren un escritorio
 interactivo se documentan junto con su evidencia; no se sustituyen por una

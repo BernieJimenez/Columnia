@@ -140,6 +140,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Interno
 
+- `probe-webview2-cdp.ps1 -RunPrepareFlow` recorre la interfaz real con un CSV
+  grande (`tools/generate-prepare-probe-csv.mjs`): importa, aplica la propuesta
+  de Preparar y mide la respuesta de `get_app_info` mientras tanto. El área de
+  trabajo expone `data-busy-reasons` (solo nombres de estado) para diagnosticar
+  qué mantiene ocupada la app.
 - T10-25: `npm run lint` ejecuta oxlint (reglas de hooks de React y de
   corrección) en todos los perfiles de `check.ps1`, incluido Fast. `npm run build`
   comprueba el código de producción con `tsconfig.app.json`, sin tipos de Node

@@ -21,8 +21,12 @@ const sourcePath = requestedDatasetPath
   ? resolve(requestedDatasetPath)
   : resolve(projectRoot, "fixtures", "automation", "input.csv");
 const sourceFileName = basename(sourcePath);
+// --prepare-flow drives the real UI with the given dataset: import, open the
+// Preparar proposal, apply it and time get_app_info meanwhile (T10-16).
+const prepareFlow = process.argv.includes("--prepare-flow");
 const helperTimeoutMs = 100_000;
 const probeTimeoutMs = 150_000;
+const analysisTimeoutMs = 600_000;
 
 if (!Number.isInteger(port) || port < 1024 || port > 65535) {
   console.log(JSON.stringify({ status: "failed", phase: "native_selectors_invalid_port" }));
@@ -475,12 +479,101 @@ async function runReusableTaskFlow(page, emptyRecipe) {
   return { ...outcome, syntheticTaskRemoved: true };
 }
 
+async function runPrepareFlow(page) {
+  try {
+    return await runPrepareFlowSteps(page);
+  } catch (error) {
+    // Leave evidence of what the app showed; the temporary directory is removed.
+    const screenshot = join(tmpdir(), "columnia-prepare-flow-failure.png");
+    await page.screenshot({ path: screenshot, fullPage: true }).catch(() => {});
+    const headings = await page.getByRole("heading").allInnerTexts().catch(() => []);
+    const alerts = await page.getByRole("alert").allInnerTexts().catch(() => []);
+    const state = await page.evaluate(() => ({
+      busy: [...document.querySelectorAll("[aria-busy]")].map((element) => `${element.tagName}:${element.getAttribute("aria-busy")}`),
+      busyReasons: document.querySelector("[data-busy-reasons]")?.getAttribute("data-busy-reasons") ?? null,
+      disabled: [...document.querySelectorAll("button:disabled")].map((button) => button.textContent?.trim()).filter(Boolean),
+      progress: [...document.querySelectorAll("[role='progressbar'], [role='status']")].map((element) => element.textContent?.trim()).filter(Boolean),
+    })).catch(() => null);
+    const wrapped = new Error(error instanceof Error ? error.message : String(error));
+    wrapped.diagnostics = [
+      `screenshot:${screenshot}`,
+      `headings:${headings.join(" | ")}`,
+      `alerts:${alerts.join(" | ")}`,
+      `state:${JSON.stringify(state)}`,
+    ];
+    throw wrapped;
+  }
+}
+
+async function runPrepareFlowSteps(page) {
+  const startedAt = performance.now();
+  await selectDatasetFromApp(page, sourcePath);
+  const dialog = importDialogFor(page, sourcePath);
+  await dialog.waitFor({ state: "visible", timeout: probeTimeoutMs });
+  const reviewSchema = dialog.getByRole("button", { name: "Revisar esquema" });
+  if (await reviewSchema.isVisible().catch(() => false)) await reviewSchema.click();
+  await dialog.getByRole("button", { name: "Cargar archivo" }).click();
+  // After loading, the app opens Revisar; continue from Cargar only if it stayed there.
+  const reviewHeading = page.getByRole("heading", { name: "Revisa antes de modificar" });
+  const toReview = page.getByRole("button", { name: "Continuar a Revisar" });
+  await reviewHeading.or(toReview).first().waitFor({ state: "visible", timeout: probeTimeoutMs });
+  if (!(await reviewHeading.isVisible().catch(() => false))) await toReview.click();
+  // The quality analysis of a large file can take minutes in a debug build.
+  const proposalEntry = page.getByRole("button", { name: /^(Ver cambios propuestos|Continuar a Preparar)$/ });
+  await proposalEntry.waitFor({ state: "visible", timeout: analysisTimeoutMs });
+  const loadAndAnalyzeMs = performance.now() - startedAt;
+  await proposalEntry.click();
+  const apply = page.getByRole("button", { name: /^Aplicar \d+ cambios?$/ });
+  await apply.waitFor({ state: "visible", timeout: probeTimeoutMs });
+  const applyLabel = (await apply.textContent())?.trim() ?? "";
+
+  // Sample the synchronous get_app_info round trip while the plan runs.
+  const samples = [];
+  let sampling = true;
+  const sampler = (async () => {
+    while (sampling) {
+      const sampleStartedAt = performance.now();
+      await invoke(page, "get_app_info");
+      samples.push(performance.now() - sampleStartedAt);
+      await sleep(50);
+    }
+  })();
+  const applyStartedAt = performance.now();
+  await apply.click();
+  const result = page.getByRole("region", { name: "Listo: cambios aplicados" });
+  await result.waitFor({ state: "visible", timeout: analysisTimeoutMs });
+  const applyMs = performance.now() - applyStartedAt;
+  sampling = false;
+  await sampler;
+  const resultText = (await result.innerText()).replace(/\s+/g, " ").trim();
+  const sorted = [...samples].sort((left, right) => left - right);
+  const round = (value) => Number(value.toFixed(1));
+  return {
+    status: "passed",
+    phase: "native_prepare_flow",
+    fileName: sourceFileName,
+    sizeBytes: statSync(sourcePath).size,
+    loadAndAnalyzeMs: round(loadAndAnalyzeMs),
+    applyLabel,
+    applyMs: round(applyMs),
+    appInfoSamples: samples.length,
+    appInfoMedianMs: sorted.length ? round(sorted[Math.floor(sorted.length / 2)]) : null,
+    appInfoMaxMs: sorted.length ? round(sorted[sorted.length - 1]) : null,
+    resultSummary: resultText,
+    forbiddenPathFields: false,
+  };
+}
+
 async function run() {
   temporaryDirectory = mkdtempSync(join(tmpdir(), "columnia-native-selectors-"));
   const recipePath = join(temporaryDirectory, "native-selector-probe.json");
   const exportPath = join(temporaryDirectory, "native-selector-probe.csv");
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 5_000 });
   const page = await findPage();
+  if (prepareFlow) {
+    if (!requestedDatasetPath) throw new Error("prepare_flow_requires_dataset_path");
+    return runPrepareFlow(page);
+  }
 
   const source = await invokeWithNativeDialog(page, "pick_dataset_source", {}, "open", sourcePath);
   if (!validSource(source)) throw new Error("dataset_picker_invalid");

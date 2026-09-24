@@ -7,6 +7,8 @@ param(
     [switch]$RunProjects,
     [switch]$RunProjectMutations,
     [switch]$RunNativeSelectors,
+    # With -RunNativeSelectors and -NativeDatasetPath: drive the Preparar proposal in the UI.
+    [switch]$RunPrepareFlow,
     [switch]$UseReleaseExecutable,
     [ValidateRange(1, 5)]
     [int]$NativeSustainedRuns = 3,
@@ -506,6 +508,9 @@ function Invoke-NativeSelectorsProbe {
         $RunnerArguments += @("--dataset-path", "`"$NativeDatasetAbsolutePath`"")
         if ($null -ne $NativeDatasetExpectedRowCount) {
             $RunnerArguments += @("--expected-row-count", [string]$NativeDatasetExpectedRowCount)
+        }
+        if ($RunPrepareFlow) {
+            $RunnerArguments += @("--prepare-flow")
         }
     }
     $RunnerProcess = Start-Process `

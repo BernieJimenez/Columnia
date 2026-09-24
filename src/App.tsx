@@ -1510,6 +1510,21 @@ export function App() {
   const operationBusy = coreOperationBusy || loadSelectionBusy || projects.isBusy;
   operationBusyRef.current = operationBusy;
   const navigationBusy = foregroundOperationBusy || loadSelectionBusy || projects.operation.kind === "working";
+  // Names only (no data): lets native probes tell which operation keeps the app busy.
+  const busyReasons = [
+    datasetStatus.kind === "loading" && "dataset",
+    datasetStatus.kind === "ready" && datasetStatus.pageLoading && "page",
+    profileStatus.kind === "loading" && "profile",
+    prepare.changeStatus.kind === "working" && "prepare",
+    deliveryContract.gate.kind === "loading" && "quality-gate",
+    exportStatus.kind === "loading" && "export",
+    comparisonStatus.kind === "loading" && "comparison",
+    joinStatus.kind === "loading" && "join",
+    (reviewMutationStatus.kind === "running" || reviewMutationStatus.kind === "finalizing") && "review-mutation",
+    loadSelectionBusy && `selection:${loadInspection.kind}${selectionFinalizing ? "+finalizing" : ""}`,
+    projects.operation.kind === "working" && "project",
+    projects.autoSave.kind === "saving" && "autosave",
+  ].filter(Boolean).join(",");
   const activePhaseIndex = Math.max(0, workflowPhases.findIndex((phase) => phase.id === activePhase));
   const activePhaseMeta = workflowPhases[activePhaseIndex];
   const previousPhase = workflowPhases[activePhaseIndex - 1];
@@ -1792,6 +1807,7 @@ export function App() {
           className={`workspace workspace--${activePhase}`}
           aria-label={`Etapa ${activePhaseMeta.label}`}
           aria-busy={operationBusy}
+          data-busy-reasons={busyReasons || undefined}
         >
           <div
             ref={stageRef}
