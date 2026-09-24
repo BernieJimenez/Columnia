@@ -1127,6 +1127,8 @@ pub struct SafeCorrectionsResult {
     removed_row_count: usize,
     renamed_column_count: usize,
     renames: Vec<ColumnRename>,
+    /// Cells filled by the optional conservative imputation of the same plan.
+    imputed_cell_count: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -5353,6 +5355,7 @@ fn source_backed_safe_corrections_with_cancellation(
             removed_row_count: 0,
             renamed_column_count: 0,
             renames,
+            imputed_cell_count: 0,
         }));
     }
 
@@ -5427,6 +5430,7 @@ fn source_backed_safe_corrections_with_cancellation(
         affected_row_count,
         renamed_column_count: renames.len(),
         renames,
+        imputed_cell_count: 0,
     }))
 }
 
@@ -6258,6 +6262,50 @@ fn apply_outlier_mode(
         changed_cell_count,
         changed_columns,
     ))
+}
+
+pub(super) struct SafeCorrectionPlanFrame {
+    pub(super) frame: DataFrame,
+    pub(super) affected_row_count: usize,
+    pub(super) changed_cell_count: usize,
+    pub(super) removed_row_count: usize,
+    pub(super) renames: Vec<ColumnRename>,
+    pub(super) imputed_cell_count: usize,
+}
+
+/// Safe corrections plus the optional conservative imputation, as one candidate
+/// so the whole plan is published and undone as a single revision.
+pub(super) fn safe_corrected_plan_frame(
+    frame: &DataFrame,
+    trim_text: bool,
+    normalize_column_names: bool,
+    normalize_sentinels: bool,
+    remove_duplicates: bool,
+    impute_missing: bool,
+) -> Result<SafeCorrectionPlanFrame, String> {
+    let (corrected, mut affected_row_count, changed_cell_count, removed_row_count, renames) =
+        safe_corrected_frame(
+            frame,
+            trim_text,
+            normalize_column_names,
+            normalize_sentinels,
+            remove_duplicates,
+        )?;
+    let (frame, imputed_cell_count) = if impute_missing {
+        let (imputed, imputed_rows, imputed_cells, _) = impute_missing_values_in_frame(&corrected)?;
+        affected_row_count = affected_row_count.max(imputed_rows);
+        (imputed, imputed_cells)
+    } else {
+        (corrected, 0)
+    };
+    Ok(SafeCorrectionPlanFrame {
+        frame,
+        affected_row_count,
+        changed_cell_count,
+        removed_row_count,
+        renames,
+        imputed_cell_count,
+    })
 }
 
 fn safe_corrected_frame(
@@ -10051,9 +10099,11 @@ pub async fn apply_safe_corrections(
     normalize_column_names: bool,
     normalize_sentinels: Option<bool>,
     remove_duplicates: Option<bool>,
+    impute_missing: Option<bool>,
 ) -> Result<SafeCorrectionsResult, String> {
     let normalize_sentinels = normalize_sentinels.unwrap_or(false);
     let remove_duplicates = remove_duplicates.unwrap_or(false);
+    let impute_missing = impute_missing.unwrap_or(false);
     let cancellation = PrepareCancellation::begin(&app);
     tauri::async_runtime::spawn_blocking(move || {
         cancellation.ensure()?;
@@ -10062,7 +10112,9 @@ pub async fn apply_safe_corrections(
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
-        if dataset.source_backed {
+        // Imputation needs the materialized frame, so a plan that includes it
+        // skips the source-backed shortcut and publishes one revision.
+        if dataset.source_backed && !impute_missing {
             if let Some(result) = source_backed_safe_corrections_with_cancellation(
                 dataset,
                 trim_text,
@@ -10077,18 +10129,28 @@ pub async fn apply_safe_corrections(
         cancellation.ensure()?;
         materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
 
-        let (candidate, affected_row_count, changed_cell_count, removed_row_count, renames) =
-            safe_corrected_frame(
-                &dataset.frame,
-                trim_text,
-                normalize_column_names,
-                normalize_sentinels,
-                remove_duplicates,
-            )?;
+        let SafeCorrectionPlanFrame {
+            frame: candidate,
+            affected_row_count,
+            changed_cell_count,
+            removed_row_count,
+            renames,
+            imputed_cell_count,
+        } = safe_corrected_plan_frame(
+            &dataset.frame,
+            trim_text,
+            normalize_column_names,
+            normalize_sentinels,
+            remove_duplicates,
+            impute_missing,
+        )?;
         cancellation.ensure()?;
         let renamed_column_count = renames.len();
 
-        let preview = if changed_cell_count > 0 || renamed_column_count > 0 || removed_row_count > 0
+        let preview = if changed_cell_count > 0
+            || renamed_column_count > 0
+            || removed_row_count > 0
+            || imputed_cell_count > 0
         {
             publish_candidate_with_cancellation(
                 dataset,
@@ -10107,6 +10169,7 @@ pub async fn apply_safe_corrections(
             removed_row_count,
             renamed_column_count,
             renames,
+            imputed_cell_count,
         })
     })
     .await

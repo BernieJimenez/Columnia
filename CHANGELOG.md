@@ -8,6 +8,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ## [Unreleased]
 
+### Añadido
+
+- Las correcciones recomendadas de Preparar pueden incluir la imputación
+  conservadora (mediana en números, valor más frecuente en texto) en la misma
+  revisión: un solo «Deshacer» revierte todo el plan.
+
 ### Seguridad
 
 - T10-15: si una operación falla de forma inesperada, Columnia ya no queda

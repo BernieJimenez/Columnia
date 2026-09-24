@@ -123,6 +123,7 @@ export function applySafeCorrections(options: SafeCorrectionOptions): Promise<Sa
     normalizeSentinels: options.normalizeSentinels,
     normalizeColumnNames: options.normalizeColumnNames,
     removeDuplicates: options.removeDuplicates,
+    imputeMissing: options.imputeMissing ?? false,
   });
 }
 

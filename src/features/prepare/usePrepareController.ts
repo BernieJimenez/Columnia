@@ -569,13 +569,15 @@ export function usePrepareController({
 
   async function applyRecommendedCorrections(options: SafeCorrectionOptions) {
     if (activeDataset === null) return;
-    if (!options.trimText && !options.normalizeSentinels && !options.normalizeColumnNames && !options.removeDuplicates) return;
+    if (!options.trimText && !options.normalizeSentinels && !options.normalizeColumnNames && !options.removeDuplicates && !options.imputeMissing) return;
     setChangeStatus({ kind: "working", action: "safe" });
     try {
       const result = await applySafeCorrections(options);
+      const imputedCellCount = result.imputedCellCount ?? 0;
       const changed = result.changedCellCount > 0
         || result.removedRowCount > 0
-        || result.renamedColumnCount > 0;
+        || result.renamedColumnCount > 0
+        || imputedCellCount > 0;
       if (changed) {
         onDatasetChanged(result.dataset);
         onProfileInvalidated();
@@ -591,6 +593,9 @@ export function usePrepareController({
         options.normalizeColumnNames && result.renamedColumnCount > 0 ? renamedColumns : null,
         options.removeDuplicates && result.removedRowCount > 0
           ? `se retiraron ${result.removedRowCount.toLocaleString()} filas duplicadas exactas`
+          : null,
+        options.imputeMissing && imputedCellCount > 0
+          ? `se rellenaron ${imputedCellCount.toLocaleString()} ${imputedCellCount === 1 ? "valor vacío" : "valores vacíos"}`
           : null,
       ].filter((change): change is string => change !== null);
       setChangeStatus({

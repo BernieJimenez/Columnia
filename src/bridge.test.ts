@@ -434,6 +434,7 @@ describe("desktop bridge", () => {
       normalizeSentinels: true,
       normalizeColumnNames: false,
       removeDuplicates: true,
+      imputeMissing: false,
     });
     expect(invoke).toHaveBeenNthCalledWith(13, "undo_last_change");
     expect(invoke).toHaveBeenNthCalledWith(14, "redo_last_change");

@@ -17002,3 +17002,28 @@ fn comparison_snapshot_accepts_columns_with_different_chunk_layouts() {
         .expect("snapshot válido");
     assert!(written.equals(&frame));
 }
+
+#[test]
+fn safe_correction_plan_can_include_conservative_imputation() {
+    let frame = df!(
+        "ciudad" => [Some(" Santiago "), Some("Santiago"), None, Some("Santiago")],
+        "monto" => [Some(10_i64), Some(10), None, Some(30)],
+    )
+    .expect("frame de prueba");
+
+    let without = safe_corrected_plan_frame(&frame, true, false, false, false, false)
+        .expect("plan sin imputación");
+    assert_eq!(without.imputed_cell_count, 0);
+    assert_eq!(without.frame.column("monto").unwrap().null_count(), 1);
+
+    let with = safe_corrected_plan_frame(&frame, true, false, false, false, true)
+        .expect("plan con imputación");
+    assert_eq!(with.changed_cell_count, 1, "solo se recorta ' Santiago '");
+    assert_eq!(with.imputed_cell_count, 2);
+    assert_eq!(with.frame.column("ciudad").unwrap().null_count(), 0);
+    assert_eq!(with.frame.column("monto").unwrap().null_count(), 0);
+    assert_eq!(
+        with.frame.column("ciudad").unwrap().str().unwrap().get(2),
+        Some("Santiago")
+    );
+}

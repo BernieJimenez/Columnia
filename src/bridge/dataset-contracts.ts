@@ -415,6 +415,8 @@ export interface SafeCorrectionsResult {
   removedRowCount: number;
   renamedColumnCount: number;
   renames: ColumnRename[];
+  /** Absent in desktop builds older than the one-revision plan. */
+  imputedCellCount?: number;
 }
 
 export interface SafeCorrectionOptions {
@@ -422,4 +424,6 @@ export interface SafeCorrectionOptions {
   normalizeSentinels: boolean;
   normalizeColumnNames: boolean;
   removeDuplicates: boolean;
+  /** Conservative imputation (median/mode) in the same revision. */
+  imputeMissing?: boolean;
 }
