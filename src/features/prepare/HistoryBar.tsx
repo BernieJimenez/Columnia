@@ -1,5 +1,5 @@
 import type { HistoryState } from "../../bridge";
-import { changeProgressMessage, type ChangeStatus } from "./prepareModel";
+import { changeProgressMessage, type ChangeStatus } from "./prepareModel";
 import { formatBytes } from "../../format";
 
 export function HistoryBar({
