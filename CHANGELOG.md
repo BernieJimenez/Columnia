@@ -74,6 +74,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La app real envía los tipos de columna con los nombres cortos del motor (`str`,
+  `i64`, `f64`), pero el frontend comparaba con `String` e `Int64`. En la app real
+  eso ocultaba sin aviso recortar y rellenar en la propuesta de Preparar,
+  «Normalizar texto», las reglas de texto de Entregar y los cálculos numéricos
+  del editor de transformaciones, y mostraba «i64» sin traducir. Todas las
+  comprobaciones pasan ahora por `src/dataTypes.ts`, que reconoce ambas formas.
 - Con un archivo grande, los botones para cambiar de fase ya no quedan
   deshabilitados sin explicación mientras corre el análisis de calidad o el
   autoguardado: se puede pasar a Revisar, que muestra el progreso y permite

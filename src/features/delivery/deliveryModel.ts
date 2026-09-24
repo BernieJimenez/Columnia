@@ -10,6 +10,7 @@ import type {
   QualityValidationResult,
 } from "../../bridge";
 import { QUALITY_DATASET_COLUMN } from "../../bridge";
+import { isTextType } from "../../dataTypes";
 
 export const MAX_QUALITY_RULES = 16;
 
@@ -493,7 +494,7 @@ export function validateQualityRuleDraft(
       if (rule.values.length > MAX_QUALITY_VALUES) {
         return `${label}: admite como máximo ${MAX_QUALITY_VALUES} valores permitidos.`;
       }
-      if (column?.dataType !== "String") {
+      if (!column || !isTextType(column.dataType)) {
         return `${label}: los valores permitidos solo aplican a columnas de texto.`;
       }
     } else if (rule.values !== undefined) {
@@ -606,7 +607,7 @@ export function validateQualityRuleDraft(
       } catch {
         return `${label}: el patrón regular no es válido.`;
       }
-      if (column?.dataType !== "String") {
+      if (!column || !isTextType(column.dataType)) {
         return `${label}: las expresiones regulares solo aplican a columnas de texto.`;
       }
     } else if (rule.pattern !== undefined) {

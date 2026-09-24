@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+// Fixtures use the type names the engine really sends ("str", "i64").
 
 import type { ColumnProfile, DatasetPreview, DatasetProfile } from "../../bridge";
 import {
@@ -10,7 +11,7 @@ import {
 } from "./proposalModel";
 
 const column = (overrides: Partial<ColumnProfile>) =>
-  ({ nullCount: 0, uniqueCount: 4, sentinelCount: 0, median: null, dataType: "String", ...overrides }) as ColumnProfile;
+  ({ nullCount: 0, uniqueCount: 4, sentinelCount: 0, median: null, dataType: "str", ...overrides }) as ColumnProfile;
 
 const dataset: DatasetPreview = {
   fileName: "clientes.csv",
@@ -18,9 +19,9 @@ const dataset: DatasetPreview = {
   rowCount: 4,
   columnCount: 3,
   columns: [
-    { name: "ciudad", dataType: "String" },
-    { name: "monto", dataType: "Int64" },
-    { name: "_cambios", dataType: "String" },
+    { name: "ciudad", dataType: "str" },
+    { name: "monto", dataType: "i64" },
+    { name: "_cambios", dataType: "str" },
   ],
   rows: [
     [" Santiago ", "10", "x"],
@@ -36,7 +37,7 @@ const profile = (overrides: Partial<DatasetProfile> = {}): DatasetProfile =>
     duplicateRowCount: 0,
     columns: [
       column({ name: "ciudad", nullCount: 1, uniqueCount: 2 }),
-      column({ name: "monto", dataType: "Int64", nullCount: 1, uniqueCount: 3, median: 30 }),
+      column({ name: "monto", dataType: "i64", nullCount: 1, uniqueCount: 3, median: 30 }),
       column({ name: "_cambios", nullCount: 2, uniqueCount: 2, sentinelCount: 5 }),
     ],
     ...overrides,
@@ -57,7 +58,7 @@ describe("buildPrepareProposal", () => {
         duplicateRowCount: 1,
         columns: [
           column({ name: "ciudad", nullCount: 1, uniqueCount: 3, sentinelCount: 2 }),
-          column({ name: "monto", dataType: "Int64", nullCount: 4, median: null }),
+          column({ name: "monto", dataType: "i64", nullCount: 4, median: null }),
         ],
       }),
       dataset,

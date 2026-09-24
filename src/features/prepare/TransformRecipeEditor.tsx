@@ -16,6 +16,7 @@ import {
 } from "./prepareModel";
 import { canMapRecipeSchema, inspectRecipeSchema, mapRecipeColumns, recipeSourceSchema } from "./recipeSchema";
 import { buildTransformPreview, visibleColumnNames, type TransformPreview } from "./transformAdvisor";
+import { isDateType, isDatetimeType, isNumericType, isTextType } from "../../dataTypes";
 
 function operationGroupStatus(count: number, singular: string, plural: string) {
   if (count === 0) return "Sin cambios";
@@ -218,12 +219,12 @@ export function TransformRecipeEditor({
   const searchableTextColumns = dataset.columns.filter((column) => {
     if (activeDateParses.some((item) => item.column === column.name)) return false;
     const cast = [...activeCasts].reverse().find((item) => item.column === column.name);
-    return cast ? cast.target === "string" : column.dataType === "String";
+    return cast ? cast.target === "string" : isTextType(column.dataType);
   });
   const numericColumns = dataset.columns.filter((column) => {
     if (activeDateParses.some((item) => item.column === column.name)) return false;
     const cast = [...activeCasts].reverse().find((item) => item.column === column.name);
-    return cast ? ["integer", "decimal"].includes(cast.target) : ["Int64", "Float64"].includes(column.dataType);
+    return cast ? ["integer", "decimal"].includes(cast.target) : isNumericType(column.dataType);
   });
   function effectiveName(name: string) { return activeRenames.find((item) => item.from === name)?.to.trim() || name; }
   function effectiveType(name: string) {
@@ -264,8 +265,8 @@ export function TransformRecipeEditor({
   const groupOperationInvalid = groupSummary.aggregations.some((item) => {
     const dtype = effectiveType(item.column);
     if (!item.column) return true;
-    if (["sum", "mean"].includes(item.operation)) return !["Int64", "Float64"].includes(dtype);
-    if (["min", "max"].includes(item.operation)) return !["Int64", "Float64", "String", "Date", "Datetime"].includes(dtype);
+    if (["sum", "mean"].includes(item.operation)) return !isNumericType(dtype);
+    if (["min", "max"].includes(item.operation)) return !(isNumericType(dtype) || isTextType(dtype) || isDateType(dtype) || isDatetimeType(dtype));
     return false;
   });
   const groupInvalid = groupEnabled && (groupSummary.groupBy.length < 1 || groupSummary.groupBy.length > 8 || groupSummary.aggregations.length < 1 || groupSummary.aggregations.length > 32 || new Set(groupPairs).size !== groupPairs.length || new Set(groupOutputs).size !== groupOutputs.length || groupOutputs.some((name) => groupSummary.groupBy.map(effectiveName).includes(name)) || groupDependenciesInvalid || groupOperationInvalid);
@@ -806,8 +807,8 @@ export function TransformRecipeEditor({
             <div className="keep-columns" role="group" aria-label="Columnas para definir los grupos">{dataset.columns.map((column) => <label key={column.name}><input type="checkbox" checked={groupSummary.groupBy.includes(column.name)} disabled={!groupSummary.groupBy.includes(column.name) && groupSummary.groupBy.length >= 8} onChange={(event) => setGroupSummary((current) => ({ ...current, groupBy: event.target.checked ? dataset.columns.map((item) => item.name).filter((name) => current.groupBy.includes(name) || name === column.name) : current.groupBy.filter((name) => name !== column.name) }))} />{effectiveName(column.name)}</label>)}</div>
             {groupSummary.aggregations.map((aggregation, index) => {
               const dtype = effectiveType(aggregation.column);
-              const numeric = ["Int64", "Float64"].includes(dtype);
-              const orderable = numeric || ["String", "Date", "Datetime"].includes(dtype);
+              const numeric = isNumericType(dtype);
+              const orderable = numeric || isTextType(dtype) || isDateType(dtype) || isDatetimeType(dtype);
               return <div className="recipe-row" key={`aggregation-${index}`}><label><span>Columna</span><select aria-label={`Columna para el cálculo ${index + 1}`} value={aggregation.column} onChange={(event) => setGroupSummary((current) => ({ ...current, aggregations: current.aggregations.map((item, itemIndex) => itemIndex === index ? { ...item, column: event.target.value, operation: "count" } : item) }))}><option value="">Selecciona…</option>{dataset.columns.map((column) => <option key={column.name} value={column.name}>{effectiveName(column.name)}</option>)}</select></label><label><span>Qué calcular</span><select aria-label={`Cálculo ${index + 1}`} value={aggregation.operation} onChange={(event) => setGroupSummary((current) => ({ ...current, aggregations: current.aggregations.map((item, itemIndex) => itemIndex === index ? { ...item, operation: event.target.value as GroupSummaryDraft["aggregations"][number]["operation"] } : item) }))}>{numeric && <><option value="sum">Suma</option><option value="mean">Promedio</option></>}{orderable && <><option value="min">Mínimo</option><option value="max">Máximo</option></>}<option value="count">Contar filas</option><option value="count_unique">Contar valores distintos</option></select></label><span className="recipe-output" aria-label={`Resultado ${index + 1}`}>{aggregation.column ? `${effectiveName(aggregation.column)}_${aggregation.operation}` : "—"}</span><button type="button" aria-label={`Quitar cálculo ${index + 1}`} onClick={() => setGroupSummary((current) => ({ ...current, aggregations: current.aggregations.filter((_, itemIndex) => itemIndex !== index) }))}>×</button></div>;
             })}
             {groupSummary.aggregations.length < 32 && <button type="button" className="recipe-add" onClick={() => setGroupSummary((current) => ({ ...current, aggregations: [...current.aggregations, { column: "", operation: "count" }] }))}>+ Añadir cálculo</button>}

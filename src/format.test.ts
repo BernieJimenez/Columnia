@@ -18,6 +18,11 @@ describe("formateo visible", () => {
   });
 
   it("traduce los tipos del motor y conserva los desconocidos", () => {
+    // Names the engine really sends (Polars' short form).
+    expect(formatDataType("i64")).toBe("Entero");
+    expect(formatDataType("f64")).toBe("Decimal");
+    expect(formatDataType("str")).toBe("Texto");
+    expect(formatDataType("datetime[μs]")).toBe("Fecha y hora");
     expect(formatDataType("Int64")).toBe("Entero");
     expect(formatDataType("Float64")).toBe("Decimal");
     expect(formatDataType("String")).toBe("Texto");

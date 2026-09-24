@@ -1,4 +1,5 @@
 import type { DatasetColumn, DatasetPreview, TransformRecipe } from "../../bridge";
+import { isDateType, isDatetimeType, isNumericType, isTextType } from "../../dataTypes";
 
 type RequiredColumnKind = "text" | "numeric" | "date";
 
@@ -76,9 +77,9 @@ function effectiveKind(recipe: TransformRecipe, recipeColumn: string, datasetCol
   const dateParse = recipe.dateParses.find((item) => item.column === recipeColumn);
   if (dateParse) return "date";
   const dataType = dataset.columns.find((item) => item.name === datasetColumn)?.dataType;
-  if (dataType === "Int64" || dataType === "Float64") return "numeric";
-  if (dataType === "String") return "text";
-  if (dataType === "Date" || dataType === "Datetime") return "date";
+  if (dataType !== undefined && isNumericType(dataType)) return "numeric";
+  if (dataType !== undefined && isTextType(dataType)) return "text";
+  if (dataType !== undefined && (isDateType(dataType) || isDatetimeType(dataType))) return "date";
   return dataType ?? "unknown";
 }
 

@@ -14,6 +14,7 @@ import { qualityActionTargetDomId } from "../review/qualityActionPlan";
 import type { QualityActionTarget } from "../review/qualityActionPlan";
 
 import { formatPercent } from "../../format";
+import { isTextType } from "../../dataTypes";
 
 interface PreparePhaseProps {
   dataset: DatasetPreview;
@@ -99,7 +100,7 @@ export function PreparePhase({
 }: PreparePhaseProps) {
   const nearDuplicateCount = profileStatus.kind === "ready" ? profileStatus.profile.nearDuplicateRowCount : null;
   const changing = changeStatus.kind === "working";
-  const textColumns = dataset.columns.filter((column) => column.dataType === "String" && column.name !== "_cambios");
+  const textColumns = dataset.columns.filter((column) => isTextType(column.dataType) && column.name !== "_cambios");
   const hasColumns = dataset.columns.length > 0;
   const hasRowsAndColumns = dataset.rowCount > 0 && hasColumns;
   const hasRowAuditColumn = dataset.columns.some((column) => column.name === "_cambios");
@@ -752,10 +753,10 @@ function CleaningSignals({
     (column) => column.suggestedType === "boolean" && (column.typeMatchPercentage ?? 0) >= 90,
   );
   const dateCandidates = profile.columns.filter(
-    (column) => column.name !== "_cambios" && column.dataType === "String" && column.suggestedType === "date",
+    (column) => column.name !== "_cambios" && isTextType(column.dataType) && column.suggestedType === "date",
   );
   const numericCandidates = profile.columns.filter(
-    (column) => column.name !== "_cambios" && column.dataType === "String" &&
+    (column) => column.name !== "_cambios" && isTextType(column.dataType) &&
       (column.suggestedType === "integer" || column.suggestedType === "decimal") &&
       (column.typeMatchPercentage ?? 0) > 90 &&
       column.privacySignal !== "identifier",
@@ -767,7 +768,7 @@ function CleaningSignals({
     (column) => (column.outlierCount ?? 0) > 0 && column.name !== "_cambios",
   );
   const categoricalImputable = profile.columns.filter(
-    (column) => column.dataType === "String" && column.nullCount > 0 && column.name !== "_cambios",
+    (column) => isTextType(column.dataType) && column.nullCount > 0 && column.name !== "_cambios",
   );
   const hasNullActions = empty.length > 0 || highNull.length > 0 || imputable.length > 0 || categoricalImputable.length > 0;
   const dataColumns = profile.columns.filter((column) => column.name !== "_cambios");

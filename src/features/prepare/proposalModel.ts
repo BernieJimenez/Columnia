@@ -4,6 +4,7 @@
 // user always confirms with a click.
 import type { ColumnProfile, DatasetPreview, DatasetProfile, SafeCorrectionOptions } from "../../bridge";
 import { formatDecimal } from "../../format";
+import { isNumericType, isTextType } from "../../dataTypes";
 
 export type ProposalItemId = "sentinels" | "trim" | "duplicates" | "impute";
 
@@ -29,16 +30,12 @@ function plural(count: number, one: string, many: string): string {
   return `${count.toLocaleString()} ${count === 1 ? one : many}`;
 }
 
-function isNumericType(dataType: string): boolean {
-  return /^(u?int|float)\d+$/i.test(dataType.trim());
-}
-
 /** Mirrors impute_missing_values_in_frame: numbers need an observed value, text a repeated one. */
 function isImputable(column: ColumnProfile, rowCount: number): boolean {
   if (column.name === ROW_AUDIT_COLUMN || column.nullCount === 0) return false;
   const observed = rowCount - column.nullCount;
   if (isNumericType(column.dataType)) return observed > 0;
-  if (column.dataType === "String") return column.uniqueCount < observed;
+  if (isTextType(column.dataType)) return column.uniqueCount < observed;
   return false;
 }
 
@@ -46,7 +43,7 @@ function trimExamples(dataset: DatasetPreview): ProposalExample[] {
   const examples: ProposalExample[] = [];
   const textColumns = dataset.columns
     .map((column, index) => ({ column, index }))
-    .filter(({ column }) => column.dataType === "String" && column.name !== ROW_AUDIT_COLUMN);
+    .filter(({ column }) => isTextType(column.dataType) && column.name !== ROW_AUDIT_COLUMN);
   for (const row of dataset.rows) {
     for (const { column, index } of textColumns) {
       const value = row[index];
@@ -76,7 +73,7 @@ export function buildPrepareProposal(profile: DatasetProfile, dataset: DatasetPr
     });
   }
 
-  if (dataset.columns.some((column) => column.dataType === "String" && column.name !== ROW_AUDIT_COLUMN)) {
+  if (dataset.columns.some((column) => isTextType(column.dataType) && column.name !== ROW_AUDIT_COLUMN)) {
     items.push({
       id: "trim",
       title: "Recortar espacios al inicio y al final del texto",
