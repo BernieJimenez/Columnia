@@ -39,6 +39,7 @@ function DeliveryHarness({
   initialContract = INITIAL_DELIVERY_CONTRACT,
   exportState = { kind: "idle" },
   onCancelExport = () => undefined,
+  personalDataColumns = [],
 }: {
   onExport: (request: DeliveryExportRequest) => void;
   recipeDraft?: SavedRecipe | null;
@@ -46,6 +47,7 @@ function DeliveryHarness({
   initialContract?: DeliveryContractState;
   exportState?: DeliveryExportState;
   onCancelExport?: () => void;
+  personalDataColumns?: string[];
 }) {
   const [contract, setContract] = useState<DeliveryContractState>(initialContract);
   return (
@@ -58,9 +60,39 @@ function DeliveryHarness({
       onContractAction={(action) => setContract((current) => reduceDeliveryContract(current, action))}
       onExport={onExport}
       onCancelExport={onCancelExport}
+      personalDataColumns={personalDataColumns}
     />
   );
 }
+
+describe("señales de datos personales en Entregar", () => {
+  it("lista las columnas detectadas y exige confirmar una exportación sin protección", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} personalDataColumns={["correo", "cliente"]} />);
+
+    expect(screen.getByText(/Datos personales detectados/)).toBeInTheDocument();
+    expect(screen.getByText(/en 2 columnas: correo, cliente\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    const exportButton = screen.getByRole("button", { name: "Exportar CSV" });
+    expect(exportButton).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que exporto estas columnas sin enmascarar ni aplicar hash" }));
+    expect(exportButton).toBeEnabled();
+  });
+
+  it("no pide confirmación cuando se elige una protección", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} personalDataColumns={["correo"]} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Protección de datos personales" }), { target: { value: "mask" } });
+
+    expect(screen.queryByRole("checkbox", { name: /sin enmascarar ni aplicar hash/ })).not.toBeInTheDocument();
+    expect(screen.getByText("La protección elegida se aplicará a estas columnas en la copia.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Exportar CSV" }));
+    expect(onExport).toHaveBeenCalledWith(expect.objectContaining({ privacyMode: "mask" }));
+  });
+});
 
 const recipeDraft: SavedRecipe = {
   version: 1,

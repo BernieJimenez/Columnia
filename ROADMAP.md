@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 15 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 16 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -376,13 +376,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Criterio de aceptación:** una prueba compara estilos computados entre Oscuro y Sistema con SO oscuro y encuentra 0 diferencias (hoy 12 de 153 textos en Cargar).
   - **Esfuerzo:** medio
   - **Depende de:** T10-02
-- [ ] **[T10-12] Mostrar en Entregar las columnas con señales de datos personales**
+- [x] **[T10-12] Mostrar en Entregar las columnas con señales de datos personales**
   - **Área:** UI/UX · **Severidad:** Media
   - **Ubicación:** `src/features/delivery/DeliveryPhase.tsx:1673`; `src/features/prepare/PreparePhase.tsx:141-144`
   - **Qué hacer:** junto a «Protección de datos personales», indicar cuántas columnas y cuáles se detectaron y ofrecer enmascarar o aplicar hash; pedir confirmación si se exporta sin protección habiendo señales. El texto requiere revisión legal (Ley 172-13).
   - **Criterio de aceptación:** con un perfil con señales `email` o `name`, Entregar muestra el aviso; prueba de componente.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-23 — Entregar lista las columnas con señales de correo, teléfono, dirección o nombre y exige confirmar si se exporta sin protección; 2 pruebas de componente; vitest 460/460 y E2E 23/23. El texto del aviso sigue pendiente de revisión legal (Ley 172-13).
 - [x] **[T10-13] Añadir timeouts explícitos a las llamadas ODBC**
   - **Área:** Arquitectura · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/remote_databases.rs:154`, `:190`, `:786`, `:910`, `:1054`, `:853-862`, `:975-984`
@@ -558,7 +559,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 15 de 33 | Fase 2 en curso: cerradas hasta ahora T10-32 y anteriores de esta tanda. |
+| 2026-09-23 | 16 de 33 | Fase 2 en curso: cerradas hasta ahora T10-12 y anteriores de esta tanda. |
 
 ## Criterio de salida de V1
 

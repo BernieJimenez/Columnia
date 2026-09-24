@@ -53,6 +53,8 @@ interface DeliveryPhaseProps {
   onExportFormatChange?: (format: ExportFormat) => void;
   privacyMode?: PrivacyMode;
   onPrivacyModeChange?: (mode: PrivacyMode) => void;
+  /** Columns the quality profile flags as personal data (email, phone, address, name). */
+  personalDataColumns?: string[];
   onContractAction: (action: DeliveryContractAction) => void;
   onExport: (request: DeliveryExportRequest) => void;
   onCancelExport: () => void;
@@ -202,6 +204,7 @@ export function DeliveryPhase({
   onExportFormatChange,
   privacyMode,
   onPrivacyModeChange,
+  personalDataColumns = [],
   onContractAction,
   onExport,
   onCancelExport,
@@ -294,6 +297,10 @@ export function DeliveryPhase({
   const gatePassed = contract.gate.kind === "ready" && contract.gate.result.passed;
   const needsUnvalidatedConfirmation = contract.kind === "without_contract"
     && contract.confirmation !== "confirmed";
+  const personalDataKey = personalDataColumns.join("\u0000");
+  const [confirmedUnprotectedKey, setConfirmedUnprotectedKey] = useState<string | null>(null);
+  const exportsUnprotectedPersonalData = personalDataColumns.length > 0 && selectedPrivacyMode === "none";
+  const needsPersonalDataConfirmation = exportsUnprotectedPersonalData && confirmedUnprotectedKey !== personalDataKey;
   const databaseTargetError = isDatabaseExportFormat(selectedExportFormat)
     ? validateDatabaseTargetDraft(databaseTarget)
     : null;
@@ -1686,6 +1693,26 @@ export function DeliveryPhase({
               SHA-256 es determinista y no usa salt: valores predecibles pueden adivinarse. No equivale a anonimización; revisa el archivo antes de compartirlo.
             </small>
           </label>
+          {personalDataColumns.length > 0 && (
+            <div className="notice privacy-signals" role="note" aria-labelledby="privacy-signals-title">
+              <p id="privacy-signals-title">
+                <strong>Datos personales detectados</strong> en {personalDataColumns.length === 1 ? "1 columna" : `${personalDataColumns.length} columnas`}: {personalDataColumns.join(", ")}.
+              </p>
+              {exportsUnprotectedPersonalData ? (
+                <label className="quality-rule__check">
+                  <input
+                    type="checkbox"
+                    checked={confirmedUnprotectedKey === personalDataKey}
+                    disabled={busy}
+                    onChange={(event) => setConfirmedUnprotectedKey(event.target.checked ? personalDataKey : null)}
+                  />
+                  Confirmo que exporto estas columnas sin enmascarar ni aplicar hash
+                </label>
+              ) : (
+                <p>La protección elegida se aplicará a estas columnas en la copia.</p>
+              )}
+            </div>
+          )}
           <details
             className="delivery-presets"
             onToggle={(event) => {
@@ -1918,7 +1945,7 @@ export function DeliveryPhase({
             className="primary-action export-action"
             type="button"
             onClick={() => void requestExport(selectedExportFormat)}
-            disabled={busy || validationError !== null || needsUnvalidatedConfirmation || !databaseReady}
+            disabled={busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || !databaseReady}
           >
             {contract.kind === "with_contract" && !gatePassed
               ? `Validar y exportar ${exportFormatLabel}`
@@ -1934,6 +1961,9 @@ export function DeliveryPhase({
         )}
         {contract.kind === "with_contract" && !gatePassed && !validationError && (
           <p className="export-requirement">El contrato se comprobará antes de crear la copia.</p>
+        )}
+        {needsPersonalDataConfirmation && (
+          <p className="export-requirement">Elige una protección o confirma arriba que exportas los datos personales sin protegerlos.</p>
         )}
         {needsUnvalidatedConfirmation && (
           <p className="export-requirement">Confirma arriba si quieres exportar sin validar la calidad.</p>

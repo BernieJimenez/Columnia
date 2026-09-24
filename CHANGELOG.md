@@ -29,6 +29,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- T10-12: Entregar muestra qué columnas contienen datos personales detectados
+  (correo, teléfono, dirección o nombre) y pide confirmación antes de exportarlas
+  sin enmascarar ni aplicar hash. Antes solo aparecía el selector de protección.
 - T10-13: una entrega ODBC ya no puede quedarse esperando indefinidamente a un
   servidor que no responde: la conexión tiene 15 s de límite y cada sentencia
   300 s, y el error lo explica en lugar de mostrar solo el código del driver.
