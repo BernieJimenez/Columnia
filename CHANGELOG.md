@@ -13,6 +13,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 - T10-15: si una operación falla de forma inesperada, Columnia ya no queda
   bloqueada hasta reiniciar: recupera el último estado publicado y guarda un
   informe local mínimo en `crash-reports/` sin datos ni rutas.
+- T10-22: el estado vigente de `CONTEXTO.md` pasa de 4.190 a 432 palabras con las
+  cifras del último gate Full, y ninguna celda de la cola vigente supera 80
+  palabras. El texto completo se trasladó sin cambios a
+  `docs/reference/historial-verificacion.md`, con tabla de traslado.
 - T10-30: el perfil Full de `tools/check.ps1` ejecuta también el escaneo de
   secretos, la política de red y los E2E (Release y Package ya cubrían los
   escaneos en la auditoría de cadena de suministro y ahora también los E2E). Las

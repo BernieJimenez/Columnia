@@ -9,433 +9,56 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-23
 
-La base del ajuste de versión fue `master` en `5348360`, versión `0.168.0`.
-A petición del usuario, el proyecto adoptó `1.25.0` para representar el alcance
-acumulado; los cortes posteriores avanzaron los manifiestos sincronizados de npm,
-Cargo y Tauri a `1.26.0`. Este corte parte del commit `e705a5a`. La versión
-identifica el alcance del producto y no implica que estén cerrados los gates de
-beta con datos reales, accesibilidad nativa, SQL Server o distribución binaria.
+Versión `1.26.0` en manifiestos npm, Cargo y Tauri sincronizados. La versión
+identifica el alcance del producto; no implica que estén cerrados los gates de
+beta con datos reales, accesibilidad nativa, SQL Server ni distribución binaria.
+Los párrafos detallados de cortes anteriores, con sus rutas de evidencia, están
+en [`docs/reference/historial-verificacion.md`](docs/reference/historial-verificacion.md).
 
-RV01: los marcadores «Hecho» de Cargar y Revisar llevan el número de revisión
-del dataset. Cada mutación reinicia Cargar en la revisión nueva e invalida la
-finalización anterior de Revisar, también cuando Preparar publica un cambio; la
-regresión App Revisar→Preparar→corrección pasa 1/1. La regresión previa confirma
-que exportar y luego consolidar invalida Entregar. La aceptación Cargar→Entregar
-con datasets de trabajo reales sigue pendiente.
+**Último gate Full** (2026-09-23, rama `fix/tier-10-reauditoria`, informe
+`.local/validation/20260924T023448Z-1bde062-full.json`): 18/18 etapas aprobadas. Frontend 468/468 pruebas en
+53 archivos, con los umbrales de cobertura por capa aprobados; Rust
+507 aprobadas y 6 ignoradas; Clippy sin avisos; E2E 26/26; escaneo de secretos y
+política de red aprobados. Los smokes nativos CDP y de reinicio pasan y
+restauran los datos de la app byte a byte (T10-17).
 
-RV02: todos los formatos muestran recursos y perfil antes de importar. Una
-inspección nativa calcula filas, columnas, tipos y diferencias con el perfil sin
-activar el candidato; el esquema se revisa dentro del mismo diálogo antes de la
-confirmación final. La carga final vuelve a leer el archivo. Excel permite hoja
-y encabezados; CSV/TSV añaden muestra, interpretaciones y convenciones. La
-aceptación con datasets de trabajo reales sigue pendiente. `npm run build`,
-`cargo check --manifest-path src-tauri/Cargo.toml --lib` y `npm run ipc:check`
-pasan; no se ejecutaron pruebas de producto en este corte.
+**Tier 10 (reauditoría del 2026-09-23).** El progreso por tarea está en
+[`ROADMAP.md`](ROADMAP.md#progreso-del-tier-10). Ya aplicado en esta rama:
 
-RV16: `dataset/file_validation.rs` concentra la validación segura de rutas y
-`dataset/page_reader.rs` la paginación en memoria/source-backed. Los puntos
-de entrada y las pruebas existentes mantienen sus rutas. `dataset/source_loading.rs`
-concentra la carga source-backed, la materialización cancelable, los límites de
-recursos y los loaders por formato; `dataset/spreadsheet_io.rs` concentra la
-inspección de libros, conversión tipada de rangos y snapshots por bloques;
-`dataset/export_io.rs` concentra escritores, privacidad y publicación atómica;
-`dataset/recipe_eager.rs` concentra la validación y aplicación eager de recetas;
-`dataset/comparison_io.rs` concentra la carga y persistencia temporal de fuentes
-comparadas, incluidos sus snapshots y cancelación.
-`dataset/query_execution.rs` concentra las consultas locales, los planes
-source-backed, la lectura por bloques Parquet, las agregaciones y los JOIN con
-cancelación.
-`dataset/automation.rs` concentra los helpers de inspección, transformación,
-validación y exportación del CLI, incluidos los caminos source-backed.
-`dataset/project_history.rs` concentra la captura, restauración y los resúmenes
-de snapshots de proyectos.
-`dataset/profile_engine.rs` concentra la inferencia de tipos, estadísticas de
-texto, perfilado eager/source-backed y agregaciones temporales, conservando
-límites, cancelación y contratos.
-La
-compilación de la librería pasa con
-`cargo check --manifest-path src-tauri/Cargo.toml --lib`; el corte actual repite
-la suite Rust (494 aprobadas y 5 ignoradas), la suite frontend (457/457) y el
-build de producción.
+- El ejecutable release usa el subsistema gráfico de Windows.
+- DuckDB solo recibe SQL reconstruido desde el plan validado, sin acceso externo.
+- Las entregas ODBC advierten del cifrado, tienen timeouts y redactan secretos.
+- Entregar muestra y exige confirmar las columnas con señales de datos personales.
+- Contraste AA en todos los temas, con foco devuelto al disparador del diálogo.
+- Formato numérico y de tamaños único.
+- Los pánicos se registran localmente y los mutex envenenados se recuperan.
 
-El smoke nativo de RV05 recorre con Playwright el panel de tareas y el selector
-Win32: el esquema distinto muestra `extra` y pide confirmación, mientras que un
-archivo compatible carga la receta guardada como borrador en Preparar. La tarea
-sintética se elimina al terminar. Evidencia UTC: `.local/validation/webview2-cdp/20260922T022017Z/native-selectors.stdout.log` y
-`.local/validation/webview2-cdp/20260922T022017Z/summary.json`. El runtime debug
-alcanzó 441.495.552 bytes de memoria privada, por encima del presupuesto
-diagnóstico no aplicado de 268.435.456 bytes.
-
-RV16 mantiene treinta y ocho módulos con responsabilidades extraídas de
-`dataset.rs`. Incluye validación de proyectos y archivos, inspección de fuentes,
-previsualización de esquema, carga y descarte, paginación, lectura de perfiles,
-historial con deshacer/rehacer, comparación, perfiles numéricos/categóricos/temporales, recetas,
-consultas, encabezados y reglas de calidad. `dataset/page_reader.rs` conserva la
-ruta Tauri de `get_dataset_page` y centraliza cancelación, snapshots y fallbacks.
-`dataset/profile_reader.rs` concentra `get_dataset_profile` y
-`get_temporal_aggregation`, incluidos cache, rutas eager/source-backed y
-cancelación por generación. `dataset/comparison_reader.rs` reúne la lectura inicial de la comparación y la
-paginación de conflictos; ambas conservan cancelación y vigencia del snapshot.
-`dataset/recipe_eager.rs` concentra la validación, conversiones y aplicación de
-recetas sobre DataFrame eager; conserva excepciones, filtros y resúmenes.
-`dataset/comparison_engine.rs` concentra los índices derramados, la comparación
-por claves, los conflictos y JOIN con cancelación.
-`dataset/query_execution.rs` concentra los planes source-backed, la lectura por
-bloques Parquet, las agregaciones, la paginación de consultas y el JOIN local con
-cancelación.
-`dataset/automation.rs` concentra la carga, inspección, transformación,
-validación y exportación para automatización CLI sin cambiar sus contratos.
-`dataset/project_history.rs` concentra la captura, restauración y los resúmenes
-de snapshots de proyectos.
-`dataset/profile_engine.rs` concentra la inferencia de tipos, estadísticas de
-texto, perfilado eager/source-backed y agregaciones temporales.
-`dataset/history.rs` contiene la navegación cancelable de deshacer/rehacer y restaura snapshots eager/source-backed con lectura Parquet por lotes cancelable; `dataset/snapshot_comparison.rs` carga ambas revisiones con cancelación por lotes y calcula/orquesta `compare_history_snapshots`. `dataset/source_loading.rs` reúne la lectura diferida y la materialización protegida por presupuesto; `dataset/spreadsheet_io.rs` reúne la lectura de libros, conversión tipada y snapshots cancelables por bloques; `dataset/export_io.rs` reúne escritores, privacidad y publicación atómica cancelable; `dataset/comparison_io.rs` reúne la carga y persistencia temporal de fuentes comparadas, incluidos sus snapshots y cancelación. Resolver conflictos y Consolidar interrumpen la lectura eager del snapshot comparado; la consulta local con Polars cancela también esa lectura. Se mantienen los comandos y resultados existentes. En este corte pasan `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`,
-`cargo check --manifest-path src-tauri/Cargo.toml --lib`, `npm run ipc:check`,
-`node tools/check-documentation.mjs`, `npm test` (457/457) y la suite Rust
-(494/494 ejecutables, 5 ignoradas). RV16 sigue
-en curso y la cola operativa vigente está en
+**Cola vigente.** La cola operativa está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
-historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Este contexto
-resume el estado; esas fuentes definen los criterios de cierre.
+historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). RV01, RV02,
+RV04, RV05 y RV06 tienen la parte local implementada y les falta aceptación con
+datos de trabajo o nativa. RV16 sigue extrayendo módulos de `dataset.rs` (treinta
+y ocho hasta ahora). RV12 está completada para la matriz sintética v1.
 
-El gate beta local tiene ahora dos comprobaciones separadas: `beta:check-summary`
-valida el resumen Gate 1 contra las tres sesiones y el reporte Full del candidato,
-sin esperar a un commit posterior; `beta:check-gate1` conserva la comprobación de
-descendencia necesaria para preparar Gate 2. El primer checker también rechaza
-alias, correos, rutas y credenciales en el resumen versionado. No se ha inventado
-evidencia de participantes: RV07 sigue abierto hasta ejecutar las tres sesiones
-con datos de trabajo reales.
+**Límites conocidos.** Algunos tramos siguen siendo síncronos y observan la
+cancelación solo al retornar: `worksheet_range` de XLS/ODS, apertura de libros,
+llamadas al driver ODBC, `sync_all` y `remove_dir_all`. Los runtimes debug superan
+el presupuesto diagnóstico de memoria privada (hasta 441.495.552 frente a
+268.435.456 bytes); ese aviso no cierra ni invalida el gate de memoria del
+release. El benchmark nativo de 100 MiB (819.137 filas) pasa dentro de su
+presupuesto. Las E2E usan el bridge simulado y los smokes usan datos sintéticos.
 
-Los perfiles `tools/check.ps1` fijan `--maxWorkers=1` para las pruebas frontend y
-la cobertura. Esto hace reproducible `verify:tier` en Windows y evita que una
-cancelación deje procesos Vitest huérfanos; el comando `npm test` del producto
-conserva su configuración normal.
+**Abierto por evidencia que no se puede fabricar localmente:**
 
-Para RV10, Windows tiene instalados ODBC Driver 17/18 y `sqlcmd`, pero el
-servicio local `MSSQLSERVER` está detenido; `Start-Service` falla con
-`Cannot open 'MSSQLSERVER' service on computer '.'`. El puerto 1433 no
-responde, no hay comandos Docker/Podman disponibles y `(localdb)\MSSQLLocalDB`
-no respondió. No se creó ni modificó una base; el round-trip sigue pendiente.
+- La beta de tres participantes y su resumen sanitizado (RV07, RV08).
+- La aceptación manual con lector de pantalla y alto contraste (RV09).
+- El round-trip contra SQL Server real (RV10). El servicio local está detenido
+  y no hay contenedores.
+- Un candidato binario o canal autorizado probado en VM limpia, con sign-off
+  jurídico (RV11).
+- Validar la herramienta BI a partir de la beta (RV14).
 
-La tarjeta de progreso conserva una barra nativa con nombre y valor accesibles. Una región viva breve anuncia los cambios de etapa y la solicitud de cancelación; el porcentaje y el reloj no vuelven a anunciar toda la tarjeta con cada actualización.
-
-Los diálogos propios usan el elemento HTML `dialog` con `showModal()`. El
-navegador los presenta en la capa modal y deja inerte el contenido de fondo;
-Columnia conserva el trap de teclado, restaura el foco al cerrar y asocia nombre
-y descripción accesibles. La aceptación con lector de pantalla real sigue
-pendiente.
-
-El fallo de la vista previa CSV/TSV se presenta dentro del diálogo de revisión;
-se quitó la alerta global duplicada que quedaba fuera de contexto.
-
-En Entregar, los campos de destino ODBC toman sus nombres accesibles de las
-etiquetas visibles; el esquema conserva su indicación de opcional y los errores
-de validación se asocian al campo correspondiente.
-La alerta de validación del contrato de calidad se asocia con el grupo de la
-regla que identifica. Las etiquetas accesibles de límites, referencias y orden
-del contrato incluyen ahora el texto visible completo.
-
-La prueba `DeliveryPhase.test.tsx` pasa 32/32, `ReusableTaskPanel.test.tsx`
-pasa 7/7 y Playwright pasa 22/22 E2E. El mock de importación simula la
-inspección de hojas Excel como llamada separada `inspect_workbook_sheets`; el
-recorrido de tareas reutilizables confirma que guardar comprueba el esquema y
-habilita aplicar al dataset activo. El smoke nativo más reciente
-(`.local/validation/webview2-cdp/20260921T225717Z`) también pasa: abre y guarda
-mediante diálogos de Windows, y verifica round-trips reales de CSV/XLSX/Parquet
-con bytes, filas, esquema y valores. El aviso de memoria pertenece al
-ejecutable debug y no cierra el gate de memoria del release.
-El smoke CDP completo (`.local/validation/webview2-cdp/20260921T230251Z`)
-aprueba Playwright, landmarks, foco, ProjectsPanel y 18 operaciones IPC nativas
-de proyecto, incluidas receta, exportación, reapertura, restauración de fase y
-cleanup.
-El smoke `npm run smoke:restart` (`.local/validation/webview2-restart/20260922T015059Z`) confirma que `activePhase=prepare` y una tarea reutilizable sintética sobreviven a dos lanzamientos reales de la app. La tarea pasa de 0 a 1 entrada, se lista y reabre con sus campos intactos tras el reinicio, y luego se elimina (catálogo 1→0). La aceptación con tareas y archivos de trabajo sigue pendiente. El pico de memoria privada debug fue 302.895.104 bytes frente al presupuesto diagnóstico de 268.435.456 bytes, que no es requisito de este smoke.
-
-El benchmark nativo de 100 MiB
-(`.local/validation/performance-webview2/20260921T230202Z`) confirma 819.137
-filas, carga, paginación, transformación, exportación y memoria dentro de su
-presupuesto de benchmark.
-
-Las regresiones de `App` quedaron sincronizadas con la inspección Excel separada,
-la carga perezosa de Preparar, el análisis previo a navegar a Entregar y las
-etiquetas accesibles actuales. El gate Full del 2026-09-23 pasa 457/457
-pruebas en 51 archivos (458 tras T10-10); `npm run test:coverage` aprueba los umbrales por capa
-crítica, con 86,17 % de sentencias y 81,34 % de ramas globales. `npm run
-test:e2e` pasa 22/22 (23 tras T10-10) y ejecuta el build de producción. Los gates
-`beta:workflows:check`, `legal:check` e `ipc:check` también pasan. El límite de
-un worker hace reproducible la suite frontend en esta estación y no cambia el
-producto.
-
-El `npm run release:dry-run` del mismo corte confirma el árbol limpio y los
-gates de toolchains, documentación, IPC, gobernanza y legal técnico, pero se
-detiene en el sign-off jurídico obligatorio antes del empaquetado. No se
-crearon ni publicaron artefactos; el reporte es
-`.local/validation/20260921T232220Z-a8fb7b4-package.json`.
-
-En el código local están implementadas la importación CSV/TSV con convenciones
-explícitas de fecha y número, las políticas reutilizables de excepciones de
-conversión, y la cancelación compartida de JOIN, consolidación y resolución
-manual de conflictos en Review. Además de elegir valores por celda o una fila
-completa, se puede excluir explícitamente la fila activa de una clave conflictiva;
-no se agrega la versión comparada. La ruta eager y la ruta source-backed DuckDB
-conservan orden y tipos, y publican el candidato staged con historial reversible.
-La comparación y el historial se conservan si cancelar gana antes del commit;
-una regresión integrada verifica también la cancelación source-backed justo en
-el gate de publicación. Filas duplicadas se diagnostican aparte. DuckDB puede
-interrumpir consultas source-backed activas. Los lectores eager CSV/TSV/TXT y
-Parquet recopilan con Polars Streaming en bloques configurados en 8.192 filas y
-observan cancelación entre lotes.
-JSON/JSONL la comprueba entre registros. XLSX/XLSB lee celdas en dos pasadas y
-acumula filas por bloques; XLS/ODS conserva la lectura completa mediante
-`worksheet_range`. Para XLS/ODS, el análisis del `Range`, la conversión a
-DataFrame y la escritura de snapshots consultan cancelación entre filas,
-columnas y bloques después de que Calamine devuelve el rango completo. La
-apertura del libro y `worksheet_range` siguen siendo llamadas monolíticas.
-El JOIN eager de Review recorre bloques de filas activas y comprueba cancelación
-entre bloques, repitiendo el JOIN contra el dataset comparado para cada bloque.
-Las materializaciones eager source-backed usadas como fallback por JOIN,
-resolución/consolidación de Review, mutaciones/recetas de Preparar y exportaciones
-local/ODBC y la comparación de archivos aceptan el token de cancelación.
-CSV/TSV/TXT y Parquet interrumpen entre lotes; JSON/JSONL/NDJSON, entre registros;
-los índices y la comparación Parquet, entre bloques y registros derramados. DuckDB
-interrumpe una conversión source-backed activa. El hash SHA-256 del CSV temporal
-de Bundle comprueba cancelación entre lecturas de 64 KiB, tanto en la ruta eager
-como source-backed; cada lectura de bloque sigue siendo síncrona. La protección
-eager de privacidad y las exportaciones CSV, JSON y Parquet también observan el
-token: los escritores procesan bloques de 8.192 filas, CSV neutraliza fórmulas
-dentro de cada bloque y JSON conserva un solo arreglo. El resultado de comparación
-solo se publica al final, bajo un gate que ordena cancelación y commit.
-La reconciliación de generaciones huérfanas consulta cancelación al enumerar y
-validar entradas, y antes/después de cada borrado recursivo seguro. `remove_dir_all`
-no puede interrumpirse mientras su llamada síncrona está activa; cancelar durante
-ese tramo se reconoce al regresar. El borrado explícito de proyecto conserva el
-gate: si el commit del catálogo gana, termina su limpieza antes de reconocer una
-cancelación tardía.
-El selector nativo
-es modal y no se puede cerrar desde este control mientras está abierto; XLS/ODS
-conserva `worksheet_range` monolítico, pero su conversión posterior comprueba el
-token entre filas y celdas. El conteo de snapshots Parquet
-usa DuckDB con interrupción; la escritura de snapshots eager produce bloques y
-consulta el token entre ellos. El cierre del escritor y `sync_all` siguen siendo
-llamadas síncronas. La
-paginación de conflictos eager y source-backed comparte el token
-`datasetComparison`; Review permite cancelar su carga y conserva la página previa
-si la cancelación gana. La paginación principal del dataset también admite
-cancelación con `datasetPage`: la lectura Parquet/CSV/TSV/TXT desde snapshots o
-fuentes source-backed usa Polars Streaming cancelable; el fallback eager y el
-armado de filas comprueban la generación. Review mantiene visible la página previa
-hasta completar o cancelar. La conversión de rangos `.xls`/`.ods` ahora consulta
-cancelación por lotes después de que Calamine devuelve el rango completo. Otros
-comandos todavía tienen rutas sin token y las rutas canceladas descartan el
-resultado incompleto. El perfil cancelado conserva un estado visible y confirma
-el descarte del resultado parcial; la acción principal permite reintentarlo bajo
-demanda. En Entregar, la validación local de
-reglas usa ahora el token `qualityValidation` y ofrece «Cancelar validación»; al
-cancelarse, conserva el gate previo y descarta el resultado incompleto. La fuente
-source-backed puede interrumpirse durante la materialización DuckDB, y la
-evaluación revisa el token entre bloques Parquet y filas. Las operaciones
-vectorizadas comprueban el token cuando devuelven. El preflight de compatibilidad
-ODBC usa `databasePreflight` para cancelar la preparación de snapshots privados y
-los recorridos por filas; el exportador eager también puede cancelar el análisis
-de columnas. Las llamadas síncronas al driver ODBC solo detectan la cancelación
-cuando retornan y descartan el resultado.
-
-La selección de un libro Excel devuelve primero sus metadatos; Cargar obtiene los
-nombres de hoja en una segunda llamada y ofrece «Cancelar inspección». Usa la
-generación `load` para descartar una selección obsoleta. `open_workbook_auto` y
-`sheet_names` siguen siendo síncronos, así que la cancelación se confirma cuando
-la llamada de calamine retorna. El selector nativo conserva su comportamiento
-modal.
-
-La vista previa de encabezados CSV/TSV también usa la generación `load` de la
-selección pendiente. El diálogo cancela el token antes de descartar el archivo;
-la muestra acotada a 64 KiB se lee en bloques de 8 KiB y el token se consulta
-entre bloques, durante la detección del delimitador y entre los dos parseos de
-interpretación. La carga completa CSV/TSV/TXT también usa el detector cancelable
-antes de iniciar la lectura Polars. Las llamadas individuales de archivo y
-Polars siguen siendo síncronas y observan la cancelación cuando retornan.
-
-El inicio, cancelación y publicación de una carga se ordenan con
-`load_commit_lock`. La inspección publica la selección y las hojas solo si su
-generación sigue vigente; la carga valida la generación y el ID de selección
-después de preparar el historial, y sustituye dataset, comparación y selección
-juntos. Si cancelar gana durante la creación síncrona del historial, el
-candidato se descarta y permanece activa la sesión anterior. Pasan
-`cargo fmt --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib`, `npm run build`, `npm run ipc:check`
-y `git diff --check`; no se ejecutaron pruebas de producto.
-
-La prueba Tauri `test_database_connection` ahora ejecuta inicialización ODBC,
-conexión y `SELECT 1` dentro de `spawn_blocking`, bajo la generación
-`databaseConnection`. Comprueba cancelación antes y después de cada llamada al
-driver; ODBC no interrumpe una llamada activa, pero el resultado se descarta al
-retornar si la generación cambió. No hay una acción de interfaz que invoque hoy
-este comando independiente; el preflight de Entregar mantiene su propio botón
-de cancelación. Pasan `cargo fmt --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib`,
-`npm run build`, `npm run ipc:check` y `git diff --check`; no se ejecutaron
-pruebas de producto.
-
-El catálogo local de tareas reutilizables usa `reusableTaskCatalog` y consulta
-cancelación al avanzar por las filas SQLite y antes y después de deserializar
-cada resumen. El panel ofrece «Cancelar carga» y reintento; la UI descarta
-respuestas obsoletas y no publica un catálogo parcial. Una lectura SQLite o la
-deserialización de un documento individual siguen siendo síncronas y observan
-la cancelación cuando retornan.
-
-La carga de versiones del proyecto lleva una generación asociada al proyecto
-activo. Al cambiar de proyecto o desmontar el controlador, las respuestas y
-errores anteriores se descartan; mientras las versiones no correspondan al
-proyecto activo, la interfaz mantiene el estado de carga. El backend limita la
-consulta con SQL `LIMIT` a las cinco versiones más recientes antes de
-deserializar payloads, incluso si quedan registros sobrantes en el catálogo.
-
-El catálogo de presets de entrega usa `deliveryPresetCatalog`: el recorrido
-SQLite y la deserialización de cada resumen revisan cancelación por fila. El
-panel ofrece «Cancelar carga» y reintento; se conservan los presets existentes
-y no se publica una lista parcial. Cada lectura SQLite y deserialización
-individual siguen siendo síncronas.
-
-Abrir un proyecto y restaurar una versión usan `projectOpen`: consultan la
-cancelación durante el hash por bloques, el conteo DuckDB, la lectura Parquet y
-la copia/validación del historial. Restaurar prepara y valida el candidato antes
-de cambiar el catálogo; el commit del catálogo y la activación del dataset
-comparten el gate con cancelar. Si cancelar gana antes del commit, se conservan
-el proyecto persistido y el dataset activo; si gana el commit, ambos cambian
-juntos. El panel ofrece «Cancelar apertura» y «Cancelar restauración».
-
-Guardar manualmente y el autoguardado usan `projectSave`. La materialización
-source-backed, la copia de snapshots e historial y el hash SHA-256 comprueban
-cancelación mientras avanzan; las generaciones se preparan en una carpeta
-temporal y se eliminan si cancelar gana antes del commit. El gate ordena la
-cancelación y la transacción del catálogo: si el commit entra primero, guardar
-termina y la cancelación espera; si cancelar entra primero, el catálogo y la
-última versión válida permanecen intactos. El panel ofrece «Cancelar guardado»
-y «Cancelar autoguardado». El cierre del escritor Parquet, `sync_all` y la
-transacción SQLite siguen siendo tramos síncronos, con comprobación del token
-después del cierre/sync y un gate antes del commit.
-
-Eliminar un proyecto usa `projectDelete`: consulta el token al reunir y validar
-las rutas del proyecto y de sus versiones anteriores. Si cancelar gana antes
-del gate, el catálogo y los archivos quedan disponibles. El gate cubre el
-DELETE SQLite y la limpieza de generaciones/snapshots, para que una cancelación
-tardía espere a que la eliminación termine en vez de informar una cancelación
-después del commit. SQLite y `remove_dir_all` siguen siendo llamadas síncronas;
-un fallo de limpieza posterior al commit se informa como proyecto eliminado
-con archivos pendientes de limpieza. El panel ofrece «Cancelar eliminación».
-
-La carga del catálogo usa una sola invocación `list_projects` que devuelve los
-proyectos y el candidato de recuperación dentro de la misma transacción de
-lectura SQLite. Ambos observan `projectCatalog`; el token se comprueba entre
-filas, al medir bytes de snapshots/historial y antes y después de la consulta
-indexada del candidato.
-Esa consulta SQLite de una fila sigue siendo síncrona. El panel ofrece
-«Cancelar carga» y, si se cancela la carga inicial, permite reintentar.
-
-La carga de versiones usa `projectVersions`; Proyectos permite cancelarla y
-reintentar. Tanto la lectura limitada a cinco entradas como la inicialización
-del catálogo comprueban el token. La recuperación del disco recorre las
-referencias SQLite y las generaciones cooperativamente, y omite la limpieza si
-no logra leer el catálogo para evitar borrar generaciones activas. Comprueba
-cancelación al enumerar y validar entradas y antes/después del `remove_dir_all`
-seguro; ese borrado y las llamadas SQLite individuales son síncronos y no se
-interrumpen mientras el sistema operativo los ejecuta. El borrado explícito
-mantiene el cleanup bajo el gate después del commit SQLite, por lo que una
-cancelación tardía espera a que termine.
-
-Las tareas reutilizables aplican reglas, formato, privacidad y receta como
-borrador al importar un archivo con el perfil y esquema guardados; la receta
-requiere ejecución explícita. Si el perfil no se usa o el esquema cambia, la
-interfaz conserva la revisión de la configuración antes de aplicarla.
-
-En Preparar, el botón para avanzar pasa a secundario mientras haya un plan o una
-receta lista para aplicar; cuando no existe una acción local disponible,
-continuar mantiene la prioridad. La comparación de revisiones sigue plegada y
-el historial/deshacer queda cerca del resultado. El E2E comprueba la jerarquía
-visual a 200 % y recorre el avance con teclado a 320 CSS px.
-
-En los diálogos, el trap de teclado filtra controles dentro de elementos
-`details` cerrados e incluye el resumen del disclosure. Así, Tab no termina en
-un selector oculto al revisar encabezados CSV; la regresión recorre el diálogo
-hasta «Cargar archivo».
-
-Verificación frontend en el corte anterior: `npm test` 426/426,
-`npm run test:e2e -- --workers=1` 21/21, `npm run build`, `npm run ipc:check`,
-`npm run docs:check` y `npm audit --omit=optional` pasan; el audit reporta 0
-vulnerabilidades. La suite Rust del corte anterior pasó 490 pruebas (0 fallidas,
-5 ignoradas).
-En el avance de comparación, `cargo fmt`, `cargo check --manifest-path src-tauri/Cargo.toml --lib`, `npm run build` y
-`git diff --check` pasan; no se ejecutaron pruebas. Los tests nuevos del corte
-anterior solo compilaron y no se ejecutaron por el fallo del loader de Windows
-descrito abajo. `smoke:cdp` pasó en WebView2 y
-verificó ProjectsPanel, IPC, transformaciones, exportación y reapertura de
-proyecto. `smoke:native-selectors` usó los diálogos reales de Windows para
-exportar y volver a cargar CSV, XLSX y Parquet generados por un dataset de prueba
-de dos filas; verificó valores, columnas y la hoja XLSX. La importación nativa
-adicional cargó un CSV de prueba de dos filas, leyó páginas, transformó y
-previsualizó una exportación. Evidencia principal:
-`.local/validation/webview2-cdp/20260920T210957Z`, con smoke de proyectos en
-`.local/validation/webview2-cdp/20260920T205628Z` y carga CSV en
-`.local/validation/webview2-cdp/20260920T205234Z`. En la corrida de selectores
-debug, el working set pico fue 558,764,032 bytes y la memoria privada
-296,427,520 bytes, por encima de los presupuestos de 512 MiB y 256 MiB. El gate
-es informativo en debug; esta corrida no demuestra el presupuesto del binario
-release.
-
-Las E2E usan el bridge simulado y los archivos de los smokes son sintéticos.
-Estas pruebas ejercitan IPC y bytes reales, pero no sustituyen beta con datos de
-trabajo, un recorrido Cargar→Entregar completo ni aceptación nativa con lector de
-pantalla.
-
-En la validación de calidad de RV04, `cargo fmt`, `cargo check --manifest-path src-tauri/Cargo.toml --lib`,
-`npm run build`, el checker documental y `git diff --check` pasan; no se
-ejecutaron pruebas.
-En el preflight ODBC de RV04, `cargo fmt --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib`,
-`npm run build`, el checker documental y `git diff --check` pasan; no se
-ejecutaron pruebas. El driver ODBC no se interrumpe durante una llamada síncrona;
-se descarta el resultado al regresar.
-En la comprobación de actualizaciones de RV04, `cargo fmt --check`,
-`cargo check --manifest-path src-tauri/Cargo.toml --lib`, `npm run build`, `npm run ipc:check`, el checker documental
-y `git diff --check` pasan; no se ejecutaron pruebas. `updateCheck` cancela el
-futuro de red y serializa cancelación con la publicación del resultado.
-Las exportaciones source-backed Parquet y JSON ahora ejecutan `COPY` con el
-monitor de cancelación de DuckDB; la copia al archivo temporal final también
-revisa el token cada 64 KiB. Si se interrumpe, no se publica el destino.
-`sync_all` sigue síncrono. `cargo fmt --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib`,
-`npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`
-pasan; no se ejecutaron pruebas.
-En la enumeración de hojas de Excel, `cargo fmt --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib`,
-`npm run build` y `npm run ipc:check` pasan; también pasan el checker documental
-y `git diff --check`. No se ejecutaron pruebas. El inventario IPC ahora registra
-85 comandos de producción. La lectura de nombres de hoja por calamine sigue
-siendo síncrona y solo comprueba cancelación antes y después.
-En la paginación principal de Review, `cargo fmt --check`, `cargo check --manifest-path src-tauri/Cargo.toml --lib`,
-`npm run build`, `npm run ipc:check`, el checker documental y `git diff --check`
-pasan; no se ejecutaron pruebas. La lectura por lotes de snapshots Parquet y
-fuentes delimitadas source-backed comprueba cancelación durante Polars Streaming.
-En el fallback XLS/ODS de importación y comparación, `cargo fmt --check`,
-`cargo check --manifest-path src-tauri/Cargo.toml --lib` y `git diff --check` pasan; no se ejecutaron pruebas. Tras
-recibir el rango completo, el análisis, la conversión de columnas y la escritura
-de snapshots consultan el token entre filas, celdas y bloques; el parser síncrono
-de Calamine aún no se puede interrumpir.
-El análisis de calidad ahora conserva un estado visible si se cancela y explica
-que el resultado parcial se descartó; la acción principal permite reintentarlo
-sin repetir automáticamente el análisis. `npm run build` y `git diff --check`
-pasan; no se ejecutaron pruebas.
-Nota superada el 2026-09-21: el harness Rust de Windows fallaba con
-`STATUS_ENTRYPOINT_NOT_FOUND` (`0xc0000139`). Se resolvió incrustando el
-manifiesto de Common Controls v6 cuando `COLUMNIA_TEST_HARNESS_MANIFEST=1`
-(`src-tauri/build.rs`); `tools/check.ps1` define esa variable y las regresiones
-se ejecutan en el gate Full.
-
-Siguen abiertos los criterios con evidencia que no se puede fabricar localmente:
-la beta de tres participantes y su resumen sanitizado; accesibilidad manual con
-lector de pantalla/alto contraste; round-trip contra SQL Server real; y un
-candidato binario/canal autorizado probado en VM limpia.
-RV04 conserva `worksheet_range` síncrono para `.xls`/`.ods` y otros comandos sin
-token de cancelación, la apertura del libro durante la inspección de hojas, el
-selector nativo modal y tramos síncronos de
-conteo/escritura de snapshots. También falta medir el coste del JOIN por bloques
-y validar cancelación con datos reales en una sesión nativa. RV14 requiere
-seleccionar y validar la herramienta BI a partir de beta.
-No sustituir estas evidencias por fixtures o resultados sintéticos.
+No sustituir estas evidencias por fixtures ni resultados sintéticos.
 
 ### Registro histórico de verificación — corte 2026-09-12
 
@@ -617,7 +240,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | `npm test` pasa 457/457 frontend en 51 archivos; `cargo test --manifest-path src-tauri/Cargo.toml --lib` pasa 494/499 (5 ignoradas: benchmarks opt-in e integraciones ODBC); `npm run build`, `npm run ipc:check` y `npm run docs:check` pasan. Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
+| Pruebas observadas | Gate Full del 2026-09-23 (`.local/validation/20260924T023448Z-1bde062-full.json`), 18/18 etapas: frontend 468/468 en 53 archivos; `cargo test --lib` 507 aprobadas y 6 ignoradas (benchmarks opt-in, integraciones ODBC y timeout de login manual); E2E 26/26; build, cobertura, bundle, Clippy, secretos y red pasan. Estos resultados no equivalen a beta con datos de trabajo, round-trip SQL Server ni aceptación de lector de pantalla. |
 | Última revisión de este documento | 2026-09-23; incluye cancelación durante la lectura Parquet por lotes de consultas, conflictos, apertura de proyectos y vistas previas de recetas source-backed; documenta el reintento de cancelación/liberación de selecciones pendientes de RV04, el historial compacto de RV06 y la consolidación del historial en `dataset/history.rs`, el preflight de esquema en `dataset/import_schema_preview.rs`, la inspección de fuentes en `dataset/import_source_inspection.rs`, la carga final en `dataset/import_loading.rs`, la carga source-backed en `dataset/source_loading.rs`, la lectura de libros en `dataset/spreadsheet_io.rs`, la exportación en `dataset/export_io.rs`, la receta eager en `dataset/recipe_eager.rs`, el motor de comparación en `dataset/comparison_engine.rs`, la ejecución local en `dataset/query_execution.rs`, la automatización CLI en `dataset/automation.rs`, el historial de proyectos en `dataset/project_history.rs`, el motor de perfilado en `dataset/profile_engine.rs` y el handler de `get_dataset_page` en `dataset/page_reader.rs`. `npm run build`, `npm test` (457/457), `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` y `cargo check --manifest-path src-tauri/Cargo.toml --lib` pasan en este corte. La versión vigente es `1.26.0`; RV04 sigue parcial y los gates abiertos están en `docs/reference/roadmap-current.md`. |
 
 ### Estado verificable de Tier 5

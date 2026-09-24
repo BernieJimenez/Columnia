@@ -67,7 +67,7 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 **Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
 en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 23 de 33 tareas cerradas; 2 de
+- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 24 de 33 tareas cerradas; 2 de
   severidad alta (T10-01, T10-02). Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
@@ -454,13 +454,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-23 — 38 módulos, cifras de pruebas y cobertura del gate Full, nota de `STATUS_ENTRYPOINT_NOT_FOUND` marcada como superada, descripción de `App.tsx` corregida, 4 filas huérfanas devueltas a la tabla del registro e insignia 1.26.0 en el README; `docs:check` verde. La fila «Pruebas observadas» de la ficha se actualiza al cierre de la tanda.
-- [ ] **[T10-22] Compactar CONTEXTO.md y la cola vigente**
+- [x] **[T10-22] Compactar CONTEXTO.md y la cola vigente**
   - **Área:** Documentación · **Severidad:** Media
   - **Ubicación:** `CONTEXTO.md:10-438`; `docs/reference/roadmap-current.md:210`
   - **Qué hacer:** reducir el estado vigente a una pantalla con cifras tomadas del último informe JSON del gate; llevar el historial por corte al CHANGELOG o a la evidencia; limitar las celdas de la cola y enlazar la evidencia.
   - **Criterio de aceptación:** estado vigente ≤ 600 palabras (hoy 4.191); ninguna celda > 80 palabras (hoy 1.302 en RV04); tabla de traslado sin afirmaciones perdidas.
   - **Esfuerzo:** medio
   - **Depende de:** T10-21
+  - **Cerrada:** 2026-09-23 — Estado vigente de `CONTEXTO.md` en 432 palabras (antes 4.190) con cifras del informe Full `20260924T023448Z-1bde062`; celda más larga de la cola vigente, 69 palabras (RV04 tenía 1.259); `docs/reference/historial-verificacion.md` conserva el bloque y las siete celdas sin cambios (comprobado con diff; solo se ajustaron dos rutas de enlace) y una tabla de traslado. `docs:check` aprobado.
 - [ ] **[T10-23] Extraer el controlador de Revisar de App.tsx**
   - **Área:** Arquitectura · **Severidad:** Media
   - **Ubicación:** `src/App.tsx` (39 `useState`, 28 `useRef`); `src/features/review/ReviewPhase.tsx` (unas 106 props)
@@ -567,7 +568,7 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | Fecha | Cerradas | Nota |
 | --- | ---: | --- |
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
-| 2026-09-23 | 23 de 33 | Fase 2 en curso: cerradas hasta ahora T10-30 y anteriores de esta tanda. |
+| 2026-09-23 | 24 de 33 | Fase 2 en curso: cerradas hasta ahora T10-22 y anteriores de esta tanda. |
 | 2026-09-23 | 20 de 33 | Fase 2 en curso; T10-05 y T10-08 parciales. |
 
 ## Criterio de salida de V1
