@@ -483,7 +483,8 @@ function Invoke-ProjectsProbe {
 function Invoke-NativeSelectorsProbe {
     $RunnerPath = Join-Path $ProjectRoot "tools\probe-webview2-native-selectors.mjs"
     $DriverPath = Join-Path $ProjectRoot "tools\automate-native-file-dialog.ps1"
-    if (-not (Test-Path -LiteralPath $RunnerPath -PathType Leaf) -or -not (Test-Path -LiteralPath $DriverPath -PathType Leaf)) {
+    $MessageDriverPath = Join-Path $ProjectRoot "tools\automate-native-message-dialog.ps1"
+    if (-not (Test-Path -LiteralPath $RunnerPath -PathType Leaf) -or -not (Test-Path -LiteralPath $DriverPath -PathType Leaf) -or -not (Test-Path -LiteralPath $MessageDriverPath -PathType Leaf)) {
         $script:NativeSelectorsStatus = "failed"
         $script:NativeSelectorsPayload = [ordered]@{
             status = "failed"
@@ -527,7 +528,7 @@ function Invoke-NativeSelectorsProbe {
         while ([DateTimeOffset]::UtcNow -lt $ProbeDeadline) {
             if (Test-Path -LiteralPath $RequestPath -PathType Leaf) {
                 try {
-                    $Request = Get-Content -LiteralPath $RequestPath -Raw | ConvertFrom-Json
+                    $Request = Get-Content -LiteralPath $RequestPath -Raw -Encoding UTF8 | ConvertFrom-Json
                 }
                 catch {
                     $Request = $null
@@ -539,22 +540,42 @@ function Invoke-NativeSelectorsProbe {
                     $DriverProcess = $null
                     $DriverOutput = @()
                     $DriverTimedOut = $false
+                    # "message" answers a native confirmation (title + button);
+                    # "open"/"save" drive a file selector.
+                    $DriverArguments = if ([string]$Request.mode -eq "message") {
+                        @(
+                            "-NoProfile",
+                            "-ExecutionPolicy",
+                            "Bypass",
+                            "-File",
+                            "`"$MessageDriverPath`"",
+                            "-TitleBase64",
+                            [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes([string]$Request.title)),
+                            "-ButtonBase64",
+                            [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes([string]$Request.button)),
+                            "-TimeoutSeconds",
+                            "30"
+                        )
+                    }
+                    else {
+                        @(
+                            "-NoProfile",
+                            "-ExecutionPolicy",
+                            "Bypass",
+                            "-File",
+                            "`"$DriverPath`"",
+                            "-Mode",
+                            ([string]$Request.mode),
+                            "-Path",
+                            "`"$([string]$Request.targetPath)`"",
+                            "-TimeoutSeconds",
+                            "30"
+                        )
+                    }
                     try {
                         $DriverProcess = Start-Process `
                             -FilePath "powershell.exe" `
-                            -ArgumentList @(
-                                "-NoProfile",
-                                "-ExecutionPolicy",
-                                "Bypass",
-                                "-File",
-                                "`"$DriverPath`"",
-                                "-Mode",
-                                ([string]$Request.mode),
-                                "-Path",
-                                "`"$([string]$Request.targetPath)`"",
-                                "-TimeoutSeconds",
-                                "30"
-                            ) `
+                            -ArgumentList $DriverArguments `
                             -WorkingDirectory $ProjectRoot `
                             -WindowStyle Hidden `
                             -RedirectStandardOutput $DriverOutputPath `

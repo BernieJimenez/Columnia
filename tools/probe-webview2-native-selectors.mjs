@@ -40,10 +40,10 @@ function sleep(milliseconds) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
 }
 
-async function requestNativeDialog(mode, targetPath) {
+async function requestNativeDialog(mode, targetPath, extra = {}) {
   if (!requestFile) throw new Error("native_dialog_driver_missing");
   const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  writeFileSync(requestFile, JSON.stringify({ requestId, mode, targetPath, status: "pending" }), "utf8");
+  writeFileSync(requestFile, JSON.stringify({ requestId, mode, targetPath, ...extra, status: "pending" }), "utf8");
   const deadline = Date.now() + helperTimeoutMs;
   try {
     while (Date.now() < deadline) {
@@ -104,6 +104,68 @@ async function invokeWithNativeDialog(page, command, args, mode, targetPath) {
   // command, otherwise the following dialog can be created disabled.
   await sleep(750);
   return result;
+}
+
+// T10-05: answer the native confirmation of a remote connection like a person
+// would. Cancelling must reject before any ODBC call; accepting must reach the
+// driver. The target is a closed local port, so no data leaves the machine.
+const remoteConfirmationTitle = "Confirmar conexión remota";
+const remoteNotConfirmedMessage = "no se confirmó el destino";
+const remoteProbeSecret = "probe-secret-T10-05";
+
+async function answerRemoteConfirmation(page, target, button) {
+  await page.bringToFront();
+  const driver = requestNativeDialog("message", "", { title: remoteConfirmationTitle, button });
+  const startedAt = performance.now();
+  const invocation = invoke(page, "test_database_connection", { target }).then(
+    (value) => ({ ok: true, value }),
+    (error) => ({ ok: false, error: String(error?.message ?? error) }),
+  );
+  let settled = null;
+  void invocation.then((value) => { settled = value; });
+  try {
+    await withTimeout(driver, helperTimeoutMs, "native_message_timeout");
+  } catch (error) {
+    // Name the IPC outcome (never the message, which may echo the target).
+    const state = settled === null ? "pending" : settled.ok ? "resolved" : "rejected";
+    const confirmation = settled && !settled.ok && settled.error.includes(remoteNotConfirmedMessage);
+    const failure = new Error(`${error.message}_ipc_${state}${confirmation ? "_not_confirmed" : ""}`);
+    if (settled && !settled.ok) {
+      failure.diagnostics = [settled.error.replaceAll(remoteProbeSecret, "[redactado]").slice(0, 200)];
+    }
+    throw failure;
+  }
+  const outcome = await withTimeout(invocation, helperTimeoutMs, "remote_connection_timeout");
+  await sleep(750);
+  return { ...outcome, elapsedMs: Math.round(performance.now() - startedAt) };
+}
+
+async function runRemoteConfirmationFlow(page) {
+  const target = {
+    kind: "sqlserver",
+    connectionString: `Driver={ODBC Driver 18 for SQL Server};Server=tcp:127.0.0.1,9;Database=columnia_probe;Encrypt=yes;UID=probe;PWD=${remoteProbeSecret}`,
+    schema: "dbo",
+    table: "columnia_t10_05_probe",
+    tablePolicy: "create_only",
+  };
+  const cancelled = await answerRemoteConfirmation(page, target, "Cancelar");
+  if (cancelled.ok || !cancelled.error.includes(remoteNotConfirmedMessage)) {
+    throw new Error("remote_cancel_did_not_block_connection");
+  }
+  const confirmed = await answerRemoteConfirmation(page, target, "Conectar");
+  if (confirmed.ok || confirmed.error.includes(remoteNotConfirmedMessage)) {
+    throw new Error("remote_confirm_did_not_reach_driver");
+  }
+  if ([cancelled.error, confirmed.error].some((message) => message.includes(remoteProbeSecret))) {
+    throw new Error("remote_error_leaked_secret");
+  }
+  return {
+    cancelRejectedBeforeDriver: true,
+    cancelElapsedMs: cancelled.elapsedMs,
+    confirmReachedDriver: true,
+    confirmElapsedMs: confirmed.elapsedMs,
+    secretsInErrors: false,
+  };
 }
 
 function forbiddenFields(value) {
@@ -517,7 +579,11 @@ async function runPrepareFlowSteps(page) {
   const reviewHeading = page.getByRole("heading", { name: "Revisa antes de modificar" });
   const toReview = page.getByRole("button", { name: "Continuar a Revisar" });
   await reviewHeading.or(toReview).first().waitFor({ state: "visible", timeout: probeTimeoutMs });
-  if (!(await reviewHeading.isVisible().catch(() => false))) await toReview.click();
+  // The footer of Cargar can flash "Continuar a Revisar" while the load
+  // finishes and the app switches to Revisar on its own.
+  const reachedReview = await reviewHeading.waitFor({ state: "visible", timeout: 5_000 })
+    .then(() => true, () => false);
+  if (!reachedReview) await toReview.click();
   // The quality analysis of a large file can take minutes in a debug build.
   const proposalEntry = page.getByRole("button", { name: /^(Ver cambios propuestos|Continuar a Preparar)$/ });
   await proposalEntry.waitFor({ state: "visible", timeout: analysisTimeoutMs });
@@ -574,6 +640,10 @@ async function run() {
     if (!requestedDatasetPath) throw new Error("prepare_flow_requires_dataset_path");
     return runPrepareFlow(page);
   }
+
+  // First, before any file dialog: the file driver's Enter fallback must not
+  // be what answers this confirmation.
+  const remoteConfirmationFlow = requestedDatasetPath ? null : await runRemoteConfirmationFlow(page);
 
   const source = await invokeWithNativeDialog(page, "pick_dataset_source", {}, "open", sourcePath);
   if (!validSource(source)) throw new Error("dataset_picker_invalid");
@@ -689,6 +759,7 @@ async function run() {
     outputsVerified: true,
     realImportRoundTrips: roundTrips,
     reusableTaskFlow,
+    remoteConfirmationFlow,
     csvBytesLoaded: true,
     excelAndParquetBytesLoaded: true,
     forbiddenPathFields: false,
@@ -712,6 +783,8 @@ async function run() {
       "reusable_task_schema_mismatch_requires_confirmation",
       "reusable_task_compatible_import_auto_applies",
       "delete_reusable_task",
+      "test_database_connection:native_cancel",
+      "test_database_connection:native_confirm",
     ],
   };
 }
