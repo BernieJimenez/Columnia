@@ -235,6 +235,9 @@ use crate::dataset_fingerprints::{
     NormalizedRowFingerprint,
 };
 use crate::remote_databases::{self, DatabaseTarget};
+use crate::remote_delivery_ledger::{
+    delivery_key, file_content_identity, frame_content_identity, DeliveryLedger, DeliveryStatus,
+};
 
 const PREVIEW_ROW_LIMIT: usize = 50;
 const HEADER_REVIEW_ROW_LIMIT: usize = 5;
@@ -8651,6 +8654,53 @@ pub async fn export_dataset(
     Ok(result)
 }
 
+/// Records an `append` delivery around its commit (see `remote_delivery_ledger`).
+struct AppendDeliveryJournal {
+    ledger: DeliveryLedger,
+    key: String,
+}
+
+impl remote_databases::DeliveryJournal for AppendDeliveryJournal {
+    fn before_commit(&mut self, rows: usize) -> Result<(), String> {
+        self.ledger
+            .record(&self.key, DeliveryStatus::Uncertain, rows)
+    }
+
+    fn after_commit(&mut self, rows: usize) {
+        // The commit already happened: if this write fails, the entry stays
+        // uncertain and a retry still asks before adding the rows again.
+        let _ = self
+            .ledger
+            .record(&self.key, DeliveryStatus::Committed, rows);
+    }
+}
+
+/// Only `append` can duplicate rows. A delivery of the same content to the
+/// same table as an earlier one asks for native confirmation first. Runs on a
+/// blocking worker because the dialog blocks.
+fn prepare_append_journal(
+    app: &AppHandle,
+    target: &DatabaseTarget,
+    content_identity: impl FnOnce() -> Result<String, String>,
+) -> Result<Option<AppendDeliveryJournal>, String> {
+    if target.table_policy != remote_databases::DatabaseTablePolicy::Append {
+        return Ok(None);
+    }
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("No se pudo ubicar el registro de entregas: {error}"))?;
+    let ledger = DeliveryLedger::in_directory(&directory);
+    let key = delivery_key(
+        &remote_databases::remote_target_identity(target),
+        &content_identity()?,
+    );
+    if let Some(record) = ledger.find(&key) {
+        remote_databases::confirm_repeated_delivery(app, &record)?;
+    }
+    Ok(Some(AppendDeliveryJournal { ledger, key }))
+}
+
 /// The native dialog blocks, so it runs on a blocking worker, not the async runtime.
 async fn confirm_remote_target_off_main_thread(
     app: &AppHandle,
@@ -8939,6 +8989,20 @@ pub async fn export_dataset_to_database(
                         .export_was_cancelled(generation),
                 )?;
 
+                let journal = prepare_append_journal(&validation_app, &target, || {
+                    file_content_identity(
+                        &source_path,
+                        &schema,
+                        row_count,
+                        &format!("{privacy_mode:?}"),
+                    )
+                })?;
+                ensure_not_cancelled(
+                    validation_app
+                        .state::<DatasetState>()
+                        .export_was_cancelled(generation),
+                )?;
+
                 let mut effective_source_path = source_path.clone();
                 let mut effective_source_format = source_format;
                 let mut effective_schema = schema;
@@ -8987,6 +9051,7 @@ pub async fn export_dataset_to_database(
                             .state::<DatasetState>()
                             .export_was_cancelled(generation)
                     },
+                    journal,
                 )?;
                 if snapshot_only {
                     let current_snapshot = {
@@ -9071,15 +9136,21 @@ pub async fn export_dataset_to_database(
     send_progress(&on_progress, "export", "Conectando con destino remoto", 0);
     let export_app = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let is_cancelled = || {
+            export_app
+                .state::<DatasetState>()
+                .export_was_cancelled(generation)
+        };
+        let journal = prepare_append_journal(&export_app, &target, || {
+            frame_content_identity(&protected_frame, &is_cancelled)
+        })?;
+        ensure_not_cancelled(is_cancelled())?;
         remote_databases::export_frame(
             &protected_frame,
             &target,
             |stage, percent| send_progress(&on_progress, "export", stage, percent),
-            || {
-                export_app
-                    .state::<DatasetState>()
-                    .export_was_cancelled(generation)
-            },
+            is_cancelled,
+            journal,
         )
     })
     .await

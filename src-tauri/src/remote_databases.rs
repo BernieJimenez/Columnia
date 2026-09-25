@@ -11,6 +11,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::dataset::{DatasetState, OPERATION_CANCELLED_MESSAGE};
 use crate::duckdb_query::DuckDbFileFormat;
+use crate::remote_delivery_ledger::{DeliveryRecord, DeliveryStatus};
 
 const MAX_CONNECTION_STRING_CHARS: usize = 16 * 1024;
 const MAX_IDENTIFIER_CHARS: usize = 128;
@@ -22,6 +23,218 @@ const ODBC_STATEMENT_TIMEOUT_SEC: usize = 300;
 
 const REMOTE_TARGET_NOT_CONFIRMED: &str =
     "La conexión remota se canceló: no se confirmó el destino en el diálogo de Windows.";
+const REPEATED_DELIVERY_NOT_CONFIRMED: &str =
+    "La entrega se canceló para no duplicar filas en la tabla remota.";
+/// SQL Server accepts at most 2,100 parameters per statement; MySQL and
+/// PostgreSQL accept far more, so this limit fits every dialect.
+const MAX_PARAMETERS_PER_INSERT: usize = 2_000;
+const MAX_ROWS_PER_INSERT: usize = 500;
+
+/// Hooks around the commit of a delivery. A delivery is recorded as uncertain
+/// before its commit and as committed after it, so a retry after a failed or
+/// interrupted commit can be detected.
+pub(crate) trait DeliveryJournal {
+    fn before_commit(&mut self, rows: usize) -> Result<(), String>;
+    fn after_commit(&mut self, rows: usize);
+}
+
+impl DeliveryJournal for () {
+    fn before_commit(&mut self, _rows: usize) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn after_commit(&mut self, _rows: usize) {}
+}
+
+impl<J: DeliveryJournal> DeliveryJournal for Option<J> {
+    fn before_commit(&mut self, rows: usize) -> Result<(), String> {
+        self.as_mut()
+            .map_or(Ok(()), |journal| journal.before_commit(rows))
+    }
+
+    fn after_commit(&mut self, rows: usize) {
+        if let Some(journal) = self.as_mut() {
+            journal.after_commit(rows);
+        }
+    }
+}
+
+/// Identity of a destination table without credentials, stable across sessions.
+pub(crate) fn remote_target_identity(target: &DatabaseTarget) -> String {
+    let mut attributes = odbc_attributes(&target.connection_string)
+        .into_iter()
+        .filter(|(key, _)| !is_secret_attribute(key))
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>();
+    attributes.sort();
+    format!(
+        "{}\u{1f}{}\u{1f}{}",
+        target.kind.label(),
+        attributes.join("\u{1e}"),
+        qualified_table(target)
+    )
+}
+
+fn describe_repeated_delivery(record: &DeliveryRecord) -> String {
+    let when = chrono::DateTime::parse_from_rfc3339(&record.recorded_at)
+        .map(|time| {
+            time.with_timezone(&chrono::Local)
+                .format("%d/%m/%Y %H:%M")
+                .to_string()
+        })
+        .unwrap_or_else(|_| "una entrega anterior".to_owned());
+    match record.status {
+        DeliveryStatus::Committed => format!(
+            "Este mismo dataset ya se añadió a esta tabla ({when}). Si lo entregas otra vez, sus {} filas quedarán duplicadas.\n\n¿Añadirlo de nuevo?",
+            record.rows
+        ),
+        DeliveryStatus::Uncertain => format!(
+            "Una entrega anterior de este mismo dataset a esta tabla ({when}) no confirmó si se guardó. Revisa la tabla: si se guardó, sus {} filas quedarán duplicadas.\n\n¿Añadirlo de nuevo?",
+            record.rows
+        ),
+    }
+}
+
+/// A repeated `append` of the same content needs a native confirmation, like
+/// the connection itself, so the webview cannot skip it.
+pub(crate) fn confirm_repeated_delivery(
+    app: &AppHandle,
+    record: &DeliveryRecord,
+) -> Result<(), String> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let confirmed = app
+        .dialog()
+        .message(describe_repeated_delivery(record))
+        .title("Posibles filas duplicadas")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Añadir de nuevo".to_owned(),
+            "Cancelar".to_owned(),
+        ))
+        .blocking_show();
+    if confirmed {
+        Ok(())
+    } else {
+        Err(REPEATED_DELIVERY_NOT_CONFIRMED.to_owned())
+    }
+}
+
+fn rows_per_insert(column_count: usize) -> usize {
+    (MAX_PARAMETERS_PER_INSERT / column_count.max(1)).clamp(1, MAX_ROWS_PER_INSERT)
+}
+
+/// Sends rows as multi-row `INSERT ... VALUES (...), (...)` statements inside
+/// the caller's transaction instead of one round trip per row.
+struct BatchInserter<'c, 'env> {
+    connection: &'c odbc_api::Connection<'env>,
+    table: String,
+    columns: Vec<String>,
+    rows_per_batch: usize,
+    full_batch: odbc_api::Prepared<odbc_api::handles::StatementImpl<'c>>,
+    pending: Vec<Box<dyn InputParameter>>,
+    pending_rows: usize,
+    target: &'c DatabaseTarget,
+}
+
+impl<'c, 'env> BatchInserter<'c, 'env> {
+    fn new(
+        connection: &'c odbc_api::Connection<'env>,
+        table: &str,
+        columns: Vec<String>,
+        target: &'c DatabaseTarget,
+    ) -> Result<Self, String> {
+        let rows_per_batch = rows_per_insert(columns.len());
+        Self::with_rows_per_batch(connection, table, columns, target, rows_per_batch)
+    }
+
+    fn with_rows_per_batch(
+        connection: &'c odbc_api::Connection<'env>,
+        table: &str,
+        columns: Vec<String>,
+        target: &'c DatabaseTarget,
+        rows_per_batch: usize,
+    ) -> Result<Self, String> {
+        let mut full_batch = connection
+            .prepare(&parameterized_insert_sql(table, &columns, rows_per_batch))
+            .map_err(|error| {
+                format_driver_error("No se pudo preparar la inserción remota", error, target)
+            })?;
+        full_batch
+            .set_query_timeout_sec(ODBC_STATEMENT_TIMEOUT_SEC)
+            .map_err(|error| {
+                format_driver_error(
+                    "No se pudo limitar el tiempo de la inserción remota",
+                    error,
+                    target,
+                )
+            })?;
+        Ok(Self {
+            connection,
+            table: table.to_owned(),
+            pending: Vec::with_capacity(rows_per_batch * columns.len()),
+            columns,
+            rows_per_batch,
+            full_batch,
+            pending_rows: 0,
+            target,
+        })
+    }
+
+    /// Returns how many rows were sent to the server by this call.
+    fn push_row(&mut self, row: Vec<Box<dyn InputParameter>>) -> Result<usize, String> {
+        self.pending.extend(row);
+        self.pending_rows += 1;
+        if self.pending_rows < self.rows_per_batch {
+            return Ok(0);
+        }
+        self.full_batch
+            .execute(self.pending.as_slice())
+            .map_err(|error| {
+                format_driver_error(
+                    "No se pudo insertar un lote en la tabla remota",
+                    error,
+                    self.target,
+                )
+            })?;
+        self.pending.clear();
+        Ok(std::mem::take(&mut self.pending_rows))
+    }
+
+    fn finish(mut self) -> Result<usize, String> {
+        if self.pending_rows == 0 {
+            return Ok(0);
+        }
+        let sql = parameterized_insert_sql(&self.table, &self.columns, self.pending_rows);
+        self.connection
+            .execute(
+                &sql,
+                self.pending.as_slice(),
+                Some(ODBC_STATEMENT_TIMEOUT_SEC),
+            )
+            .map_err(|error| {
+                format_driver_error(
+                    "No se pudo insertar un lote en la tabla remota",
+                    error,
+                    self.target,
+                )
+            })?;
+        Ok(std::mem::take(&mut self.pending_rows))
+    }
+}
+
+fn commit_delivery(
+    connection: &odbc_api::Connection<'_>,
+    journal: &mut impl DeliveryJournal,
+    rows_written: usize,
+    target: &DatabaseTarget,
+) -> Result<(), String> {
+    journal.before_commit(rows_written)?;
+    connection.commit().map_err(|error| {
+        format_driver_error("No se pudo confirmar la tabla remota", error, target)
+    })?;
+    journal.after_commit(rows_written);
+    Ok(())
+}
 
 /// Remote targets the person confirmed in a native dialog during this session.
 /// Only SHA-256 fingerprints are kept, never the connection string.
@@ -957,6 +1170,7 @@ pub(crate) fn export_frame<F, C>(
     target: &DatabaseTarget,
     mut report: F,
     is_cancelled: C,
+    mut journal: impl DeliveryJournal,
 ) -> Result<RemoteExportResult, String>
 where
     F: FnMut(&'static str, u8),
@@ -1018,19 +1232,7 @@ where
     }
 
     report("Escribiendo filas remotas", 25);
-    let statement_sql = parameterized_insert_sql(&table, &columns, columns.len());
-    let mut statement = connection.prepare(&statement_sql).map_err(|error| {
-        format_driver_error("No se pudo preparar la inserción remota", error, target)
-    })?;
-    statement
-        .set_query_timeout_sec(ODBC_STATEMENT_TIMEOUT_SEC)
-        .map_err(|error| {
-            format_driver_error(
-                "No se pudo limitar el tiempo de la inserción remota",
-                error,
-                target,
-            )
-        })?;
+    let mut inserter = BatchInserter::new(&connection, &table, columns, target)?;
     let mut rows_written = 0usize;
     for row_index in 0..frame.height() {
         ensure_not_cancelled(&is_cancelled)?;
@@ -1044,27 +1246,18 @@ where
                 sql_parameter(value, column.dtype())
             })
             .collect::<Result<Vec<_>, String>>()?;
-        statement
-            .execute(params.as_slice())
-            .map(|_| ())
-            .map_err(|error| {
-                format_driver_error(
-                    "No se pudo insertar una fila en la tabla remota",
-                    error,
-                    target,
-                )
-            })?;
-        rows_written += 1;
-        if frame.height() > 0 {
-            let percent = 25 + ((row_index + 1) * 60 / frame.height()).min(60) as u8;
+        let sent = inserter.push_row(params)?;
+        if sent > 0 {
+            rows_written += sent;
+            let percent = 25 + (rows_written * 60 / frame.height()).min(60) as u8;
             report("Escribiendo filas remotas", percent);
         }
     }
+    ensure_not_cancelled(&is_cancelled)?;
+    rows_written += inserter.finish()?;
 
     ensure_not_cancelled(&is_cancelled)?;
-    connection.commit().map_err(|error| {
-        format_driver_error("No se pudo confirmar la tabla remota", error, target)
-    })?;
+    commit_delivery(&connection, &mut journal, rows_written, target)?;
     report("Entrega remota lista", 100);
     Ok(RemoteExportResult {
         rows_written,
@@ -1073,6 +1266,7 @@ where
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn export_source_backed<F, C>(
     source_path: &Path,
     source_format: DuckDbFileFormat,
@@ -1081,6 +1275,7 @@ pub(crate) fn export_source_backed<F, C>(
     target: &DatabaseTarget,
     mut report: F,
     is_cancelled: C,
+    mut journal: impl DeliveryJournal,
 ) -> Result<RemoteExportResult, String>
 where
     F: FnMut(&'static str, u8),
@@ -1144,19 +1339,7 @@ where
     }
 
     report("Escribiendo filas remotas", 25);
-    let statement_sql = parameterized_insert_sql(&table, &columns, columns.len());
-    let mut statement = connection.prepare(&statement_sql).map_err(|error| {
-        format_driver_error("No se pudo preparar la inserción remota", error, target)
-    })?;
-    statement
-        .set_query_timeout_sec(ODBC_STATEMENT_TIMEOUT_SEC)
-        .map_err(|error| {
-            format_driver_error(
-                "No se pudo limitar el tiempo de la inserción remota",
-                error,
-                target,
-            )
-        })?;
+    let mut inserter = BatchInserter::new(&connection, &table, columns, target)?;
     let mut rows_written = 0usize;
     let streamed_columns = crate::duckdb_query::stream_file_rows(
         source_path,
@@ -1175,17 +1358,11 @@ where
                 .zip(values.iter())
                 .map(|(column, value)| sql_parameter_text(value.as_deref(), column.dtype()))
                 .collect::<Result<Vec<_>, String>>()?;
-            statement
-                .execute(params.as_slice())
-                .map(|_| ())
-                .map_err(|error| {
-                    format_driver_error(
-                        "No se pudo insertar una fila en la tabla remota",
-                        error,
-                        target,
-                    )
-                })?;
-            rows_written = rows_written.saturating_add(1);
+            let sent = inserter.push_row(params)?;
+            if sent == 0 {
+                return Ok(());
+            }
+            rows_written = rows_written.saturating_add(sent);
             let percent = if row_count == 0 {
                 85
             } else {
@@ -1200,6 +1377,8 @@ where
         },
         is_cancelled.clone(),
     )?;
+    ensure_not_cancelled(&is_cancelled)?;
+    rows_written = rows_written.saturating_add(inserter.finish()?);
     let expected_columns = schema
         .columns()
         .iter()
@@ -1220,9 +1399,7 @@ where
         );
     }
     ensure_not_cancelled(&is_cancelled)?;
-    connection.commit().map_err(|error| {
-        format_driver_error("No se pudo confirmar la tabla remota", error, target)
-    })?;
+    commit_delivery(&connection, &mut journal, rows_written, target)?;
     report("Entrega remota lista", 100);
     Ok(RemoteExportResult {
         rows_written,
@@ -1259,11 +1436,12 @@ fn execute_statement(
         .map_err(|error| format_driver_error(context, error, target))
 }
 
-fn parameterized_insert_sql(table: &str, columns: &[String], parameter_count: usize) -> String {
-    let placeholders = vec!["?"; parameter_count].join(", ");
+fn parameterized_insert_sql(table: &str, columns: &[String], row_count: usize) -> String {
+    let row = format!("({})", vec!["?"; columns.len()].join(", "));
     format!(
-        "INSERT INTO {table} ({}) VALUES ({placeholders})",
-        columns.join(", ")
+        "INSERT INTO {table} ({}) VALUES {}",
+        columns.join(", "),
+        vec![row; row_count.max(1)].join(", ")
     )
 }
 
@@ -1557,6 +1735,80 @@ mod tests {
     }
 
     #[test]
+    fn inserts_are_batched_within_the_parameter_limit_of_every_dialect() {
+        assert_eq!(rows_per_insert(1), MAX_ROWS_PER_INSERT);
+        assert_eq!(rows_per_insert(20), 100);
+        assert_eq!(rows_per_insert(3_000), 1);
+        for columns in [1, 7, 20, 150, 2_000, 5_000] {
+            assert!(rows_per_insert(columns) * columns <= MAX_PARAMETERS_PER_INSERT.max(columns));
+        }
+    }
+
+    #[test]
+    fn target_identity_ignores_secrets_and_attribute_order() {
+        let mut first = target(DatabaseKind::SqlServer);
+        first.table_policy = DatabaseTablePolicy::Append;
+        first.connection_string = "Driver={ODBC};Server=db1;Database=ventas;Pwd=uno".to_owned();
+        let mut second = first.clone();
+        second.connection_string = "Database=ventas;PWD=dos;Server=db1;Driver={ODBC}".to_owned();
+        assert_eq!(
+            remote_target_identity(&first),
+            remote_target_identity(&second)
+        );
+        assert!(!remote_target_identity(&first).contains("uno"));
+        let mut other_table = first.clone();
+        other_table.table = "otra".to_owned();
+        assert_ne!(
+            remote_target_identity(&first),
+            remote_target_identity(&other_table)
+        );
+        let mut other_server = first.clone();
+        other_server.connection_string = "Driver={ODBC};Server=db2;Database=ventas".to_owned();
+        assert_ne!(
+            remote_target_identity(&first),
+            remote_target_identity(&other_server)
+        );
+    }
+
+    #[test]
+    fn repeated_delivery_warning_distinguishes_committed_and_uncertain() {
+        let record = |status| DeliveryRecord {
+            key: "k".to_owned(),
+            status,
+            rows: 1_250,
+            recorded_at: "2026-09-25T10:00:00+00:00".to_owned(),
+        };
+        let committed = describe_repeated_delivery(&record(DeliveryStatus::Committed));
+        assert!(committed.contains("ya se añadió"));
+        assert!(committed.contains("1250 filas quedarán duplicadas"));
+        let uncertain = describe_repeated_delivery(&record(DeliveryStatus::Uncertain));
+        assert!(uncertain.contains("no confirmó si se guardó"));
+        assert!(uncertain.contains("25/09/2026") || uncertain.contains("24/09/2026"));
+    }
+
+    #[test]
+    fn optional_journal_records_only_when_present() {
+        #[derive(Default)]
+        struct Recorder(Vec<&'static str>);
+        impl DeliveryJournal for &mut Recorder {
+            fn before_commit(&mut self, _rows: usize) -> Result<(), String> {
+                self.0.push("before");
+                Ok(())
+            }
+            fn after_commit(&mut self, _rows: usize) {
+                self.0.push("after");
+            }
+        }
+        let mut recorder = Recorder::default();
+        let mut journal = Some(&mut recorder);
+        journal.before_commit(3).unwrap();
+        journal.after_commit(3);
+        assert_eq!(recorder.0, ["before", "after"]);
+        let mut absent: Option<&mut Recorder> = None;
+        assert!(absent.before_commit(3).is_ok());
+    }
+
+    #[test]
     fn confirmation_describes_the_target_without_secrets() {
         let mut value = target(DatabaseKind::SqlServer);
         value.connection_string =
@@ -1733,8 +1985,12 @@ mod tests {
         assert!(sql_parameter_text(None, &DataType::String).is_ok());
         let columns = vec!["name".to_owned(), "active".to_owned()];
         assert_eq!(
-            parameterized_insert_sql("`ventas`", &columns, 2),
+            parameterized_insert_sql("`ventas`", &columns, 1),
             "INSERT INTO `ventas` (name, active) VALUES (?, ?)"
+        );
+        assert_eq!(
+            parameterized_insert_sql("`ventas`", &columns, 3),
+            "INSERT INTO `ventas` (name, active) VALUES (?, ?), (?, ?), (?, ?)"
         );
     }
 
@@ -2036,9 +2292,14 @@ mod tests {
             .map_err(|error| format!("lectura ODBC: {error:?}"))?
         {
             for (ordinal, text, active) in batch.iter() {
-                let text = text
-                    .as_utf16()
-                    .map(|value| value.to_string().to_ascii_lowercase());
+                // PostgreSQL and MySQL project the text as hex, whose letter
+                // case varies by server; SQL Server returns the text itself.
+                let text = text.as_utf16().map(|value| match target.kind {
+                    DatabaseKind::Postgresql | DatabaseKind::Mysql => {
+                        value.to_string().to_ascii_lowercase()
+                    }
+                    DatabaseKind::SqlServer => value.to_string(),
+                });
                 let active = active
                     .as_utf16()
                     .map(|value| value.to_string())
@@ -2083,7 +2344,7 @@ mod tests {
         ];
         let mut frame_target = target.clone();
         frame_target.table = format!("columnia_t6_{suffix}_frame");
-        export_frame(&adversarial_frame(), &frame_target, |_, _| {}, || false)?;
+        export_frame(&adversarial_frame(), &frame_target, |_, _| {}, || false, ())?;
         query_round_trip(&frame_target, &expected)?;
 
         let directory = tempdir().map_err(|error| format!("temp externo: {error}"))?;
@@ -2100,6 +2361,7 @@ mod tests {
             &source_target,
             |_, _| {},
             || false,
+            (),
         )?;
         query_round_trip(&source_target, &expected)?;
 
@@ -2141,6 +2403,76 @@ mod tests {
         let result = run_external_round_trip(&target, &unique_suffix("mysql_no_backslash"));
         let _ = execute_external_sql(&target, "SET GLOBAL sql_mode = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'");
         result.expect("round-trip MySQL con NO_BACKSLASH_ESCAPES completo");
+    }
+
+    /// T10-14: rows per second one row per statement versus batched, measured
+    /// inside a transaction that is rolled back.
+    #[test]
+    #[ignore = "requiere servidor y controlador ODBC SQL Server reales configurados por variables de sesión"]
+    fn external_odbc_append_batching_benchmark_sql_server() {
+        let mut target = external_target(DatabaseKind::SqlServer, "COLUMNIA_ODBC_SQLSERVER");
+        target.table = unique_suffix("columnia_t10_14");
+        let rows = 5_000usize;
+        let frame = df!(
+            "id" => (0..rows as i64).collect::<Vec<_>>(),
+            "name" => (0..rows).map(|index| format!("cliente {index}")).collect::<Vec<_>>(),
+            "amount" => (0..rows).map(|index| index as f64 * 1.5).collect::<Vec<_>>(),
+            "active" => (0..rows).map(|index| index % 2 == 0).collect::<Vec<_>>()
+        )
+        .expect("frame de medición");
+        let table = qualified_table(&target);
+        execute_external_sql(&target, &create_table_sql(&frame, &table, target.kind))
+            .expect("tabla de medición");
+        let environment = Environment::new().expect("ODBC");
+        let connection = environment
+            .connect_with_connection_string(&target.connection_string, odbc_connection_options())
+            .expect("conexión ODBC");
+        let columns = frame
+            .get_column_names()
+            .iter()
+            .map(|name| quote_identifier(name, target.kind))
+            .collect::<Vec<_>>();
+        let measure = |rows_per_batch: usize| {
+            connection.set_autocommit(false).expect("transacción");
+            let started = std::time::Instant::now();
+            let mut inserter = BatchInserter::with_rows_per_batch(
+                &connection,
+                &table,
+                columns.clone(),
+                &target,
+                rows_per_batch,
+            )
+            .expect("inserción preparada");
+            let mut sent = 0;
+            for row_index in 0..frame.height() {
+                let params = frame
+                    .columns()
+                    .iter()
+                    .map(|column| sql_parameter(column.get(row_index).unwrap(), column.dtype()))
+                    .collect::<Result<Vec<_>, String>>()
+                    .expect("parámetros");
+                sent += inserter.push_row(params).expect("lote");
+            }
+            sent += inserter.finish().expect("último lote");
+            let elapsed = started.elapsed();
+            connection.rollback().expect("rollback");
+            assert_eq!(sent, rows);
+            elapsed
+        };
+        let row_by_row = measure(1);
+        let batched = measure(rows_per_insert(columns.len()));
+        execute_external_sql(&target, &drop_table_sql(&table, target.kind))
+            .expect("limpieza de la tabla de medición");
+        println!(
+            "T10-14 {rows} filas x {} columnas: fila a fila {:.0} ms ({:.0} filas/s); por lotes de {} {:.0} ms ({:.0} filas/s)",
+            columns.len(),
+            row_by_row.as_secs_f64() * 1_000.0,
+            rows as f64 / row_by_row.as_secs_f64(),
+            rows_per_insert(columns.len()),
+            batched.as_secs_f64() * 1_000.0,
+            rows as f64 / batched.as_secs_f64(),
+        );
+        assert!(batched < row_by_row);
     }
 
     #[test]
