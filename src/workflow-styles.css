@@ -1323,6 +1323,12 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .prepare-advanced { margin-top: 24px; }
 .review-more { margin-top: 20px; }
 .review-more__content { display: grid; gap: 16px; padding-top: 12px; }
+/* Entregar: one column, choices first, then the notice, then the action (design review). */
+.export-panel { grid-template-columns: minmax(0, 1fr); align-items: start; }
+.export-controls { grid-template-columns: repeat(2, minmax(0, 20rem)); justify-content: start; align-items: end; }
+.export-controls > :not(label) { grid-column: 1 / -1; }
+.export-controls > button { justify-self: start; }
+.export-requirement { grid-column: 1 / -1; margin: 0; }
 
 @media (forced-colors: active) {
   /* Keep this demoted action on system colors after primary-action theme overrides. */

@@ -10,6 +10,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- En Entregar, el bloque de exportar va en una columna: formato y protección,
+  el aviso de datos personales, los presets y el botón, en ese orden.
 - El diálogo de importación empieza por la decisión: hoja, encabezados y una
   muestra de los datos. Las opciones de fechas y números y el perfil guardado van
   después, y la estimación de memoria y disco queda en «Detalles técnicos».
