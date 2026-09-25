@@ -21,7 +21,6 @@ import type {
   TemporalSeriesSummary,
   SqlQueryHistoryEntry,
 } from "../../bridge";
-import { DatasetMetrics } from "../delivery/DatasetMetrics";
 import type { ReadyDatasetStatus } from "../load/loadModel";
 import {
   ANALYSIS_SAMPLE_ROW_OPTIONS,
@@ -42,7 +41,7 @@ import { QualitySnapshot } from "./QualitySnapshot";
 import { buildQualityActionPlan } from "./qualityActionPlan";
 import type { QualityActionTarget } from "./qualityActionPlan";
 import type { ReviewComparison } from "./useReviewController";
-import { formatDataType, formatDecimal, formatPercent } from "../../format";
+import { formatBytes, formatDataType, formatDecimal, formatPercent } from "../../format";
 
 const CONFLICT_PAGE_SIZE = 50;
 
@@ -101,6 +100,9 @@ export function ReviewPhase({
         <div>
           <h2>Revisa antes de modificar</h2>
           <h3 className="phase-file">{datasetStatus.dataset.fileName}</h3>
+          <p className="phase-meta">
+            {datasetStatus.dataset.rowCount.toLocaleString()} filas · {datasetStatus.dataset.columnCount.toLocaleString()} columnas · {formatBytes(datasetStatus.dataset.fileSizeBytes)}
+          </p>
         </div>
       </header>
       <ReviewTabList activeTab={reviewTab} onTabChange={onTabChange} />
@@ -108,7 +110,6 @@ export function ReviewPhase({
       {reviewTab === "diagnosis" ? (
         <div id="review-diagnosis-panel" role="tabpanel" aria-labelledby="review-diagnosis-tab">
           <QualitySection
-            dataset={datasetStatus.dataset}
             status={profileStatus}
             onCancel={onCancelProfile}
             onContinueToPrepare={onContinueToPrepare}
@@ -712,7 +713,6 @@ function DatasetComparisonSection({
 }
 
 function QualitySection({
-  dataset,
   status,
   onCancel,
   onContinueToPrepare,
@@ -725,7 +725,6 @@ function QualitySection({
   onAnalysisSampleRowsChange,
   datasetRevision,
 }: {
-  dataset: DatasetPreview;
   status: ProfileStatus;
   onCancel: () => void;
   onContinueToPrepare: (target?: QualityActionTarget) => void;
@@ -778,12 +777,7 @@ function QualitySection({
   );
   return (
     <section className="phase-section" aria-labelledby="quality-title">
-      <div className="section-heading">
-        <div>
-          <h3 id="quality-title">Diagnóstico del dataset</h3>
-        </div>
-      </div>
-      <DatasetMetrics dataset={dataset} />
+      <h3 id="quality-title" className="visually-hidden">Diagnóstico del dataset</h3>
       {status.kind === "loading" && (
         <OperationProgressView
           progress={status.progress}
@@ -1225,41 +1219,40 @@ function QualityProfile({
     invalidTypeCount,
   });
   const priorityCount = actionPlan.length;
+  const issues = [
+    {
+      label: columnsWithNulls.length === 1
+        ? "Valores vacíos en 1 columna"
+        : `Valores vacíos en ${columnsWithNulls.length.toLocaleString()} columnas`,
+      count: totalNullCount,
+    },
+    { label: "Filas duplicadas", count: profile.duplicateRowCount },
+    { label: "Valores con tipo incompatible", count: invalidTypeCount },
+  ].filter((issue) => issue.count > 0);
 
   return (
     <>
-      <section className="quality-overview" aria-labelledby="quality-overview-title">
-        <div className="quality-overview__heading">
-          <div>
-            <p className="step">Resultado del análisis</p>
-            <h4 id="quality-overview-title">
-              {priorityCount === 0
-                ? "No se detectaron problemas prioritarios"
-                : `${priorityCount} ${priorityCount === 1 ? "señal requiere" : "señales requieren"} atención`}
-            </h4>
-          </div>
-        </div>
-        <dl className="quality-summary" aria-label="Resumen de calidad del dataset">
-        <div>
-          <dt>Valores nulos</dt>
-          <dd>{totalNullCount.toLocaleString()}</dd>
-          <dd className="quality-summary__detail">{columnsWithNulls.length.toLocaleString()} columnas afectadas</dd>
-        </div>
-        <div>
-          <dt>Duplicados</dt>
-          <dd>{profile.duplicateRowCount.toLocaleString()} ({formatPercent(profile.duplicatePercentage, 1)})</dd>
-          <dd className="quality-summary__detail">filas adicionales</dd>
-        </div>
-        <div>
-          <dt>Tipos incompatibles</dt>
-          <dd>{invalidTypeCount.toLocaleString()}</dd>
-          <dd className="quality-summary__detail">según el tipo sugerido</dd>
-        </div>
-        </dl>
+      <section className="quality-overview quality-overview--plain" aria-labelledby="quality-overview-title">
+        <h4 id="quality-overview-title">
+          {priorityCount === 0
+            ? "No encontramos nada que arreglar"
+            : `Encontramos ${priorityCount} ${priorityCount === 1 ? "cosa" : "cosas"} para arreglar`}
+        </h4>
+        {issues.length > 0 && (
+          <dl className="quality-issues" aria-label="Resumen de calidad del dataset">
+            {issues.map((issue) => (
+              <div key={issue.label}>
+                <dt>{issue.label}</dt>
+                <dd>{issue.count.toLocaleString()}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {/* No signal focus: the proposal opens on its own, without the advanced tools. */}
         <button
           className="primary-action quality-overview__continue"
           type="button"
-          onClick={() => onContinueToPrepare(actionPlan[0]?.target)}
+          onClick={() => onContinueToPrepare()}
         >
           {actionPlan.length > 0 ? "Ver cambios propuestos" : "Continuar a Preparar"}
         </button>

@@ -10,6 +10,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- Revisar y Preparar muestran menos a la vez. Revisar dice el resultado una sola
+  vez («Encontramos 2 cosas para arreglar»), con una fila por problema y un botón;
+  filas, columnas y tamaño pasan a una línea bajo el nombre del archivo. «Ver
+  cambios propuestos» ya no abre Preparar sobre el diagnóstico avanzado (antes
+  desplegaba el historial, el catálogo de señales y más herramientas debajo de la
+  propuesta): ahora se ve solo la propuesta y lo avanzado queda plegado.
 - Revisión de diseño: el contenido dentro de un desplegable va sangrado para que
   se vea qué está dentro de qué; «Seleccionar otro dataset» pasa a acción
   secundaria; Preferencias muestra primero el tema y oculta el panel de

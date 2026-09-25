@@ -209,7 +209,8 @@ describe("App", () => {
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ });
+    // The action appears after the quality analysis; under a loaded suite it can take over 1 s.
+    await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ }, { timeout: 5_000 });
 
     const actions = screen.getByLabelText("Navegación entre etapas");
     expect(within(actions).queryByText("Siguiente paso")).not.toBeInTheDocument();
@@ -1147,7 +1148,7 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Seleccionar dataset" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Exportar CSV" })).not.toBeInTheDocument();
-    expect(screen.getByText(/^2[.,]0 KiB$/)).toBeInTheDocument();
+    expect(screen.getByText(/ · 2[.,]0 KiB$/)).toBeInTheDocument();
     const diagnosisTab = screen.getByRole("tab", { name: "Diagnóstico" });
     const previewTab = screen.getByRole("tab", { name: "Vista previa" });
     expect(diagnosisTab).toHaveAttribute("aria-controls", "review-diagnosis-panel");
@@ -1804,7 +1805,8 @@ describe("App", () => {
     });
     expect(within(generalProfile).getByRole("rowheader", { name: /temperature/ })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "66.7%" })).toBeInTheDocument();
-    expect(screen.getByText("1 (33.3%)")).toBeInTheDocument();
+    const issues = screen.getByLabelText("Resumen de calidad del dataset");
+    expect(within(issues).getByText("Filas duplicadas").parentElement).toHaveTextContent("1");
     expect(profileSpy).toHaveBeenCalledOnce();
 
     await switchPhase("Preparar");

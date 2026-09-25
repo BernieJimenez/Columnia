@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { DatasetPreview, DatasetProfile } from "../../bridge";
@@ -77,13 +77,18 @@ describe("ReviewPhase design", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "2 señales requieren atención" })).toBeInTheDocument();
-    expect(screen.getByText("Valores nulos").parentElement).toHaveTextContent("1");
+    expect(screen.getByRole("heading", { name: "Encontramos 2 cosas para arreglar" })).toBeInTheDocument();
+    const issues = screen.getByLabelText("Resumen de calidad del dataset");
+    expect(within(issues).getByText("Valores vacíos en 1 columna").parentElement).toHaveTextContent("1");
+    expect(within(issues).getByText("Valores con tipo incompatible")).toBeInTheDocument();
+    expect(within(issues).queryByText("Filas duplicadas")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Resumen del dataset")).not.toBeInTheDocument();
     expect(screen.getByText("Explorar análisis detallado").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText("Configuración del análisis").closest("details")).not.toHaveAttribute("open");
 
     expect(screen.getByRole("list", { name: "Prioridades de revisión" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Ver cambios propuestos" }));
-    expect(onContinueToPrepare).toHaveBeenCalledWith("missingValues");
+    // Without a signal focus, Preparar opens on the proposal, not the advanced tools.
+    expect(onContinueToPrepare).toHaveBeenCalledWith();
   });
 });

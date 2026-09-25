@@ -181,7 +181,7 @@ async function loadSyntheticDataset(page: Page, stopAt: "review" | "delivery" = 
   const reviewStep = workflow.getByRole("button", { name: "Revisar", exact: true });
   await expect(reviewStep).toHaveAttribute("aria-current", "step");
   await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Diagnóstico del dataset" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^(Encontramos \d+ cosas? para arreglar|No encontramos nada que arreglar)$/ })).toBeVisible();
   if (stopAt === "review") return;
 
   const continueToPrepare = page.getByRole("button", { name: "Continuar a Preparar" });

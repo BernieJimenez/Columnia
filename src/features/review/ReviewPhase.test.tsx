@@ -341,7 +341,7 @@ describe("ReviewPhase", () => {
     expect(plan).toHaveTextContent("puede cambiar la interpretación");
     expect(within(plan).queryAllByRole("button")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Ver cambios propuestos" }));
-    expect(onContinueToPrepare).toHaveBeenCalledWith("missingValues");
+    expect(onContinueToPrepare).toHaveBeenCalledWith();
   });
 
   it("conserva tabpanel ARIA y perfil bajo demanda", () => {
