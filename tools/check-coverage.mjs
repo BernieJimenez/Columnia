@@ -5,6 +5,8 @@ const criticalFiles = {
   "/src/features/delivery/DeliveryPhase.tsx": { statements: 80, lines: 80, branches: 75, functions: 75 },
   "/src/features/prepare/PreparePhase.tsx": { statements: 80, lines: 80, branches: 75, functions: 75 },
   "/src/features/prepare/usePrepareController.ts": { statements: 80, lines: 80, branches: 75, functions: 75 },
+  "/src/features/review/useReviewController.ts": { statements: 80, lines: 80, branches: 75, functions: 75 },
+  "/src/features/delivery/useDeliveryController.ts": { statements: 80, lines: 80, branches: 75, functions: 75 },
   "/src/features/projects/useProjectsController.ts": { statements: 80, lines: 80, branches: 75, functions: 75 },
   // T10-18: ratchet floors taken from the 2026-09-24 measurement (rounded down);
   // raise them as tests grow, never lower them.

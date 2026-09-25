@@ -60,19 +60,20 @@ describe("ReviewPhase design", () => {
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
         onContinueToPrepare={onContinueToPrepare}
-        comparisonStatus={{ kind: "idle" }}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={[]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
+        comparison={{
+          status: { kind: "idle" },
+          keyColumns: [],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
+        }}
       />,
     );
 

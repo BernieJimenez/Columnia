@@ -1,20 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
-import type { ReviewTab } from "./components/ReviewTabList";
-import {
-  INITIAL_DELIVERY_CONTRACT,
-  deliveryContractFromRules,
-  deliveryRules,
-  invalidateDeliveryContract,
-  reduceDeliveryContract,
-  isDatabaseExportFormat,
-  personalDataColumnNames,
-  type DeliveryContractAction,
-  type DeliveryContractState,
-  type DeliveryExportRequest,
-  type DeliveryExportState,
-} from "./features/delivery/deliveryModel";
+import { personalDataColumnNames } from "./features/delivery/deliveryModel";
+import { useDeliveryController } from "./features/delivery/useDeliveryController";
 import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
 import { ReusableTaskPanel } from "./features/load/ReusableTaskPanel";
 import {
@@ -63,37 +51,13 @@ import { usePrepareController } from "./features/prepare/usePrepareController";
 import { ProjectsPanel } from "./features/projects/ProjectsPanel";
 import { useProjectsController } from "./features/projects/useProjectsController";
 import {
-  beginComparison,
-  clearComparison,
-  completeComparison,
-  failComparison,
-  type ComparisonStatus,
-} from "./features/review/compareModel";
-import {
-  beginJoin,
-  clearJoin,
-  failJoin,
-  type JoinStatus,
-  type ReviewMutationKind,
-  type ReviewMutationStatus,
-} from "./features/review/joinModel";
-import {
   PAGE_SIZE,
   beginPageLoad,
-  beginProfileAnalysis,
   completePageLoad,
   failPageLoad,
   normalizePageOffset,
-  readAnalysisSampleRowsPreference,
-  readQueryEnginePreference,
-  requestProfileCancellation,
-  recoverProfileCancellationFailure,
-  updateProfileProgress,
-  writeAnalysisSampleRowsPreference,
-  writeQueryEnginePreference,
-  type AnalysisSampleRows,
-  type ProfileStatus,
 } from "./features/review/reviewModel";
+import { useReviewController } from "./features/review/useReviewController";
 import type { QualityActionTarget } from "./features/review/qualityActionPlan";
 import { ResourceMonitor } from "./components/ResourceMonitor";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
@@ -106,43 +70,28 @@ import { workflowPhases, type WorkflowPhase } from "./features/workspaces/worksp
 import {
   cancelOperation,
   clearDatasetComparison,
-  compareDataset,
   discardDatasetSelection,
-  exportDataset,
-  exportDatasetToDatabase,
   getAppInfo,
-  getDatasetConflictPage,
   getDatasetPage,
-  getDatasetProfile,
   inspectDroppedDataset as inspectDroppedDatasetSource,
   inspectSampleDataset,
   inspectWorkbookSheets,
-  joinDataset,
   listSampleDatasets,
   loadDatasetSelection,
   pickDatasetSource,
   previewDelimitedHeaderReview,
   previewDatasetSelection,
-  resolveDatasetConflicts,
-  adoptConsolidatedDataset,
   type AppInfo,
-  type CancellableOperation,
-  type DatasetJoinType,
-  type ConflictResolution,
   type DatasetSourceInspection,
   type ImportProfile,
-  type DatasetQueryEngine,
   type ExportFormat,
-  type OperationProgress,
   type PerformanceProfile,
-  type PrivacyMode,
   type ReusableTask,
   type ReusableTaskExceptionPolicy,
   type ReusableTaskOutputFormat,
   type ReusableTaskSchema,
   type SavedRecipe,
   type SampleDatasetDescriptor,
-  type SqlQueryHistoryEntry,
   type SpreadsheetHeaderMode,
 } from "./bridge";
 import {
@@ -166,8 +115,6 @@ interface ReusableTaskApplicationReview {
   importProfileUsed: boolean;
   schemaMismatchConfirmed: boolean;
 }
-
-const CONFLICT_PAGE_SIZE = 50;
 
 const loadDeliveryPhase = () => import("./features/delivery/DeliveryPhase");
 const loadPreparePhase = () => import("./features/prepare/PreparePhase");
@@ -222,24 +169,9 @@ function reusableOutputFormat(format: ExportFormat): ReusableTaskOutputFormat {
 export function App() {
   const [status, setStatus] = useState<AppStatus>(initialAppStatus);
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>({ kind: "empty" });
-  const [profileStatus, setProfileStatus] = useState<ProfileStatus>({ kind: "idle" });
-  const [analysisSampleRows, setAnalysisSampleRows] = useState<AnalysisSampleRows>(readAnalysisSampleRowsPreference);
-  const [queryEngine, setQueryEngine] = useState<DatasetQueryEngine>(readQueryEnginePreference);
   const [performanceProfile, setPerformanceProfile] = useState<PerformanceProfile>(readPerformanceProfile);
-  const [comparisonStatus, setComparisonStatus] = useState<ComparisonStatus>({ kind: "idle" });
-  const [comparisonCancellationPending, setComparisonCancellationPending] = useState(false);
-  const [comparisonKeyColumns, setComparisonKeyColumns] = useState<string[]>([]);
-  const [joinStatus, setJoinStatus] = useState<JoinStatus>({ kind: "idle" });
-  const [reviewMutationStatus, setReviewMutationStatus] = useState<ReviewMutationStatus>({ kind: "idle" });
-  const [reviewMutationCancellationPending, setReviewMutationCancellationPending] = useState(false);
-  const [joinType, setJoinType] = useState<DatasetJoinType>("inner");
-  const [exportFormat, setExportFormat] = useState<ExportFormat>("csv");
-  const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("none");
-  const [exportStatus, setExportStatus] = useState<DeliveryExportState>({ kind: "idle" });
-  const [deliveryContract, setDeliveryContract] = useState<DeliveryContractState>(INITIAL_DELIVERY_CONTRACT);
   const [activePhase, setActivePhase] = useState<WorkflowPhase>("load");
   const [prepareFocusTarget, setPrepareFocusTarget] = useState<QualityActionTarget | null>(null);
-  const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
   const [workbookInspectionCancellationPending, setWorkbookInspectionCancellationPending] = useState(false);
   const [selectionFinalizing, setSelectionFinalizing] = useState(false);
@@ -252,21 +184,8 @@ export function App() {
   const selectionCancellationInFlightRef = useRef(false);
   const loadRequestRef = useRef(0);
   const loadInFlightRef = useRef(false);
-  const comparisonRequestRef = useRef(0);
-  const comparisonOperationInFlightRef = useRef(false);
-  const reviewMutationCancellationPendingRef = useRef(false);
-  const comparisonPageRequestRef = useRef(0);
-  const joinRequestRef = useRef(0);
   const [pageCancellationPending, setPageCancellationPending] = useState(false);
   const pageCancellationRequestRef = useRef<number | null>(null);
-  const reviewMutationRef = useRef<{
-    mutation: ReviewMutationKind;
-    requestId: number;
-    datasetRevision: number;
-    cancellationRequested: boolean;
-  } | null>(null);
-  const exportRequestRef = useRef(0);
-  const exportInFlightRef = useRef(false);
   const [activeImportProfile, setActiveImportProfile] = useState<ImportProfile | null>(null);
   const [queuedReusableTask, setQueuedReusableTask] = useState<QueuedReusableTask | null>(null);
   const [reusableTaskApplicationReview, setReusableTaskApplicationReview] = useState<ReusableTaskApplicationReview | null>(null);
@@ -274,12 +193,8 @@ export function App() {
   const [sampleDatasets, setSampleDatasets] = useState<SampleDatasetDescriptor[]>([]);
   const [recipeDraft, setRecipeDraft] = useState<SavedRecipe | null>(null);
   const [activeExceptionPolicy, setActiveExceptionPolicy] = useState<ReusableTaskExceptionPolicy | null>(null);
-  const [sqlHistory, setSqlHistory] = useState<SqlQueryHistoryEntry[]>([]);
   const [datasetRevision, setDatasetRevision] = useState(0);
   const datasetRevisionRef = useRef(0);
-  const autoProfileRevisionRef = useRef<number | null>(null);
-  const profileRequestSequenceRef = useRef(0);
-  const activeProfileRequestRef = useRef<{ revision: number; sequence: number } | null>(null);
   const pageRequestRef = useRef(0);
   const operationBusyRef = useRef(false);
   const [completedPhaseRevisions, setCompletedPhaseRevisions] = useState<Partial<Record<WorkflowPhase, number>>>({});
@@ -297,20 +212,51 @@ export function App() {
     const nextRevision = datasetRevisionRef.current + 1;
     datasetRevisionRef.current = nextRevision;
     setCompletedPhaseRevisions({ load: nextRevision });
-    profileRequestSequenceRef.current += 1;
+    review.invalidateRequests();
     pageRequestRef.current += 1;
     pageCancellationRequestRef.current = null;
     setPageCancellationPending(false);
-    comparisonRequestRef.current += 1;
-    comparisonPageRequestRef.current += 1;
-    joinRequestRef.current += 1;
-    exportRequestRef.current += 1;
-    setExportStatus({ kind: "idle" });
+    delivery.invalidateRequests();
     setDatasetRevision(nextRevision);
   }
   const [sidebarUtilitiesOpen, setSidebarUtilitiesOpen] = useState(false);
   const [sidebarLegalOpen, setSidebarLegalOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const delivery = useDeliveryController({
+    datasetRevisionRef,
+    datasetReady: datasetStatus.kind === "ready",
+    datasetFingerprint: datasetStatus.kind === "ready"
+      ? JSON.stringify({
+          fileName: datasetStatus.dataset.fileName,
+          rowCount: datasetStatus.dataset.rowCount,
+          columns: datasetStatus.dataset.columns,
+          rows: datasetStatus.dataset.rows,
+        })
+      : null,
+    recipeDraft,
+  });
+  const review = useReviewController({
+    datasetRevisionRef,
+    datasetRevision,
+    datasetReady: datasetStatus.kind === "ready",
+    onDatasetReplaced: async (dataset, mutation) => {
+      setDatasetStatus(createReadyDatasetStatus(dataset));
+      bumpDatasetRevision();
+      if (mutation !== "join") delivery.resetOutput();
+      review.invalidateProfile();
+      projects.unlinkActiveProject();
+      setActiveImportProfile(null);
+      delivery.resetContract();
+      setRecipeDraft(null);
+      setActiveExceptionPolicy(null);
+      setRecipeSession((current) => current + 1);
+      prepare.resetChangeStatus();
+      if (mutation === "join") await clearDatasetComparison().catch(() => undefined);
+      await prepare.refreshHistory();
+      if (mutation === "join") setActivePhase("review");
+    },
+  });
+  const { profileStatus } = review;
   const prepare = usePrepareController({
     activeDataset: datasetStatus.kind === "ready" ? datasetStatus.dataset : null,
     exceptionPolicy: activeExceptionPolicy,
@@ -320,16 +266,11 @@ export function App() {
         ? current
         : null);
       setDatasetStatus({ kind: "ready", dataset, pageOffset: 0, pageLoading: false });
-      setSqlHistory([]);
-      setComparisonStatus(clearComparison());
-      setComparisonKeyColumns([]);
-      setJoinStatus(clearJoin());
-      setReviewMutationStatus({ kind: "idle" });
-      setJoinType("inner");
+      review.resetForDataset();
       void clearDatasetComparison().catch(() => undefined);
     },
-    onProfileInvalidated: () => setProfileStatus({ kind: "idle" }),
-    onDeliveryInvalidated: invalidateDeliveryGate,
+    onProfileInvalidated: review.invalidateProfile,
+    onDeliveryInvalidated: delivery.invalidateGate,
   });
   // Work the user started in the current phase. The quality analysis and the
   // autosave run in the background and show their own progress, so they block
@@ -338,12 +279,8 @@ export function App() {
     datasetStatus.kind === "loading" ||
     (datasetStatus.kind === "ready" && datasetStatus.pageLoading) ||
     prepare.changeStatus.kind === "working" ||
-    deliveryContract.gate.kind === "loading" ||
-    exportStatus.kind === "loading" ||
-    comparisonStatus.kind === "loading" ||
-    joinStatus.kind === "loading" ||
-    reviewMutationStatus.kind === "running" ||
-    reviewMutationStatus.kind === "finalizing";
+    delivery.busy ||
+    review.busy;
   const coreOperationBusy = foregroundOperationBusy || profileStatus.kind === "loading";
   const loadSelectionBusy = loadInspection.kind === "inspecting" ||
     loadInspection.kind === "workbook_inspecting" ||
@@ -358,35 +295,23 @@ export function App() {
     hasDataset: datasetStatus.kind === "ready",
     datasetRevision,
     workspace: {
-      qualityRules: deliveryRules(deliveryContract),
+      ...delivery.workspace,
       recipeDraft,
-      ...(sqlHistory.length > 0 ? { sqlHistory } : {}),
-      reviewTab,
+      ...review.workspace,
       previewOffset: datasetStatus.kind === "ready" ? datasetStatus.pageOffset : 0,
       activePhase,
-      queryEngine,
-      analysisSampleRows,
       performanceProfile,
-      exportFormat,
-      privacyMode,
-      comparisonKeyColumns,
-      joinType,
       importProfile: activeImportProfile ?? undefined,
     },
     onActiveProjectDeleted: () => {
-      setSqlHistory([]);
+      review.forgetProjectSettings({ clearSqlHistory: true });
       setPerformanceProfile(readPerformanceProfile());
-      setComparisonKeyColumns([]);
-      setJoinType("inner");
-      setExportFormat("csv");
-      setPrivacyMode("none");
+      delivery.resetOutput();
     },
     onActiveProjectUnlinked: () => {
       setPerformanceProfile(readPerformanceProfile());
-      setComparisonKeyColumns([]);
-      setJoinType("inner");
-      setExportFormat("csv");
-      setPrivacyMode("none");
+      review.forgetProjectSettings({ clearSqlHistory: false });
+      delivery.resetOutput();
     },
     onProjectOpened: async ({ dataset, workspace, profile }) => {
       bumpDatasetRevision();
@@ -409,58 +334,19 @@ export function App() {
       setQueuedReusableTask(null);
       setReusableTaskApplicationReview(null);
       setActiveImportProfile(workspace.importProfile ?? null);
-      setProfileStatus(profile ? { kind: "ready", profile } : { kind: "idle" });
+      review.restoreWorkspace(workspace, dataset.columns, profile);
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
-      setDeliveryContract(deliveryContractFromRules(workspace.qualityRules));
-      setExportStatus({ kind: "idle" });
-      setComparisonStatus(clearComparison());
-      const availableColumns = new Set(dataset.columns.map((column) => column.name));
-      const restoredKeyColumns = (workspace.comparisonKeyColumns ?? []).filter(
-        (column, index, columns) => availableColumns.has(column) && columns.indexOf(column) === index,
-      );
-      setComparisonKeyColumns(restoredKeyColumns);
-      setJoinStatus(clearJoin());
-      setReviewMutationStatus({ kind: "idle" });
-      setJoinType(workspace.joinType ?? "inner");
-      setExportFormat(workspace.exportFormat ?? "csv");
-      setPrivacyMode(workspace.privacyMode ?? "none");
+      delivery.applySettings(workspace);
       await clearDatasetComparison().catch(() => undefined);
       setRecipeDraft(workspace.recipeDraft);
       setActiveExceptionPolicy(null);
-      setSqlHistory(workspace.sqlHistory ?? []);
       setRecipeSession((current) => current + 1);
-      setReviewTab(workspace.reviewTab ?? "diagnosis");
       setActivePhase(workspace.activePhase ?? "review");
-      const selectedQueryEngine = workspace.queryEngine ?? readQueryEnginePreference();
-      setQueryEngine(selectedQueryEngine);
-      writeQueryEnginePreference(selectedQueryEngine);
-      const sampleRows = workspace.analysisSampleRows ?? readAnalysisSampleRowsPreference();
-      setAnalysisSampleRows(sampleRows);
-      writeAnalysisSampleRowsPreference(sampleRows);
       const selectedPerformanceProfile = workspace.performanceProfile ?? readPerformanceProfile();
       setPerformanceProfile(selectedPerformanceProfile);
     },
   });
-  const deliveryDatasetFingerprint = datasetStatus.kind === "ready"
-    ? JSON.stringify({
-        fileName: datasetStatus.dataset.fileName,
-        rowCount: datasetStatus.dataset.rowCount,
-        columns: datasetStatus.dataset.columns,
-        rows: datasetStatus.dataset.rows,
-      })
-    : null;
-  const previousDeliveryFingerprint = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (deliveryDatasetFingerprint === null) return;
-    if (previousDeliveryFingerprint.current !== null &&
-        previousDeliveryFingerprint.current !== deliveryDatasetFingerprint) {
-      invalidateDeliveryGate();
-    }
-    previousDeliveryFingerprint.current = deliveryDatasetFingerprint;
-  }, [deliveryDatasetFingerprint]);
-
   useEffect(() => {
     if (typeof performance !== "undefined") {
       performance.mark("columnia:app-render");
@@ -521,16 +407,6 @@ export function App() {
   useEffect(() => {
     writeRecentDatasets(recentDatasets);
   }, [recentDatasets]);
-
-  function invalidateDeliveryGate() {
-    setDeliveryContract(invalidateDeliveryContract);
-    setExportStatus({ kind: "idle" });
-  }
-
-  function updateDeliveryContract(action: DeliveryContractAction) {
-    setDeliveryContract((current) => reduceDeliveryContract(current, action));
-    if (action.kind === "rules_changed") setExportStatus({ kind: "idle" });
-  }
 
   async function requestDelimitedHeaderReview(source: DatasetSourceInspection) {
     const requestId = ++headerPreviewRequestRef.current;
@@ -666,27 +542,20 @@ export function App() {
       setDatasetStatus(createReadyDatasetStatus(dataset));
       bumpDatasetRevision();
       projects.unlinkActiveProject();
-      setSqlHistory([]);
-      setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
+      delivery.resetContract();
       setRecipeDraft(null);
       setActiveExceptionPolicy(null);
       setRecipeSession((current) => current + 1);
       setLoadInspection({ kind: "idle" });
-      setProfileStatus({ kind: "idle" });
-      setComparisonStatus(clearComparison());
-      setComparisonKeyColumns([]);
-      setJoinStatus(clearJoin());
-      setReviewMutationStatus({ kind: "idle" });
-      setJoinType("inner");
-      setExportFormat("csv");
-      setPrivacyMode("none");
+      review.invalidateProfile();
+      review.resetForDataset();
+      delivery.resetOutput();
       await clearDatasetComparison().catch(() => undefined);
       if (loadRequestRef.current !== requestId) return;
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
       if (loadRequestRef.current !== requestId) return;
-      setExportStatus({ kind: "idle" });
-      setReviewTab("diagnosis");
+      review.setReviewTab("diagnosis");
       if (applyQueuedTaskAutomatically && taskForReview) {
         applyReusableTask(taskForReview, true);
       } else {
@@ -981,460 +850,13 @@ export function App() {
     void loadSelection(source, sheetId, headerMode, null, profile, queuedReusableTask?.task ?? null, true);
   }
 
-  async function analyzeQuality() {
-    const requestedRevision = datasetRevisionRef.current;
-    if (activeProfileRequestRef.current?.revision === requestedRevision) return;
-    const sequence = ++profileRequestSequenceRef.current;
-    activeProfileRequestRef.current = { revision: requestedRevision, sequence };
-    const isCurrentRequest = () =>
-      datasetRevisionRef.current === requestedRevision &&
-      activeProfileRequestRef.current?.sequence === sequence;
-    setProfileStatus(beginProfileAnalysis());
+  async function cancelDatasetLoad() {
+    setDatasetStatus(requestDatasetLoadCancellation);
     try {
-      const profile = await getDatasetProfile((progress) => {
-        if (!isCurrentRequest()) return;
-        setProfileStatus((current) => updateProfileProgress(current, progress));
-      }, analysisSampleRows);
-      if (!isCurrentRequest()) return;
-      setProfileStatus({ kind: "ready", profile });
-    } catch (error: unknown) {
-      if (!isCurrentRequest()) return;
-      if (isCancellationError(error)) {
-        setProfileStatus({ kind: "cancelled" });
-        return;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      setProfileStatus({ kind: "error", message });
-    } finally {
-      if (activeProfileRequestRef.current?.sequence === sequence) {
-        activeProfileRequestRef.current = null;
-      }
-    }
-  }
-
-  useEffect(() => {
-    if (datasetStatus.kind !== "ready" || profileStatus.kind !== "idle") return;
-    if (autoProfileRevisionRef.current === datasetRevision) return;
-
-    // Cada revisión se analiza una vez de forma automática. Tras cancelar o fallar,
-    // el avance principal permite reintentarlo sin crear un bucle de reintentos.
-    autoProfileRevisionRef.current = datasetRevision;
-    void analyzeQuality();
-  }, [datasetRevision, datasetStatus.kind, profileStatus.kind]);
-
-  async function compareActiveDataset() {
-    if (comparisonOperationInFlightRef.current) return;
-    comparisonOperationInFlightRef.current = true;
-    const requestId = ++comparisonRequestRef.current;
-    comparisonPageRequestRef.current += 1;
-    const requestedRevision = datasetRevisionRef.current;
-    const previousComparisonStatus = comparisonStatus;
-    setReviewMutationStatus({ kind: "idle" });
-    const isCurrentRequest = () =>
-      comparisonRequestRef.current === requestId && datasetRevisionRef.current === requestedRevision;
-    setComparisonCancellationPending(false);
-    setComparisonStatus(beginComparison());
-    try {
-      const comparison = await compareDataset(comparisonKeyColumns);
-      if (!isCurrentRequest()) return;
-      setComparisonStatus(comparison ? completeComparison(comparison) : clearComparison());
-    } catch (error: unknown) {
-      if (!isCurrentRequest()) return;
-      if (isCancellationError(error)) {
-        setComparisonStatus(previousComparisonStatus);
-        return;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      setComparisonStatus(failComparison(message));
-    } finally {
-      comparisonOperationInFlightRef.current = false;
-      if (comparisonRequestRef.current === requestId) {
-        setComparisonCancellationPending(false);
-      }
-    }
-  }
-
-  async function clearActiveComparison() {
-    if (comparisonOperationInFlightRef.current) return;
-    comparisonOperationInFlightRef.current = true;
-    const requestId = ++comparisonRequestRef.current;
-    comparisonPageRequestRef.current += 1;
-    setReviewMutationStatus({ kind: "idle" });
-    try {
-      await cancelOperation("datasetComparison");
-      await clearDatasetComparison();
-      if (comparisonRequestRef.current !== requestId) return;
-      setComparisonStatus(clearComparison());
-    } catch (error: unknown) {
-      if (comparisonRequestRef.current !== requestId) return;
-      const message = error instanceof Error ? error.message : String(error);
-      setComparisonStatus(failComparison(message));
-    } finally {
-      comparisonOperationInFlightRef.current = false;
-    }
-  }
-
-  async function changeConflictPage(offset: number) {
-    if (comparisonStatus.kind !== "ready") return;
-    const requestId = ++comparisonPageRequestRef.current;
-    const requestedRevision = datasetRevisionRef.current;
-    const previousComparisonStatus = comparisonStatus;
-    try {
-      const page = await getDatasetConflictPage(offset, CONFLICT_PAGE_SIZE);
-      if (comparisonPageRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
-      if (!page) return;
-      setComparisonStatus(completeComparison({
-        ...comparisonStatus.comparison,
-        conflicts: page.conflicts,
-        conflictOffset: page.offset,
-        conflictsTruncated: page.hasNext,
-      }));
-    } catch (error: unknown) {
-      if (comparisonPageRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
-      if (isCancellationError(error)) {
-        setComparisonStatus(previousComparisonStatus);
-        return;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      setComparisonStatus(failComparison(message));
-    }
-  }
-
-  async function consolidateComparedDataset() {
-    if (
-      comparisonOperationInFlightRef.current
-      || comparisonStatus.kind !== "ready"
-      || !comparisonStatus.comparison.canConsolidate
-    ) return;
-    comparisonOperationInFlightRef.current = true;
-    const requestId = ++comparisonRequestRef.current;
-    const requestedRevision = datasetRevisionRef.current;
-    const mutation = {
-      mutation: "consolidate" as const,
-      requestId,
-      datasetRevision: requestedRevision,
-      cancellationRequested: false,
-    };
-    reviewMutationRef.current = mutation;
-    setReviewMutationStatus({ kind: "running", mutation: "consolidate", cancellation: "available" });
-    try {
-      const dataset = await adoptConsolidatedDataset();
-      if (
-        reviewMutationRef.current !== mutation
-        || comparisonRequestRef.current !== requestId
-        || datasetRevisionRef.current !== requestedRevision
-      ) return;
-      setReviewMutationStatus({ kind: "finalizing", mutation: "consolidate" });
-      setDatasetStatus(createReadyDatasetStatus(dataset));
-      bumpDatasetRevision();
-      setComparisonStatus(clearComparison());
-      setComparisonKeyColumns([]);
-      setJoinStatus(clearJoin());
-      setJoinType("inner");
-      setExportFormat("csv");
-      setPrivacyMode("none");
-      setProfileStatus({ kind: "idle" });
-      projects.unlinkActiveProject();
-      setActiveImportProfile(null);
-      setSqlHistory([]);
-      setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
-      setRecipeDraft(null);
-      setActiveExceptionPolicy(null);
-      setRecipeSession((current) => current + 1);
-      prepare.resetChangeStatus();
-      await prepare.refreshHistory();
-    } catch (error: unknown) {
-      if (
-        reviewMutationRef.current !== mutation
-        || comparisonRequestRef.current !== requestId
-        || datasetRevisionRef.current !== requestedRevision
-      ) return;
-      if (isCancellationError(error)) {
-        setReviewMutationStatus({ kind: "idle" });
-        return;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      setReviewMutationStatus({ kind: "error", mutation: "consolidate", message });
-    } finally {
-      if (reviewMutationRef.current === mutation) {
-        reviewMutationRef.current = null;
-        setReviewMutationStatus((current) =>
-          current.kind === "running" || current.kind === "finalizing"
-            ? { kind: "idle" }
-            : current,
-        );
-      }
-      if (!reviewMutationCancellationPendingRef.current) {
-        comparisonOperationInFlightRef.current = false;
-      }
-    }
-  }
-
-  async function resolveComparedConflicts(decisions: ConflictResolution[]) {
-    if (comparisonOperationInFlightRef.current) return;
-    comparisonOperationInFlightRef.current = true;
-    const requestId = ++comparisonRequestRef.current;
-    const requestedRevision = datasetRevisionRef.current;
-    const mutation = {
-      mutation: "resolveConflicts" as const,
-      requestId,
-      datasetRevision: requestedRevision,
-      cancellationRequested: false,
-    };
-    reviewMutationRef.current = mutation;
-    setReviewMutationStatus({ kind: "running", mutation: "resolveConflicts", cancellation: "available" });
-    try {
-      const dataset = await resolveDatasetConflicts(decisions);
-      if (
-        reviewMutationRef.current !== mutation
-        || comparisonRequestRef.current !== requestId
-        || datasetRevisionRef.current !== requestedRevision
-      ) return;
-      setReviewMutationStatus({ kind: "finalizing", mutation: "resolveConflicts" });
-      setDatasetStatus(createReadyDatasetStatus(dataset));
-      bumpDatasetRevision();
-      setComparisonStatus(clearComparison());
-      setComparisonKeyColumns([]);
-      setJoinStatus(clearJoin());
-      setJoinType("inner");
-      setExportFormat("csv");
-      setPrivacyMode("none");
-      setProfileStatus({ kind: "idle" });
-      projects.unlinkActiveProject();
-      setActiveImportProfile(null);
-      setSqlHistory([]);
-      setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
-      setRecipeDraft(null);
-      setActiveExceptionPolicy(null);
-      setRecipeSession((current) => current + 1);
-      prepare.resetChangeStatus();
-      await prepare.refreshHistory();
-    } catch (error: unknown) {
-      if (
-        reviewMutationRef.current !== mutation
-        || comparisonRequestRef.current !== requestId
-        || datasetRevisionRef.current !== requestedRevision
-      ) return;
-      if (isCancellationError(error)) {
-        setReviewMutationStatus({ kind: "idle" });
-        return;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      setReviewMutationStatus({ kind: "error", mutation: "resolveConflicts", message });
-    } finally {
-      if (reviewMutationRef.current === mutation) {
-        reviewMutationRef.current = null;
-        setReviewMutationStatus((current) =>
-          current.kind === "running" || current.kind === "finalizing"
-            ? { kind: "idle" }
-            : current,
-        );
-      }
-      if (!reviewMutationCancellationPendingRef.current) {
-        comparisonOperationInFlightRef.current = false;
-      }
-    }
-  }
-
-  async function joinActiveDataset(requestedJoinType: DatasetJoinType) {
-    if (comparisonKeyColumns.length === 0) {
-      setJoinStatus(failJoin("Selecciona al menos una columna clave para unir datasets."));
-      return;
-    }
-    if (comparisonOperationInFlightRef.current) return;
-    comparisonOperationInFlightRef.current = true;
-    const requestId = ++joinRequestRef.current;
-    const requestedRevision = datasetRevisionRef.current;
-    const mutation = {
-      mutation: "join" as const,
-      requestId,
-      datasetRevision: requestedRevision,
-      cancellationRequested: false,
-    };
-    reviewMutationRef.current = mutation;
-    setReviewMutationStatus({ kind: "running", mutation: "join", cancellation: "available" });
-    setJoinStatus(beginJoin(requestedJoinType));
-    try {
-      const dataset = await joinDataset(comparisonKeyColumns, requestedJoinType);
-      if (
-        reviewMutationRef.current !== mutation
-        || joinRequestRef.current !== requestId
-        || datasetRevisionRef.current !== requestedRevision
-      ) return;
-      if (!dataset) {
-        setJoinStatus(clearJoin());
-        setReviewMutationStatus({ kind: "idle" });
-        return;
-      }
-      setReviewMutationStatus({ kind: "finalizing", mutation: "join" });
-      setDatasetStatus(createReadyDatasetStatus(dataset));
-      bumpDatasetRevision();
-      setComparisonStatus(clearComparison());
-      setComparisonKeyColumns([]);
-      setJoinStatus(clearJoin());
-      setProfileStatus({ kind: "idle" });
-      projects.unlinkActiveProject();
-      setActiveImportProfile(null);
-      setSqlHistory([]);
-      setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
-      setRecipeDraft(null);
-      setActiveExceptionPolicy(null);
-      setRecipeSession((current) => current + 1);
-      prepare.resetChangeStatus();
-      await clearDatasetComparison().catch(() => undefined);
-      await prepare.refreshHistory();
-      setReviewTab("diagnosis");
-      setActivePhase("review");
-    } catch (error: unknown) {
-      if (
-        reviewMutationRef.current !== mutation
-        || joinRequestRef.current !== requestId
-        || datasetRevisionRef.current !== requestedRevision
-      ) return;
-      if (isCancellationError(error)) {
-        setJoinStatus(clearJoin());
-        setReviewMutationStatus({ kind: "idle" });
-        return;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      setJoinStatus(failJoin(message));
-    } finally {
-      if (reviewMutationRef.current === mutation) {
-        reviewMutationRef.current = null;
-        setReviewMutationStatus((current) =>
-          current.kind === "running" || current.kind === "finalizing"
-            ? { kind: "idle" }
-            : current,
-        );
-      }
-      if (!reviewMutationCancellationPendingRef.current) {
-        comparisonOperationInFlightRef.current = false;
-      }
-    }
-  }
-
-  async function cancelActiveReviewMutation() {
-    const mutation = reviewMutationRef.current;
-    if (!mutation || mutation.cancellationRequested) return;
-    if (reviewMutationStatus.kind !== "running" || reviewMutationStatus.mutation !== mutation.mutation) return;
-
-    mutation.cancellationRequested = true;
-    reviewMutationCancellationPendingRef.current = true;
-    setReviewMutationCancellationPending(true);
-    setReviewMutationStatus({
-      kind: "running",
-      mutation: mutation.mutation,
-      cancellation: "requested",
-    });
-    try {
-      await cancelOperation("reviewMutation");
-    } catch (error: unknown) {
-      if (reviewMutationRef.current !== mutation) return;
-      mutation.cancellationRequested = false;
-      setReviewMutationStatus({
-        kind: "running",
-        mutation: mutation.mutation,
-        cancellation: "available",
-        cancellationError: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      reviewMutationCancellationPendingRef.current = false;
-      setReviewMutationCancellationPending(false);
-      if (reviewMutationRef.current === null) {
-        comparisonOperationInFlightRef.current = false;
-      }
-    }
-  }
-
-  async function cancelActiveOperation(operation: CancellableOperation) {
-    if (operation === "load") {
-      setDatasetStatus(requestDatasetLoadCancellation);
-    } else if (operation === "profile") {
-      setProfileStatus(requestProfileCancellation);
-    } else if (operation === "export") {
-      setExportStatus((current) =>
-        current.kind === "loading"
-          ? { ...current, cancellation: "requested", cancellationError: undefined }
-          : current,
-      );
-    } else if (operation === "datasetComparison") {
-      setComparisonCancellationPending(true);
-      setComparisonStatus((current) =>
-        current.kind === "loading" ? { ...current, cancellationError: undefined } : current,
-      );
-    }
-
-    try {
-      await cancelOperation(operation);
+      await cancelOperation("load");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      if (operation === "load") {
-        setDatasetStatus((current) => recoverDatasetLoadCancellationFailure(current, message));
-      } else if (operation === "profile") {
-        setProfileStatus((current) => recoverProfileCancellationFailure(current, message));
-      } else if (operation === "export") {
-        setExportStatus((current) => current.kind === "loading"
-          ? { ...current, cancellation: "available", cancellationError: message }
-          : current);
-      } else if (operation === "datasetComparison") {
-        setComparisonCancellationPending(false);
-        setComparisonStatus((current) => current.kind === "loading"
-          ? { ...current, cancellationError: message }
-          : current);
-      }
-    }
-  }
-
-  async function exportActiveDataset(request: DeliveryExportRequest) {
-    if (datasetStatus.kind !== "ready") return;
-    if (exportInFlightRef.current) return;
-    exportInFlightRef.current = true;
-    const requestId = ++exportRequestRef.current;
-    const requestedRevision = datasetRevisionRef.current;
-    const isCurrentRequest = () =>
-      exportRequestRef.current === requestId && datasetRevisionRef.current === requestedRevision;
-    const rules = request.validation.kind === "contract" ? request.validation.rules : [];
-    const allowUnvalidated = request.validation.kind === "explicitly_unvalidated";
-    setExportStatus({
-      kind: "loading",
-      format: request.format,
-      progress: { operation: "export", stage: "Esperando destino", percent: 0 },
-      cancellation: "available",
-    });
-    try {
-      const onProgress = (progress: OperationProgress) => {
-        if (!isCurrentRequest()) return;
-        setExportStatus((current) =>
-          current.kind === "loading" ? { ...current, progress } : current,
-        );
-      };
-      let result;
-      if (isDatabaseExportFormat(request.format)) {
-        if (!request.databaseTarget) throw new Error("Falta configurar el destino de base de datos.");
-        result = await exportDatasetToDatabase(
-          request.databaseTarget,
-          rules,
-          allowUnvalidated,
-          onProgress,
-          request.privacyMode,
-        );
-      } else {
-        result = recipeDraft && request.format === "bundle"
-          ? await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode, recipeDraft)
-          : await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode);
-      }
-      if (!isCurrentRequest()) return;
-      setExportStatus(result ? { kind: "success", result } : { kind: "idle" });
-    } catch (error: unknown) {
-      if (!isCurrentRequest()) return;
-      if (isCancellationError(error)) {
-        setExportStatus({ kind: "cancelled" });
-        return;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      setExportStatus({ kind: "error", message });
-    } finally {
-      exportInFlightRef.current = false;
+      setDatasetStatus((current) => recoverDatasetLoadCancellationFailure(current, message));
     }
   }
 
@@ -1502,9 +924,9 @@ export function App() {
         importProfile: activeImportProfile,
         recipe: recipeDraft,
         exceptionPolicy: createReusableTaskExceptionPolicy(activeImportProfile.schema, recipeDraft),
-        qualityRules: deliveryRules(deliveryContract),
-        outputFormat: reusableOutputFormat(exportFormat),
-        privacyMode,
+        qualityRules: delivery.qualityRules,
+        outputFormat: reusableOutputFormat(delivery.exportFormat),
+        privacyMode: delivery.privacyMode,
       }
     : null;
   const operationBusy = coreOperationBusy || loadSelectionBusy || projects.isBusy;
@@ -1516,11 +938,11 @@ export function App() {
     datasetStatus.kind === "ready" && datasetStatus.pageLoading && "page",
     profileStatus.kind === "loading" && "profile",
     prepare.changeStatus.kind === "working" && "prepare",
-    deliveryContract.gate.kind === "loading" && "quality-gate",
-    exportStatus.kind === "loading" && "export",
-    comparisonStatus.kind === "loading" && "comparison",
-    joinStatus.kind === "loading" && "join",
-    (reviewMutationStatus.kind === "running" || reviewMutationStatus.kind === "finalizing") && "review-mutation",
+    delivery.contract.gate.kind === "loading" && "quality-gate",
+    delivery.exportStatus.kind === "loading" && "export",
+    review.comparison.status.kind === "loading" && "comparison",
+    review.comparison.joinStatus.kind === "loading" && "join",
+    (review.comparison.mutationStatus?.kind === "running" || review.comparison.mutationStatus?.kind === "finalizing") && "review-mutation",
     loadSelectionBusy && `selection:${loadInspection.kind}${selectionFinalizing ? "+finalizing" : ""}`,
     projects.operation.kind === "working" && "project",
     projects.autoSave.kind === "saving" && "autosave",
@@ -1561,7 +983,7 @@ export function App() {
         profileStatus.kind === "error" ||
         profileStatus.kind === "cancelled"
       ) {
-        void analyzeQuality();
+        void review.analyzeQuality();
       }
       return;
     }
@@ -1576,7 +998,7 @@ export function App() {
       case "prepare":
         return prepare.changeStatus.kind === "applied";
       case "deliver":
-        return exportStatus.kind === "success";
+        return delivery.exportStatus.kind === "success";
     }
   }
 
@@ -1586,10 +1008,11 @@ export function App() {
     if (!preserveActiveImportProfile) setActiveImportProfile(task.importProfile);
     setRecipeDraft(task.recipe);
     setActiveExceptionPolicy(task.exceptionPolicy ?? null);
-    setDeliveryContract(deliveryContractFromRules(task.qualityRules));
-    setExportFormat(task.outputFormat);
-    setPrivacyMode(task.privacyMode);
-    setExportStatus({ kind: "idle" });
+    delivery.applySettings({
+      qualityRules: task.qualityRules,
+      exportFormat: task.outputFormat,
+      privacyMode: task.privacyMode,
+    });
     setRecipeSession((current) => current + 1);
     setCompletedPhaseRevisions({ load: datasetRevisionRef.current });
     setActivePhase(task.recipe ? "prepare" : "review");
@@ -1618,7 +1041,7 @@ export function App() {
   }
 
   const reviewHasContextualContinue = activePhase === "review"
-    && reviewTab === "diagnosis"
+    && review.reviewTab === "diagnosis"
     && profileStatus.kind === "ready";
   const loadRuntime: LoadRuntimeState = status.kind === "ready"
     ? { kind: "connected" }
@@ -1830,7 +1253,7 @@ export function App() {
                 onProfileReviewAction={handleProfileReviewAction}
                 onResourcePreflightAction={handleResourcePreflightAction}
                 onSchemaMismatchAction={handleSchemaMismatchAction}
-                onCancelLoad={() => cancelActiveOperation("load")}
+                onCancelLoad={() => void cancelDatasetLoad()}
                 workbookInspectionCancellationPending={workbookInspectionCancellationPending}
                 onCancelWorkbookInspection={() => void cancelWorkbookInspection()}
                 onRetrySelectionCancellation={() => void retrySelectionCancellation()}
@@ -1879,12 +1302,12 @@ export function App() {
               <ReviewPhase
                 datasetStatus={readyDataset}
                 profileStatus={profileStatus}
-                reviewTab={reviewTab}
-                onTabChange={setReviewTab}
+                reviewTab={review.reviewTab}
+                onTabChange={review.setReviewTab}
                 onPageChange={changePage}
                 onCancelPageChange={() => void cancelPageChange()}
                 pageCancellationPending={pageCancellationPending}
-                onCancelProfile={() => cancelActiveOperation("profile")}
+                onCancelProfile={() => void review.cancelProfile()}
                 onContinueToPrepare={(target) => {
                   setPrepareFocusTarget(target ?? null);
                   setCompletedPhaseRevisions((current) => ({
@@ -1893,31 +1316,14 @@ export function App() {
                   }));
                   setActivePhase("prepare");
                 }}
-                comparisonStatus={comparisonStatus}
-                comparisonCancellationPending={comparisonCancellationPending}
-                comparisonKeyColumns={comparisonKeyColumns}
-                onComparisonKeyColumnsChange={setComparisonKeyColumns}
-                datasetColumns={readyDataset.dataset.columns}
-                joinStatus={joinStatus}
-                reviewMutationStatus={reviewMutationStatus}
-                reviewMutationCancellationPending={reviewMutationCancellationPending}
-                joinType={joinType}
-                onJoinTypeChange={setJoinType}
-                onCompare={() => void compareActiveDataset()}
-                onCancelComparison={() => void cancelActiveOperation("datasetComparison")}
-                onClearComparison={() => void clearActiveComparison()}
-                onConsolidate={() => void consolidateComparedDataset()}
-                onResolveConflicts={(decisions) => void resolveComparedConflicts(decisions)}
-                onConflictPageChange={(offset) => changeConflictPage(offset)}
-                onJoin={(requestedJoinType) => void joinActiveDataset(requestedJoinType)}
-                onCancelReviewMutation={() => void cancelActiveReviewMutation()}
-                sqlHistory={sqlHistory}
-                onSqlHistoryChange={setSqlHistory}
+                comparison={review.comparison}
+                sqlHistory={review.sqlHistory}
+                onSqlHistoryChange={review.setSqlHistory}
                 datasetRevision={datasetRevision}
-                queryEngine={queryEngine}
-                onQueryEngineChange={setQueryEngine}
-                analysisSampleRows={analysisSampleRows}
-                onAnalysisSampleRowsChange={setAnalysisSampleRows}
+                queryEngine={review.queryEngine}
+                onQueryEngineChange={review.setQueryEngine}
+                analysisSampleRows={review.analysisSampleRows}
+                onAnalysisSampleRowsChange={review.setAnalysisSampleRows}
               />
             )}
 
@@ -1930,10 +1336,10 @@ export function App() {
                 profileStatus={profileStatus}
                 changeStatus={prepare.changeStatus}
                 historyStatus={prepare.historyStatus}
-                qualityRules={deliveryRules(deliveryContract)}
+                qualityRules={delivery.qualityRules}
                 recipeDraft={recipeDraft}
                 recipeSession={recipeSession}
-                onCancelProfile={() => cancelActiveOperation("profile")}
+                onCancelProfile={() => void review.cancelProfile()}
                 onCancelPrepare={prepare.cancelCurrent}
                 onRemoveDuplicates={prepare.applyDuplicateRemoval}
                 onRemoveNearDuplicates={prepare.applyNearDuplicateRemoval}
@@ -1976,15 +1382,15 @@ export function App() {
                 preparationChanges={prepare.historyStatus.entries
                   .filter((entry) => entry.index > 0 && entry.index <= prepare.historyStatus.currentIndex)
                   .map((entry) => entry.label)}
-                contract={deliveryContract}
-                exportState={exportStatus}
-                exportFormat={exportFormat}
-                onExportFormatChange={setExportFormat}
-                privacyMode={privacyMode}
-                onPrivacyModeChange={setPrivacyMode}
-                onContractAction={updateDeliveryContract}
-                onExport={exportActiveDataset}
-                onCancelExport={() => cancelActiveOperation("export")}
+                contract={delivery.contract}
+                exportState={delivery.exportStatus}
+                exportFormat={delivery.exportFormat}
+                onExportFormatChange={delivery.setExportFormat}
+                privacyMode={delivery.privacyMode}
+                onPrivacyModeChange={delivery.setPrivacyMode}
+                onContractAction={delivery.updateContract}
+                onExport={delivery.exportActiveDataset}
+                onCancelExport={() => void delivery.cancelExport()}
               />
             )}
           </Suspense>

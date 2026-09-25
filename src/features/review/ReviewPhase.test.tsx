@@ -303,20 +303,21 @@ function temporalTrendElement(
       onPageChange={() => undefined}
       onCancelProfile={() => undefined}
       onContinueToPrepare={onContinueToPrepare}
-      comparisonStatus={{ kind: "idle" }}
-      datasetColumns={dataset.columns}
-      comparisonKeyColumns={[]}
-      onComparisonKeyColumnsChange={() => undefined}
-      onCompare={() => undefined}
-      onClearComparison={() => undefined}
-      onConsolidate={() => undefined}
-      onResolveConflicts={() => undefined}
-      onConflictPageChange={() => undefined}
-      joinStatus={{ kind: "idle" }}
-      joinType="inner"
-      onJoinTypeChange={() => undefined}
-      onJoin={() => undefined}
       datasetRevision={datasetRevision}
+      comparison={{
+        status: { kind: "idle" },
+        keyColumns: [],
+        onKeyColumnsChange: () => undefined,
+        onCompare: () => undefined,
+        onClear: () => undefined,
+        onConsolidate: () => undefined,
+        onResolveConflicts: () => undefined,
+        onConflictPageChange: () => undefined,
+        joinStatus: { kind: "idle" },
+        joinType: "inner",
+        onJoinTypeChange: () => undefined,
+        onJoin: () => undefined,
+      }}
     />
   );
 }
@@ -353,21 +354,22 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={{ kind: "idle" }}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={[]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
         analysisSampleRows={50_000}
         onAnalysisSampleRowsChange={onAnalysisSampleRowsChange}
+        comparison={{
+          status: { kind: "idle" },
+          keyColumns: [],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
+        }}
       />,
     );
 
@@ -398,7 +400,8 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={{
+        comparison={{
+          status: {
           kind: "ready",
           comparison: {
             currentFileName: "datos.csv",
@@ -423,19 +426,19 @@ describe("ReviewPhase", () => {
             conflictsTruncated: false,
             canConsolidate: true,
           },
+        },
+          onCompare: onCompare,
+          keyColumns: ["id"],
+          onKeyColumnsChange: onComparisonKeyColumnsChange,
+          onClear: onClearComparison,
+          onConsolidate: onConsolidate,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: onJoinTypeChange,
+          onJoin: onJoin,
         }}
-        onCompare={onCompare}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={["id"]}
-        onComparisonKeyColumnsChange={onComparisonKeyColumnsChange}
-        onClearComparison={onClearComparison}
-        onConsolidate={onConsolidate}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={onJoinTypeChange}
-        onJoin={onJoin}
       />,
     );
 
@@ -473,21 +476,22 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={{ kind: "idle" }}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={[]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
         sqlHistory={[{ id: 9, outcome: "error", durationMs: 18, rowCount: null }]}
         onSqlHistoryChange={onSqlHistoryChange}
+        comparison={{
+          status: { kind: "idle" },
+          keyColumns: [],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
+        }}
       />,
     );
 
@@ -530,19 +534,20 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={{ kind: "idle" }}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={[]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
+        comparison={{
+          status: { kind: "idle" },
+          keyColumns: [],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
+        }}
       />,
     );
 
@@ -584,19 +589,20 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={{ kind: "idle" }}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={[]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
+        comparison={{
+          status: { kind: "idle" },
+          keyColumns: [],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
+        }}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
@@ -609,19 +615,20 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={{ kind: "idle" }}
-        datasetColumns={nextDataset.columns}
-        comparisonKeyColumns={[]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
+        comparison={{
+          status: { kind: "idle" },
+          keyColumns: [],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
+        }}
       />,
     );
     resolveQuery({
@@ -652,19 +659,20 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={{ kind: "idle" }}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={[]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
+        comparison={{
+          status: { kind: "idle" },
+          keyColumns: [],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
+        }}
       />,
     );
 
@@ -735,19 +743,20 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={{ kind: "idle" }}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={[]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
+        comparison={{
+          status: { kind: "idle" },
+          keyColumns: [],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
+        }}
       />,
     );
 
@@ -789,19 +798,20 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={{ kind: "idle" }}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={[]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
+        comparison={{
+          status: { kind: "idle" },
+          keyColumns: [],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
+        }}
       />,
     );
 
@@ -825,19 +835,20 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={{ kind: "idle" }}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={[]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
+        comparison={{
+          status: { kind: "idle" },
+          keyColumns: [],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
+        }}
       />,
     );
 
@@ -1023,7 +1034,8 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={{
+        comparison={{
+          status: {
           kind: "ready",
           comparison: {
             currentFileName: "datos.csv",
@@ -1057,19 +1069,19 @@ describe("ReviewPhase", () => {
             conflictsTruncated: false,
             canConsolidate: false,
           },
+        },
+          keyColumns: ["id"],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: onResolveConflicts,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
         }}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={["id"]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={onResolveConflicts}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
       />,
     );
 
@@ -1126,25 +1138,26 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={comparisonStatus}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={["id"]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        reviewMutationStatus={{
+        comparison={{
+          status: comparisonStatus,
+          keyColumns: ["id"],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          mutationStatus: {
           kind: "running",
           mutation: "resolveConflicts",
           cancellation: "available",
+        },
+          onCancelMutation: onCancelReviewMutation,
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
         }}
-        onCancelReviewMutation={onCancelReviewMutation}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
       />,
     );
 
@@ -1164,25 +1177,26 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={comparisonStatus}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={["id"]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        reviewMutationStatus={{
+        comparison={{
+          status: comparisonStatus,
+          keyColumns: ["id"],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          mutationStatus: {
           kind: "running",
           mutation: "resolveConflicts",
           cancellation: "requested",
+        },
+          onCancelMutation: onCancelReviewMutation,
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
         }}
-        onCancelReviewMutation={onCancelReviewMutation}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
       />,
     );
 
@@ -1202,7 +1216,8 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
-        comparisonStatus={{
+        comparison={{
+          status: {
           kind: "ready",
           comparison: {
             currentFileName: "datos.csv",
@@ -1230,19 +1245,19 @@ describe("ReviewPhase", () => {
             conflictsTruncated: true,
             canConsolidate: false,
           },
+        },
+          keyColumns: ["id"],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: onConflictPageChange,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
         }}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={["id"]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={onConflictPageChange}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
       />,
     );
 

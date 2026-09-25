@@ -41,6 +41,7 @@ import type { JoinStatus, ReviewMutationStatus } from "./joinModel";
 import { QualitySnapshot } from "./QualitySnapshot";
 import { buildQualityActionPlan } from "./qualityActionPlan";
 import type { QualityActionTarget } from "./qualityActionPlan";
+import type { ReviewComparison } from "./useReviewController";
 import { formatDataType, formatDecimal, formatPercent } from "../../format";
 
 const CONFLICT_PAGE_SIZE = 50;
@@ -55,24 +56,7 @@ interface ReviewPhaseProps {
   pageCancellationPending?: boolean;
   onCancelProfile: () => void;
   onContinueToPrepare?: (target?: QualityActionTarget) => void;
-  comparisonStatus: ComparisonStatus;
-  datasetColumns: DatasetColumn[];
-  comparisonKeyColumns: string[];
-  onComparisonKeyColumnsChange: (columns: string[]) => void;
-  onCompare: () => void;
-  onCancelComparison?: () => void;
-  comparisonCancellationPending?: boolean;
-  onClearComparison: () => void;
-  onConsolidate: () => void;
-  onResolveConflicts: (decisions: ConflictResolution[]) => void;
-  onConflictPageChange: (offset: number) => void | Promise<void>;
-  joinStatus: JoinStatus;
-  reviewMutationStatus?: ReviewMutationStatus;
-  reviewMutationCancellationPending?: boolean;
-  joinType: DatasetJoinType;
-  onJoinTypeChange: (joinType: DatasetJoinType) => void;
-  onJoin: (joinType: DatasetJoinType) => void;
-  onCancelReviewMutation?: () => void;
+  comparison: ReviewComparison;
   datasetRevision?: number;
   sqlHistory?: SqlQueryHistoryEntry[];
   onSqlHistoryChange?: (entries: SqlQueryHistoryEntry[]) => void;
@@ -92,24 +76,7 @@ export function ReviewPhase({
   pageCancellationPending = false,
   onCancelProfile,
   onContinueToPrepare = () => undefined,
-  comparisonStatus,
-  datasetColumns,
-  comparisonKeyColumns,
-  onComparisonKeyColumnsChange,
-  onCompare,
-  onCancelComparison = () => undefined,
-  comparisonCancellationPending = false,
-  onClearComparison,
-  onConsolidate,
-  onResolveConflicts,
-  onConflictPageChange,
-  joinStatus,
-  reviewMutationStatus = { kind: "idle" },
-  reviewMutationCancellationPending = false,
-  joinType,
-  onJoinTypeChange,
-  onJoin,
-  onCancelReviewMutation = () => undefined,
+  comparison,
   datasetRevision = 0,
   sqlHistory = [],
   onSqlHistoryChange = () => undefined,
@@ -118,7 +85,8 @@ export function ReviewPhase({
   analysisSampleRows,
   onAnalysisSampleRowsChange = () => undefined,
 }: ReviewPhaseProps) {
-  const comparisonActive = comparisonStatus.kind !== "idle" || joinStatus.kind !== "idle";
+  const comparisonStatus = comparison.status;
+  const comparisonActive = comparisonStatus.kind !== "idle" || comparison.joinStatus.kind !== "idle";
   const [comparisonOpen, setComparisonOpen] = useState(comparisonActive);
   const [localAnalysisSampleRows, setLocalAnalysisSampleRows] = useState(readAnalysisSampleRowsPreference);
   const selectedAnalysisSampleRows = analysisSampleRows ?? localAnalysisSampleRows;
@@ -182,24 +150,24 @@ export function ReviewPhase({
         </summary>
         <DatasetComparisonSection
           status={comparisonStatus}
-          datasetColumns={datasetColumns}
+          datasetColumns={datasetStatus.dataset.columns}
           datasetRevision={datasetRevision}
-          keyColumns={comparisonKeyColumns}
-          onKeyColumnsChange={onComparisonKeyColumnsChange}
-          onCompare={onCompare}
-          onCancelComparison={onCancelComparison}
-          comparisonCancellationPending={comparisonCancellationPending}
-          onClear={onClearComparison}
-          onConsolidate={onConsolidate}
-          onResolveConflicts={onResolveConflicts}
-          onConflictPageChange={onConflictPageChange}
-          joinStatus={joinStatus}
-          reviewMutationStatus={reviewMutationStatus}
-          reviewMutationCancellationPending={reviewMutationCancellationPending}
-          joinType={joinType}
-          onJoinTypeChange={onJoinTypeChange}
-          onJoin={onJoin}
-          onCancelReviewMutation={onCancelReviewMutation}
+          keyColumns={comparison.keyColumns}
+          onKeyColumnsChange={comparison.onKeyColumnsChange}
+          onCompare={comparison.onCompare}
+          onCancelComparison={comparison.onCancelComparison ?? (() => undefined)}
+          comparisonCancellationPending={comparison.cancellationPending ?? false}
+          onClear={comparison.onClear}
+          onConsolidate={comparison.onConsolidate}
+          onResolveConflicts={comparison.onResolveConflicts}
+          onConflictPageChange={comparison.onConflictPageChange}
+          joinStatus={comparison.joinStatus}
+          reviewMutationStatus={comparison.mutationStatus ?? { kind: "idle" }}
+          reviewMutationCancellationPending={comparison.mutationCancellationPending ?? false}
+          joinType={comparison.joinType}
+          onJoinTypeChange={comparison.onJoinTypeChange}
+          onJoin={comparison.onJoin}
+          onCancelReviewMutation={comparison.onCancelMutation ?? (() => undefined)}
         />
       </details>
     </>
