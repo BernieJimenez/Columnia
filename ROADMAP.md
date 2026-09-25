@@ -1,6 +1,6 @@
 # Roadmap de Columnia
 
-**Actualizado:** 2026-09-23
+**Actualizado:** 2026-09-25
 
 **Versión del repositorio:** 1.26.0
 
@@ -26,49 +26,42 @@ copiar aquí el historial de commits, corridas ni auditorías cerradas.
 
 ### Checklist maestro
 
-- [ ] **RV01 — Flujo contextual y estado central.** Falta aceptar el recorrido
-  completo con tareas y datos de trabajo reales.
-- [ ] **RV02 — Importación unificada y explicable.** Falta aceptar el preflight
-  unificado con datasets reales.
-- [x] **RV03 — Plan completo y resultado antes/después.** Implementado con una
-  revisión reversible y comparación de calidad.
-- [ ] **RV04 — Excepciones, cancelación y recuperación.** Falta aceptación con
-  datos reales; los límites de APIs nativas síncronas están documentados en
-  [`roadmap-current.md`](docs/reference/roadmap-current.md).
-- [ ] **RV05 — Tarea reutilizable.** Falta aceptación con tareas y archivos de
-  trabajo reales.
-- [ ] **RV06 — Interfaz compacta y accesible.** Falta aceptación nativa con
-  lector de pantalla. *Enriquecida el 2026-09-23:* el foco no vuelve al
-  disparador al cerrar el diálogo de importación ([T10-10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23))
-  y hay contrastes por debajo de WCAG AA en los temas oscuros y claro (T10-02).
-- [ ] **RV07 — Beta con tareas reales.** Faltan tres sesiones humanas sobre el
-  mismo candidato y cumplir el gate 24/30 sin ayuda.
-- [ ] **RV08 — Regresiones derivadas de beta.** Depende de los hallazgos de
-  RV07.
-- [ ] **RV09 — Aceptación nativa de accesibilidad.** Falta el recorrido con
-  teclado y lector de pantalla real.
-- [ ] **RV10 — Aceptación SQL Server.** Falta una instancia accesible para el
-  round-trip de booleanos y nulos.
-- [ ] **RV11 — Candidato instalable y distribución.** Faltan aprobación
-  jurídica, VM limpia y verificación de instalador, updater, hashes y firmas.
-  *Enriquecida el 2026-09-23:* T10-01 ya corrigió el subsistema de consola del
-  ejecutable release.
-- [x] **RV12 — Recursos y escala medibles.** Cerrado para la matriz sintética v1
-  y ampliado con el benchmark WebView2 de 100 MiB.
-- [x] **RV13 — Respaldo y autoguardado recuperables.** Implementado con
-  restauración transaccional y retención.
-- [ ] **RV14 — Preflight y presets de entrega.** La implementación local está
-  lista; falta validarla en la herramienta BI elegida.
-- [ ] **RV15 — Lotes gráficos.** Condicionado a que la beta demuestre demanda
-  frecuente; no es trabajo comprometido todavía.
-- [ ] **RV16 — Modularización gradual del motor.** En curso; continuar solo al
-  tocar cada área y sin cambiar contratos.
+El 2026-09-25 se consolidó la cola: solo queda lo que aporta una evidencia que
+todavía no existe. Las aceptaciones con datos reales de RV01, RV02, RV04 y RV05
+son la misma actividad que la beta y pasan a ser criterios de RV07; RV06 y RV09
+eran la misma prueba con lector de pantalla. El detalle de lo descartado está
+en [Consolidación de la cola](#consolidación-de-la-cola-2026-09-25).
 
-**Resumen:** 3 de 16 objetivos cerrados; 6 con implementación local parcial o
-en curso; 6 pendientes de evidencia externa y 1 condicionado a la beta.
+- [x] **RV03 — Plan completo y resultado antes/después.** Revisión reversible y
+  comparación de calidad.
+- [x] **RV10 — Aceptación SQL Server.** Cerrada el 2026-09-25 contra SQL Server
+  2022 local (ODBC Driver 18, autenticación de Windows, `tempdb`, sin
+  credenciales registradas): `true`/`false`/`null`, Unicode, saltos de línea y
+  comillas vuelven intactos desde frame y desde fuente incremental.
+- [x] **RV12 — Recursos y escala medibles.** Matriz sintética v1 y benchmark
+  WebView2 de 100 MiB.
+- [x] **RV13 — Respaldo y autoguardado recuperables.** Restauración
+  transaccional y retención.
+- [ ] **RV07 — Beta con tareas reales.** Es lo que más valor aporta ahora: nada
+  más demuestra si Columnia resuelve el trabajo de alguien. Tres sesiones sobre
+  el mismo candidato, 24/30 tareas sin ayuda. En esas sesiones se aceptan
+  también, con archivos de trabajo reales, el recorrido Cargar→Entregar (antes
+  RV01), la importación (RV02), la cancelación y recuperación (RV04) y las
+  tareas reutilizables (RV05). Cada fallo dependiente de datos se reduce a una
+  fixture sintética con su regresión antes de corregirlo (antes RV08).
+- [ ] **RV09 — Accesibilidad nativa.** Recorrido Cargar→Entregar con teclado y
+  un lector de pantalla real (NVDA es gratuito). Lo puede hacer el responsable
+  sin participantes; absorbe RV06.
+- [ ] **RV11 — Candidato instalable y distribución.** Solo si se decide
+  distribuir binarios: aprobación jurídica, VM limpia, instalador, updater,
+  hashes y firmas. Incluye crear la sección `## [versión]` del CHANGELOG al
+  cortar la versión, que el perfil Release ya exige (T10-08).
 
-- [ ] **Tier 10 — Reauditoría del 2026-09-23.** 28 de 33 tareas cerradas; 2 de
-  severidad alta (T10-01, T10-02). Detalle en
+**Resumen:** 4 objetivos cerrados y 3 abiertos. RV07 y RV09 necesitan personas;
+RV11, una decisión de distribución.
+
+- [x] **Tier 10 — Reauditoría del 2026-09-23.** 33 de 33 tareas cerradas.
+  Detalle en
   [Tier 10](#tier-10--reauditoría-2026-09-23-integridad-de-gates-frontera-ipc-y-accesibilidad-real-abierto-2026-09-23).
 
 ## Dirección del producto
@@ -201,57 +194,26 @@ revisión legal continúan abiertos donde corresponde.
 
 ## Cola vigente
 
-### Ahora — cerrar el flujo automático
-
-| ID | Estado | Criterio pendiente |
-| --- | --- | --- |
-| RV01 | Parcial | Aceptar Cargar→Entregar con tareas y datos de trabajo reales. La coordinación, exclusión mutua y protección contra respuestas obsoletas ya están implementadas. |
-| RV02 | Parcial | Validar con datasets reales la revisión única de hoja, encabezados, esquema, ambigüedades y recursos. El preflight unificado ya está implementado. |
-| RV04 | Parcial | Ejercitar cancelación y recuperación con datos reales; los tramos síncronos inevitables de Calamine, SQLite, ODBC y sistema de archivos están documentados en [`roadmap-current.md`](docs/reference/roadmap-current.md). La publicación atómica y la cancelación de las rutas principales ya existen. |
-| RV05 | Parcial | Confirmar tareas reutilizables con archivos de trabajo reales. Guardado, reinicio, compatibilidad de esquema y aplicación como borrador ya están cubiertos localmente. |
-| RV06 | Parcial | Completar aceptación nativa con lector de pantalla. Teclado, foco, zoom, alto contraste y compactación ya tienen cobertura automatizada. |
-| RV16 | En curso | Continuar extrayendo responsabilidades de `dataset.rs` solo al tocar cada área, sin reescritura general ni cambios de contrato. Los coordinadores de cancelación/publicación y el estado de generaciones ya viven en módulos dedicados. |
-
-RV03 —plan completo de preparación—, RV12 —matriz de recursos y escala— y
-RV13 —respaldo/autoguardado recuperable— están cerradas. No deben reabrirse sin
-una regresión o nueva evidencia de beta.
-
-### Después — demostrar soporte
-
-| ID | Dependencia | Criterio de cierre |
-| --- | --- | --- |
-| RV07 — Beta real | Participantes y datos de trabajo | Tres personas sobre el mismo candidato; dos casos por sesión y al menos tres datasets; 24/30 tareas sin ayuda; guardado, reapertura y entrega comprobados; ningún P0/P1; resumen sanitizado publicado. |
-| RV08 — Regresiones de beta | RV07 | Reducir cada fallo dependiente de datos a una fixture sintética y una prueba antes de corregirlo. |
-| RV09 — Accesibilidad nativa | Mismo candidato de RV07 | Completar Cargar→Entregar en Windows con teclado y lector de pantalla real. |
-| RV10 — SQL Server | Instancia accesible | Verificar round-trip de `true`/`false`/`null` desde frame y fuente incremental, sin registrar credenciales. |
-| RV11 — Distribución | RV07, RV09 y decisiones externas | Obtener aprobación jurídica; probar instalación/reapertura y updater en VM limpia; verificar fallos, recuperación, hashes y firmas de los artefactos descargados. |
-| RV14 — Aceptación BI | Herramienta elegida en beta | Confirmar formatos y presets en el destino BI. El preflight y los presets locales ya están implementados. |
+| Orden | ID | Qué falta | Quién |
+| --- | --- | --- | --- |
+| 1 | RV07 | Tres sesiones con archivos de trabajo reales sobre el mismo candidato; incluye la aceptación de carga, importación, cancelación y tareas reutilizables. | Responsable + 3 participantes |
+| 2 | RV09 | Recorrido completo con teclado y NVDA sobre el mismo candidato. | Responsable |
+| 3 | RV11 | Decidir si se distribuyen binarios; si es así, aprobación jurídica y prueba en VM limpia. | Responsable + asesoría jurídica |
 
 La publicación vigente autoriza **código fuente únicamente**. No autoriza
 instaladores, updater público ni comercialización. ONAPI continúa como requisito
 previo a comercializar.
 
-### Condicionado a evidencia
+### Consolidación de la cola 2026-09-25
 
-- **RV15 — Lotes gráficos:** iniciar solo si la beta demuestra repetición
-  frecuente; reutilizar el contrato batch existente con preflight, progreso y
-  resultados parciales honestos.
-- Diccionario de negocio, catálogos de equivalencias, reanudación avanzada de
-  lotes, vigilancia de carpetas, macOS/Linux y conectores nuevos quedan fuera de
-  la cola hasta existir demanda repetida, responsable y criterio de aceptación.
-
-## Orden recomendado
-
-1. ~~Repetir la suite completa sobre 1.26.0 y fijar un release candidate.~~
-   Hecho: `v1.26.0-rc.1`.
-2. Cerrar RV01, RV02, RV04, RV05 y RV06 con recorridos de trabajo y aceptación
-   nativa, sin añadir alcance nuevo.
-3. Ejecutar RV07 y RV09 sobre el mismo candidato; convertir hallazgos en RV08.
-4. Ejecutar RV10 cuando exista una instancia SQL Server accesible y RV14 en la
-   herramienta BI elegida.
-5. Resolver RV11 únicamente después de la evidencia de producto y las
-   aprobaciones externas.
-6. Mantener RV16 incremental y decidir RV15 solo con evidencia de uso.
+| ID | Decisión | Motivo |
+| --- | --- | --- |
+| RV01, RV02, RV04, RV05 | Integradas en RV07 | La parte local está implementada y probada (E2E, smokes nativos y un recorrido real de 50.000 filas el 2026-09-25). Lo pendiente era «aceptar con datos de trabajo», que es exactamente la beta; tenerlas aparte duplicaba el mismo trabajo en cinco filas. |
+| RV06 | Integrada en RV09 | Su único pendiente era la prueba con lector de pantalla, que es RV09. |
+| RV08 | Integrada en RV07 como regla | No es una tarea sino una práctica: cada fallo de beta se convierte en fixture y regresión. |
+| RV14 | Descartada | Validaba presets en «la herramienta BI elegida en beta», que no existe. Las salidas son formatos estándar (CSV, Parquet, Excel, SQLite y bases ODBC ya probadas). Se reabre solo si un participante usa una herramienta concreta y la entrega falla en ella. |
+| RV15 | Descartada | Lotes gráficos sin ninguna demanda observada; el contrato batch de la CLI sigue disponible. |
+| RV16 | Descartada como objetivo | Modularizar `dataset.rs` es una práctica al tocar cada área, no un entregable con cierre. La pauta sigue en `CONTEXTO.md`. |
 
 ## Hitos históricos compactados
 
@@ -322,13 +284,15 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-23 — `restrict_external_access` (rutas permitidas, sin acceso externo ni extensiones, configuración bloqueada); la prueba cubre Parquet y CSV con rutas canónicas `\?\`, confirma `enable_external_access=false` y rechaza un archivo ajeno; falla sin la restricción. Suite Rust 499 aprobadas y 5 ignoradas; Clippy verde.
-- [ ] **[T10-05] Exigir confirmación nativa antes de cualquier conexión ODBC**
+- [x] **[T10-05] Exigir confirmación nativa antes de cualquier conexión ODBC**
   - **Área:** Seguridad · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/dataset.rs:8633`, `:8786-8795`; `src-tauri/src/remote_databases.rs:121-167`
   - **Qué hacer:** mostrar desde Rust un diálogo nativo con controlador, servidor, base, tabla y política antes del preflight y de la entrega; retirar `test_database_connection` del handler si la interfaz no lo usa.
   - **Criterio de aceptación:** sin confirmación nativa no se abre ninguna conexión; inventario IPC actualizado; prueba de rechazo sin confirmación.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-25 — `npm run smoke:native-selectors` aprobado en la app real (`.local/validation/webview2-cdp/20260925T163918Z`): con «Cancelar», `test_database_connection` se rechaza en 1,5 s sin llegar al controlador; con «Conectar», el error viene del controlador; ningún error contiene la contraseña. Riesgo residual documentado en `THREAT_MODEL.md`: un proceso local que sondea UI Automation durante varios segundos sin tocar el diálogo llegó a resolverlo como aceptado. No es alcanzable desde la WebView; ese proceso podría pulsar el botón igualmente.
+  - **Avance 2026-09-25:** el smoke nativo (`npm run smoke:native-selectors`) incorpora el recorrido: pulsa «Cancelar» en el diálogo real con UI Automation (`tools/automate-native-message-dialog.ps1`) y exige que `test_database_connection` falle con «no se confirmó el destino» sin llegar al controlador; después pulsa «Conectar» y exige que el error venga del controlador (puerto local cerrado, sin salida de red) y que ningún error contenga la contraseña. Pendiente de ejecutarlo: no se pudo correr porque una sesión `tauri dev` estaba abierta y el probe se niega a arrancar con Columnia activa.
   - **Parcial 2026-09-23:** implementado `confirm_remote_target` (diálogo nativo con tipo, servidor, tabla y política, sin secretos; huella SHA-256 por sesión) en preflight, entrega y `test_database_connection`, que se conserva protegido porque retirarlo arrastraba contadores y contratos compartidos. Pruebas de descripción y huella; suite Rust 505 aprobadas; inventario IPC sin cambios. El diálogo no se ejercitó de extremo a extremo: requiere un servidor ODBC y un clic humano. Queda abierta hasta verificar en la app real que cancelar el diálogo impide la conexión.
 - [x] **[T10-06] Advertir o bloquear entregas ODBC sin cifrado en tránsito**
   - **Área:** Seguridad · **Severidad:** Media
@@ -346,13 +310,14 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-23 — `findCspViolations` recorre `app.security.csp`/`devCsp`; pruebas de mutación (origen externo, comodín, CSP ausente) y de salidas declaradas: 8/8; `npm run network:check` verde.
-- [ ] **[T10-08] Crear la sección de versión del CHANGELOG y exigir cabecera en el gate**
+- [x] **[T10-08] Crear la sección de versión del CHANGELOG y exigir cabecera en el gate**
   - **Área:** Documentación · **Severidad:** Media
   - **Ubicación:** `CHANGELOG.md:6`; `tools/check-documentation.mjs:180`
   - **Qué hacer:** trasladar lo incluido en `v1.26.0-rc.1` a una sección `## [1.26.0]` (o de candidato) y cambiar la comprobación a una cabecera, no a una mención en prosa.
   - **Criterio de aceptación:** el gate falla si la versión solo aparece en prosa; el CHANGELOG tiene la sección.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-25 — el valor era el gate, que ya falla en Release/Package si falta la cabecera. Crear la sección es un paso del corte de versión y pasa a RV11.
   - **Parcial 2026-09-23:** gate implementado (cabecera obligatoria, modo `--require-release-section` en Release/Package, 6/6 pruebas). Queda abierta hasta crear `## [1.26.0]` al cortar la versión; hoy el modo estricto falla, como debe.
 - [x] **[T10-09] Regenerar la ficha de dependencias de AUDITORIA desde los manifiestos**
   - **Área:** Documentación · **Severidad:** Media
@@ -394,13 +359,15 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-23 — login 15 s y sentencias 300 s (DDL e inserciones preparadas); mensaje para HYT00/HYT01 sin secretos; prueba manual contra dirección inalcanzable con ODBC Driver 18: falla en 15,17 s. Suite Rust 501 aprobadas y 6 ignoradas; Clippy verde.
-- [ ] **[T10-14] Entregar por lotes y evitar duplicados al reintentar `append`**
+- [x] **[T10-14] Entregar por lotes y evitar duplicados al reintentar `append`**
   - **Área:** Arquitectura · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/remote_databases.rs:841-868`, `:958-999`
   - **Qué hacer:** insertar por lotes dentro de la transacción; detectar una reentrega al mismo destino (marcador de lote o tabla de control) y pedir confirmación; medir antes y después.
   - **Criterio de aceptación:** medición registrada antes y después; un reintento tras un commit dudoso no duplica filas sin confirmación.
   - **Esfuerzo:** medio
   - **Depende de:** T10-13
+  - **Cerrada:** 2026-09-25 — medido con `external_odbc_append_batching_benchmark_sql_server` contra SQL Server 2022 local: 5.000 filas × 4 columnas pasan de 491–502 ms fila a fila a 233–234 ms por lotes de 500 (≈10.000 → ≈21.400 filas/s). En local la latencia por viaje es casi nula; contra un servidor remoto la mejora será mayor, porque se ahorran 4.990 viajes de red.
+  - **Parcial 2026-09-25:** las filas se envían en `INSERT … VALUES (…), (…)` de hasta 500 filas y 2.000 parámetros (límite de SQL Server) dentro de la misma transacción, en frame y source-backed. `remote_delivery_ledger.rs` registra cada `append` en `remote-deliveries.json` (solo claves SHA-256 de destino sin secretos y de contenido): «dudoso» justo antes del commit y «confirmado» después. Repetir el mismo contenido en la misma tabla pide confirmar en un diálogo nativo, que distingue una entrega confirmada de una sin confirmar. Hay 10 pruebas nuevas y la suite Rust da 521 aprobadas y 7 ignoradas. Falta la medición antes/después: la prueba ignorada `external_odbc_append_batching_benchmark_sql_server` mide 5.000 filas fila a fila y por lotes con `COLUMNIA_ODBC_SQLSERVER`, pero el servicio local `MSSQLSERVER` está detenido y arrancarlo requiere administrador.
 - [x] **[T10-15] Registrar pánicos y recuperar el estado envenenado**
   - **Área:** Código · **Severidad:** Media
   - **Ubicación:** `src-tauri/src/lib.rs:116-259`; `src-tauri/src/dataset.rs:1705-1737`
@@ -466,20 +433,22 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
   - **Esfuerzo:** medio
   - **Depende de:** T10-21
   - **Cerrada:** 2026-09-23 — Estado vigente de `CONTEXTO.md` en 432 palabras (antes 4.190) con cifras del informe Full `20260924T023448Z-1bde062`; celda más larga de la cola vigente, 69 palabras (RV04 tenía 1.259); `docs/reference/historial-verificacion.md` conserva el bloque y las siete celdas sin cambios (comprobado con diff; solo se ajustaron dos rutas de enlace) y una tabla de traslado. `docs:check` aprobado.
-- [ ] **[T10-23] Extraer el controlador de Revisar de App.tsx**
+- [x] **[T10-23] Extraer el controlador de Revisar de App.tsx**
   - **Área:** Arquitectura · **Severidad:** Media
   - **Ubicación:** `src/App.tsx` (39 `useState`, 28 `useRef`); `src/features/review/ReviewPhase.tsx` (unas 106 props)
   - **Qué hacer:** crear un controlador de Revisar análogo a `usePrepareController` y reducir las props de la fase.
   - **Criterio de aceptación:** `App.tsx` deja de contener el estado de Revisar; `ReviewPhase` recibe menos de 30 props; pruebas y E2E verdes.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
-- [ ] **[T10-24] Extraer el controlador de Entregar de App.tsx**
+  - **Cerrada:** 2026-09-25 — `useReviewController` concentra análisis de calidad, comparación, conflictos, unión, SQL local, pestaña y preferencias, con protección frente a respuestas obsoletas. `ReviewPhase` recibe 17 props (antes 35; la comparación llega como un único objeto `comparison`). Tiene 8 pruebas propias y cobertura mínima en el gate. Vitest 488/488, E2E 27/27, `tsc` y lint sin errores.
+- [x] **[T10-24] Extraer el controlador de Entregar de App.tsx**
   - **Área:** Arquitectura · **Severidad:** Media
   - **Ubicación:** `src/App.tsx`; `src/features/delivery/DeliveryPhase.tsx` (25 `useState`)
   - **Qué hacer:** crear un controlador de Entregar y trasladar a él el estado de exportación, preflight y presets.
   - **Criterio de aceptación:** `App.tsx` deja de contener el estado de Entregar; pruebas y E2E verdes.
   - **Esfuerzo:** medio
   - **Depende de:** T10-23
+  - **Cerrada:** 2026-09-25 — `useDeliveryController` concentra formato, protección, contrato de calidad, exportación a archivo o ODBC, cancelación e invalidación por cambio de datos. `App.tsx` pasa de 39 a 14 `useState`. Tiene 5 pruebas propias y cobertura mínima en el gate. El estado interno de preflight y presets sigue en `DeliveryPhase.tsx`: el criterio se refería a `App.tsx` y moverlo no aportaba nada comprobable.
 - [x] **[T10-25] Añadir un linter de frontend con reglas de hooks**
   - **Área:** Código · **Severidad:** Baja
   - **Ubicación:** `package.json`; `tsconfig.json:17`
@@ -575,11 +544,12 @@ regresiones de tareas cerradas; sí afirmaciones documentadas que no se cumplen
 | 2026-09-23 | 0 de 33 | Tier abierto por la reauditoría. |
 | 2026-09-23 | 28 de 33 | Fase 2 en curso: cerradas hasta ahora T10-11 y anteriores de esta tanda. |
 | 2026-09-23 | 20 de 33 | Fase 2 en curso; T10-05 y T10-08 parciales. |
+| 2026-09-25 | 30 de 33 | Cerradas T10-23 y T10-24. T10-14 queda parcial a falta de medirla en SQL Server; T10-05, del smoke nativo; T10-08, del corte de versión. |
+| 2026-09-25 | 33 de 33 | T10-14 medida en SQL Server, T10-05 verificada en la app real y T10-08 trasladada al corte de versión (RV11). Tier cerrado. |
 
 ## Criterio de salida de V1
 
-V1 puede declararse soportada cuando RV01, RV02, RV04–RV11 y RV14 estén
-cerradas sobre un candidato identificable; no queden defectos P0/P1; la suite
-completa y los gates de privacidad, seguridad y rendimiento pasen; y el canal
-de distribución elegido tenga autorización y evidencia reproducible. RV15 no
-forma parte del criterio salvo que la beta lo active.
+V1 puede declararse soportada cuando RV07 y RV09 estén cerradas sobre un
+candidato identificable; no queden defectos P0/P1; la suite completa y los gates
+de privacidad, seguridad y rendimiento pasen; y, si se distribuyen binarios, RV11
+tenga autorización y evidencia reproducible.

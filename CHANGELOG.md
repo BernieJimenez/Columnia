@@ -50,6 +50,20 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Seguridad
 
+- T10-14: una entrega ODBC en modo «Añadir filas» ya no duplica datos sin
+  avisar. Si el mismo dataset ya se añadió a esa tabla, o si una entrega
+  anterior no llegó a confirmar si se guardó, Columnia lo dice en un diálogo de
+  Windows y solo continúa si lo confirmas. El registro local guarda únicamente
+  huellas SHA-256, sin la cadena de conexión. Además, las filas se envían en
+  lotes de hasta 500 en lugar de una por una.
+- T10-05 (seguimiento): el smoke nativo comprueba en la app real que cancelar la
+  confirmación de una conexión remota impide llegar al controlador ODBC y que
+  confirmarla sí llega. El dispatcher del probe lee sus peticiones como UTF-8;
+  antes corrompía textos como «conexión».
+- RV10: la entrega a SQL Server 2022 conserva booleanos, nulos, Unicode y
+  saltos de línea desde un dataset en memoria y desde una fuente incremental.
+  La prueba de round-trip ya no pasa a minúsculas el texto que devuelve SQL
+  Server.
 - T10-15: si una operación falla de forma inesperada, Columnia ya no queda
   bloqueada hasta reiniciar: recupera el último estado publicado y guarda un
   informe local mínimo en `crash-reports/` sin datos ni rutas.
@@ -163,6 +177,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Interno
 
+- T10-23 y T10-24: el estado de Revisar (análisis, comparación, unión, SQL
+  local y pestañas) vive en `useReviewController` y el de Entregar (formato,
+  protección, contrato de calidad y exportación) en `useDeliveryController`.
+  `App.tsx` pasa de 39 a 14 `useState` y `ReviewPhase` de 35 a 17 props. Los dos
+  controladores tienen pruebas propias y umbral en el gate de cobertura.
 - `probe-webview2-cdp.ps1 -RunPrepareFlow` recorre la interfaz real con un CSV
   grande (`tools/generate-prepare-probe-csv.mjs`): importa, aplica la propuesta
   de Preparar y mide la respuesta de `get_app_info` mientras tanto. El área de

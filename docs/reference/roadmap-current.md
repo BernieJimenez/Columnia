@@ -1,6 +1,6 @@
 # Trabajo vigente
 
-Revisado: 2026-09-23. Esta es la única cola operativa derivada de la
+Revisado: 2026-09-25. Esta es la única cola operativa derivada de la
 [`auditoría consolidada`](../../AUDITORIA.md). El historial y las tareas cerradas
 permanecen en [`ROADMAP.md`](../../ROADMAP.md#tier-9--valor-operativo-consolidado-abierto-2026-09-14).
 
@@ -201,34 +201,23 @@ del sistema operativo. La llamada recursiva, `migrate`, cada lectura SQLite y
 las syscalls individuales del sistema de archivos siguen siendo síncronas. El
 borrado explícito continúa bajo el gate si gana el commit del catálogo.
 
-## Ahora — completar el flujo automático
+## Cola consolidada el 2026-09-25
 
-| ID | Resultado y criterio de cierre | Responsable | Dependencia | Estado / evidencia |
-| --- | --- | --- | --- | --- |
-| RV01 | **Flujo contextual y estado central.** Una sola acción primaria por estado; visitar una fase no la completa; carga, perfil, plan, aplicación, validación y entrega rechazan resultados obsoletos o dobles ejecuciones. | Producto + frontend | Ninguna | **Parcial — coordinación y cancelación local implementadas; aceptación nativa pendiente.** «Hecho» de Cargar y Revisar queda ligado a la revisión activa y cada cambio invalida Entregar (regresiones App 1/1); Preparar comparte un token cancelable y publica bajo bloqueo. Los smokes nativos, el CDP completo y el benchmark de 100 MiB pasan. Falta el recorrido Cargar→Entregar con tareas de trabajo reales. [Evidencia completa](historial-verificacion.md#rv01). |
-| RV02 | **Importación unificada y explicable.** Hoja, encabezados, esquema, ambigüedades y recursos se aceptan una vez; CSV permite revisar decisiones de encabezado antes de activar el dataset. | Producto + motor de importación | RV01 | **Parcial — esquema previo local implementado; aceptación con datos reales pendiente.** Todos los formatos muestran recursos, perfil y diferencias de esquema antes de reemplazar el dataset activo (`dataset/import_schema_preview.rs`); la confirmación final vuelve a leer el archivo. En ese corte pasaron build, `cargo check` e `ipc:check`, sin repetir pruebas de producto. [Evidencia completa](historial-verificacion.md#rv02). |
-| RV04 | **Excepciones, cancelación y recuperación.** Fechas, tipos, conflictos y esquema cambiado ofrecen conservar, resolver o excluir; cancelar nunca presenta una versión parcial como terminada y los fallos de disco conservan la última revisión válida. | Motor + frontend | RV01–RV03 | **Parcial — las rutas principales por filas de Revisar, Preparar y Entregar observan cancelación con publicación protegida.** Lectores por lotes, DuckDB interrumpible y gates de commit/cancelación en Review, proyectos, historial y exportación, con regresiones. Quedan tramos síncronos de APIs del sistema (`worksheet_range` de XLS/ODS, apertura de libros, driver ODBC, `sync_all`, `remove_dir_all`), medir el JOIN por bloques y la aceptación nativa con datos reales. [Evidencia completa](historial-verificacion.md#rv04). |
-| RV05 | **Tarea reutilizable.** Guardar importación, receta, reglas y política de salida sin credenciales ni permiso implícito de sobrescritura; otro archivo compatible recorre el flujo sin reconstruir formularios y un esquema distinto exige revisión. | Proyectos + automatización | RV02–RV04 | **Parcial — la configuración no mutadora se aplica al importar con perfil y esquema exactos.** Reglas, formato, privacidad y receta se restauran como borrador; la receta exige aplicación explícita y un esquema distinto pide revisión. No se guardan credenciales. Pasan el panel (7/7), Playwright, `smoke:restart` y `smoke:native-selectors` con tareas sintéticas. Falta la aceptación con tareas y archivos de trabajo reales. [Evidencia completa](historial-verificacion.md#rv05). |
-| RV06 | **Interfaz compacta y accesible.** Retirar jerga y bloques repetidos; mantener historial/deshacer cerca del resultado; foco estable, teclado, errores asociados y zoom 200 % verificados en el flujo automático. | Diseño + accesibilidad | RV01–RV05 | **Parcial — jerarquía, teclado y anuncios de progreso acotados; aceptación con lector de pantalla pendiente.** Modales con `dialog` y `showModal()`, trap que omite `details` cerrados y foco devuelto al disparador (T10-10); campos ODBC y contrato de calidad con nombres y errores asociados; contraste AA por tema (T10-02, T10-19). Los E2E cubren 200 %, colores forzados y 320 CSS px. Falta la aceptación nativa con lector de pantalla. [Evidencia completa](historial-verificacion.md#rv06). |
+La cola se redujo a lo que aporta evidencia que todavía no existe. Las filas
+anteriores de RV01–RV06, RV08, RV14, RV15 y RV16, con su evidencia, siguen en
+[`historial-verificacion.md`](historial-verificacion.md) y la decisión en
+[`ROADMAP.md`](../../ROADMAP.md#consolidación-de-la-cola-2026-09-25).
 
-## Después — demostrar valor y soporte
+| Orden | ID | Criterio de cierre | Dependencia |
+| --- | --- | --- | --- |
+| 1 | RV07 | Tres participantes, dos casos reales por sesión, al menos tres datasets, 24/30 tareas sin ayuda, guardar/reabrir y entrega verificados, sin P0/P1; resumen sanitizado validado con `npm run beta:check-summary`. Incluye la aceptación con datos reales de carga, importación, cancelación y tareas reutilizables; cada fallo de datos se reduce a fixture y regresión. | Participantes y datos de trabajo |
+| 2 | RV09 | Cargar→Entregar en Windows con teclado y NVDA, incluidos modales, tablas, progreso, zoom y alto contraste. | Mismo candidato de RV07 |
+| 3 | RV11 | Solo si se distribuyen binarios: aprobación jurídica, VM limpia, instalación, reapertura, updater, hashes, firmas y sección de versión del CHANGELOG. | Decisión de distribución |
 
-| ID | Resultado y criterio de cierre | Responsable | Dependencia | Estado |
-| --- | --- | --- | --- | --- |
-| RV07 | **Beta con tareas reales.** Tres participantes distintos completan dos casos reales por sesión sobre el mismo candidato, con al menos tres datasets en total; consiguen 24/30 tareas sin ayuda, completan el flujo, guardan/reabren y verifican la entrega en cada sesión, sin P0/P1 abierto; se publica un resumen sanitizado y los reportes detallados quedan bajo `.local/beta/`. | Producto | Candidato con RV01–RV06 y gate Full | **Abierto — requiere participantes y datos de trabajo.** El checker local `npm run beta:check-summary` ya valida consistencia, privacidad y el reporte Full; faltan las tres sesiones humanas. |
-| RV08 | **Regresiones derivadas de beta.** Cada fallo dependiente de datos se reduce a una fixture sintética, se reproduce antes de corregirse y obtiene una regresión pertinente. | Mantenimiento | RV07 | **Abierto — depende de hallazgos de RV07.** |
-| RV09 | **Aceptación nativa de accesibilidad.** Recorrido Cargar→Entregar en Windows con teclado y lector de pantalla real, incluidos modales, tablas, progreso, zoom y alto contraste. | QA accesibilidad | Mismo candidato de RV07 | **Abierto — requiere verificación nativa.** |
-| RV10 | **Aceptación SQL Server.** Exportar y releer `true`/`false`/`null` desde frame y fuente incremental conserva tipos y valores; registrar driver y configuración sin credenciales. | QA ODBC | Instancia SQL Server accesible | **Abierto — drivers ODBC 17/18 y `sqlcmd` instalados; falta una instancia conectable.** `MSSQLSERVER` existe pero sigue detenido; Windows rechaza `Start-Service` con `Cannot open 'MSSQLSERVER' service on computer '.'`. El puerto 1433 no responde, no hay comandos Docker/Podman disponibles y `(localdb)\MSSQLLocalDB` tampoco está disponible. No se creó ni modificó una base; el round-trip aún no se ejecutó. |
-| RV11 | **Candidato instalable y distribución.** Resolver notices y decisión por canal; probar en VM limpia instalación, reapertura, fallos/firmas del updater y recuperación sobre artefactos ligados al commit; volver a descargar y verificar hashes y firmas publicados. | Release + responsable de distribución | RV07, RV09 y decisiones externas | **Parcial — fuente únicamente aprobada.** GitHub permite publicar código fuente y la revisión técnica de notices está aprobada. `npm run release:dry-run` valida los gates locales y se detiene en el sign-off jurídico obligatorio antes de empaquetar; el reporte queda en `.local/validation/20260921T232220Z-a8fb7b4-package.json`. Eso no autoriza instaladores/updater ni comercialización; faltan aprobación jurídica, candidato/canal binario autorizado, VM limpia y verificación de assets descargados. ONAPI sigue siendo requisito previo a comercializar. |
-
-## Siguiente valor — priorizar con evidencia de beta
-
-| ID | Resultado y criterio de cierre | Responsable | Dependencia | Estado / evidencia |
-| --- | --- | --- | --- | --- |
-| RV12 | **Recursos y escala medibles.** Una matriz varía ancho, cardinalidad, texto y tamaño; mide RAM, disco, tiempo, cancelación y limpieza. Los avisos solo aparecen cuando cambian una decisión y no confunden estimación con reserva. | Rendimiento | Evidencia de RV07 | **Completada para la matriz sintética v1 y ampliada con smoke nativo.** `perf:matrix:summary` valida ocho cruces (1 y 100 MiB × cuatro formas) con transformaciones, RAM/disco, cancelación y limpieza. El benchmark WebView2 de 100 MiB (819.137 filas) carga en 2,74 s, pagina en 38 ms y queda dentro de su presupuesto. Las formas observadas en beta pueden añadirse como corridas nuevas. [Evidencia completa](historial-verificacion.md#rv12). |
-| RV14 | **Preflight y presets de entrega.** Tipos, nulabilidad, longitud y política remota se explican antes de escribir; los presets locales se releen y se verifican en la herramienta BI elegida sin introducir conectores nuevos. | Entrega | Recorridos confirmados en RV07 | **Implementación local lista; aceptación externa pendiente.** El preflight se repite en backend y bloquea antes de DDL enteros fuera de `i64` y decimales no representables como `f64` finitos; el binding devuelve error en vez de fabricar `NULL`. Los nulos reales conservan binding tipado, los presets no guardan credenciales y `replace` se rebaja a `create_only` al reabrir. Falta elegir herramienta BI de beta y comprobar allí formatos y presets. |
-| RV15 | **Lotes gráficos.** Solo si RV07 confirma repetición frecuente: reutilizar el contrato batch con preflight conjunto, progreso por trabajo, resultados parciales honestos y ninguna sustitución implícita. | Automatización | RV05 y demanda observada | **Condicional — no iniciar hasta observar demanda frecuente en beta.** |
-| RV16 | **Modularización gradual del motor.** Extraer una responsabilidad de `dataset.rs` por cambio con contratos estables, paridad conductual y sin reescritura general. | Mantenimiento | Al tocar el área por RV02–RV05 o RV12 | **En curso — treinta y ocho módulos con responsabilidades extraídas de `dataset.rs`.** Validación, importación, paginación, perfiles, comparación, historial, recetas, consultas, exportación atómica, automatización CLI y coordinación de cancelación viven en módulos internos; los comandos conservan nombres y parámetros Tauri. El trabajo continúa de forma gradual. [Evidencia completa](historial-verificacion.md#rv16). |
+Cerradas: RV03, RV12, RV13 y RV10. RV10 se cerró el 2026-09-25 contra SQL
+Server 2022 local (ODBC Driver 18, autenticación de Windows, `tempdb`): el
+round-trip conserva `true`/`false`/`null`, Unicode y saltos de línea desde frame
+y desde fuente incremental.
 
 ## Tier 10 — reauditoría del 2026-09-23
 
@@ -244,9 +233,12 @@ aquí solo se listan las que cambian el orden de trabajo.
 | T10-03, T10-04 | Media | El SQL local puede salir del subconjunto validado hacia DuckDB con acceso externo por defecto. |
 | T10-07, T10-08 | Media | Los gates de red y documentación aprueban sin comprobar lo que declaran. |
 
+El Tier 10 quedó cerrado el 2026-09-25 (33 de 33).
+
 ## Fuera de la cola vigente
 
-Diccionario de negocio, catálogos de equivalencias, reanudación avanzada de
-lotes, vigilancia de carpetas, macOS/Linux y nuevos conectores solo se evaluarán
+Lotes gráficos (antes RV15), validación en una herramienta BI concreta (antes
+RV14), diccionario de negocio, catálogos de equivalencias, reanudación avanzada
+de lotes, vigilancia de carpetas, macOS/Linux y nuevos conectores solo se evaluarán
 si la beta aporta casos repetidos, responsables y criterios de aceptación. No se
 añaden por anticipación.

@@ -36,10 +36,13 @@ datos de la app byte a byte (T10-17).
 
 **Cola vigente.** La cola operativa está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
-historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). RV01, RV02,
-RV04, RV05 y RV06 tienen la parte local implementada y les falta aceptación con
-datos de trabajo o nativa. RV16 sigue extrayendo módulos de `dataset.rs` (treinta
-y ocho hasta ahora). RV12 está completada para la matriz sintética v1.
+historial de decisiones y entregas en [`ROADMAP.md`](ROADMAP.md). Desde el
+2026-09-25 la cola solo tiene RV07 (beta, que incluye la aceptación con datos
+reales de carga, importación, cancelación y tareas), RV09 (lector de pantalla) y
+RV11 (distribución binaria, si se decide). RV10 está cerrada contra SQL Server
+2022 local y el Tier 10 está cerrado. RV14, RV15 y RV16 se descartaron como
+objetivos; extraer módulos de `dataset.rs` al tocar cada área sigue siendo la
+pauta, sin reescritura general.
 
 **Límites conocidos.** Algunos tramos siguen siendo síncronos y observan la
 cancelación solo al retornar: `worksheet_range` de XLS/ODS, apertura de libros,
@@ -51,13 +54,10 @@ presupuesto. Las E2E usan el bridge simulado y los smokes usan datos sintéticos
 
 **Abierto por evidencia que no se puede fabricar localmente:**
 
-- La beta de tres participantes y su resumen sanitizado (RV07, RV08).
+- La beta de tres participantes y su resumen sanitizado (RV07).
 - La aceptación manual con lector de pantalla y alto contraste (RV09).
-- El round-trip contra SQL Server real (RV10). El servicio local está detenido
-  y no hay contenedores.
 - Un candidato binario o canal autorizado probado en VM limpia, con sign-off
   jurídico (RV11).
-- Validar la herramienta BI a partir de la beta (RV14).
 
 No sustituir estas evidencias por fixtures ni resultados sintéticos.
 
@@ -1441,7 +1441,7 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 ## Riesgos y deuda técnica visibles
 
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.
-2. **Editor de recetas amplio**: las cuatro fases ya viven en módulos feature, pero `App.tsx` todavía concentra el estado de Revisar y Entregar (39 `useState` y 28 `useRef` el 2026-09-23; ver T10-23 y T10-24) y `TransformRecipeEditor.tsx` reúne muchos subdominios de receta. Cualquier división futura debe preservar el orden, dependencias y confirmaciones destructivas.
+2. **Editor de recetas amplio**: las cuatro fases viven en módulos feature y el estado de Revisar y Entregar está en `useReviewController` y `useDeliveryController` (T10-23 y T10-24). `App.tsx` conserva la carga, la navegación y la coordinación entre fases. `TransformRecipeEditor.tsx` reúne muchos subdominios de receta. Cualquier división futura debe preservar el orden, dependencias y confirmaciones destructivas.
 3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 69 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
 4. **Memoria**: los datasets no tienen un tope fijo de tamaño. Polars materializa el dataset y algunas operaciones crean candidatos completos, por lo que la capacidad efectiva depende de la RAM, el espacio disponible y los demás recursos del equipo.
 5. **Consumo de disco durable**: cada proyecto puede conservar generaciones e historial Parquet de hasta 12 revisiones/1 GiB; los límites por proyecto no forman un presupuesto global para todos los proyectos.
