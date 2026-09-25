@@ -191,9 +191,9 @@ async function loadSyntheticDataset(page: Page, stopAt: "review" | "delivery" = 
   await expect(prepareStep).toHaveAttribute("aria-current", "step");
   await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
 
-  const continueToDelivery = page.getByRole("button", { name: "Revisar opciones de entrega" });
+  const continueToDelivery = page.getByRole("button", { name: "Continuar a Entregar" });
   await expect(continueToDelivery).toBeVisible();
-  await activateWithKeyboard(page, continueToDelivery, "Revisar opciones de entrega");
+  await activateWithKeyboard(page, continueToDelivery, "Continuar a Entregar");
   const deliverStep = workflow.getByRole("button", { name: "Entregar", exact: true });
   await expect(deliverStep).toHaveAttribute("aria-current", "step");
   await expect(page.getByRole("heading", { name: "Exportar dataset activo" })).toBeVisible();
@@ -318,7 +318,7 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
     await inspectHorizontalLayout("zoom 200 % · Preparar");
     const prepareAction = page.getByRole("button", { name: /^Aplicar \d+ cambios?$/ });
-    const nextAction = page.getByRole("button", { name: "Revisar opciones de entrega" });
+    const nextAction = page.getByRole("button", { name: "Continuar a Entregar" });
     await expect(prepareAction).toBeEnabled();
     await expect(nextAction).toBeEnabled();
     const [prepareBackground, nextBackground] = await Promise.all([
@@ -362,7 +362,7 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await activateWithKeyboard(page, page.getByRole("button", { name: "Continuar a Preparar" }), "Continuar a Preparar · 320 px");
     await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
     await inspectHorizontalLayout("viewport de 320 píxeles CSS · Preparar");
-    await activateWithKeyboard(page, page.getByRole("button", { name: "Revisar opciones de entrega" }), "Revisar opciones de entrega · 320 px");
+    await activateWithKeyboard(page, page.getByRole("button", { name: "Continuar a Entregar" }), "Continuar a Entregar · 320 px");
     await expect(page.getByRole("heading", { name: "Exportar dataset activo" })).toBeVisible();
     await inspectHorizontalLayout("viewport de 320 píxeles CSS · Entregar");
   });

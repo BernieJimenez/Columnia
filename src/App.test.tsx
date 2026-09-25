@@ -213,7 +213,7 @@ describe("App", () => {
 
     const actions = screen.getByLabelText("Navegación entre etapas");
     expect(within(actions).queryByText("Siguiente paso")).not.toBeInTheDocument();
-    expect(within(actions).queryByRole("button", { name: "Ver plan de preparación" })).not.toBeInTheDocument();
+    expect(within(actions).queryByRole("button", { name: "Ver cambios propuestos" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", {
       name: /Continuar a Preparar|Ver cambios propuestos/,
     })).toHaveLength(1);
@@ -281,7 +281,7 @@ describe("App", () => {
     expect(within(screen.getByRole("button", { name: "Cargar" })).getByText("Hecho")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Revisar opciones de entrega" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continuar a Entregar" }));
 
     expect(screen.getByRole("button", { name: "Entregar" })).toHaveAttribute("aria-current", "step");
     expect(within(screen.getByRole("button", { name: "Preparar" })).queryByText("Hecho")).not.toBeInTheDocument();
@@ -999,10 +999,10 @@ describe("App", () => {
     expect(profileSpy).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
     expect(await screen.findByRole("button", { name: "Reintentar análisis" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Revisar opciones de entrega" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Continuar a Entregar" })).not.toBeInTheDocument();
     fireEvent.click(retry);
 
-    expect(await screen.findByRole("button", { name: "Revisar opciones de entrega" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Continuar a Entregar" })).toBeEnabled();
     expect(profileSpy).toHaveBeenCalledTimes(2);
   });
 

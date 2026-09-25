@@ -1537,9 +1537,9 @@ export function App() {
         ? "Analizando calidad…"
         : "Analizar calidad"
     : activePhase === "review"
-      ? "Ver plan de preparación"
+      ? "Ver cambios propuestos"
       : activePhase === "prepare"
-        ? "Revisar opciones de entrega"
+        ? "Continuar a Entregar"
         : nextPhase ? `Continuar a ${nextPhase.label}` : "";
   const primaryNextDescription = profileGatedPhase && profileStatus.kind !== "ready"
     ? profileStatus.kind === "error"
@@ -1993,7 +1993,7 @@ export function App() {
             {nextPhase && activeDataset && !reviewHasContextualContinue && (
               <div className="flow-footer__copy">
                 <p className="step">Siguiente paso</p>
-                <strong>{activePhase === "review" && profileStatus.kind === "ready" ? "Plan de preparación" : nextPhase.label}</strong>
+                <strong>{nextPhase.label}</strong>
                 {/* Only when it tells the user something the button does not. */}
                 {profileGatedPhase && profileStatus.kind !== "ready" && (
                   <p>{primaryNextDescription}</p>

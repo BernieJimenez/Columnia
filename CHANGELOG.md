@@ -10,6 +10,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- Las acciones para avanzar usan un solo nombre: «Ver cambios propuestos» para
+  pasar de Revisar a Preparar (antes también «Ver plan de preparación») y
+  «Continuar a Entregar» (antes «Revisar opciones de entrega»).
 - En Entregar, el bloque de exportar va en una columna: formato y protección,
   el aviso de datos personales, los presets y el botón, en ese orden.
 - El diálogo de importación empieza por la decisión: hoja, encabezados y una
