@@ -887,13 +887,15 @@ export function DeliveryPhase({
           <>
             <div className="quality-contract__summary" aria-labelledby="quality-rules-summary-title">
               <div>
-                <p className="step">Reglas activas</p>
                 <h4 id="quality-rules-summary-title">Qué se exige</h4>
                 <p>{rules.length === 1 ? "1 regla se comprobará antes de guardar la copia." : `${rules.length} reglas se comprobarán antes de guardar la copia.`}</p>
               </div>
-              <ul>
-                {rules.map((rule, index) => <li key={index}>{summarizeQualityRule(rule)}</li>)}
-              </ul>
+              {/* While editing, the editor itself lists every rule. */}
+              {!rulesEditorOpen && (
+                <ul>
+                  {rules.map((rule, index) => <li key={index}>{summarizeQualityRule(rule)}</li>)}
+                </ul>
+              )}
               <button
                 type="button"
                 className="secondary-action"
@@ -1951,7 +1953,7 @@ export function DeliveryPhase({
           </p>
         )}
         {contract.kind === "with_contract" && !gatePassed && !validationError && (
-          <p className="export-requirement">El contrato se comprobará antes de crear la copia.</p>
+          <p className="export-requirement">Las reglas se comprobarán antes de crear la copia.</p>
         )}
         {needsPersonalDataConfirmation && (
           <p className="export-requirement">Elige una protección o confirma arriba que exportas los datos personales sin protegerlos.</p>

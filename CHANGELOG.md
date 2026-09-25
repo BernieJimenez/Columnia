@@ -10,6 +10,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- Revisión de diseño: el contenido dentro de un desplegable va sangrado para que
+  se vea qué está dentro de qué; «Seleccionar otro dataset» pasa a acción
+  secundaria; Preferencias muestra primero el tema y oculta el panel de
+  actualizaciones cuando no hay actualizador; el editor de reglas no repite la
+  lista; los diálogos pierden la sombra ámbar desplazada; y se cambia jerga por
+  lenguaje llano («conjunto multivaluado», «el contrato se comprobará»).
 - Las acciones para avanzar usan un solo nombre: «Ver cambios propuestos» para
   pasar de Revisar a Preparar (antes también «Ver plan de preparación») y
   «Continuar a Entregar» (antes «Revisar opciones de entrega»).

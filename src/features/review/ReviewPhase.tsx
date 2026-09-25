@@ -373,13 +373,13 @@ function DatasetComparisonSection({
         </button>
       </div>
       <p className="profile-note">
-        Contrasta filas como conjunto multivaluado y conserva el dataset activo hasta que decidas consolidar.
+        Compara las filas de ambos archivos. Tu dataset actual no cambia hasta que decidas consolidar.
       </p>
       <fieldset className="comparison-key-selector">
         <legend>Claves explícitas (opcional)</legend>
         <p>
           Selecciona una o varias columnas para detectar claves nuevas, duplicadas y conflictos.
-          Sin selección se mantiene la comparación multivaluada por fila.
+          Sin claves, se comparan las filas completas.
         </p>
         <div className="comparison-key-options">
           {datasetColumns.map((column) => (

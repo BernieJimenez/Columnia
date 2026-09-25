@@ -1706,6 +1706,8 @@ export function App() {
             Preferencias y recursos
           </summary>
           <div className="sidebar__utilities-content">
+            {/* The theme is what people change most; the resource monitor is technical detail. */}
+            <ThemeSwitcher />
             <ResourceMonitor
               enabled={status.kind === "ready"}
               visible={sidebarUtilitiesOpen}
@@ -1716,11 +1718,10 @@ export function App() {
                 if (!projects.activeProject) writePerformanceProfile(profile);
               }}
             />
-            <ThemeSwitcher />
-            <UpdatePanel
-              enabled={status.kind === "ready" && status.info?.updaterConfigured === true}
-              currentVersion={status.kind === "ready" && status.info ? status.info.version : null}
-            />
+            {/* Builds without an updater have nothing the user can do here. */}
+            {status.kind === "ready" && status.info?.updaterConfigured === true && (
+              <UpdatePanel enabled currentVersion={status.info.version} />
+            )}
             <button
               type="button"
               className="sidebar__diagnostics-trigger"
@@ -1729,7 +1730,7 @@ export function App() {
                 setDiagnosticsOpen(true);
               }}
             >
-              Preparar diagnóstico local
+              Crear informe de diagnóstico
             </button>
           </div>
           </details>

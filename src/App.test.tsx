@@ -708,7 +708,7 @@ describe("App", () => {
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(screen.getByText("Preferencias y recursos"));
-    fireEvent.click(screen.getByRole("button", { name: "Preparar diagnóstico local" }));
+    fireEvent.click(screen.getByRole("button", { name: "Crear informe de diagnóstico" }));
 
     expect(await screen.findByRole("dialog", { name: "Diagnóstico local revisable" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Crear vista previa" })).toBeDisabled();

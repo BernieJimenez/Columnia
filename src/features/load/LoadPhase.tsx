@@ -116,7 +116,7 @@ export function LoadPhase({
     inspection.kind === "schema_mismatch";
 
   const selectionAction = (
-    <button className="primary-action" type="button" onClick={onSelect} disabled={selectionDisabled}>
+    <button className={current ? "secondary-action" : "primary-action"} type="button" onClick={onSelect} disabled={selectionDisabled}>
       {inspection.kind === "inspecting" ? "Inspeccionando…" : current ? "Seleccionar otro dataset" : "Seleccionar dataset"}
     </button>
   );
