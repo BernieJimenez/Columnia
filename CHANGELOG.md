@@ -129,6 +129,48 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- RV22 (UX-01, parcial): el historial nombra lo que hizo cada aplicación de la
+  propuesta («Recortar espacios · Quitar duplicados») en lugar de repetir
+  «Aplicar correcciones recomendadas»; Proyectos muestra las filas con el mismo
+  formato que el resto de la app; la tabla «Ver antes y después» se desplaza
+  dentro de su recuadro en ventanas estrechas en vez de ensanchar la página; y
+  el resumen de entrega dice «1 cambio» en singular.
+- RV22 (DAT-01): si Columnia se cerró de forma inesperada (cierre forzado,
+  fallo o corte de luz), Cargar lo avisa al volver a abrir: los cambios que no
+  estaban guardados en un proyecto no se conservaron, y «Continuar un proyecto»
+  aparece abierto para recuperar el último guardado. Antes la pantalla era igual
+  que en una sesión normal y la pérdida pasaba desapercibida.
+- RV18 (FUN-07): la propuesta de Preparar ofrece «Convertir N columnas a
+  número» para las columnas que solo contienen números (cantidades, precios),
+  sin tocar identificadores, códigos con ceros a la izquierda ni datos
+  personales. Antes todo llegaba como texto a CSV, Excel y bases de datos, y no
+  se podía sumar ni indexar sin convertirlo después. Si una columna tiene un solo
+  valor no numérico, se deja como está: ningún valor se pierde.
+- RV20 (FUN-02): un CSV guardado por Excel para Windows (codificación
+  Windows-1252, con tildes, «ñ» o «€») ya no se rechaza sin salida. Cargar muestra
+  cómo se leerá una línea («Provincia;Población;Año;Importe (€)») y ofrece
+  «Convertir y continuar»: Columnia lee una copia en UTF-8 y el original no
+  cambia. También cubre archivos cuyo primer carácter especial aparece tarde,
+  que antes fallaban con un mensaje técnico en inglés.
+- RV20 (FUN-01): los CSV cuyas líneas terminan solo en retorno de carro
+  («CSV (Macintosh)» de Excel y exportaciones antiguas) se cargan con las mismas
+  filas que su equivalente con saltos de línea normales. Antes se leían como una
+  sola fila gigante y la carga fallaba con un aviso de tamaño que no era la causa.
+- RV19 (FUN-05): la exportación a Excel ya no produce libros que Excel no
+  abre. Los caracteres de control que prohíbe XML (copiados de otros sistemas)
+  se sustituyen por «�»; con más de 1.048.575 filas de datos o una celda de más
+  de 32.767 caracteres, la exportación se detiene con un mensaje que nombra el
+  límite (y la celda) y propone CSV o Parquet, sin dejar ningún archivo.
+- RV17 (FUN-03, FUN-06): la propuesta de Preparar ya no inventa datos. Antes
+  rellenaba con el valor más frecuente identificadores, nombres de persona y
+  fechas (en un dataset de ventas, 135.037 compras sin cliente pasaban a un solo
+  cliente) y venía marcada. Ahora solo propone rellenar huecos pequeños (hasta el
+  5 %) en números y categorías cortas, llega desmarcada, muestra cuántas celdas
+  recibe cada columna y el total anunciado es exactamente lo que se aplica.
+- RV18 (FUN-04): exportar a CSV ya no antepone un apóstrofo a los números
+  negativos guardados como texto. Antes, cada devolución (`-1`) o importe
+  negativo salía como `'-1` y la columna dejaba de ser numérica al abrirla en
+  otra herramienta. Las fórmulas (`=`, `@`, `+1+1`, `-2+3`) siguen neutralizadas.
 - T10-11: los temas se ven igual sin depender del modo del sistema operativo.
   «Sistema» pinta exactamente como «Claro» u «Oscuro» (antes había 57 y 70
   diferencias), «Claro» y «Oscuro» ya no cambian si Windows está en modo oscuro,
@@ -199,6 +241,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Interno
 
+- RV22 (CODE-01): los informes locales de fallo registran el crate y la ruta
+  interna (`polars-core-0.55.2/src/frame/mod.rs:128`) en lugar de solo `mod.rs`,
+  sin incluir carpetas del usuario, para poder localizar un fallo de la beta.
 - Documentación reiniciada para una revisión nueva: el roadmap, el contexto, las
   auditorías, el historial de verificación y la cola anterior (hasta el Tier 10)
   pasan sin cambios a `docs/archive/2026-09/`. `ROADMAP.md` queda con los tres

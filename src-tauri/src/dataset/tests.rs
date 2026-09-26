@@ -8,11 +8,20 @@ use super::samples::{ensure_sample_dataset, list_sample_datasets};
 use super::*;
 use ::zip::ZipArchive;
 
-fn temporary_csv(contents: &str) -> PathBuf {
-    let nonce = SystemTime::now()
+/// Unique per process: the Windows clock is too coarse for nanosecond names
+/// alone, and two parallel tests could share (and overwrite) one temp file.
+fn unique_test_nonce() -> String {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("el reloj del sistema debe ser válido")
         .as_nanos();
+    let sequence = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("{nanos}-{sequence}")
+}
+
+fn temporary_csv(contents: &str) -> PathBuf {
+    let nonce = unique_test_nonce();
     let path = std::env::temp_dir().join(format!(
         "columnia-dataset-test-{}-{nonce}.csv",
         std::process::id()
@@ -618,10 +627,7 @@ fn loaded_dataset(path: PathBuf, frame: DataFrame) -> LoadedDataset {
 }
 
 fn temporary_delimited_bytes(extension: &str, contents: &[u8]) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("el reloj del sistema debe ser válido")
-        .as_nanos();
+    let nonce = unique_test_nonce();
     let path = std::env::temp_dir().join(format!(
         "columnia-delimited-test-{}-{nonce}.{extension}",
         std::process::id()
@@ -678,6 +684,137 @@ fn loads_schema_and_rows_from_a_csv() {
     assert!(frame.dtypes().iter().all(|kind| *kind == DataType::String));
     assert_eq!(preview.rows[0][0].as_deref(), Some("Santo Domingo"));
     fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn csv_with_carriage_return_line_endings_loads_like_its_lf_equivalent() {
+    // RV20 / FUN-01: files saved as «CSV (Macintosh)» end lines with \r only;
+    // they were read as one huge first row and could not be loaded.
+    let lf = "city,temperature\nSanto Domingo,30\nSantiago,28\nLa Vega,25\n";
+    let cr_path = temporary_csv(&lf.replace('\n', "\r"));
+    let lf_path = temporary_csv(lf);
+
+    let review =
+        delimited_header_review(&cr_path, "csv").expect("la revisión de encabezados funciona");
+    assert_eq!(review.delimiter, ",");
+
+    let (cr_frame, cr_preview) = load_csv(&cr_path).expect("el CSV solo-CR debe cargar");
+    let (lf_frame, _) = load_csv(&lf_path).expect("el CSV LF debe cargar");
+    assert_eq!(cr_preview.row_count, 3);
+    assert!(
+        cr_frame.equals(&lf_frame),
+        "mismas filas y valores que su equivalente LF"
+    );
+
+    let (_, source_preview, source_rows) =
+        source_backed_load(&cr_path, "csv", || false).expect("la carga en disco también");
+    assert_eq!(source_rows, 3);
+    assert_eq!(source_preview.rows[2][0].as_deref(), Some("La Vega"));
+
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("desde_cr.csv");
+    let size = fs::metadata(&cr_path).unwrap().len();
+    export_source_backed_csv_atomic(&cr_path, size, &destination, |_, _| {}, || false)
+        .expect("la exportación desde la fuente (DuckDB) también");
+    let exported = read_delimited_frame(&destination, "csv").unwrap();
+    assert!(
+        exported.equals(&lf_frame),
+        "la copia exportada conserva las 3 filas"
+    );
+    fs::remove_file(cr_path).ok();
+    fs::remove_file(lf_path).ok();
+}
+
+fn windows_1252_csv() -> PathBuf {
+    // «Provincia;Población;Año;Importe (€)» as Excel for Windows saves it.
+    let mut bytes = b"Provincia;Poblaci\xf3n;A\xf1o;Importe (\x80)\r\n".to_vec();
+    bytes.extend_from_slice(
+        b"San Jos\xe9 de Ocoa;59.544;2022;98,10\r\nSantiago;1.074.684;2022;1.234,50\r\n",
+    );
+    let directory = tempfile::tempdir().unwrap().keep();
+    let path = directory.join("excel_es_ansi.csv");
+    fs::write(&path, bytes).unwrap();
+    path
+}
+
+#[test]
+fn windows_1252_csv_is_reported_with_a_decoded_example_instead_of_a_bare_error() {
+    // RV20 / FUN-02: the review must be able to propose a conversion.
+    let path = windows_1252_csv();
+    let error = delimited_header_review(&path, "csv").expect_err("no es UTF-8");
+    let example = error
+        .strip_prefix(LEGACY_ENCODING_PREFIX)
+        .unwrap_or_else(|| panic!("falta el prefijo estructurado: {error}"));
+    assert_eq!(example, "Provincia;Población;Año;Importe (€)");
+}
+
+#[test]
+fn windows_1252_byte_after_the_sample_is_reported_with_the_same_prefix() {
+    // OnlineRetail: the first invalid byte («£» = 0xA3) appears after 64 KiB,
+    // so the header review passes and the full read failed in English.
+    let mut bytes = b"producto,precio\n".to_vec();
+    while bytes.len() < (DELIMITED_SAMPLE_BYTES as usize) + 1024 {
+        bytes.extend_from_slice(b"TAZA BLANCA,2.55\n");
+    }
+    bytes.extend_from_slice(b"VALE REGALO \xa340,40.00\n");
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ventas.csv");
+    fs::write(&path, bytes).unwrap();
+
+    delimited_header_review(&path, "csv").expect("la muestra es ASCII");
+    let error = load_csv(&path).expect_err("el archivo completo no es UTF-8");
+    assert!(error.starts_with(LEGACY_ENCODING_PREFIX), "{error}");
+}
+
+#[test]
+fn stale_utf8_conversion_copies_are_removed_at_startup() {
+    // A forced close skips TempDir cleanup, leaving copies of the person's
+    // data in the temp folder; startup removes them (single instance).
+    let temp = tempfile::tempdir().unwrap();
+    for name in ["columnia-utf8-a1", "columnia-utf8-b2"] {
+        fs::create_dir(temp.path().join(name)).unwrap();
+        fs::write(temp.path().join(name).join("ventas.csv"), "datos").unwrap();
+    }
+    fs::create_dir(temp.path().join("otra-app-utf8")).unwrap();
+    fs::write(
+        temp.path().join("columnia-utf8-archivo.txt"),
+        "no es carpeta",
+    )
+    .unwrap();
+
+    assert_eq!(remove_stale_converted_sources(temp.path()), 2);
+    assert!(!temp.path().join("columnia-utf8-a1").exists());
+    assert!(
+        temp.path().join("otra-app-utf8").exists(),
+        "solo las carpetas propias"
+    );
+    assert!(temp.path().join("columnia-utf8-archivo.txt").exists());
+}
+
+#[test]
+fn windows_1252_conversion_writes_a_utf8_copy_that_loads_and_keeps_the_original() {
+    let path = windows_1252_csv();
+    let original = fs::read(&path).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let converted = directory.path().join("excel_es_ansi.csv");
+
+    let bytes = convert_windows_1252_file(&path, &converted, &|| false).expect("conversión");
+    assert_eq!(bytes, fs::metadata(&converted).unwrap().len());
+    assert_eq!(fs::read(&path).unwrap(), original, "el original no cambia");
+
+    let review = delimited_header_review(&converted, "csv").expect("la copia es UTF-8");
+    assert_eq!(review.delimiter, ";");
+    let (frame, _) = load_csv(&converted).expect("la copia carga");
+    assert_eq!(frame.get_column_names()[1].as_str(), "Población");
+    assert_eq!(frame.get_column_names()[3].as_str(), "Importe (€)");
+    assert_eq!(
+        frame.column("Provincia").unwrap().str().unwrap().get(0),
+        Some("San José de Ocoa")
+    );
+    assert!(
+        convert_windows_1252_file(&path, &converted, &|| true).is_err(),
+        "respeta la cancelación"
+    );
 }
 
 #[test]
@@ -8853,6 +8990,43 @@ fn exports_csv_by_atomically_replacing_the_destination() {
 }
 
 #[test]
+fn csv_export_keeps_signed_numbers_stored_as_text() {
+    // RV18 / FUN-04: CSV loads keep columns as text, so negatives such as
+    // returns must not gain an apostrophe; signed expressions still do.
+    let numbers = ["-1", "-11062.06", "+3", "-0,5", "-1.5e3", "+.25"];
+    let formulas = ["-2+3", "+1+1", "-", "+cmd", "-1-", "--1"];
+    let values = numbers
+        .iter()
+        .chain(formulas.iter())
+        .copied()
+        .map(Some)
+        .collect::<Vec<_>>();
+    let frame = DataFrame::new(
+        values.len(),
+        vec![Series::new("quantity".into(), values).into_column()],
+    )
+    .unwrap();
+
+    let csv = frame_for_export(&frame, ExportFormat::Csv).expect("CSV debe protegerse");
+    let exported = csv
+        .column("quantity")
+        .unwrap()
+        .str()
+        .unwrap()
+        .iter()
+        .collect::<Vec<_>>();
+    for (index, value) in numbers.iter().enumerate() {
+        assert_eq!(exported[index], Some(*value), "un número no es una fórmula");
+    }
+    for (offset, value) in formulas.iter().enumerate() {
+        assert_eq!(
+            exported[numbers.len() + offset],
+            Some(format!("'{value}").as_str())
+        );
+    }
+}
+
+#[test]
 fn csv_export_neutralizes_spreadsheet_formulas_and_parquet_preserves_values() {
     let dangerous = [
         "=SUM(A1:A2)",
@@ -8986,6 +9160,88 @@ fn exports_a_portable_sql_script_with_escaped_values_and_nulls() {
     assert!(script.contains("TRUE"));
     assert!(script.contains("BEGIN TRANSACTION;"));
     assert!(script.contains("COMMIT;"));
+}
+
+#[test]
+fn xlsx_export_replaces_control_characters_that_xml_forbids() {
+    // RV19 / FUN-05: \x01 or \x0B copied from other systems made the sheet
+    // invalid XML, and Excel refused to open the delivered file.
+    let frame =
+        df!["texto" => &["con\u{1}control", "tab\u{b}vertical", "normal\tcon tab"]].unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("control.xlsx");
+    export_frame_atomic(
+        &frame,
+        &destination,
+        ExportFormat::Excel,
+        |_, _| {},
+        || false,
+    )
+    .expect("Excel debe publicarse");
+
+    let mut archive = ZipArchive::new(fs::File::open(&destination).unwrap()).unwrap();
+    let mut sheet = String::new();
+    archive
+        .by_name("xl/worksheets/sheet1.xml")
+        .unwrap()
+        .read_to_string(&mut sheet)
+        .unwrap();
+    assert!(
+        !sheet
+            .chars()
+            .any(|character| character < ' ' && !matches!(character, '\t' | '\n' | '\r')),
+        "la hoja no puede contener caracteres prohibidos en XML 1.0"
+    );
+    assert!(sheet.contains("con\u{FFFD}control"));
+    assert!(
+        sheet.contains("normal\tcon tab"),
+        "el tabulador es válido y se conserva"
+    );
+}
+
+#[test]
+fn xlsx_export_rejects_more_rows_than_one_sheet_holds() {
+    let rows = 1_048_576_usize;
+    let frame = DataFrame::new(
+        rows,
+        vec![Series::new("valor".into(), vec![1_i8; rows]).into_column()],
+    )
+    .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("grande.xlsx");
+    let error = export_frame_atomic(
+        &frame,
+        &destination,
+        ExportFormat::Excel,
+        |_, _| {},
+        || false,
+    )
+    .expect_err("Excel admite 1.048.575 filas de datos");
+    assert!(error.contains("1.048.575"), "{error}");
+    assert!(error.contains("CSV"), "{error}");
+    assert!(
+        !destination.exists(),
+        "no se publica un libro que Excel no abre"
+    );
+}
+
+#[test]
+fn xlsx_export_rejects_cells_longer_than_excel_allows() {
+    let long = "y".repeat(32_768);
+    let frame = df!["texto" => &["corto", long.as_str()]].unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("larga.xlsx");
+    let error = export_frame_atomic(
+        &frame,
+        &destination,
+        ExportFormat::Excel,
+        |_, _| {},
+        || false,
+    )
+    .expect_err("Excel admite 32.767 caracteres por celda");
+    assert!(error.contains("A3"), "nombra la celda: {error}");
+    assert!(error.contains("32.767"), "{error}");
+    assert!(!destination.exists());
 }
 
 #[test]
@@ -11742,7 +11998,13 @@ fn rejects_invalid_utf8_instead_of_replacing_characters() {
     let error = load_dataset_with_progress(&path, |_, _| {}, || false)
         .expect_err("los bytes que no son UTF-8 deben rechazarse");
 
-    assert!(error.contains("UTF-8 válido"));
+    // Still rejected, never replaced silently; since RV20 the rejection is the
+    // structured Windows-1252 proposal with a decoded example.
+    assert_eq!(
+        error.strip_prefix(LEGACY_ENCODING_PREFIX),
+        Some("002,Bogotá"),
+        "{error}"
+    );
     fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
@@ -17011,12 +17273,12 @@ fn safe_correction_plan_can_include_conservative_imputation() {
     )
     .expect("frame de prueba");
 
-    let without = safe_corrected_plan_frame(&frame, true, false, false, false, false)
+    let without = safe_corrected_plan_frame(&frame, true, false, false, false, false, None, None)
         .expect("plan sin imputación");
     assert_eq!(without.imputed_cell_count, 0);
     assert_eq!(without.frame.column("monto").unwrap().null_count(), 1);
 
-    let with = safe_corrected_plan_frame(&frame, true, false, false, false, true)
+    let with = safe_corrected_plan_frame(&frame, true, false, false, false, true, None, None)
         .expect("plan con imputación");
     assert_eq!(with.changed_cell_count, 1, "solo se recorta ' Santiago '");
     assert_eq!(with.imputed_cell_count, 2);
@@ -17025,6 +17287,208 @@ fn safe_correction_plan_can_include_conservative_imputation() {
     assert_eq!(
         with.frame.column("ciudad").unwrap().str().unwrap().get(2),
         Some("Santiago")
+    );
+}
+
+/// RV21 / QA-02: round-trip invariants over a synthetic fixture that joins
+/// the traits of the 2026-09-26 audit (CR line endings, Windows-1252, a key
+/// with gaps, negatives, a leading-zero code, a formula, a control character
+/// and a duplicate row). Each assertion names the finding it guards.
+#[test]
+fn roundtrip_invariants_hold_for_a_mac_windows_1252_sales_file() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../fixtures/roundtrip/ventas-mac-windows-1252.csv");
+    let original = fs::read(&fixture).expect("la fixture existe");
+
+    // FUN-01 + FUN-02: the review proposes a conversion with a decoded example.
+    let error = delimited_header_review(&fixture, "csv").expect_err("no es UTF-8");
+    assert_eq!(
+        error.strip_prefix(LEGACY_ENCODING_PREFIX),
+        Some("Factura,Código,Descripción,Cantidad,Precio,ClienteID,País")
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let converted = directory.path().join("ventas.csv");
+    convert_windows_1252_file(&fixture, &converted, &|| false).expect("conversión");
+    assert_eq!(
+        fs::read(&fixture).unwrap(),
+        original,
+        "el original no cambia"
+    );
+    let (frame, _) = load_dataset_with_header_mode(
+        &converted,
+        SpreadsheetHeaderMode::FirstRow,
+        |_, _| {},
+        || false,
+    )
+    .expect("la copia UTF-8 con CR carga");
+    assert_eq!(frame.height(), 9, "FUN-01: las 9 filas, no una sola línea");
+
+    // The one-click plan with what the proposal model sends for this file.
+    let cast = ["Cantidad".to_owned(), "Precio".to_owned()];
+    let plan = safe_corrected_plan_frame(&frame, true, false, true, true, false, None, Some(&cast))
+        .expect("plan");
+    let prepared = plan.frame;
+    assert_eq!(prepared.height(), 8, "se quita la fila duplicada");
+    assert_eq!(
+        prepared.column("Cantidad").unwrap().dtype(),
+        &DataType::Int64,
+        "FUN-07"
+    );
+    assert_eq!(
+        prepared.column("Precio").unwrap().dtype(),
+        &DataType::Float64,
+        "FUN-07"
+    );
+    assert_eq!(
+        prepared.column("Código").unwrap().dtype(),
+        &DataType::String,
+        "ceros a la izquierda"
+    );
+    assert_eq!(
+        prepared.column("ClienteID").unwrap().null_count(),
+        3,
+        "FUN-03: no se inventan claves"
+    );
+
+    // CSV: numbers stay numbers, formulas stay inert (FUN-04).
+    let csv = directory.path().join("ventas.out.csv");
+    export_frame_atomic(&prepared, &csv, ExportFormat::Csv, |_, _| {}, || false).unwrap();
+    let text = fs::read_to_string(&csv).unwrap();
+    assert!(
+        text.contains(",-1,") && text.contains("-11062.06"),
+        "negativos intactos"
+    );
+    assert!(!text.contains("'-"), "FUN-04: sin apóstrofo en números");
+    assert!(text.contains("'=1+1"), "la fórmula sigue neutralizada");
+    assert!(text.contains("00123") && text.contains("Año nuevo ñandú"));
+
+    // XLSX: valid XML that a reader opens, with the control character visible (FUN-05).
+    let xlsx = directory.path().join("ventas.xlsx");
+    export_frame_atomic(&prepared, &xlsx, ExportFormat::Excel, |_, _| {}, || false).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(&xlsx).unwrap()).unwrap();
+    let mut sheet = String::new();
+    archive
+        .by_name("xl/worksheets/sheet1.xml")
+        .unwrap()
+        .read_to_string(&mut sheet)
+        .unwrap();
+    assert!(!sheet
+        .chars()
+        .any(|character| character < ' ' && !matches!(character, '\t' | '\n' | '\r')));
+    assert!(sheet.contains("LÍNEA\u{FFFD}CONTROL"));
+    let mut workbook = open_workbook_auto(&xlsx).expect("el libro se abre");
+    let range = workbook.worksheet_range("dataset").expect("hoja dataset");
+    assert_eq!(range.height(), 9, "encabezado + 8 filas");
+
+    // SQL: typed columns reach the database as numbers (FUN-07).
+    let sql = directory.path().join("ventas.sql");
+    export_frame_atomic(&prepared, &sql, ExportFormat::Sql, |_, _| {}, || false).unwrap();
+    let script = fs::read_to_string(&sql).unwrap();
+    assert!(
+        script.contains("\"Cantidad\" BIGINT"),
+        "{}",
+        &script[..script.len().min(400)]
+    );
+    assert!(
+        script.contains("\"Precio\" DOUBLE"),
+        "{}",
+        &script[..script.len().min(400)]
+    );
+}
+
+#[test]
+fn safe_correction_history_labels_say_what_was_applied() {
+    // UX-01: two entries both called «Aplicar correcciones recomendadas»
+    // did not say which one removed duplicates and which one trimmed.
+    assert_eq!(
+        safe_corrections_label(true, false, false, true, false, false),
+        "Recortar espacios · Quitar duplicados"
+    );
+    assert_eq!(
+        safe_corrections_label(false, true, true, false, true, true),
+        "Marcadores «sin dato» a vacío · Normalizar nombres de columna · Convertir a número · Rellenar vacíos"
+    );
+    assert_eq!(
+        safe_corrections_label(false, false, false, false, false, false),
+        "Aplicar correcciones recomendadas"
+    );
+}
+
+#[test]
+fn safe_correction_plan_imputes_only_the_listed_columns_even_after_renames() {
+    // RV17 / FUN-03: the one-click proposal names the columns it may fill, so
+    // identifiers such as a customer id keep their gaps instead of receiving
+    // the most frequent id.
+    let frame = df!(
+        "Customer ID" => [Some("17841"), Some("17841"), None, Some("14911")],
+        "Categoria" => [Some("A"), Some("A"), None, Some("B")],
+        "Monto" => [Some(10_i64), Some(10), None, Some(30)],
+    )
+    .expect("frame de prueba");
+    let listed = ["Categoria".to_owned(), "Monto".to_owned()];
+
+    let plan =
+        safe_corrected_plan_frame(&frame, false, true, false, false, true, Some(&listed), None)
+            .expect("plan con imputación acotada");
+    assert_eq!(plan.imputed_cell_count, 2);
+    assert_eq!(plan.frame.column("customer_id").unwrap().null_count(), 1);
+    assert_eq!(plan.frame.column("categoria").unwrap().null_count(), 0);
+    assert_eq!(plan.frame.column("monto").unwrap().null_count(), 0);
+
+    let none = safe_corrected_plan_frame(&frame, false, false, false, false, true, Some(&[]), None)
+        .expect("lista vacía");
+    assert_eq!(
+        none.imputed_cell_count, 0,
+        "una lista vacía no rellena nada"
+    );
+}
+
+#[test]
+fn safe_correction_plan_types_listed_numeric_columns_without_losing_values() {
+    // RV18 / FUN-07: CSV columns arrive as text; the proposal may type them,
+    // but a column with any non-numeric value or a leading-zero code is left
+    // untouched instead of turning values into nulls.
+    let frame = df!(
+        "Quantity" => [Some(" 6 "), Some("-1"), None, Some("12")],
+        "UnitPrice" => [Some("2.55"), Some("-11062.06"), Some("3"), None],
+        "InvoiceNo" => [Some("536365"), Some("C536379"), Some("536366"), Some("536367")],
+        "Postal" => [Some("01234"), Some("10101"), Some("20202"), Some("30303")],
+    )
+    .expect("frame de prueba");
+    let listed = ["Quantity", "UnitPrice", "InvoiceNo", "Postal"].map(str::to_owned);
+
+    let plan = safe_corrected_plan_frame(
+        &frame,
+        true,
+        false,
+        false,
+        false,
+        false,
+        None,
+        Some(&listed),
+    )
+    .expect("plan con tipos");
+    let quantity = plan.frame.column("Quantity").unwrap();
+    assert_eq!(quantity.dtype(), &DataType::Int64);
+    assert_eq!(
+        quantity.i64().unwrap().get(0),
+        Some(6),
+        "tras recortar ' 6 '"
+    );
+    assert_eq!(quantity.null_count(), 1, "el vacío sigue vacío");
+    assert_eq!(
+        plan.frame.column("UnitPrice").unwrap().dtype(),
+        &DataType::Float64
+    );
+    assert_eq!(
+        plan.frame.column("InvoiceNo").unwrap().dtype(),
+        &DataType::String,
+        "C536379 no es un número"
+    );
+    assert_eq!(
+        plan.frame.column("Postal").unwrap().dtype(),
+        &DataType::String,
+        "01234 conserva su cero"
     );
 }
 
@@ -17062,8 +17526,8 @@ fn full_proposal_plan_on_a_streamed_csv_publishes_a_writable_snapshot() {
         "la carga debe conservar varios bloques"
     );
 
-    let plan =
-        safe_corrected_plan_frame(&frame, true, false, true, true, true).expect("plan completo");
+    let plan = safe_corrected_plan_frame(&frame, true, false, true, true, true, None, None)
+        .expect("plan completo");
     assert!(plan.changed_cell_count > 0, "recorta espacios");
     assert!(plan.removed_row_count > 0, "quita duplicados");
     assert!(plan.imputed_cell_count > 0, "rellena vacíos");

@@ -6,17 +6,28 @@ import {
   applyLabel,
   buildPrepareProposal,
   defaultProposalSelection,
+  proposalItemTitle,
   proposalOptions,
   selectedProposalCount,
 } from "./proposalModel";
 
 const column = (overrides: Partial<ColumnProfile>) =>
-  ({ nullCount: 0, uniqueCount: 4, sentinelCount: 0, median: null, dataType: "str", ...overrides }) as ColumnProfile;
+  ({
+    nullCount: 0,
+    uniqueCount: 4,
+    sentinelCount: 0,
+    median: null,
+    dataType: "str",
+    averageLength: 8,
+    suggestedType: null,
+    privacySignal: null,
+    ...overrides,
+  }) as ColumnProfile;
 
 const dataset: DatasetPreview = {
   fileName: "clientes.csv",
   fileSizeBytes: 100,
-  rowCount: 4,
+  rowCount: 100,
   columnCount: 3,
   columns: [
     { name: "ciudad", dataType: "str" },
@@ -33,7 +44,7 @@ const dataset: DatasetPreview = {
 
 const profile = (overrides: Partial<DatasetProfile> = {}): DatasetProfile =>
   ({
-    rowCount: 4,
+    rowCount: 100,
     duplicateRowCount: 0,
     columns: [
       column({ name: "ciudad", nullCount: 1, uniqueCount: 2 }),
@@ -49,7 +60,10 @@ describe("buildPrepareProposal", () => {
     expect(items.map((item) => item.id)).toEqual(["trim", "impute"]);
     expect(items[0].examples).toEqual([{ column: "ciudad", before: " Santiago ", after: "Santiago" }]);
     expect(items[1].title).toBe("Rellenar 2 valores vacíos en 2 columnas");
-    expect(items[1].examples.map((example) => example.after)).toEqual(["valor más frecuente", "mediana (30)"]);
+    expect(items[1].examples.map((example) => example.after)).toEqual([
+      "valor más frecuente · 1 celda",
+      "mediana (30) · 1 celda",
+    ]);
   });
 
   it("adds sentinels and duplicates and skips text columns without a repeated value", () => {
@@ -57,7 +71,7 @@ describe("buildPrepareProposal", () => {
       profile({
         duplicateRowCount: 1,
         columns: [
-          column({ name: "ciudad", nullCount: 1, uniqueCount: 3, sentinelCount: 2 }),
+          column({ name: "ciudad", nullCount: 1, uniqueCount: 99, sentinelCount: 2 }),
           column({ name: "monto", dataType: "i64", nullCount: 4, median: null }),
         ],
       }),
@@ -68,9 +82,88 @@ describe("buildPrepareProposal", () => {
     expect(items[2].title).toBe("Quitar 1 fila duplicada");
   });
 
-  it("maps the selection to one safe-corrections request", () => {
+  it("never fills identifiers, names, dates, free text or columns with many gaps (RV17)", () => {
+    const items = buildPrepareProposal(
+      profile({
+        columns: [
+          column({ name: "CustomerID", nullCount: 3, uniqueCount: 40 }),
+          column({ name: "InvoiceNo", nullCount: 2, uniqueCount: 10 }),
+          column({ name: "vm_id", dataType: "i64", nullCount: 2, uniqueCount: 50, median: 7 }),
+          column({ name: "cliente", nullCount: 2, uniqueCount: 5, privacySignal: "name" }),
+          column({ name: "alta", nullCount: 2, uniqueCount: 5, suggestedType: "date" }),
+          column({ name: "comentario", nullCount: 2, uniqueCount: 60 }),
+          column({ name: "nota", nullCount: 2, uniqueCount: 3, averageLength: 120 }),
+          column({ name: "segmento", nullCount: 30, uniqueCount: 3 }),
+          column({ name: "categoria", nullCount: 3, uniqueCount: 3, sentinelCount: 2 }),
+          column({ name: "monto", dataType: "i64", nullCount: 2, uniqueCount: 80, median: 30 }),
+        ],
+      }),
+      dataset,
+    );
+    const impute = items.find((item) => item.id === "impute");
+    expect(impute?.columns?.map((entry) => entry.name)).toEqual(["categoria", "monto"]);
+  });
+
+  it("announces exactly the cells it will fill, following the selection (FUN-06)", () => {
+    const items = buildPrepareProposal(
+      profile({
+        columns: [
+          column({ name: "categoria", nullCount: 3, uniqueCount: 3, sentinelCount: 2 }),
+          column({ name: "monto", dataType: "i64", nullCount: 2, uniqueCount: 80, median: 30 }),
+        ],
+      }),
+      dataset,
+    );
+    const impute = items.find((item) => item.id === "impute")!;
+    const selection = { ...defaultProposalSelection(items), impute: true };
+    expect(proposalItemTitle(impute, selection)).toBe("Rellenar 7 valores vacíos en 2 columnas");
+    expect(proposalItemTitle(impute, { ...selection, sentinels: false })).toBe(
+      "Rellenar 5 valores vacíos en 2 columnas",
+    );
+  });
+});
+
+describe("numeric typing (RV18 / FUN-07)", () => {
+  const typedProfile = profile({
+    columns: [
+      column({ name: "Quantity", suggestedType: "integer", invalidTypeCount: 0 }),
+      column({ name: "UnitPrice", suggestedType: "decimal", invalidTypeCount: 0 }),
+      column({ name: "InvoiceNo", suggestedType: "integer", invalidTypeCount: 9291 }),
+      column({ name: "CustomerID", suggestedType: "integer", invalidTypeCount: 0 }),
+      column({ name: "telefono", suggestedType: "integer", invalidTypeCount: 0, privacySignal: "phone" }),
+      column({ name: "cantidad", dataType: "i64", suggestedType: null }),
+    ],
+  });
+
+  it("proposes typing only fully numeric text columns that are not keys or personal data", () => {
+    const items = buildPrepareProposal(typedProfile, dataset);
+    const types = items.find((item) => item.id === "types");
+    expect(types?.title).toBe("Convertir 2 columnas a número");
+    expect(types?.columns?.map((entry) => entry.name)).toEqual(["Quantity", "UnitPrice"]);
+    expect(types?.examples.map((example) => `${example.column}: ${example.after}`)).toEqual([
+      "Quantity: Entero",
+      "UnitPrice: Decimal",
+    ]);
+  });
+
+  it("comes checked, because no value changes, and sends the exact columns", () => {
+    const items = buildPrepareProposal(typedProfile, dataset);
+    const selection = defaultProposalSelection(items);
+    expect(selection.types).toBe(true);
+    expect(proposalOptions(items, selection).castColumns).toEqual(["Quantity", "UnitPrice"]);
+    expect(proposalOptions(items, { ...selection, types: false }).castColumns).toBeUndefined();
+  });
+});
+
+describe("proposal selection", () => {
+  it("leaves imputation unchecked: inventing values is an explicit decision", () => {
     const items = buildPrepareProposal(profile({ duplicateRowCount: 2 }), dataset);
-    const selection = { ...defaultProposalSelection(items), trim: false };
+    expect(defaultProposalSelection(items)).toMatchObject({ trim: true, duplicates: true, impute: false });
+  });
+
+  it("maps the selection to one safe-corrections request with the announced columns", () => {
+    const items = buildPrepareProposal(profile({ duplicateRowCount: 2 }), dataset);
+    const selection = { ...defaultProposalSelection(items), trim: false, impute: true };
     expect(selectedProposalCount(items, selection)).toBe(2);
     expect(proposalOptions(items, selection, true)).toEqual({
       trimText: false,
@@ -78,7 +171,9 @@ describe("buildPrepareProposal", () => {
       normalizeColumnNames: true,
       removeDuplicates: true,
       imputeMissing: true,
+      imputeColumns: ["ciudad", "monto"],
     });
+    expect(proposalOptions(items, { ...selection, impute: false }).imputeColumns).toBeUndefined();
     expect(applyLabel(1)).toBe("Aplicar 1 cambio");
     expect(applyLabel(3)).toBe("Aplicar 3 cambios");
   });

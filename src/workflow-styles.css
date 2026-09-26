@@ -1290,7 +1290,9 @@ button:active:not(:disabled) { transform: translateY(1px); }
 }
 
 /* Preparar: one proposal, one primary action (feat/preparar-simplificado). */
-.prepare-proposal { display: grid; gap: 16px; max-width: 860px; margin-top: 8px; }
+/* minmax(0, 1fr): a wide before/after table scrolls inside its region instead of widening the page (UX-01). */
+.prepare-proposal { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; max-width: 860px; margin-top: 8px; }
+.prepare-proposal .table-region { overflow-x: auto; }
 .prepare-proposal__title { margin: 0; padding: 0; font-family: var(--font-display); font-size: 1.6rem; font-weight: 600; }
 .prepare-proposal__lead { margin: 0; color: var(--text-secondary); font-size: 1.02rem; }
 .prepare-proposal__list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }

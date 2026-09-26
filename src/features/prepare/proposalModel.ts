@@ -6,7 +6,7 @@ import type { ColumnProfile, DatasetPreview, DatasetProfile, SafeCorrectionOptio
 import { formatDecimal } from "../../format";
 import { isNumericType, isTextType } from "../../dataTypes";
 
-export type ProposalItemId = "sentinels" | "trim" | "duplicates" | "impute";
+export type ProposalItemId = "sentinels" | "trim" | "types" | "duplicates" | "impute";
 
 export interface ProposalExample {
   column: string;
@@ -14,29 +14,93 @@ export interface ProposalExample {
   after: string;
 }
 
+/** A column the imputation will fill: its gaps and the «sin dato» markers that become gaps. */
+export interface ProposalColumn {
+  name: string;
+  missing: number;
+  sentinels: number;
+}
+
 export interface ProposalItem {
   id: ProposalItemId;
   title: string;
   hint: string;
   examples: ProposalExample[];
+  /** Only for "impute" and "types": the exact columns sent to the engine. */
+  columns?: ProposalColumn[];
 }
 
 export type ProposalSelection = Record<ProposalItemId, boolean>;
 
 const ROW_AUDIT_COLUMN = "_cambios";
 const MAX_EXAMPLES = 3;
+/** Filling more than this share of a column invents too much of it. */
+const MAX_IMPUTED_SHARE = 0.05;
+/** A text column is a category (and its mode meaningful) only with few, short values. */
+const MAX_CATEGORY_VALUES = 50;
+const MAX_CATEGORY_SHARE = 0.05;
+const MAX_CATEGORY_LENGTH = 40;
+const IDENTIFIER_WORDS = new Set(["id", "code", "codigo", "cod", "no", "nro", "num", "number", "key", "clave", "uuid", "ref", "sku"]);
 
 function plural(count: number, one: string, many: string): string {
   return `${count.toLocaleString()} ${count === 1 ? one : many}`;
 }
 
-/** Mirrors impute_missing_values_in_frame: numbers need an observed value, text a repeated one. */
+/** «CustomerID», «vm_id», «InvoiceNo», «StockCode»: the last word names a key. */
+function looksLikeIdentifier(name: string): boolean {
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9áéíóúñ]+/)
+    .filter(Boolean);
+  const last = words.at(-1);
+  return last !== undefined && IDENTIFIER_WORDS.has(last);
+}
+
+/**
+ * The one-click proposal only fills small gaps in measures and short
+ * categories (RV17 / FUN-03). Filling an identifier, a person's name, a date
+ * or free text with the median or the most frequent value fabricates data
+ * that cannot be told apart from real values.
+ */
 function isImputable(column: ColumnProfile, rowCount: number): boolean {
-  if (column.name === ROW_AUDIT_COLUMN || column.nullCount === 0) return false;
+  if (column.name === ROW_AUDIT_COLUMN) return false;
+  const missing = column.nullCount + (column.sentinelCount ?? 0);
+  if (missing === 0 || rowCount === 0 || missing / rowCount > MAX_IMPUTED_SHARE) return false;
+  if (column.privacySignal || column.suggestedType === "date" || looksLikeIdentifier(column.name)) return false;
   const observed = rowCount - column.nullCount;
-  if (isNumericType(column.dataType)) return observed > 0;
-  if (isTextType(column.dataType)) return column.uniqueCount < observed;
-  return false;
+  if (isNumericType(column.dataType)) return observed > 0 && column.median !== null;
+  if (!isTextType(column.dataType)) return false;
+  return (
+    column.uniqueCount < observed
+    && column.uniqueCount <= MAX_CATEGORY_VALUES
+    && column.uniqueCount / Math.max(observed, 1) <= MAX_CATEGORY_SHARE
+    && (column.averageLength ?? 0) <= MAX_CATEGORY_LENGTH
+  );
+}
+
+/**
+ * A text column the engine can type without losing anything (RV18 / FUN-07):
+ * every value is a number and it is not a key or personal data. Rust checks
+ * it again (and skips leading-zero codes) before converting.
+ */
+function isTypeable(column: ColumnProfile): boolean {
+  return (
+    column.name !== ROW_AUDIT_COLUMN
+    && isTextType(column.dataType)
+    && (column.suggestedType === "integer" || column.suggestedType === "decimal")
+    && column.invalidTypeCount === 0
+    && !column.privacySignal
+    && !looksLikeIdentifier(column.name)
+  );
+}
+
+function imputeTitle(total: number, columnCount: number): string {
+  return `Rellenar ${plural(total, "valor vacío", "valores vacíos")} en ${plural(columnCount, "columna", "columnas")}`;
+}
+
+function filledCells(column: ProposalColumn, includeSentinels: boolean): number {
+  return column.missing + (includeSentinels ? column.sentinels : 0);
 }
 
 function trimExamples(dataset: DatasetPreview): ProposalExample[] {
@@ -82,6 +146,21 @@ export function buildPrepareProposal(profile: DatasetProfile, dataset: DatasetPr
     });
   }
 
+  const typeable = columns.filter(isTypeable);
+  if (typeable.length > 0) {
+    items.push({
+      id: "types",
+      title: `Convertir ${plural(typeable.length, "columna", "columnas")} a número`,
+      hint: "Todos sus valores son números; así se suman, ordenan y exportan como números. Los identificadores no se tocan.",
+      columns: typeable.map((column) => ({ name: column.name, missing: 0, sentinels: 0 })),
+      examples: typeable.slice(0, MAX_EXAMPLES).map((column) => ({
+        column: column.name,
+        before: "Texto",
+        after: column.suggestedType === "integer" ? "Entero" : "Decimal",
+      })),
+    });
+  }
+
   if (profile.duplicateRowCount > 0) {
     items.push({
       id: "duplicates",
@@ -93,18 +172,28 @@ export function buildPrepareProposal(profile: DatasetProfile, dataset: DatasetPr
 
   const imputable = columns.filter((column) => isImputable(column, profile.rowCount));
   if (imputable.length > 0) {
-    const total = imputable.reduce((sum, column) => sum + column.nullCount, 0);
+    const imputeColumns = imputable.map((column) => ({
+      name: column.name,
+      missing: column.nullCount,
+      sentinels: column.sentinelCount ?? 0,
+    }));
+    const convertsSentinels = items.some((item) => item.id === "sentinels");
+    const total = imputeColumns.reduce((sum, column) => sum + filledCells(column, convertsSentinels), 0);
     items.push({
       id: "impute",
-      title: `Rellenar ${plural(total, "valor vacío", "valores vacíos")} en ${plural(imputable.length, "columna", "columnas")}`,
-      hint: "Mediana en números y valor más frecuente en texto.",
-      examples: imputable.slice(0, MAX_EXAMPLES).map((column) => ({
-        column: column.name,
-        before: null,
-        after: isNumericType(column.dataType) && column.median !== null
-          ? `mediana (${formatDecimal(column.median, Number.isInteger(column.median) ? 0 : 2)})`
-          : "valor más frecuente",
-      })),
+      title: imputeTitle(total, imputeColumns.length),
+      hint: "Solo huecos pequeños en números y categorías; nunca identificadores, nombres, fechas ni texto libre.",
+      columns: imputeColumns,
+      examples: imputable.slice(0, MAX_EXAMPLES).map((column, index) => {
+        const cells = plural(filledCells(imputeColumns[index], convertsSentinels), "celda", "celdas");
+        return {
+          column: column.name,
+          before: null,
+          after: isNumericType(column.dataType) && column.median !== null
+            ? `mediana (${formatDecimal(column.median, Number.isInteger(column.median) ? 0 : 2)}) · ${cells}`
+            : `valor más frecuente · ${cells}`,
+        };
+      }),
     });
   }
 
@@ -116,9 +205,19 @@ export function defaultProposalSelection(items: ProposalItem[]): ProposalSelecti
   return {
     sentinels: present.has("sentinels"),
     trim: present.has("trim"),
+    // Typing changes no value, only how it is stored.
+    types: present.has("types"),
     duplicates: present.has("duplicates"),
-    impute: present.has("impute"),
+    // Filling gaps invents values: the person opts in explicitly.
+    impute: false,
   };
+}
+
+/** The title shown for an item; imputation counts follow the current selection (FUN-06). */
+export function proposalItemTitle(item: ProposalItem, selection: ProposalSelection): string {
+  if (item.id !== "impute" || !item.columns) return item.title;
+  const total = item.columns.reduce((sum, column) => sum + filledCells(column, selection.sentinels), 0);
+  return imputeTitle(total, item.columns.length);
 }
 
 export function selectedProposalCount(items: ProposalItem[], selection: ProposalSelection): number {
@@ -137,6 +236,8 @@ export function proposalOptions(
     normalizeColumnNames,
     removeDuplicates: on("duplicates"),
     imputeMissing: on("impute"),
+    ...(on("types") ? { castColumns: items.find((item) => item.id === "types")?.columns?.map((column) => column.name) ?? [] } : {}),
+    ...(on("impute") ? { imputeColumns: items.find((item) => item.id === "impute")?.columns?.map((column) => column.name) ?? [] } : {}),
   };
 }
 

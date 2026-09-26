@@ -224,3 +224,95 @@ pub(super) async fn preview_delimited_header_review_impl(
         )
     })?
 }
+
+/// Replaces the pending selection with a UTF-8 copy of a Windows-1252 file,
+/// only after the person approved it (RV20 / FUN-02). The copy keeps the
+/// original file name, so the dataset still shows it, and the original file is
+/// never modified.
+pub(super) async fn convert_dataset_selection_encoding_impl(
+    app: AppHandle,
+    selection_id: String,
+) -> Result<DatasetSourceInspection, String> {
+    let pending = {
+        let state = app.state::<DatasetState>();
+        let selection = state.pending_selection.lock_recovering();
+        let pending = selection
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
+        if pending.id != selection_id {
+            return Err("La selección no coincide con el archivo pendiente.".to_owned());
+        }
+        pending
+    };
+    let (path, file_size_bytes, extension) = validate_dataset_file(&pending.path)?;
+    if file_size_bytes != pending.file_size_bytes {
+        return Err("El archivo cambió después de seleccionarlo; vuelve a elegirlo.".to_owned());
+    }
+    if !matches!(extension.as_str(), "csv" | "tsv" | "txt") {
+        return Err("Solo los archivos delimitados se pueden convertir a UTF-8.".to_owned());
+    }
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("dataset.csv")
+        .to_owned();
+
+    // Like the schema preview, the conversion is its own load step: the
+    // selection's generation may already be superseded by that preview.
+    let generation = app.state::<DatasetState>().begin_load()?;
+    let conversion_app = app.clone();
+    let conversion_name = file_name.clone();
+    let (directory, converted, converted_size) = tauri::async_runtime::spawn_blocking(move || {
+        let state = conversion_app.state::<DatasetState>();
+        let directory = tempfile::Builder::new()
+            .prefix(CONVERTED_SOURCE_PREFIX)
+            .tempdir()
+            .map_err(|error| format!("No se pudo preparar la copia convertida: {error}"))?;
+        let converted = directory.path().join(&conversion_name);
+        let bytes =
+            convert_windows_1252_file(&path, &converted, &|| state.load_was_cancelled(generation))?;
+        Ok::<_, String>((directory, converted, bytes))
+    })
+    .await
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La conversión a UTF-8 se interrumpió", &error)
+    })??;
+
+    let state = app.state::<DatasetState>();
+    state.commit_load(generation, || {
+        let current = state.current.lock_recovering();
+        let mut selection = state.pending_selection.lock_recovering();
+        let pending = selection
+            .as_mut()
+            .filter(|pending| pending.id == selection_id)
+            .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
+        pending.path = converted.clone();
+        pending.file_size_bytes = converted_size;
+        // The selection now belongs to this load step, so the header review
+        // that follows is not treated as a superseded request.
+        pending.generation = generation;
+        let active_source = current
+            .as_ref()
+            .and_then(|dataset| dataset.source_path.clone());
+        let mut converted_sources = state.converted_sources.lock_recovering();
+        converted_sources.retain(|kept| {
+            active_source
+                .as_deref()
+                .is_some_and(|source| source.starts_with(kept.path()))
+        });
+        converted_sources.push(directory);
+        Ok(())
+    })?;
+
+    Ok(DatasetSourceInspection {
+        selection_id,
+        file_name,
+        file_size_bytes: converted_size,
+        format: if extension == "tsv" { "tsv" } else { "csv" },
+        sheets: Vec::new(),
+        default_sheet_id: None,
+        is_compressed_container: false,
+        resource_estimate: dataset_resource_estimate(&extension, converted_size),
+    })
+}

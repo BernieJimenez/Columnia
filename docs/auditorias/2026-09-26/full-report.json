@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 1,
+  "project": "Columnia",
+  "projectVersion": "1.26.0",
+  "profile": "Full",
+  "status": "passed",
+  "startedAt": "2026-09-26T14:46:14.8864315+00:00",
+  "finishedAt": "2026-09-26T14:54:26.0607810+00:00",
+  "durationMs": 491172,
+  "git": {
+    "commit": "5a3524408304072544e05fa810ef35c870a1bfbb",
+    "branch": "master",
+    "dirty": false
+  },
+  "tools": {
+    "powershell": "7.6.6",
+    "node": "v24.14.0",
+    "npm": "11.10.1",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)"
+  },
+  "environment": {
+    "operatingSystem": "Microsoft Windows 10.0.26200",
+    "architecture": "x64"
+  },
+  "lockfiles": {
+    "packageLock": {
+      "status": "available",
+      "sha256": "f05fc5a9758660e78f9744800ab486c7bb3c47f79b830e70c8a8efbc8f48e21a"
+    },
+    "cargoLock": {
+      "status": "available",
+      "sha256": "a2908cceeadcb86f2d0c33d48db63a57f2be5e34774b720ffee210a1d311697f"
+    }
+  },
+  "sbom": {
+    "status": "not-requested",
+    "path": null,
+    "sha256": null,
+    "componentCount": null
+  },
+  "frontendBundle": {
+    "status": "passed",
+    "path": ".local/validation/20260926T144614Z-5a35244-frontend-bundle.json",
+    "sha256": "1ca77a20ab71a8c654363d6147d4c3722cb8e57da19406c6230d0902c09b9a79",
+    "fileCount": 7,
+    "totals": {
+      "rawBytes": 803409,
+      "gzipBytes": 196897
+    },
+    "limits": {
+      "javascript": {
+        "rawBytesPerFile": 524288,
+        "gzipBytesPerFile": 163840
+      },
+      "css": {
+        "rawBytesPerFile": 131072,
+        "gzipBytesPerFile": 40960
+      },
+      "total": {
+        "rawBytes": 819200,
+        "gzipBytes": 245760
+      }
+    }
+  },
+  "packageArtifacts": {
+    "status": "not-requested",
+    "path": null,
+    "sha256": null,
+    "artifactCount": null,
+    "artifacts": []
+  },
+  "steps": [
+    {
+      "label": "Documentation",
+      "status": "passed",
+      "durationMs": 104,
+      "error": null
+    },
+    {
+      "label": "Beta gate evidence validator contract",
+      "status": "passed",
+      "durationMs": 507,
+      "error": null
+    },
+    {
+      "label": "Retired brand scan",
+      "status": "passed",
+      "durationMs": 269,
+      "error": null
+    },
+    {
+      "label": "IPC inventory",
+      "status": "passed",
+      "durationMs": 58,
+      "error": null
+    },
+    {
+      "label": "Toolchains",
+      "status": "passed",
+      "durationMs": 456,
+      "error": null
+    },
+    {
+      "label": "Repository governance",
+      "status": "passed",
+      "durationMs": 62,
+      "error": null
+    },
+    {
+      "label": "Legal distribution technical gate",
+      "status": "passed",
+      "durationMs": 55,
+      "error": null
+    },
+    {
+      "label": "Rust format",
+      "status": "passed",
+      "durationMs": 1415,
+      "error": null
+    },
+    {
+      "label": "Rust check",
+      "status": "passed",
+      "durationMs": 11624,
+      "error": null
+    },
+    {
+      "label": "Frontend lint",
+      "status": "passed",
+      "durationMs": 612,
+      "error": null
+    },
+    {
+      "label": "Frontend tests",
+      "status": "passed",
+      "durationMs": 96032,
+      "error": null
+    },
+    {
+      "label": "Frontend coverage",
+      "status": "passed",
+      "durationMs": 119258,
+      "error": null
+    },
+    {
+      "label": "Frontend build",
+      "status": "passed",
+      "durationMs": 1943,
+      "error": null
+    },
+    {
+      "label": "Frontend bundle budget",
+      "status": "passed",
+      "durationMs": 91,
+      "error": null
+    },
+    {
+      "label": "Rust clippy",
+      "status": "passed",
+      "durationMs": 1482,
+      "error": null
+    },
+    {
+      "label": "Rust tests",
+      "status": "passed",
+      "durationMs": 96455,
+      "error": null
+    },
+    {
+      "label": "Secrets scan",
+      "status": "passed",
+      "durationMs": 1060,
+      "error": null
+    },
+    {
+      "label": "Network policy",
+      "status": "passed",
+      "durationMs": 95,
+      "error": null
+    },
+    {
+      "label": "Rust coverage baseline",
+      "status": "passed",
+      "durationMs": 139073,
+      "error": null
+    },
+    {
+      "label": "End-to-end tests",
+      "status": "passed",
+      "durationMs": 19754,
+      "error": null
+    }
+  ],
+  "error": null
+}

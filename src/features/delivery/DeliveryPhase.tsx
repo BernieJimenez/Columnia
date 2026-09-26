@@ -2064,7 +2064,7 @@ export function DeliveryPhase({
             <div>
               <dt>Preparación incluida</dt>
               <dd>{preparationChanges.length > 0
-                ? `${preparationChanges.length.toLocaleString()} cambios del historial activo`
+                ? `${preparationChanges.length.toLocaleString()} ${preparationChanges.length === 1 ? "cambio" : "cambios"} del historial activo`
                 : "Dataset activo sin cambios registrados en el historial"}</dd>
             </div>
             <div>

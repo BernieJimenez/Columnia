@@ -72,6 +72,7 @@ import {
   clearDatasetComparison,
   discardDatasetSelection,
   getAppInfo,
+  getSessionStatus,
   getDatasetPage,
   inspectDroppedDataset as inspectDroppedDatasetSource,
   inspectSampleDataset,
@@ -79,6 +80,7 @@ import {
   listSampleDatasets,
   loadDatasetSelection,
   pickDatasetSource,
+  convertDatasetSelectionEncoding,
   previewDelimitedHeaderReview,
   previewDatasetSelection,
   type AppInfo,
@@ -171,6 +173,8 @@ export function App() {
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>({ kind: "empty" });
   const [performanceProfile, setPerformanceProfile] = useState<PerformanceProfile>(readPerformanceProfile);
   const [activePhase, setActivePhase] = useState<WorkflowPhase>("load");
+  const [encodingConversionPending, setEncodingConversionPending] = useState(false);
+  const [previousExitUnclean, setPreviousExitUnclean] = useState(false);
   const [prepareFocusTarget, setPrepareFocusTarget] = useState<QualityActionTarget | null>(null);
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
   const [workbookInspectionCancellationPending, setWorkbookInspectionCancellationPending] = useState(false);
@@ -374,6 +378,19 @@ export function App() {
   useEffect(() => {
     if (status.kind !== "ready") return;
     let active = true;
+    // DAT-01: a failed query only means no notice; it never blocks Cargar.
+    Promise.resolve()
+      .then(() => getSessionStatus())
+      .then((session) => active && setPreviousExitUnclean(session.previousExitUnclean))
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [status.kind]);
+
+  useEffect(() => {
+    if (status.kind !== "ready") return;
+    let active = true;
     listSampleDatasets()
       .then((samples) => active && setSampleDatasets(samples))
       .catch(() => active && setSampleDatasets([]));
@@ -428,6 +445,32 @@ export function App() {
           ? setLoadInspectionError(current, message)
           : current,
       );
+    }
+  }
+
+  /** RV20: the person approved reading a Windows-1252 file through a UTF-8 copy. */
+  async function convertSelectionEncoding() {
+    if (loadInspection.kind !== "sheet" || encodingConversionPending) return;
+    const source = loadInspection.source;
+    schemaPreviewRequestRef.current += 1;
+    setEncodingConversionPending(true);
+    try {
+      const converted = await convertDatasetSelectionEncoding(source.selectionId);
+      setLoadInspection((current) =>
+        current.kind === "sheet" && current.source.selectionId === source.selectionId
+          ? beginDelimitedHeaderReview({ ...current, source: converted, schemaPreview: null, schemaPreviewError: null })
+          : current,
+      );
+      void requestDelimitedHeaderReview(converted);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setLoadInspection((current) =>
+        current.kind === "sheet" && current.source.selectionId === source.selectionId
+          ? setLoadInspectionError(current, message)
+          : current,
+      );
+    } finally {
+      setEncodingConversionPending(false);
     }
   }
 
@@ -1252,6 +1295,10 @@ export function App() {
                 onRemoveRecent={(id) => setRecentDatasets((current) => removeRecentDataset(current, id))}
                 onSheetAction={handleSheetSelection}
                 onRetryHeaderPreview={retryDelimitedHeaderReview}
+                onConvertEncoding={() => void convertSelectionEncoding()}
+                previousExitUnclean={previousExitUnclean}
+                onDismissPreviousExit={() => setPreviousExitUnclean(false)}
+                encodingConversionPending={encodingConversionPending}
                 onProfileReviewAction={handleProfileReviewAction}
                 onResourcePreflightAction={handleResourcePreflightAction}
                 onSchemaMismatchAction={handleSchemaMismatchAction}

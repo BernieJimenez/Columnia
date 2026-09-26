@@ -286,7 +286,7 @@ Cada revisión reversible de la sesión se guarda como snapshot Parquet en un di
 - `publish_candidate` prepara la vista previa y registra el historial antes de sustituir el `DataFrame` activo;
 - la exportación escribe y sincroniza un temporal antes de reemplazar el destino.
 
-Los proyectos guardan el frame materializado como una nueva generación Parquet y actualizan después el puntero SQLite dentro de una transacción. El esquema SQLite v15 conserva reglas de calidad, borrador opcional de receta, perfil cacheado, historial con su cursor, actividad SQL agregada, vista y etapa de Revisar, página visible de la muestra del workspace, motor SQL elegido, cobertura de filas de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN; migra catálogos v1–v14 y crea un índice parcial por `last_opened_at` para seleccionar el candidato de recuperación. El historial durable mantiene los mismos límites de 12 revisiones y 1 GiB; la actividad SQL conserva como máximo cinco estados, duraciones y conteos de filas, sin consultas, rutas ni valores; la vista solo admite `diagnosis` y `preview` y vuelve a Diagnóstico cuando falta; la etapa solo admite `load`, `review`, `prepare` y `deliver` y vuelve a Revisar cuando falta; el motor SQL solo admite `polars` o `duckdb` y vuelve a la preferencia local cuando falta; el perfil de rendimiento solo admite `conservative`, `balanced` o `maximum` y vuelve a la preferencia local cuando falta; el formato, la protección y el JOIN usan listas cerradas y vuelven a sus valores locales cuando faltan; las claves se validan sin duplicados y se filtran contra el esquema restaurado; el offset de página se valida contra el snapshot y vuelve a cero si ya no representa una página real. Abrir valida todos los artefactos antes de sustituir el dataset activo y copia el perfil, historial y actividad guardados a estructuras temporales de sesión; una corrupción hace fallar la apertura completa. La recuperación es explícita desde Cargar y no abre datos silenciosamente.
+Los proyectos guardan el frame materializado como una nueva generación Parquet y actualizan después el puntero SQLite dentro de una transacción. El esquema SQLite v15 conserva reglas de calidad, borrador opcional de receta, perfil cacheado, historial con su cursor, actividad SQL agregada, vista y etapa de Revisar, página visible de la muestra del workspace, motor SQL elegido, cobertura de filas de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN; migra catálogos v1–v14 y crea un índice parcial por `last_opened_at` para seleccionar el candidato de recuperación. El historial durable mantiene los mismos límites de 12 revisiones y 1 GiB; la actividad SQL conserva como máximo cinco estados, duraciones y conteos de filas, sin consultas, rutas ni valores; la vista solo admite `diagnosis` y `preview` y vuelve a Diagnóstico cuando falta; la etapa solo admite `load`, `review`, `prepare` y `deliver` y vuelve a Revisar cuando falta; el motor SQL solo admite `polars` o `duckdb` y vuelve a la preferencia local cuando falta; el perfil de rendimiento solo admite `conservative`, `balanced` o `maximum` y vuelve a la preferencia local cuando falta; el formato, la protección y el JOIN usan listas cerradas y vuelven a sus valores locales cuando faltan; las claves se validan sin duplicados y se filtran contra el esquema restaurado; el offset de página se valida contra el snapshot y vuelve a cero si ya no representa una página real. Abrir valida todos los artefactos antes de sustituir el dataset activo y copia el perfil, historial y actividad guardados a estructuras temporales de sesión; una corrupción hace fallar la apertura completa. La recuperación es explícita desde Cargar y no abre datos silenciosamente. `session_guard.rs` escribe `session.active` en la carpeta de datos al arrancar y lo borra en la salida normal (`RunEvent::Exit`); si al arrancar sigue ahí, `get_session_status` informa de un cierre inesperado y Cargar lo avisa y abre «Continuar un proyecto».
 
 ## Contrato React ↔ Rust
 
@@ -340,7 +340,7 @@ Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o
 - Parquet.
 - Excel y ODS mediante XLSX, XLS, XLSB y ODS.
 - Selección de hoja y modo de encabezado para libros.
-- UTF-8 estricto con BOM opcional.
+- UTF-8 estricto con BOM opcional; los fines de línea solo-CR se detectan en la muestra y se leen con `eol_char = \r` sin reescribir el archivo. Si el archivo no es UTF-8, Rust devuelve `LEGACY_ENCODING_PREFIX` con una línea de ejemplo decodificada como Windows-1252 y Cargar propone «Convertir y continuar»; solo tras ese clic `convert_dataset_selection_encoding` escribe una copia UTF-8 privada con el mismo nombre, la selección pasa a apuntarla y el original no se toca. Las copias viven en `DatasetState::converted_sources` mientras el dataset activo o la selección las usen; al arrancar se borran las carpetas `columnia-utf8-*` que dejó un cierre forzado.
 - Detección conservadora de coma, punto y coma, tabulador o `|`; TSV fuerza tabulador.
 
 CSV y otros formatos delimitados se conservan físicamente como texto para no inventar un esquema. El perfil puede detectar semántica numérica segura sin convertir identificadores con ceros iniciales o enteros que perderían precisión. Parquet conserva su esquema nativo compatible.
@@ -360,7 +360,7 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
 - eliminación de duplicados;
 - normalización determinista de encabezados;
 - recorte y normalización de texto;
-- correcciones recomendadas agrupadas;
+- correcciones recomendadas agrupadas; su propuesta de un clic solo rellena huecos de hasta el 5 % en columnas numéricas o categóricas cortas, nunca identificadores, datos personales, fechas ni texto libre, llega desmarcada y envía a Rust la lista exacta de columnas (`imputeColumns`), de modo que lo anunciado coincide con lo aplicado; también propone, marcada, tipar como número las columnas de texto 100 % numéricas que no son claves ni datos personales (`castColumns`), y Rust solo las convierte si ningún valor se pierde (sin inválidos ni códigos con ceros a la izquierda);
 - renombres, casts estrictos y parseo de fechas;
 - hasta tres filtros AND y una columna calculada;
 - buscar/reemplazar literal y selección/reordenamiento de columnas;
@@ -396,7 +396,7 @@ Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, 
 
 ### Entrega
 
-- exportación atómica a CSV, JSON, Parquet, SQL, Excel y SQLite, con neutralización de fórmulas de texto en CSV; el bundle ZIP auditable añade `recipe.json` validada cuando existe un borrador y la referencia/hash correspondiente en `manifest.json`;
+- exportación atómica a CSV, JSON, Parquet, SQL, Excel y SQLite, con neutralización de fórmulas de texto en CSV (sin tocar números completos); el XLSX sustituye por `U+FFFD` los caracteres prohibidos en XML 1.0 y rechaza más de 1.048.575 filas de datos o celdas de más de 32.767 caracteres; el bundle ZIP auditable añade `recipe.json` validada cuando existe un borrador y la referencia/hash correspondiente en `manifest.json`;
 - contratos de hasta 16 reglas base y avanzadas: `allowed_values`, `regex`, `dtype`,
   unicidad compuesta, comparación, referencias, monotonía, agregados, drift,
   fechas, condiciones, esquema y conteo de filas;
@@ -564,7 +564,7 @@ Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
 12. **Estado envenenable** (2026-09-23, mitigado en T10-15): los mutex de estado
     se toman con `lock_recovering()` (`crash_report.rs`), que recupera el último
     valor publicado tras un pánico, y un hook escribe en `crash-reports/` un
-    informe mínimo (versión, fecha, archivo:línea; nunca el mensaje). Decisión:
+    informe mínimo (versión, fecha, `crate-versión/ruta:línea` sin carpetas del usuario; nunca el mensaje). Decisión:
     se prefiere recuperar el último estado publicado a bloquear la sesión, porque
     las operaciones publican de forma atómica; la alternativa descartada era
     invalidar el dataset activo y perder el trabajo en memoria.

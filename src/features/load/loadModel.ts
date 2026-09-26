@@ -284,3 +284,14 @@ export function clearLoadInspectionError(current: LoadInspectionState): LoadInsp
   if (current.kind === "sheet") return { ...current, error: null };
   return current.kind === "error" ? { kind: "idle" } : current;
 }
+
+/** Mirrors LEGACY_ENCODING_PREFIX in Rust: a delimited file that reads as Windows-1252. */
+export const LEGACY_ENCODING_PREFIX = "__columnia_legacy_encoding__:windows-1252:";
+
+/**
+ * The decoded example that follows the prefix ("" when the engine found the
+ * byte after the sample), or null when the message is an ordinary error.
+ */
+export function legacyEncodingExample(message: string | null | undefined): string | null {
+  return message?.startsWith(LEGACY_ENCODING_PREFIX) ? message.slice(LEGACY_ENCODING_PREFIX.length) : null;
+}

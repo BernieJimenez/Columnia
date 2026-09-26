@@ -293,7 +293,7 @@ capa Rust.
 Los contratos se cubren por capas:
 
 - `npm run test` valida la UI y los modelos TypeScript.
-- `cargo test --manifest-path src-tauri/Cargo.toml --lib` valida el motor nativo.
+- `$env:COLUMNIA_TEST_HARNESS_MANIFEST = "1"; cargo test --manifest-path src-tauri/Cargo.toml --lib` valida el motor nativo (en Windows, sin esa variable el binario de pruebas no arranca: `STATUS_ENTRYPOINT_NOT_FOUND`).
 - `npm run build` valida tipos y bundle de producción.
 - `npm run docs:check` valida enlaces, versiones y ownership documental.
 - `npm run brand:check` evita que regresen referencias de marca retiradas al árbol activo.

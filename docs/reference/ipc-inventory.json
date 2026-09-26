@@ -21,6 +21,7 @@
     "src-tauri/src/updater.rs",
     "src-tauri/src/remote_databases.rs",
     "src-tauri/src/delivery_presets.rs",
+    "src-tauri/src/session_guard.rs",
     "src/bridge.ts",
     "src/bridge/client.ts",
     "src/bridge/contracts.ts",
@@ -89,6 +90,16 @@
     {
       "name": "inspect_workbook_sheets",
       "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "convert_dataset_selection_encoding",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "get_session_status",
+      "module": "session_guard",
       "debug": false
     },
     {
@@ -769,6 +780,10 @@
     {
       "rust": "DiagnosticMetrics",
       "typescript": "DiagnosticMetrics"
+    },
+    {
+      "rust": "SessionStatus",
+      "typescript": "SessionStatus"
     }
   ]
 }

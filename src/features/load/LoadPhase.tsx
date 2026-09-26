@@ -20,6 +20,7 @@ import type {
   ImportProfileMismatch,
   SampleDatasetDescriptor,
 } from "../../bridge";
+import { legacyEncodingExample } from "./loadModel";
 import { DATE_CONVENTIONS, NUMBER_CONVENTIONS } from "./importProfile";
 import {
   formatRecentDatasetDate,
@@ -54,6 +55,12 @@ interface LoadPhaseProps {
   onRemoveRecent: (id: string) => void;
   onSheetAction: (action: SheetSelectionAction) => void;
   onRetryHeaderPreview?: () => void;
+  /** Approves reading a Windows-1252 file through a UTF-8 copy (RV20). */
+  onConvertEncoding?: () => void;
+  encodingConversionPending?: boolean;
+  /** DAT-01: the previous session ended without a normal exit. */
+  previousExitUnclean?: boolean;
+  onDismissPreviousExit?: () => void;
   onProfileReviewAction?: (action: ProfileReviewAction) => void;
   onResourcePreflightAction?: (action: ResourcePreflightAction) => void;
   onSchemaMismatchAction?: (action: SchemaMismatchAction) => void;
@@ -80,6 +87,10 @@ export function LoadPhase({
   onRemoveRecent,
   onSheetAction,
   onRetryHeaderPreview = () => undefined,
+  onConvertEncoding = () => undefined,
+  encodingConversionPending = false,
+  previousExitUnclean = false,
+  onDismissPreviousExit = () => undefined,
   onProfileReviewAction = () => undefined,
   onResourcePreflightAction = () => undefined,
   onSchemaMismatchAction = () => undefined,
@@ -130,6 +141,14 @@ export function LoadPhase({
         </div>
         {current && selectionAction}
       </header>
+
+      {previousExitUnclean && !current && (
+        <section className="notice" aria-labelledby="previous-exit-title">
+          <h3 id="previous-exit-title">La sesión anterior se cerró de forma inesperada</h3>
+          <p>Los cambios que no estaban guardados en un proyecto no se conservaron. Si guardaste uno, puedes recuperarlo en «Continuar un proyecto».</p>
+          <button type="button" className="secondary-action" onClick={onDismissPreviousExit}>Entendido</button>
+        </section>
+      )}
 
       {current && runtime.kind === "connected" && (
         <p className="load-drop-hint" role="note">
@@ -472,7 +491,7 @@ export function LoadPhase({
                 {sheetSelection.headerReviewLoading && (
                   <p role="status">Preparando una muestra local de hasta 64 KiB…</p>
                 )}
-                {sheetSelection.error && (
+                {sheetSelection.error && legacyEncodingExample(sheetSelection.error) === null && (
                   <p className="notice notice--error" role="alert">No se pudo previsualizar el archivo: {sheetSelection.error}</p>
                 )}
                 {sheetSelection.headerReview && (
@@ -496,9 +515,26 @@ export function LoadPhase({
             {sheetSelection.schemaPreviewLoading && (
               <p role="status">Leyendo la estructura para mostrar columnas y tipos; el dataset actual permanece intacto…</p>
             )}
-            {sheetSelection.schemaPreviewError && (
+            {sheetSelection.schemaPreviewError && legacyEncodingExample(sheetSelection.schemaPreviewError) === null && (
               <p className="notice notice--error" role="alert">No se pudo revisar el esquema: {sheetSelection.schemaPreviewError}</p>
             )}
+            {(() => {
+              const example = legacyEncodingExample(sheetSelection.error) ?? legacyEncodingExample(sheetSelection.schemaPreviewError);
+              if (example === null) return null;
+              return (
+                <section className="notice" aria-labelledby="legacy-encoding-title">
+                  <h4 id="legacy-encoding-title">Leer como Excel para Windows</h4>
+                  <p>
+                    El archivo usa la codificación de Excel para Windows (Windows-1252).
+                    {example && <> Así se leerá: «{example}».</>}
+                  </p>
+                  <p>Columnia lee una copia convertida a UTF-8; el original no cambia.</p>
+                  <button type="button" className="primary-action" onClick={onConvertEncoding} disabled={encodingConversionPending}>
+                    {encodingConversionPending ? "Convirtiendo…" : "Convertir y continuar"}
+                  </button>
+                </section>
+              );
+            })()}
             {sheetSelection.schemaPreview && (
               <section className="sheet-import-summary sheet-import-summary--nested" aria-labelledby="schema-preview-title" aria-live="polite">
                 <h4 id="schema-preview-title" className="visually-hidden">Esquema detectado antes de importar</h4>
@@ -634,19 +670,19 @@ export function LoadPhase({
           </details>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => onSheetAction({ kind: "cancelled" })}>Cancelar</button>
-            {isDelimitedSelection && sheetSelection.error && (
+            {isDelimitedSelection && sheetSelection.error && legacyEncodingExample(sheetSelection.error) === null && (
               <button
                 type="button"
                 className="secondary-action"
                 onClick={onRetryHeaderPreview}
-                disabled={sheetSelection.schemaPreviewLoading === true}
+                disabled={encodingConversionPending || sheetSelection.schemaPreviewLoading === true}
               >Reintentar muestra</button>
             )}
             <button
               type="button"
               className="primary-action"
               onClick={() => onSheetAction({ kind: "confirmed" })}
-              disabled={sheetSelection.schemaPreviewLoading === true || (sheetSelection.source.format === "excel"
+              disabled={encodingConversionPending || sheetSelection.schemaPreviewLoading === true || (sheetSelection.source.format === "excel"
                 ? !sheetSelection.selectedSheetId
                 : isDelimitedSelection
                   ? sheetSelection.headerReviewLoading === true || !sheetSelection.headerReview
@@ -669,7 +705,7 @@ export function LoadPhase({
         </p>
       )}
       {children && (
-        <details className="load-secondary">
+        <details className="load-secondary" open={previousExitUnclean && !current ? true : undefined}>
           <summary>
             <span>Continuar un proyecto</span>
             <small>Guardar o retomar un espacio de trabajo</small>

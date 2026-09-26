@@ -1711,6 +1711,10 @@ struct ReviewComparisonSnapshot {
 pub struct DatasetState {
     current: Mutex<Option<LoadedDataset>>,
     pending_selection: Mutex<Option<PendingSelection>>,
+    /// UTF-8 copies of Windows-1252 files the person approved converting
+    /// (RV20). Source-backed datasets keep reading them, so a copy lives until
+    /// neither the active dataset nor the pending selection points into it.
+    converted_sources: Mutex<Vec<tempfile::TempDir>>,
     pending_drop: Mutex<Option<PathBuf>>,
     comparison: Mutex<Option<PendingComparison>>,
     last_export_path: Mutex<Option<PathBuf>>,
@@ -5293,6 +5297,34 @@ fn source_backed_safe_corrections(
     )
 }
 
+/// History label that says which corrections a plan applied (UX-01), in
+/// the order the engine applies them.
+fn safe_corrections_label(
+    trim_text: bool,
+    normalize_sentinels: bool,
+    normalize_column_names: bool,
+    remove_duplicates: bool,
+    cast_columns: bool,
+    impute_missing: bool,
+) -> String {
+    let parts = [
+        (normalize_sentinels, "Marcadores «sin dato» a vacío"),
+        (trim_text, "Recortar espacios"),
+        (normalize_column_names, "Normalizar nombres de columna"),
+        (cast_columns, "Convertir a número"),
+        (remove_duplicates, "Quitar duplicados"),
+        (impute_missing, "Rellenar vacíos"),
+    ]
+    .into_iter()
+    .filter_map(|(applied, label)| applied.then_some(label))
+    .collect::<Vec<_>>();
+    if parts.is_empty() {
+        "Aplicar correcciones recomendadas".to_owned()
+    } else {
+        parts.join(" · ")
+    }
+}
+
 fn source_backed_safe_corrections_with_cancellation(
     dataset: &mut LoadedDataset,
     trim_text: bool,
@@ -5429,7 +5461,14 @@ fn source_backed_safe_corrections_with_cancellation(
         &source_path,
         source_format,
         &query,
-        "Aplicar correcciones recomendadas",
+        &safe_corrections_label(
+            trim_text,
+            normalize_sentinels,
+            normalize_column_names,
+            remove_duplicates,
+            false,
+            false,
+        ),
         force_publish,
         cancellation.clone(),
     )?
@@ -5445,6 +5484,57 @@ fn source_backed_safe_corrections_with_cancellation(
         renames,
         imputed_cell_count: 0,
     }))
+}
+
+/// Types the listed text columns only when every non-empty value is a number
+/// (RV18 / FUN-07). Unlike `cast_inferred_numeric_columns` nothing becomes
+/// null: a column with one non-numeric value or a leading-zero code is kept.
+fn cast_fully_numeric_columns(frame: &DataFrame, columns: &[String]) -> Result<DataFrame, String> {
+    let mut cast = frame.clone();
+    for name in columns {
+        let Ok(column) = frame.column(name) else {
+            continue;
+        };
+        if column.dtype() != &DataType::String || privacy_signal(name) == Some("identifier") {
+            continue;
+        }
+        let values = column
+            .str()
+            .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
+        let present = values.iter().flatten().map(str::trim).collect::<Vec<_>>();
+        if present.is_empty()
+            || present
+                .iter()
+                .any(|value| value.is_empty() || leading_zero_code(value))
+        {
+            continue;
+        }
+        let converted = if present.iter().all(|value| value.parse::<i64>().is_ok()) {
+            Column::new(
+                name.as_str().into(),
+                values
+                    .iter()
+                    .map(|value| value.and_then(|value| value.trim().parse::<i64>().ok()))
+                    .collect::<Vec<_>>(),
+            )
+        } else if present
+            .iter()
+            .all(|value| value.parse::<f64>().is_ok_and(f64::is_finite))
+        {
+            Column::new(
+                name.as_str().into(),
+                values
+                    .iter()
+                    .map(|value| value.and_then(|value| value.trim().parse::<f64>().ok()))
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            continue;
+        };
+        cast.replace(name, converted)
+            .map_err(|error| format!("No se pudo convertir la columna '{name}': {error}"))?;
+    }
+    Ok(cast)
 }
 
 fn leading_zero_code(value: &str) -> bool {
@@ -5817,6 +5907,15 @@ fn parse_inferred_date_columns(
 fn impute_missing_values_in_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
+    impute_missing_values_in_columns(frame, None)
+}
+
+/// Median/mode imputation. `columns` limits it to the listed names; the
+/// one-click proposal always passes the columns it announced (RV17).
+fn impute_missing_values_in_columns(
+    frame: &DataFrame,
+    columns: Option<&[String]>,
+) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
     let mut cleaned = frame.clone();
     let mut changed_rows = vec![false; frame.height()];
     let mut changed_cell_count = 0;
@@ -5825,6 +5924,9 @@ fn impute_missing_values_in_frame(
     for column in frame.columns() {
         let name = column.name().to_string();
         if name == "_cambios" || column.null_count() == 0 {
+            continue;
+        }
+        if columns.is_some_and(|listed| !listed.iter().any(|listed| listed == &name)) {
             continue;
         }
 
@@ -6288,6 +6390,8 @@ pub(super) struct SafeCorrectionPlanFrame {
 
 /// Safe corrections plus the optional conservative imputation, as one candidate
 /// so the whole plan is published and undone as a single revision.
+// Mirrors the apply_safe_corrections IPC options one to one.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn safe_corrected_plan_frame(
     frame: &DataFrame,
     trim_text: bool,
@@ -6295,6 +6399,8 @@ pub(super) fn safe_corrected_plan_frame(
     normalize_sentinels: bool,
     remove_duplicates: bool,
     impute_missing: bool,
+    impute_columns: Option<&[String]>,
+    cast_columns: Option<&[String]>,
 ) -> Result<SafeCorrectionPlanFrame, String> {
     let (corrected, mut affected_row_count, changed_cell_count, removed_row_count, renames) =
         safe_corrected_frame(
@@ -6304,8 +6410,26 @@ pub(super) fn safe_corrected_plan_frame(
             normalize_sentinels,
             remove_duplicates,
         )?;
+    // The lists use the names the person saw; follow this plan's renames.
+    let renamed = |listed: &[String]| {
+        listed
+            .iter()
+            .map(|name| {
+                renames
+                    .iter()
+                    .find(|rename| &rename.from == name)
+                    .map_or_else(|| name.clone(), |rename| rename.to.clone())
+            })
+            .collect::<Vec<_>>()
+    };
+    let corrected = match cast_columns {
+        Some(listed) => cast_fully_numeric_columns(&corrected, &renamed(listed))?,
+        None => corrected,
+    };
     let (frame, imputed_cell_count) = if impute_missing {
-        let (imputed, imputed_rows, imputed_cells, _) = impute_missing_values_in_frame(&corrected)?;
+        let renamed_columns = impute_columns.map(renamed);
+        let (imputed, imputed_rows, imputed_cells, _) =
+            impute_missing_values_in_columns(&corrected, renamed_columns.as_deref())?;
         affected_row_count = affected_row_count.max(imputed_rows);
         (imputed, imputed_cells)
     } else {
@@ -6426,19 +6550,163 @@ where
     let complete = file_size <= bytes.len() as u64;
 
     let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
+    // Every consumer of the sample splits records on \n: a file that ends its
+    // lines with \r only (RV20 / FUN-01) is normalized here, in memory.
+    let normalize = |sample: &str| {
+        if uses_carriage_return_line_endings(sample.as_bytes()) {
+            sample.replace('\r', "\n")
+        } else {
+            sample.to_owned()
+        }
+    };
     match std::str::from_utf8(bytes) {
-        Ok(sample) => Ok((sample.to_owned(), complete)),
+        Ok(sample) => Ok((normalize(sample), complete)),
         Err(error) if !complete && error.error_len().is_none() => {
             // La muestra puede terminar a mitad de un carácter UTF-8. Solo se
             // descarta esa cola incompleta; un byte inválido interior se rechaza.
             let valid = &bytes[..error.valid_up_to()];
-            Ok((std::str::from_utf8(valid).unwrap_or_default().to_owned(), false))
+            Ok((
+                normalize(std::str::from_utf8(valid).unwrap_or_default()),
+                false,
+            ))
         }
-        Err(_) => Err(
-            "El archivo delimitado no contiene UTF-8 válido. Columnia no sustituye caracteres ni aplica codificaciones heredadas automáticamente."
-                .to_owned(),
-        ),
+        Err(_) => Err(format!(
+            "{LEGACY_ENCODING_PREFIX}{}",
+            windows_1252_example(bytes)
+        )),
     }
+}
+
+/// Structured error for a delimited file that is not UTF-8 but reads as
+/// Windows-1252 (Excel for Windows). The UI strips the prefix, shows the
+/// decoded example that follows it, and proposes a converted copy (RV20 /
+/// FUN-02). Columnia never converts without that approval.
+pub(crate) const LEGACY_ENCODING_PREFIX: &str = "__columnia_legacy_encoding__:windows-1252:";
+
+/// Windows-1252 bytes 0x80-0x9F; the rest of the range matches Latin-1.
+const WINDOWS_1252_HIGH: [char; 32] = [
+    '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8D}', 'Ž', '\u{8F}',
+    '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9D}', 'ž', 'Ÿ',
+];
+
+fn decode_windows_1252(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|&byte| match byte {
+            0x80..=0x9F => WINDOWS_1252_HIGH[usize::from(byte - 0x80)],
+            _ => char::from(byte),
+        })
+        .collect()
+}
+
+/// The first line with a non-ASCII byte, decoded, so the person can check the
+/// conversion before approving it.
+fn windows_1252_example(bytes: &[u8]) -> String {
+    let line = bytes
+        .split(|byte| matches!(byte, b'\n' | b'\r'))
+        .find(|line| line.iter().any(|byte| *byte >= 0x80))
+        .unwrap_or_default();
+    decode_windows_1252(line).trim().chars().take(120).collect()
+}
+
+/// Maps the engines' UTF-8 failures (Polars, DuckDB) found after the sample
+/// to the structured error, so the late case offers the same conversion.
+pub(crate) fn legacy_encoding_error(message: String) -> String {
+    if message.starts_with(LEGACY_ENCODING_PREFIX) {
+        return message;
+    }
+    let lower = message.to_lowercase();
+    if lower.contains("utf-8") || lower.contains("utf8") || lower.contains("invalid unicode") {
+        LEGACY_ENCODING_PREFIX.to_owned()
+    } else {
+        message
+    }
+}
+
+/// Writes a UTF-8 copy of a Windows-1252 file. Single-byte decoding, so the
+/// file is converted in fixed blocks without holding it in memory.
+pub(super) fn convert_windows_1252_file<C>(
+    source: &Path,
+    destination: &Path,
+    is_cancelled: &C,
+) -> Result<u64, String>
+where
+    C: Fn() -> bool + ?Sized,
+{
+    use std::io::Write;
+    ensure_not_cancelled(is_cancelled())?;
+    let mut input = fs::File::open(source)
+        .map_err(|error| format!("No se pudo abrir el archivo para convertirlo: {error}"))?;
+    let mut output = std::io::BufWriter::new(
+        fs::File::create(destination)
+            .map_err(|error| format!("No se pudo crear la copia convertida: {error}"))?,
+    );
+    let mut buffer = vec![0_u8; 1024 * 1024];
+    let mut written = 0_u64;
+    loop {
+        ensure_not_cancelled(is_cancelled())?;
+        let read = input
+            .read(&mut buffer)
+            .map_err(|error| format!("No se pudo leer el archivo para convertirlo: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        let text = decode_windows_1252(&buffer[..read]);
+        output
+            .write_all(text.as_bytes())
+            .map_err(|error| format!("No se pudo escribir la copia convertida: {error}"))?;
+        written += text.len() as u64;
+    }
+    let file = output
+        .into_inner()
+        .map_err(|error| format!("No se pudo cerrar la copia convertida: {error}"))?;
+    file.sync_all()
+        .map_err(|error| format!("No se pudo sincronizar la copia convertida: {error}"))?;
+    Ok(written)
+}
+
+/// Prefix of the temp folders that hold approved UTF-8 copies (RV20).
+pub(crate) const CONVERTED_SOURCE_PREFIX: &str = "columnia-utf8-";
+
+/// Removes UTF-8 copies left by a forced close, which skips `TempDir`
+/// cleanup and would keep copies of the person's data in the temp folder.
+/// Safe at startup: the single-instance plugin guarantees no other Columnia
+/// process is using them. Returns how many folders were removed.
+pub fn remove_stale_converted_sources(temp_directory: &Path) -> usize {
+    let Ok(entries) = fs::read_dir(temp_directory) else {
+        return 0;
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry.file_type().is_ok_and(|kind| kind.is_dir())
+                && entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with(CONVERTED_SOURCE_PREFIX))
+        })
+        .filter(|entry| fs::remove_dir_all(entry.path()).is_ok())
+        .count()
+}
+
+/// «CSV (Macintosh)» and old exports end lines with \r only: the sample has
+/// carriage returns and no line feed at all.
+fn uses_carriage_return_line_endings(sample: &[u8]) -> bool {
+    sample.contains(&b'\r') && !sample.contains(&b'\n')
+}
+
+fn delimited_line_terminator(path: &Path) -> Result<u8, String> {
+    let mut sample = Vec::with_capacity(DELIMITED_SAMPLE_BYTES as usize);
+    fs::File::open(path)
+        .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))?
+        .take(DELIMITED_SAMPLE_BYTES)
+        .read_to_end(&mut sample)
+        .map_err(|error| format!("No se pudo inspeccionar el archivo delimitado: {error}"))?;
+    Ok(if uses_carriage_return_line_endings(&sample) {
+        b'\r'
+    } else {
+        b'\n'
+    })
 }
 
 fn delimited_field_counts(sample: &str, delimiter: char, complete: bool) -> Vec<usize> {
@@ -6632,6 +6900,7 @@ fn delimited_scan_with_separator(
     separator: u8,
     has_header: bool,
 ) -> Result<LazyFrame, String> {
+    let line_terminator = delimited_line_terminator(path)?;
     let source = PlRefPath::try_from_path(path)
         .map_err(|error| format!("No se pudo preparar el lector delimitado: {error}"))?;
     LazyCsvReader::new(source)
@@ -6640,6 +6909,7 @@ fn delimited_scan_with_separator(
         .with_low_memory(true)
         .with_rechunk(false)
         .with_separator(separator)
+        .with_eol_char(line_terminator)
         .finish()
         .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))
 }
@@ -6651,6 +6921,7 @@ fn read_delimited_frame(path: &Path, extension: &str) -> Result<DataFrame, Strin
         plan,
         "No se pudo interpretar el archivo delimitado como UTF-8",
     )
+    .map_err(legacy_encoding_error)
 }
 
 fn read_delimited_frame_with_header_and_cancel<C>(
@@ -6669,6 +6940,7 @@ where
         "No se pudo interpretar el archivo delimitado como UTF-8",
         &is_cancelled,
     )
+    .map_err(legacy_encoding_error)
 }
 
 fn parquet_scan(path: &Path) -> Result<LazyFrame, String> {
@@ -7738,6 +8010,16 @@ pub async fn inspect_dropped_dataset(
     import_source_inspection::inspect_dropped_dataset_impl(app).await
 }
 
+/// Converts the pending Windows-1252 selection into a private UTF-8 copy.
+/// Only called after the person approves the proposal in Cargar.
+#[tauri::command]
+pub async fn convert_dataset_selection_encoding(
+    app: AppHandle,
+    selection_id: String,
+) -> Result<DatasetSourceInspection, String> {
+    import_source_inspection::convert_dataset_selection_encoding_impl(app, selection_id).await
+}
+
 #[tauri::command]
 pub async fn preview_delimited_header_review(
     app: AppHandle,
@@ -7773,6 +8055,7 @@ pub async fn preview_dataset_selection(
         number_convention,
     )
     .await
+    .map_err(legacy_encoding_error)
 }
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
@@ -7797,6 +8080,7 @@ pub async fn load_dataset_selection(
         on_progress,
     )
     .await
+    .map_err(legacy_encoding_error)
 }
 
 #[tauri::command]
@@ -10318,6 +10602,7 @@ pub async fn drop_outlier_values(app: AppHandle) -> Result<TextCleaningResult, S
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn apply_safe_corrections(
     app: AppHandle,
     trim_text: bool,
@@ -10325,6 +10610,8 @@ pub async fn apply_safe_corrections(
     normalize_sentinels: Option<bool>,
     remove_duplicates: Option<bool>,
     impute_missing: Option<bool>,
+    impute_columns: Option<Vec<String>>,
+    cast_columns: Option<Vec<String>>,
 ) -> Result<SafeCorrectionsResult, String> {
     let normalize_sentinels = normalize_sentinels.unwrap_or(false);
     let remove_duplicates = remove_duplicates.unwrap_or(false);
@@ -10368,6 +10655,8 @@ pub async fn apply_safe_corrections(
             normalize_sentinels,
             remove_duplicates,
             impute_missing,
+            impute_columns.as_deref(),
+            cast_columns.as_deref(),
         )?;
         cancellation.ensure()?;
         let renamed_column_count = renames.len();
@@ -10380,7 +10669,16 @@ pub async fn apply_safe_corrections(
             publish_candidate_with_cancellation(
                 dataset,
                 candidate,
-                "Aplicar correcciones recomendadas",
+                &safe_corrections_label(
+                    trim_text,
+                    normalize_sentinels,
+                    normalize_column_names,
+                    remove_duplicates,
+                    cast_columns
+                        .as_ref()
+                        .is_some_and(|listed| !listed.is_empty()),
+                    impute_missing,
+                ),
                 Some(&cancellation),
             )?
         } else {

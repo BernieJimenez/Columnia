@@ -426,4 +426,8 @@ export interface SafeCorrectionOptions {
   removeDuplicates: boolean;
   /** Conservative imputation (median/mode) in the same revision. */
   imputeMissing?: boolean;
+  /** Columns the imputation may fill; omitted means every imputable column. */
+  imputeColumns?: string[];
+  /** Fully numeric text columns to type (RV18); the engine skips any that is not. */
+  castColumns?: string[];
 }

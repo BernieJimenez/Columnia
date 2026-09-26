@@ -6,10 +6,16 @@ import type {
   ResourceUsage,
   PerformanceProfile,
   PerformanceSettings,
+  SessionStatus,
 } from "./contracts";
 
 export function getAppInfo(): Promise<AppInfo> {
   return invoke<AppInfo>("get_app_info");
+}
+
+/** DAT-01: tells Cargar whether the previous session was closed abruptly. */
+export function getSessionStatus(): Promise<SessionStatus> {
+  return invoke<SessionStatus>("get_session_status");
 }
 
 export function checkForUpdate(): Promise<UpdateInfo | null> {

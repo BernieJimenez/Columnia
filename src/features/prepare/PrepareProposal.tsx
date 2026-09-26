@@ -6,6 +6,7 @@ import { MissingValue } from "../../components/MissingValue";
 import {
   applyLabel,
   defaultProposalSelection,
+  proposalItemTitle,
   proposalOptions,
   selectedProposalCount,
   type ProposalItem,
@@ -32,6 +33,7 @@ interface PrepareProposalProps {
 const STEP_QUESTIONS: Record<ProposalItemId, { question: string; yes: string; no: string }> = {
   sentinels: { question: "¿Convertimos los marcadores de «sin dato» en vacíos reales?", yes: "Sí, convertir", no: "No, dejarlos como texto" },
   trim: { question: "¿Recortamos los espacios sobrantes del texto?", yes: "Sí, recortar", no: "No, dejarlos" },
+  types: { question: "¿Convertimos a número las columnas que solo tienen números?", yes: "Sí, convertir", no: "No, dejarlas como texto" },
   duplicates: { question: "¿Quitamos las filas duplicadas?", yes: "Sí, quitarlas", no: "No, pueden ser registros distintos" },
   impute: { question: "¿Rellenamos los valores vacíos?", yes: "Sí, rellenar", no: "No, dejarlos vacíos" },
 };
@@ -111,7 +113,7 @@ export function PrepareProposal({
     const question = current
       ? STEP_QUESTIONS[current.id]
       : { question: `¿Normalizamos los nombres de las ${columnCount} columnas?`, yes: "Sí, normalizar", no: "No, dejarlos" };
-    const hint = current ? `${current.title}. ${current.hint}` : "Minúsculas y sin espacios. Puede afectar consultas e integraciones.";
+    const hint = current ? `${proposalItemTitle(current, selection)}. ${current.hint}` : "Minúsculas y sin espacios. Puede afectar consultas e integraciones.";
     const value = current ? selection[current.id] : normalizeNames;
     const choose = (next: boolean) => {
       if (current) setSelection((previous) => ({ ...previous, [current.id]: next }));
@@ -204,7 +206,7 @@ export function PrepareProposal({
                   aria-describedby={`prepare-hint-${item.id}`}
                   onChange={(event) => setSelection((previous) => ({ ...previous, [item.id]: event.target.checked }))}
                 />
-                <label htmlFor={`prepare-item-${item.id}`}>{item.title}</label>
+                <label htmlFor={`prepare-item-${item.id}`}>{proposalItemTitle(item, selection)}</label>
               </div>
               <p id={`prepare-hint-${item.id}`} className="prepare-proposal__hint">{item.hint}</p>
             </li>
@@ -231,7 +233,7 @@ export function PrepareProposal({
                 <tbody>
                   {beforeAfter.map(({ item, example }, index) => (
                     <tr key={`${item.id}-${example.column}-${index}`}>
-                      <td>{item.title}</td>
+                      <td>{proposalItemTitle(item, selection)}</td>
                       <th scope="row">{example.column}</th>
                       <td className="prepare-proposal__before">
                         {example.before === null ? <MissingValue /> : <CellText value={example.before} />}

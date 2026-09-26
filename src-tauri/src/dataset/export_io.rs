@@ -291,8 +291,59 @@ where
     Ok(())
 }
 
+/// Excel limits (RV19 / FUN-05): a sheet beyond them does not open.
+const EXCEL_MAX_DATA_ROWS: usize = 1_048_575;
+const EXCEL_MAX_CELL_CHARS: usize = 32_767;
+
+/// XML 1.0 forbids most control characters; one of them made the whole sheet
+/// unreadable. They become U+FFFD so the gap stays visible.
+fn xml_safe_text(value: &str) -> std::borrow::Cow<'_, str> {
+    let forbidden = |character: char| {
+        (character < ' ' && !matches!(character, '\t' | '\n' | '\r'))
+            || matches!(character, '\u{FFFE}' | '\u{FFFF}')
+    };
+    if value.chars().any(forbidden) {
+        std::borrow::Cow::Owned(
+            value
+                .chars()
+                .map(|character| {
+                    if forbidden(character) {
+                        '\u{FFFD}'
+                    } else {
+                        character
+                    }
+                })
+                .collect(),
+        )
+    } else {
+        std::borrow::Cow::Borrowed(value)
+    }
+}
+
+fn ensure_excel_row_count(data_rows: usize) -> Result<(), String> {
+    if data_rows > EXCEL_MAX_DATA_ROWS {
+        return Err(format!(
+            "Excel admite como máximo 1.048.575 filas de datos por hoja y este dataset tiene {data_rows}. Exporta a CSV o Parquet para conservar todas las filas."
+        ));
+    }
+    Ok(())
+}
+
+fn excel_text_cell(reference: &str, value: &str) -> Result<String, String> {
+    let length = value.chars().count();
+    if length > EXCEL_MAX_CELL_CHARS {
+        return Err(format!(
+            "La celda {reference} tiene {length} caracteres y Excel admite como máximo 32.767 por celda. Exporta a CSV o Parquet para conservar el texto completo."
+        ));
+    }
+    Ok(format!(
+        "<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{}</t></is></c>",
+        xml_escape(value)
+    ))
+}
+
 pub(super) fn xml_escape(value: &str) -> String {
-    value
+    xml_safe_text(value)
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -341,18 +392,9 @@ pub(super) fn xlsx_cell(
         AnyValue::Float32(_) | AnyValue::Float64(_) => {
             return Err("Excel no puede representar valores numéricos no finitos.".to_owned());
         }
-        AnyValue::String(value) => format!(
-            "<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{}</t></is></c>",
-            xml_escape(value)
-        ),
-        AnyValue::StringOwned(value) => format!(
-            "<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{}</t></is></c>",
-            xml_escape(value.as_str())
-        ),
-        value => format!(
-            "<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{}</t></is></c>",
-            xml_escape(&value.to_string())
-        ),
+        AnyValue::String(value) => excel_text_cell(&reference, value)?,
+        AnyValue::StringOwned(value) => excel_text_cell(&reference, value.as_str())?,
+        value => excel_text_cell(&reference, &value.to_string())?,
     };
     Ok(cell)
 }
@@ -405,10 +447,7 @@ pub(super) fn xlsx_source_cell(
             return Ok(format!("<c r=\"{reference}\" t=\"b\"><v>0</v></c>"));
         }
     }
-    Ok(format!(
-        "<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{}</t></is></c>",
-        xml_escape(value)
-    ))
+    excel_text_cell(&reference, value)
 }
 
 pub(super) fn write_source_backed_xlsx<F, C>(
@@ -427,6 +466,7 @@ where
     if schema.width() == 0 {
         return Err("Excel requiere al menos una columna.".to_owned());
     }
+    ensure_excel_row_count(row_count)?;
     const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>"#;
     const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
     const WORKBOOK: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="dataset" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
@@ -637,6 +677,7 @@ where
     if frame.width() == 0 {
         return Err("Excel requiere al menos una columna.".to_owned());
     }
+    ensure_excel_row_count(frame.height())?;
     const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>"#;
     const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
     const WORKBOOK: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="dataset" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
