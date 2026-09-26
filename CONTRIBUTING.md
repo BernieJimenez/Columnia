@@ -45,6 +45,17 @@ Para cambios Rust, IPC, persistencia o seguridad ejecuta también:
 .\tools\check.ps1 -Profile Full
 ```
 
+Para ejecutar pruebas Rust sueltas (incluidas las `#[ignore]` que necesitan
+hardware o servidores ODBC reales), define antes la variable que incrusta el
+manifiesto de Common Controls en el binario de pruebas; sin ella, en Windows el
+binario termina con `STATUS_ENTRYPOINT_NOT_FOUND` antes de ejecutar nada:
+
+```powershell
+$env:COLUMNIA_TEST_HARNESS_MANIFEST = "1"
+cargo test --manifest-path src-tauri/Cargo.toml --lib <filtro>
+cargo test --manifest-path src-tauri/Cargo.toml --lib <filtro> -- --ignored
+```
+
 `Full` también ejecuta los E2E, el escaneo de secretos, la política de red y una
 línea base de cobertura Rust por módulo. Esta última necesita `cargo-llvm-cov`:
 

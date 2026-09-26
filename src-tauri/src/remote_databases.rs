@@ -1922,7 +1922,8 @@ mod tests {
     }
 
     /// Manual check against an unroutable address; needs an installed SQL
-    /// Server ODBC driver: `cargo test --lib unreachable_server -- --ignored`.
+    /// Server ODBC driver (PowerShell, from `src-tauri`):
+    /// `$env:COLUMNIA_TEST_HARNESS_MANIFEST = "1"; cargo test --lib unreachable_server -- --ignored`.
     #[test]
     #[ignore = "requiere un controlador ODBC de SQL Server instalado"]
     fn unreachable_server_fails_within_the_login_timeout() {
