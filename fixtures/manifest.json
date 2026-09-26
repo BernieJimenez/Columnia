@@ -31,6 +31,7 @@
     "incremental/paths-v1.json",
     "performance/dataset-scale-matrix-v1.json",
     "performance/performance-baseline-v1.json",
+    "roundtrip/ventas-mac-windows-1252.csv",
     "updater/key-policy-v1.json"
   ]
 }

@@ -17290,6 +17290,112 @@ fn safe_correction_plan_can_include_conservative_imputation() {
     );
 }
 
+/// RV21 / QA-02: round-trip invariants over a synthetic fixture that joins
+/// the traits of the 2026-09-26 audit (CR line endings, Windows-1252, a key
+/// with gaps, negatives, a leading-zero code, a formula, a control character
+/// and a duplicate row). Each assertion names the finding it guards.
+#[test]
+fn roundtrip_invariants_hold_for_a_mac_windows_1252_sales_file() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../fixtures/roundtrip/ventas-mac-windows-1252.csv");
+    let original = fs::read(&fixture).expect("la fixture existe");
+
+    // FUN-01 + FUN-02: the review proposes a conversion with a decoded example.
+    let error = delimited_header_review(&fixture, "csv").expect_err("no es UTF-8");
+    assert_eq!(
+        error.strip_prefix(LEGACY_ENCODING_PREFIX),
+        Some("Factura,Código,Descripción,Cantidad,Precio,ClienteID,País")
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let converted = directory.path().join("ventas.csv");
+    convert_windows_1252_file(&fixture, &converted, &|| false).expect("conversión");
+    assert_eq!(
+        fs::read(&fixture).unwrap(),
+        original,
+        "el original no cambia"
+    );
+    let (frame, _) = load_dataset_with_header_mode(
+        &converted,
+        SpreadsheetHeaderMode::FirstRow,
+        |_, _| {},
+        || false,
+    )
+    .expect("la copia UTF-8 con CR carga");
+    assert_eq!(frame.height(), 9, "FUN-01: las 9 filas, no una sola línea");
+
+    // The one-click plan with what the proposal model sends for this file.
+    let cast = ["Cantidad".to_owned(), "Precio".to_owned()];
+    let plan = safe_corrected_plan_frame(&frame, true, false, true, true, false, None, Some(&cast))
+        .expect("plan");
+    let prepared = plan.frame;
+    assert_eq!(prepared.height(), 8, "se quita la fila duplicada");
+    assert_eq!(
+        prepared.column("Cantidad").unwrap().dtype(),
+        &DataType::Int64,
+        "FUN-07"
+    );
+    assert_eq!(
+        prepared.column("Precio").unwrap().dtype(),
+        &DataType::Float64,
+        "FUN-07"
+    );
+    assert_eq!(
+        prepared.column("Código").unwrap().dtype(),
+        &DataType::String,
+        "ceros a la izquierda"
+    );
+    assert_eq!(
+        prepared.column("ClienteID").unwrap().null_count(),
+        3,
+        "FUN-03: no se inventan claves"
+    );
+
+    // CSV: numbers stay numbers, formulas stay inert (FUN-04).
+    let csv = directory.path().join("ventas.out.csv");
+    export_frame_atomic(&prepared, &csv, ExportFormat::Csv, |_, _| {}, || false).unwrap();
+    let text = fs::read_to_string(&csv).unwrap();
+    assert!(
+        text.contains(",-1,") && text.contains("-11062.06"),
+        "negativos intactos"
+    );
+    assert!(!text.contains("'-"), "FUN-04: sin apóstrofo en números");
+    assert!(text.contains("'=1+1"), "la fórmula sigue neutralizada");
+    assert!(text.contains("00123") && text.contains("Año nuevo ñandú"));
+
+    // XLSX: valid XML that a reader opens, with the control character visible (FUN-05).
+    let xlsx = directory.path().join("ventas.xlsx");
+    export_frame_atomic(&prepared, &xlsx, ExportFormat::Excel, |_, _| {}, || false).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(&xlsx).unwrap()).unwrap();
+    let mut sheet = String::new();
+    archive
+        .by_name("xl/worksheets/sheet1.xml")
+        .unwrap()
+        .read_to_string(&mut sheet)
+        .unwrap();
+    assert!(!sheet
+        .chars()
+        .any(|character| character < ' ' && !matches!(character, '\t' | '\n' | '\r')));
+    assert!(sheet.contains("LÍNEA\u{FFFD}CONTROL"));
+    let mut workbook = open_workbook_auto(&xlsx).expect("el libro se abre");
+    let range = workbook.worksheet_range("dataset").expect("hoja dataset");
+    assert_eq!(range.height(), 9, "encabezado + 8 filas");
+
+    // SQL: typed columns reach the database as numbers (FUN-07).
+    let sql = directory.path().join("ventas.sql");
+    export_frame_atomic(&prepared, &sql, ExportFormat::Sql, |_, _| {}, || false).unwrap();
+    let script = fs::read_to_string(&sql).unwrap();
+    assert!(
+        script.contains("\"Cantidad\" BIGINT"),
+        "{}",
+        &script[..script.len().min(400)]
+    );
+    assert!(
+        script.contains("\"Precio\" DOUBLE"),
+        "{}",
+        &script[..script.len().min(400)]
+    );
+}
+
 #[test]
 fn safe_correction_history_labels_say_what_was_applied() {
     // UX-01: two entries both called «Aplicar correcciones recomendadas»
