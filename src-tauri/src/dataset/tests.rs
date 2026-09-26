@@ -8,11 +8,20 @@ use super::samples::{ensure_sample_dataset, list_sample_datasets};
 use super::*;
 use ::zip::ZipArchive;
 
-fn temporary_csv(contents: &str) -> PathBuf {
-    let nonce = SystemTime::now()
+/// Unique per process: the Windows clock is too coarse for nanosecond names
+/// alone, and two parallel tests could share (and overwrite) one temp file.
+fn unique_test_nonce() -> String {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("el reloj del sistema debe ser válido")
         .as_nanos();
+    let sequence = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("{nanos}-{sequence}")
+}
+
+fn temporary_csv(contents: &str) -> PathBuf {
+    let nonce = unique_test_nonce();
     let path = std::env::temp_dir().join(format!(
         "columnia-dataset-test-{}-{nonce}.csv",
         std::process::id()
@@ -618,10 +627,7 @@ fn loaded_dataset(path: PathBuf, frame: DataFrame) -> LoadedDataset {
 }
 
 fn temporary_delimited_bytes(extension: &str, contents: &[u8]) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("el reloj del sistema debe ser válido")
-        .as_nanos();
+    let nonce = unique_test_nonce();
     let path = std::env::temp_dir().join(format!(
         "columnia-delimited-test-{}-{nonce}.{extension}",
         std::process::id()
