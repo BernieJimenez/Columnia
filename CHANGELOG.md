@@ -129,6 +129,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- RV22 (DAT-01): si Columnia se cerró de forma inesperada (cierre forzado,
+  fallo o corte de luz), Cargar lo avisa al volver a abrir: los cambios que no
+  estaban guardados en un proyecto no se conservaron, y «Continuar un proyecto»
+  aparece abierto para recuperar el último guardado. Antes la pantalla era igual
+  que en una sesión normal y la pérdida pasaba desapercibida.
 - RV18 (FUN-07): la propuesta de Preparar ofrece «Convertir N columnas a
   número» para las columnas que solo contienen números (cantidades, precios),
   sin tocar identificadores, códigos con ceros a la izquierda ni datos

@@ -58,6 +58,9 @@ interface LoadPhaseProps {
   /** Approves reading a Windows-1252 file through a UTF-8 copy (RV20). */
   onConvertEncoding?: () => void;
   encodingConversionPending?: boolean;
+  /** DAT-01: the previous session ended without a normal exit. */
+  previousExitUnclean?: boolean;
+  onDismissPreviousExit?: () => void;
   onProfileReviewAction?: (action: ProfileReviewAction) => void;
   onResourcePreflightAction?: (action: ResourcePreflightAction) => void;
   onSchemaMismatchAction?: (action: SchemaMismatchAction) => void;
@@ -86,6 +89,8 @@ export function LoadPhase({
   onRetryHeaderPreview = () => undefined,
   onConvertEncoding = () => undefined,
   encodingConversionPending = false,
+  previousExitUnclean = false,
+  onDismissPreviousExit = () => undefined,
   onProfileReviewAction = () => undefined,
   onResourcePreflightAction = () => undefined,
   onSchemaMismatchAction = () => undefined,
@@ -136,6 +141,14 @@ export function LoadPhase({
         </div>
         {current && selectionAction}
       </header>
+
+      {previousExitUnclean && !current && (
+        <section className="notice" aria-labelledby="previous-exit-title">
+          <h3 id="previous-exit-title">La sesión anterior se cerró de forma inesperada</h3>
+          <p>Los cambios que no estaban guardados en un proyecto no se conservaron. Si guardaste uno, puedes recuperarlo en «Continuar un proyecto».</p>
+          <button type="button" className="secondary-action" onClick={onDismissPreviousExit}>Entendido</button>
+        </section>
+      )}
 
       {current && runtime.kind === "connected" && (
         <p className="load-drop-hint" role="note">
@@ -692,7 +705,7 @@ export function LoadPhase({
         </p>
       )}
       {children && (
-        <details className="load-secondary">
+        <details className="load-secondary" open={previousExitUnclean && !current ? true : undefined}>
           <summary>
             <span>Continuar un proyecto</span>
             <small>Guardar o retomar un espacio de trabajo</small>

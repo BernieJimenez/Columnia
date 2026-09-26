@@ -65,7 +65,7 @@ de supply chain verifica checksums y fuentes. Las versiones declaradas son:
 | `npm run network:check` | Aprobado | Sin APIs de red/telemetría en producción; CSP solo deja IPC interno |
 | `npm run notices:check` | Aprobado; 999 identidades de dependencia sin `UNKNOWN`, sin filas duplicadas | `THIRD_PARTY_NOTICES.md` se deriva offline de ambos lockfiles y rechaza licencias desconocidas, contradictorias o incompletas |
 | `npm run toolchains:check` | Aprobado; Node 24.14.0, npm 11.10.1 y Rust/Cargo 1.98.1 | Las versiones exactas están fijadas en `package.json` y `rust-toolchain.toml` |
-| `npm run ipc:check` | Aprobado; 86 comandos de producción, 4 debug y 70 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](docs/reference/ipc-inventory.json); incluye tareas reutilizables, catálogo de proyectos/candidato de recuperación combinado, preflight/presets de entrega, inspección de libros en dos pasos y updater autenticado |
+| `npm run ipc:check` | Aprobado; 87 comandos de producción, 4 debug y 71 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](docs/reference/ipc-inventory.json); incluye tareas reutilizables, catálogo de proyectos/candidato de recuperación combinado, preflight/presets de entrega, inspección de libros en dos pasos y updater autenticado |
 
 Las excepciones de `cargo audit`/`cargo deny` no ocultan una vulnerabilidad de
 la aplicación: están limitadas a advisories transitivos con razón, versión y

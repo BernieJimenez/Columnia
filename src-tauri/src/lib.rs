@@ -16,6 +16,7 @@ mod remote_databases;
 mod remote_delivery_ledger;
 mod resource;
 mod reusable_tasks;
+mod session_guard;
 #[cfg(desktop)]
 mod updater;
 
@@ -137,6 +138,7 @@ pub fn run() {
                 .app_data_dir()
                 .map_err(Box::<dyn std::error::Error>::from)?;
             crash_report::install(&app_data_dir);
+            app.manage(session_guard::SessionGuard::begin(&app_data_dir));
             dataset::remove_stale_converted_sources(&std::env::temp_dir());
             let projects = projects::ProjectState::initialize(app_data_dir.clone())
                 .map_err(std::io::Error::other)?;
@@ -173,6 +175,7 @@ pub fn run() {
             dataset::inspect_dropped_dataset,
             dataset::inspect_workbook_sheets,
             dataset::convert_dataset_selection_encoding,
+            session_guard::get_session_status,
             dataset::preview_delimited_header_review,
             dataset::preview_dataset_selection,
             dataset::load_dataset_selection,
@@ -261,8 +264,16 @@ pub fn run() {
             delivery_presets::save_delivery_preset,
             delivery_presets::delete_delivery_preset,
         ])
-        .run(tauri::generate_context!())
-        .expect("Columnia no pudo iniciar el runtime de escritorio");
+        .build(tauri::generate_context!())
+        .expect("Columnia no pudo iniciar el runtime de escritorio")
+        .run(|app, event| {
+            // A normal exit clears the session marker (DAT-01).
+            if let tauri::RunEvent::Exit = event {
+                if let Some(guard) = app.try_state::<session_guard::SessionGuard>() {
+                    guard.end();
+                }
+            }
+        });
 }
 
 #[cfg(test)]

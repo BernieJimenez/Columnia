@@ -1,3 +1,8 @@
+/** DAT-01: whether the previous session ended without a normal exit. */
+export interface SessionStatus {
+  previousExitUnclean: boolean;
+}
+
 export interface AppInfo {
   name: string;
   version: string;

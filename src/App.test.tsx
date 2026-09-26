@@ -651,6 +651,29 @@ describe("App", () => {
     expect(await within(importDialog).findByRole("button", { name: "Revisar esquema" })).toBeEnabled();
   });
 
+  it("avisa en Cargar si la sesión anterior se cerró de forma inesperada (DAT-01)", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    const status = vi.spyOn(bridge, "getSessionStatus").mockResolvedValue({ previousExitUnclean: true });
+
+    const { unmount } = render(<App />);
+    const notice = await screen.findByRole("region", { name: "La sesión anterior se cerró de forma inesperada" });
+    expect(notice).toHaveTextContent("no estaban guardados en un proyecto");
+    const projects = screen.getByText("Continuar un proyecto").closest("details");
+    expect(projects).toHaveAttribute("open");
+    fireEvent.click(within(notice).getByRole("button", { name: "Entendido" }));
+    expect(screen.queryByRole("region", { name: "La sesión anterior se cerró de forma inesperada" })).not.toBeInTheDocument();
+    unmount();
+
+    status.mockResolvedValue({ previousExitUnclean: false });
+    render(<App />);
+    await screen.findByRole("button", { name: "Seleccionar dataset" });
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("region", { name: "La sesión anterior se cerró de forma inesperada" })).not.toBeInTheDocument();
+  });
+
   it("restaura el estado vacío si la carga falla con un error nativo no tipado", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({

@@ -72,6 +72,7 @@ import {
   clearDatasetComparison,
   discardDatasetSelection,
   getAppInfo,
+  getSessionStatus,
   getDatasetPage,
   inspectDroppedDataset as inspectDroppedDatasetSource,
   inspectSampleDataset,
@@ -173,6 +174,7 @@ export function App() {
   const [performanceProfile, setPerformanceProfile] = useState<PerformanceProfile>(readPerformanceProfile);
   const [activePhase, setActivePhase] = useState<WorkflowPhase>("load");
   const [encodingConversionPending, setEncodingConversionPending] = useState(false);
+  const [previousExitUnclean, setPreviousExitUnclean] = useState(false);
   const [prepareFocusTarget, setPrepareFocusTarget] = useState<QualityActionTarget | null>(null);
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
   const [workbookInspectionCancellationPending, setWorkbookInspectionCancellationPending] = useState(false);
@@ -372,6 +374,19 @@ export function App() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (status.kind !== "ready") return;
+    let active = true;
+    // DAT-01: a failed query only means no notice; it never blocks Cargar.
+    Promise.resolve()
+      .then(() => getSessionStatus())
+      .then((session) => active && setPreviousExitUnclean(session.previousExitUnclean))
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [status.kind]);
 
   useEffect(() => {
     if (status.kind !== "ready") return;
@@ -1281,6 +1296,8 @@ export function App() {
                 onSheetAction={handleSheetSelection}
                 onRetryHeaderPreview={retryDelimitedHeaderReview}
                 onConvertEncoding={() => void convertSelectionEncoding()}
+                previousExitUnclean={previousExitUnclean}
+                onDismissPreviousExit={() => setPreviousExitUnclean(false)}
                 encodingConversionPending={encodingConversionPending}
                 onProfileReviewAction={handleProfileReviewAction}
                 onResourcePreflightAction={handleResourcePreflightAction}

@@ -26,6 +26,7 @@ const sourceFiles = [
   "src-tauri/src/updater.rs",
   "src-tauri/src/remote_databases.rs",
   "src-tauri/src/delivery_presets.rs",
+  "src-tauri/src/session_guard.rs",
   "src/bridge.ts",
   "src/bridge/client.ts",
   "src/bridge/contracts.ts",
@@ -123,6 +124,7 @@ const sharedStructures = [
   ["ProjectWorkspace", "ProjectWorkspace"],
   ["DiagnosticReport", "DiagnosticReport"],
   ["DiagnosticMetrics", "DiagnosticMetrics"],
+  ["SessionStatus", "SessionStatus"],
 ];
 
 function handlerEntries(source) {
@@ -188,7 +190,7 @@ try {
   if (comparable(current.sharedStructures) !== comparable(expected.sharedStructures)) {
     throw new Error("La lista de estructuras compartidas IPC cambió; actualiza el inventario y sus contratos.");
   }
-  if (current.productionCommands.length !== 86 || current.debugCommands.length !== 4) {
+  if (current.productionCommands.length !== 87 || current.debugCommands.length !== 4) {
     throw new Error(`Conteo IPC inesperado: ${current.productionCommands.length} producción, ${current.debugCommands.length} debug.`);
   }
   console.log(`Inventario IPC aprobado: ${current.productionCommands.length} comandos producción, ${current.debugCommands.length} debug, ${current.sharedStructures.length} estructuras.`);
