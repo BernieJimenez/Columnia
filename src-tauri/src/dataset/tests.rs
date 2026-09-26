@@ -11967,7 +11967,13 @@ fn rejects_invalid_utf8_instead_of_replacing_characters() {
     let error = load_dataset_with_progress(&path, |_, _| {}, || false)
         .expect_err("los bytes que no son UTF-8 deben rechazarse");
 
-    assert!(error.contains("UTF-8 válido"));
+    // Still rejected, never replaced silently; since RV20 the rejection is the
+    // structured Windows-1252 proposal with a decoded example.
+    assert_eq!(
+        error.strip_prefix(LEGACY_ENCODING_PREFIX),
+        Some("002,Bogotá"),
+        "{error}"
+    );
     fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
