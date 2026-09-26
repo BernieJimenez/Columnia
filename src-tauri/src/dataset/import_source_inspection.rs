@@ -266,7 +266,7 @@ pub(super) async fn convert_dataset_selection_encoding_impl(
     let (directory, converted, converted_size) = tauri::async_runtime::spawn_blocking(move || {
         let state = conversion_app.state::<DatasetState>();
         let directory = tempfile::Builder::new()
-            .prefix("columnia-utf8-")
+            .prefix(CONVERTED_SOURCE_PREFIX)
             .tempdir()
             .map_err(|error| format!("No se pudo preparar la copia convertida: {error}"))?;
         let converted = directory.path().join(&conversion_name);

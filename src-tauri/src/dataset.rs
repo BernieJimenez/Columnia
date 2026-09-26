@@ -6630,6 +6630,30 @@ where
     Ok(written)
 }
 
+/// Prefix of the temp folders that hold approved UTF-8 copies (RV20).
+pub(crate) const CONVERTED_SOURCE_PREFIX: &str = "columnia-utf8-";
+
+/// Removes UTF-8 copies left by a forced close, which skips `TempDir`
+/// cleanup and would keep copies of the person's data in the temp folder.
+/// Safe at startup: the single-instance plugin guarantees no other Columnia
+/// process is using them. Returns how many folders were removed.
+pub fn remove_stale_converted_sources(temp_directory: &Path) -> usize {
+    let Ok(entries) = fs::read_dir(temp_directory) else {
+        return 0;
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry.file_type().is_ok_and(|kind| kind.is_dir())
+                && entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with(CONVERTED_SOURCE_PREFIX))
+        })
+        .filter(|entry| fs::remove_dir_all(entry.path()).is_ok())
+        .count()
+}
+
 /// «CSV (Macintosh)» and old exports end lines with \r only: the sample has
 /// carriage returns and no line feed at all.
 fn uses_carriage_return_line_endings(sample: &[u8]) -> bool {

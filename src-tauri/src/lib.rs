@@ -137,6 +137,7 @@ pub fn run() {
                 .app_data_dir()
                 .map_err(Box::<dyn std::error::Error>::from)?;
             crash_report::install(&app_data_dir);
+            dataset::remove_stale_converted_sources(&std::env::temp_dir());
             let projects = projects::ProjectState::initialize(app_data_dir.clone())
                 .map_err(std::io::Error::other)?;
             app.manage(projects);

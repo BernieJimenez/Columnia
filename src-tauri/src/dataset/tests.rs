@@ -761,6 +761,31 @@ fn windows_1252_byte_after_the_sample_is_reported_with_the_same_prefix() {
 }
 
 #[test]
+fn stale_utf8_conversion_copies_are_removed_at_startup() {
+    // A forced close skips TempDir cleanup, leaving copies of the person's
+    // data in the temp folder; startup removes them (single instance).
+    let temp = tempfile::tempdir().unwrap();
+    for name in ["columnia-utf8-a1", "columnia-utf8-b2"] {
+        fs::create_dir(temp.path().join(name)).unwrap();
+        fs::write(temp.path().join(name).join("ventas.csv"), "datos").unwrap();
+    }
+    fs::create_dir(temp.path().join("otra-app-utf8")).unwrap();
+    fs::write(
+        temp.path().join("columnia-utf8-archivo.txt"),
+        "no es carpeta",
+    )
+    .unwrap();
+
+    assert_eq!(remove_stale_converted_sources(temp.path()), 2);
+    assert!(!temp.path().join("columnia-utf8-a1").exists());
+    assert!(
+        temp.path().join("otra-app-utf8").exists(),
+        "solo las carpetas propias"
+    );
+    assert!(temp.path().join("columnia-utf8-archivo.txt").exists());
+}
+
+#[test]
 fn windows_1252_conversion_writes_a_utf8_copy_that_loads_and_keeps_the_original() {
     let path = windows_1252_csv();
     let original = fs::read(&path).unwrap();
