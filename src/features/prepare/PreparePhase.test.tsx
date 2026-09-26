@@ -874,10 +874,15 @@ describe("PreparePhase", () => {
     expect(callbacks.onNormalizeText).toHaveBeenCalledWith(["nombre"], false);
     expect(screen.getByRole("heading", { name: "Columnia propone 4 cambios" })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Recortar espacios al inicio y al final del texto" })).toBeChecked();
-    const examplesToggle = screen.getAllByRole("button", { name: "Ver ejemplos" })[0];
-    fireEvent.click(examplesToggle);
-    expect(examplesToggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("list", { name: "Ejemplos: Recortar espacios al inicio y al final del texto" })).toHaveTextContent("·Ana·");
+    const beforeAfterToggle = screen.getByRole("button", { name: "Ver antes y después" });
+    fireEvent.click(beforeAfterToggle);
+    expect(beforeAfterToggle).toHaveAttribute("aria-expanded", "true");
+    const beforeAfter = screen.getByLabelText("Antes y después de los cambios marcados");
+    expect(within(beforeAfter).getByRole("row", { name: /Recortar espacios/ })).toHaveTextContent("·Ana·");
+    // Unchecking a change removes its rows from the comparison.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Recortar espacios al inicio y al final del texto" }));
+    expect(within(beforeAfter).queryByRole("row", { name: /Recortar espacios/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Recortar espacios al inicio y al final del texto" }));
     // Manual mode: one question per screen, then the optional column-name step.
     fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
     expect(screen.getByText("Paso 1 de 5")).toBeInTheDocument();

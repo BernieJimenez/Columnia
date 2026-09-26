@@ -3,7 +3,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../bridge";
-import type { DatabaseKind, DatasetPreview, RemoteExportPreflight, SavedRecipe } from "../../bridge";
+import type { DatabaseKind, DatasetPreview, QualityRule, RemoteExportPreflight, SavedRecipe } from "../../bridge";
 import { DeliveryPhase } from "./DeliveryPhase";
 import {
   INITIAL_DELIVERY_CONTRACT,
@@ -40,6 +40,7 @@ function DeliveryHarness({
   exportState = { kind: "idle" },
   onCancelExport = () => undefined,
   personalDataColumns = [],
+  suggestedRules = [],
 }: {
   onExport: (request: DeliveryExportRequest) => void;
   recipeDraft?: SavedRecipe | null;
@@ -48,6 +49,7 @@ function DeliveryHarness({
   exportState?: DeliveryExportState;
   onCancelExport?: () => void;
   personalDataColumns?: string[];
+  suggestedRules?: QualityRule[];
 }) {
   const [contract, setContract] = useState<DeliveryContractState>(initialContract);
   return (
@@ -61,9 +63,36 @@ function DeliveryHarness({
       onExport={onExport}
       onCancelExport={onCancelExport}
       personalDataColumns={personalDataColumns}
+      suggestedRules={suggestedRules}
     />
   );
 }
+
+describe("comprobaciones propuestas en Entregar", () => {
+  const suggestedRules: QualityRule[] = [
+    { column: "total", kind: "not_null", maxInvalid: 0 },
+    { column: "total", kind: "unique", maxInvalid: 0 },
+    { column: "estado", kind: "not_null", maxInvalid: 0 },
+  ];
+
+  it("usa las comprobaciones marcadas y valida antes de exportar", () => {
+    render(<DeliveryHarness onExport={vi.fn()} suggestedRules={suggestedRules} />);
+
+    const proposal = screen.getByRole("group", { name: "Columnia propone 3 comprobaciones" });
+    fireEvent.click(within(proposal).getByRole("checkbox", { name: /estado/ }));
+    fireEvent.click(within(proposal).getByRole("button", { name: "Usar estas 2 comprobaciones" }));
+
+    expect(screen.queryByRole("group", { name: /Columnia propone/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /^Validar calidad/ })).toBeChecked();
+    expect(screen.getByText("2 reglas se comprobarán antes de guardar la copia.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).toBeEnabled();
+  });
+
+  it("no propone nada cuando ya hay reglas o no hay sugerencias", () => {
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    expect(screen.queryByRole("group", { name: /Columnia propone/ })).not.toBeInTheDocument();
+  });
+});
 
 describe("señales de datos personales en Entregar", () => {
   it("lista las columnas detectadas y exige confirmar una exportación sin protección", () => {

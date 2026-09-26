@@ -40,6 +40,8 @@ function nullTotal(profile: DatasetProfile): number {
   return profile.columns.reduce((total, column) => total + column.nullCount, 0);
 }
 
+const MAX_BEFORE_AFTER_ROWS = 8;
+
 export function PrepareProposal({
   items,
   columnCount,
@@ -52,7 +54,7 @@ export function PrepareProposal({
 }: PrepareProposalProps) {
   const signature = items.map((item) => `${item.id}:${item.title}`).join("|");
   const [selection, setSelection] = useState<ProposalSelection>(() => defaultProposalSelection(items));
-  const [openExamples, setOpenExamples] = useState<ProposalItemId | null>(null);
+  const [showBeforeAfter, setShowBeforeAfter] = useState(false);
   const [mode, setMode] = useState<"proposal" | "steps">("proposal");
   const [step, setStep] = useState(0);
   const [normalizeNames, setNormalizeNames] = useState(false);
@@ -61,7 +63,7 @@ export function PrepareProposal({
   if (shownSignature !== signature) {
     setShownSignature(signature);
     setSelection(defaultProposalSelection(items));
-    setOpenExamples(null);
+    setShowBeforeAfter(false);
     setMode("proposal");
     setStep(0);
     setNormalizeNames(false);
@@ -178,6 +180,11 @@ export function PrepareProposal({
   }
 
   const count = selectedProposalCount(items, selection);
+  // One table for every checked change, instead of a toggle per change.
+  const beforeAfter = items
+    .filter((item) => selection[item.id])
+    .flatMap((item) => item.examples.map((example) => ({ item, example })))
+    .slice(0, MAX_BEFORE_AFTER_ROWS);
   return (
     <section className="prepare-proposal" aria-labelledby="prepare-proposal-title">
       <h3 id="prepare-proposal-title" className="prepare-proposal__title">
@@ -186,8 +193,6 @@ export function PrepareProposal({
       <p className="prepare-proposal__lead">Revísalos y aplícalos. Puedes deshacerlo después.</p>
       <ul className="prepare-proposal__list">
         {items.map((item) => {
-          const examplesId = `prepare-examples-${item.id}`;
-          const open = openExamples === item.id;
           return (
             <li key={item.id} className="prepare-proposal__item">
               <div className="prepare-proposal__row">
@@ -200,39 +205,46 @@ export function PrepareProposal({
                   onChange={(event) => setSelection((previous) => ({ ...previous, [item.id]: event.target.checked }))}
                 />
                 <label htmlFor={`prepare-item-${item.id}`}>{item.title}</label>
-                {item.examples.length > 0 && (
-                  <button
-                    type="button"
-                    className="prepare-proposal__examples-toggle"
-                    aria-expanded={open}
-                    aria-controls={examplesId}
-                    onClick={() => setOpenExamples(open ? null : item.id)}
-                  >
-                    {open ? "Ocultar ejemplos" : "Ver ejemplos"}
-                  </button>
-                )}
               </div>
               <p id={`prepare-hint-${item.id}`} className="prepare-proposal__hint">{item.hint}</p>
-              {open && (
-                <ul id={examplesId} className="prepare-proposal__examples" aria-label={`Ejemplos: ${item.title}`}>
-                  {item.examples.map((example, index) => (
-                    <li key={`${example.column}-${index}`}>
-                      <span className="prepare-proposal__column">{example.column}</span>
-                      <span>
-                        <span className="prepare-proposal__before">
-                          {example.before === null ? <MissingValue /> : <CellText value={example.before} />}
-                        </span>
-                        {" → "}
-                        <strong>{example.after}</strong>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </li>
           );
         })}
       </ul>
+      {beforeAfter.length > 0 && (
+        <div className="prepare-proposal__before-after">
+          <button
+            type="button"
+            className="prepare-proposal__examples-toggle"
+            aria-expanded={showBeforeAfter}
+            aria-controls="prepare-before-after"
+            onClick={() => setShowBeforeAfter(!showBeforeAfter)}
+          >
+            {showBeforeAfter ? "Ocultar antes y después" : "Ver antes y después"}
+          </button>
+          {showBeforeAfter && (
+            <div id="prepare-before-after" className="table-region" tabIndex={0} aria-label="Antes y después de los cambios marcados">
+              <table>
+                <thead>
+                  <tr><th scope="col">Cambio</th><th scope="col">Columna</th><th scope="col">Antes</th><th scope="col">Después</th></tr>
+                </thead>
+                <tbody>
+                  {beforeAfter.map(({ item, example }, index) => (
+                    <tr key={`${item.id}-${example.column}-${index}`}>
+                      <td>{item.title}</td>
+                      <th scope="row">{example.column}</th>
+                      <td className="prepare-proposal__before">
+                        {example.before === null ? <MissingValue /> : <CellText value={example.before} />}
+                      </td>
+                      <td><strong>{example.after}</strong></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
       <div className="prepare-proposal__actions">
         <button
           type="button"

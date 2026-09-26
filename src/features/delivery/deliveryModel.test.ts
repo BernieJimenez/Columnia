@@ -9,6 +9,8 @@ import {
   deliveryRules,
   invalidateDeliveryContract,
   personalDataColumnNames,
+  suggestQualityRules,
+  MAX_SUGGESTED_QUALITY_RULES,
   reduceDeliveryContract,
   validateDatabaseTargetDraft,
   validateQualityRuleDraft,
@@ -221,6 +223,41 @@ describe("estado de entrega", () => {
     expect(restored).toEqual({ kind: "with_contract", rules: [validRule], gate: { kind: "idle" } });
     expect(deliveryRules(restored)).toEqual([validRule]);
     expect(deliveryContractFromRules([])).toEqual(INITIAL_DELIVERY_CONTRACT);
+  });
+});
+
+describe("suggestQualityRules", () => {
+  const column = (name: string, nullCount: number, uniqueCount: number, privacySignal: ColumnProfile["privacySignal"] = null) =>
+    ({ name, nullCount, uniqueCount, privacySignal }) as ColumnProfile;
+
+  it("proposes not null and unique for identifiers first, then not null for complete columns", () => {
+    expect(suggestQualityRules([
+      column("monto", 0, 40),
+      column("ciudad", 3, 5),
+      column("id", 0, 100),
+      column("codigo_cliente", 0, 100),
+      column("_cambios", 0, 100),
+    ], 100)).toEqual([
+      { column: "id", kind: "not_null", maxInvalid: 0 },
+      { column: "id", kind: "unique", maxInvalid: 0 },
+      { column: "codigo_cliente", kind: "not_null", maxInvalid: 0 },
+      { column: "codigo_cliente", kind: "unique", maxInvalid: 0 },
+      { column: "monto", kind: "not_null", maxInvalid: 0 },
+    ]);
+  });
+
+  it("treats a detected identifier as unique only when every value is distinct", () => {
+    expect(suggestQualityRules([column("cedula", 0, 100, "identifier")], 100))
+      .toContainEqual({ column: "cedula", kind: "unique", maxInvalid: 0 });
+    expect(suggestQualityRules([column("id", 0, 99)], 100))
+      .toEqual([{ column: "id", kind: "not_null", maxInvalid: 0 }]);
+  });
+
+  it("caps the proposal and proposes nothing without a profile or rows", () => {
+    const many = Array.from({ length: 10 }, (_, index) => column(`c${index}`, 0, 1));
+    expect(suggestQualityRules(many, 100)).toHaveLength(MAX_SUGGESTED_QUALITY_RULES);
+    expect(suggestQualityRules(null, 100)).toEqual([]);
+    expect(suggestQualityRules(many, 0)).toEqual([]);
   });
 });
 

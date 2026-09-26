@@ -56,6 +56,8 @@ interface DeliveryPhaseProps {
   onPrivacyModeChange?: (mode: PrivacyMode) => void;
   /** Columns the quality profile flags as personal data (email, phone, address, name). */
   personalDataColumns?: string[];
+  /** Rules the data already meets, offered when the delivery has no contract. */
+  suggestedRules?: QualityRule[];
   onContractAction: (action: DeliveryContractAction) => void;
   onExport: (request: DeliveryExportRequest) => void;
   onCancelExport: () => void;
@@ -206,6 +208,7 @@ export function DeliveryPhase({
   privacyMode,
   onPrivacyModeChange,
   personalDataColumns = [],
+  suggestedRules = [],
   onContractAction,
   onExport,
   onCancelExport,
@@ -303,6 +306,19 @@ export function DeliveryPhase({
   const needsUnvalidatedConfirmation = contract.kind === "without_contract"
     && contract.confirmation !== "confirmed";
   const personalDataKey = personalDataColumns.join("\u0000");
+  const suggestionsKey = suggestedRules.map((rule) => `${rule.kind}:${rule.column}`).join("|");
+  const [suggestionChoice, setSuggestionChoice] = useState<{ key: string; excluded: number[] }>({ key: "", excluded: [] });
+  const excludedSuggestions = suggestionChoice.key === suggestionsKey ? suggestionChoice.excluded : [];
+  const chosenSuggestions = suggestedRules.filter((_, index) => !excludedSuggestions.includes(index));
+
+  function toggleSuggestion(index: number) {
+    setSuggestionChoice({
+      key: suggestionsKey,
+      excluded: excludedSuggestions.includes(index)
+        ? excludedSuggestions.filter((value) => value !== index)
+        : [...excludedSuggestions, index],
+    });
+  }
   const [confirmedUnprotectedKey, setConfirmedUnprotectedKey] = useState<string | null>(null);
   const exportsUnprotectedPersonalData = personalDataColumns.length > 0 && selectedPrivacyMode === "none";
   const needsPersonalDataConfirmation = exportsUnprotectedPersonalData && confirmedUnprotectedKey !== personalDataKey;
@@ -887,6 +903,39 @@ export function DeliveryPhase({
             </span>
           </label>
         </fieldset>
+
+        {contract.kind === "without_contract" && suggestedRules.length > 0 && (
+          <div className="quality-suggestions" role="group" aria-labelledby="quality-suggestions-title">
+            <h4 id="quality-suggestions-title">
+              {suggestedRules.length === 1
+                ? "Columnia propone 1 comprobación"
+                : `Columnia propone ${suggestedRules.length} comprobaciones`}
+            </h4>
+            <ul>
+              {suggestedRules.map((rule, index) => (
+                <li key={`${rule.kind}:${rule.column}`}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={!excludedSuggestions.includes(index)}
+                      disabled={busy}
+                      onChange={() => toggleSuggestion(index)}
+                    />
+                    {summarizeQualityRule(rule)}
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="secondary-action"
+              disabled={busy || chosenSuggestions.length === 0}
+              onClick={() => changeRules(chosenSuggestions)}
+            >
+              {chosenSuggestions.length === 1 ? "Usar esta comprobación" : `Usar estas ${chosenSuggestions.length} comprobaciones`}
+            </button>
+          </div>
+        )}
 
         {contract.kind === "with_contract" ? (
           <>

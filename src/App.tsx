@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
-import { personalDataColumnNames } from "./features/delivery/deliveryModel";
+import { personalDataColumnNames, suggestQualityRules } from "./features/delivery/deliveryModel";
 import { useDeliveryController } from "./features/delivery/useDeliveryController";
 import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
 import { ReusableTaskPanel } from "./features/load/ReusableTaskPanel";
@@ -1380,6 +1380,9 @@ export function App() {
                 personalDataColumns={personalDataColumnNames(
                   profileStatus.kind === "ready" ? profileStatus.profile.columns : null,
                 )}
+                suggestedRules={profileStatus.kind === "ready"
+                  ? suggestQualityRules(profileStatus.profile.columns, profileStatus.profile.rowCount)
+                  : []}
                 recipeDraft={recipeDraft}
                 preparationChanges={prepare.historyStatus.entries
                   .filter((entry) => entry.index > 0 && entry.index <= prepare.historyStatus.currentIndex)

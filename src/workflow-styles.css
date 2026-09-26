@@ -1402,3 +1402,15 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .sheet-import-summary .sheet-import-facts > div { display: flex; gap: 6px; align-items: baseline; }
 .sheet-import-columns { margin-top: 10px; }
 .sheet-import-columns > summary { min-height: 44px; display: flex; align-items: center; color: var(--accent); font-weight: 650; cursor: pointer; }
+
+/* Entregar: proposed checks the data already meets. */
+.quality-suggestions { margin: 4px 0 16px; padding: 14px 16px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-raised); }
+.quality-suggestions h4 { margin: 0 0 8px; font-size: 1rem; }
+.quality-suggestions ul { margin: 0 0 12px; padding: 0; list-style: none; }
+.quality-suggestions label { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.quality-suggestions input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+/* Preparar: one before/after table for the checked changes. */
+.prepare-proposal__before-after { margin: 4px 0 16px; }
+.prepare-proposal__before-after .table-region { margin-top: 8px; }
+.prepare-proposal__before-after td, .prepare-proposal__before-after th { white-space: nowrap; }

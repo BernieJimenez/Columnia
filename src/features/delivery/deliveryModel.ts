@@ -24,6 +24,35 @@ export function personalDataColumnNames(columns: readonly ColumnProfile[] | null
     .filter((column) => column.name !== ROW_AUDIT_COLUMN && PERSONAL_DATA_SIGNALS.has(column.privacySignal))
     .map((column) => column.name);
 }
+export const MAX_SUGGESTED_QUALITY_RULES = 6;
+const IDENTIFIER_NAME = /(^|[_\s-])(id|codigo|código|code|key|clave)([_\s-]|$)/i;
+
+/**
+ * Quality rules the current data already meets, proposed so a delivery can be
+ * validated with one click and later deliveries keep the same guarantees.
+ * Identifier columns first (not null and unique), then complete columns.
+ */
+export function suggestQualityRules(
+  columns: readonly ColumnProfile[] | null,
+  rowCount: number,
+): QualityRule[] {
+  if (!columns || rowCount === 0) return [];
+  const candidates = columns.filter((column) => column.name !== ROW_AUDIT_COLUMN && column.nullCount === 0);
+  const isIdentifier = (column: ColumnProfile) => column.uniqueCount === rowCount
+    && (column.privacySignal === "identifier" || IDENTIFIER_NAME.test(column.name));
+  const identifiers = candidates.filter(isIdentifier);
+  const rules: QualityRule[] = [];
+  for (const column of identifiers) {
+    rules.push({ column: column.name, kind: "not_null", maxInvalid: 0 });
+    rules.push({ column: column.name, kind: "unique", maxInvalid: 0 });
+  }
+  for (const column of candidates) {
+    if (identifiers.includes(column)) continue;
+    rules.push({ column: column.name, kind: "not_null", maxInvalid: 0 });
+  }
+  return rules.slice(0, MAX_SUGGESTED_QUALITY_RULES);
+}
+
 export const INITIAL_DATABASE_TARGET: DatabaseTarget = {
   kind: "postgresql",
   connectionString: "",
