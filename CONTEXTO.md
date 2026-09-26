@@ -340,7 +340,7 @@ Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o
 - Parquet.
 - Excel y ODS mediante XLSX, XLS, XLSB y ODS.
 - Selección de hoja y modo de encabezado para libros.
-- UTF-8 estricto con BOM opcional.
+- UTF-8 estricto con BOM opcional; los fines de línea solo-CR se detectan en la muestra y se leen con `eol_char = ` sin reescribir el archivo.
 - Detección conservadora de coma, punto y coma, tabulador o `|`; TSV fuerza tabulador.
 
 CSV y otros formatos delimitados se conservan físicamente como texto para no inventar un esquema. El perfil puede detectar semántica numérica segura sin convertir identificadores con ceros iniciales o enteros que perderían precisión. Parquet conserva su esquema nativo compatible.

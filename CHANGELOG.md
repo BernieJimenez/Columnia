@@ -129,6 +129,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- RV20 (FUN-01): los CSV cuyas líneas terminan solo en retorno de carro
+  («CSV (Macintosh)» de Excel y exportaciones antiguas) se cargan con las mismas
+  filas que su equivalente con saltos de línea normales. Antes se leían como una
+  sola fila gigante y la carga fallaba con un aviso de tamaño que no era la causa.
 - RV19 (FUN-05): la exportación a Excel ya no produce libros que Excel no
   abre. Los caracteres de control que prohíbe XML (copiados de otros sistemas)
   se sustituyen por «�»; con más de 1.048.575 filas de datos o una celda de más

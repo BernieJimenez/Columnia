@@ -6452,19 +6452,48 @@ where
     let complete = file_size <= bytes.len() as u64;
 
     let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
+    // Every consumer of the sample splits records on \n: a file that ends its
+    // lines with \r only (RV20 / FUN-01) is normalized here, in memory.
+    let normalize = |sample: &str| {
+        if uses_carriage_return_line_endings(sample.as_bytes()) {
+            sample.replace('\r', "\n")
+        } else {
+            sample.to_owned()
+        }
+    };
     match std::str::from_utf8(bytes) {
-        Ok(sample) => Ok((sample.to_owned(), complete)),
+        Ok(sample) => Ok((normalize(sample), complete)),
         Err(error) if !complete && error.error_len().is_none() => {
             // La muestra puede terminar a mitad de un carácter UTF-8. Solo se
             // descarta esa cola incompleta; un byte inválido interior se rechaza.
             let valid = &bytes[..error.valid_up_to()];
-            Ok((std::str::from_utf8(valid).unwrap_or_default().to_owned(), false))
+            Ok((normalize(std::str::from_utf8(valid).unwrap_or_default()), false))
         }
         Err(_) => Err(
             "El archivo delimitado no contiene UTF-8 válido. Columnia no sustituye caracteres ni aplica codificaciones heredadas automáticamente."
                 .to_owned(),
         ),
     }
+}
+
+/// «CSV (Macintosh)» and old exports end lines with \r only: the sample has
+/// carriage returns and no line feed at all.
+fn uses_carriage_return_line_endings(sample: &[u8]) -> bool {
+    sample.contains(&b'\r') && !sample.contains(&b'\n')
+}
+
+fn delimited_line_terminator(path: &Path) -> Result<u8, String> {
+    let mut sample = Vec::with_capacity(DELIMITED_SAMPLE_BYTES as usize);
+    fs::File::open(path)
+        .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))?
+        .take(DELIMITED_SAMPLE_BYTES)
+        .read_to_end(&mut sample)
+        .map_err(|error| format!("No se pudo inspeccionar el archivo delimitado: {error}"))?;
+    Ok(if uses_carriage_return_line_endings(&sample) {
+        b'\r'
+    } else {
+        b'\n'
+    })
 }
 
 fn delimited_field_counts(sample: &str, delimiter: char, complete: bool) -> Vec<usize> {
@@ -6658,6 +6687,7 @@ fn delimited_scan_with_separator(
     separator: u8,
     has_header: bool,
 ) -> Result<LazyFrame, String> {
+    let line_terminator = delimited_line_terminator(path)?;
     let source = PlRefPath::try_from_path(path)
         .map_err(|error| format!("No se pudo preparar el lector delimitado: {error}"))?;
     LazyCsvReader::new(source)
@@ -6666,6 +6696,7 @@ fn delimited_scan_with_separator(
         .with_low_memory(true)
         .with_rechunk(false)
         .with_separator(separator)
+        .with_eol_char(line_terminator)
         .finish()
         .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))
 }

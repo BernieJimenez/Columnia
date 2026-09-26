@@ -681,6 +681,45 @@ fn loads_schema_and_rows_from_a_csv() {
 }
 
 #[test]
+fn csv_with_carriage_return_line_endings_loads_like_its_lf_equivalent() {
+    // RV20 / FUN-01: files saved as «CSV (Macintosh)» end lines with \r only;
+    // they were read as one huge first row and could not be loaded.
+    let lf = "city,temperature\nSanto Domingo,30\nSantiago,28\nLa Vega,25\n";
+    let cr_path = temporary_csv(&lf.replace('\n', "\r"));
+    let lf_path = temporary_csv(lf);
+
+    let review =
+        delimited_header_review(&cr_path, "csv").expect("la revisión de encabezados funciona");
+    assert_eq!(review.delimiter, ",");
+
+    let (cr_frame, cr_preview) = load_csv(&cr_path).expect("el CSV solo-CR debe cargar");
+    let (lf_frame, _) = load_csv(&lf_path).expect("el CSV LF debe cargar");
+    assert_eq!(cr_preview.row_count, 3);
+    assert!(
+        cr_frame.equals(&lf_frame),
+        "mismas filas y valores que su equivalente LF"
+    );
+
+    let (_, source_preview, source_rows) =
+        source_backed_load(&cr_path, "csv", || false).expect("la carga en disco también");
+    assert_eq!(source_rows, 3);
+    assert_eq!(source_preview.rows[2][0].as_deref(), Some("La Vega"));
+
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("desde_cr.csv");
+    let size = fs::metadata(&cr_path).unwrap().len();
+    export_source_backed_csv_atomic(&cr_path, size, &destination, |_, _| {}, || false)
+        .expect("la exportación desde la fuente (DuckDB) también");
+    let exported = read_delimited_frame(&destination, "csv").unwrap();
+    assert!(
+        exported.equals(&lf_frame),
+        "la copia exportada conserva las 3 filas"
+    );
+    fs::remove_file(cr_path).ok();
+    fs::remove_file(lf_path).ok();
+}
+
+#[test]
 fn source_backed_load_keeps_only_schema_while_preparing_the_preview() {
     let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
 
