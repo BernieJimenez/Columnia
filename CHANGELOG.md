@@ -199,6 +199,13 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Interno
 
+- Documentación reiniciada para una revisión nueva: el roadmap, el contexto, las
+  auditorías, el historial de verificación y la cola anterior (hasta el Tier 10)
+  pasan sin cambios a `docs/archive/2026-09/`. `ROADMAP.md` queda con los tres
+  pendientes, `CONTEXTO.md` con la descripción del sistema (de 1.895 a 616
+  líneas) y `AUDITORIA.md` con la ficha de dependencias y controles (de 261 a 97).
+  El gate de documentación exige que los tres enlacen su archivo y ya no revisa
+  los enlaces dentro de `docs/archive/`.
 - Los 9 avisos de dependencias de `useEffect` quedan resueltos sin cambiar
   comportamiento: `useEffectEvent` donde el efecto debe leer el valor más
   reciente sin volver a ejecutarse, y la propuesta de Preparar se reinicia

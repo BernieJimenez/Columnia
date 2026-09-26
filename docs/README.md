@@ -6,8 +6,9 @@ comportamiento implementado.
 
 La [guía de diseño](../DESIGN.md) documenta el lenguaje visual, la jerarquía del
 shell y los contratos responsive y de accesibilidad para contribuciones UI.
-La [auditoría consolidada](../AUDITORIA.md) resume las revisiones históricas; el
-[trabajo vigente](reference/roadmap-current.md) contiene la única cola operativa.
+El [roadmap](../ROADMAP.md) contiene la única cola de trabajo y la
+[auditoría](../AUDITORIA.md), la ficha de dependencias y controles. Las
+revisiones y roadmaps anteriores están en el [archivo](archive/README.md).
 
 ## Índice Diátaxis
 
@@ -49,8 +50,8 @@ agregada y sanitizada que se versiona al cerrar los gates.
 - [Revisión legal y distribución](reference/legal-distribution-review.md): MIT,
   notices, privacidad local, rotación de claves y flujo de updater firmado.
 - [Gobierno del repositorio](reference/repository-governance.md) y
-  [auditoría consolidada](../AUDITORIA.md), con el inventario de dependencias y
-  sus controles.
+  [auditoría](../AUDITORIA.md), con el inventario de dependencias y sus
+  controles.
 - [Inventario IPC](reference/ipc-inventory.json) y [revisión legal de distribución](reference/legal-distribution-review.md).
 - [Política de fixtures](reference/fixtures-policy.md).
 - [Red, privacidad y telemetría](reference/network-privacy.md).

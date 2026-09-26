@@ -253,9 +253,17 @@ try {
     fail(`La ficha de dependencias no coincide con el inventario IPC: declara ${ipcAuditCount?.[1] ?? "sin conteo"}/${ipcAuditCount?.[2] ?? "sin conteo"}/${ipcAuditCount?.[3] ?? "sin conteo"}, actual ${expectedIpcCount.join("/")}.`);
   }
   if (!changelog.includes("Tier 5")) fail("CHANGELOG.md no documenta el estado de Tier 5.");
-  if (!await readUtf8("ROADMAP.md").then((roadmap) => roadmap.includes("Tier 5"))) fail("ROADMAP.md no contiene el roadmap Tier 5.");
-  if (!await readUtf8("CONTEXTO.md").then((context) => context.includes("Tier 5"))) fail("CONTEXTO.md no contiene el contexto Tier 5.");
-  if (!auditDocument.includes("Tier 5") || !auditDocument.includes("RV01")) fail("La auditoría consolidada no contiene la trazabilidad histórica y vigente.");
+  // The living documents stay short; their history is archived, not deleted.
+  for (const [document, contents] of [
+    ["ROADMAP.md", await readUtf8("ROADMAP.md")],
+    ["CONTEXTO.md", await readUtf8("CONTEXTO.md")],
+    ["AUDITORIA.md", auditDocument],
+  ]) {
+    if (!contents.includes("docs/archive/2026-09/")) fail(`${document} debe enlazar su historial archivado en docs/archive/2026-09/.`);
+  }
+  for (const archived of ["ROADMAP.md", "CONTEXTO.md", "AUDITORIA.md", "historial-verificacion.md", "roadmap-current.md"]) {
+    await readUtf8(`docs/archive/2026-09/${archived}`);
+  }
   if (!docsIndex.includes("../DESIGN.md") || !docsIndex.includes("tutorials/first-dataset.md") || !docsIndex.includes("how-to/run-beta-validation.md") || !docsIndex.includes("templates/beta-session.md") || !docsIndex.includes("templates/beta-summary.md") || !docsIndex.includes("how-to/validate-release-evidence.md") || !docsIndex.includes("reference/cli.md") || !docsIndex.includes("explanation/local-first-architecture.md")) {
     fail("docs/README.md no expone los cuatro cuadrantes Diátaxis.");
   }
@@ -315,6 +323,8 @@ try {
   const brokenLinks = [];
   for (const relativePath of files) {
     const contents = await readUtf8(relativePath);
+    // Archived documents are frozen snapshots: their relative links are not maintained.
+    if (relativePath.startsWith("docs/archive/")) continue;
     for (const match of contents.matchAll(/\]\(([^)#]+)(?:#[^)]+)?\)/g)) {
       const target = match[1];
       if (/^(https?|mailto):/i.test(target)) continue;

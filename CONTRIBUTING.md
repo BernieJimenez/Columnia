@@ -97,8 +97,9 @@ publiques vulnerabilidades en issues; sigue el canal privado indicado en
 ## Documentación
 
 Las decisiones duraderas viven en [ADRs](docs/adr/0001-contratos-del-repositorio.md).
-La auditoría consolidada incluye el inventario de dependencias y su cadencia de
-revisión. El trabajo pendiente se mantiene en el
-[roadmap vigente](docs/reference/roadmap-current.md). Si un cambio altera
+`AUDITORIA.md` incluye el inventario de dependencias y su cadencia de
+revisión. El trabajo pendiente se mantiene en [`ROADMAP.md`](ROADMAP.md) y el
+historial de revisiones anteriores, en [`docs/archive/`](docs/archive/README.md).
+Si un cambio altera
 arquitectura, contratos, límites, comandos o validación, actualiza también
 `CONTEXTO.md` y `ROADMAP.md` en el mismo cambio.
