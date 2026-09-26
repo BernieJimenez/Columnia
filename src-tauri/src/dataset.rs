@@ -5817,6 +5817,15 @@ fn parse_inferred_date_columns(
 fn impute_missing_values_in_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
+    impute_missing_values_in_columns(frame, None)
+}
+
+/// Median/mode imputation. `columns` limits it to the listed names; the
+/// one-click proposal always passes the columns it announced (RV17).
+fn impute_missing_values_in_columns(
+    frame: &DataFrame,
+    columns: Option<&[String]>,
+) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
     let mut cleaned = frame.clone();
     let mut changed_rows = vec![false; frame.height()];
     let mut changed_cell_count = 0;
@@ -5825,6 +5834,9 @@ fn impute_missing_values_in_frame(
     for column in frame.columns() {
         let name = column.name().to_string();
         if name == "_cambios" || column.null_count() == 0 {
+            continue;
+        }
+        if columns.is_some_and(|listed| !listed.iter().any(|listed| listed == &name)) {
             continue;
         }
 
@@ -6295,6 +6307,7 @@ pub(super) fn safe_corrected_plan_frame(
     normalize_sentinels: bool,
     remove_duplicates: bool,
     impute_missing: bool,
+    impute_columns: Option<&[String]>,
 ) -> Result<SafeCorrectionPlanFrame, String> {
     let (corrected, mut affected_row_count, changed_cell_count, removed_row_count, renames) =
         safe_corrected_frame(
@@ -6305,7 +6318,20 @@ pub(super) fn safe_corrected_plan_frame(
             remove_duplicates,
         )?;
     let (frame, imputed_cell_count) = if impute_missing {
-        let (imputed, imputed_rows, imputed_cells, _) = impute_missing_values_in_frame(&corrected)?;
+        // The list uses the names the person saw; follow this plan's renames.
+        let renamed_columns = impute_columns.map(|listed| {
+            listed
+                .iter()
+                .map(|name| {
+                    renames
+                        .iter()
+                        .find(|rename| &rename.from == name)
+                        .map_or_else(|| name.clone(), |rename| rename.to.clone())
+                })
+                .collect::<Vec<_>>()
+        });
+        let (imputed, imputed_rows, imputed_cells, _) =
+            impute_missing_values_in_columns(&corrected, renamed_columns.as_deref())?;
         affected_row_count = affected_row_count.max(imputed_rows);
         (imputed, imputed_cells)
     } else {
@@ -10325,6 +10351,7 @@ pub async fn apply_safe_corrections(
     normalize_sentinels: Option<bool>,
     remove_duplicates: Option<bool>,
     impute_missing: Option<bool>,
+    impute_columns: Option<Vec<String>>,
 ) -> Result<SafeCorrectionsResult, String> {
     let normalize_sentinels = normalize_sentinels.unwrap_or(false);
     let remove_duplicates = remove_duplicates.unwrap_or(false);
@@ -10368,6 +10395,7 @@ pub async fn apply_safe_corrections(
             normalize_sentinels,
             remove_duplicates,
             impute_missing,
+            impute_columns.as_deref(),
         )?;
         cancellation.ensure()?;
         let renamed_column_count = renames.len();

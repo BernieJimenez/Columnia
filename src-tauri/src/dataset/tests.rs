@@ -17048,12 +17048,12 @@ fn safe_correction_plan_can_include_conservative_imputation() {
     )
     .expect("frame de prueba");
 
-    let without = safe_corrected_plan_frame(&frame, true, false, false, false, false)
+    let without = safe_corrected_plan_frame(&frame, true, false, false, false, false, None)
         .expect("plan sin imputación");
     assert_eq!(without.imputed_cell_count, 0);
     assert_eq!(without.frame.column("monto").unwrap().null_count(), 1);
 
-    let with = safe_corrected_plan_frame(&frame, true, false, false, false, true)
+    let with = safe_corrected_plan_frame(&frame, true, false, false, false, true, None)
         .expect("plan con imputación");
     assert_eq!(with.changed_cell_count, 1, "solo se recorta ' Santiago '");
     assert_eq!(with.imputed_cell_count, 2);
@@ -17062,6 +17062,34 @@ fn safe_correction_plan_can_include_conservative_imputation() {
     assert_eq!(
         with.frame.column("ciudad").unwrap().str().unwrap().get(2),
         Some("Santiago")
+    );
+}
+
+#[test]
+fn safe_correction_plan_imputes_only_the_listed_columns_even_after_renames() {
+    // RV17 / FUN-03: the one-click proposal names the columns it may fill, so
+    // identifiers such as a customer id keep their gaps instead of receiving
+    // the most frequent id.
+    let frame = df!(
+        "Customer ID" => [Some("17841"), Some("17841"), None, Some("14911")],
+        "Categoria" => [Some("A"), Some("A"), None, Some("B")],
+        "Monto" => [Some(10_i64), Some(10), None, Some(30)],
+    )
+    .expect("frame de prueba");
+    let listed = ["Categoria".to_owned(), "Monto".to_owned()];
+
+    let plan = safe_corrected_plan_frame(&frame, false, true, false, false, true, Some(&listed))
+        .expect("plan con imputación acotada");
+    assert_eq!(plan.imputed_cell_count, 2);
+    assert_eq!(plan.frame.column("customer_id").unwrap().null_count(), 1);
+    assert_eq!(plan.frame.column("categoria").unwrap().null_count(), 0);
+    assert_eq!(plan.frame.column("monto").unwrap().null_count(), 0);
+
+    let none = safe_corrected_plan_frame(&frame, false, false, false, false, true, Some(&[]))
+        .expect("lista vacía");
+    assert_eq!(
+        none.imputed_cell_count, 0,
+        "una lista vacía no rellena nada"
     );
 }
 
@@ -17099,8 +17127,8 @@ fn full_proposal_plan_on_a_streamed_csv_publishes_a_writable_snapshot() {
         "la carga debe conservar varios bloques"
     );
 
-    let plan =
-        safe_corrected_plan_frame(&frame, true, false, true, true, true).expect("plan completo");
+    let plan = safe_corrected_plan_frame(&frame, true, false, true, true, true, None)
+        .expect("plan completo");
     assert!(plan.changed_cell_count > 0, "recorta espacios");
     assert!(plan.removed_row_count > 0, "quita duplicados");
     assert!(plan.imputed_cell_count > 0, "rellena vacíos");

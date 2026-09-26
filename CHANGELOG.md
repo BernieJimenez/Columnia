@@ -129,6 +129,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- RV17 (FUN-03, FUN-06): la propuesta de Preparar ya no inventa datos. Antes
+  rellenaba con el valor más frecuente identificadores, nombres de persona y
+  fechas (en un dataset de ventas, 135.037 compras sin cliente pasaban a un solo
+  cliente) y venía marcada. Ahora solo propone rellenar huecos pequeños (hasta el
+  5 %) en números y categorías cortas, llega desmarcada, muestra cuántas celdas
+  recibe cada columna y el total anunciado es exactamente lo que se aplica.
 - RV18 (FUN-04): exportar a CSV ya no antepone un apóstrofo a los números
   negativos guardados como texto. Antes, cada devolución (`-1`) o importe
   negativo salía como `'-1` y la columna dejaba de ser numérica al abrirla en

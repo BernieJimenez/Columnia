@@ -360,7 +360,7 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
 - eliminación de duplicados;
 - normalización determinista de encabezados;
 - recorte y normalización de texto;
-- correcciones recomendadas agrupadas;
+- correcciones recomendadas agrupadas; su propuesta de un clic solo rellena huecos de hasta el 5 % en columnas numéricas o categóricas cortas, nunca identificadores, datos personales, fechas ni texto libre, llega desmarcada y envía a Rust la lista exacta de columnas (`imputeColumns`), de modo que lo anunciado coincide con lo aplicado;
 - renombres, casts estrictos y parseo de fechas;
 - hasta tres filtros AND y una columna calculada;
 - buscar/reemplazar literal y selección/reordenamiento de columnas;
