@@ -564,7 +564,7 @@ Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
 12. **Estado envenenable** (2026-09-23, mitigado en T10-15): los mutex de estado
     se toman con `lock_recovering()` (`crash_report.rs`), que recupera el último
     valor publicado tras un pánico, y un hook escribe en `crash-reports/` un
-    informe mínimo (versión, fecha, archivo:línea; nunca el mensaje). Decisión:
+    informe mínimo (versión, fecha, `crate-versión/ruta:línea` sin carpetas del usuario; nunca el mensaje). Decisión:
     se prefiere recuperar el último estado publicado a bloquear la sesión, porque
     las operaciones publican de forma atómica; la alternativa descartada era
     invalidar el dataset activo y perder el trabajo en memoria.

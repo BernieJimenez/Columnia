@@ -35,6 +35,47 @@ pub fn install(app_data_dir: &Path) {
     }));
 }
 
+/// Where a panic happened, without the folders that can reveal the user's home
+/// (CODE-01). A dependency keeps its `crate-version/...` path, the standard
+/// library its `library/...` path and Columnia its relative `src/...` path; any
+/// other absolute path is reduced to the file name.
+fn report_source(file: &str, line: u32) -> String {
+    let segments = file
+        .split(['/', '\\'])
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    let is_versioned_crate = |segment: &str| {
+        segment.rsplit_once('-').is_some_and(|(name, version)| {
+            !name.is_empty()
+                && version.split('.').count() >= 3
+                && version
+                    .split('.')
+                    .next()
+                    .is_some_and(|major| major.chars().all(|character| character.is_ascii_digit()))
+        })
+    };
+    let absolute = file.starts_with('/')
+        || file
+            .get(1..3)
+            .is_some_and(|prefix| prefix == ":\\" || prefix == ":/");
+    let start = segments
+        .iter()
+        .rposition(|segment| is_versioned_crate(segment))
+        .or_else(|| segments.iter().position(|segment| *segment == "library"))
+        .or((!absolute && !segments.is_empty()).then_some(0))
+        .unwrap_or(segments.len().saturating_sub(1));
+    let path = segments
+        .get(start..)
+        .map(|kept| kept.join("/"))
+        .unwrap_or_default();
+    let path = if path.is_empty() {
+        "desconocido".to_owned()
+    } else {
+        path
+    };
+    format!("{path}:{line}")
+}
+
 /// Writes one report and keeps only the newest `MAX_REPORTS`.
 pub(crate) fn write_report(
     directory: &Path,
@@ -46,15 +87,7 @@ pub(crate) fn write_report(
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or_default();
-    // Only the file name: compile-time paths can include the user's home.
-    let source = location.map(|(file, line)| {
-        let name = file
-            .rsplit(['/', '\\'])
-            .next()
-            .filter(|name| !name.is_empty())
-            .unwrap_or("desconocido");
-        format!("{name}:{line}")
-    });
+    let source = location.map(|(file, line)| report_source(file, line));
     let report = serde_json::json!({
         "contract": "columnia-panic-report",
         "schemaVersion": 1,
@@ -122,7 +155,7 @@ impl<T> LockRecovering<T> for Mutex<T> {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::{task_interrupted, write_report, LockRecovering};
+    use super::{report_source, task_interrupted, write_report, LockRecovering};
 
     #[test]
     fn a_poisoned_lock_recovers_its_last_value() {
@@ -145,20 +178,41 @@ mod tests {
         let path = write_report(
             directory.path(),
             Some((
-                r"C:\Users\ana\.cargo\registry\polars-core\src\frame\mod.rs",
+                r"C:\Users\ana\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polars-core-0.55.2\src\frame\mod.rs",
                 128,
             )),
             Some("tokio-runtime-worker"),
         )
         .expect("informe escrito");
         let text = std::fs::read_to_string(path).expect("informe legible");
-        assert!(text.contains("\"source\": \"mod.rs:128\""), "{text}");
+        // CODE-01: «mod.rs:2136» alone could not say which crate failed.
+        assert!(
+            text.contains("\"source\": \"polars-core-0.55.2/src/frame/mod.rs:128\""),
+            "{text}"
+        );
         assert!(!text.contains("ana"), "{text}");
         assert!(text.contains("columnia-panic-report"), "{text}");
         for _ in 0..25 {
             write_report(directory.path(), None, None).expect("informe escrito");
         }
         assert!(std::fs::read_dir(directory.path()).unwrap().count() <= 20);
+    }
+
+    #[test]
+    fn report_sources_name_the_crate_without_private_folders() {
+        assert_eq!(
+            report_source(r"src\dataset\history.rs", 603),
+            "src/dataset/history.rs:603"
+        );
+        assert_eq!(
+            report_source("/rustc/1a2b3c/library/core/src/option.rs", 9),
+            "library/core/src/option.rs:9"
+        );
+        assert_eq!(
+            report_source(r"C:\Users\ana\proyecto\privado\mod.rs", 1),
+            "mod.rs:1"
+        );
+        assert_eq!(report_source("", 5), "desconocido:5");
     }
 
     #[test]

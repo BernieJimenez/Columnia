@@ -224,6 +224,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Interno
 
+- RV22 (CODE-01): los informes locales de fallo registran el crate y la ruta
+  interna (`polars-core-0.55.2/src/frame/mod.rs:128`) en lugar de solo `mod.rs`,
+  sin incluir carpetas del usuario, para poder localizar un fallo de la beta.
 - Documentación reiniciada para una revisión nueva: el roadmap, el contexto, las
   auditorías, el historial de verificación y la cola anterior (hasta el Tier 10)
   pasan sin cambios a `docs/archive/2026-09/`. `ROADMAP.md` queda con los tres
