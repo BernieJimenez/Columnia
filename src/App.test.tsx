@@ -570,8 +570,8 @@ describe("App", () => {
     expect(await within(importDialog).findByRole("alert")).toHaveTextContent("muestra temporal fallida");
 
     fireEvent.click(within(importDialog).getByRole("button", { name: "Reintentar muestra" }));
-    expect(await within(importDialog).findByRole("region", { name: "Vista previa de la interpretación" }))
-      .toHaveTextContent("La primera fila se usa para nombrar columnas");
+    const retriedPreview = await within(importDialog).findByRole("region", { name: "Vista previa de la interpretación" });
+    expect(within(retriedPreview).getByLabelText("Muestra importada")).toBeInTheDocument();
     expect(bridge.previewDelimitedHeaderReview).toHaveBeenCalledTimes(2);
   });
 

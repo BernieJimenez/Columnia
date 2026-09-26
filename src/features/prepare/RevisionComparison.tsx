@@ -55,8 +55,9 @@ export function RevisionComparison({
 
   useEffect(() => {
     requestGeneration.current += 1;
-    setBeforeId(availableEntries[0]?.id ?? "");
-    setAfterId(availableEntries.at(-1)?.id ?? "");
+    const ids = revisionIdsKey ? revisionIdsKey.split("|") : [];
+    setBeforeId(ids[0] ?? "");
+    setAfterId(ids.at(-1) ?? "");
     setComparison({ kind: "idle" });
   }, [datasetRevision, revisionIdsKey, rulesKey, historyStatus.snapshotsEnabled]);
 

@@ -222,15 +222,11 @@ function DatasetComparisonSection({
   const [conflictPageCancellationPending, setConflictPageCancellationPending] = useState(false);
   const [conflictPageCancellationError, setConflictPageCancellationError] = useState<string | null>(null);
   const comparisonKeyColumnsKey = JSON.stringify(keyColumns);
+  const comparedFileName = status.kind === "ready" ? status.comparison.comparedFileName : null;
   useEffect(() => {
     setConflictChoices({});
     setExcludedConflictIndexes({});
-  }, [
-    status.kind,
-    status.kind === "ready" ? status.comparison.comparedFileName : null,
-    comparisonKeyColumnsKey,
-    datasetRevision,
-  ]);
+  }, [status.kind, comparedFileName, comparisonKeyColumnsKey, datasetRevision]);
 
   function conflictChoiceKey(conflictIndex: number, column: string): string {
     return `${conflictIndex}:${column}`;

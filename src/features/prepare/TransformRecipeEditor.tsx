@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 
 import { ModalDialog } from "../../components/ModalDialog";
 import {
@@ -354,10 +354,8 @@ export function TransformRecipeEditor({
   const lastWorkspaceDraftFingerprint = useRef(
     `${initialDraft?.name ?? "Mi receta"}\u0000${JSON.stringify(initialDraft?.recipe ?? buildRecipe())}`,
   );
-  useEffect(() => {
-    if (invalid) return;
-    if (lastWorkspaceDraftFingerprint.current === workspaceDraftFingerprint) return;
-    lastWorkspaceDraftFingerprint.current = workspaceDraftFingerprint;
+  // The fingerprint decides when to publish; the draft is built from the latest state.
+  const publishDraft = useEffectEvent(() => {
     const nextDraft: SavedRecipe = {
       version: 2,
       name: recipeName.trim() || "Mi receta",
@@ -367,7 +365,13 @@ export function TransformRecipeEditor({
     };
     if (exportOptions) nextDraft.exportOptions = exportOptions;
     onDraftChange(nextDraft);
-  }, [invalid, workspaceDraftFingerprint, onDraftChange]);
+  });
+  useEffect(() => {
+    if (invalid) return;
+    if (lastWorkspaceDraftFingerprint.current === workspaceDraftFingerprint) return;
+    lastWorkspaceDraftFingerprint.current = workspaceDraftFingerprint;
+    publishDraft();
+  }, [invalid, workspaceDraftFingerprint]);
 
   useEffect(() => {
     if (recipeFileStatus.kind !== "success") return;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type MutableRefObject } from "react";
 
 import type { ReviewTab } from "../../components/ReviewTabList";
 import {
@@ -213,6 +213,8 @@ export function useReviewController({
     }
   }
 
+  const analyzeAutomatically = useEffectEvent(() => void analyzeQuality());
+
   useEffect(() => {
     if (!datasetReady || profileStatus.kind !== "idle") return;
     if (autoProfileRevisionRef.current === datasetRevision) return;
@@ -220,7 +222,7 @@ export function useReviewController({
     // Cada revisión se analiza una vez de forma automática. Tras cancelar o fallar,
     // el avance principal permite reintentarlo sin crear un bucle de reintentos.
     autoProfileRevisionRef.current = datasetRevision;
-    void analyzeQuality();
+    analyzeAutomatically();
   }, [datasetRevision, datasetReady, profileStatus.kind]);
 
   async function cancelProfile() {

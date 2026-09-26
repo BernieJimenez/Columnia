@@ -133,7 +133,9 @@ export function PreparePhase({
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
 
   useEffect(() => {
-    const available = new Set(textColumns.map((column) => column.name));
+    const available = new Set(dataset.columns
+      .filter((column) => isTextType(column.dataType) && column.name !== "_cambios")
+      .map((column) => column.name));
     setSelectedTextColumns((current) => current.filter((name) => available.has(name)));
   }, [dataset.columns]);
 
@@ -152,7 +154,7 @@ export function PreparePhase({
     if (datasetRevision !== pending.sourceRevision + 1 || profileStatus.kind !== "ready") return;
     setPlanComparison({ before: pending.profile, after: profileStatus.profile });
     pendingPlanComparison.current = null;
-  }, [changeStatus.kind, datasetRevision, profileStatus]);
+  }, [changeStatus, datasetRevision, profileStatus]);
 
   function applyProposal(options: SafeCorrectionOptions) {
     if (profileStatus.kind !== "ready" || changing) return;

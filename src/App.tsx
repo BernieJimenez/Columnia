@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import { personalDataColumnNames } from "./features/delivery/deliveryModel";
@@ -382,15 +382,17 @@ export function App() {
     };
   }, [status.kind]);
 
+  const onDatasetDrop = useEffectEvent(() => {
+    if (operationBusyRef.current) return;
+    void inspectDatasetSource(inspectDroppedDatasetSource());
+  });
+
   useEffect(() => {
     if (status.kind !== "ready") return;
 
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen("columnia://dataset-drop", () => {
-      if (operationBusyRef.current) return;
-      void inspectDatasetSource(inspectDroppedDatasetSource());
-    }).then((cleanup) => {
+    void listen("columnia://dataset-drop", () => onDatasetDrop()).then((cleanup) => {
       if (disposed) {
         cleanup();
       } else {

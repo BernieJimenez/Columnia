@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { DatasetProfile, SafeCorrectionOptions } from "../../bridge";
 import { CellText } from "../../components/CellText";
@@ -57,13 +57,15 @@ export function PrepareProposal({
   const [step, setStep] = useState(0);
   const [normalizeNames, setNormalizeNames] = useState(false);
 
-  useEffect(() => {
+  const [shownSignature, setShownSignature] = useState(signature);
+  if (shownSignature !== signature) {
+    setShownSignature(signature);
     setSelection(defaultProposalSelection(items));
     setOpenExamples(null);
     setMode("proposal");
     setStep(0);
     setNormalizeNames(false);
-  }, [signature]);
+  }
 
   if (result) {
     const rows = [
