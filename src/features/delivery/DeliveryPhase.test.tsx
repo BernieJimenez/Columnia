@@ -1071,7 +1071,7 @@ describe("DeliveryPhase", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Columna derecha comparar regla 1" }), { target: { value: "estado" } });
     fireEvent.click(screen.getByRole("button", { name: "Eliminar regla 1" }));
     expect(onContractAction).toHaveBeenCalled();
-    expect(screen.getByText("Entrega no validada")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" })).toBeInTheDocument();
   });
 
   it("cubre la cancelación y el error al cancelar una validación de calidad", async () => {

@@ -145,9 +145,8 @@ describe("LoadPhase", () => {
         inspection={readyInspection}
       />,
     );
-    expect(screen.getByRole("region", { name: "Vista previa de la interpretación" })).toHaveTextContent(
-      "La primera fila se usa para nombrar columnas y se excluye de los registros.",
-    );
+    const interpretation = screen.getByRole("region", { name: "Vista previa de la interpretación" });
+    expect(within(interpretation).getByLabelText("Muestra importada")).toBeInTheDocument();
     expect(screen.getByText("Separador detectado").parentElement).toHaveTextContent("“;”");
 
     fireEvent.click(screen.getByRole("radio", { name: /Conservar la primera fila como datos/ }));

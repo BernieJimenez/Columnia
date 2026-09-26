@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import {
   QUALITY_DATASET_COLUMN,
@@ -29,7 +29,7 @@ import {
   type SavedRecipe,
 } from "../../bridge";
 import { OperationProgressView } from "../../components/OperationProgressView";
-import { DatasetMetrics, formatFileSize } from "./DatasetMetrics";
+import { formatFileSize } from "./DatasetMetrics";
 import {
   MAX_QUALITY_RULES,
   type DeliveryContractAction,
@@ -262,12 +262,16 @@ export function DeliveryPhase({
       presetsCatalogInFlight.current = false;
     };
   }, []);
-  useEffect(() => {
+  // A new dataset resets the remote target for the format chosen at that moment.
+  const resetDatabaseTarget = useEffectEvent(() => {
     exportRequestGeneration.current += 1;
     const kind = databaseKindForExportFormat(selectedExportFormat);
     setDatabaseTarget({ ...INITIAL_DATABASE_TARGET, ...(kind ? { kind } : {}) });
     setDatabasePreflightState({ kind: "idle" });
     databaseRequestGeneration.current += 1;
+  });
+  useEffect(() => {
+    resetDatabaseTarget();
   }, [dataset.fileName, dataset.fileSizeBytes, dataset.rowCount]);
   useEffect(() => {
     const kind = databaseKindForExportFormat(selectedExportFormat);
@@ -839,9 +843,11 @@ export function DeliveryPhase({
         <div>
           <h2>Valida y crea una copia</h2>
           <h3 className="phase-file">{dataset.fileName}</h3>
+          <p className="phase-meta">
+            {dataset.rowCount.toLocaleString()} filas · {dataset.columnCount.toLocaleString()} columnas · {formatFileSize(dataset.fileSizeBytes)}
+          </p>
         </div>
       </header>
-      <DatasetMetrics dataset={dataset} />
       <section className="quality-contract" aria-labelledby="quality-contract-title">
         <div className="quality-contract__header">
           <div>
@@ -850,7 +856,7 @@ export function DeliveryPhase({
         </div>
 
         <fieldset className="delivery-route">
-          <legend>Ruta de entrega</legend>
+          <legend className="visually-hidden">Ruta de entrega</legend>
           <label data-selected={contract.kind === "with_contract" || undefined}>
             <input
               type="radio"
@@ -865,7 +871,7 @@ export function DeliveryPhase({
             />
             <span>
               <strong>Validar calidad</strong>
-              <small>Recomendado · define hasta {MAX_QUALITY_RULES} comprobaciones locales</small>
+              <small>Recomendado</small>
             </span>
           </label>
           <label data-selected={contract.kind === "without_contract" || undefined}>
@@ -878,7 +884,6 @@ export function DeliveryPhase({
             />
             <span>
               <strong>Exportar sin validar</strong>
-              <small>Requiere una confirmación explícita durante esta sesión</small>
             </span>
           </label>
         </fieldset>
@@ -1566,24 +1571,7 @@ export function DeliveryPhase({
             )}
             {qualityFileState.kind === "error" && <p className="notice notice--error" role="alert">No se pudo guardar el contrato: {qualityFileState.message}</p>}
           </>
-        ) : (
-          <div className="quality-contract__unvalidated">
-            <strong>Entrega no validada</strong>
-            <p>No hay reglas activas. Confirma abajo para exportar sin validación durante esta sesión.</p>
-            <label>
-              <input
-                type="checkbox"
-                checked={contract.confirmation === "confirmed"}
-                disabled={busy}
-                onChange={(event) => onContractAction({
-                  kind: "confirmation_changed",
-                  confirmation: event.target.checked ? "confirmed" : "required",
-                })}
-              />
-              Confirmo que quiero exportar sin validar la calidad
-            </label>
-          </div>
-        )}
+        ) : null}
 
         {contract.gate.kind === "loading" && (
           <div className="quality-contract__validation-progress">
@@ -1706,116 +1694,6 @@ export function DeliveryPhase({
               )}
             </div>
           )}
-          <details
-            className="delivery-presets"
-            onToggle={(event) => {
-              if (event.currentTarget.open && !presetsLoaded && !presetsLoading
-                && !presetsCancellationPending && !presetsCatalogInFlight.current) {
-                void refreshDeliveryPresets();
-              }
-            }}
-          >
-            <summary>Presets de entrega guardados</summary>
-            <p>Guarda formatos, protección y columnas para repetirlos. Las credenciales quedan fuera del preset.</p>
-            <label>
-              Preset de entrega local
-              <select
-                aria-label="Preset de entrega local"
-                value={selectedPresetId}
-                onChange={(event) => {
-                  setSelectedPresetId(event.target.value);
-                  setOpenedPreset(null);
-                  setPresetNotice(null);
-                  const summary = presets.find((item) => item.id === event.target.value);
-                  if (summary) setPresetName(summary.name);
-                }}
-                disabled={presetWorking || presetsLoading}
-              >
-                <option value="">Selecciona un preset</option>
-                {presets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.name} · {preset.format} · {preset.selectedColumnCount} columnas
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Nombre del preset
-              <input
-                aria-label="Nombre del preset de entrega"
-                value={presetName}
-                maxLength={80}
-                onChange={(event) => setPresetName(event.target.value)}
-                disabled={presetWorking}
-              />
-            </label>
-            <div className="delivery-presets__actions">
-              <button type="button" className="secondary-action" onClick={() => void loadSelectedDeliveryPreset()} disabled={!selectedPresetId || presetWorking || presetsLoading}>
-                {presetWorking ? "Procesando preset…" : "Abrir y verificar"}
-              </button>
-              <button type="button" className="secondary-action" onClick={() => void saveCurrentDeliveryPreset()} disabled={!presetName.trim() || presetWorking || presetsLoading || presetsCancellationPending}>
-                Guardar preset
-              </button>
-              {selectedPresetId && (
-                <button type="button" className="secondary-action" onClick={() => void deleteSelectedDeliveryPreset()} disabled={presetWorking || presetsLoading || presetsCancellationPending}>
-                  Eliminar preset
-                </button>
-              )}
-            </div>
-            {presetsLoading && (
-              <div className="notice">
-                <p role="status">
-                  {presetsCancellationPending ? "Cancelando carga del catálogo local…" : "Cargando catálogo local…"}
-                </p>
-                <button
-                  type="button"
-                  className="secondary-action"
-                  onClick={() => void cancelDeliveryPresetCatalog()}
-                  disabled={presetsCancellationPending}
-                >
-                  {presetsCancellationPending ? "Cancelando…" : "Cancelar carga"}
-                </button>
-              </div>
-            )}
-            {presetsCancelled && !presetsLoading && !presetsError && (
-              <div className="notice" role="status">
-                <span>Se canceló la carga de presets locales.</span>
-                <button
-                  type="button"
-                  className="secondary-action"
-                  onClick={() => void refreshDeliveryPresets()}
-                  disabled={presetsCancellationPending}
-                >
-                  Reintentar catálogo
-                </button>
-              </div>
-            )}
-            {!presetsLoading && presetsLoaded && presets.length === 0 && <p role="note">Aún no hay presets locales.</p>}
-            {presetsError && (
-              <div className="notice notice--error" role="alert">
-                <p>{presetsError}</p>
-                <button type="button" className="secondary-action" onClick={() => void refreshDeliveryPresets()} disabled={presetsLoading || presetsCancellationPending}>Reintentar catálogo</button>
-              </div>
-            )}
-            {openedPreset && (
-              <div className="delivery-presets__verification" role="status">
-                <p>
-                  {openedPresetSchemaMatches
-                    ? `Esquema verificado: ${openedPreset.selectedColumns.length} columnas, mismo orden.`
-                    : "El esquema guardado no coincide exactamente con el dataset actual; revisa la diferencia antes de aplicar."}
-                </p>
-                {!openedPresetSchemaMatches && (
-                  <p>
-                    Faltan: {openedPreset.selectedColumns.filter((column) => !dataset.columns.some((current) => current.name === column)).join(", ") || "ninguna"}. Nuevas: {dataset.columns.map((column) => column.name).filter((column) => !openedPreset.selectedColumns.includes(column)).join(", ") || "ninguna"}.
-                  </p>
-                )}
-                <button type="button" className="secondary-action" onClick={applyOpenedDeliveryPreset} disabled={presetWorking}>
-                  {openedPresetSchemaMatches ? "Aplicar preset verificado" : "Aplicar tras revisar esquema"}
-                </button>
-              </div>
-            )}
-            {presetNotice && <p className="notice notice--success" role="status">{presetNotice}</p>}
-          </details>
           {isDatabaseExportFormat(selectedExportFormat) && (
             <fieldset className="database-target">
               <legend>Destino remoto · {exportFormatLabel}</legend>
@@ -1934,6 +1812,20 @@ export function DeliveryPhase({
               )}
             </fieldset>
           )}
+          {contract.kind === "without_contract" && (
+            <label className="export-confirmation">
+              <input
+                type="checkbox"
+                checked={contract.confirmation === "confirmed"}
+                disabled={busy}
+                onChange={(event) => onContractAction({
+                  kind: "confirmation_changed",
+                  confirmation: event.target.checked ? "confirmed" : "required",
+                })}
+              />
+              Confirmo que quiero exportar sin validar la calidad
+            </label>
+          )}
           <button
             className="primary-action export-action"
             type="button"
@@ -1944,6 +1836,116 @@ export function DeliveryPhase({
               ? `Validar y exportar ${exportFormatLabel}`
               : `Exportar ${exportFormatLabel}`}
           </button>
+          <details
+            className="delivery-presets"
+            onToggle={(event) => {
+              if (event.currentTarget.open && !presetsLoaded && !presetsLoading
+                && !presetsCancellationPending && !presetsCatalogInFlight.current) {
+                void refreshDeliveryPresets();
+              }
+            }}
+          >
+            <summary>Presets de entrega guardados</summary>
+            <p>Guarda formatos, protección y columnas para repetirlos. Las credenciales quedan fuera del preset.</p>
+            <label>
+              Preset de entrega local
+              <select
+                aria-label="Preset de entrega local"
+                value={selectedPresetId}
+                onChange={(event) => {
+                  setSelectedPresetId(event.target.value);
+                  setOpenedPreset(null);
+                  setPresetNotice(null);
+                  const summary = presets.find((item) => item.id === event.target.value);
+                  if (summary) setPresetName(summary.name);
+                }}
+                disabled={presetWorking || presetsLoading}
+              >
+                <option value="">Selecciona un preset</option>
+                {presets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name} · {preset.format} · {preset.selectedColumnCount} columnas
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Nombre del preset
+              <input
+                aria-label="Nombre del preset de entrega"
+                value={presetName}
+                maxLength={80}
+                onChange={(event) => setPresetName(event.target.value)}
+                disabled={presetWorking}
+              />
+            </label>
+            <div className="delivery-presets__actions">
+              <button type="button" className="secondary-action" onClick={() => void loadSelectedDeliveryPreset()} disabled={!selectedPresetId || presetWorking || presetsLoading}>
+                {presetWorking ? "Procesando preset…" : "Abrir y verificar"}
+              </button>
+              <button type="button" className="secondary-action" onClick={() => void saveCurrentDeliveryPreset()} disabled={!presetName.trim() || presetWorking || presetsLoading || presetsCancellationPending}>
+                Guardar preset
+              </button>
+              {selectedPresetId && (
+                <button type="button" className="secondary-action" onClick={() => void deleteSelectedDeliveryPreset()} disabled={presetWorking || presetsLoading || presetsCancellationPending}>
+                  Eliminar preset
+                </button>
+              )}
+            </div>
+            {presetsLoading && (
+              <div className="notice">
+                <p role="status">
+                  {presetsCancellationPending ? "Cancelando carga del catálogo local…" : "Cargando catálogo local…"}
+                </p>
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => void cancelDeliveryPresetCatalog()}
+                  disabled={presetsCancellationPending}
+                >
+                  {presetsCancellationPending ? "Cancelando…" : "Cancelar carga"}
+                </button>
+              </div>
+            )}
+            {presetsCancelled && !presetsLoading && !presetsError && (
+              <div className="notice" role="status">
+                <span>Se canceló la carga de presets locales.</span>
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => void refreshDeliveryPresets()}
+                  disabled={presetsCancellationPending}
+                >
+                  Reintentar catálogo
+                </button>
+              </div>
+            )}
+            {!presetsLoading && presetsLoaded && presets.length === 0 && <p role="note">Aún no hay presets locales.</p>}
+            {presetsError && (
+              <div className="notice notice--error" role="alert">
+                <p>{presetsError}</p>
+                <button type="button" className="secondary-action" onClick={() => void refreshDeliveryPresets()} disabled={presetsLoading || presetsCancellationPending}>Reintentar catálogo</button>
+              </div>
+            )}
+            {openedPreset && (
+              <div className="delivery-presets__verification" role="status">
+                <p>
+                  {openedPresetSchemaMatches
+                    ? `Esquema verificado: ${openedPreset.selectedColumns.length} columnas, mismo orden.`
+                    : "El esquema guardado no coincide exactamente con el dataset actual; revisa la diferencia antes de aplicar."}
+                </p>
+                {!openedPresetSchemaMatches && (
+                  <p>
+                    Faltan: {openedPreset.selectedColumns.filter((column) => !dataset.columns.some((current) => current.name === column)).join(", ") || "ninguna"}. Nuevas: {dataset.columns.map((column) => column.name).filter((column) => !openedPreset.selectedColumns.includes(column)).join(", ") || "ninguna"}.
+                  </p>
+                )}
+                <button type="button" className="secondary-action" onClick={applyOpenedDeliveryPreset} disabled={presetWorking}>
+                  {openedPresetSchemaMatches ? "Aplicar preset verificado" : "Aplicar tras revisar esquema"}
+                </button>
+              </div>
+            )}
+            {presetNotice && <p className="notice notice--success" role="status">{presetNotice}</p>}
+          </details>
         </div>
         {selectedExportFormat === "bundle" && (
           <p className="export-requirement" role="note">
@@ -1954,12 +1956,6 @@ export function DeliveryPhase({
         )}
         {contract.kind === "with_contract" && !gatePassed && !validationError && (
           <p className="export-requirement">Las reglas se comprobarán antes de crear la copia.</p>
-        )}
-        {needsPersonalDataConfirmation && (
-          <p className="export-requirement">Elige una protección o confirma arriba que exportas los datos personales sin protegerlos.</p>
-        )}
-        {needsUnvalidatedConfirmation && (
-          <p className="export-requirement">Confirma arriba si quieres exportar sin validar la calidad.</p>
         )}
       </section>
       {exportState.kind === "loading" && (

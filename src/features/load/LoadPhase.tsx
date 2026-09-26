@@ -373,11 +373,6 @@ export function LoadPhase({
           describedBy="sheet-description"
           onDismiss={() => onSheetAction({ kind: "cancelled" })}
         >
-          <p className="eyebrow">
-            {sheetSelection.source.format === "excel"
-              ? "Libro seleccionado"
-              : isDelimitedSelection ? "Archivo delimitado seleccionado" : "Archivo seleccionado"}
-          </p>
           <h3 id="sheet-title">
             {sheetSelection.source.format === "excel"
               ? `Elegir hoja de ${sheetSelection.source.fileName}`
@@ -442,9 +437,9 @@ export function LoadPhase({
               </label>
             </fieldset>
           )}
-          <section className="sheet-import-summary" aria-labelledby="sheet-import-summary-title" aria-live="polite">
-            <h4 id="sheet-import-summary-title">Resumen antes de cargar</h4>
-            <dl>
+          <section className="sheet-import-summary sheet-import-summary--plain" aria-labelledby="sheet-import-summary-title" aria-live="polite">
+            <h4 id="sheet-import-summary-title" className="visually-hidden">Resumen antes de cargar</h4>
+            <dl className="sheet-import-facts">
               <div>
                 <dt>Formato y tamaño</dt>
                 <dd>{sheetSelection.source.format.toUpperCase()} · {formatFileSize(sheetSelection.source.fileSizeBytes)}</dd>
@@ -485,15 +480,9 @@ export function LoadPhase({
                     preview={sheetSelection.headerReview[sheetSelection.headerMode === "firstRow" ? "firstRow" : "generated"]}
                   />
                 )}
-                <p role="note">
-                  Muestra de hasta cinco filas.
-                  {sheetSelection.dateConvention === "unresolved" && sheetSelection.numberConvention === "unresolved"
-                    ? " Sin convenciones elegidas, los valores se conservan como texto."
-                    : " Las conversiones elegidas se aplican solo cuando toda la columna cumple la convención."}
-                  {sheetSelection.headerReview?.[sheetSelection.headerMode === "firstRow" ? "firstRow" : "generated"].sampleTruncated
-                    ? " La muestra quedó truncada y puede no representar el archivo entero."
-                    : ""}
-                </p>
+                {sheetSelection.headerReview?.[sheetSelection.headerMode === "firstRow" ? "firstRow" : "generated"].sampleTruncated && (
+                  <p role="note">La muestra quedó truncada y puede no representar el archivo entero.</p>
+                )}
               </>
             ) : sheetSelection.source.format === "excel" ? (
               <p role="note">
@@ -511,8 +500,8 @@ export function LoadPhase({
               <p className="notice notice--error" role="alert">No se pudo revisar el esquema: {sheetSelection.schemaPreviewError}</p>
             )}
             {sheetSelection.schemaPreview && (
-              <section className="sheet-import-summary" aria-labelledby="schema-preview-title" aria-live="polite">
-                <h4 id="schema-preview-title">Esquema detectado antes de importar</h4>
+              <section className="sheet-import-summary sheet-import-summary--nested" aria-labelledby="schema-preview-title" aria-live="polite">
+                <h4 id="schema-preview-title" className="visually-hidden">Esquema detectado antes de importar</h4>
                 <p role="note">{sheetSelection.schemaPreview.rowCount.toLocaleString()} filas · {sheetSelection.schemaPreview.columns.length} columnas</p>
                 {sheetSelection.schemaPreview.schemaMismatch ? (
                   <div className="notice" role="alert">
@@ -533,19 +522,22 @@ export function LoadPhase({
                 {sheetSelection.schemaPreview.columns.length === 0 ? (
                   <p role="note">No se detectaron columnas.</p>
                 ) : (
-                  <div className="table-region" tabIndex={0} aria-label="Columnas y tipos detectados">
-                    <table>
-                      <thead><tr><th scope="col">Columna</th><th scope="col">Tipo detectado</th></tr></thead>
-                      <tbody>
-                        {sheetSelection.schemaPreview.columns.map((column, index) => (
-                          <tr key={`${index}:${column.name}`}>
-                            <th scope="row">{column.name}</th>
-                            <td>{formatDataType(column.dataType)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <details className="sheet-import-columns">
+                    <summary>Ver columnas y tipos</summary>
+                    <div className="table-region" tabIndex={0} aria-label="Columnas y tipos detectados">
+                      <table>
+                        <thead><tr><th scope="col">Columna</th><th scope="col">Tipo detectado</th></tr></thead>
+                        <tbody>
+                          {sheetSelection.schemaPreview.columns.map((column, index) => (
+                            <tr key={`${index}:${column.name}`}>
+                              <th scope="row">{column.name}</th>
+                              <td>{formatDataType(column.dataType)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
                 )}
               </section>
             )}
@@ -692,13 +684,8 @@ export function LoadPhase({
 
 function HeaderInterpretationPreview({ preview }: { preview: DelimitedHeaderModePreview }) {
   return (
-    <section className="sheet-import-summary" aria-label="Vista previa de la interpretación">
-      <h4>{preview.headerMode === "firstRow" ? "Con primera fila como encabezado" : "Con nombres generados"}</h4>
-      <p role="note">
-        {preview.includesFirstRow
-          ? "La primera fila se conserva como un registro."
-          : "La primera fila se usa para nombrar columnas y se excluye de los registros."}
-      </p>
+    <section className="sheet-import-summary sheet-import-summary--nested" aria-label="Vista previa de la interpretación">
+      <h4 className="visually-hidden">{preview.headerMode === "firstRow" ? "Con primera fila como encabezado" : "Con nombres generados"}</h4>
       {preview.columns.length === 0 ? (
         <p role="note">No se detectaron columnas en la muestra.</p>
       ) : (

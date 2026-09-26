@@ -1379,3 +1379,26 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .quality-issues dt { color: var(--text-primary); font-size: 1rem; }
 .quality-issues dd { margin: 0; color: var(--text-primary); font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .quality-overview--plain .quality-overview__continue { margin-top: 0; }
+
+/* Entregar: the confirmation sits beside the button it unlocks. */
+.export-confirmation {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.export-confirmation input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+/* Import dialog: facts on one line, no nested boxes, column types on demand. */
+.sheet-import-summary.sheet-import-summary--plain { padding: 0; border: 0; background: transparent; }
+.sheet-import-summary--nested { margin-top: 12px; padding: 0; border: 0; background: transparent; }
+.sheet-import-summary .sheet-import-facts { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.sheet-import-summary .sheet-import-facts > div { display: flex; gap: 6px; align-items: baseline; }
+.sheet-import-columns { margin-top: 10px; }
+.sheet-import-columns > summary { min-height: 44px; display: flex; align-items: center; color: var(--accent); font-weight: 650; cursor: pointer; }

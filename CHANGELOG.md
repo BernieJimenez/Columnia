@@ -10,6 +10,13 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- Entregar y el diálogo de importación muestran menos a la vez. Entregar pone
+  filas, columnas y tamaño en una línea, deja las dos opciones de validación sin
+  explicaciones repetidas y coloca la confirmación de exportar sin validar junto
+  al botón; se quitan las notas «confirma arriba» y los presets pasan debajo del
+  botón. El diálogo de importación deja de repetir qué archivo es, resume formato,
+  tamaño y separador en una línea y guarda la tabla de tipos tras «Ver columnas y
+  tipos»: ya cabe sin desplazarse. Las confirmaciones siguen siendo las mismas.
 - Revisar y Preparar muestran menos a la vez. Revisar dice el resultado una sola
   vez («Encontramos 2 cosas para arreglar»), con una fila por problema y un botón;
   filas, columnas y tamaño pasan a una línea bajo el nombre del archivo. «Ver
@@ -183,6 +190,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Interno
 
+- Los 9 avisos de dependencias de `useEffect` quedan resueltos sin cambiar
+  comportamiento: `useEffectEvent` donde el efecto debe leer el valor más
+  reciente sin volver a ejecutarse, y la propuesta de Preparar se reinicia
+  durante el render al cambiar. Las pruebas esperan hasta 3 s a los elementos
+  asíncronos (antes 1 s, que fallaba de forma intermitente con la suite cargada).
 - T10-23 y T10-24: el estado de Revisar (análisis, comparación, unión, SQL
   local y pestañas) vive en `useReviewController` y el de Entregar (formato,
   protección, contrato de calidad y exportación) en `useDeliveryController`.
