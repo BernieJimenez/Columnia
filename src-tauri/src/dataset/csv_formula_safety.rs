@@ -9,8 +9,35 @@ fn starts_with_spreadsheet_formula_prefix(value: &str) -> bool {
     )
 }
 
+/// A complete signed number (`-1`, `+3`, `-0,5`, `-1.5e3`) is data, not a
+/// formula: spreadsheets read it as a number. CSV loads keep columns as text,
+/// so without this check every negative quantity gained an apostrophe.
+fn is_signed_number(value: &str) -> bool {
+    let Some(rest) = value.strip_prefix(['+', '-']) else {
+        return false;
+    };
+    let (mantissa, exponent) = match rest.find(['e', 'E']) {
+        Some(index) => (&rest[..index], Some(&rest[index + 1..])),
+        None => (rest, None),
+    };
+    let mut digits = 0;
+    let mut separators = 0;
+    for character in mantissa.chars() {
+        match character {
+            '0'..='9' => digits += 1,
+            '.' | ',' => separators += 1,
+            _ => return false,
+        }
+    }
+    let exponent_valid = exponent.is_none_or(|exponent| {
+        let exponent = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+        !exponent.is_empty() && exponent.chars().all(|character| character.is_ascii_digit())
+    });
+    digits > 0 && separators <= 1 && exponent_valid
+}
+
 fn neutralize_spreadsheet_formula(value: &str) -> String {
-    if starts_with_spreadsheet_formula_prefix(value) {
+    if starts_with_spreadsheet_formula_prefix(value) && !is_signed_number(value) {
         format!("'{value}")
     } else {
         value.to_owned()

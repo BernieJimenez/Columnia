@@ -129,6 +129,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- RV18 (FUN-04): exportar a CSV ya no antepone un apóstrofo a los números
+  negativos guardados como texto. Antes, cada devolución (`-1`) o importe
+  negativo salía como `'-1` y la columna dejaba de ser numérica al abrirla en
+  otra herramienta. Las fórmulas (`=`, `@`, `+1+1`, `-2+3`) siguen neutralizadas.
 - T10-11: los temas se ven igual sin depender del modo del sistema operativo.
   «Sistema» pinta exactamente como «Claro» u «Oscuro» (antes había 57 y 70
   diferencias), «Claro» y «Oscuro» ya no cambian si Windows está en modo oscuro,

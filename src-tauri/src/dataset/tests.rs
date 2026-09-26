@@ -8853,6 +8853,43 @@ fn exports_csv_by_atomically_replacing_the_destination() {
 }
 
 #[test]
+fn csv_export_keeps_signed_numbers_stored_as_text() {
+    // RV18 / FUN-04: CSV loads keep columns as text, so negatives such as
+    // returns must not gain an apostrophe; signed expressions still do.
+    let numbers = ["-1", "-11062.06", "+3", "-0,5", "-1.5e3", "+.25"];
+    let formulas = ["-2+3", "+1+1", "-", "+cmd", "-1-", "--1"];
+    let values = numbers
+        .iter()
+        .chain(formulas.iter())
+        .copied()
+        .map(Some)
+        .collect::<Vec<_>>();
+    let frame = DataFrame::new(
+        values.len(),
+        vec![Series::new("quantity".into(), values).into_column()],
+    )
+    .unwrap();
+
+    let csv = frame_for_export(&frame, ExportFormat::Csv).expect("CSV debe protegerse");
+    let exported = csv
+        .column("quantity")
+        .unwrap()
+        .str()
+        .unwrap()
+        .iter()
+        .collect::<Vec<_>>();
+    for (index, value) in numbers.iter().enumerate() {
+        assert_eq!(exported[index], Some(*value), "un número no es una fórmula");
+    }
+    for (offset, value) in formulas.iter().enumerate() {
+        assert_eq!(
+            exported[numbers.len() + offset],
+            Some(format!("'{value}").as_str())
+        );
+    }
+}
+
+#[test]
 fn csv_export_neutralizes_spreadsheet_formulas_and_parquet_preserves_values() {
     let dangerous = [
         "=SUM(A1:A2)",
