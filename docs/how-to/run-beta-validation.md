@@ -83,21 +83,24 @@ sensibles.
 
 ### 2. Revisar
 
-- Ejecutar el análisis de calidad.
+- Leer el resultado del análisis, que se ejecuta solo al cargar («Encontramos N
+  cosas para arreglar»).
 - Inspeccionar al menos una señal de nulos, duplicados, tipos, distribución o
   privacidad que aplique al dataset.
 - Determinar si el resultado representa el archivo completo o una muestra.
 
 ### 3. Preparar y recuperar
 
-- Aplicar una transformación útil y comprobar su efecto.
+- Revisar la propuesta de Preparar con «Ver antes y después», desmarcar lo que no
+  convenga y aplicar el resto; comprobar el efecto.
 - Deshacerla y rehacerla.
 - Guardar el proyecto, cerrar la aplicación, abrirla otra vez y continuar desde
   el proyecto guardado.
 
 ### 4. Validar y entregar
 
-- Definir al menos una regla de calidad relevante.
+- Usar las comprobaciones que propone Columnia o definir al menos una regla de
+  calidad relevante.
 - Observar una validación aprobada o bloqueada y explicar por qué ocurrió.
 - Exportar una copia local en un formato útil.
 - Abrir la carpeta del resultado y comprobar el archivo con una herramienta

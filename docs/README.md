@@ -20,11 +20,15 @@ La [auditoría consolidada](../AUDITORIA.md) resume las revisiones históricas; 
 
 - [Ejecutar una sesión beta](how-to/run-beta-validation.md): validar el recorrido
   completo con datos reales sin conservar información sensible.
+- [Probar con NVDA](how-to/run-nvda-check.md): recorrido de unos 30 minutos con
+  teclado y lector de pantalla para completar RV09.
 - [Validar evidencia del release](how-to/validate-release-evidence.md): compilar
   el binario, capturar ventanas y comprobar el baseline.
 - [Publicar y verificar un release](how-to/publish-release.md): preparar un
   release firmado, descargar los assets publicados y reanudar con seguridad.
 
+La [invitación a participantes](templates/beta-invitation.md) explica la sesión
+y sus garantías de privacidad antes de citar a nadie.
 La [plantilla de sesión beta](templates/beta-session.md) normaliza tareas,
 hallazgos y veredictos; las copias completadas pertenecen a `.local/beta/`.
 La [plantilla de resumen beta](templates/beta-summary.md) define la evidencia

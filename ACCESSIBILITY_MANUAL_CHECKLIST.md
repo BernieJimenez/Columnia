@@ -1,6 +1,7 @@
 # Checklist manual de accesibilidad
 
 Esta lista complementa `npm run accessibility:visual` y `npm run accessibility:check`.
+Para ejecutarla con NVDA paso a paso, sigue [Probar con NVDA](docs/how-to/run-nvda-check.md).
 Las capturas automatizadas verifican estructura, foco, targets y `forced-colors`, pero
 no sustituyen la prueba con una tecnología de asistencia real.
 

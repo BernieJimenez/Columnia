@@ -48,10 +48,12 @@ en [Consolidación de la cola](#consolidación-de-la-cola-2026-09-25).
   también, con archivos de trabajo reales, el recorrido Cargar→Entregar (antes
   RV01), la importación (RV02), la cancelación y recuperación (RV04) y las
   tareas reutilizables (RV05). Cada fallo dependiente de datos se reduce a una
-  fixture sintética con su regresión antes de corregirlo (antes RV08).
+  fixture sintética con su regresión antes de corregirlo (antes RV08). Para
+  citar a participantes: [invitación](docs/templates/beta-invitation.md).
 - [ ] **RV09 — Accesibilidad nativa.** Recorrido Cargar→Entregar con teclado y
   un lector de pantalla real (NVDA es gratuito). Lo puede hacer el responsable
-  sin participantes; absorbe RV06.
+  sin participantes; absorbe RV06. Paso a paso en
+  [Probar con NVDA](docs/how-to/run-nvda-check.md).
 - [ ] **RV11 — Candidato instalable y distribución.** Solo si se decide
   distribuir binarios: aprobación jurídica, VM limpia, instalador, updater,
   hashes y firmas. Incluye crear la sección `## [versión]` del CHANGELOG al

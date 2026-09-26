@@ -10,6 +10,15 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- Entregar propone comprobaciones de calidad que los datos ya cumplen (sin nulos
+  y valores únicos en columnas identificadoras, sin nulos en columnas completas;
+  hasta 6). Se marcan o desmarcan y «Usar estas comprobaciones» las activa: la
+  entrega pasa a «Validar y exportar» sin escribir reglas a mano.
+- Preparar muestra una sola tabla «Ver antes y después» con ejemplos de los
+  cambios marcados, en lugar de un botón «Ver ejemplos» por cambio. Desmarcar un
+  cambio lo quita de la tabla.
+- Guía «Probar con NVDA» (recorrido de 30 minutos para RV09) e invitación para
+  participantes de la beta; la guía de la beta describe la interfaz actual.
 - Entregar y el diálogo de importación muestran menos a la vez. Entregar pone
   filas, columnas y tamaño en una línea, deja las dos opciones de validación sin
   explicaciones repetidas y coloca la confirmación de exportar sin validar junto
