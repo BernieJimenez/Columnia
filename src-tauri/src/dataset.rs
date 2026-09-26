@@ -5297,6 +5297,34 @@ fn source_backed_safe_corrections(
     )
 }
 
+/// History label that says which corrections a plan applied (UX-01), in
+/// the order the engine applies them.
+fn safe_corrections_label(
+    trim_text: bool,
+    normalize_sentinels: bool,
+    normalize_column_names: bool,
+    remove_duplicates: bool,
+    cast_columns: bool,
+    impute_missing: bool,
+) -> String {
+    let parts = [
+        (normalize_sentinels, "Marcadores «sin dato» a vacío"),
+        (trim_text, "Recortar espacios"),
+        (normalize_column_names, "Normalizar nombres de columna"),
+        (cast_columns, "Convertir a número"),
+        (remove_duplicates, "Quitar duplicados"),
+        (impute_missing, "Rellenar vacíos"),
+    ]
+    .into_iter()
+    .filter_map(|(applied, label)| applied.then_some(label))
+    .collect::<Vec<_>>();
+    if parts.is_empty() {
+        "Aplicar correcciones recomendadas".to_owned()
+    } else {
+        parts.join(" · ")
+    }
+}
+
 fn source_backed_safe_corrections_with_cancellation(
     dataset: &mut LoadedDataset,
     trim_text: bool,
@@ -5433,7 +5461,14 @@ fn source_backed_safe_corrections_with_cancellation(
         &source_path,
         source_format,
         &query,
-        "Aplicar correcciones recomendadas",
+        &safe_corrections_label(
+            trim_text,
+            normalize_sentinels,
+            normalize_column_names,
+            remove_duplicates,
+            false,
+            false,
+        ),
         force_publish,
         cancellation.clone(),
     )?
@@ -10634,7 +10669,16 @@ pub async fn apply_safe_corrections(
             publish_candidate_with_cancellation(
                 dataset,
                 candidate,
-                "Aplicar correcciones recomendadas",
+                &safe_corrections_label(
+                    trim_text,
+                    normalize_sentinels,
+                    normalize_column_names,
+                    remove_duplicates,
+                    cast_columns
+                        .as_ref()
+                        .is_some_and(|listed| !listed.is_empty()),
+                    impute_missing,
+                ),
                 Some(&cancellation),
             )?
         } else {

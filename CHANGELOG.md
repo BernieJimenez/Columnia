@@ -129,6 +129,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- RV22 (UX-01, parcial): el historial nombra lo que hizo cada aplicación de la
+  propuesta («Recortar espacios · Quitar duplicados») en lugar de repetir
+  «Aplicar correcciones recomendadas»; Proyectos muestra las filas con el mismo
+  formato que el resto de la app; la tabla «Ver antes y después» se desplaza
+  dentro de su recuadro en ventanas estrechas en vez de ensanchar la página; y
+  el resumen de entrega dice «1 cambio» en singular.
 - RV22 (DAT-01): si Columnia se cerró de forma inesperada (cierre forzado,
   fallo o corte de luz), Cargar lo avisa al volver a abrir: los cambios que no
   estaban guardados en un proyecto no se conservaron, y «Continuar un proyecto»

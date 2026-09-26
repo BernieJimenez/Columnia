@@ -17291,6 +17291,24 @@ fn safe_correction_plan_can_include_conservative_imputation() {
 }
 
 #[test]
+fn safe_correction_history_labels_say_what_was_applied() {
+    // UX-01: two entries both called «Aplicar correcciones recomendadas»
+    // did not say which one removed duplicates and which one trimmed.
+    assert_eq!(
+        safe_corrections_label(true, false, false, true, false, false),
+        "Recortar espacios · Quitar duplicados"
+    );
+    assert_eq!(
+        safe_corrections_label(false, true, true, false, true, true),
+        "Marcadores «sin dato» a vacío · Normalizar nombres de columna · Convertir a número · Rellenar vacíos"
+    );
+    assert_eq!(
+        safe_corrections_label(false, false, false, false, false, false),
+        "Aplicar correcciones recomendadas"
+    );
+}
+
+#[test]
 fn safe_correction_plan_imputes_only_the_listed_columns_even_after_renames() {
     // RV17 / FUN-03: the one-click proposal names the columns it may fill, so
     // identifiers such as a customer id keep their gaps instead of receiving
