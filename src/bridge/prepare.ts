@@ -125,6 +125,7 @@ export function applySafeCorrections(options: SafeCorrectionOptions): Promise<Sa
     removeDuplicates: options.removeDuplicates,
     imputeMissing: options.imputeMissing ?? false,
     imputeColumns: options.imputeColumns ?? null,
+    castColumns: options.castColumns ?? null,
   });
 }
 

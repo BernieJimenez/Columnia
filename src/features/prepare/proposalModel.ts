@@ -6,7 +6,7 @@ import type { ColumnProfile, DatasetPreview, DatasetProfile, SafeCorrectionOptio
 import { formatDecimal } from "../../format";
 import { isNumericType, isTextType } from "../../dataTypes";
 
-export type ProposalItemId = "sentinels" | "trim" | "duplicates" | "impute";
+export type ProposalItemId = "sentinels" | "trim" | "types" | "duplicates" | "impute";
 
 export interface ProposalExample {
   column: string;
@@ -26,7 +26,7 @@ export interface ProposalItem {
   title: string;
   hint: string;
   examples: ProposalExample[];
-  /** Only for "impute": the exact columns sent to the engine. */
+  /** Only for "impute" and "types": the exact columns sent to the engine. */
   columns?: ProposalColumn[];
 }
 
@@ -76,6 +76,22 @@ function isImputable(column: ColumnProfile, rowCount: number): boolean {
     && column.uniqueCount <= MAX_CATEGORY_VALUES
     && column.uniqueCount / Math.max(observed, 1) <= MAX_CATEGORY_SHARE
     && (column.averageLength ?? 0) <= MAX_CATEGORY_LENGTH
+  );
+}
+
+/**
+ * A text column the engine can type without losing anything (RV18 / FUN-07):
+ * every value is a number and it is not a key or personal data. Rust checks
+ * it again (and skips leading-zero codes) before converting.
+ */
+function isTypeable(column: ColumnProfile): boolean {
+  return (
+    column.name !== ROW_AUDIT_COLUMN
+    && isTextType(column.dataType)
+    && (column.suggestedType === "integer" || column.suggestedType === "decimal")
+    && column.invalidTypeCount === 0
+    && !column.privacySignal
+    && !looksLikeIdentifier(column.name)
   );
 }
 
@@ -130,6 +146,21 @@ export function buildPrepareProposal(profile: DatasetProfile, dataset: DatasetPr
     });
   }
 
+  const typeable = columns.filter(isTypeable);
+  if (typeable.length > 0) {
+    items.push({
+      id: "types",
+      title: `Convertir ${plural(typeable.length, "columna", "columnas")} a número`,
+      hint: "Todos sus valores son números; así se suman, ordenan y exportan como números. Los identificadores no se tocan.",
+      columns: typeable.map((column) => ({ name: column.name, missing: 0, sentinels: 0 })),
+      examples: typeable.slice(0, MAX_EXAMPLES).map((column) => ({
+        column: column.name,
+        before: "Texto",
+        after: column.suggestedType === "integer" ? "Entero" : "Decimal",
+      })),
+    });
+  }
+
   if (profile.duplicateRowCount > 0) {
     items.push({
       id: "duplicates",
@@ -174,6 +205,8 @@ export function defaultProposalSelection(items: ProposalItem[]): ProposalSelecti
   return {
     sentinels: present.has("sentinels"),
     trim: present.has("trim"),
+    // Typing changes no value, only how it is stored.
+    types: present.has("types"),
     duplicates: present.has("duplicates"),
     // Filling gaps invents values: the person opts in explicitly.
     impute: false,
@@ -203,6 +236,7 @@ export function proposalOptions(
     normalizeColumnNames,
     removeDuplicates: on("duplicates"),
     imputeMissing: on("impute"),
+    ...(on("types") ? { castColumns: items.find((item) => item.id === "types")?.columns?.map((column) => column.name) ?? [] } : {}),
     ...(on("impute") ? { imputeColumns: items.find((item) => item.id === "impute")?.columns?.map((column) => column.name) ?? [] } : {}),
   };
 }

@@ -123,6 +123,38 @@ describe("buildPrepareProposal", () => {
   });
 });
 
+describe("numeric typing (RV18 / FUN-07)", () => {
+  const typedProfile = profile({
+    columns: [
+      column({ name: "Quantity", suggestedType: "integer", invalidTypeCount: 0 }),
+      column({ name: "UnitPrice", suggestedType: "decimal", invalidTypeCount: 0 }),
+      column({ name: "InvoiceNo", suggestedType: "integer", invalidTypeCount: 9291 }),
+      column({ name: "CustomerID", suggestedType: "integer", invalidTypeCount: 0 }),
+      column({ name: "telefono", suggestedType: "integer", invalidTypeCount: 0, privacySignal: "phone" }),
+      column({ name: "cantidad", dataType: "i64", suggestedType: null }),
+    ],
+  });
+
+  it("proposes typing only fully numeric text columns that are not keys or personal data", () => {
+    const items = buildPrepareProposal(typedProfile, dataset);
+    const types = items.find((item) => item.id === "types");
+    expect(types?.title).toBe("Convertir 2 columnas a número");
+    expect(types?.columns?.map((entry) => entry.name)).toEqual(["Quantity", "UnitPrice"]);
+    expect(types?.examples.map((example) => `${example.column}: ${example.after}`)).toEqual([
+      "Quantity: Entero",
+      "UnitPrice: Decimal",
+    ]);
+  });
+
+  it("comes checked, because no value changes, and sends the exact columns", () => {
+    const items = buildPrepareProposal(typedProfile, dataset);
+    const selection = defaultProposalSelection(items);
+    expect(selection.types).toBe(true);
+    expect(proposalOptions(items, selection).castColumns).toEqual(["Quantity", "UnitPrice"]);
+    expect(proposalOptions(items, { ...selection, types: false }).castColumns).toBeUndefined();
+  });
+});
+
 describe("proposal selection", () => {
   it("leaves imputation unchecked: inventing values is an explicit decision", () => {
     const items = buildPrepareProposal(profile({ duplicateRowCount: 2 }), dataset);

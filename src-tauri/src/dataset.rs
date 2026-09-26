@@ -5451,6 +5451,57 @@ fn source_backed_safe_corrections_with_cancellation(
     }))
 }
 
+/// Types the listed text columns only when every non-empty value is a number
+/// (RV18 / FUN-07). Unlike `cast_inferred_numeric_columns` nothing becomes
+/// null: a column with one non-numeric value or a leading-zero code is kept.
+fn cast_fully_numeric_columns(frame: &DataFrame, columns: &[String]) -> Result<DataFrame, String> {
+    let mut cast = frame.clone();
+    for name in columns {
+        let Ok(column) = frame.column(name) else {
+            continue;
+        };
+        if column.dtype() != &DataType::String || privacy_signal(name) == Some("identifier") {
+            continue;
+        }
+        let values = column
+            .str()
+            .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
+        let present = values.iter().flatten().map(str::trim).collect::<Vec<_>>();
+        if present.is_empty()
+            || present
+                .iter()
+                .any(|value| value.is_empty() || leading_zero_code(value))
+        {
+            continue;
+        }
+        let converted = if present.iter().all(|value| value.parse::<i64>().is_ok()) {
+            Column::new(
+                name.as_str().into(),
+                values
+                    .iter()
+                    .map(|value| value.and_then(|value| value.trim().parse::<i64>().ok()))
+                    .collect::<Vec<_>>(),
+            )
+        } else if present
+            .iter()
+            .all(|value| value.parse::<f64>().is_ok_and(f64::is_finite))
+        {
+            Column::new(
+                name.as_str().into(),
+                values
+                    .iter()
+                    .map(|value| value.and_then(|value| value.trim().parse::<f64>().ok()))
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            continue;
+        };
+        cast.replace(name, converted)
+            .map_err(|error| format!("No se pudo convertir la columna '{name}': {error}"))?;
+    }
+    Ok(cast)
+}
+
 fn leading_zero_code(value: &str) -> bool {
     let value = value.trim().trim_start_matches(['+', '-']);
     value.starts_with('0')
@@ -6304,6 +6355,8 @@ pub(super) struct SafeCorrectionPlanFrame {
 
 /// Safe corrections plus the optional conservative imputation, as one candidate
 /// so the whole plan is published and undone as a single revision.
+// Mirrors the apply_safe_corrections IPC options one to one.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn safe_corrected_plan_frame(
     frame: &DataFrame,
     trim_text: bool,
@@ -6312,6 +6365,7 @@ pub(super) fn safe_corrected_plan_frame(
     remove_duplicates: bool,
     impute_missing: bool,
     impute_columns: Option<&[String]>,
+    cast_columns: Option<&[String]>,
 ) -> Result<SafeCorrectionPlanFrame, String> {
     let (corrected, mut affected_row_count, changed_cell_count, removed_row_count, renames) =
         safe_corrected_frame(
@@ -6321,19 +6375,24 @@ pub(super) fn safe_corrected_plan_frame(
             normalize_sentinels,
             remove_duplicates,
         )?;
+    // The lists use the names the person saw; follow this plan's renames.
+    let renamed = |listed: &[String]| {
+        listed
+            .iter()
+            .map(|name| {
+                renames
+                    .iter()
+                    .find(|rename| &rename.from == name)
+                    .map_or_else(|| name.clone(), |rename| rename.to.clone())
+            })
+            .collect::<Vec<_>>()
+    };
+    let corrected = match cast_columns {
+        Some(listed) => cast_fully_numeric_columns(&corrected, &renamed(listed))?,
+        None => corrected,
+    };
     let (frame, imputed_cell_count) = if impute_missing {
-        // The list uses the names the person saw; follow this plan's renames.
-        let renamed_columns = impute_columns.map(|listed| {
-            listed
-                .iter()
-                .map(|name| {
-                    renames
-                        .iter()
-                        .find(|rename| &rename.from == name)
-                        .map_or_else(|| name.clone(), |rename| rename.to.clone())
-                })
-                .collect::<Vec<_>>()
-        });
+        let renamed_columns = impute_columns.map(renamed);
         let (imputed, imputed_rows, imputed_cells, _) =
             impute_missing_values_in_columns(&corrected, renamed_columns.as_deref())?;
         affected_row_count = affected_row_count.max(imputed_rows);
@@ -10484,6 +10543,7 @@ pub async fn drop_outlier_values(app: AppHandle) -> Result<TextCleaningResult, S
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn apply_safe_corrections(
     app: AppHandle,
     trim_text: bool,
@@ -10492,6 +10552,7 @@ pub async fn apply_safe_corrections(
     remove_duplicates: Option<bool>,
     impute_missing: Option<bool>,
     impute_columns: Option<Vec<String>>,
+    cast_columns: Option<Vec<String>>,
 ) -> Result<SafeCorrectionsResult, String> {
     let normalize_sentinels = normalize_sentinels.unwrap_or(false);
     let remove_duplicates = remove_duplicates.unwrap_or(false);
@@ -10536,6 +10597,7 @@ pub async fn apply_safe_corrections(
             remove_duplicates,
             impute_missing,
             impute_columns.as_deref(),
+            cast_columns.as_deref(),
         )?;
         cancellation.ensure()?;
         let renamed_column_count = renames.len();

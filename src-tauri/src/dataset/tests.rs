@@ -17242,12 +17242,12 @@ fn safe_correction_plan_can_include_conservative_imputation() {
     )
     .expect("frame de prueba");
 
-    let without = safe_corrected_plan_frame(&frame, true, false, false, false, false, None)
+    let without = safe_corrected_plan_frame(&frame, true, false, false, false, false, None, None)
         .expect("plan sin imputación");
     assert_eq!(without.imputed_cell_count, 0);
     assert_eq!(without.frame.column("monto").unwrap().null_count(), 1);
 
-    let with = safe_corrected_plan_frame(&frame, true, false, false, false, true, None)
+    let with = safe_corrected_plan_frame(&frame, true, false, false, false, true, None, None)
         .expect("plan con imputación");
     assert_eq!(with.changed_cell_count, 1, "solo se recorta ' Santiago '");
     assert_eq!(with.imputed_cell_count, 2);
@@ -17272,18 +17272,68 @@ fn safe_correction_plan_imputes_only_the_listed_columns_even_after_renames() {
     .expect("frame de prueba");
     let listed = ["Categoria".to_owned(), "Monto".to_owned()];
 
-    let plan = safe_corrected_plan_frame(&frame, false, true, false, false, true, Some(&listed))
-        .expect("plan con imputación acotada");
+    let plan =
+        safe_corrected_plan_frame(&frame, false, true, false, false, true, Some(&listed), None)
+            .expect("plan con imputación acotada");
     assert_eq!(plan.imputed_cell_count, 2);
     assert_eq!(plan.frame.column("customer_id").unwrap().null_count(), 1);
     assert_eq!(plan.frame.column("categoria").unwrap().null_count(), 0);
     assert_eq!(plan.frame.column("monto").unwrap().null_count(), 0);
 
-    let none = safe_corrected_plan_frame(&frame, false, false, false, false, true, Some(&[]))
+    let none = safe_corrected_plan_frame(&frame, false, false, false, false, true, Some(&[]), None)
         .expect("lista vacía");
     assert_eq!(
         none.imputed_cell_count, 0,
         "una lista vacía no rellena nada"
+    );
+}
+
+#[test]
+fn safe_correction_plan_types_listed_numeric_columns_without_losing_values() {
+    // RV18 / FUN-07: CSV columns arrive as text; the proposal may type them,
+    // but a column with any non-numeric value or a leading-zero code is left
+    // untouched instead of turning values into nulls.
+    let frame = df!(
+        "Quantity" => [Some(" 6 "), Some("-1"), None, Some("12")],
+        "UnitPrice" => [Some("2.55"), Some("-11062.06"), Some("3"), None],
+        "InvoiceNo" => [Some("536365"), Some("C536379"), Some("536366"), Some("536367")],
+        "Postal" => [Some("01234"), Some("10101"), Some("20202"), Some("30303")],
+    )
+    .expect("frame de prueba");
+    let listed = ["Quantity", "UnitPrice", "InvoiceNo", "Postal"].map(str::to_owned);
+
+    let plan = safe_corrected_plan_frame(
+        &frame,
+        true,
+        false,
+        false,
+        false,
+        false,
+        None,
+        Some(&listed),
+    )
+    .expect("plan con tipos");
+    let quantity = plan.frame.column("Quantity").unwrap();
+    assert_eq!(quantity.dtype(), &DataType::Int64);
+    assert_eq!(
+        quantity.i64().unwrap().get(0),
+        Some(6),
+        "tras recortar ' 6 '"
+    );
+    assert_eq!(quantity.null_count(), 1, "el vacío sigue vacío");
+    assert_eq!(
+        plan.frame.column("UnitPrice").unwrap().dtype(),
+        &DataType::Float64
+    );
+    assert_eq!(
+        plan.frame.column("InvoiceNo").unwrap().dtype(),
+        &DataType::String,
+        "C536379 no es un número"
+    );
+    assert_eq!(
+        plan.frame.column("Postal").unwrap().dtype(),
+        &DataType::String,
+        "01234 conserva su cero"
     );
 }
 
@@ -17321,7 +17371,7 @@ fn full_proposal_plan_on_a_streamed_csv_publishes_a_writable_snapshot() {
         "la carga debe conservar varios bloques"
     );
 
-    let plan = safe_corrected_plan_frame(&frame, true, false, true, true, true, None)
+    let plan = safe_corrected_plan_frame(&frame, true, false, true, true, true, None, None)
         .expect("plan completo");
     assert!(plan.changed_cell_count > 0, "recorta espacios");
     assert!(plan.removed_row_count > 0, "quita duplicados");

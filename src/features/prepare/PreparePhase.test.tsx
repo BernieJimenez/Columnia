@@ -872,8 +872,10 @@ describe("PreparePhase", () => {
     fireEvent.click(screen.getByLabelText("Eliminar acentos"));
     fireEvent.click(screen.getByRole("button", { name: "Normalizar texto seleccionado" }));
     expect(callbacks.onNormalizeText).toHaveBeenCalledWith(["nombre"], false);
-    // The email column (20 % empty) is not filled: identifiers and personal data never are (RV17).
-    expect(screen.getByRole("heading", { name: "Columnia propone 3 cambios" })).toBeInTheDocument();
+    // The email column (20 % empty) is not filled: identifiers and personal data never are (RV17);
+    // the fully numeric text column «cantidad» is proposed for typing (RV18).
+    expect(screen.getByRole("heading", { name: "Columnia propone 4 cambios" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Convertir 1 columna a número" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Recortar espacios al inicio y al final del texto" })).toBeChecked();
     const beforeAfterToggle = screen.getByRole("button", { name: "Ver antes y después" });
     fireEvent.click(beforeAfterToggle);
@@ -886,9 +888,11 @@ describe("PreparePhase", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Recortar espacios al inicio y al final del texto" }));
     // Manual mode: one question per screen, then the optional column-name step.
     fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
-    expect(screen.getByText("Paso 1 de 4")).toBeInTheDocument();
+    expect(screen.getByText("Paso 1 de 5")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
     fireEvent.click(screen.getByRole("radio", { name: "No, dejarlos" }));
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    expect(screen.getByRole("group", { name: "¿Convertimos a número las columnas que solo tienen números?" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
     expect(screen.getByRole("group", { name: "¿Normalizamos los nombres de las 2 columnas?" })).toBeInTheDocument();
@@ -900,6 +904,7 @@ describe("PreparePhase", () => {
       normalizeColumnNames: true,
       removeDuplicates: true,
       imputeMissing: false,
+      castColumns: ["cantidad"],
     });
 
     cleanup();
@@ -950,7 +955,7 @@ describe("PreparePhase", () => {
     };
     const { rerender } = render(<PreparePhase {...props} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar 3 cambios" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar 4 cambios" }));
     expect(onApplyRecommended).toHaveBeenCalledOnce();
 
     const afterProfile: DatasetProfile = {

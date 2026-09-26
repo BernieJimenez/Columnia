@@ -129,6 +129,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- RV18 (FUN-07): la propuesta de Preparar ofrece «Convertir N columnas a
+  número» para las columnas que solo contienen números (cantidades, precios),
+  sin tocar identificadores, códigos con ceros a la izquierda ni datos
+  personales. Antes todo llegaba como texto a CSV, Excel y bases de datos, y no
+  se podía sumar ni indexar sin convertirlo después. Si una columna tiene un solo
+  valor no numérico, se deja como está: ningún valor se pierde.
 - RV20 (FUN-02): un CSV guardado por Excel para Windows (codificación
   Windows-1252, con tildes, «ñ» o «€») ya no se rechaza sin salida. Cargar muestra
   cómo se leerá una línea («Provincia;Población;Año;Importe (€)») y ofrece
