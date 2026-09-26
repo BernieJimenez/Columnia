@@ -662,14 +662,14 @@ export function LoadPhase({
                 type="button"
                 className="secondary-action"
                 onClick={onRetryHeaderPreview}
-                disabled={sheetSelection.schemaPreviewLoading === true}
+                disabled={encodingConversionPending || sheetSelection.schemaPreviewLoading === true}
               >Reintentar muestra</button>
             )}
             <button
               type="button"
               className="primary-action"
               onClick={() => onSheetAction({ kind: "confirmed" })}
-              disabled={sheetSelection.schemaPreviewLoading === true || (sheetSelection.source.format === "excel"
+              disabled={encodingConversionPending || sheetSelection.schemaPreviewLoading === true || (sheetSelection.source.format === "excel"
                 ? !sheetSelection.selectedSheetId
                 : isDelimitedSelection
                   ? sheetSelection.headerReviewLoading === true || !sheetSelection.headerReview

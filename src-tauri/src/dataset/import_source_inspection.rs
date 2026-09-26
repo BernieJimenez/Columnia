@@ -243,7 +243,6 @@ pub(super) async fn convert_dataset_selection_encoding_impl(
         if pending.id != selection_id {
             return Err("La selección no coincide con el archivo pendiente.".to_owned());
         }
-        ensure_not_cancelled(state.load_was_cancelled(pending.generation))?;
         pending
     };
     let (path, file_size_bytes, extension) = validate_dataset_file(&pending.path)?;
@@ -259,7 +258,9 @@ pub(super) async fn convert_dataset_selection_encoding_impl(
         .unwrap_or("dataset.csv")
         .to_owned();
 
-    let generation = pending.generation;
+    // Like the schema preview, the conversion is its own load step: the
+    // selection's generation may already be superseded by that preview.
+    let generation = app.state::<DatasetState>().begin_load()?;
     let conversion_app = app.clone();
     let conversion_name = file_name.clone();
     let (directory, converted, converted_size) = tauri::async_runtime::spawn_blocking(move || {
@@ -288,6 +289,9 @@ pub(super) async fn convert_dataset_selection_encoding_impl(
             .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
         pending.path = converted.clone();
         pending.file_size_bytes = converted_size;
+        // The selection now belongs to this load step, so the header review
+        // that follows is not treated as a superseded request.
+        pending.generation = generation;
         let active_source = current
             .as_ref()
             .and_then(|dataset| dataset.source_path.clone());
