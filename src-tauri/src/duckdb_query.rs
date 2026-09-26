@@ -2047,8 +2047,10 @@ fn csv_export_projection(connection: &Connection, source: &str) -> Result<String
         .map(|(name, data_type)| {
             let identifier = quote_identifier(&name);
             if data_type.to_ascii_uppercase().starts_with("VARCHAR") {
+                // Same rule as csv_formula_safety::is_signed_number: a complete
+                // signed number (-1, +3, -1.5e3) is data, not a formula (FUN-04).
                 format!(
-                    "CASE WHEN left({identifier}, 1) IN ('=', '+', '-', '@', chr(9), chr(10), chr(13)) THEN chr(39) || {identifier} ELSE {identifier} END AS {identifier}"
+                    "CASE WHEN left({identifier}, 1) IN ('=', '+', '-', '@', chr(9), chr(10), chr(13)) AND NOT regexp_full_match({identifier}, '[+-]([0-9]+([.,][0-9]*)?|[.,][0-9]+)([eE][+-]?[0-9]+)?') THEN chr(39) || {identifier} ELSE {identifier} END AS {identifier}"
                 )
             } else {
                 identifier
@@ -2633,6 +2635,35 @@ mod tests {
         assert!(source.is_file());
         assert!(destination.is_file());
         assert!(!directory.path().join("dataset.parquet").exists());
+    }
+
+    #[test]
+    fn csv_export_keeps_signed_numbers_in_text_columns() {
+        // RV18 / FUN-04 on the DuckDB path: after Preparar the source is a
+        // text snapshot, and every negative quantity gained an apostrophe.
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("current.tsv");
+        let destination = directory.path().join("exported.csv");
+        fs::write(&source, "note\n-1\n-2+3\nabc\n+3\n-1.5e3\n--1\n")
+            .expect("se debe escribir la fuente delimitada");
+
+        export_file_to_csv_with_cancel(
+            &source,
+            DuckDbFileFormat::Delimited { delimiter: b'\t' },
+            &destination,
+            || false,
+        )
+        .expect("DuckDB debe exportar la fuente delimitada a CSV");
+
+        let lines = fs::read_to_string(&destination)
+            .expect("la salida CSV debe poder leerse")
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            lines,
+            vec!["note", "-1", "'-2+3", "abc", "+3", "-1.5e3", "'--1"]
+        );
     }
 
     #[test]
