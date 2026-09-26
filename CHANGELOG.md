@@ -129,6 +129,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- RV20 (FUN-02): un CSV guardado por Excel para Windows (codificación
+  Windows-1252, con tildes, «ñ» o «€») ya no se rechaza sin salida. Cargar muestra
+  cómo se leerá una línea («Provincia;Población;Año;Importe (€)») y ofrece
+  «Convertir y continuar»: Columnia lee una copia en UTF-8 y el original no
+  cambia. También cubre archivos cuyo primer carácter especial aparece tarde,
+  que antes fallaban con un mensaje técnico en inglés.
 - RV20 (FUN-01): los CSV cuyas líneas terminan solo en retorno de carro
   («CSV (Macintosh)» de Excel y exportaciones antiguas) se cargan con las mismas
   filas que su equivalente con saltos de línea normales. Antes se leían como una

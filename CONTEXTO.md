@@ -340,7 +340,7 @@ Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o
 - Parquet.
 - Excel y ODS mediante XLSX, XLS, XLSB y ODS.
 - Selección de hoja y modo de encabezado para libros.
-- UTF-8 estricto con BOM opcional; los fines de línea solo-CR se detectan en la muestra y se leen con `eol_char = ` sin reescribir el archivo.
+- UTF-8 estricto con BOM opcional; los fines de línea solo-CR se detectan en la muestra y se leen con `eol_char = \r` sin reescribir el archivo. Si el archivo no es UTF-8, Rust devuelve `LEGACY_ENCODING_PREFIX` con una línea de ejemplo decodificada como Windows-1252 y Cargar propone «Convertir y continuar»; solo tras ese clic `convert_dataset_selection_encoding` escribe una copia UTF-8 privada con el mismo nombre, la selección pasa a apuntarla y el original no se toca. Las copias viven en `DatasetState::converted_sources` mientras el dataset activo o la selección las usen.
 - Detección conservadora de coma, punto y coma, tabulador o `|`; TSV fuerza tabulador.
 
 CSV y otros formatos delimitados se conservan físicamente como texto para no inventar un esquema. El perfil puede detectar semántica numérica segura sin convertir identificadores con ceros iniciales o enteros que perderían precisión. Parquet conserva su esquema nativo compatible.

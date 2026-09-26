@@ -719,6 +719,73 @@ fn csv_with_carriage_return_line_endings_loads_like_its_lf_equivalent() {
     fs::remove_file(lf_path).ok();
 }
 
+fn windows_1252_csv() -> PathBuf {
+    // «Provincia;Población;Año;Importe (€)» as Excel for Windows saves it.
+    let mut bytes = b"Provincia;Poblaci\xf3n;A\xf1o;Importe (\x80)\r\n".to_vec();
+    bytes.extend_from_slice(
+        b"San Jos\xe9 de Ocoa;59.544;2022;98,10\r\nSantiago;1.074.684;2022;1.234,50\r\n",
+    );
+    let directory = tempfile::tempdir().unwrap().keep();
+    let path = directory.join("excel_es_ansi.csv");
+    fs::write(&path, bytes).unwrap();
+    path
+}
+
+#[test]
+fn windows_1252_csv_is_reported_with_a_decoded_example_instead_of_a_bare_error() {
+    // RV20 / FUN-02: the review must be able to propose a conversion.
+    let path = windows_1252_csv();
+    let error = delimited_header_review(&path, "csv").expect_err("no es UTF-8");
+    let example = error
+        .strip_prefix(LEGACY_ENCODING_PREFIX)
+        .unwrap_or_else(|| panic!("falta el prefijo estructurado: {error}"));
+    assert_eq!(example, "Provincia;Población;Año;Importe (€)");
+}
+
+#[test]
+fn windows_1252_byte_after_the_sample_is_reported_with_the_same_prefix() {
+    // OnlineRetail: the first invalid byte («£» = 0xA3) appears after 64 KiB,
+    // so the header review passes and the full read failed in English.
+    let mut bytes = b"producto,precio\n".to_vec();
+    while bytes.len() < (DELIMITED_SAMPLE_BYTES as usize) + 1024 {
+        bytes.extend_from_slice(b"TAZA BLANCA,2.55\n");
+    }
+    bytes.extend_from_slice(b"VALE REGALO \xa340,40.00\n");
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ventas.csv");
+    fs::write(&path, bytes).unwrap();
+
+    delimited_header_review(&path, "csv").expect("la muestra es ASCII");
+    let error = load_csv(&path).expect_err("el archivo completo no es UTF-8");
+    assert!(error.starts_with(LEGACY_ENCODING_PREFIX), "{error}");
+}
+
+#[test]
+fn windows_1252_conversion_writes_a_utf8_copy_that_loads_and_keeps_the_original() {
+    let path = windows_1252_csv();
+    let original = fs::read(&path).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let converted = directory.path().join("excel_es_ansi.csv");
+
+    let bytes = convert_windows_1252_file(&path, &converted, &|| false).expect("conversión");
+    assert_eq!(bytes, fs::metadata(&converted).unwrap().len());
+    assert_eq!(fs::read(&path).unwrap(), original, "el original no cambia");
+
+    let review = delimited_header_review(&converted, "csv").expect("la copia es UTF-8");
+    assert_eq!(review.delimiter, ";");
+    let (frame, _) = load_csv(&converted).expect("la copia carga");
+    assert_eq!(frame.get_column_names()[1].as_str(), "Población");
+    assert_eq!(frame.get_column_names()[3].as_str(), "Importe (€)");
+    assert_eq!(
+        frame.column("Provincia").unwrap().str().unwrap().get(0),
+        Some("San José de Ocoa")
+    );
+    assert!(
+        convert_windows_1252_file(&path, &converted, &|| true).is_err(),
+        "respeta la cancelación"
+    );
+}
+
 #[test]
 fn source_backed_load_keeps_only_schema_while_preparing_the_preview() {
     let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");

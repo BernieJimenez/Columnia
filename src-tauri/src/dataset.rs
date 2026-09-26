@@ -1711,6 +1711,10 @@ struct ReviewComparisonSnapshot {
 pub struct DatasetState {
     current: Mutex<Option<LoadedDataset>>,
     pending_selection: Mutex<Option<PendingSelection>>,
+    /// UTF-8 copies of Windows-1252 files the person approved converting
+    /// (RV20). Source-backed datasets keep reading them, so a copy lives until
+    /// neither the active dataset nor the pending selection points into it.
+    converted_sources: Mutex<Vec<tempfile::TempDir>>,
     pending_drop: Mutex<Option<PathBuf>>,
     comparison: Mutex<Option<PendingComparison>>,
     last_export_path: Mutex<Option<PathBuf>>,
@@ -6467,13 +6471,104 @@ where
             // La muestra puede terminar a mitad de un carácter UTF-8. Solo se
             // descarta esa cola incompleta; un byte inválido interior se rechaza.
             let valid = &bytes[..error.valid_up_to()];
-            Ok((normalize(std::str::from_utf8(valid).unwrap_or_default()), false))
+            Ok((
+                normalize(std::str::from_utf8(valid).unwrap_or_default()),
+                false,
+            ))
         }
-        Err(_) => Err(
-            "El archivo delimitado no contiene UTF-8 válido. Columnia no sustituye caracteres ni aplica codificaciones heredadas automáticamente."
-                .to_owned(),
-        ),
+        Err(_) => Err(format!(
+            "{LEGACY_ENCODING_PREFIX}{}",
+            windows_1252_example(bytes)
+        )),
     }
+}
+
+/// Structured error for a delimited file that is not UTF-8 but reads as
+/// Windows-1252 (Excel for Windows). The UI strips the prefix, shows the
+/// decoded example that follows it, and proposes a converted copy (RV20 /
+/// FUN-02). Columnia never converts without that approval.
+pub(crate) const LEGACY_ENCODING_PREFIX: &str = "__columnia_legacy_encoding__:windows-1252:";
+
+/// Windows-1252 bytes 0x80-0x9F; the rest of the range matches Latin-1.
+const WINDOWS_1252_HIGH: [char; 32] = [
+    '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8D}', 'Ž', '\u{8F}',
+    '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9D}', 'ž', 'Ÿ',
+];
+
+fn decode_windows_1252(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|&byte| match byte {
+            0x80..=0x9F => WINDOWS_1252_HIGH[usize::from(byte - 0x80)],
+            _ => char::from(byte),
+        })
+        .collect()
+}
+
+/// The first line with a non-ASCII byte, decoded, so the person can check the
+/// conversion before approving it.
+fn windows_1252_example(bytes: &[u8]) -> String {
+    let line = bytes
+        .split(|byte| matches!(byte, b'\n' | b'\r'))
+        .find(|line| line.iter().any(|byte| *byte >= 0x80))
+        .unwrap_or_default();
+    decode_windows_1252(line).trim().chars().take(120).collect()
+}
+
+/// Maps the engines' UTF-8 failures (Polars, DuckDB) found after the sample
+/// to the structured error, so the late case offers the same conversion.
+pub(crate) fn legacy_encoding_error(message: String) -> String {
+    if message.starts_with(LEGACY_ENCODING_PREFIX) {
+        return message;
+    }
+    let lower = message.to_lowercase();
+    if lower.contains("utf-8") || lower.contains("utf8") || lower.contains("invalid unicode") {
+        LEGACY_ENCODING_PREFIX.to_owned()
+    } else {
+        message
+    }
+}
+
+/// Writes a UTF-8 copy of a Windows-1252 file. Single-byte decoding, so the
+/// file is converted in fixed blocks without holding it in memory.
+pub(super) fn convert_windows_1252_file<C>(
+    source: &Path,
+    destination: &Path,
+    is_cancelled: &C,
+) -> Result<u64, String>
+where
+    C: Fn() -> bool + ?Sized,
+{
+    use std::io::Write;
+    ensure_not_cancelled(is_cancelled())?;
+    let mut input = fs::File::open(source)
+        .map_err(|error| format!("No se pudo abrir el archivo para convertirlo: {error}"))?;
+    let mut output = std::io::BufWriter::new(
+        fs::File::create(destination)
+            .map_err(|error| format!("No se pudo crear la copia convertida: {error}"))?,
+    );
+    let mut buffer = vec![0_u8; 1024 * 1024];
+    let mut written = 0_u64;
+    loop {
+        ensure_not_cancelled(is_cancelled())?;
+        let read = input
+            .read(&mut buffer)
+            .map_err(|error| format!("No se pudo leer el archivo para convertirlo: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        let text = decode_windows_1252(&buffer[..read]);
+        output
+            .write_all(text.as_bytes())
+            .map_err(|error| format!("No se pudo escribir la copia convertida: {error}"))?;
+        written += text.len() as u64;
+    }
+    let file = output
+        .into_inner()
+        .map_err(|error| format!("No se pudo cerrar la copia convertida: {error}"))?;
+    file.sync_all()
+        .map_err(|error| format!("No se pudo sincronizar la copia convertida: {error}"))?;
+    Ok(written)
 }
 
 /// «CSV (Macintosh)» and old exports end lines with \r only: the sample has
@@ -6708,6 +6803,7 @@ fn read_delimited_frame(path: &Path, extension: &str) -> Result<DataFrame, Strin
         plan,
         "No se pudo interpretar el archivo delimitado como UTF-8",
     )
+    .map_err(legacy_encoding_error)
 }
 
 fn read_delimited_frame_with_header_and_cancel<C>(
@@ -6726,6 +6822,7 @@ where
         "No se pudo interpretar el archivo delimitado como UTF-8",
         &is_cancelled,
     )
+    .map_err(legacy_encoding_error)
 }
 
 fn parquet_scan(path: &Path) -> Result<LazyFrame, String> {
@@ -7795,6 +7892,16 @@ pub async fn inspect_dropped_dataset(
     import_source_inspection::inspect_dropped_dataset_impl(app).await
 }
 
+/// Converts the pending Windows-1252 selection into a private UTF-8 copy.
+/// Only called after the person approves the proposal in Cargar.
+#[tauri::command]
+pub async fn convert_dataset_selection_encoding(
+    app: AppHandle,
+    selection_id: String,
+) -> Result<DatasetSourceInspection, String> {
+    import_source_inspection::convert_dataset_selection_encoding_impl(app, selection_id).await
+}
+
 #[tauri::command]
 pub async fn preview_delimited_header_review(
     app: AppHandle,
@@ -7830,6 +7937,7 @@ pub async fn preview_dataset_selection(
         number_convention,
     )
     .await
+    .map_err(legacy_encoding_error)
 }
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
@@ -7854,6 +7962,7 @@ pub async fn load_dataset_selection(
         on_progress,
     )
     .await
+    .map_err(legacy_encoding_error)
 }
 
 #[tauri::command]

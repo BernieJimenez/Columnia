@@ -47,6 +47,14 @@ export function inspectWorkbookSheets(selectionId: string): Promise<WorkbookShee
   return invoke<WorkbookSheet[]>("inspect_workbook_sheets", { selectionId });
 }
 
+/**
+ * Converts the pending Windows-1252 selection into a private UTF-8 copy
+ * (RV20). Call it only after the person approves the proposal.
+ */
+export function convertDatasetSelectionEncoding(selectionId: string): Promise<DatasetSourceInspection> {
+  return invoke<DatasetSourceInspection>("convert_dataset_selection_encoding", { selectionId });
+}
+
 export function previewDelimitedHeaderReview(selectionId: string): Promise<DelimitedHeaderReview> {
   return invoke<DelimitedHeaderReview>("preview_delimited_header_review", { selectionId });
 }

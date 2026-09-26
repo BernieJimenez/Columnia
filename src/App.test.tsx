@@ -575,6 +575,44 @@ describe("App", () => {
     expect(bridge.previewDelimitedHeaderReview).toHaveBeenCalledTimes(2);
   });
 
+  it("propone convertir un CSV de Excel en Windows-1252 y solo convierte tras el clic (RV20)", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    mockDatasetLoad({
+      fileName: "excel_es_ansi.csv", fileSizeBytes: 149, rowCount: 1, columnCount: 1,
+      columns: [{ name: "value", dataType: "String" }], rows: [["ok"]],
+    });
+    vi.mocked(bridge.previewDelimitedHeaderReview)
+      .mockRejectedValueOnce(new Error("__columnia_legacy_encoding__:windows-1252:Provincia;Población;Año"))
+      .mockResolvedValueOnce(defaultDelimitedHeaderReview());
+    const convert = vi.spyOn(bridge, "convertDatasetSelectionEncoding").mockResolvedValue({
+      selectionId: "selection-test",
+      fileName: "excel_es_ansi.csv",
+      fileSizeBytes: 160,
+      format: "csv",
+      sheets: [],
+      defaultSheetId: null,
+      isCompressedContainer: false,
+      resourceEstimate: resourceEstimate(160),
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    const importDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de excel_es_ansi.csv" });
+    const proposal = await within(importDialog).findByRole("region", { name: "Leer como Excel para Windows" });
+    expect(proposal).toHaveTextContent("Provincia;Población;Año");
+    expect(importDialog).not.toHaveTextContent("__columnia");
+    expect(within(importDialog).queryByRole("button", { name: "Reintentar muestra" })).not.toBeInTheDocument();
+    expect(convert).not.toHaveBeenCalled();
+
+    fireEvent.click(within(proposal).getByRole("button", { name: "Convertir y continuar" }));
+    await waitFor(() => expect(convert).toHaveBeenCalledWith("selection-test"));
+    expect(await within(importDialog).findByRole("region", { name: "Vista previa de la interpretación" })).toBeInTheDocument();
+    expect(bridge.previewDelimitedHeaderReview).toHaveBeenCalledTimes(2);
+  });
+
   it("restaura el estado vacío si la carga falla con un error nativo no tipado", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({

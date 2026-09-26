@@ -92,6 +92,11 @@
       "debug": false
     },
     {
+      "name": "convert_dataset_selection_encoding",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "preview_delimited_header_review",
       "module": "dataset",
       "debug": false
