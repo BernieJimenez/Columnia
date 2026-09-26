@@ -396,7 +396,7 @@ Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, 
 
 ### Entrega
 
-- exportación atómica a CSV, JSON, Parquet, SQL, Excel y SQLite, con neutralización de fórmulas de texto en CSV; el bundle ZIP auditable añade `recipe.json` validada cuando existe un borrador y la referencia/hash correspondiente en `manifest.json`;
+- exportación atómica a CSV, JSON, Parquet, SQL, Excel y SQLite, con neutralización de fórmulas de texto en CSV (sin tocar números completos); el XLSX sustituye por `U+FFFD` los caracteres prohibidos en XML 1.0 y rechaza más de 1.048.575 filas de datos o celdas de más de 32.767 caracteres; el bundle ZIP auditable añade `recipe.json` validada cuando existe un borrador y la referencia/hash correspondiente en `manifest.json`;
 - contratos de hasta 16 reglas base y avanzadas: `allowed_values`, `regex`, `dtype`,
   unicidad compuesta, comparación, referencias, monotonía, agregados, drift,
   fechas, condiciones, esquema y conteo de filas;

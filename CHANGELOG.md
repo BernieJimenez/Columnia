@@ -129,6 +129,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- RV19 (FUN-05): la exportación a Excel ya no produce libros que Excel no
+  abre. Los caracteres de control que prohíbe XML (copiados de otros sistemas)
+  se sustituyen por «�»; con más de 1.048.575 filas de datos o una celda de más
+  de 32.767 caracteres, la exportación se detiene con un mensaje que nombra el
+  límite (y la celda) y propone CSV o Parquet, sin dejar ningún archivo.
 - RV17 (FUN-03, FUN-06): la propuesta de Preparar ya no inventa datos. Antes
   rellenaba con el valor más frecuente identificadores, nombres de persona y
   fechas (en un dataset de ventas, 135.037 compras sin cliente pasaban a un solo

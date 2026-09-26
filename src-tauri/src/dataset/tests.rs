@@ -9026,6 +9026,88 @@ fn exports_a_portable_sql_script_with_escaped_values_and_nulls() {
 }
 
 #[test]
+fn xlsx_export_replaces_control_characters_that_xml_forbids() {
+    // RV19 / FUN-05: \x01 or \x0B copied from other systems made the sheet
+    // invalid XML, and Excel refused to open the delivered file.
+    let frame =
+        df!["texto" => &["con\u{1}control", "tab\u{b}vertical", "normal\tcon tab"]].unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("control.xlsx");
+    export_frame_atomic(
+        &frame,
+        &destination,
+        ExportFormat::Excel,
+        |_, _| {},
+        || false,
+    )
+    .expect("Excel debe publicarse");
+
+    let mut archive = ZipArchive::new(fs::File::open(&destination).unwrap()).unwrap();
+    let mut sheet = String::new();
+    archive
+        .by_name("xl/worksheets/sheet1.xml")
+        .unwrap()
+        .read_to_string(&mut sheet)
+        .unwrap();
+    assert!(
+        !sheet
+            .chars()
+            .any(|character| character < ' ' && !matches!(character, '\t' | '\n' | '\r')),
+        "la hoja no puede contener caracteres prohibidos en XML 1.0"
+    );
+    assert!(sheet.contains("con\u{FFFD}control"));
+    assert!(
+        sheet.contains("normal\tcon tab"),
+        "el tabulador es válido y se conserva"
+    );
+}
+
+#[test]
+fn xlsx_export_rejects_more_rows_than_one_sheet_holds() {
+    let rows = 1_048_576_usize;
+    let frame = DataFrame::new(
+        rows,
+        vec![Series::new("valor".into(), vec![1_i8; rows]).into_column()],
+    )
+    .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("grande.xlsx");
+    let error = export_frame_atomic(
+        &frame,
+        &destination,
+        ExportFormat::Excel,
+        |_, _| {},
+        || false,
+    )
+    .expect_err("Excel admite 1.048.575 filas de datos");
+    assert!(error.contains("1.048.575"), "{error}");
+    assert!(error.contains("CSV"), "{error}");
+    assert!(
+        !destination.exists(),
+        "no se publica un libro que Excel no abre"
+    );
+}
+
+#[test]
+fn xlsx_export_rejects_cells_longer_than_excel_allows() {
+    let long = "y".repeat(32_768);
+    let frame = df!["texto" => &["corto", long.as_str()]].unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("larga.xlsx");
+    let error = export_frame_atomic(
+        &frame,
+        &destination,
+        ExportFormat::Excel,
+        |_, _| {},
+        || false,
+    )
+    .expect_err("Excel admite 32.767 caracteres por celda");
+    assert!(error.contains("A3"), "nombra la celda: {error}");
+    assert!(error.contains("32.767"), "{error}");
+    assert!(!destination.exists());
+}
+
+#[test]
 fn exports_a_real_xlsx_with_safe_inline_strings() {
     let frame = df![
         "name" => &["A&B", "=SUM(A1:A2)"],
