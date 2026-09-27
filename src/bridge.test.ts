@@ -8,6 +8,7 @@ import {
   resolveDatasetConflicts,
   joinDataset,
   applySafeCorrections,
+  previewSafeCorrections,
   applyTransformRecipe,
   capOutlierValues,
   cancelUpdateDownload,
@@ -436,6 +437,28 @@ describe("desktop bridge", () => {
     });
     expect(invoke).toHaveBeenNthCalledWith(13, "undo_last_change");
     expect(invoke).toHaveBeenNthCalledWith(14, "redo_last_change");
+  });
+
+  it("simula la propuesta con relleno sin enviar la orden de aplicar (RV17)", async () => {
+    vi.mocked(invoke).mockResolvedValue({ removedRowCount: 0, imputedCellCount: 0, imputations: [] });
+
+    await previewSafeCorrections({
+      trimText: true,
+      normalizeSentinels: false,
+      normalizeColumnNames: false,
+      removeDuplicates: true,
+      imputeMissing: true,
+      imputeColumns: ["categoria"],
+    });
+
+    expect(invoke).toHaveBeenCalledWith("preview_safe_corrections", {
+      trimText: true,
+      normalizeSentinels: false,
+      normalizeColumnNames: false,
+      removeDuplicates: true,
+      imputeColumns: ["categoria"],
+      castColumns: null,
+    });
   });
 
   it("invoca la eliminación de duplicados parecidos sin enviar valores", async () => {

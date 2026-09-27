@@ -368,6 +368,11 @@
       "debug": false
     },
     {
+      "name": "preview_safe_corrections",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "apply_safe_corrections",
       "module": "dataset",
       "debug": false
@@ -664,6 +669,14 @@
     {
       "rust": "SafeCorrectionsResult",
       "typescript": "SafeCorrectionsResult"
+    },
+    {
+      "rust": "ImputationPreview",
+      "typescript": "ImputationPreview"
+    },
+    {
+      "rust": "SafeCorrectionsPreview",
+      "typescript": "SafeCorrectionsPreview"
     },
     {
       "rust": "RecipeSourceColumn",

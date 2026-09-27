@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ModalDialog } from "../../components/ModalDialog";
+import { previewSafeCorrections } from "../../bridge";
 import type { DatasetPreview, DatasetProfile, HistoryState, QualityRule, SafeCorrectionOptions, SavedRecipe, TransformRecipe } from "../../bridge";
 import type { ProfileStatus } from "../review/reviewModel";
 import { ChangeFeedback, HistoryBar } from "./HistoryBar";
@@ -237,6 +238,7 @@ export function PreparePhase({
           canUndo={historyStatus.canUndo}
           result={planComparison}
           onApply={applyProposal}
+          onPreview={previewSafeCorrections}
           onUndo={undoFromProposal}
           onDismissResult={() => setPlanComparison(null)}
         />

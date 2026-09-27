@@ -2,7 +2,13 @@
 // maps to an option of apply_safe_corrections, so the whole proposal is
 // published (and undone) as one revision. Nothing here applies changes: the
 // user always confirms with a click.
-import type { ColumnProfile, DatasetPreview, DatasetProfile, SafeCorrectionOptions } from "../../bridge";
+import type {
+  ColumnProfile,
+  DatasetPreview,
+  DatasetProfile,
+  SafeCorrectionOptions,
+  SafeCorrectionsPreview,
+} from "../../bridge";
 import { formatDecimal } from "../../format";
 import { isNumericType, isTextType } from "../../dataTypes";
 
@@ -213,11 +219,33 @@ export function defaultProposalSelection(items: ProposalItem[]): ProposalSelecti
   };
 }
 
-/** The title shown for an item; imputation counts follow the current selection (FUN-06). */
-export function proposalItemTitle(item: ProposalItem, selection: ProposalSelection): string {
+/**
+ * The title shown for an item. Imputation counts come from the engine's
+ * simulation of the whole selected chain when there is one (RV17 / FUN-06);
+ * otherwise they are estimated from the profile and the current selection.
+ */
+export function proposalItemTitle(
+  item: ProposalItem,
+  selection: ProposalSelection,
+  preview?: SafeCorrectionsPreview | null,
+): string {
   if (item.id !== "impute" || !item.columns) return item.title;
+  if (preview) {
+    return preview.imputedCellCount === 0
+      ? "Rellenar valores vacíos: no queda ninguno tras los demás cambios"
+      : imputeTitle(preview.imputedCellCount, preview.imputations.length);
+  }
   const total = item.columns.reduce((sum, column) => sum + filledCells(column, selection.sentinels), 0);
   return imputeTitle(total, item.columns.length);
+}
+
+/** One row per filled column: the exact value it receives and in how many cells (RV17 / FUN-03). */
+export function imputationExamples(preview: SafeCorrectionsPreview): ProposalExample[] {
+  return preview.imputations.map((fill) => ({
+    column: fill.column,
+    before: null,
+    after: `${fill.value} · ${plural(fill.cellCount, "celda", "celdas")}`,
+  }));
 }
 
 export function selectedProposalCount(items: ProposalItem[], selection: ProposalSelection): number {

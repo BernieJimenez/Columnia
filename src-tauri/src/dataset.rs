@@ -424,6 +424,8 @@ pub struct ExportResult {
     pub(crate) format: &'static str,
     pub(crate) protected_column_count: usize,
     pub(crate) protected_columns: Vec<String>,
+    /// Excel only: cells whose control characters became U+FFFD (RV19).
+    pub(crate) replaced_control_cell_count: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
@@ -1130,6 +1132,8 @@ pub struct SafeCorrectionsResult {
     removed_row_count: usize,
     renamed_column_count: usize,
     renames: Vec<ColumnRename>,
+    /// Text columns typed as numbers by the same plan (RV18).
+    typed_column_count: usize,
     /// Cells filled by the optional conservative imputation of the same plan.
     imputed_cell_count: usize,
 }
@@ -5400,6 +5404,7 @@ fn source_backed_safe_corrections_with_cancellation(
             removed_row_count: 0,
             renamed_column_count: 0,
             renames,
+            typed_column_count: 0,
             imputed_cell_count: 0,
         }));
     }
@@ -5482,6 +5487,7 @@ fn source_backed_safe_corrections_with_cancellation(
         affected_row_count,
         renamed_column_count: renames.len(),
         renames,
+        typed_column_count: 0,
         imputed_cell_count: 0,
     }))
 }
@@ -5489,8 +5495,13 @@ fn source_backed_safe_corrections_with_cancellation(
 /// Types the listed text columns only when every non-empty value is a number
 /// (RV18 / FUN-07). Unlike `cast_inferred_numeric_columns` nothing becomes
 /// null: a column with one non-numeric value or a leading-zero code is kept.
-fn cast_fully_numeric_columns(frame: &DataFrame, columns: &[String]) -> Result<DataFrame, String> {
+/// Returns the typed frame and how many columns it converted.
+fn cast_fully_numeric_columns(
+    frame: &DataFrame,
+    columns: &[String],
+) -> Result<(DataFrame, usize), String> {
     let mut cast = frame.clone();
+    let mut typed_column_count = 0;
     for name in columns {
         let Ok(column) = frame.column(name) else {
             continue;
@@ -5533,8 +5544,9 @@ fn cast_fully_numeric_columns(frame: &DataFrame, columns: &[String]) -> Result<D
         };
         cast.replace(name, converted)
             .map_err(|error| format!("No se pudo convertir la columna '{name}': {error}"))?;
+        typed_column_count += 1;
     }
-    Ok(cast)
+    Ok((cast, typed_column_count))
 }
 
 fn leading_zero_code(value: &str) -> bool {
@@ -5907,19 +5919,35 @@ fn parse_inferred_date_columns(
 fn impute_missing_values_in_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
-    impute_missing_values_in_columns(frame, None)
+    let (cleaned, changed_rows, changed_cells, changed_columns, _) =
+        impute_missing_values_in_columns(frame, None)?;
+    Ok((cleaned, changed_rows, changed_cells, changed_columns))
+}
+
+/// Shows an imputed number the way the column stores it: integer columns
+/// never show decimals.
+fn imputation_number_label(value: f64, dtype: &DataType) -> String {
+    if dtype.is_integer() || value.fract() == 0.0 {
+        format!("{value:.0}")
+    } else {
+        value.to_string()
+    }
 }
 
 /// Median/mode imputation. `columns` limits it to the listed names; the
-/// one-click proposal always passes the columns it announced (RV17).
+/// one-click proposal always passes the columns it announced (RV17). The last
+/// element holds the value written into each changed column, in the same
+/// order, so a preview can show it before anything is applied.
+#[allow(clippy::type_complexity)]
 fn impute_missing_values_in_columns(
     frame: &DataFrame,
     columns: Option<&[String]>,
-) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
+) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>, Vec<String>), String> {
     let mut cleaned = frame.clone();
     let mut changed_rows = vec![false; frame.height()];
     let mut changed_cell_count = 0;
     let mut changed_columns = Vec::new();
+    let mut fill_values = Vec::new();
 
     for column in frame.columns() {
         let name = column.name().to_string();
@@ -5980,6 +6008,7 @@ fn impute_missing_values_in_columns(
                 name,
                 changed_cell_count: column_changes,
             });
+            fill_values.push(mode);
             continue;
         }
 
@@ -6031,6 +6060,7 @@ fn impute_missing_values_in_columns(
             name,
             changed_cell_count: column_changes,
         });
+        fill_values.push(imputation_number_label(replacement, column.dtype()));
     }
 
     Ok((
@@ -6038,6 +6068,7 @@ fn impute_missing_values_in_columns(
         changed_rows.into_iter().filter(|changed| *changed).count(),
         changed_cell_count,
         changed_columns,
+        fill_values,
     ))
 }
 
@@ -6385,7 +6416,31 @@ pub(super) struct SafeCorrectionPlanFrame {
     pub(super) changed_cell_count: usize,
     pub(super) removed_row_count: usize,
     pub(super) renames: Vec<ColumnRename>,
+    /// Text columns the plan typed as numbers (RV18).
+    pub(super) typed_column_count: usize,
     pub(super) imputed_cell_count: usize,
+    /// What the imputation wrote, per column, after every earlier step.
+    pub(super) imputations: Vec<ImputationPreview>,
+}
+
+/// One column the plan fills: the name the person saw, the value it receives
+/// and how many cells receive it (RV17 / FUN-03, FUN-06).
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImputationPreview {
+    pub(super) column: String,
+    pub(super) value: String,
+    pub(super) cell_count: usize,
+}
+
+/// What a safe-corrections plan would do, computed on a copy of the data with
+/// the same chain `apply_safe_corrections` runs.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SafeCorrectionsPreview {
+    removed_row_count: usize,
+    imputed_cell_count: usize,
+    imputations: Vec<ImputationPreview>,
 }
 
 /// Safe corrections plus the optional conservative imputation, as one candidate
@@ -6422,18 +6477,30 @@ pub(super) fn safe_corrected_plan_frame(
             })
             .collect::<Vec<_>>()
     };
-    let corrected = match cast_columns {
+    let (corrected, typed_column_count) = match cast_columns {
         Some(listed) => cast_fully_numeric_columns(&corrected, &renamed(listed))?,
-        None => corrected,
+        None => (corrected, 0),
     };
-    let (frame, imputed_cell_count) = if impute_missing {
+    let (frame, imputed_cell_count, imputations) = if impute_missing {
         let renamed_columns = impute_columns.map(renamed);
-        let (imputed, imputed_rows, imputed_cells, _) =
+        let (imputed, imputed_rows, imputed_cells, changed_columns, fill_values) =
             impute_missing_values_in_columns(&corrected, renamed_columns.as_deref())?;
         affected_row_count = affected_row_count.max(imputed_rows);
-        (imputed, imputed_cells)
+        let imputations = changed_columns
+            .into_iter()
+            .zip(fill_values)
+            .map(|(changed, value)| ImputationPreview {
+                column: renames
+                    .iter()
+                    .find(|rename| rename.to == changed.name)
+                    .map_or(changed.name, |rename| rename.from.clone()),
+                value,
+                cell_count: changed.changed_cell_count,
+            })
+            .collect();
+        (imputed, imputed_cells, imputations)
     } else {
-        (corrected, 0)
+        (corrected, 0, Vec::new())
     };
     Ok(SafeCorrectionPlanFrame {
         frame,
@@ -6441,7 +6508,9 @@ pub(super) fn safe_corrected_plan_frame(
         changed_cell_count,
         removed_row_count,
         renames,
+        typed_column_count,
         imputed_cell_count,
+        imputations,
     })
 }
 
@@ -9371,6 +9440,7 @@ pub async fn export_dataset_to_database(
                     format: remote_result.format,
                     protected_column_count: protected_columns.len(),
                     protected_columns,
+                    replaced_control_cell_count: 0,
                 })
             })
             .await
@@ -9448,6 +9518,7 @@ pub async fn export_dataset_to_database(
         format: result.format,
         protected_column_count: protected_columns.len(),
         protected_columns,
+        replaced_control_cell_count: 0,
     })
 }
 
@@ -10601,6 +10672,60 @@ pub async fn drop_outlier_values(app: AppHandle) -> Result<TextCleaningResult, S
     })?
 }
 
+/// The DuckDB shortcut only trims, converts markers, renames and removes
+/// duplicates; typing or imputing on it would be dropped without a word.
+fn safe_corrections_stay_source_backed(
+    source_backed: bool,
+    impute_missing: bool,
+    cast_columns: Option<&[String]>,
+) -> bool {
+    source_backed && !impute_missing && cast_columns.is_none_or(<[String]>::is_empty)
+}
+
+/// Runs the same plan as `apply_safe_corrections` on a copy and reports what
+/// the imputation would write, so the proposal announces exactly what is
+/// applied (RV17). It publishes nothing and takes no prepare generation: a
+/// preview must never cancel an apply already in flight.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn preview_safe_corrections(
+    app: AppHandle,
+    trim_text: bool,
+    normalize_column_names: bool,
+    normalize_sentinels: Option<bool>,
+    remove_duplicates: Option<bool>,
+    impute_columns: Option<Vec<String>>,
+    cast_columns: Option<Vec<String>>,
+) -> Result<SafeCorrectionsPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let current = state.current.lock_recovering();
+        let dataset = current.as_ref().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let frame = materialized_dataset_frame_with_cancel(dataset, || false)?;
+        let plan = safe_corrected_plan_frame(
+            &frame,
+            trim_text,
+            normalize_column_names,
+            normalize_sentinels.unwrap_or(false),
+            remove_duplicates.unwrap_or(false),
+            true,
+            impute_columns.as_deref(),
+            cast_columns.as_deref(),
+        )?;
+        Ok(SafeCorrectionsPreview {
+            removed_row_count: plan.removed_row_count,
+            imputed_cell_count: plan.imputed_cell_count,
+            imputations: plan.imputations,
+        })
+    })
+    .await
+    .map_err(|error| {
+        crate::crash_report::task_interrupted("La vista previa de la propuesta se interrumpió", &error)
+    })?
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn apply_safe_corrections(
@@ -10624,9 +10749,14 @@ pub async fn apply_safe_corrections(
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
-        // Imputation needs the materialized frame, so a plan that includes it
-        // skips the source-backed shortcut and publishes one revision.
-        if dataset.source_backed && !impute_missing {
+        // Imputation and typing need the materialized frame, so a plan that
+        // includes either skips the source-backed shortcut (which would drop
+        // them silently) and publishes one revision.
+        if safe_corrections_stay_source_backed(
+            dataset.source_backed,
+            impute_missing,
+            cast_columns.as_deref(),
+        ) {
             if let Some(result) = source_backed_safe_corrections_with_cancellation(
                 dataset,
                 trim_text,
@@ -10647,7 +10777,9 @@ pub async fn apply_safe_corrections(
             changed_cell_count,
             removed_row_count,
             renames,
+            typed_column_count,
             imputed_cell_count,
+            ..
         } = safe_corrected_plan_frame(
             &dataset.frame,
             trim_text,
@@ -10664,6 +10796,7 @@ pub async fn apply_safe_corrections(
         let preview = if changed_cell_count > 0
             || renamed_column_count > 0
             || removed_row_count > 0
+            || typed_column_count > 0
             || imputed_cell_count > 0
         {
             publish_candidate_with_cancellation(
@@ -10674,9 +10807,7 @@ pub async fn apply_safe_corrections(
                     normalize_sentinels,
                     normalize_column_names,
                     remove_duplicates,
-                    cast_columns
-                        .as_ref()
-                        .is_some_and(|listed| !listed.is_empty()),
+                    typed_column_count > 0,
                     impute_missing,
                 ),
                 Some(&cancellation),
@@ -10692,6 +10823,7 @@ pub async fn apply_safe_corrections(
             removed_row_count,
             renamed_column_count,
             renames,
+            typed_column_count,
             imputed_cell_count,
         })
     })

@@ -233,6 +233,7 @@ pub fn run() {
             dataset::impute_outlier_values,
             dataset::cap_outlier_values,
             dataset::drop_outlier_values,
+            dataset::preview_safe_corrections,
             dataset::apply_safe_corrections,
             dataset::apply_transform_recipe,
             dataset::get_history_state,

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
-import { personalDataColumnNames, suggestQualityRules } from "./features/delivery/deliveryModel";
+import { excelLimitIssues, personalDataColumnNames, suggestQualityRules } from "./features/delivery/deliveryModel";
 import { useDeliveryController } from "./features/delivery/useDeliveryController";
 import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
 import { ReusableTaskPanel } from "./features/load/ReusableTaskPanel";
@@ -1297,6 +1297,7 @@ export function App() {
                 onRetryHeaderPreview={retryDelimitedHeaderReview}
                 onConvertEncoding={() => void convertSelectionEncoding()}
                 previousExitUnclean={previousExitUnclean}
+                lastSavedProject={projects.catalog.kind === "ready" ? projects.catalog.projects[0] ?? null : undefined}
                 onDismissPreviousExit={() => setPreviousExitUnclean(false)}
                 encodingConversionPending={encodingConversionPending}
                 onProfileReviewAction={handleProfileReviewAction}
@@ -1430,6 +1431,10 @@ export function App() {
                 suggestedRules={profileStatus.kind === "ready"
                   ? suggestQualityRules(profileStatus.profile.columns, profileStatus.profile.rowCount)
                   : []}
+                excelLimitIssues={excelLimitIssues(
+                  readyDataset.dataset.rowCount,
+                  profileStatus.kind === "ready" ? profileStatus.profile.columns : null,
+                )}
                 recipeDraft={recipeDraft}
                 preparationChanges={prepare.historyStatus.entries
                   .filter((entry) => entry.index > 0 && entry.index <= prepare.historyStatus.currentIndex)

@@ -4435,6 +4435,26 @@ fn source_backed_csv_export_streams_without_materializing_the_active_frame() {
 }
 
 #[test]
+fn source_backed_xlsx_export_counts_cells_with_replaced_control_characters() {
+    // RV19: the large-file path must also say how many cells changed.
+    let source = temporary_csv("texto,n\ncon\u{1}control,1\nnormal,2\nvertical\u{b}tab,3\n");
+    let directory = tempfile::tempdir().expect("se debe crear el destino temporal");
+    let destination = directory.path().join("control.xlsx");
+    let expected_size = fs::metadata(&source).expect("la fuente debe existir").len();
+    let result = export_source_backed_xlsx_atomic(
+        &source,
+        expected_size,
+        3,
+        &destination,
+        |_, _| {},
+        || false,
+    )
+    .expect("la exportación Excel source-backed debe funcionar");
+
+    assert_eq!(result.replaced_control_cell_count, 2);
+}
+
+#[test]
 fn source_backed_xlsx_export_streams_rows_without_materializing_the_active_frame() {
     let source = temporary_csv("name,amount\nO'Brien,10\n=SUM(A1:A2),20\n");
     let directory = tempfile::tempdir().expect("se debe crear el destino temporal");
@@ -9170,7 +9190,7 @@ fn xlsx_export_replaces_control_characters_that_xml_forbids() {
         df!["texto" => &["con\u{1}control", "tab\u{b}vertical", "normal\tcon tab"]].unwrap();
     let directory = tempfile::tempdir().unwrap();
     let destination = directory.path().join("control.xlsx");
-    export_frame_atomic(
+    let result = export_frame_atomic(
         &frame,
         &destination,
         ExportFormat::Excel,
@@ -9178,6 +9198,10 @@ fn xlsx_export_replaces_control_characters_that_xml_forbids() {
         || false,
     )
     .expect("Excel debe publicarse");
+    assert_eq!(
+        result.replaced_control_cell_count, 2,
+        "el resultado dice cuántas celdas cambiaron; el tabulador no cuenta"
+    );
 
     let mut archive = ZipArchive::new(fs::File::open(&destination).unwrap()).unwrap();
     let mut sheet = String::new();
@@ -17468,6 +17492,10 @@ fn safe_correction_plan_types_listed_numeric_columns_without_losing_values() {
         Some(&listed),
     )
     .expect("plan con tipos");
+    assert_eq!(
+        plan.typed_column_count, 2,
+        "solo Quantity y UnitPrice: un plan que solo tipa también se publica"
+    );
     let quantity = plan.frame.column("Quantity").unwrap();
     assert_eq!(quantity.dtype(), &DataType::Int64);
     assert_eq!(
@@ -17490,6 +17518,69 @@ fn safe_correction_plan_types_listed_numeric_columns_without_losing_values() {
         &DataType::String,
         "01234 conserva su cero"
     );
+}
+
+#[test]
+fn safe_correction_plan_reports_each_fill_value_after_the_whole_chain() {
+    // RV17 / FUN-06: the proposal announced gaps counted on the profile, but
+    // the engine fills them after converting markers and removing duplicates.
+    // The plan must report the value and the exact cells it fills.
+    let frame = df!(
+        "id" => ["1", "2", "3", "3", "4", "5", "5", "6"],
+        "Categoria Principal" => [Some("A"), None, Some("n/a"), Some("n/a"), Some("A"), Some("B"), Some("B"), Some("A")],
+        "cantidad" => [Some("5"), Some("7"), Some("3"), Some("3"), Some("2"), None, None, Some("9")],
+    )
+    .expect("frame de prueba");
+    let impute = ["Categoria Principal", "cantidad"].map(str::to_owned);
+    let cast = ["cantidad"].map(str::to_owned);
+
+    let plan = safe_corrected_plan_frame(
+        &frame,
+        false,
+        true,
+        true,
+        true,
+        true,
+        Some(&impute),
+        Some(&cast),
+    )
+    .expect("plan completo");
+
+    assert_eq!(plan.removed_row_count, 2, "dos filas duplicadas");
+    assert_eq!(
+        plan.imputations,
+        vec![
+            ImputationPreview {
+                column: "Categoria Principal".to_owned(),
+                value: "A".to_owned(),
+                cell_count: 2,
+            },
+            ImputationPreview {
+                column: "cantidad".to_owned(),
+                value: "5".to_owned(),
+                cell_count: 1,
+            },
+        ],
+        "el vacío de la fila duplicada no se cuenta y la mediana es la del número tipado"
+    );
+    assert_eq!(
+        plan.imputed_cell_count,
+        plan.imputations.iter().map(|fill| fill.cell_count).sum::<usize>(),
+        "lo anunciado por columna suma lo aplicado"
+    );
+    assert_eq!(plan.frame.column("categoria_principal").unwrap().null_count(), 0);
+}
+
+#[test]
+fn safe_corrections_leave_the_duckdb_shortcut_when_the_plan_types_or_fills() {
+    // RV18: the source-backed shortcut ignored castColumns, so a large CSV
+    // announced "Convertir a número" and exported the columns as text.
+    let cast = ["Quantity".to_owned()];
+    assert!(safe_corrections_stay_source_backed(true, false, None));
+    assert!(safe_corrections_stay_source_backed(true, false, Some(&[])));
+    assert!(!safe_corrections_stay_source_backed(true, false, Some(&cast)));
+    assert!(!safe_corrections_stay_source_backed(true, true, None));
+    assert!(!safe_corrections_stay_source_backed(false, false, None));
 }
 
 #[test]

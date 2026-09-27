@@ -5,6 +5,7 @@ import type { ProjectSummary, ProjectVersionSummary } from "../../bridge";
 import {
   MAX_PROJECT_NAME_LENGTH,
   suggestedProjectName,
+  projectDate,
   validateProjectName,
   type ProjectCatalogState,
   type ProjectDeletionState,
@@ -48,14 +49,6 @@ interface ProjectsPanelProps {
   onRetryVersions?: () => void;
   onRetry: () => void;
   onClearFeedback: () => void;
-}
-
-function projectDate(value: string): string {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.valueOf()) ? value : new Intl.DateTimeFormat("es", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(parsed);
 }
 
 export function ProjectsPanel({

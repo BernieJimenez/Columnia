@@ -162,6 +162,8 @@ export interface ExportResult {
   format: "CSV" | "JSON" | "Parquet" | "SQL" | "Excel" | "SQLite" | "Paquete Columnia" | "PostgreSQL" | "MySQL" | "SQL Server";
   protectedColumnCount: number;
   protectedColumns: string[];
+  /** Excel only: cells whose control characters became U+FFFD (RV19). */
+  replacedControlCellCount: number;
 }
 
 export interface DatabaseConnectionResult {

@@ -48,6 +48,14 @@ export function validateProjectName(value: string): { valid: true; name: string 
   return { valid: true, name };
 }
 
+export function projectDate(value: string): string {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.valueOf()) ? value : new Intl.DateTimeFormat("es", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(parsed);
+}
+
 export function sortProjects(projects: ProjectSummary[]): ProjectSummary[] {
   return [...projects].sort((left, right) => {
     const byUpdated = right.updatedAt.localeCompare(left.updatedAt);
