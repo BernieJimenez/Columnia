@@ -2128,8 +2128,11 @@ fn duckdb_sql_value(value: ValueRef<'_>) -> Result<String, String> {
         ValueRef::Float(_) | ValueRef::Double(_) => {
             Err("SQL no puede representar valores numéricos no finitos.".to_owned())
         }
-        ValueRef::Date32(value) => Ok(duckdb_sql_string_literal(&value.to_string())),
-        ValueRef::Time64(unit, value) | ValueRef::Timestamp(unit, value) => {
+        ValueRef::Date32(value) => Ok(duckdb_sql_string_literal(&format_date(value))),
+        ValueRef::Time64(unit, value) => {
+            Ok(duckdb_sql_string_literal(&format_time_of_day(unit, value)))
+        }
+        ValueRef::Timestamp(unit, value) => {
             Ok(duckdb_sql_string_literal(&format_timestamp(unit, value)))
         }
         ValueRef::Interval {
@@ -2223,8 +2226,8 @@ fn value_to_preview(value: ValueRef<'_>) -> Result<Option<String>, String> {
         ValueRef::Timestamp(unit, value) => format_timestamp(unit, value),
         ValueRef::Text(value) => String::from_utf8_lossy(value).into_owned(),
         ValueRef::Blob(value) | ValueRef::Geometry(value) => format_blob(value),
-        ValueRef::Date32(value) => value.to_string(),
-        ValueRef::Time64(unit, value) => format_timestamp(unit, value),
+        ValueRef::Date32(value) => format_date(value),
+        ValueRef::Time64(unit, value) => format_time_of_day(unit, value),
         ValueRef::Interval {
             months,
             days,
@@ -2247,14 +2250,48 @@ fn value_to_preview(value: ValueRef<'_>) -> Result<Option<String>, String> {
     Ok(Some(preview))
 }
 
+fn nanoseconds(unit: TimeUnit, value: i64) -> Option<i64> {
+    match unit {
+        TimeUnit::Second => value.checked_mul(1_000_000_000),
+        TimeUnit::Millisecond => value.checked_mul(1_000_000),
+        TimeUnit::Microsecond => value.checked_mul(1_000),
+        TimeUnit::Nanosecond => Some(value),
+    }
+}
+
+/// Timestamps as `2010-12-01 08:26:00` (with a fraction only when there is
+/// one). Raw counts like `1291191960000ms` reached SQL Server, Excel and the
+/// SQL script as text no destination could read as a date (RV18).
 fn format_timestamp(unit: TimeUnit, value: i64) -> String {
-    let unit = match unit {
-        TimeUnit::Second => "s",
-        TimeUnit::Millisecond => "ms",
-        TimeUnit::Microsecond => "us",
-        TimeUnit::Nanosecond => "ns",
-    };
-    format!("{value}{unit}")
+    nanoseconds(unit, value)
+        .map(chrono::DateTime::from_timestamp_nanos)
+        .map(|datetime| {
+            datetime
+                .naive_utc()
+                .format("%Y-%m-%d %H:%M:%S%.f")
+                .to_string()
+        })
+        .unwrap_or_else(|| value.to_string())
+}
+
+/// Times of day as `08:26:00`.
+fn format_time_of_day(unit: TimeUnit, value: i64) -> String {
+    nanoseconds(unit, value)
+        .and_then(|nanos| {
+            let seconds = u32::try_from(nanos.div_euclid(1_000_000_000)).ok()?;
+            let fraction = u32::try_from(nanos.rem_euclid(1_000_000_000)).ok()?;
+            chrono::NaiveTime::from_num_seconds_from_midnight_opt(seconds, fraction)
+        })
+        .map(|time| time.format("%H:%M:%S%.f").to_string())
+        .unwrap_or_else(|| value.to_string())
+}
+
+/// Dates as `2010-12-01` instead of a day count since 1970.
+fn format_date(days: i32) -> String {
+    chrono::NaiveDate::from_ymd_opt(1970, 1, 1)
+        .and_then(|epoch| epoch.checked_add_signed(chrono::TimeDelta::days(i64::from(days))))
+        .map(|date| date.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| days.to_string())
 }
 
 fn format_blob(value: &[u8]) -> String {
@@ -2268,6 +2305,32 @@ fn format_blob(value: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn temporal_values_are_readable_dates_not_raw_counts() {
+        use super::{value_to_preview, TimeUnit, ValueRef};
+        let text = |value| value_to_preview(value).unwrap().unwrap();
+        assert_eq!(
+            text(ValueRef::Timestamp(
+                TimeUnit::Millisecond,
+                1_291_191_960_000
+            )),
+            "2010-12-01 08:26:00"
+        );
+        assert_eq!(
+            text(ValueRef::Timestamp(
+                TimeUnit::Microsecond,
+                1_291_191_960_123_000
+            )),
+            "2010-12-01 08:26:00.123"
+        );
+        assert_eq!(text(ValueRef::Date32(14_944)), "2010-12-01");
+        assert_eq!(text(ValueRef::Date32(-1)), "1969-12-31");
+        assert_eq!(
+            text(ValueRef::Time64(TimeUnit::Microsecond, 30_360_000_000)),
+            "08:26:00"
+        );
+    }
+
     use std::fs;
 
     use polars::df;

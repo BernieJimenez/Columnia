@@ -569,7 +569,7 @@ export function usePrepareController({
 
   async function applyRecommendedCorrections(options: SafeCorrectionOptions) {
     if (activeDataset === null) return;
-    const castsColumns = (options.castColumns?.length ?? 0) > 0;
+    const castsColumns = (options.castColumns?.length ?? 0) > 0 || (options.dateColumns?.length ?? 0) > 0;
     if (!options.trimText && !options.normalizeSentinels && !options.normalizeColumnNames && !options.removeDuplicates && !options.imputeMissing && !castsColumns) return;
     setChangeStatus({ kind: "working", action: "safe" });
     try {
@@ -579,6 +579,7 @@ export function usePrepareController({
         || result.removedRowCount > 0
         || result.renamedColumnCount > 0
         || result.typedColumnCount > 0
+        || result.datedColumnCount > 0
         || imputedCellCount > 0;
       if (changed) {
         onDatasetChanged(result.dataset);
@@ -598,6 +599,9 @@ export function usePrepareController({
           : null,
         result.typedColumnCount > 0
           ? `${result.typedColumnCount.toLocaleString()} ${result.typedColumnCount === 1 ? "columna convertida" : "columnas convertidas"} a número`
+          : null,
+        result.datedColumnCount > 0
+          ? `${result.datedColumnCount.toLocaleString()} ${result.datedColumnCount === 1 ? "columna convertida" : "columnas convertidas"} a fecha`
           : null,
         options.imputeMissing && imputedCellCount > 0
           ? `se rellenaron ${imputedCellCount.toLocaleString()} ${imputedCellCount === 1 ? "valor vacío" : "valores vacíos"}`

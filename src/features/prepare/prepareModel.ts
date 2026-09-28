@@ -123,7 +123,7 @@ function counted(count: number, one: string, many: string): string {
  */
 export function appliedPlanChanges(
   options: SafeCorrectionOptions,
-  result: Pick<SafeCorrectionsResult, "changedCellCount" | "renamedColumnCount" | "removedRowCount" | "typedColumnCount" | "imputedCellCount">,
+  result: Pick<SafeCorrectionsResult, "changedCellCount" | "renamedColumnCount" | "removedRowCount" | "typedColumnCount" | "datedColumnCount" | "imputedCellCount">,
 ): string[] {
   const [cleanedOne, cleanedMany] = options.trimText && options.normalizeSentinels
     ? ["celda limpiada (espacios y marcadores «sin dato»)", "celdas limpiadas (espacios y marcadores «sin dato»)"]
@@ -142,6 +142,9 @@ export function appliedPlanChanges(
       : null,
     result.typedColumnCount > 0
       ? counted(result.typedColumnCount, "columna convertida a número", "columnas convertidas a número")
+      : null,
+    result.datedColumnCount > 0
+      ? counted(result.datedColumnCount, "columna convertida a fecha", "columnas convertidas a fecha")
       : null,
     options.imputeMissing && result.imputedCellCount > 0
       ? counted(result.imputedCellCount, "valor vacío rellenado", "valores vacíos rellenados")

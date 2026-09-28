@@ -69,6 +69,8 @@ const cleaningSignalsProfile: DatasetProfile = {
     thirdQuartile: null,
     outlierCount: null,
     histogram: null,
+    dateOrder: null,
+    dateHasTime: null,
   }, {
     name: "fecha_alta",
     dataType: "String",
@@ -94,6 +96,8 @@ const cleaningSignalsProfile: DatasetProfile = {
     thirdQuartile: null,
     outlierCount: null,
     histogram: null,
+    dateOrder: null,
+    dateHasTime: null,
   }, {
     name: "cantidad",
     dataType: "String",
@@ -119,6 +123,8 @@ const cleaningSignalsProfile: DatasetProfile = {
     thirdQuartile: null,
     outlierCount: null,
     histogram: null,
+    dateOrder: null,
+    dateHasTime: null,
   }, {
     name: "empty_column",
     dataType: "String",
@@ -144,6 +150,8 @@ const cleaningSignalsProfile: DatasetProfile = {
     thirdQuartile: null,
     outlierCount: null,
     histogram: null,
+    dateOrder: null,
+    dateHasTime: null,
   }, {
     name: "high_null",
     dataType: "String",
@@ -169,6 +177,8 @@ const cleaningSignalsProfile: DatasetProfile = {
     thirdQuartile: null,
     outlierCount: null,
     histogram: null,
+    dateOrder: null,
+    dateHasTime: null,
   }, {
     name: "customer_id",
     dataType: "String",
@@ -194,6 +204,8 @@ const cleaningSignalsProfile: DatasetProfile = {
     thirdQuartile: null,
     outlierCount: null,
     histogram: null,
+    dateOrder: null,
+    dateHasTime: null,
   }, {
     name: "amount",
     dataType: "Int64",
@@ -219,6 +231,8 @@ const cleaningSignalsProfile: DatasetProfile = {
     thirdQuartile: 4,
     outlierCount: 1,
     histogram: null,
+    dateOrder: null,
+    dateHasTime: null,
   }],
 };
 

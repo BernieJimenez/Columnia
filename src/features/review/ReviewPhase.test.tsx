@@ -84,6 +84,8 @@ const profile: DatasetProfile = {
         { lower: 60.5, upper: 90.25, count: 40 },
         { lower: 90.25, upper: 120, count: 25 },
       ],
+      dateOrder: null,
+      dateHasTime: null,
     },
     {
       name: "nombre",
@@ -110,6 +112,8 @@ const profile: DatasetProfile = {
       thirdQuartile: null,
       outlierCount: null,
       histogram: null,
+      dateOrder: null,
+      dateHasTime: null,
     },
   ],
 };
@@ -158,6 +162,8 @@ const temporalProfile: DatasetProfile = {
       thirdQuartile: null,
       outlierCount: null,
       histogram: null,
+      dateOrder: null,
+      dateHasTime: null,
     },
     {
       ...profile.columns[0],
@@ -185,6 +191,8 @@ const temporalProfile: DatasetProfile = {
       thirdQuartile: null,
       outlierCount: null,
       histogram: null,
+      dateOrder: null,
+      dateHasTime: null,
     },
   ],
 };

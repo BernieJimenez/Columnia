@@ -85,7 +85,8 @@ async function invoke(page, command, args = {}) {
       throw new Error("tauri_ipc_unavailable");
     }
     const invokeArgs = { ...currentArgs };
-    if ((currentCommand === "export_dataset" || currentCommand === "load_dataset_selection")
+    if ((currentCommand === "export_dataset" || currentCommand === "export_dataset_to_database"
+      || currentCommand === "load_dataset_selection")
       && invokeArgs.onProgress === null) {
       const callbackId = internals.transformCallback(() => {}, false);
       invokeArgs.onProgress = `__CHANNEL__:${callbackId}`;
@@ -637,10 +638,40 @@ async function announcedVersusApplied(page, { proposal, fillPreview, typesBefore
         .filter(([name, type]) => typesBefore[name] === "str" && /^(i|u|f)\d+$/.test(type)).length,
     });
   }
+  const dates = proposal.find((label) => /^Convertir \d+ columnas? a fecha$/.test(label));
+  if (dates) {
+    const typesAfter = await columnTypes(page);
+    checks.push({
+      change: "dates",
+      announced: countIn(dates),
+      applied: Object.entries(typesAfter)
+        .filter(([name, type]) => typesBefore[name] === "str" && /^(date|datetime)/.test(type)).length,
+    });
+  }
   for (const fill of fillPreview?.columns ?? []) {
     checks.push({ change: `fill:${fill.column}`, announced: countIn(fill.cells), applied: await gapsIn(page, fill.column) });
   }
   return checks;
+}
+
+// RV18: with COLUMNIA_PROBE_ODBC (a SQL Server connection string without
+// secrets, e.g. Trusted_Connection), deliver the prepared dataset through the
+// real IPC so the created table's column types can be checked afterwards.
+async function readDatabaseDelivery(page) {
+  const connectionString = process.env.COLUMNIA_PROBE_ODBC;
+  if (!connectionString) return null;
+  const target = { kind: "sqlserver", connectionString, schema: "dbo", table: "columnia_rv18", tablePolicy: "replace" };
+  const connection = await answerRemoteConfirmation(page, target, "Conectar");
+  if (!connection.ok) return { status: "connection_failed", error: connection.error.slice(0, 200) };
+  const preflight = await invoke(page, "preflight_database_export", { target, privacyMode: "none" });
+  if (!preflight.ready) {
+    return { status: "preflight_blocked", issues: preflight.issues.map((issue) => `${issue.severity}: ${issue.message}`) };
+  }
+  const startedAt = performance.now();
+  const delivered = await invoke(page, "export_dataset_to_database", {
+    target, qualityRules: [], allowUnvalidated: true, privacyMode: "none", onProgress: null,
+  });
+  return { status: "exported", table: delivered.fileName, format: delivered.format, ms: Math.round(performance.now() - startedAt) };
 }
 
 // DAT-01: one click saves the dataset as a project from any phase, and a later
@@ -746,6 +777,7 @@ async function runPrepareFlowSteps(page) {
     .then((types) => Object.entries(types).map(([name, type]) => `${name}:${type}`), (error) => [`error:${String(error)}`]);
   const announcedChecks = await announcedVersusApplied(page, { proposal, fillPreview, typesBefore, resultText });
   const mismatches = announcedChecks.filter((check) => check.announced !== check.applied);
+  const databaseDelivery = await readDatabaseDelivery(page);
   const saveCheck = await readSaveCheck(page, result);
   const excelCheck = await readExcelCheck(page);
   const sorted = [...samples].sort((left, right) => left - right);
@@ -763,6 +795,7 @@ async function runPrepareFlowSteps(page) {
     applyLabel,
     columnTypesAfterApply: typed,
     announcedChecks,
+    databaseDelivery,
     saveCheck,
     excelCheck,
     applyMs: round(applyMs),

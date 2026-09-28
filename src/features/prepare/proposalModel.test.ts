@@ -5,6 +5,8 @@ import type { ColumnProfile, DatasetPreview, DatasetProfile } from "../../bridge
 import {
   applyLabel,
   buildPrepareProposal,
+  dateExample,
+  dateExamples,
   defaultProposalSelection,
   imputationExamples,
   proposalItemTitle,
@@ -210,5 +212,71 @@ describe("proposal selection", () => {
     expect(proposalOptions(items, { ...selection, impute: false }).imputeColumns).toBeUndefined();
     expect(applyLabel(1)).toBe("Aplicar 1 cambio");
     expect(applyLabel(3)).toBe("Aplicar 3 cambios");
+  });
+});
+
+describe("date typing (RV18)", () => {
+  const dates: DatasetPreview = {
+    ...dataset,
+    columns: [
+      { name: "InvoiceDate", dataType: "str" },
+      { name: "alta", dataType: "str" },
+      { name: "nacimiento", dataType: "str" },
+    ],
+    rows: [[null, "01/02/2024", "03/04/1990"], ["12/1/2010 8:26", "05/06/2024", "07/08/1991"]],
+  };
+  const datesProfile = profile({
+    columns: [
+      column({ name: "InvoiceDate", dateOrder: "mdy", dateHasTime: true }),
+      column({ name: "alta", dateOrder: "ambiguous" }),
+      column({ name: "nacimiento", dateOrder: "dmy", privacySignal: "name" }),
+      column({ name: "notas", dateOrder: null }),
+    ],
+  });
+
+  it("proposes the date columns, checked when their order is known, and never personal data", () => {
+    const items = buildPrepareProposal(datesProfile, dates);
+    const item = items.find((entry) => entry.id === "dates")!;
+
+    expect(item.title).toBe("Convertir 2 columnas a fecha");
+    expect(item.dateColumns).toEqual([
+      { name: "InvoiceDate", order: "mdy", sample: "12/1/2010 8:26" },
+      { name: "alta", order: null, sample: "01/02/2024" },
+    ]);
+    expect(defaultProposalSelection(items).dates).toBe(true);
+    expect(proposalOptions(items, defaultProposalSelection(items)).dateColumns).toEqual([
+      { column: "InvoiceDate", order: "mdy" },
+    ]);
+  });
+
+  it("sends ambiguous columns only once the person says how to read them", () => {
+    const items = buildPrepareProposal(datesProfile, dates);
+    const selection = defaultProposalSelection(items);
+    const item = items.find((entry) => entry.id === "dates")!;
+
+    expect(proposalOptions(items, selection, false, "dmy").dateColumns).toEqual([
+      { column: "InvoiceDate", order: "mdy" },
+      { column: "alta", order: "dmy" },
+    ]);
+    expect(dateExamples(item, null)).toEqual([
+      { column: "InvoiceDate", before: "12/1/2010 8:26", after: "2010-12-01 08:26" },
+    ]);
+    expect(dateExamples(item, "mdy")[1]).toEqual({ column: "alta", before: "01/02/2024", after: "2024-01-02" });
+  });
+
+  it("leaves the item unchecked when every date column is ambiguous", () => {
+    const onlyAmbiguous = profile({ columns: [column({ name: "alta", dateOrder: "ambiguous" })] });
+    const items = buildPrepareProposal(onlyAmbiguous, dates);
+
+    expect(defaultProposalSelection(items).dates).toBe(false);
+  });
+
+  it("shows each order as an unambiguous date", () => {
+    expect(dateExample("01/02/2024", "dmy")).toBe("2024-02-01");
+    expect(dateExample("01/02/2024", "mdy")).toBe("2024-01-02");
+    expect(dateExample("2024-12-25T10:30:00", "iso")).toBe("2024-12-25 10:30");
+    expect(dateExample("12/1/10 8:26", "mdy")).toBe("2010-12-01 08:26");
+    expect(dateExample("1/2/45", "dmy")).toBe("1945-02-01");
+    expect(dateExample("pendiente", "dmy")).toBeNull();
   });
 });

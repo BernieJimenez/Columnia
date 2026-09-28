@@ -127,6 +127,7 @@ export function previewSafeCorrections(options: SafeCorrectionOptions): Promise<
     removeDuplicates: options.removeDuplicates,
     imputeColumns: options.imputeColumns ?? null,
     castColumns: options.castColumns ?? null,
+    dateColumns: options.dateColumns ?? null,
   });
 }
 
@@ -139,6 +140,7 @@ export function applySafeCorrections(options: SafeCorrectionOptions): Promise<Sa
     imputeMissing: options.imputeMissing ?? false,
     imputeColumns: options.imputeColumns ?? null,
     castColumns: options.castColumns ?? null,
+    dateColumns: options.dateColumns ?? null,
   });
 }
 

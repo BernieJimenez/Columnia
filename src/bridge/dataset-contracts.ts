@@ -259,6 +259,9 @@ export interface ColumnProfile {
   thirdQuartile: number | null;
   outlierCount: number | null;
   histogram: HistogramBucket[] | null;
+  /** Set when every value is a date in one order, or "ambiguous" when day/month and month/day both fit (RV18). */
+  dateOrder: "iso" | "dmy" | "mdy" | "ambiguous" | null;
+  dateHasTime: boolean | null;
 }
 
 export interface DatasetProfile {
@@ -417,8 +420,16 @@ export interface SafeCorrectionsResult {
   renames: ColumnRename[];
   /** Text columns typed as numbers by the same plan (RV18). */
   typedColumnCount: number;
+  /** Text columns typed as dates by the same plan (RV18). */
+  datedColumnCount: number;
   /** Cells filled by the optional imputation of the same plan. */
   imputedCellCount: number;
+}
+
+/** A text column typed as a date, read in the given order (RV18). */
+export interface DateColumnPlan {
+  column: string;
+  order: "iso" | "dmy" | "mdy";
 }
 
 /** One column the plan fills, with the value it receives (RV17). */
@@ -446,4 +457,6 @@ export interface SafeCorrectionOptions {
   imputeColumns?: string[];
   /** Fully numeric text columns to type (RV18); the engine skips any that is not. */
   castColumns?: string[];
+  /** Text columns whose every value is a date in the given order (RV18). */
+  dateColumns?: DateColumnPlan[];
 }

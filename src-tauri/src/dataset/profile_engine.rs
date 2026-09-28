@@ -1,3 +1,4 @@
+use super::date_inference::{DateInference, DateTally};
 use super::*;
 
 pub(super) struct TextStatistics {
@@ -12,6 +13,8 @@ pub(super) struct TextStatistics {
     pub(super) type_match_percentage: Option<f64>,
     pub(super) invalid_type_count: Option<usize>,
     pub(super) temporal_bounds: TemporalBounds,
+    /// Set only when every non-empty value is a date in one order (RV18).
+    pub(super) date_inference: Option<DateInference>,
 }
 
 #[derive(Clone, Default)]
@@ -340,6 +343,7 @@ pub(super) fn text_statistics(column: &Column) -> Result<Option<TextStatistics>,
     let mut total_length: usize = 0;
     let mut minimum_length: Option<usize> = None;
     let mut maximum_length: Option<usize> = None;
+    let mut date_tally = DateTally::default();
 
     for value in values.iter().flatten() {
         let length = value.chars().count();
@@ -348,6 +352,9 @@ pub(super) fn text_statistics(column: &Column) -> Result<Option<TextStatistics>,
         empty_count += usize::from(trimmed.is_empty());
         sentinel_count += usize::from(SENTINEL_VALUES.contains(&normalized.as_str()));
         encoding_issue_count += usize::from(repair_mojibake(value).is_some());
+        if !trimmed.is_empty() && !SENTINEL_VALUES.contains(&normalized.as_str()) {
+            date_tally.observe(trimmed);
+        }
         if !trimmed.is_empty() {
             boolean_count += usize::from(matches!(
                 normalized.as_str(),
@@ -390,6 +397,7 @@ pub(super) fn text_statistics(column: &Column) -> Result<Option<TextStatistics>,
         type_match_percentage,
         invalid_type_count,
         temporal_bounds,
+        date_inference: date_tally.finish(),
     }))
 }
 
@@ -553,6 +561,14 @@ where
         histogram: numeric_statistics
             .as_ref()
             .and_then(|statistics| statistics.histogram.clone()),
+        date_order: text_statistics
+            .as_ref()
+            .and_then(|statistics| statistics.date_inference)
+            .map(|inference| inference.order_label().to_owned()),
+        date_has_time: text_statistics
+            .as_ref()
+            .and_then(|statistics| statistics.date_inference)
+            .map(DateInference::has_time),
     })
 }
 
@@ -570,6 +586,7 @@ pub(super) struct SourceTextAccumulator {
     minimum_length: Option<usize>,
     maximum_length: Option<usize>,
     categorical_candidates: HashMap<GroupKey, usize>,
+    date_tally: DateTally,
 }
 
 impl SourceTextAccumulator {
@@ -588,6 +605,7 @@ impl SourceTextAccumulator {
             minimum_length: None,
             maximum_length: None,
             categorical_candidates: HashMap::with_capacity(MAX_GROUP_CANDIDATES),
+            date_tally: DateTally::default(),
         }
     }
 
@@ -631,6 +649,9 @@ impl SourceTextAccumulator {
             }
             if trimmed.is_empty() {
                 continue;
+            }
+            if !SENTINEL_VALUES.contains(&normalized.as_str()) {
+                self.date_tally.observe(trimmed);
             }
             self.boolean_count = self.boolean_count.saturating_add(usize::from(matches!(
                 normalized.as_str(),
@@ -678,6 +699,7 @@ impl SourceTextAccumulator {
                 type_match_percentage,
                 invalid_type_count,
                 temporal_bounds: self.temporal_bounds,
+                date_inference: self.date_tally.finish(),
             },
             categorical_candidates,
         )
@@ -899,6 +921,14 @@ impl SourceColumnAccumulator {
                 histogram: numeric_statistics
                     .as_ref()
                     .and_then(|statistics| statistics.histogram.clone()),
+                date_order: text
+                    .as_ref()
+                    .and_then(|statistics| statistics.date_inference)
+                    .map(|inference| inference.order_label().to_owned()),
+                date_has_time: text
+                    .as_ref()
+                    .and_then(|statistics| statistics.date_inference)
+                    .map(DateInference::has_time),
             },
             categorical_candidates,
         ))

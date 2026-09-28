@@ -32,6 +32,7 @@
     "performance/dataset-scale-matrix-v1.json",
     "performance/performance-baseline-v1.json",
     "roundtrip/categorias-con-huecos.csv",
+    "roundtrip/pedidos-fechas-dia-mes.csv",
     "roundtrip/ventas-mac-windows-1252.csv",
     "updater/key-policy-v1.json"
   ]

@@ -88,10 +88,10 @@ describe("modelo de preparación", () => {
 
 describe("appliedPlanChanges", () => {
   const options = { trimText: true, normalizeSentinels: true, normalizeColumnNames: false, removeDuplicates: true, imputeMissing: true };
-  const none = { changedCellCount: 0, renamedColumnCount: 0, removedRowCount: 0, typedColumnCount: 0, imputedCellCount: 0 };
+  const none = { changedCellCount: 0, renamedColumnCount: 0, removedRowCount: 0, typedColumnCount: 0, datedColumnCount: 0, imputedCellCount: 0 };
 
   it("lists what the proposal applied, one line per kind, in singular or plural", () => {
-    expect(appliedPlanChanges(options, { ...none, changedCellCount: 58, removedRowCount: 5268, typedColumnCount: 2, imputedCellCount: 1 })).toEqual([
+    expect(appliedPlanChanges(options, { ...none, changedCellCount: 58, removedRowCount: 5268, typedColumnCount: 2, datedColumnCount: 0, imputedCellCount: 1 })).toEqual([
       `58 celdas limpiadas (espacios y marcadores «sin dato»)`,
       `${(5268).toLocaleString()} filas duplicadas quitadas`,
       "2 columnas convertidas a número",

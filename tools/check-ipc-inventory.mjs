@@ -97,6 +97,7 @@ const sharedStructures = [
   ["SafeCorrectionsResult", "SafeCorrectionsResult"],
   ["ImputationPreview", "ImputationPreview"],
   ["SafeCorrectionsPreview", "SafeCorrectionsPreview"],
+  ["DateColumnPlan", "DateColumnPlan"],
   ["RecipeSourceColumn", "DatasetColumn"],
   ["RecipeRename", "RecipeRename"],
   ["RecipeCast", "RecipeCast"],
