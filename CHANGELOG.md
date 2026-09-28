@@ -129,6 +129,16 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- RV22 (DAT-01, UX-01): guardar ya no depende de acordarse. El lateral muestra en
+  todas las fases si el trabajo está guardado y un botón «Guardar proyecto»: la
+  primera vez guarda el dataset como proyecto con el nombre del archivo, y desde
+  entonces cada cambio se guarda solo («Guardado a las 13:26»). Antes guardar
+  exigía volver a Cargar y abrir dos desplegables, y el autoguardado venía
+  desactivado. Se puede desactivar por proyecto.
+- RV22 (UX-01): «Listo: cambios aplicados» dice qué se aplicó («5.268 filas
+  duplicadas quitadas · 2 columnas convertidas a número») y solo muestra las
+  cifras que cambiaron. Antes, tras convertir columnas o recortar espacios, las
+  cuatro cifras quedaban igual y no se veía qué había pasado.
 - RV17 (FUN-03, FUN-06): «Rellenar» anuncia el valor que recibirá cada columna
   y cuántas celdas («categoria: A · 7 celdas»). Al marcarlo, Columnia simula la
   propuesta completa sobre una copia, así que el recuento ya descuenta los

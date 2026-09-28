@@ -1,6 +1,6 @@
 # Roadmap de Columnia
 
-**Actualizado:** 2026-09-27 · **Versión:** 1.26.0
+**Actualizado:** 2026-09-28 · **Versión:** 1.26.0
 
 **Estado:** prototipo local funcional para Windows x64. Faltan la beta con
 personas y datos de trabajo, la prueba con lector de pantalla y, si se decide,
@@ -32,7 +32,7 @@ remota. El archivo original no se modifica.
 | --- | --- | --- | --- |
 | 1 | RV18 — Números que siguen siendo números | Pendiente: proponer también tipar columnas de **fecha** casi completas, decidiendo cómo tratar formatos ambiguos (día/mes); y comprobar con un SQL Server real que la entrega crea columnas numéricas. En la app ya se verificó que `OnlineRetail` propone y aplica `Quantity` como entero y `UnitPrice` como decimal. Hallazgos FUN-04 y FUN-07. | Ninguna |
 | 2 | RV07 — Beta | Tres participantes distintos sobre el mismo release candidate, dos casos reales por sesión y al menos tres datasets; 24 de 30 tareas sin ayuda; guardar, reabrir y entrega verificados; sin P0/P1; resumen sanitizado validado con `npm run beta:check-summary`. Cada fallo dependiente de datos se reduce a una fixture sintética con su regresión antes de corregirlo. Guía: [sesión beta](docs/how-to/run-beta-validation.md) e [invitación](docs/templates/beta-invitation.md). | Participantes y datos de trabajo; RV18 |
-| 3 | RV22 — Menores de la re-auditoría | Pendiente de decisiones de producto (UX-01): preseleccionar «Validar calidad», dónde vive «Guardar», el aviso de esquema al elegir otro archivo, «Recortar espacios» sin recuento y las métricas de la pantalla de resultado. | Ninguna |
+| 3 | RV22 — Menores de la re-auditoría | Pendiente de decisiones de producto (UX-01): preseleccionar «Validar calidad», el aviso de esquema al elegir otro archivo (y, con él, si el esquema se revisa solo sin el clic «Revisar esquema») y «Recortar espacios» sin recuento. | Ninguna |
 | 4 | RV09 — Accesibilidad nativa | Cargar → Entregar en Windows solo con teclado y NVDA, incluidos diálogos, tablas, progreso, zoom y alto contraste. Guía: [probar con NVDA](docs/how-to/run-nvda-check.md). | El mismo candidato que RV07 |
 | 5 | RV11 — Distribución | Solo si se reparten binarios: aprobación jurídica, prueba en VM limpia (instalación, reapertura, updater, fallos y recuperación), hashes y firmas de los artefactos descargados, y la sección `## [versión]` del CHANGELOG al cortar la versión. | Decisión de distribución |
 

@@ -643,6 +643,21 @@ async function announcedVersusApplied(page, { proposal, fillPreview, typesBefore
   return checks;
 }
 
+// DAT-01: one click saves the dataset as a project from any phase, and a later
+// change (here, undoing the plan) is saved on its own.
+async function readSaveCheck(page, result) {
+  const status = page.locator(".sidebar__save [role='status']");
+  const before = (await status.innerText()).trim();
+  await page.getByRole("button", { name: "Guardar proyecto" }).click();
+  await status.filter({ hasText: /Los cambios se guardan solos|Guardado a las/ })
+    .waitFor({ state: "visible", timeout: analysisTimeoutMs });
+  const afterSave = (await status.innerText()).trim();
+  await result.getByRole("button", { name: "Deshacer" }).click();
+  const autoSaved = await status.filter({ hasText: /^Guardado a las / })
+    .waitFor({ state: "visible", timeout: analysisTimeoutMs }).then(() => true, () => false);
+  return { before, afterSave, autoSavedAfterUndo: autoSaved, final: (await status.innerText()).trim() };
+}
+
 // RV19: in Entregar, choosing Excel says beforehand whether the dataset fits.
 async function readExcelCheck(page) {
   await page.getByRole("button", { name: "Continuar a Entregar" }).click();
@@ -731,6 +746,7 @@ async function runPrepareFlowSteps(page) {
     .then((types) => Object.entries(types).map(([name, type]) => `${name}:${type}`), (error) => [`error:${String(error)}`]);
   const announcedChecks = await announcedVersusApplied(page, { proposal, fillPreview, typesBefore, resultText });
   const mismatches = announcedChecks.filter((check) => check.announced !== check.applied);
+  const saveCheck = await readSaveCheck(page, result);
   const excelCheck = await readExcelCheck(page);
   const sorted = [...samples].sort((left, right) => left - right);
   const round = (value) => Number(value.toFixed(1));
@@ -747,6 +763,7 @@ async function runPrepareFlowSteps(page) {
     applyLabel,
     columnTypesAfterApply: typed,
     announcedChecks,
+    saveCheck,
     excelCheck,
     applyMs: round(applyMs),
     appInfoSamples: samples.length,

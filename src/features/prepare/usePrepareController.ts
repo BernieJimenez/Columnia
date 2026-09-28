@@ -35,7 +35,7 @@ import {
   type ReusableTaskExceptionPolicy,
   type TransformRecipe,
 } from "../../bridge";
-import { EMPTY_HISTORY, type ChangeStatus } from "./prepareModel";
+import { EMPTY_HISTORY, appliedPlanChanges, type ChangeStatus } from "./prepareModel";
 
 interface PrepareControllerOptions {
   activeDataset: DatasetPreview | null;
@@ -608,6 +608,7 @@ export function usePrepareController({
         message: changed
           ? "Plan aplicado: " + changes.join(" y ") + "."
           : "El dataset ya cumplía las correcciones seleccionadas.",
+        changes: appliedPlanChanges(options, result),
       });
       await refreshHistory();
       if (changed) onDeliveryInvalidated();

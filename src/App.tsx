@@ -50,6 +50,7 @@ import {
 import { usePrepareController } from "./features/prepare/usePrepareController";
 import { ProjectsPanel } from "./features/projects/ProjectsPanel";
 import { useProjectsController } from "./features/projects/useProjectsController";
+import { SidebarSave } from "./features/projects/SidebarSave";
 import {
   PAGE_SIZE,
   beginPageLoad,
@@ -1156,6 +1157,17 @@ export function App() {
             {activeDataset ? activeDataset.dataset.fileName : "Sin dataset"}
           </strong>
         </div>
+        {/* Outside the dataset block, which compact windows hide. */}
+        {activeDataset && status.kind === "ready" && (
+          <SidebarSave
+            fileName={activeDataset.dataset.fileName}
+            activeProject={projects.activeProject}
+            autoSave={projects.autoSave}
+            operation={projects.operation}
+            disabled={projects.isBusy || coreOperationBusy || loadSelectionBusy}
+            onSave={(name) => void projects.save(name)}
+          />
+        )}
 
         <div className="sidebar__tools">
           <details

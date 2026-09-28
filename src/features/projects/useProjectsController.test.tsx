@@ -1,5 +1,5 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DatasetPreview, ProjectOpenResult, ProjectSummary, ProjectWorkspace } from "../../bridge";
 import { useProjectsController } from "./useProjectsController";
@@ -35,6 +35,9 @@ const dataset: DatasetPreview = {
   rows: [["1"], ["2"]],
 };
 const workspace: ProjectWorkspace = { qualityRules: [], recipeDraft: null };
+
+// Unmount every hook: a mounted project would keep autosaving into the next test.
+afterEach(cleanup);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -185,7 +188,7 @@ describe("useProjectsController", () => {
     expect(result.current.operation).toEqual({ kind: "idle" });
   });
 
-  it("autoguarda solo tras opt-in y cambios de workspace, y publica estado guardado", async () => {
+  it("autoguarda por defecto cada cambio de un proyecto guardado y publica estado guardado (DAT-01)", async () => {
     const onProjectOpened = vi.fn();
     const { result, rerender } = renderHook(
       ({ currentWorkspace, revision }: { currentWorkspace: ProjectWorkspace; revision: number }) =>
@@ -201,20 +204,44 @@ describe("useProjectsController", () => {
     );
     await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
     await act(async () => result.current.open(summary.id));
+    expect(result.current.autoSaveEnabled).toBe(true);
+    // The state just opened is already saved.
     expect(bridge.autosaveProject).not.toHaveBeenCalled();
 
-    act(() => result.current.setAutoSaveEnabled(true));
     rerender({
       currentWorkspace: { ...workspace, activePhase: "prepare" },
       revision: 2,
     });
-    await waitFor(() => expect(bridge.autosaveProject).toHaveBeenCalledOnce(), { timeout: 3000 });
+    await waitFor(() => expect(result.current.autoSave.kind).toBe("saved"), { timeout: 3000 });
+    expect(bridge.autosaveProject).toHaveBeenCalledOnce();
     expect(bridge.autosaveProject).toHaveBeenCalledWith(
       summary.id,
       summary.name,
       { ...workspace, activePhase: "prepare" },
     );
-    expect(result.current.autoSave.kind).toBe("saved");
+  });
+
+  it("no autoguarda si la persona lo desactivó en ese proyecto", async () => {
+    window.localStorage.setItem("columnia.project.auto-save.project-1", "disabled");
+    const { result, rerender } = renderHook(
+      ({ revision }: { revision: number }) => useProjectsController({
+        connected: true,
+        blocked: false,
+        hasDataset: true,
+        workspace: { ...workspace, activePhase: revision === 1 ? "review" : "prepare" },
+        datasetRevision: revision,
+        onProjectOpened: vi.fn(),
+      }),
+      { initialProps: { revision: 1 } },
+    );
+    await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
+    await act(async () => result.current.open(summary.id));
+    rerender({ revision: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    expect(result.current.autoSaveEnabled).toBe(false);
+    expect(result.current.autoSave.kind).toBe("disabled");
+    expect(bridge.autosaveProject).not.toHaveBeenCalled();
   });
 
   it("informa fallo de autoguardado sin perder la preferencia ni afirmar guardado", async () => {

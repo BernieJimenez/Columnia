@@ -103,6 +103,8 @@ summary:focus-visible,
 .resource-monitor__performance select { width: 100%; min-height: 40px; padding: 6px 28px 6px 8px; border: 1px solid #465057; border-radius: 3px; background: #20252a; color: #e0e2de; font-size: .75rem; font-weight: 750; }
 .resource-monitor__performance p { margin: 7px 0 0; color: #a4adb0; font-size: .7rem; line-height: 1.35; overflow-wrap: anywhere; }
 .sidebar__dataset { margin-top: auto; padding-top: 18px; border-top: 1px solid var(--border-subtle); }
+.sidebar__save { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-top: 10px; }
+.sidebar__save small { color: var(--text-secondary); font-size: .8rem; }
 .sidebar__dataset span,
 .sidebar__dataset strong { display: block; }
 .sidebar__dataset span { color: var(--text-secondary); font-size: .75rem; font-weight: 750; letter-spacing: 0; text-transform: uppercase; }

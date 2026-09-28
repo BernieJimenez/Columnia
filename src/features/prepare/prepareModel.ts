@@ -2,6 +2,8 @@ import type {
   HistoryState,
   LoadedRecipe,
   RecipeExportOptions,
+  SafeCorrectionOptions,
+  SafeCorrectionsResult,
   TransformRecipe,
 } from "../../bridge";
 
@@ -12,7 +14,8 @@ export type ChangeStatus =
       action: "safe" | "duplicates" | "near_duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "identifier_columns" | "personal_columns" | "personal_mask" | "sentinels" | "booleans" | "encoding" | "invalid_types" | "impute" | "categorical_impute" | "parse_dates" | "cast_numeric" | "outlier_impute" | "outlier_cap" | "outlier_drop" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
       cancelRequested?: boolean;
     }
-  | { kind: "applied"; message: string }
+  /** `changes` lists what a proposal applied, one line each, for its result screen. */
+  | { kind: "applied"; message: string; changes?: string[] }
   | { kind: "cancelled"; message: string }
   | { kind: "error"; message: string };
 
@@ -108,4 +111,40 @@ export function changeProgressMessage(action: Extract<ChangeStatus, { kind: "wor
     redo: "Rehaciendo cambio…",
   };
   return messages[action];
+}
+
+function counted(count: number, one: string, many: string): string {
+  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
+}
+
+/**
+ * What a proposal changed, one line per kind of change, so its result screen
+ * says what happened even when rows, gaps and duplicates stay the same.
+ */
+export function appliedPlanChanges(
+  options: SafeCorrectionOptions,
+  result: Pick<SafeCorrectionsResult, "changedCellCount" | "renamedColumnCount" | "removedRowCount" | "typedColumnCount" | "imputedCellCount">,
+): string[] {
+  const [cleanedOne, cleanedMany] = options.trimText && options.normalizeSentinels
+    ? ["celda limpiada (espacios y marcadores «sin dato»)", "celdas limpiadas (espacios y marcadores «sin dato»)"]
+    : options.trimText
+      ? ["celda con espacios recortados", "celdas con espacios recortados"]
+      : ["marcador «sin dato» convertido en vacío", "marcadores «sin dato» convertidos en vacíos"];
+  return [
+    (options.trimText || options.normalizeSentinels) && result.changedCellCount > 0
+      ? counted(result.changedCellCount, cleanedOne, cleanedMany)
+      : null,
+    options.normalizeColumnNames && result.renamedColumnCount > 0
+      ? counted(result.renamedColumnCount, "columna renombrada", "columnas renombradas")
+      : null,
+    options.removeDuplicates && result.removedRowCount > 0
+      ? counted(result.removedRowCount, "fila duplicada quitada", "filas duplicadas quitadas")
+      : null,
+    result.typedColumnCount > 0
+      ? counted(result.typedColumnCount, "columna convertida a número", "columnas convertidas a número")
+      : null,
+    options.imputeMissing && result.imputedCellCount > 0
+      ? counted(result.imputedCellCount, "valor vacío rellenado", "valores vacíos rellenados")
+      : null,
+  ].filter((change): change is string => change !== null);
 }

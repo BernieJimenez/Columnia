@@ -25,11 +25,12 @@ import {
 
 const AUTO_SAVE_PREFERENCE_PREFIX = "columnia.project.auto-save.";
 
+/** Saved projects keep saving on their own unless the person turned it off (DAT-01). */
 function readAutoSavePreference(projectId: string): boolean {
   try {
-    return window.localStorage.getItem(`${AUTO_SAVE_PREFERENCE_PREFIX}${projectId}`) === "enabled";
+    return window.localStorage.getItem(`${AUTO_SAVE_PREFERENCE_PREFIX}${projectId}`) !== "disabled";
   } catch {
-    return false;
+    return true;
   }
 }
 
