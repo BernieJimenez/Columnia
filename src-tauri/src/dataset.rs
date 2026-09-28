@@ -7115,7 +7115,7 @@ fn delimited_scan_with_separator(
     let line_terminator = delimited_line_terminator(path)?;
     let source = PlRefPath::try_from_path(path)
         .map_err(|error| format!("No se pudo preparar el lector delimitado: {error}"))?;
-    LazyCsvReader::new(source)
+    let mut plan = LazyCsvReader::new(source)
         .with_has_header(has_header)
         .with_infer_schema_length(Some(0))
         .with_low_memory(true)
@@ -7123,7 +7123,88 @@ fn delimited_scan_with_separator(
         .with_separator(separator)
         .with_eol_char(line_terminator)
         .finish()
-        .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))
+        .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))?;
+    if !has_header {
+        return Ok(plan);
+    }
+    let names = plan
+        .collect_schema()
+        .map_err(|error| format!("No se pudo leer el encabezado del archivo delimitado: {error}"))?
+        .iter_names()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let readable = readable_header_names(&names);
+    if readable == names {
+        return Ok(plan);
+    }
+    let (existing, renamed): (Vec<_>, Vec<_>) = names
+        .into_iter()
+        .zip(readable)
+        .filter(|(name, readable)| name != readable)
+        .unzip();
+    Ok(plan.rename(existing, renamed, true))
+}
+
+/// Column names of a delimited file with a header row, exactly as Columnia
+/// shows them; DuckDB views of the same file use them so queries by name match.
+pub(crate) fn delimited_header_names(path: &Path, separator: u8) -> Result<Vec<String>, String> {
+    let mut plan = delimited_scan_with_separator(path, separator, true)?;
+    Ok(plan
+        .collect_schema()
+        .map_err(|error| format!("No se pudo leer el encabezado del archivo delimitado: {error}"))?
+        .iter_names()
+        .map(|name| name.to_string())
+        .collect())
+}
+
+/// Header names as the CSV means them. Polars keeps the doubled quote of a
+/// quoted header (`"fecha ""pedido"""` reads as `fecha ""pedido""`), so it is
+/// unescaped to `fecha "pedido"` when that name is free. An empty header (and
+/// the `_duplicated_N` placeholder Polars gives a second empty one) cannot be
+/// named in SQL and reads as a blank column, so it becomes `column_N` by
+/// position, as in a file imported without headers.
+fn readable_header_names(names: &[String]) -> Vec<String> {
+    let unescaped = names
+        .iter()
+        .map(|name| {
+            let candidate = name.replace("\"\"", "\"");
+            if candidate != *name && names.contains(&candidate) {
+                name.clone()
+            } else {
+                candidate
+            }
+        })
+        .collect::<Vec<_>>();
+    let names = unescaped.as_slice();
+    let is_placeholder = |name: &str| {
+        name.is_empty()
+            || name.strip_prefix("_duplicated_").is_some_and(|suffix| {
+                !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+            })
+    };
+    let mut taken = names
+        .iter()
+        .filter(|name| !is_placeholder(name))
+        .cloned()
+        .collect::<HashSet<_>>();
+    names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            if !is_placeholder(name) {
+                return name.clone();
+            }
+            let base = format!("column_{}", index + 1);
+            let mut candidate = base.clone();
+            let mut suffix = 1;
+            while taken.contains(&candidate) {
+                candidate = format!("{base}_{suffix}");
+                suffix += 1;
+            }
+            taken.insert(candidate.clone());
+            candidate
+        })
+        .collect()
 }
 
 #[cfg(test)]

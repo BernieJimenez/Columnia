@@ -17816,3 +17816,72 @@ fn full_proposal_plan_on_a_streamed_csv_publishes_a_writable_snapshot() {
         .expect("el snapshot del plan completo debe escribirse");
     let _ = fs::remove_file(path);
 }
+
+#[test]
+fn empty_header_columns_get_readable_names_that_duckdb_can_query() {
+    // A CSV exported with an unnamed index column (pandas) starts with an empty
+    // header; source-backed analysis failed with «zero-length delimited
+    // identifier» because DuckDB could not name it.
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("indice-sin-nombre.csv");
+    fs::write(&path, ",X1,region,,X1\n0,a,b,,d\n1,a,f,g,h\n1,a,f,g,h\n").unwrap();
+    let expected = ["column_1", "X1", "region", "column_4", "X1_duplicated_0"];
+
+    let (frame, _) =
+        load_dataset_with_header_mode(&path, SpreadsheetHeaderMode::FirstRow, |_, _| {}, || false)
+            .expect("carga en memoria");
+    assert_eq!(
+        frame
+            .get_column_names()
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    let (frame, _, _) =
+        source_backed_load_with_header_mode(&path, "csv", SpreadsheetHeaderMode::FirstRow, || {
+            false
+        })
+        .expect("carga desde disco");
+    assert_eq!(
+        frame
+            .get_column_names()
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>(),
+        expected
+    );
+
+    let columns = expected.map(str::to_owned);
+    let (distinct_rows, distinct_values) =
+        crate::duckdb_query::count_file_distinct_rows_and_non_null_columns(
+            &path,
+            crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
+            &columns,
+            || false,
+        )
+        .expect("DuckDB cuenta con los mismos nombres");
+    assert_eq!(distinct_rows, 2);
+    assert_eq!(distinct_values, vec![2, 1, 2, 1, 2]);
+}
+
+#[test]
+fn readable_header_names_only_rename_empty_headers_and_avoid_collisions() {
+    let names = ["", "column_1", "_duplicated_0", "_duplicated_x", "total"].map(str::to_owned);
+    assert_eq!(
+        readable_header_names(&names),
+        [
+            "column_1_1",
+            "column_1",
+            "column_3",
+            "_duplicated_x",
+            "total"
+        ]
+    );
+    // Polars keeps the CSV escape of a quoted header; the free name is used.
+    let quoted = ["fecha \"\"pedido\"\"", "a\"\"b", "a\"b"].map(str::to_owned);
+    assert_eq!(
+        readable_header_names(&quoted),
+        ["fecha \"pedido\"", "a\"\"b", "a\"b"]
+    );
+}

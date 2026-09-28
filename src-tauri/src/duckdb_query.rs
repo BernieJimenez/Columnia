@@ -174,7 +174,7 @@ pub(crate) fn materialize_file_to_parquet(
         format!("No se pudo preparar el espacio temporal para el snapshot DuckDB: {error}")
     })?;
     configure_duckdb_resources(&connection, resource_directory.path())?;
-    let source = file_scan_expression(source_path, source_format);
+    let source = file_scan_expression(source_path, source_format)?;
     let destination = destination
         .to_string_lossy()
         .replace('\\', "/")
@@ -223,7 +223,7 @@ where
             format!("No se pudo preparar el espacio temporal para el snapshot protegido: {error}")
         })?;
         configure_duckdb_resources(connection, resource_directory.path())?;
-        let source = file_scan_expression(source_path, source_format);
+        let source = file_scan_expression(source_path, source_format)?;
         let destination = destination
             .to_string_lossy()
             .replace('\\', "/")
@@ -276,7 +276,7 @@ where
             format!("No se pudo preparar el espacio temporal para el snapshot protegido: {error}")
         })?;
         configure_duckdb_resources(connection, resource_directory.path())?;
-        let source = file_scan_expression(source_path, source_format);
+        let source = file_scan_expression(source_path, source_format)?;
         let destination = destination
             .to_string_lossy()
             .replace('\\', "/")
@@ -305,7 +305,7 @@ where
             format!("No se pudo preparar el espacio temporal para la exportación JSON: {error}")
         })?;
         configure_duckdb_resources(connection, resource_directory.path())?;
-        let source = file_scan_expression(source_path, source_format);
+        let source = file_scan_expression(source_path, source_format)?;
         let destination = destination
             .to_string_lossy()
             .replace('\\', "/")
@@ -341,7 +341,7 @@ where
             .map_err(|error| {
                 format!("DuckDB no pudo limitar los hilos de exportación CSV: {error}")
             })?;
-        let source = csv_export_scan_expression(source_path, source_format);
+        let source = csv_export_scan_expression(source_path, source_format)?;
         let destination = destination
             .to_string_lossy()
             .replace('\\', "/")
@@ -371,7 +371,7 @@ where
             format!("No se pudo preparar el espacio temporal para la exportación SQL: {error}")
         })?;
         configure_duckdb_resources(connection, resource_directory.path())?;
-        let source = csv_export_scan_expression(source_path, source_format);
+        let source = csv_export_scan_expression(source_path, source_format)?;
         let source_columns = describe_source_columns(connection, &source)?;
         let projection = source_columns
             .iter()
@@ -841,26 +841,56 @@ fn count_distinct_sequentially(
     connection
         .execute_batch("SET threads = 1; SET preserve_insertion_order = false;")
         .map_err(|error| format!("No se pudo preparar el conteo de memoria acotada: {error}"))?;
-    let count = |projection: &str, filter: &str| -> Result<i64, String> {
+    // Keeping whole rows or long texts in the hash table does not fit the
+    // memory limit (a 486 MiB CSV with a free-text column ran out even with one
+    // thread). Rows and text values are compared by a 128-bit MD5 fingerprint
+    // instead; like the near-duplicate fingerprints, a collision is
+    // negligible (about 1e-28 for a million values). Other types stay exact.
+    let text_columns = connection
+        .prepare("SELECT column_name FROM (DESCRIBE dataset) WHERE column_type = 'VARCHAR'")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<duckdb::Result<HashSet<_>>>()
+        })
+        .map_err(|error| {
+            format!("No se pudieron leer los tipos para el conteo acotado: {error}")
+        })?;
+    let count = |projection: &str| -> Result<i64, String> {
         if cancelled.load(Ordering::Acquire) {
             return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
         }
         connection
             .query_row(
-                &format!("SELECT COUNT(*) FROM (SELECT DISTINCT {projection} FROM dataset {filter}) AS distinct_values"),
+                &format!("SELECT COUNT(DISTINCT {projection}) FROM dataset"),
                 [],
                 |row| row.get(0),
             )
-            .map_err(|error| format!("No se pudo completar el conteo exacto con memoria acotada: {error}"))
+            .map_err(|error| format!("No se pudo completar el conteo con memoria acotada: {error}"))
     };
-    let identifiers = columns
+    let row_fields = columns
         .iter()
-        .map(|column| quote_identifier(column))
-        .collect::<Vec<_>>();
-    let rows = count(&identifiers.join(", "), "")?;
-    let columns = identifiers
+        .enumerate()
+        .map(|(index, column)| format!("field_{index} := {}", quote_identifier(column)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let rows = if columns.is_empty() {
+        0
+    } else {
+        count(&format!(
+            "md5_number(CAST(to_json(struct_pack({row_fields})) AS VARCHAR))"
+        ))?
+    };
+    let columns = columns
         .iter()
-        .map(|identifier| count(identifier, &format!("WHERE {identifier} IS NOT NULL")))
+        .map(|column| {
+            let identifier = quote_identifier(column);
+            if text_columns.contains(column) {
+                count(&format!("md5_number({identifier})"))
+            } else {
+                count(&identifier)
+            }
+        })
         .collect::<Result<Vec<_>, _>>()?;
     Ok((rows, columns))
 }
@@ -1939,7 +1969,7 @@ fn register_file_view(
     format: DuckDbFileFormat,
     order_column: Option<&str>,
 ) -> Result<(), String> {
-    let source = file_scan_expression(path, format);
+    let source = file_scan_expression(path, format)?;
     let query = if let Some(order_column) = order_column {
         format!(
             "CREATE VIEW {name} AS SELECT *, row_number() OVER () - 1 AS {} FROM {source}",
@@ -1954,18 +1984,19 @@ fn register_file_view(
     Ok(())
 }
 
-fn file_scan_expression(path: &Path, format: DuckDbFileFormat) -> String {
+fn file_scan_expression(path: &Path, format: DuckDbFileFormat) -> Result<String, String> {
     let escaped_path = path
         .to_string_lossy()
         .replace('\\', "/")
         .replace('\'', "''");
-    match format {
+    Ok(match format {
         DuckDbFileFormat::Parquet => format!("read_parquet('{escaped_path}')"),
         DuckDbFileFormat::Delimited { delimiter } => {
+            let names_option = header_names_option(path, delimiter)?;
             let delimiter = char::from(delimiter);
             let escaped_delimiter = delimiter.to_string().replace('\'', "''");
             format!(
-                "read_csv_auto('{escaped_path}', header = true, all_varchar = true, delim = '{escaped_delimiter}')"
+                "read_csv_auto('{escaped_path}', header = true, all_varchar = true{names_option}, delim = '{escaped_delimiter}')"
             )
         }
         DuckDbFileFormat::DelimitedWithoutHeader {
@@ -1980,10 +2011,26 @@ fn file_scan_expression(path: &Path, format: DuckDbFileFormat) -> String {
             )
         }
         DuckDbFileFormat::Json => format!("read_json_auto('{escaped_path}')"),
-    }
+    })
 }
 
-fn csv_export_scan_expression(path: &Path, format: DuckDbFileFormat) -> String {
+/// `names = [...]` with the header names Columnia shows (an empty header reads
+/// as `column_N`, duplicates keep Polars' suffix), so DuckDB queries by name
+/// match the loaded dataset instead of DuckDB's own naming of the header row.
+fn header_names_option(path: &Path, delimiter: u8) -> Result<String, String> {
+    let names = crate::dataset::delimited_header_names(path, delimiter)?
+        .iter()
+        .map(|name| format!("'{}'", name.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(if names.is_empty() {
+        String::new()
+    } else {
+        format!(", names = [{names}]")
+    })
+}
+
+fn csv_export_scan_expression(path: &Path, format: DuckDbFileFormat) -> Result<String, String> {
     let (delimiter, has_header, column_count) = match format {
         DuckDbFileFormat::Delimited { delimiter } => (delimiter, true, 0),
         DuckDbFileFormat::DelimitedWithoutHeader {
@@ -1996,16 +2043,17 @@ fn csv_export_scan_expression(path: &Path, format: DuckDbFileFormat) -> String {
         .to_string_lossy()
         .replace('\\', "/")
         .replace('\'', "''");
+    let delimiter_byte = delimiter;
     let delimiter = char::from(delimiter);
     let escaped_delimiter = delimiter.to_string().replace('\'', "''");
     let names_option = if has_header {
-        String::new()
+        header_names_option(path, delimiter_byte)?
     } else {
         generated_names_option(column_count)
     };
-    format!(
+    Ok(format!(
         "read_csv_auto('{escaped_path}', header = {has_header}{names_option}, delim = '{escaped_delimiter}')"
-    )
+    ))
 }
 
 fn generated_names_option(column_count: usize) -> String {
@@ -2604,6 +2652,14 @@ mod tests {
         assert_eq!(
             count_distinct_sequentially(&connection, &columns, &cancelled).unwrap(),
             (5, vec![2, 2]),
+        );
+        // The text "null" is a value, not a missing one, in rows and columns.
+        connection
+            .execute_batch("INSERT INTO dataset VALUES (3, 'null'), (3, NULL), (3, 'null');")
+            .unwrap();
+        assert_eq!(
+            count_distinct_sequentially(&connection, &columns, &cancelled).unwrap(),
+            (7, vec![3, 3]),
         );
         connection.execute_batch("DELETE FROM dataset").unwrap();
         assert_eq!(
