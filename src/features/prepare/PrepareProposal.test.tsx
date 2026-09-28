@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { SafeCorrectionOptions, SafeCorrectionsPreview } from "../../bridge";
+import type { DatasetProfile, SafeCorrectionOptions, SafeCorrectionsPreview } from "../../bridge";
 import { PrepareProposal } from "./PrepareProposal";
 import type { ProposalItem } from "./proposalModel";
 
@@ -53,11 +53,14 @@ describe("PrepareProposal fill preview (RV17)", () => {
     expect(screen.getByLabelText("Rellenar valores vacíos: calculando cuántos…")).toBeChecked();
     const apply = screen.getByRole("button", { name: "Aplicar 2 cambios" });
     expect(apply).toBeDisabled();
+    // Still this screen's action: the footer must not take over as primary.
+    expect(apply).toHaveAttribute("data-waiting");
 
     // The duplicate row held one of the gaps.
     resolve({ removedRowCount: 1, imputedCellCount: 2, imputations: [{ column: "categoria", value: "A", cellCount: 2 }] });
     expect(await screen.findByLabelText("Rellenar 2 valores vacíos en 1 columna")).toBeChecked();
     expect(apply).toBeEnabled();
+    expect(apply).not.toHaveAttribute("data-waiting");
 
     fireEvent.click(screen.getByRole("button", { name: "Ver antes y después" }));
     expect(screen.getByText("A · 2 celdas")).toBeInTheDocument();
@@ -122,5 +125,40 @@ describe("PrepareProposal ambiguous dates (RV18)", () => {
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
       dateColumns: [{ column: "alta", order: "dmy" }],
     }));
+  });
+});
+
+describe("PrepareProposal result", () => {
+  function profileWith(nullCount: number, sentinelCount: number, rowCount: number) {
+    return {
+      rowCount,
+      duplicateRowCount: 0,
+      nearDuplicateRowCount: 0,
+      duplicatePercentage: 0,
+      columns: [{ name: "estado", dataType: "String", nullCount, sentinelCount }],
+    } as unknown as DatasetProfile;
+  }
+
+  it("counts «sin dato» markers as missing so converting them is not shown as a regression", () => {
+    render(
+      <PrepareProposal
+        items={items}
+        columnCount={1}
+        busy={false}
+        canUndo
+        result={{
+          before: profileWith(2, 5, 10),
+          after: profileWith(6, 0, 9),
+          changes: ["5 marcadores convertidos", "1 fila duplicada quitada"],
+        }}
+        onApply={vi.fn()}
+        onUndo={vi.fn()}
+        onDismissResult={vi.fn()}
+      />,
+    );
+
+    const result = screen.getByRole("region", { name: "Listo: cambios aplicados" });
+    expect(result).toHaveTextContent(/Valores sin dato\s*7 → 6/);
+    expect(result).not.toHaveTextContent("Valores vacíos");
   });
 });

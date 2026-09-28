@@ -296,10 +296,52 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Mejorado
 
+- El análisis de calidad, que se repite al cargar y después de cada cambio, es
+  unas 2,5 veces más rápido: cada valor distinto de una columna con repeticiones
+  se analiza una vez y se pondera por su frecuencia, y los duplicados parecidos se
+  reparten entre todos los núcleos y se calculan recorriendo cada columna en
+  orden. Con 300 000 filas pasa de 2,0 s a 0,7 s. Los resultados no cambian.
+  En `npm run perf:benchmark` (880 000 filas, 100 MiB) guardar un proyecto con
+  su perfil pasa de 28,2 s a 3,2 s.
+- Aplicar las correcciones recomendadas es unas 3 veces más rápido (1,4 s a
+  0,5 s con 300 000 filas): las columnas de texto se limpian en paralelo y solo
+  se copian las celdas que cambian. «Recortar espacios» pasa de 174 ms a 16 ms.
+- Exportar a Excel es unas 3,5 veces más rápido (4,2 s a 1,2 s con 300 000
+  filas); el libro generado es el mismo.
+- Guardar cada paso en el historial es unas 4 veces más rápido (340 ms a 90 ms):
+  el snapshot Parquet se escribe en grupos de 65 536 filas en lugar de 4 096.
+- `npm run tauri dev` y las pruebas Rust compilan optimizado el código
+  (`opt-level = 2` para las dependencias y `1` para Columnia). Con un CSV de
+  300 000 filas, cargar y analizar pasa de 30 s a 10 s y aplicar la propuesta de
+  28 s a 4,5 s en la app de desarrollo; la compilación incremental pasa de 20 s a
+  25 s.
+- Revisar anuncia exactamente los cambios que Preparar va a proponer («Recortar
+  espacios en 100 101 celdas», «Quitar 301 filas duplicadas»…), con el mismo
+  modelo. Antes podía contar «valores vacíos» que la propuesta no rellena y
+  callar los marcadores, espacios y tipos que sí cambia. Las cifras de vacíos y
+  tipos siguen en «Más análisis y herramientas».
+- El resultado de Preparar muestra «Valores sin dato» contando los vacíos y los
+  marcadores como «N/A»: convertir marcadores en vacíos reales ya no aparece como
+  si los datos empeoraran (antes, 83 418 → 158 334 «valores vacíos»).
+- Mientras «Aplicar N cambios» espera (análisis en curso, simulación del relleno
+  o una respuesta sobre fechas), «Continuar a Entregar» sigue como acción
+  secundaria en lugar de pasar a principal durante un momento.
 - RV06: la lista de cambios del historial en Preparar inicia plegada para dar espacio al dataset y al resultado reciente. Deshacer/Rehacer y el resumen accesible del historial permanecen visibles.
 
 ### Interno
 
+- Sonda de tiempos opt-in del camino interactivo (cargar, perfil, correcciones,
+  historial, exportar) sobre un CSV sintético: `perf_probe_tests.rs`, con
+  `COLUMNIA_PROBE_ROWS`. El flujo de Preparar de la sonda nativa guarda una
+  captura por fase si se define `COLUMNIA_PROBE_SCREENSHOT_DIR`.
+- `ReviewPhase.tsx` pasa de 2 759 a 894 líneas: los gráficos van a
+  `ReviewCharts.tsx` y la comparación de datasets a
+  `DatasetComparisonSection.tsx`. Se quitan unas 130 reglas CSS sin uso. Nuevas
+  pruebas de la consulta SQL local (error, cancelación fallida o tardía, motor
+  elegido, historial de un proyecto) y de la carga de página de la vista previa.
+  La prueba de UX-01 que recarga el mismo archivo espera a que «Seleccionar otro
+  dataset» esté habilitado antes de pulsarlo; con la máquina cargada fallaba de
+  forma intermitente.
 - `smoke:roundtrip` sigue con las demás fixtures cuando una falla, y el probe
   registra si Entregar empieza validando.
 - RV21 (QA-02): `npm run smoke:roundtrip` pasa cada fixture de

@@ -49,8 +49,15 @@ const STEP_QUESTIONS: Record<ProposalItemId, { question: string; yes: string; no
   impute: { question: "¿Rellenamos los valores vacíos?", yes: "Sí, rellenar", no: "No, dejarlos vacíos" },
 };
 
-function nullTotal(profile: DatasetProfile): number {
-  return profile.columns.reduce((total, column) => total + column.nullCount, 0);
+/**
+ * Empty cells plus text markers such as «N/A»: both mean the value is missing,
+ * so converting markers into real gaps does not read as a regression.
+ */
+function missingTotal(profile: DatasetProfile): number {
+  return profile.columns.reduce(
+    (total, column) => total + column.nullCount + (column.sentinelCount ?? 0),
+    0,
+  );
 }
 
 const MAX_BEFORE_AFTER_ROWS = 8;
@@ -115,7 +122,7 @@ export function PrepareProposal({
     // Only the figures that moved: the list above already says what changed.
     const rows = [
       { label: "Filas", before: result.before.rowCount, after: result.after.rowCount },
-      { label: "Valores vacíos", before: nullTotal(result.before), after: nullTotal(result.after) },
+      { label: "Valores sin dato", before: missingTotal(result.before), after: missingTotal(result.after) },
       { label: "Filas duplicadas", before: result.before.duplicateRowCount, after: result.after.duplicateRowCount },
       { label: "Columnas", before: result.before.columns.length, after: result.after.columns.length },
     ].filter((row) => row.before !== row.after);
@@ -335,6 +342,9 @@ export function PrepareProposal({
           type="button"
           className="prepare-proposal__primary"
           disabled={disabled || count === 0 || !fillsReady || datesPending}
+          // Still the action of this screen while the app is busy, the fill simulation
+          // runs or a date answer is pending, so the footer never flashes as primary.
+          data-waiting={count > 0 && (disabled || !fillsReady || datesPending) ? "" : undefined}
           onClick={() => onApply(proposalOptions(items, selection, false, ambiguousDateOrder))}
         >
           {applyLabel(count)}

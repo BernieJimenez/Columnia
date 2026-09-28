@@ -367,6 +367,21 @@ pub(super) fn xml_escape(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+/// Appends what [`xml_escape`] returns, in one pass and without allocating.
+fn push_xml_escaped(output: &mut String, value: &str) {
+    for character in value.chars() {
+        match character {
+            '&' => output.push_str("&amp;"),
+            '<' => output.push_str("&lt;"),
+            '>' => output.push_str("&gt;"),
+            '"' => output.push_str("&quot;"),
+            '\'' => output.push_str("&apos;"),
+            character if xml_forbidden(character) => output.push('\u{FFFD}'),
+            character => output.push(character),
+        }
+    }
+}
+
 pub(super) fn xlsx_column_name(mut index: usize) -> String {
     let mut name = String::new();
     loop {
@@ -384,35 +399,78 @@ pub(super) fn xlsx_cell(
     row_index: usize,
     value: AnyValue<'_>,
 ) -> Result<String, String> {
-    let reference = format!("{}{}", xlsx_column_name(column_index), row_index + 1);
-    let cell = match value {
-        AnyValue::Null => format!("<c r=\"{reference}\"/>"),
-        AnyValue::Boolean(value) => format!(
-            "<c r=\"{reference}\" t=\"b\"><v>{}</v></c>",
-            if value { 1 } else { 0 }
-        ),
-        AnyValue::Int8(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
-        AnyValue::Int16(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
-        AnyValue::Int32(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
-        AnyValue::Int64(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
-        AnyValue::UInt8(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
-        AnyValue::UInt16(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
-        AnyValue::UInt32(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
-        AnyValue::UInt64(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
+    let mut cell = String::new();
+    push_xlsx_cell(
+        &mut cell,
+        &xlsx_column_name(column_index),
+        row_index + 1,
+        value,
+    )?;
+    Ok(cell)
+}
+
+/// Appends the same XML as [`xlsx_cell`] to `output` without allocating per
+/// cell; `column_name` is the precomputed column letter and `row_number` the
+/// 1-based sheet row.
+fn push_xlsx_cell(
+    output: &mut String,
+    column_name: &str,
+    row_number: usize,
+    value: AnyValue<'_>,
+) -> Result<(), String> {
+    use std::fmt::Write as _;
+    let _ = write!(output, "<c r=\"{column_name}{row_number}\"");
+    let _ = match value {
+        AnyValue::Null => write!(output, "/>"),
+        AnyValue::Boolean(value) => {
+            write!(output, " t=\"b\"><v>{}</v></c>", if value { 1 } else { 0 })
+        }
+        AnyValue::Int8(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
+        AnyValue::Int16(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
+        AnyValue::Int32(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
+        AnyValue::Int64(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
+        AnyValue::UInt8(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
+        AnyValue::UInt16(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
+        AnyValue::UInt32(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
+        AnyValue::UInt64(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
         AnyValue::Float32(value) if value.is_finite() => {
-            format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>")
+            write!(output, " t=\"n\"><v>{value}</v></c>")
         }
         AnyValue::Float64(value) if value.is_finite() => {
-            format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>")
+            write!(output, " t=\"n\"><v>{value}</v></c>")
         }
         AnyValue::Float32(_) | AnyValue::Float64(_) => {
             return Err("Excel no puede representar valores numéricos no finitos.".to_owned());
         }
-        AnyValue::String(value) => excel_text_cell(&reference, value)?,
-        AnyValue::StringOwned(value) => excel_text_cell(&reference, value.as_str())?,
-        value => excel_text_cell(&reference, &value.to_string())?,
+        AnyValue::String(value) => {
+            return push_excel_text_cell(output, column_name, row_number, value);
+        }
+        AnyValue::StringOwned(value) => {
+            return push_excel_text_cell(output, column_name, row_number, value.as_str());
+        }
+        value => {
+            return push_excel_text_cell(output, column_name, row_number, &value.to_string());
+        }
     };
-    Ok(cell)
+    Ok(())
+}
+
+fn push_excel_text_cell(
+    output: &mut String,
+    column_name: &str,
+    row_number: usize,
+    value: &str,
+) -> Result<(), String> {
+    let length = value.chars().count();
+    if length > EXCEL_MAX_CELL_CHARS {
+        return Err(format!(
+            "La celda {column_name}{row_number} tiene {length} caracteres y Excel admite como máximo 32.767 por celda. Exporta a CSV o Parquet para conservar el texto completo."
+        ));
+    }
+    output.push_str(" t=\"inlineStr\"><is><t xml:space=\"preserve\">");
+    push_xml_escaped(output, value);
+    output.push_str("</t></is></c>");
+    Ok(())
 }
 
 pub(super) fn xlsx_source_cell(
@@ -749,30 +807,53 @@ where
         .write_all(b"</row>")
         .map_err(|error| format!("No se pudo cerrar el encabezado Excel: {error}"))?;
 
+    // Rows are read block by block with sequential iterators (instead of
+    // locating each cell's chunk) and written through one reused buffer.
+    const XLSX_BLOCK_ROWS: usize = 8_192;
+    let column_names = (0..frame.width()).map(xlsx_column_name).collect::<Vec<_>>();
     let mut replaced_control_cell_count = 0_usize;
-    for row_index in 0..frame.height() {
+    let mut buffer = String::with_capacity(128 * 1024);
+    let mut block_start = 0;
+    while block_start < frame.height() {
         ensure_not_cancelled(is_cancelled())?;
-        write!(archive, "<row r=\"{}\">", row_index + 2)
-            .map_err(|error| format!("No se pudo escribir una fila Excel: {error}"))?;
-        for (column_index, column) in frame.columns().iter().enumerate() {
-            let value = column.get(row_index).map_err(|error| {
-                format!("No se pudo leer la fila {row_index} para Excel: {error}")
-            })?;
-            replaced_control_cell_count += usize::from(excel_value_needs_replacement(&value));
-            archive
-                .write_all(xlsx_cell(column_index, row_index + 1, value)?.as_bytes())
-                .map_err(|error| format!("No se pudo escribir una fila Excel: {error}"))?;
+        let block_length = XLSX_BLOCK_ROWS.min(frame.height() - block_start);
+        let block = frame
+            .columns()
+            .iter()
+            .map(|column| column.slice(block_start as i64, block_length))
+            .collect::<Vec<_>>();
+        let mut cells = block
+            .iter()
+            .map(|column| column.as_materialized_series().iter())
+            .collect::<Vec<_>>();
+        for row_offset in 0..block_length {
+            let row_number = block_start + row_offset + 2;
+            {
+                use std::fmt::Write as _;
+                let _ = write!(buffer, "<row r=\"{row_number}\">");
+            }
+            for (column_index, values) in cells.iter_mut().enumerate() {
+                let value = values.next().unwrap_or(AnyValue::Null);
+                replaced_control_cell_count += usize::from(excel_value_needs_replacement(&value));
+                push_xlsx_cell(&mut buffer, &column_names[column_index], row_number, value)?;
+            }
+            buffer.push_str("</row>");
+            if buffer.len() >= 64 * 1024 {
+                archive
+                    .write_all(buffer.as_bytes())
+                    .map_err(|error| format!("No se pudo escribir una fila Excel: {error}"))?;
+                buffer.clear();
+            }
+            if row_offset % 1024 == 1023 {
+                ensure_not_cancelled(is_cancelled())?;
+            }
         }
-        archive
-            .write_all(b"</row>")
-            .map_err(|error| format!("No se pudo cerrar una fila Excel: {error}"))?;
-        let percent = if frame.height() == 0 {
-            85
-        } else {
-            30 + (((row_index + 1) * 55) / frame.height()) as u8
-        };
-        report(percent);
+        block_start += block_length;
+        report(30 + ((block_start * 55) / frame.height()) as u8);
     }
+    archive
+        .write_all(buffer.as_bytes())
+        .map_err(|error| format!("No se pudo escribir una fila Excel: {error}"))?;
     archive
         .write_all(b"</sheetData></worksheet>")
         .map_err(|error| format!("No se pudo cerrar la hoja Excel: {error}"))?;
@@ -2488,4 +2569,73 @@ where
         .map_err(|error| format!("No se pudo cerrar el paquete: {error}"))?;
     report("Paquete listo", 88);
     Ok(())
+}
+
+#[cfg(test)]
+mod xlsx_writer_tests {
+    use super::*;
+    use calamine::{open_workbook_auto, Data, Reader};
+
+    #[test]
+    fn single_pass_escape_matches_xml_escape() {
+        for value in [
+            "",
+            "plain",
+            "a & b < c > d \" e ' f",
+            "&amp; ya escapado",
+            "LÍNEA\u{0007}CONTROL\u{FFFE}\u{FFFF}",
+            "tab\tnueva\nlínea\rretorno",
+            "ñandú 😀",
+        ] {
+            let mut pushed = String::new();
+            push_xml_escaped(&mut pushed, value);
+            assert_eq!(pushed, xml_escape(value), "{value:?}");
+        }
+    }
+
+    #[test]
+    fn xlsx_rows_survive_chunk_and_block_boundaries() {
+        const ROWS: usize = 8_192 * 2 + 5;
+        let texts = (0..ROWS)
+            .map(|row| (row % 7 != 0).then(|| format!("fila {row} <&>")))
+            .collect::<Vec<_>>();
+        let numbers = (0..ROWS)
+            .map(|row| (row % 5 != 0).then_some(row as i64 - 3))
+            .collect::<Vec<_>>();
+        let mut frame = df!("texto" => texts, "numero" => numbers).unwrap();
+        let tail = frame.slice(9_000, ROWS - 9_000);
+        frame = frame.slice(0, 9_000);
+        frame.vstack_mut(&tail).unwrap();
+        assert!(frame.first_col_n_chunks() > 1);
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("bloques.xlsx");
+        let mut file = File::create(&path).unwrap();
+        write_xlsx(&frame, &mut file, |_| {}, || false).unwrap();
+        drop(file);
+
+        let mut workbook = open_workbook_auto(&path).unwrap();
+        let range = workbook.worksheet_range("dataset").unwrap();
+        assert_eq!(range.height(), ROWS + 1);
+        for row in [0, 6, 7, 8_191, 8_192, 8_999, 9_000, ROWS - 1] {
+            let expected_text = (row % 7 != 0).then(|| format!("fila {row} <&>"));
+            let text = match range.get((row + 1, 0)) {
+                Some(Data::String(value)) => Some(value.clone()),
+                Some(Data::Empty) | None => None,
+                other => panic!("celda inesperada {other:?}"),
+            };
+            assert_eq!(text, expected_text, "texto de la fila {row}");
+            let number = match range.get((row + 1, 1)) {
+                Some(Data::Float(value)) => Some(*value as i64),
+                Some(Data::Int(value)) => Some(*value),
+                Some(Data::Empty) | None => None,
+                other => panic!("celda inesperada {other:?}"),
+            };
+            assert_eq!(
+                number,
+                (row % 5 != 0).then_some(row as i64 - 3),
+                "número {row}"
+            );
+        }
+    }
 }

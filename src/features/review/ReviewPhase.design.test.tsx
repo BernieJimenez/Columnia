@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DatasetPreview, DatasetProfile } from "../../bridge";
 import { createReadyDatasetStatus } from "../load/loadModel";
 import { ReviewPhase } from "./ReviewPhase";
+import { buildPrepareProposal, defaultProposalSelection, proposalItemTitle } from "../prepare/proposalModel";
 
 const dataset: DatasetPreview = {
   fileName: "calidad.csv",
@@ -80,11 +81,18 @@ describe("ReviewPhase design", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Encontramos 2 cosas para arreglar" })).toBeInTheDocument();
+    // Revisar announces exactly what Preparar will propose for this profile.
+    const proposal = buildPrepareProposal(profile, dataset);
+    const selection = defaultProposalSelection(proposal);
+    expect(proposal.length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", {
+      name: `Encontramos ${proposal.length} ${proposal.length === 1 ? "cosa" : "cosas"} para arreglar`,
+    })).toBeInTheDocument();
     const issues = screen.getByLabelText("Resumen de calidad del dataset");
-    expect(within(issues).getByText("Valores vacíos en 1 columna").parentElement).toHaveTextContent("1");
-    expect(within(issues).getByText("Valores con tipo incompatible")).toBeInTheDocument();
-    expect(within(issues).queryByText("Filas duplicadas")).not.toBeInTheDocument();
+    expect(within(issues).getAllByRole("listitem").map((item) => item.textContent)).toEqual(
+      proposal.map((item) => proposalItemTitle(item, selection)),
+    );
+    expect(within(issues).queryByText(/duplicad/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Resumen del dataset")).not.toBeInTheDocument();
     expect(screen.getByText("Explorar análisis detallado").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText("Configuración del análisis").closest("details")).not.toHaveAttribute("open");

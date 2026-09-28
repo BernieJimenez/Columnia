@@ -181,9 +181,9 @@ async function loadSyntheticDataset(page: Page, stopAt: "review" | "delivery" = 
   await expect(page.getByRole("heading", { name: /^(Encontramos \d+ cosas? para arreglar|No encontramos nada que arreglar)$/ })).toBeVisible();
   if (stopAt === "review") return;
 
-  const continueToPrepare = page.getByRole("button", { name: "Continuar a Preparar" });
+  const continueToPrepare = page.getByRole("button", { name: "Ver cambios propuestos" });
   await expect(continueToPrepare).toBeVisible();
-  await activateWithKeyboard(page, continueToPrepare, "Continuar a Preparar");
+  await activateWithKeyboard(page, continueToPrepare, "Ver cambios propuestos");
   const prepareStep = workflow.getByRole("button", { name: "Preparar", exact: true });
   await expect(prepareStep).toHaveAttribute("aria-current", "step");
   await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
@@ -223,8 +223,8 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await installSyntheticTauriMock(page);
     await loadSyntheticDataset(page, "review");
 
-    const continueToPrepare = page.getByRole("button", { name: "Continuar a Preparar" });
-    await activateWithKeyboard(page, continueToPrepare, "Continuar a Preparar");
+    const continueToPrepare = page.getByRole("button", { name: "Ver cambios propuestos" });
+    await activateWithKeyboard(page, continueToPrepare, "Ver cambios propuestos");
     await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
     const focusState = await page.evaluate(() => {
       const active = document.activeElement;
@@ -356,7 +356,7 @@ test.describe("recorrido cargado de accesibilidad", () => {
     });
     await page.setViewportSize({ width: 320, height: 900 });
     await inspectHorizontalLayout("viewport de 320 píxeles CSS · Revisar");
-    await activateWithKeyboard(page, page.getByRole("button", { name: "Continuar a Preparar" }), "Continuar a Preparar · 320 px");
+    await activateWithKeyboard(page, page.getByRole("button", { name: "Ver cambios propuestos" }), "Ver cambios propuestos · 320 px");
     await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
     await inspectHorizontalLayout("viewport de 320 píxeles CSS · Preparar");
     await activateWithKeyboard(page, page.getByRole("button", { name: "Continuar a Entregar" }), "Continuar a Entregar · 320 px");

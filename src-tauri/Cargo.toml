@@ -15,6 +15,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # not need debugger symbols to run the local application or its gates.
 [profile.dev]
 debug = 0
+# The profiling and cleaning loops live in this crate; unoptimized, a 300 000
+# row analysis took 30 s in `npm run tauri dev`. Level 1 brings it to ~10 s and
+# adds about 5 s to an incremental build.
+opt-level = 1
+
+# Polars, DuckDB (bundled C++) and the other data dependencies run 10-50x
+# slower unoptimized, which made `npm run tauri dev` and the Rust test suite
+# unrepresentative of real use.
+[profile.dev.package."*"]
+opt-level = 2
 
 [profile.test]
 debug = 0

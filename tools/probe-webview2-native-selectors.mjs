@@ -705,11 +705,21 @@ async function readExcelCheck(page) {
   return { validatesByDefault, blocked, issues, exportDisabled };
 }
 
+// COLUMNIA_PROBE_SCREENSHOT_DIR: optional folder for one screenshot per phase,
+// used to review the real screens; nothing is captured when it is unset.
+async function capturePhase(page, name) {
+  const directory = process.env.COLUMNIA_PROBE_SCREENSHOT_DIR;
+  if (!directory) return;
+  await page.screenshot({ path: join(directory, `${name}.png`), fullPage: true }).catch(() => {});
+}
+
 async function runPrepareFlowSteps(page) {
   const startedAt = performance.now();
+  await capturePhase(page, "0-cargar");
   await selectDatasetFromApp(page, sourcePath);
   const dialog = importDialogFor(page, sourcePath);
   await dialog.waitFor({ state: "visible", timeout: probeTimeoutMs });
+  await capturePhase(page, "1-importar");
   const reviewSchema = dialog.getByRole("button", { name: "Revisar esquema" });
   const reviewHeading = page.getByRole("heading", { name: "Revisa antes de modificar" });
   const toReview = page.getByRole("button", { name: "Continuar a Revisar" });
@@ -747,9 +757,11 @@ async function runPrepareFlowSteps(page) {
   const proposalEntry = page.getByRole("button", { name: /^(Ver cambios propuestos|Continuar a Preparar)$/ });
   await proposalEntry.waitFor({ state: "visible", timeout: analysisTimeoutMs });
   const loadAndAnalyzeMs = performance.now() - startedAt;
+  await capturePhase(page, "2-revisar");
   await proposalEntry.click();
   const apply = page.getByRole("button", { name: /^Aplicar \d+ cambios?$/ });
   await apply.waitFor({ state: "visible", timeout: probeTimeoutMs });
+  await capturePhase(page, "3-preparar");
   const proposal = await page.locator(".prepare-proposal__item label").allInnerTexts();
   const fillPreview = await readFillPreview(page);
   const applyLabel = (await apply.textContent())?.trim() ?? "";
@@ -773,6 +785,7 @@ async function runPrepareFlowSteps(page) {
   const applyMs = performance.now() - applyStartedAt;
   sampling = false;
   await sampler;
+  await capturePhase(page, "4-resultado");
   const resultText = (await result.innerText()).replace(/\s+/g, " ").trim();
   // RV18: which columns reach the delivery as numbers. Names and engine types only.
   const typed = await columnTypes(page)

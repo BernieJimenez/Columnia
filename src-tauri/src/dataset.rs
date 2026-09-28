@@ -232,8 +232,8 @@ pub(crate) use project_validation::{
 pub(crate) mod samples;
 
 use crate::dataset_fingerprints::{
-    normalized_fingerprint_columns, normalized_row_fingerprint, row_fingerprint,
-    NormalizedRowFingerprint,
+    normalized_fingerprint_columns, normalized_row_fingerprint, normalized_row_fingerprints_range,
+    row_fingerprint, NormalizedRowFingerprint,
 };
 use crate::remote_databases::{self, DatabaseTarget};
 use crate::remote_delivery_ledger::{
@@ -243,7 +243,9 @@ use crate::remote_delivery_ledger::{
 const PREVIEW_ROW_LIMIT: usize = 50;
 const HEADER_REVIEW_ROW_LIMIT: usize = 5;
 const MAX_PAGE_SIZE: usize = 200;
-const HISTORY_SNAPSHOT_BATCH_ROWS: usize = 4_096;
+// Each batch becomes one Parquet row group and one cancellation check; 4 096
+// rows produced tiny row groups and made every snapshot ~4x slower to write.
+const HISTORY_SNAPSHOT_BATCH_ROWS: usize = 65_536;
 const SOURCE_BACKED_LOAD_THRESHOLD_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_QUERY_CHARS: usize = 2 * 1024;
 const LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX: &str =
@@ -316,7 +318,9 @@ const RECIPE_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const MAX_RECIPE_TEXT_FIELD_CHARS: usize = 4 * 1024;
 const MAX_RECIPE_TOTAL_TEXT_CHARS: usize = 64 * 1024;
 const MAX_RECIPE_SOURCE_COLUMNS: usize = 2_000;
-const NORMALIZED_DUPLICATE_CHUNK_ROWS: usize = 262_144;
+// Small enough that a few hundred thousand rows still spread across every
+// core; each block only holds 16 bytes per row before it is spilled.
+const NORMALIZED_DUPLICATE_CHUNK_ROWS: usize = 32_768;
 // Fingerprints are spilled into fixed buckets before sorting. Equal values
 // always land in the same bucket, while the in-memory sort only holds one
 // bucket instead of one entry per dataset row.
@@ -5821,81 +5825,28 @@ fn clean_text_columns(
             .collect(),
     };
 
-    for name in column_names {
-        if name == "_cambios" {
-            return Err("La columna de trazabilidad _cambios no se modifica.".to_owned());
-        }
-        let column = frame
-            .column(&name)
-            .map_err(|_| format!("La columna '{name}' no existe en el dataset activo."))?;
-        if column.dtype() != &DataType::String {
-            return Err(format!("La columna '{name}' no es de texto."));
-        }
-        let values = column
-            .str()
-            .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
-        let suggested_type = if matches!(mode, TextCleaningMode::NullifyInvalidTypes) {
-            text_statistics(column)?.and_then(|statistics| statistics.suggested_type)
-        } else {
-            None
+    // Columns are independent, so they are cleaned in parallel; unchanged
+    // cells are borrowed instead of copied.
+    let cleaned_columns = column_names
+        .into_par_iter()
+        .map(|name| clean_text_column(frame, name, mode))
+        .collect::<Result<Vec<_>, String>>()?;
+    for (name, column, changed_row_indexes) in cleaned_columns {
+        let Some(column) = column else {
+            continue;
         };
-        let mut column_changes = 0;
-        let transformed: Vec<Option<String>> = values
-            .iter()
-            .enumerate()
-            .map(|(row_index, value)| {
-                value.and_then(|original| {
-                    if matches!(mode, TextCleaningMode::NullifyInvalidTypes)
-                        && suggested_type.is_some_and(|kind| {
-                            !original.trim().is_empty() && !is_valid_suggested_type(original, kind)
-                        })
-                    {
-                        column_changes += 1;
-                        changed_cell_count += 1;
-                        changed_rows[row_index] = true;
-                        return None;
-                    }
-                    if matches!(mode, TextCleaningMode::Sentinels) && is_missing_sentinel(original)
-                    {
-                        column_changes += 1;
-                        changed_cell_count += 1;
-                        changed_rows[row_index] = true;
-                        return None;
-                    }
-
-                    let next = match mode {
-                        TextCleaningMode::Trim => original.trim().to_owned(),
-                        TextCleaningMode::Normalize { remove_accents } => {
-                            normalize_text_value(original, remove_accents)
-                        }
-                        TextCleaningMode::Sentinels => original.to_owned(),
-                        TextCleaningMode::Booleans => {
-                            boolean_token(original).unwrap_or(original).to_owned()
-                        }
-                        TextCleaningMode::FixEncoding => {
-                            repair_mojibake(original).unwrap_or_else(|| original.to_owned())
-                        }
-                        TextCleaningMode::NullifyInvalidTypes => original.to_owned(),
-                    };
-                    if next != original {
-                        column_changes += 1;
-                        changed_cell_count += 1;
-                        changed_rows[row_index] = true;
-                    }
-                    Some(next)
-                })
-            })
-            .collect();
-
-        if column_changes > 0 {
-            cleaned
-                .replace(&name, Column::new(name.clone().into(), transformed))
-                .map_err(|error| format!("No se pudo actualizar la columna '{name}': {error}"))?;
-            changed_columns.push(ChangedTextColumn {
-                name,
-                changed_cell_count: column_changes,
-            });
+        let column_changes = changed_row_indexes.len();
+        changed_cell_count += column_changes;
+        for row_index in changed_row_indexes {
+            changed_rows[row_index] = true;
         }
+        cleaned
+            .replace(&name, column)
+            .map_err(|error| format!("No se pudo actualizar la columna '{name}': {error}"))?;
+        changed_columns.push(ChangedTextColumn {
+            name,
+            changed_cell_count: column_changes,
+        });
     }
 
     Ok((
@@ -5904,6 +5855,83 @@ fn clean_text_columns(
         changed_cell_count,
         changed_columns,
     ))
+}
+
+/// Cleans one text column for [`clean_text_columns`]: returns the new column
+/// (only when a cell changed) and the rows whose cell changed.
+fn clean_text_column(
+    frame: &DataFrame,
+    name: String,
+    mode: TextCleaningMode,
+) -> Result<(String, Option<Column>, Vec<usize>), String> {
+    if name == "_cambios" {
+        return Err("La columna de trazabilidad _cambios no se modifica.".to_owned());
+    }
+    let column = frame
+        .column(&name)
+        .map_err(|_| format!("La columna '{name}' no existe en el dataset activo."))?;
+    if column.dtype() != &DataType::String {
+        return Err(format!("La columna '{name}' no es de texto."));
+    }
+    let values = column
+        .str()
+        .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
+    let suggested_type = if matches!(mode, TextCleaningMode::NullifyInvalidTypes) {
+        text_statistics(column)?.and_then(|statistics| statistics.suggested_type)
+    } else {
+        None
+    };
+    let mut changed_row_indexes = Vec::new();
+    let transformed: Vec<Option<std::borrow::Cow<'_, str>>> = values
+        .iter()
+        .enumerate()
+        .map(|(row_index, value)| {
+            value.and_then(|original| {
+                if matches!(mode, TextCleaningMode::NullifyInvalidTypes)
+                    && suggested_type.is_some_and(|kind| {
+                        !original.trim().is_empty() && !is_valid_suggested_type(original, kind)
+                    })
+                {
+                    changed_row_indexes.push(row_index);
+                    return None;
+                }
+                if matches!(mode, TextCleaningMode::Sentinels) && is_missing_sentinel(original) {
+                    changed_row_indexes.push(row_index);
+                    return None;
+                }
+
+                let next: std::borrow::Cow<'_, str> = match mode {
+                    TextCleaningMode::Trim => original.trim().into(),
+                    TextCleaningMode::Normalize { remove_accents } => {
+                        normalize_text_value(original, remove_accents).into()
+                    }
+                    TextCleaningMode::Sentinels | TextCleaningMode::NullifyInvalidTypes => {
+                        original.into()
+                    }
+                    TextCleaningMode::Booleans => {
+                        boolean_token(original).unwrap_or(original).into()
+                    }
+                    TextCleaningMode::FixEncoding => repair_mojibake(original).map_or(
+                        std::borrow::Cow::Borrowed(original),
+                        std::borrow::Cow::Owned,
+                    ),
+                };
+                if next != original {
+                    changed_row_indexes.push(row_index);
+                }
+                Some(next)
+            })
+        })
+        .collect();
+
+    let column = (!changed_row_indexes.is_empty()).then(|| {
+        StringChunked::from_iter_options(
+            name.as_str().into(),
+            transformed.iter().map(|value| value.as_deref()),
+        )
+        .into_column()
+    });
+    Ok((name, column, changed_row_indexes))
 }
 
 fn parse_inferred_date_columns(
@@ -6683,8 +6711,11 @@ fn count_changed_text_cells(
             .column(name)
             .and_then(|column| column.str())
             .map_err(|error| format!("No se pudo leer la columna '{name}' corregida: {error}"))?;
-        for (row_index, changed) in changed_rows.iter_mut().enumerate() {
-            if before_values.get(row_index) != after_values.get(row_index) {
+        for (changed, (before, after)) in changed_rows
+            .iter_mut()
+            .zip(before_values.iter().zip(after_values.iter()))
+        {
+            if before != after {
                 changed_cell_count += 1;
                 *changed = true;
             }
@@ -11780,3 +11811,6 @@ mod snapshot_comparison_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod perf_probe_tests;

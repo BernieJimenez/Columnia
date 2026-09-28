@@ -1301,3 +1301,138 @@ describe("ReviewPhase", () => {
     expect(onPageChange).toHaveBeenNthCalledWith(2, 100);
   });
 });
+
+describe("DatasetPreviewPanel · carga de página", () => {
+  it("bloquea la navegación mientras carga y ofrece cancelar sin manejador explícito", () => {
+    render(
+      <DatasetPreviewPanel dataset={dataset} pageOffset={50} pageLoading onPageChange={() => undefined} />,
+    );
+
+    expect(screen.getByRole("button", { name: "Anterior" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cargando…" })).toBeDisabled();
+    const cancel = screen.getByRole("button", { name: "Cancelar carga" });
+    expect(cancel).toBeEnabled();
+    fireEvent.click(cancel);
+    expect(screen.getByRole("button", { name: "Cancelar carga" })).toBeInTheDocument();
+  });
+});
+
+describe("ReviewPhase · consulta SQL local", () => {
+  const idleComparison = {
+    status: { kind: "idle" as const },
+    keyColumns: [],
+    onKeyColumnsChange: () => undefined,
+    onCompare: () => undefined,
+    onClear: () => undefined,
+    onConsolidate: () => undefined,
+    onResolveConflicts: () => undefined,
+    onConflictPageChange: () => undefined,
+    joinStatus: { kind: "idle" as const },
+    joinType: "inner" as const,
+    onJoinTypeChange: () => undefined,
+    onJoin: () => undefined,
+  };
+  function renderQueryPanel(props: Partial<Parameters<typeof ReviewPhase>[0]> = {}) {
+    return render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "idle" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        comparison={idleComparison}
+        {...props}
+      />,
+    );
+  }
+
+  it("muestra el error de una consulta fallida y lo anota en el historial", async () => {
+    vi.spyOn(bridge, "queryDataset").mockRejectedValue(new Error("columna desconocida"));
+    renderQueryPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
+
+    await waitFor(() => expect(screen.getByText(/columna desconocida/)).toBeInTheDocument());
+    expect(screen.getByRole("list", { name: "Historial de consultas SQL" })).toHaveTextContent("Error");
+  });
+
+  it("anota como cancelada una consulta que falla después de pedir cancelarla", async () => {
+    let rejectQuery: (error: unknown) => void = () => undefined;
+    vi.spyOn(bridge, "queryDataset").mockReturnValue(
+      new Promise((_, reject) => {
+        rejectQuery = reject;
+      }),
+    );
+    vi.spyOn(bridge, "cancelOperation").mockReturnValue(new Promise(() => undefined));
+    renderQueryPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar consulta" }));
+    rejectQuery("interrumpida");
+
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Consulta cancelada"));
+    expect(screen.getByRole("list", { name: "Historial de consultas SQL" })).toHaveTextContent("Cancelada");
+  });
+
+  it("explica que no se pudo cancelar la consulta", async () => {
+    vi.spyOn(bridge, "queryDataset").mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(bridge, "cancelOperation").mockRejectedValue("sin respuesta");
+    renderQueryPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar consulta" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("No se pudo cancelar la consulta: sin respuesta"),
+    );
+  });
+
+  it("recuerda el motor de consulta elegido y lo usa en la siguiente consulta", async () => {
+    vi.spyOn(bridge, "queryDataset").mockResolvedValue({
+      columns: [{ name: "id", dataType: "Int64" }],
+      rowCount: 1,
+      offset: 0,
+      rows: [["1"]],
+      truncated: false,
+    });
+    renderQueryPanel();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Motor de consulta" }), {
+      target: { value: "duckdb" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
+
+    await waitFor(() => expect(bridge.queryDataset).toHaveBeenCalledWith(expect.any(String), "duckdb"));
+  });
+
+  it("recuerda las filas de muestra elegidas aunque la fase no reciba un manejador", () => {
+    window.localStorage.removeItem("columnia.analysis-sample-rows");
+    renderQueryPanel();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Filas de muestra para correlaciones" }), {
+      target: { value: "10000" },
+    });
+
+    expect(screen.getByRole("combobox", { name: "Filas de muestra para correlaciones" })).toHaveValue("10000");
+    expect(window.localStorage.getItem("columnia.analysis-sample-rows")).toBe("10000");
+  });
+
+  it("muestra el historial de consultas que llega de un proyecto abierto", () => {
+    const view = renderQueryPanel({ sqlHistory: [] });
+    view.rerender(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "idle" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        comparison={idleComparison}
+        sqlHistory={[{ id: 4, outcome: "success", durationMs: 12, rowCount: 3 }]}
+      />,
+    );
+
+    expect(screen.getByRole("list", { name: "Historial de consultas SQL" })).toHaveTextContent("Completada");
+  });
+});
