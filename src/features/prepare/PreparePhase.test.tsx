@@ -986,6 +986,7 @@ describe("PreparePhase", () => {
       columns: cleaningSignalsProfile.columns.map((column) => ({
         ...column,
         nullCount: 0,
+        sentinelCount: 0,
         invalidTypeCount: 0,
       })),
     };
@@ -1010,7 +1011,7 @@ describe("PreparePhase", () => {
     const result = screen.getByRole("region", { name: "Listo: cambios aplicados" });
     expect(result).toHaveTextContent(/Filas\s*5 → 4/);
     expect(result).toHaveTextContent(/Filas duplicadas\s*1 → 0/);
-    expect(result).toHaveTextContent(/Valores vacíos\s*\d+ → 0/);
+    expect(result).toHaveTextContent(/Valores sin dato\s*\d+ → 0/);
     expect(within(result).getByRole("list", { name: "Cambios aplicados" })).toHaveTextContent(
       "1 fila duplicada quitada1 columna convertida a número",
     );

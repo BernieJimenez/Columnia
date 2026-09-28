@@ -43,6 +43,24 @@ impl TemporalBounds {
         }
     }
 
+    /// Like `observe`, but copies the display text only when it becomes a bound.
+    fn observe_str(&mut self, datetime: NaiveDateTime, value: &str) {
+        if self
+            .minimum
+            .as_ref()
+            .is_none_or(|(current, _)| datetime < *current)
+        {
+            self.minimum = Some((datetime, value.to_owned()));
+        }
+        if self
+            .maximum
+            .as_ref()
+            .is_none_or(|(current, _)| datetime > *current)
+        {
+            self.maximum = Some((datetime, value.to_owned()));
+        }
+    }
+
     fn minimum_value(&self) -> Option<String> {
         self.minimum.as_ref().map(|(_, value)| value.clone())
     }
@@ -326,6 +344,17 @@ pub(super) fn suggest_text_type(
 }
 
 pub(super) fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
+    text_statistics_with_unique_count(column, None)
+}
+
+/// Same result as [`text_statistics`]. When `unique_count` shows that values
+/// repeat (categories, states, dates), each distinct value is analysed once and
+/// weighted by its frequency; distinct values are visited in first-appearance
+/// order so ties in the temporal bounds keep the value seen first.
+pub(super) fn text_statistics_with_unique_count(
+    column: &Column,
+    unique_count: Option<usize>,
+) -> Result<Option<TextStatistics>, String> {
     if column.dtype() != &DataType::String {
         return Ok(None);
     }
@@ -333,77 +362,120 @@ pub(super) fn text_statistics(column: &Column) -> Result<Option<TextStatistics>,
     let values = column
         .str()
         .map_err(|error| format!("No se pudo analizar la columna de texto: {error}"))?;
-    let mut empty_count = 0;
-    let mut sentinel_count = 0;
-    let mut encoding_issue_count = 0;
-    let mut value_count: usize = 0;
-    let mut boolean_count: usize = 0;
-    let mut integer_count: usize = 0;
-    let mut decimal_count: usize = 0;
-    let mut date_count: usize = 0;
-    let mut temporal_bounds = TemporalBounds::default();
-    let mut total_length: usize = 0;
-    let mut minimum_length: Option<usize> = None;
-    let mut maximum_length: Option<usize> = None;
-    let mut date_tally = DateTally::default();
-    let mut untrimmed_count = 0;
-
-    for value in values.iter().flatten() {
-        let length = value.chars().count();
-        let trimmed = value.trim();
-        let normalized = normalize_text_value(trimmed, true);
-        empty_count += usize::from(trimmed.is_empty());
-        sentinel_count += usize::from(SENTINEL_VALUES.contains(&normalized.as_str()));
-        encoding_issue_count += usize::from(repair_mojibake(value).is_some());
-        untrimmed_count += usize::from(trimmed.len() != value.len());
-        if !trimmed.is_empty() && !SENTINEL_VALUES.contains(&normalized.as_str()) {
-            date_tally.observe(trimmed);
-        }
-        if !trimmed.is_empty() {
-            boolean_count += usize::from(matches!(
-                normalized.as_str(),
-                "true" | "yes" | "si" | "false" | "no"
-            ));
-            let numeric = semantic_numeric_value(trimmed);
-            integer_count += usize::from(trimmed.parse::<i64>().is_ok() && numeric.is_some());
-            decimal_count += usize::from(numeric.is_some());
-            if is_supported_date_candidate(trimmed) {
-                if let Some(datetime) = quality_datetime_value(AnyValue::String(trimmed)) {
-                    date_count += 1;
-                    temporal_bounds.observe(datetime, trimmed.to_owned());
+    let non_null_count = values.len().saturating_sub(values.null_count());
+    let mut tally = TextTally::default();
+    let repeats = unique_count.is_some_and(|unique| unique.saturating_mul(2) <= non_null_count);
+    if repeats {
+        let mut positions = HashMap::<&str, usize>::with_capacity(unique_count.unwrap_or(0));
+        let mut distinct = Vec::<(&str, usize)>::with_capacity(unique_count.unwrap_or(0));
+        for value in values.iter().flatten() {
+            match positions.get(value) {
+                Some(&index) => distinct[index].1 += 1,
+                None => {
+                    positions.insert(value, distinct.len());
+                    distinct.push((value, 1));
                 }
             }
         }
-        value_count += 1;
-        total_length += length;
-        minimum_length = Some(minimum_length.map_or(length, |current| current.min(length)));
-        maximum_length = Some(maximum_length.map_or(length, |current| current.max(length)));
+        for (value, count) in distinct {
+            tally.observe(value, count);
+        }
+    } else {
+        for value in values.iter().flatten() {
+            tally.observe(value, 1);
+        }
+    }
+    Ok(Some(tally.finish()))
+}
+
+#[derive(Default)]
+struct TextTally {
+    empty_count: usize,
+    sentinel_count: usize,
+    encoding_issue_count: usize,
+    value_count: usize,
+    boolean_count: usize,
+    integer_count: usize,
+    decimal_count: usize,
+    date_count: usize,
+    temporal_bounds: TemporalBounds,
+    total_length: usize,
+    minimum_length: Option<usize>,
+    maximum_length: Option<usize>,
+    date_tally: DateTally,
+    untrimmed_count: usize,
+}
+
+impl TextTally {
+    /// Records `count` occurrences of `value`.
+    fn observe(&mut self, value: &str, count: usize) {
+        let length = value.chars().count();
+        let trimmed = value.trim();
+        let normalized = normalize_text_value(trimmed, true);
+        let is_sentinel = SENTINEL_VALUES.contains(&normalized.as_str());
+        self.empty_count += count * usize::from(trimmed.is_empty());
+        self.sentinel_count += count * usize::from(is_sentinel);
+        self.encoding_issue_count += count * usize::from(repair_mojibake(value).is_some());
+        self.untrimmed_count += count * usize::from(trimmed.len() != value.len());
+        if !trimmed.is_empty() && !is_sentinel {
+            self.date_tally.observe(trimmed);
+        }
+        if !trimmed.is_empty() {
+            self.boolean_count += count
+                * usize::from(matches!(
+                    normalized.as_str(),
+                    "true" | "yes" | "si" | "false" | "no"
+                ));
+            let numeric = semantic_numeric_value(trimmed);
+            self.integer_count +=
+                count * usize::from(trimmed.parse::<i64>().is_ok() && numeric.is_some());
+            self.decimal_count += count * usize::from(numeric.is_some());
+            if is_supported_date_candidate(trimmed) {
+                if let Some(datetime) = quality_datetime_value(AnyValue::String(trimmed)) {
+                    self.date_count += count;
+                    self.temporal_bounds.observe_str(datetime, trimmed);
+                }
+            }
+        }
+        self.value_count += count;
+        self.total_length += count * length;
+        self.minimum_length = Some(
+            self.minimum_length
+                .map_or(length, |current| current.min(length)),
+        );
+        self.maximum_length = Some(
+            self.maximum_length
+                .map_or(length, |current| current.max(length)),
+        );
     }
 
-    let average_length = (value_count > 0).then(|| total_length as f64 / value_count as f64);
-    let non_empty_count = value_count.saturating_sub(empty_count);
-    let (suggested_type, type_match_percentage, invalid_type_count) = suggest_text_type(
-        non_empty_count,
-        boolean_count,
-        integer_count,
-        decimal_count,
-        date_count,
-    );
-    Ok(Some(TextStatistics {
-        value_count,
-        empty_count,
-        sentinel_count,
-        encoding_issue_count,
-        minimum_length,
-        maximum_length,
-        average_length,
-        suggested_type,
-        type_match_percentage,
-        invalid_type_count,
-        temporal_bounds,
-        date_inference: date_tally.finish(),
-        untrimmed_count,
-    }))
+    fn finish(self) -> TextStatistics {
+        let average_length =
+            (self.value_count > 0).then(|| self.total_length as f64 / self.value_count as f64);
+        let non_empty_count = self.value_count.saturating_sub(self.empty_count);
+        let (suggested_type, type_match_percentage, invalid_type_count) = suggest_text_type(
+            non_empty_count,
+            self.boolean_count,
+            self.integer_count,
+            self.decimal_count,
+            self.date_count,
+        );
+        TextStatistics {
+            value_count: self.value_count,
+            empty_count: self.empty_count,
+            sentinel_count: self.sentinel_count,
+            encoding_issue_count: self.encoding_issue_count,
+            minimum_length: self.minimum_length,
+            maximum_length: self.maximum_length,
+            average_length,
+            suggested_type,
+            type_match_percentage,
+            invalid_type_count,
+            temporal_bounds: self.temporal_bounds,
+            date_inference: self.date_tally.finish(),
+            untrimmed_count: self.untrimmed_count,
+        }
+    }
 }
 
 pub(super) enum ProfileColumnEvent {
@@ -470,7 +542,7 @@ where
 
     ensure_not_cancelled(is_cancelled())?;
     report("Analizando texto", 50);
-    let text_statistics = text_statistics(column)?;
+    let text_statistics = text_statistics_with_unique_count(column, Some(unique_count))?;
     ensure_not_cancelled(is_cancelled())?;
     report("Calculando estadísticas numéricas", 75);
     let numeric_statistics = numeric_statistics(column, text_statistics.as_ref())?;
@@ -1173,7 +1245,6 @@ where
         return Ok(0);
     }
 
-    let fingerprint_columns = normalized_fingerprint_columns(frame.columns())?;
     let chunk_count = frame.height().div_ceil(NORMALIZED_DUPLICATE_CHUNK_ROWS);
     let spill_directory = tempfile::tempdir().map_err(|error| {
         format!("No se pudo preparar el almacenamiento temporal para duplicados parecidos: {error}")
@@ -1200,14 +1271,12 @@ where
 
                     let start = chunk_index * NORMALIZED_DUPLICATE_CHUNK_ROWS;
                     let end = (start + NORMALIZED_DUPLICATE_CHUNK_ROWS).min(frame.height());
-                    let mut fingerprints = Vec::with_capacity(end - start);
-                    for row_index in start..end {
-                        if row_index % 4096 == 0 && is_cancelled() {
-                            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
-                        }
-                        let key = normalized_row_fingerprint(&fingerprint_columns, row_index)?;
-                        fingerprints.push(key);
-                    }
+                    let fingerprints = normalized_row_fingerprints_range(
+                        frame.columns(),
+                        start,
+                        end - start,
+                        is_cancelled,
+                    )?;
                     progress_sender
                         .send((chunk_index, fingerprints))
                         .map_err(|_| OPERATION_CANCELLED_MESSAGE.to_owned())

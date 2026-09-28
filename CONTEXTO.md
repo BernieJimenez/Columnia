@@ -75,7 +75,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src/components/` | Componentes accesibles extraídos para diálogos, tabs de revisión y progreso cancelable. |
 | `src/components/ResourceMonitor.tsx` | Monitor compacto de consumo de CPU/RAM del proceso y del equipo, con polling nativo, selector persistente de concurrencia Rayon y estado degradado para el shell web. |
 | `src/features/load/` | Fase Cargar: vista y modelo de inspección, selección de hojas, arrastre nativo sin rutas en React, archivos recientes sin rutas, progreso, cancelación y recuperación. |
-| `src/features/review/` | Fase Revisar: diagnóstico, perfil de calidad, tabs y vista previa paginada. |
+| `src/features/review/` | Fase Revisar: diagnóstico, perfil de calidad, tabs y vista previa paginada. Los gráficos del perfil viven en `ReviewCharts.tsx` y la comparación de datasets en `DatasetComparisonSection.tsx`. |
 | `src/features/prepare/` | Fase Preparar: vistas, editor de recetas, historial, modelo puro y controlador de IPC/invalidationes. |
 | `src/features/projects/` | Catálogo, guardado, apertura, recuperación y eliminación accesible de proyectos locales. |
 | `src/features/delivery/` | Fase Entregar: vista, métricas y modelo tipado de contrato, compuerta de calidad y exportación. |
@@ -532,6 +532,24 @@ cambia `amount` a `total`; las reglas, el perfil cacheado, el historial y el cle
 se verifican antes de eliminar el almacén. El gate también limita la duración de
 transformaciones, guardado, inspección y exportación. El resumen nunca conserva el
 ID del proyecto, filas, rutas ni contenido de los archivos.
+
+Para medir el camino interactivo que no cubre el benchmark de la CLI (cargar,
+perfil, correcciones recomendadas, snapshot del historial, deshacer y exportar),
+existe una sonda opt-in que solo imprime duraciones:
+
+```powershell
+$env:COLUMNIA_TEST_HARNESS_MANIFEST = "1"
+$env:COLUMNIA_PROBE_ROWS = "300000"
+cargo test --release --lib perf_probe -- --ignored --nocapture
+```
+
+El perfil `dev` compila optimizado (`opt-level = 2` para las dependencias de
+terceros y `1` para Columnia): Polars, DuckDB y el perfilado propio sin optimizar
+hacían que `npm run tauri dev` y las pruebas Rust no representaran el uso real.
+
+Revisar y Preparar comparten el modelo de propuesta (`buildPrepareProposal` en
+`src/features/prepare/proposalModel.ts`): el resumen de Revisar lista los mismos
+cambios que Preparar ofrecerá, para que nunca anuncie algo distinto.
 
 Las pruebas frontend verifican además que `package-lock.json` refleje exactamente la versión y las dependencias raíz de `package.json`, y que el paquete local de `Cargo.lock` coincida con `Cargo.toml`. No requieren red ni reescriben lockfiles.
 

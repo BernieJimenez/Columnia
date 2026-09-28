@@ -1505,7 +1505,10 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "activo.csv" });
 
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
+    // The button stays disabled while the loaded dataset is still being analysed.
+    const selectOther = await screen.findByRole("button", { name: "Seleccionar otro dataset" });
+    await waitFor(() => expect(selectOther).toBeEnabled());
+    fireEvent.click(selectOther);
     const other = await screen.findByRole("dialog", { name: "Revisar encabezados de clientes.csv" });
     await within(other).findByRole("button", { name: "Cargar archivo" });
     expect(expectedProfileFor("selection-other")).toBeNull();
@@ -1983,7 +1986,7 @@ describe("App", () => {
     expect(within(generalProfile).getByRole("rowheader", { name: /temperature/ })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "66.7%" })).toBeInTheDocument();
     const issues = screen.getByLabelText("Resumen de calidad del dataset");
-    expect(within(issues).getByText("Filas duplicadas").parentElement).toHaveTextContent("1");
+    expect(within(issues).getByText("Quitar 1 fila duplicada")).toBeInTheDocument();
     expect(profileSpy).toHaveBeenCalledOnce();
 
     await switchPhase("Preparar");
