@@ -44,6 +44,8 @@ const profile: DatasetProfile = {
     thirdQuartile: null,
     outlierCount: null,
     histogram: null,
+    dateOrder: null,
+    dateHasTime: null,
   }],
 };
 

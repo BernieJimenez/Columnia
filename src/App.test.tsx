@@ -248,6 +248,7 @@ describe("App", () => {
       renamedColumnCount: 0,
       renames: [],
       typedColumnCount: 0,
+      datedColumnCount: 0,
       imputedCellCount: 0,
     });
 
@@ -1714,6 +1715,7 @@ describe("App", () => {
       renamedColumnCount: 1,
       renames: [{ from: "Año Venta", to: "ano_venta" }],
       typedColumnCount: 0,
+      datedColumnCount: 0,
       imputedCellCount: 0,
     });
 
@@ -1762,6 +1764,7 @@ describe("App", () => {
       renamedColumnCount: 0,
       renames: [],
       typedColumnCount: 0,
+      datedColumnCount: 0,
       imputedCellCount: 0,
     });
     const normalizeSpy = vi.spyOn(bridge, "normalizeTextValues").mockResolvedValue({
@@ -1817,6 +1820,7 @@ describe("App", () => {
       renamedColumnCount: 1,
       renames: [{ from: "Ciudad Nombre", to: "ciudad_nombre" }],
       typedColumnCount: 0,
+      datedColumnCount: 0,
       imputedCellCount: 0,
     });
 
@@ -1882,6 +1886,8 @@ describe("App", () => {
           thirdQuartile: 29.5,
           outlierCount: 0,
           histogram: null,
+          dateOrder: null,
+          dateHasTime: null,
         },
       ],
     });
@@ -1900,6 +1906,7 @@ describe("App", () => {
       renamedColumnCount: 0,
       renames: [],
       typedColumnCount: 0,
+      datedColumnCount: 0,
       imputedCellCount: 0,
     });
     const undoSpy = vi.spyOn(bridge, "undoLastChange").mockResolvedValue({
@@ -2009,6 +2016,8 @@ describe("App", () => {
           thirdQuartile: null,
           outlierCount: null,
           histogram: null,
+          dateOrder: null,
+          dateHasTime: null,
         },
       ],
     });
@@ -2070,6 +2079,8 @@ describe("App", () => {
           thirdQuartile: null,
           outlierCount: null,
           histogram: null,
+          dateOrder: null,
+          dateHasTime: null,
         },
       ],
     });
@@ -2131,6 +2142,8 @@ describe("App", () => {
           thirdQuartile: 13,
           outlierCount: 1,
           histogram: null,
+          dateOrder: null,
+          dateHasTime: null,
         },
       ],
     });

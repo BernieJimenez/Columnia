@@ -17297,12 +17297,13 @@ fn safe_correction_plan_can_include_conservative_imputation() {
     )
     .expect("frame de prueba");
 
-    let without = safe_corrected_plan_frame(&frame, true, false, false, false, false, None, None)
-        .expect("plan sin imputación");
+    let without =
+        safe_corrected_plan_frame(&frame, true, false, false, false, false, None, None, None)
+            .expect("plan sin imputación");
     assert_eq!(without.imputed_cell_count, 0);
     assert_eq!(without.frame.column("monto").unwrap().null_count(), 1);
 
-    let with = safe_corrected_plan_frame(&frame, true, false, false, false, true, None, None)
+    let with = safe_corrected_plan_frame(&frame, true, false, false, false, true, None, None, None)
         .expect("plan con imputación");
     assert_eq!(with.changed_cell_count, 1, "solo se recorta ' Santiago '");
     assert_eq!(with.imputed_cell_count, 2);
@@ -17349,8 +17350,18 @@ fn roundtrip_invariants_hold_for_a_mac_windows_1252_sales_file() {
 
     // The one-click plan with what the proposal model sends for this file.
     let cast = ["Cantidad".to_owned(), "Precio".to_owned()];
-    let plan = safe_corrected_plan_frame(&frame, true, false, true, true, false, None, Some(&cast))
-        .expect("plan");
+    let plan = safe_corrected_plan_frame(
+        &frame,
+        true,
+        false,
+        true,
+        true,
+        false,
+        None,
+        Some(&cast),
+        None,
+    )
+    .expect("plan");
     let prepared = plan.frame;
     assert_eq!(prepared.height(), 8, "se quita la fila duplicada");
     assert_eq!(
@@ -17425,15 +17436,15 @@ fn safe_correction_history_labels_say_what_was_applied() {
     // UX-01: two entries both called «Aplicar correcciones recomendadas»
     // did not say which one removed duplicates and which one trimmed.
     assert_eq!(
-        safe_corrections_label(true, false, false, true, false, false),
+        safe_corrections_label(true, false, false, true, false, false, false),
         "Recortar espacios · Quitar duplicados"
     );
     assert_eq!(
-        safe_corrections_label(false, true, true, false, true, true),
-        "Marcadores «sin dato» a vacío · Normalizar nombres de columna · Convertir a número · Rellenar vacíos"
+        safe_corrections_label(false, true, true, false, true, true, true),
+        "Marcadores «sin dato» a vacío · Normalizar nombres de columna · Convertir a número · Convertir a fecha · Rellenar vacíos"
     );
     assert_eq!(
-        safe_corrections_label(false, false, false, false, false, false),
+        safe_corrections_label(false, false, false, false, false, false, false),
         "Aplicar correcciones recomendadas"
     );
 }
@@ -17451,16 +17462,35 @@ fn safe_correction_plan_imputes_only_the_listed_columns_even_after_renames() {
     .expect("frame de prueba");
     let listed = ["Categoria".to_owned(), "Monto".to_owned()];
 
-    let plan =
-        safe_corrected_plan_frame(&frame, false, true, false, false, true, Some(&listed), None)
-            .expect("plan con imputación acotada");
+    let plan = safe_corrected_plan_frame(
+        &frame,
+        false,
+        true,
+        false,
+        false,
+        true,
+        Some(&listed),
+        None,
+        None,
+    )
+    .expect("plan con imputación acotada");
     assert_eq!(plan.imputed_cell_count, 2);
     assert_eq!(plan.frame.column("customer_id").unwrap().null_count(), 1);
     assert_eq!(plan.frame.column("categoria").unwrap().null_count(), 0);
     assert_eq!(plan.frame.column("monto").unwrap().null_count(), 0);
 
-    let none = safe_corrected_plan_frame(&frame, false, false, false, false, true, Some(&[]), None)
-        .expect("lista vacía");
+    let none = safe_corrected_plan_frame(
+        &frame,
+        false,
+        false,
+        false,
+        false,
+        true,
+        Some(&[]),
+        None,
+        None,
+    )
+    .expect("lista vacía");
     assert_eq!(
         none.imputed_cell_count, 0,
         "una lista vacía no rellena nada"
@@ -17490,6 +17520,7 @@ fn safe_correction_plan_types_listed_numeric_columns_without_losing_values() {
         false,
         None,
         Some(&listed),
+        None,
     )
     .expect("plan con tipos");
     assert_eq!(
@@ -17543,6 +17574,7 @@ fn safe_correction_plan_reports_each_fill_value_after_the_whole_chain() {
         true,
         Some(&impute),
         Some(&cast),
+        None,
     )
     .expect("plan completo");
 
@@ -17581,19 +17613,138 @@ fn safe_correction_plan_reports_each_fill_value_after_the_whole_chain() {
 }
 
 #[test]
+fn profile_names_the_date_order_only_when_every_value_is_a_date() {
+    // RV18: the proposal types dates only if the whole column agrees.
+    let frame = df!(
+        "InvoiceDate" => [Some("12/1/2010 8:26"), Some("12/13/2010 9:01"), None],
+        "fecha" => [Some("25/12/2024"), Some("01/02/2024"), Some("n/a")],
+        "ambigua" => [Some("01/02/2024"), Some("03/04/2024"), Some("05/06/2024")],
+        "mezcla" => [Some("01/02/2024"), Some("pendiente"), Some("03/04/2024")],
+    )
+    .expect("frame de prueba");
+    let profile = profile_dataset(&frame).expect("perfil");
+    let column = |name: &str| {
+        profile
+            .columns
+            .iter()
+            .find(|column| column.name == name)
+            .expect("columna")
+    };
+
+    assert_eq!(column("InvoiceDate").date_order.as_deref(), Some("mdy"));
+    assert_eq!(column("InvoiceDate").date_has_time, Some(true));
+    assert_eq!(
+        column("fecha").date_order.as_deref(),
+        Some("dmy"),
+        "«n/a» no cuenta"
+    );
+    assert_eq!(column("fecha").date_has_time, Some(false));
+    assert_eq!(column("ambigua").date_order.as_deref(), Some("ambiguous"));
+    assert_eq!(column("mezcla").date_order, None);
+}
+
+#[test]
+fn safe_correction_plan_types_date_columns_without_losing_values() {
+    let frame = df!(
+        "InvoiceDate" => [Some("12/1/2010 8:26"), Some("12/13/2010 9:01"), None],
+        "fecha" => [Some("25/12/2024"), Some("01/02/2024"), Some("03/04/2024")],
+        "mezcla" => [Some("01/02/2024"), Some("pendiente"), Some("03/04/2024")],
+    )
+    .expect("frame de prueba");
+    let plans =
+        [("InvoiceDate", "mdy"), ("fecha", "dmy"), ("mezcla", "dmy")].map(|(column, order)| {
+            DateColumnPlan {
+                column: column.to_owned(),
+                order: order.to_owned(),
+            }
+        });
+
+    let plan = safe_corrected_plan_frame(
+        &frame,
+        false,
+        false,
+        false,
+        false,
+        false,
+        None,
+        None,
+        Some(&plans),
+    )
+    .expect("plan con fechas");
+
+    assert_eq!(
+        plan.dated_column_count, 2,
+        "«pendiente» deja «mezcla» como texto"
+    );
+    let invoice = plan.frame.column("InvoiceDate").unwrap();
+    assert_eq!(
+        invoice.dtype(),
+        &DataType::Datetime(TimeUnit::Milliseconds, None)
+    );
+    assert_eq!(invoice.null_count(), 1, "el vacío sigue vacío");
+    assert_eq!(
+        invoice.get(0).unwrap().to_string(),
+        "2010-12-01 08:26:00",
+        "12/1/2010 es 1 de diciembre en orden mes/día"
+    );
+    let fecha = plan.frame.column("fecha").unwrap();
+    assert_eq!(fecha.dtype(), &DataType::Date);
+    assert_eq!(fecha.get(1).unwrap().to_string(), "2024-02-01");
+    assert_eq!(
+        plan.frame.column("mezcla").unwrap().dtype(),
+        &DataType::String
+    );
+
+    let invalid = [DateColumnPlan {
+        column: "fecha".to_owned(),
+        order: "ydm".to_owned(),
+    }];
+    assert!(safe_corrected_plan_frame(
+        &frame,
+        false,
+        false,
+        false,
+        false,
+        false,
+        None,
+        None,
+        Some(&invalid)
+    )
+    .is_err());
+}
+
+#[test]
 fn safe_corrections_leave_the_duckdb_shortcut_when_the_plan_types_or_fills() {
     // RV18: the source-backed shortcut ignored castColumns, so a large CSV
     // announced "Convertir a número" and exported the columns as text.
     let cast = ["Quantity".to_owned()];
-    assert!(safe_corrections_stay_source_backed(true, false, None));
-    assert!(safe_corrections_stay_source_backed(true, false, Some(&[])));
+    let dates = [DateColumnPlan {
+        column: "InvoiceDate".to_owned(),
+        order: "mdy".to_owned(),
+    }];
+    assert!(safe_corrections_stay_source_backed(true, false, None, None));
+    assert!(safe_corrections_stay_source_backed(
+        true,
+        false,
+        Some(&[]),
+        Some(&[])
+    ));
     assert!(!safe_corrections_stay_source_backed(
         true,
         false,
-        Some(&cast)
+        Some(&cast),
+        None
     ));
-    assert!(!safe_corrections_stay_source_backed(true, true, None));
-    assert!(!safe_corrections_stay_source_backed(false, false, None));
+    assert!(!safe_corrections_stay_source_backed(
+        true,
+        false,
+        None,
+        Some(&dates)
+    ));
+    assert!(!safe_corrections_stay_source_backed(true, true, None, None));
+    assert!(!safe_corrections_stay_source_backed(
+        false, false, None, None
+    ));
 }
 
 #[test]
@@ -17630,7 +17781,7 @@ fn full_proposal_plan_on_a_streamed_csv_publishes_a_writable_snapshot() {
         "la carga debe conservar varios bloques"
     );
 
-    let plan = safe_corrected_plan_frame(&frame, true, false, true, true, true, None, None)
+    let plan = safe_corrected_plan_frame(&frame, true, false, true, true, true, None, None, None)
         .expect("plan completo");
     assert!(plan.changed_cell_count > 0, "recorta espacios");
     assert!(plan.removed_row_count > 0, "quita duplicados");

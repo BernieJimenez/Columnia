@@ -679,6 +679,10 @@
       "typescript": "SafeCorrectionsPreview"
     },
     {
+      "rust": "DateColumnPlan",
+      "typescript": "DateColumnPlan"
+    },
+    {
       "rust": "RecipeSourceColumn",
       "typescript": "DatasetColumn"
     },

@@ -46,6 +46,7 @@ mod comparison_io;
 mod comparison_reader;
 #[path = "dataset/csv_formula_safety.rs"]
 mod csv_formula_safety;
+mod date_inference;
 #[path = "dataset/delimited_header_import.rs"]
 mod delimited_header_import;
 mod file_validation;
@@ -966,6 +967,11 @@ pub struct ColumnProfile {
     outlier_count: Option<usize>,
     #[serde(default)]
     histogram: Option<Vec<HistogramBucket>>,
+    /// "iso", "dmy", "mdy" or "ambiguous" when every value is a date (RV18).
+    #[serde(default)]
+    date_order: Option<String>,
+    #[serde(default)]
+    date_has_time: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -1134,6 +1140,8 @@ pub struct SafeCorrectionsResult {
     renames: Vec<ColumnRename>,
     /// Text columns typed as numbers by the same plan (RV18).
     typed_column_count: usize,
+    /// Text columns typed as dates by the same plan (RV18).
+    dated_column_count: usize,
     /// Cells filled by the optional conservative imputation of the same plan.
     imputed_cell_count: usize,
 }
@@ -5309,6 +5317,7 @@ fn safe_corrections_label(
     normalize_column_names: bool,
     remove_duplicates: bool,
     cast_columns: bool,
+    date_columns: bool,
     impute_missing: bool,
 ) -> String {
     let parts = [
@@ -5316,6 +5325,7 @@ fn safe_corrections_label(
         (trim_text, "Recortar espacios"),
         (normalize_column_names, "Normalizar nombres de columna"),
         (cast_columns, "Convertir a número"),
+        (date_columns, "Convertir a fecha"),
         (remove_duplicates, "Quitar duplicados"),
         (impute_missing, "Rellenar vacíos"),
     ]
@@ -5405,6 +5415,7 @@ fn source_backed_safe_corrections_with_cancellation(
             renamed_column_count: 0,
             renames,
             typed_column_count: 0,
+            dated_column_count: 0,
             imputed_cell_count: 0,
         }));
     }
@@ -5473,6 +5484,7 @@ fn source_backed_safe_corrections_with_cancellation(
             remove_duplicates,
             false,
             false,
+            false,
         ),
         force_publish,
         cancellation.clone(),
@@ -5488,6 +5500,7 @@ fn source_backed_safe_corrections_with_cancellation(
         renamed_column_count: renames.len(),
         renames,
         typed_column_count: 0,
+        dated_column_count: 0,
         imputed_cell_count: 0,
     }))
 }
@@ -5547,6 +5560,85 @@ fn cast_fully_numeric_columns(
         typed_column_count += 1;
     }
     Ok((cast, typed_column_count))
+}
+
+/// A text column the proposal types as a date, in the order the profile (or
+/// the person, for ambiguous values) decided (RV18).
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DateColumnPlan {
+    column: String,
+    order: String,
+}
+
+/// Types the listed text columns as dates only when every non-empty value
+/// parses in the given order; a column with any other value is kept as text.
+/// Columns with a time become date-times, the rest plain dates.
+fn cast_fully_dated_columns(
+    frame: &DataFrame,
+    plans: &[DateColumnPlan],
+) -> Result<(DataFrame, usize), String> {
+    let mut cast = frame.clone();
+    let mut dated_column_count = 0;
+    for plan in plans {
+        let order = date_inference::DateOrder::from_label(&plan.order)
+            .ok_or_else(|| format!("Orden de fecha no válido: '{}'.", plan.order))?;
+        let name = plan.column.as_str();
+        let Ok(column) = frame.column(name) else {
+            continue;
+        };
+        if column.dtype() != &DataType::String {
+            continue;
+        }
+        let values = column
+            .str()
+            .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
+        let parsed = values
+            .iter()
+            .map(|value| value.map(|value| date_inference::parse_ordered_date(value, order)))
+            .collect::<Vec<_>>();
+        if parsed.iter().all(Option::is_none)
+            || parsed.iter().any(|value| matches!(value, Some(None)))
+        {
+            continue;
+        }
+        let has_time = values.iter().flatten().any(|value| value.contains(':'));
+        let converted = if has_time {
+            Series::new(
+                name.into(),
+                parsed
+                    .into_iter()
+                    .map(|value| {
+                        value
+                            .flatten()
+                            .map(|value| value.and_utc().timestamp_millis())
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .cast(&DataType::Datetime(TimeUnit::Milliseconds, None))
+        } else {
+            let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("fecha fija válida");
+            Series::new(
+                name.into(),
+                parsed
+                    .into_iter()
+                    .map(|value| {
+                        value
+                            .flatten()
+                            .and_then(|value| i32::try_from((value.date() - epoch).num_days()).ok())
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .cast(&DataType::Date)
+        }
+        .map_err(|error| format!("No se pudo convertir la columna '{name}' a fecha: {error}"))?
+        .into_column();
+        cast.replace(name, converted).map_err(|error| {
+            format!("No se pudo convertir la columna '{name}' a fecha: {error}")
+        })?;
+        dated_column_count += 1;
+    }
+    Ok((cast, dated_column_count))
 }
 
 fn leading_zero_code(value: &str) -> bool {
@@ -6418,6 +6510,8 @@ pub(super) struct SafeCorrectionPlanFrame {
     pub(super) renames: Vec<ColumnRename>,
     /// Text columns the plan typed as numbers (RV18).
     pub(super) typed_column_count: usize,
+    /// Text columns the plan typed as dates (RV18).
+    pub(super) dated_column_count: usize,
     pub(super) imputed_cell_count: usize,
     /// What the imputation wrote, per column, after every earlier step.
     pub(super) imputations: Vec<ImputationPreview>,
@@ -6456,6 +6550,7 @@ pub(super) fn safe_corrected_plan_frame(
     impute_missing: bool,
     impute_columns: Option<&[String]>,
     cast_columns: Option<&[String]>,
+    date_columns: Option<&[DateColumnPlan]>,
 ) -> Result<SafeCorrectionPlanFrame, String> {
     let (corrected, mut affected_row_count, changed_cell_count, removed_row_count, renames) =
         safe_corrected_frame(
@@ -6479,6 +6574,19 @@ pub(super) fn safe_corrected_plan_frame(
     };
     let (corrected, typed_column_count) = match cast_columns {
         Some(listed) => cast_fully_numeric_columns(&corrected, &renamed(listed))?,
+        None => (corrected, 0),
+    };
+    let (corrected, dated_column_count) = match date_columns {
+        Some(plans) => {
+            let followed = plans
+                .iter()
+                .map(|plan| DateColumnPlan {
+                    column: renamed(std::slice::from_ref(&plan.column)).remove(0),
+                    order: plan.order.clone(),
+                })
+                .collect::<Vec<_>>();
+            cast_fully_dated_columns(&corrected, &followed)?
+        }
         None => (corrected, 0),
     };
     let (frame, imputed_cell_count, imputations) = if impute_missing {
@@ -6509,6 +6617,7 @@ pub(super) fn safe_corrected_plan_frame(
         removed_row_count,
         renames,
         typed_column_count,
+        dated_column_count,
         imputed_cell_count,
         imputations,
     })
@@ -10678,8 +10787,12 @@ fn safe_corrections_stay_source_backed(
     source_backed: bool,
     impute_missing: bool,
     cast_columns: Option<&[String]>,
+    date_columns: Option<&[DateColumnPlan]>,
 ) -> bool {
-    source_backed && !impute_missing && cast_columns.is_none_or(<[String]>::is_empty)
+    source_backed
+        && !impute_missing
+        && cast_columns.is_none_or(<[String]>::is_empty)
+        && date_columns.is_none_or(<[DateColumnPlan]>::is_empty)
 }
 
 /// Runs the same plan as `apply_safe_corrections` on a copy and reports what
@@ -10696,6 +10809,7 @@ pub async fn preview_safe_corrections(
     remove_duplicates: Option<bool>,
     impute_columns: Option<Vec<String>>,
     cast_columns: Option<Vec<String>>,
+    date_columns: Option<Vec<DateColumnPlan>>,
 ) -> Result<SafeCorrectionsPreview, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
@@ -10713,6 +10827,7 @@ pub async fn preview_safe_corrections(
             true,
             impute_columns.as_deref(),
             cast_columns.as_deref(),
+            date_columns.as_deref(),
         )?;
         Ok(SafeCorrectionsPreview {
             removed_row_count: plan.removed_row_count,
@@ -10740,6 +10855,7 @@ pub async fn apply_safe_corrections(
     impute_missing: Option<bool>,
     impute_columns: Option<Vec<String>>,
     cast_columns: Option<Vec<String>>,
+    date_columns: Option<Vec<DateColumnPlan>>,
 ) -> Result<SafeCorrectionsResult, String> {
     let normalize_sentinels = normalize_sentinels.unwrap_or(false);
     let remove_duplicates = remove_duplicates.unwrap_or(false);
@@ -10759,6 +10875,7 @@ pub async fn apply_safe_corrections(
             dataset.source_backed,
             impute_missing,
             cast_columns.as_deref(),
+            date_columns.as_deref(),
         ) {
             if let Some(result) = source_backed_safe_corrections_with_cancellation(
                 dataset,
@@ -10781,6 +10898,7 @@ pub async fn apply_safe_corrections(
             removed_row_count,
             renames,
             typed_column_count,
+            dated_column_count,
             imputed_cell_count,
             ..
         } = safe_corrected_plan_frame(
@@ -10792,6 +10910,7 @@ pub async fn apply_safe_corrections(
             impute_missing,
             impute_columns.as_deref(),
             cast_columns.as_deref(),
+            date_columns.as_deref(),
         )?;
         cancellation.ensure()?;
         let renamed_column_count = renames.len();
@@ -10800,6 +10919,7 @@ pub async fn apply_safe_corrections(
             || renamed_column_count > 0
             || removed_row_count > 0
             || typed_column_count > 0
+            || dated_column_count > 0
             || imputed_cell_count > 0
         {
             publish_candidate_with_cancellation(
@@ -10811,6 +10931,7 @@ pub async fn apply_safe_corrections(
                     normalize_column_names,
                     remove_duplicates,
                     typed_column_count > 0,
+                    dated_column_count > 0,
                     impute_missing,
                 ),
                 Some(&cancellation),
@@ -10827,6 +10948,7 @@ pub async fn apply_safe_corrections(
             renamed_column_count,
             renames,
             typed_column_count,
+            dated_column_count,
             imputed_cell_count,
         })
     })

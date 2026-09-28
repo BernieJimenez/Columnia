@@ -129,6 +129,23 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- RV18 (FUN-07): las fechas de archivos grandes llegaban a SQL Server, a Excel y
+  al script SQL como números sin sentido (`1291191960000ms` en lugar de
+  `2010-12-01 08:26:00`, `14944` en lugar de `2010-12-01`), y SQL Server
+  rechazaba la entrega. Ahora salen como fechas legibles. Verificado con un SQL
+  Server real: `OnlineRetail` llega con `Quantity` como `bigint`, `UnitPrice`
+  como `float` e `InvoiceDate` como `datetime2` (536.641 filas, del 1 de
+  diciembre de 2010 al 9 de diciembre de 2011, 10.587 devoluciones negativas).
+- RV18 (FUN-07): la propuesta de Preparar ofrece «Convertir N columnas a fecha»
+  cuando todos los valores de una columna son fechas. El orden se decide con
+  todos los datos: si algún valor tiene un día mayor que 12, queda claro si es
+  día/mes o mes/día; si todos se pueden leer de las dos formas, pregunta una
+  vez («¿Cómo se lee «01/02/2024»? Día/mes: 2024-02-01 · Mes/día: 2024-01-02»).
+  Los años de dos cifras siguen la regla de Excel (00–29 es 20xx). El antes y
+  después muestra cada fecha sin ambigüedad («12/1/10 8:26 → 2010-12-01 08:26»).
+  Una columna con un solo valor que no sea fecha se deja como texto. Antes
+  `InvoiceDate` llegaba como texto a CSV, Excel y SQL, y la herramienta
+  «Fechas» elegía día/mes con solo 50 valores, lo que leía mal fechas de EE. UU.
 - RV22 (DAT-01, UX-01): guardar ya no depende de acordarse. El lateral muestra en
   todas las fases si el trabajo está guardado y un botón «Guardar proyecto»: la
   primera vez guarda el dataset como proyecto con el nombre del archivo, y desde

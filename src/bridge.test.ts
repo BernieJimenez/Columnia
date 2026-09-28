@@ -434,6 +434,7 @@ describe("desktop bridge", () => {
       imputeMissing: false,
       imputeColumns: null,
       castColumns: null,
+      dateColumns: null,
     });
     expect(invoke).toHaveBeenNthCalledWith(13, "undo_last_change");
     expect(invoke).toHaveBeenNthCalledWith(14, "redo_last_change");
@@ -458,6 +459,7 @@ describe("desktop bridge", () => {
       removeDuplicates: true,
       imputeColumns: ["categoria"],
       castColumns: null,
+      dateColumns: null,
     });
   });
 

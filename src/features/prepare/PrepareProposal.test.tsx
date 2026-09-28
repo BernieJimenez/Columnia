@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SafeCorrectionOptions, SafeCorrectionsPreview } from "../../bridge";
@@ -89,5 +89,38 @@ describe("PrepareProposal fill preview (RV17)", () => {
 
     expect(await screen.findByLabelText("Rellenar 3 valores vacíos en 1 columna")).toBeChecked();
     expect(screen.getByRole("button", { name: "Aplicar 2 cambios" })).toBeEnabled();
+  });
+});
+
+describe("PrepareProposal ambiguous dates (RV18)", () => {
+  const dateItems: ProposalItem[] = [
+    {
+      id: "dates",
+      title: "Convertir 1 columna a fecha",
+      hint: "Todos sus valores son fechas.",
+      dateColumns: [{ name: "alta", order: null, sample: "01/02/2024" }],
+      examples: [],
+    },
+  ];
+
+  it("asks once how to read the dates and sends the answer", () => {
+    const onApply = vi.fn();
+    render(
+      <PrepareProposal items={dateItems} columnCount={1} busy={false} canUndo={false} result={null}
+        onApply={onApply} onUndo={vi.fn()} onDismissResult={vi.fn()} />,
+    );
+
+    const apply = screen.getByRole("button", { name: "Aplicar 0 cambios" });
+    expect(apply).toBeDisabled();
+    const question = screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" });
+    fireEvent.click(within(question).getByLabelText("Día/mes: 2024-02-01"));
+
+    expect(screen.getByLabelText("Convertir 1 columna a fecha")).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Ver antes y después" }));
+    expect(screen.getByText("2024-02-01", { selector: "strong" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar 1 cambio" }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
+      dateColumns: [{ column: "alta", order: "dmy" }],
+    }));
   });
 });

@@ -5,11 +5,16 @@ import { CellText } from "../../components/CellText";
 import { MissingValue } from "../../components/MissingValue";
 import {
   applyLabel,
+  dateExample,
+  dateExamples,
   defaultProposalSelection,
+  hasAmbiguousDates,
+  resolvedDateColumns,
   imputationExamples,
   proposalItemTitle,
   proposalOptions,
   selectedProposalCount,
+  type DateOrder,
   type ProposalItem,
   type ProposalItemId,
   type ProposalSelection,
@@ -39,6 +44,7 @@ const STEP_QUESTIONS: Record<ProposalItemId, { question: string; yes: string; no
   sentinels: { question: "¿Convertimos los marcadores de «sin dato» en vacíos reales?", yes: "Sí, convertir", no: "No, dejarlos como texto" },
   trim: { question: "¿Recortamos los espacios sobrantes del texto?", yes: "Sí, recortar", no: "No, dejarlos" },
   types: { question: "¿Convertimos a número las columnas que solo tienen números?", yes: "Sí, convertir", no: "No, dejarlas como texto" },
+  dates: { question: "¿Convertimos a fecha las columnas que solo tienen fechas?", yes: "Sí, convertir", no: "No, dejarlas como texto" },
   duplicates: { question: "¿Quitamos las filas duplicadas?", yes: "Sí, quitarlas", no: "No, pueden ser registros distintos" },
   impute: { question: "¿Rellenamos los valores vacíos?", yes: "Sí, rellenar", no: "No, dejarlos vacíos" },
 };
@@ -66,11 +72,14 @@ export function PrepareProposal({
   const [mode, setMode] = useState<"proposal" | "steps">("proposal");
   const [step, setStep] = useState(0);
   const [normalizeNames, setNormalizeNames] = useState(false);
+  // One answer for every column whose dates read both ways (01/02/2024).
+  const [ambiguousDateOrder, setAmbiguousDateOrder] = useState<DateOrder | null>(null);
 
   const [shownSignature, setShownSignature] = useState(signature);
   if (shownSignature !== signature) {
     setShownSignature(signature);
     setSelection(defaultProposalSelection(items));
+    setAmbiguousDateOrder(null);
     setShowBeforeAfter(false);
     setMode("proposal");
     setStep(0);
@@ -81,7 +90,7 @@ export function PrepareProposal({
   // chain (markers become gaps, duplicates take gaps away), so while it is
   // checked the engine simulates the selection and the proposal shows that.
   const previewKey = onPreview && selection.impute && items.some((item) => item.id === "impute")
-    ? JSON.stringify(proposalOptions(items, selection))
+    ? JSON.stringify(proposalOptions(items, selection, false, ambiguousDateOrder))
     : null;
   const [fills, setFills] = useState<{ key: string; preview: SafeCorrectionsPreview | null } | null>(null);
   useEffect(() => {
@@ -191,7 +200,7 @@ export function PrepareProposal({
               type="button"
               className="prepare-proposal__primary"
               disabled={disabled || !fillsReady || (selectedProposalCount(items, selection) === 0 && !normalizeNames)}
-              onClick={() => onApply(proposalOptions(items, selection, normalizeNames))}
+              onClick={() => onApply(proposalOptions(items, selection, normalizeNames, ambiguousDateOrder))}
             >
               Aplicar
             </button>
@@ -220,12 +229,16 @@ export function PrepareProposal({
   }
 
   const count = selectedProposalCount(items, selection);
+  // «Convertir a fecha» checked with only ambiguous columns and no answer yet.
+  const datesItem = items.find((item) => item.id === "dates");
+  const datesPending = Boolean(selection.dates && datesItem && resolvedDateColumns(datesItem, ambiguousDateOrder).length === 0);
   // One table for every checked change, instead of a toggle per change.
   // Every filled column keeps its row: it shows the value it will receive.
   const beforeAfter = [
     ...items
       .filter((item) => selection[item.id] && item.id !== "impute")
-      .flatMap((item) => item.examples.map((example) => ({ item, example })))
+      .flatMap((item) => (item.id === "dates" ? dateExamples(item, ambiguousDateOrder) : item.examples)
+        .map((example) => ({ item, example })))
       .slice(0, MAX_BEFORE_AFTER_ROWS),
     ...items
       .filter((item) => selection[item.id] && item.id === "impute" && fillsReady)
@@ -253,6 +266,32 @@ export function PrepareProposal({
                 <label htmlFor={`prepare-item-${item.id}`}>{titleOf(item)}</label>
               </div>
               <p id={`prepare-hint-${item.id}`} className="prepare-proposal__hint">{item.hint}</p>
+              {item.id === "dates" && hasAmbiguousDates(item) && (() => {
+                const sample = item.dateColumns?.find((column) => column.order === null)?.sample ?? "01/02/2024";
+                const options: { order: DateOrder; label: string }[] = [
+                  { order: "dmy", label: `Día/mes: ${dateExample(sample, "dmy") ?? ""}` },
+                  { order: "mdy", label: `Mes/día: ${dateExample(sample, "mdy") ?? ""}` },
+                ];
+                return (
+                  <fieldset className="prepare-proposal__date-order" disabled={disabled}>
+                    <legend>¿Cómo se lee «{sample}»?</legend>
+                    {options.map((option) => (
+                      <label key={option.order} className="prepare-proposal__option">
+                        <input
+                          type="radio"
+                          name="prepare-date-order"
+                          checked={ambiguousDateOrder === option.order}
+                          onChange={() => {
+                            setAmbiguousDateOrder(option.order);
+                            setSelection((previous) => ({ ...previous, dates: true }));
+                          }}
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </fieldset>
+                );
+              })()}
             </li>
           );
         })}
@@ -295,8 +334,8 @@ export function PrepareProposal({
         <button
           type="button"
           className="prepare-proposal__primary"
-          disabled={disabled || count === 0 || !fillsReady}
-          onClick={() => onApply(proposalOptions(items, selection))}
+          disabled={disabled || count === 0 || !fillsReady || datesPending}
+          onClick={() => onApply(proposalOptions(items, selection, false, ambiguousDateOrder))}
         >
           {applyLabel(count)}
         </button>

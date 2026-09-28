@@ -6,13 +6,24 @@ import type {
   ColumnProfile,
   DatasetPreview,
   DatasetProfile,
+  DateColumnPlan,
   SafeCorrectionOptions,
   SafeCorrectionsPreview,
 } from "../../bridge";
 import { formatDecimal } from "../../format";
 import { isNumericType, isTextType } from "../../dataTypes";
 
-export type ProposalItemId = "sentinels" | "trim" | "types" | "duplicates" | "impute";
+export type ProposalItemId = "sentinels" | "trim" | "types" | "dates" | "duplicates" | "impute";
+
+export type DateOrder = DateColumnPlan["order"];
+
+/** A column the proposal types as a date; `order` is null while its values are ambiguous. */
+export interface ProposalDateColumn {
+  name: string;
+  order: DateOrder | null;
+  /** A real value of the column, to show before and after. */
+  sample: string | null;
+}
 
 export interface ProposalExample {
   column: string;
@@ -34,6 +45,8 @@ export interface ProposalItem {
   examples: ProposalExample[];
   /** Only for "impute" and "types": the exact columns sent to the engine. */
   columns?: ProposalColumn[];
+  /** Only for "dates". */
+  dateColumns?: ProposalDateColumn[];
 }
 
 export type ProposalSelection = Record<ProposalItemId, boolean>;
@@ -99,6 +112,71 @@ function isTypeable(column: ColumnProfile): boolean {
     && !column.privacySignal
     && !looksLikeIdentifier(column.name)
   );
+}
+
+/** Text columns whose every value is a date (RV18); keys and personal data stay as they are. */
+function isDateable(column: ColumnProfile): boolean {
+  return (
+    column.name !== ROW_AUDIT_COLUMN
+    && isTextType(column.dataType)
+    && column.dateOrder !== null
+    && column.dateOrder !== undefined
+    && !column.privacySignal
+  );
+}
+
+function datesTitle(columnCount: number): string {
+  return `Convertir ${plural(columnCount, "columna", "columnas")} a fecha`;
+}
+
+function sampleValue(dataset: DatasetPreview, name: string): string | null {
+  const index = dataset.columns.findIndex((column) => column.name === name);
+  if (index < 0) return null;
+  for (const row of dataset.rows) {
+    const value = row[index];
+    if (value !== null && value !== undefined && value.trim() !== "") return value;
+  }
+  return null;
+}
+
+/** How a date value reads once typed, in an order nobody can misread: 2010-12-01 08:26. */
+export function dateExample(value: string, order: DateOrder): string | null {
+  const [datePart, timePart] = value.trim().split(/[T ]/, 2);
+  const separator = datePart.match(/[/.-]/)?.[0];
+  if (!separator) return null;
+  const parts = datePart.split(separator);
+  if (parts.length !== 3) return null;
+  const [year, month, day] = order === "iso"
+    ? [parts[0], parts[1], parts[2]]
+    : order === "dmy" ? [parts[2], parts[1], parts[0]] : [parts[2], parts[0], parts[1]];
+  const pad = (text: string) => text.padStart(2, "0");
+  // Same rule as the engine for two-digit years (Excel's): 00-29 is 20xx.
+  const fullYear = year.length === 2 ? `${Number(year) < 30 ? "20" : "19"}${year}` : year;
+  const date = `${fullYear}-${pad(month)}-${pad(day)}`;
+  if (!timePart) return date;
+  const [hours, minutes] = timePart.split(":");
+  return `${date} ${pad(hours)}:${pad(minutes ?? "00")}`;
+}
+
+/** The date columns that will be sent, resolving ambiguous ones with the person's answer. */
+export function resolvedDateColumns(item: ProposalItem, ambiguousOrder: DateOrder | null): DateColumnPlan[] {
+  return (item.dateColumns ?? []).flatMap((column) => {
+    const order = column.order ?? ambiguousOrder;
+    return order ? [{ column: column.name, order }] : [];
+  });
+}
+
+export function hasAmbiguousDates(item: ProposalItem): boolean {
+  return (item.dateColumns ?? []).some((column) => column.order === null);
+}
+
+/** Before and after for each date column, once its order is known. */
+export function dateExamples(item: ProposalItem, ambiguousOrder: DateOrder | null): ProposalExample[] {
+  return (item.dateColumns ?? []).flatMap((column) => {
+    const order = column.order ?? ambiguousOrder;
+    const after = order && column.sample ? dateExample(column.sample, order) : null;
+    return after && column.sample ? [{ column: column.name, before: column.sample, after }] : [];
+  });
 }
 
 function imputeTitle(total: number, columnCount: number): string {
@@ -167,6 +245,22 @@ export function buildPrepareProposal(profile: DatasetProfile, dataset: DatasetPr
     });
   }
 
+  const dated = columns.filter(isDateable);
+  if (dated.length > 0) {
+    const dateColumns = dated.map((column) => ({
+      name: column.name,
+      order: column.dateOrder === "ambiguous" ? null : (column.dateOrder ?? null),
+      sample: sampleValue(dataset, column.name),
+    }));
+    items.push({
+      id: "dates",
+      title: datesTitle(dateColumns.length),
+      hint: "Todos sus valores son fechas; así se ordenan y filtran como fechas.",
+      dateColumns,
+      examples: [],
+    });
+  }
+
   if (profile.duplicateRowCount > 0) {
     items.push({
       id: "duplicates",
@@ -213,6 +307,8 @@ export function defaultProposalSelection(items: ProposalItem[]): ProposalSelecti
     trim: present.has("trim"),
     // Typing changes no value, only how it is stored.
     types: present.has("types"),
+    // Dates whose order is known change no value either; ambiguous ones wait for an answer.
+    dates: items.some((item) => item.id === "dates" && resolvedDateColumns(item, null).length > 0),
     duplicates: present.has("duplicates"),
     // Filling gaps invents values: the person opts in explicitly.
     impute: false,
@@ -256,8 +352,11 @@ export function proposalOptions(
   items: ProposalItem[],
   selection: ProposalSelection,
   normalizeColumnNames = false,
+  ambiguousDateOrder: DateOrder | null = null,
 ): SafeCorrectionOptions {
   const on = (id: ProposalItemId) => items.some((item) => item.id === id) && selection[id];
+  const datesItem = items.find((item) => item.id === "dates");
+  const dateColumns = on("dates") && datesItem ? resolvedDateColumns(datesItem, ambiguousDateOrder) : [];
   return {
     trimText: on("trim"),
     normalizeSentinels: on("sentinels"),
@@ -265,6 +364,7 @@ export function proposalOptions(
     removeDuplicates: on("duplicates"),
     imputeMissing: on("impute"),
     ...(on("types") ? { castColumns: items.find((item) => item.id === "types")?.columns?.map((column) => column.name) ?? [] } : {}),
+    ...(dateColumns.length > 0 ? { dateColumns } : {}),
     ...(on("impute") ? { imputeColumns: items.find((item) => item.id === "impute")?.columns?.map((column) => column.name) ?? [] } : {}),
   };
 }
