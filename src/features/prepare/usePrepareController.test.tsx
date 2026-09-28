@@ -81,6 +81,13 @@ function ControllerHarness({
       normalizeColumnNames: true,
       removeDuplicates: true,
     })}>Recomendadas</button>
+    <button type="button" onClick={() => controller.applyRecommendedCorrections({
+      trimText: false,
+      normalizeSentinels: false,
+      normalizeColumnNames: false,
+      removeDuplicates: false,
+      castColumns: ["Quantity"],
+    })}>Solo tipos</button>
     <button type="button" onClick={() => controller.applyStructuralTransforms({
       renames: [], casts: [], dateParses: [], filters: [], calculatedColumn: null,
       findReplace: null, keepColumns: null, splitColumn: null, mergeColumns: null,
@@ -691,7 +698,7 @@ describe("usePrepareController", () => {
       dataset, affectedRowCount: 0, changedCellCount: 0, changedColumns: [],
     });
     vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({
-      dataset, changedCellCount: 0, affectedRowCount: 0, removedRowCount: 0, renamedColumnCount: 0, renames: [], imputedCellCount: 0,
+      dataset, changedCellCount: 0, affectedRowCount: 0, removedRowCount: 0, renamedColumnCount: 0, renames: [], typedColumnCount: 0, imputedCellCount: 0,
     });
     vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
       dataset, changed: false, renamedColumnCount: 0, convertedColumnCount: 0,
@@ -746,6 +753,23 @@ describe("usePrepareController", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("no produjo cambios"));
   });
 
+  it("aplica un plan que solo convierte columnas a número (RV18)", async () => {
+    const apply = vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({
+      dataset, changedCellCount: 0, affectedRowCount: 0, removedRowCount: 0, renamedColumnCount: 0, renames: [], typedColumnCount: 1, imputedCellCount: 0,
+    });
+    const callbacks = {
+      onDatasetChanged: vi.fn(), onProfileInvalidated: vi.fn(), onDeliveryInvalidated: vi.fn(),
+    };
+    render(<ControllerHarness {...callbacks} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Solo tipos" }));
+
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Plan aplicado: 1 columna convertida a número."));
+    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ castColumns: ["Quantity"] }));
+    expect(callbacks.onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(callbacks.onDeliveryInvalidated).toHaveBeenCalled();
+  });
+
   it("maneja errores, refresco de historial fallido y dataset ausente sin ejecutar IPC", async () => {
     const removeRows = vi.spyOn(bridge, "removeEmptyRows").mockRejectedValue(new Error("fallo controlado"));
     vi.spyOn(bridge, "getHistoryState").mockRejectedValue(new Error("historial no disponible"));
@@ -790,7 +814,7 @@ describe("usePrepareController", () => {
     vi.spyOn(bridge, "normalizeColumnNames").mockResolvedValue({ dataset, renamedColumnCount: 1, renames: [{ from: " Nombre ", to: "nombre" }] });
     vi.spyOn(bridge, "trimTextValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 1, changedColumns: [{ name: "nombre", changedCellCount: 1 }] });
     vi.spyOn(bridge, "normalizeTextValues").mockResolvedValue({ dataset, affectedRowCount: 1, changedCellCount: 1, changedColumns: [{ name: "nombre", changedCellCount: 1 }] });
-    vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({ dataset, changedCellCount: 1, affectedRowCount: 1, removedRowCount: 0, renamedColumnCount: 0, renames: [], imputedCellCount: 0 });
+    vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({ dataset, changedCellCount: 1, affectedRowCount: 1, removedRowCount: 0, renamedColumnCount: 0, renames: [], typedColumnCount: 0, imputedCellCount: 0 });
     const callbacks = {
       onDatasetChanged: vi.fn(),
       onProfileInvalidated: vi.fn(),

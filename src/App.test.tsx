@@ -247,6 +247,7 @@ describe("App", () => {
       removedRowCount: 0,
       renamedColumnCount: 0,
       renames: [],
+      typedColumnCount: 0,
       imputedCellCount: 0,
     });
 
@@ -672,6 +673,32 @@ describe("App", () => {
     await screen.findByRole("button", { name: "Seleccionar dataset" });
     await waitFor(() => expect(status).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("region", { name: "La sesión anterior se cerró de forma inesperada" })).not.toBeInTheDocument();
+  });
+
+  it("dice en el aviso de cierre inesperado cuándo fue el último guardado (DAT-01)", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    vi.spyOn(bridge, "getSessionStatus").mockResolvedValue({ previousExitUnclean: true });
+    const saved = (id: string, name: string, updatedAt: string) => ({
+      id, name, datasetFileName: "ventas.csv", rowCount: 1, columnCount: 1,
+      createdAt: "2026-09-20T09:00:00Z", updatedAt,
+    });
+    const list = vi.spyOn(bridge, "listProjects").mockResolvedValue({
+      projects: [saved("a", "Auditoría", "2026-09-26T11:16:00Z"), saved("b", "Ventas", "2026-09-26T15:40:00Z")],
+      recoveryCandidate: null,
+    });
+
+    const { unmount } = render(<App />);
+    const notice = await screen.findByRole("region", { name: "La sesión anterior se cerró de forma inesperada" });
+    await waitFor(() => expect(notice).toHaveTextContent(/^.*Último guardado: .+ \(Ventas\)\. Los cambios posteriores no se conservaron/));
+    unmount();
+
+    list.mockResolvedValue({ projects: [], recoveryCandidate: null });
+    render(<App />);
+    const withoutProjects = await screen.findByRole("region", { name: "La sesión anterior se cerró de forma inesperada" });
+    await waitFor(() => expect(withoutProjects).toHaveTextContent("No había ningún proyecto guardado"));
   });
 
   it("restaura el estado vacío si la carga falla con un error nativo no tipado", async () => {
@@ -1539,6 +1566,7 @@ describe("App", () => {
           format: "Parquet",
           protectedColumnCount: 0,
           protectedColumns: [],
+          replacedControlCellCount: 0,
         };
       },
     );
@@ -1685,6 +1713,7 @@ describe("App", () => {
       removedRowCount: 0,
       renamedColumnCount: 1,
       renames: [{ from: "Año Venta", to: "ano_venta" }],
+      typedColumnCount: 0,
       imputedCellCount: 0,
     });
 
@@ -1732,6 +1761,7 @@ describe("App", () => {
       removedRowCount: 0,
       renamedColumnCount: 0,
       renames: [],
+      typedColumnCount: 0,
       imputedCellCount: 0,
     });
     const normalizeSpy = vi.spyOn(bridge, "normalizeTextValues").mockResolvedValue({
@@ -1786,6 +1816,7 @@ describe("App", () => {
       removedRowCount: 0,
       renamedColumnCount: 1,
       renames: [{ from: "Ciudad Nombre", to: "ciudad_nombre" }],
+      typedColumnCount: 0,
       imputedCellCount: 0,
     });
 
@@ -1868,6 +1899,7 @@ describe("App", () => {
       removedRowCount: 1,
       renamedColumnCount: 0,
       renames: [],
+      typedColumnCount: 0,
       imputedCellCount: 0,
     });
     const undoSpy = vi.spyOn(bridge, "undoLastChange").mockResolvedValue({
@@ -2654,6 +2686,7 @@ describe("App", () => {
       format: "Paquete Columnia",
       protectedColumnCount: 0,
       protectedColumns: [],
+      replacedControlCellCount: 0,
     });
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
@@ -3025,6 +3058,7 @@ describe("App", () => {
       format: "Paquete Columnia",
       protectedColumnCount: 0,
       protectedColumns: [],
+      replacedControlCellCount: 0,
     });
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
@@ -3234,7 +3268,7 @@ describe("App", () => {
       tableExists: false, ready: true, issues: [],
     } satisfies RemoteExportPreflight);
     const exportSpy = vi.spyOn(bridge, "exportDatasetToDatabase").mockResolvedValue({
-      fileName: "remoto", fileSizeBytes: 1, format: "PostgreSQL", protectedColumnCount: 0, protectedColumns: [],
+      fileName: "remoto", fileSizeBytes: 1, format: "PostgreSQL", protectedColumnCount: 0, protectedColumns: [], replacedControlCellCount: 0,
     });
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));

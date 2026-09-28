@@ -415,8 +415,24 @@ export interface SafeCorrectionsResult {
   removedRowCount: number;
   renamedColumnCount: number;
   renames: ColumnRename[];
+  /** Text columns typed as numbers by the same plan (RV18). */
+  typedColumnCount: number;
   /** Cells filled by the optional imputation of the same plan. */
   imputedCellCount: number;
+}
+
+/** One column the plan fills, with the value it receives (RV17). */
+export interface ImputationPreview {
+  column: string;
+  value: string;
+  cellCount: number;
+}
+
+/** What apply_safe_corrections would fill, computed on a copy with the same chain. */
+export interface SafeCorrectionsPreview {
+  removedRowCount: number;
+  imputedCellCount: number;
+  imputations: ImputationPreview[];
 }
 
 export interface SafeCorrectionOptions {

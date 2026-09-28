@@ -28,6 +28,7 @@ import {
   type RecentDataset,
 } from "./recentFilesModel";
 import { formatBytes, formatDataType } from "../../format";
+import { projectDate } from "../projects/projectModel";
 
 export type LoadRuntimeState =
   | { kind: "connected" }
@@ -60,6 +61,8 @@ interface LoadPhaseProps {
   encodingConversionPending?: boolean;
   /** DAT-01: the previous session ended without a normal exit. */
   previousExitUnclean?: boolean;
+  /** The most recently saved project; null when none exists, undefined while unknown (DAT-01). */
+  lastSavedProject?: { name: string; updatedAt: string } | null;
   onDismissPreviousExit?: () => void;
   onProfileReviewAction?: (action: ProfileReviewAction) => void;
   onResourcePreflightAction?: (action: ResourcePreflightAction) => void;
@@ -90,6 +93,7 @@ export function LoadPhase({
   onConvertEncoding = () => undefined,
   encodingConversionPending = false,
   previousExitUnclean = false,
+  lastSavedProject,
   onDismissPreviousExit = () => undefined,
   onProfileReviewAction = () => undefined,
   onResourcePreflightAction = () => undefined,
@@ -145,7 +149,16 @@ export function LoadPhase({
       {previousExitUnclean && !current && (
         <section className="notice" aria-labelledby="previous-exit-title">
           <h3 id="previous-exit-title">La sesión anterior se cerró de forma inesperada</h3>
-          <p>Los cambios que no estaban guardados en un proyecto no se conservaron. Si guardaste uno, puedes recuperarlo en «Continuar un proyecto».</p>
+          {lastSavedProject ? (
+            <p>
+              Último guardado: {projectDate(lastSavedProject.updatedAt)} ({lastSavedProject.name}). Los cambios
+              posteriores no se conservaron; puedes recuperarlo en «Continuar un proyecto».
+            </p>
+          ) : lastSavedProject === null ? (
+            <p>No había ningún proyecto guardado, así que los cambios de esa sesión no se conservaron.</p>
+          ) : (
+            <p>Los cambios que no estaban guardados en un proyecto no se conservaron. Si guardaste uno, puedes recuperarlo en «Continuar un proyecto».</p>
+          )}
           <button type="button" className="secondary-action" onClick={onDismissPreviousExit}>Entendido</button>
         </section>
       )}

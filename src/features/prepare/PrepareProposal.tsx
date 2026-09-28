@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import type { DatasetProfile, SafeCorrectionOptions } from "../../bridge";
+import type { DatasetProfile, SafeCorrectionOptions, SafeCorrectionsPreview } from "../../bridge";
 import { CellText } from "../../components/CellText";
 import { MissingValue } from "../../components/MissingValue";
 import {
   applyLabel,
   defaultProposalSelection,
+  imputationExamples,
   proposalItemTitle,
   proposalOptions,
   selectedProposalCount,
@@ -26,6 +27,8 @@ interface PrepareProposalProps {
   canUndo: boolean;
   result: ProposalResult | null;
   onApply: (options: SafeCorrectionOptions) => void;
+  /** Simulates the selected chain so «Rellenar» announces exactly what it fills. */
+  onPreview?: (options: SafeCorrectionOptions) => Promise<SafeCorrectionsPreview>;
   onUndo: () => void;
   onDismissResult: () => void;
 }
@@ -51,6 +54,7 @@ export function PrepareProposal({
   canUndo,
   result,
   onApply,
+  onPreview,
   onUndo,
   onDismissResult,
 }: PrepareProposalProps) {
@@ -70,6 +74,31 @@ export function PrepareProposal({
     setStep(0);
     setNormalizeNames(false);
   }
+
+  // Filling gaps is the only change whose count depends on the rest of the
+  // chain (markers become gaps, duplicates take gaps away), so while it is
+  // checked the engine simulates the selection and the proposal shows that.
+  const previewKey = onPreview && selection.impute && items.some((item) => item.id === "impute")
+    ? JSON.stringify(proposalOptions(items, selection))
+    : null;
+  const [fills, setFills] = useState<{ key: string; preview: SafeCorrectionsPreview | null } | null>(null);
+  useEffect(() => {
+    if (previewKey === null || !onPreview) return;
+    let current = true;
+    onPreview(JSON.parse(previewKey) as SafeCorrectionOptions).then(
+      (preview) => { if (current) setFills({ key: previewKey, preview }); },
+      // Without a simulation the profile estimate stays visible.
+      () => { if (current) setFills({ key: previewKey, preview: null }); },
+    );
+    return () => { current = false; };
+  }, [previewKey, onPreview]);
+  const fillsReady = previewKey === null || fills?.key === previewKey;
+  const preview = fillsReady && previewKey !== null ? fills?.preview ?? null : null;
+  const titleOf = (item: ProposalItem) => (
+    item.id === "impute" && !fillsReady
+      ? "Rellenar valores vacíos: calculando cuántos…"
+      : proposalItemTitle(item, selection, preview)
+  );
 
   if (result) {
     const rows = [
@@ -113,7 +142,7 @@ export function PrepareProposal({
     const question = current
       ? STEP_QUESTIONS[current.id]
       : { question: `¿Normalizamos los nombres de las ${columnCount} columnas?`, yes: "Sí, normalizar", no: "No, dejarlos" };
-    const hint = current ? `${proposalItemTitle(current, selection)}. ${current.hint}` : "Minúsculas y sin espacios. Puede afectar consultas e integraciones.";
+    const hint = current ? `${titleOf(current)}. ${current.hint}` : "Minúsculas y sin espacios. Puede afectar consultas e integraciones.";
     const value = current ? selection[current.id] : normalizeNames;
     const choose = (next: boolean) => {
       if (current) setSelection((previous) => ({ ...previous, [current.id]: next }));
@@ -152,7 +181,7 @@ export function PrepareProposal({
             <button
               type="button"
               className="prepare-proposal__primary"
-              disabled={disabled || (selectedProposalCount(items, selection) === 0 && !normalizeNames)}
+              disabled={disabled || !fillsReady || (selectedProposalCount(items, selection) === 0 && !normalizeNames)}
               onClick={() => onApply(proposalOptions(items, selection, normalizeNames))}
             >
               Aplicar
@@ -183,10 +212,16 @@ export function PrepareProposal({
 
   const count = selectedProposalCount(items, selection);
   // One table for every checked change, instead of a toggle per change.
-  const beforeAfter = items
-    .filter((item) => selection[item.id])
-    .flatMap((item) => item.examples.map((example) => ({ item, example })))
-    .slice(0, MAX_BEFORE_AFTER_ROWS);
+  // Every filled column keeps its row: it shows the value it will receive.
+  const beforeAfter = [
+    ...items
+      .filter((item) => selection[item.id] && item.id !== "impute")
+      .flatMap((item) => item.examples.map((example) => ({ item, example })))
+      .slice(0, MAX_BEFORE_AFTER_ROWS),
+    ...items
+      .filter((item) => selection[item.id] && item.id === "impute" && fillsReady)
+      .flatMap((item) => (preview ? imputationExamples(preview) : item.examples).map((example) => ({ item, example }))),
+  ];
   return (
     <section className="prepare-proposal" aria-labelledby="prepare-proposal-title">
       <h3 id="prepare-proposal-title" className="prepare-proposal__title">
@@ -206,7 +241,7 @@ export function PrepareProposal({
                   aria-describedby={`prepare-hint-${item.id}`}
                   onChange={(event) => setSelection((previous) => ({ ...previous, [item.id]: event.target.checked }))}
                 />
-                <label htmlFor={`prepare-item-${item.id}`}>{proposalItemTitle(item, selection)}</label>
+                <label htmlFor={`prepare-item-${item.id}`}>{titleOf(item)}</label>
               </div>
               <p id={`prepare-hint-${item.id}`} className="prepare-proposal__hint">{item.hint}</p>
             </li>
@@ -233,7 +268,7 @@ export function PrepareProposal({
                 <tbody>
                   {beforeAfter.map(({ item, example }, index) => (
                     <tr key={`${item.id}-${example.column}-${index}`}>
-                      <td>{proposalItemTitle(item, selection)}</td>
+                      <td>{titleOf(item)}</td>
                       <th scope="row">{example.column}</th>
                       <td className="prepare-proposal__before">
                         {example.before === null ? <MissingValue /> : <CellText value={example.before} />}
@@ -251,7 +286,7 @@ export function PrepareProposal({
         <button
           type="button"
           className="prepare-proposal__primary"
-          disabled={disabled || count === 0}
+          disabled={disabled || count === 0 || !fillsReady}
           onClick={() => onApply(proposalOptions(items, selection))}
         >
           {applyLabel(count)}

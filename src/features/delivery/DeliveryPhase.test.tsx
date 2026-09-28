@@ -41,6 +41,7 @@ function DeliveryHarness({
   onCancelExport = () => undefined,
   personalDataColumns = [],
   suggestedRules = [],
+  excelLimitIssues = [],
 }: {
   onExport: (request: DeliveryExportRequest) => void;
   recipeDraft?: SavedRecipe | null;
@@ -50,6 +51,7 @@ function DeliveryHarness({
   onCancelExport?: () => void;
   personalDataColumns?: string[];
   suggestedRules?: QualityRule[];
+  excelLimitIssues?: string[];
 }) {
   const [contract, setContract] = useState<DeliveryContractState>(initialContract);
   return (
@@ -64,9 +66,48 @@ function DeliveryHarness({
       onCancelExport={onCancelExport}
       personalDataColumns={personalDataColumns}
       suggestedRules={suggestedRules}
+      excelLimitIssues={excelLimitIssues}
     />
   );
 }
+
+describe("límites de Excel (RV19)", () => {
+  it("avisa antes de exportar, bloquea Excel y ofrece CSV", () => {
+    render(<DeliveryHarness onExport={vi.fn()} excelLimitIssues={["notas: hay celdas de más de 32,767 caracteres, el máximo de Excel."]} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), { target: { value: "excel" } });
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Este dataset no cabe en Excel.");
+    expect(alert).toHaveTextContent("notas: hay celdas de más de 32,767 caracteres");
+    expect(screen.getByRole("button", { name: "Exportar Excel" })).toBeDisabled();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Exportar como CSV" }));
+    expect(screen.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("csv");
+    expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeEnabled();
+  });
+
+  it("dice cuántas celdas cambiaron por caracteres de control", () => {
+    render(<DeliveryHarness
+      onExport={vi.fn()}
+      exportState={{
+        kind: "success",
+        result: {
+          fileName: "ventas.xlsx",
+          fileSizeBytes: 512,
+          format: "Excel",
+          protectedColumnCount: 0,
+          protectedColumns: [],
+          replacedControlCellCount: 3,
+        },
+      }}
+    />);
+
+    expect(screen.getByText("3 celdas tenían caracteres de control que Excel no admite; se cambiaron por «�».")).toBeInTheDocument();
+  });
+});
 
 describe("comprobaciones propuestas en Entregar", () => {
   const suggestedRules: QualityRule[] = [
@@ -380,6 +421,7 @@ describe("DeliveryPhase", () => {
           format: "CSV",
           protectedColumnCount: 0,
           protectedColumns: [],
+          replacedControlCellCount: 0,
         },
       }}
     />);
@@ -1035,6 +1077,7 @@ describe("DeliveryPhase", () => {
           format: "Paquete Columnia",
           protectedColumnCount: 1,
           protectedColumns: ["email"],
+          replacedControlCellCount: 0,
         },
       }}
     />);

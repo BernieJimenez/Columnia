@@ -6,6 +6,7 @@ import {
   MAX_QUALITY_RULES,
   databaseKindForExportFormat,
   deliveryContractFromRules,
+  excelLimitIssues,
   deliveryRules,
   invalidateDeliveryContract,
   personalDataColumnNames,
@@ -281,5 +282,22 @@ describe("personalDataColumnNames", () => {
 
   it("returns no columns while the profile is not ready", () => {
     expect(personalDataColumnNames(null)).toEqual([]);
+  });
+});
+
+describe("excelLimitIssues (RV19 / FUN-05)", () => {
+  const column = (name: string, maximumLength: number | null) => ({ name, maximumLength }) as ColumnProfile;
+
+  it("fits when rows and cells are within Excel limits or the profile is unknown", () => {
+    expect(excelLimitIssues(1_048_575, [column("notas", 32_767)])).toEqual([]);
+    expect(excelLimitIssues(10, null)).toEqual([]);
+  });
+
+  it("names the rows and the columns that would not open", () => {
+    const issues = excelLimitIssues(1_100_000, [column("notas", 40_000), column("id", 6), column("detalle", 32_768)]);
+
+    expect(issues).toHaveLength(2);
+    expect(issues[0]).toContain((1_100_000).toLocaleString());
+    expect(issues[1]).toMatch(/^notas, detalle: /);
   });
 });

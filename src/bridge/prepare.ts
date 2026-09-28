@@ -8,6 +8,7 @@ import type {
   HistoryState,
   HistoryResult,
   SafeCorrectionsResult,
+  SafeCorrectionsPreview,
   SafeCorrectionOptions,
   TransformRecipe,
   ReusableTaskExceptionPolicy,
@@ -115,6 +116,18 @@ export function capOutlierValues(): Promise<TextCleaningResult> {
 
 export function dropOutlierValues(): Promise<TextCleaningResult> {
   return invoke<TextCleaningResult>("drop_outlier_values");
+}
+
+/** Simulates the proposal with imputation on a copy; publishes nothing (RV17). */
+export function previewSafeCorrections(options: SafeCorrectionOptions): Promise<SafeCorrectionsPreview> {
+  return invoke<SafeCorrectionsPreview>("preview_safe_corrections", {
+    trimText: options.trimText,
+    normalizeSentinels: options.normalizeSentinels,
+    normalizeColumnNames: options.normalizeColumnNames,
+    removeDuplicates: options.removeDuplicates,
+    imputeColumns: options.imputeColumns ?? null,
+    castColumns: options.castColumns ?? null,
+  });
 }
 
 export function applySafeCorrections(options: SafeCorrectionOptions): Promise<SafeCorrectionsResult> {

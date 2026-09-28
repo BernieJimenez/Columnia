@@ -6,6 +6,7 @@ import {
   applyLabel,
   buildPrepareProposal,
   defaultProposalSelection,
+  imputationExamples,
   proposalItemTitle,
   proposalOptions,
   selectedProposalCount,
@@ -119,6 +120,39 @@ describe("buildPrepareProposal", () => {
     expect(proposalItemTitle(impute, selection)).toBe("Rellenar 7 valores vacíos en 2 columnas");
     expect(proposalItemTitle(impute, { ...selection, sentinels: false })).toBe(
       "Rellenar 5 valores vacíos en 2 columnas",
+    );
+  });
+
+  it("uses the engine's simulation of the whole chain when there is one (RV17)", () => {
+    const items = buildPrepareProposal(
+      profile({
+        duplicateRowCount: 1,
+        columns: [
+          column({ name: "categoria", nullCount: 3, uniqueCount: 3, sentinelCount: 2 }),
+          column({ name: "monto", dataType: "i64", nullCount: 2, uniqueCount: 80, median: 30 }),
+        ],
+      }),
+      dataset,
+    );
+    const impute = items.find((item) => item.id === "impute")!;
+    const selection = { ...defaultProposalSelection(items), impute: true };
+    // Removing duplicates took two gaps away: the profile estimate says 7.
+    const preview = {
+      removedRowCount: 1,
+      imputedCellCount: 5,
+      imputations: [
+        { column: "categoria", value: "A", cellCount: 4 },
+        { column: "monto", value: "30", cellCount: 1 },
+      ],
+    };
+
+    expect(proposalItemTitle(impute, selection, preview)).toBe("Rellenar 5 valores vacíos en 2 columnas");
+    expect(imputationExamples(preview)).toEqual([
+      { column: "categoria", before: null, after: "A · 4 celdas" },
+      { column: "monto", before: null, after: "30 · 1 celda" },
+    ]);
+    expect(proposalItemTitle(impute, selection, { removedRowCount: 0, imputedCellCount: 0, imputations: [] })).toBe(
+      "Rellenar valores vacíos: no queda ninguno tras los demás cambios",
     );
   });
 });

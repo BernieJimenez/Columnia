@@ -567,17 +567,128 @@ async function runPrepareFlow(page) {
   }
 }
 
+// RV17: check «Rellenar», wait for the engine's simulation and keep what it
+// announces per column (column and cells; the value only in a local
+// screenshot), then leave the default selection as it was.
+async function readFillPreview(page) {
+  const fill = page.getByRole("checkbox", { name: /^Rellenar / });
+  if ((await fill.count()) === 0) return null;
+  await fill.check();
+  const title = page.locator("label[for='prepare-item-impute']");
+  await page.getByRole("checkbox", { name: /^Rellenar (\d|valores vacíos: no queda)/ })
+    .waitFor({ state: "visible", timeout: analysisTimeoutMs });
+  const toggle = page.getByRole("button", { name: "Ver antes y después" });
+  const columns = [];
+  if (await toggle.isVisible().catch(() => false)) {
+    await toggle.click();
+    for (const row of await page.locator("#prepare-before-after tbody tr").all()) {
+      const cells = await row.locator("td, th").allInnerTexts();
+      if (!cells[0]?.startsWith("Rellenar")) continue;
+      columns.push({ column: cells[1], cells: cells[3]?.split(" · ").at(-1) ?? null });
+    }
+    await page.screenshot({ path: join(tmpdir(), "columnia-prepare-fill-preview.png"), fullPage: true }).catch(() => {});
+    await page.getByRole("button", { name: "Ocultar antes y después" }).click();
+  }
+  const announced = (await title.innerText()).trim();
+  await fill.uncheck();
+  return { title: announced, columns };
+}
+
+const countIn = (text) => Number(String(text).replace(/[^\d]/g, ""));
+
+async function columnTypes(page) {
+  const answer = await invoke(page, "query_dataset", { query: "SELECT * FROM dataset LIMIT 1", engine: "polars" });
+  return Object.fromEntries(answer.columns.map((column) => [column.name, column.dataType]));
+}
+
+async function gapsIn(page, column) {
+  const quoted = `"${column.replaceAll('"', '""')}"`;
+  const answer = await invoke(page, "query_dataset", {
+    query: `SELECT COUNT(*) AS total, COUNT(${quoted}) AS present FROM dataset`,
+    engine: "polars",
+  });
+  return Number(answer.rows[0][0]) - Number(answer.rows[0][1]);
+}
+
+/**
+ * RV21 / QA-02: what the proposal announced is what the engine applied,
+ * measured on the resulting data rather than on the engine's own counters.
+ * The default selection leaves «Rellenar» unchecked, so the gaps left in each
+ * announced column after applying are exactly the cells it would fill.
+ */
+async function announcedVersusApplied(page, { proposal, fillPreview, typesBefore, resultText }) {
+  const checks = [];
+  const duplicates = proposal.find((label) => /^Quitar [\d.,]+ filas? duplicadas?$/.test(label));
+  if (duplicates) {
+    const rows = resultText.match(/Filas ([\d.,]+) → ([\d.,]+)/);
+    checks.push({
+      change: "duplicates",
+      announced: countIn(duplicates),
+      applied: rows ? countIn(rows[1]) - countIn(rows[2]) : null,
+    });
+  }
+  const types = proposal.find((label) => /^Convertir \d+ columnas? a número$/.test(label));
+  if (types) {
+    const typesAfter = await columnTypes(page);
+    checks.push({
+      change: "types",
+      announced: countIn(types),
+      applied: Object.entries(typesAfter)
+        .filter(([name, type]) => typesBefore[name] === "str" && /^(i|u|f)\d+$/.test(type)).length,
+    });
+  }
+  for (const fill of fillPreview?.columns ?? []) {
+    checks.push({ change: `fill:${fill.column}`, announced: countIn(fill.cells), applied: await gapsIn(page, fill.column) });
+  }
+  return checks;
+}
+
+// RV19: in Entregar, choosing Excel says beforehand whether the dataset fits.
+async function readExcelCheck(page) {
+  await page.getByRole("button", { name: "Continuar a Entregar" }).click();
+  const format = page.getByRole("combobox", { name: "Formato de exportación" });
+  await format.waitFor({ state: "visible", timeout: probeTimeoutMs });
+  await format.selectOption("excel");
+  const notice = page.getByRole("alert").filter({ hasText: "Este dataset no cabe en Excel." });
+  const blocked = await notice.waitFor({ state: "visible", timeout: 5_000 }).then(() => true, () => false);
+  const issues = blocked ? await notice.locator("li").allInnerTexts() : [];
+  const exportDisabled = await page.getByRole("button", { name: /Exportar Excel$/ }).isDisabled();
+  await format.selectOption("csv");
+  return { blocked, issues, exportDisabled };
+}
+
 async function runPrepareFlowSteps(page) {
   const startedAt = performance.now();
   await selectDatasetFromApp(page, sourcePath);
   const dialog = importDialogFor(page, sourcePath);
   await dialog.waitFor({ state: "visible", timeout: probeTimeoutMs });
   const reviewSchema = dialog.getByRole("button", { name: "Revisar esquema" });
-  if (await reviewSchema.isVisible().catch(() => false)) await reviewSchema.click();
-  await dialog.getByRole("button", { name: "Cargar archivo" }).click();
-  // After loading, the app opens Revisar; continue from Cargar only if it stayed there.
   const reviewHeading = page.getByRole("heading", { name: "Revisa antes de modificar" });
   const toReview = page.getByRole("button", { name: "Continuar a Revisar" });
+  const load = dialog.getByRole("button", { name: "Cargar archivo" });
+  // A Windows-1252 file (Excel on Windows) is read through a UTF-8 copy
+  // after one approval, like a person would give it; the copy gets its own
+  // schema review. Click whichever step the dialog enables next.
+  const convert = dialog.getByRole("button", { name: "Convertir y continuar" });
+  const ready = async (locator) => (await locator.isVisible().catch(() => false))
+    && (await locator.isEnabled({ timeout: 100 }).catch(() => false));
+  const importDeadline = performance.now() + analysisTimeoutMs;
+  let convertedEncoding = false;
+  for (;;) {
+    if (performance.now() > importDeadline) throw new Error("import_dialog_stuck");
+    if (await ready(load)) {
+      await load.click();
+      break;
+    }
+    if (!convertedEncoding && await ready(convert)) {
+      await convert.click();
+      convertedEncoding = true;
+    } else if (await ready(reviewSchema)) {
+      await reviewSchema.click();
+    }
+    await sleep(250);
+  }
+  // After loading, the app opens Revisar; continue from Cargar only if it stayed there.
   await reviewHeading.or(toReview).first().waitFor({ state: "visible", timeout: probeTimeoutMs });
   // The footer of Cargar can flash "Continuar a Revisar" while the load
   // finishes and the app switches to Revisar on its own.
@@ -591,7 +702,10 @@ async function runPrepareFlowSteps(page) {
   await proposalEntry.click();
   const apply = page.getByRole("button", { name: /^Aplicar \d+ cambios?$/ });
   await apply.waitFor({ state: "visible", timeout: probeTimeoutMs });
+  const proposal = await page.locator(".prepare-proposal__item label").allInnerTexts();
+  const fillPreview = await readFillPreview(page);
   const applyLabel = (await apply.textContent())?.trim() ?? "";
+  const typesBefore = await columnTypes(page);
 
   // Sample the synchronous get_app_info round trip while the plan runs.
   const samples = [];
@@ -612,15 +726,28 @@ async function runPrepareFlowSteps(page) {
   sampling = false;
   await sampler;
   const resultText = (await result.innerText()).replace(/\s+/g, " ").trim();
+  // RV18: which columns reach the delivery as numbers. Names and engine types only.
+  const typed = await columnTypes(page)
+    .then((types) => Object.entries(types).map(([name, type]) => `${name}:${type}`), (error) => [`error:${String(error)}`]);
+  const announcedChecks = await announcedVersusApplied(page, { proposal, fillPreview, typesBefore, resultText });
+  const mismatches = announcedChecks.filter((check) => check.announced !== check.applied);
+  const excelCheck = await readExcelCheck(page);
   const sorted = [...samples].sort((left, right) => left - right);
   const round = (value) => Number(value.toFixed(1));
   return {
-    status: "passed",
+    status: mismatches.length === 0 ? "passed" : "failed",
+    ...(mismatches.length === 0 ? {} : { errorCode: "announced_differs_from_applied" }),
     phase: "native_prepare_flow",
     fileName: sourceFileName,
     sizeBytes: statSync(sourcePath).size,
+    convertedEncoding,
     loadAndAnalyzeMs: round(loadAndAnalyzeMs),
+    proposal,
+    fillPreview,
     applyLabel,
+    columnTypesAfterApply: typed,
+    announcedChecks,
+    excelCheck,
     applyMs: round(applyMs),
     appInfoSamples: samples.length,
     appInfoMedianMs: sorted.length ? round(sorted[Math.floor(sorted.length / 2)]) : null,

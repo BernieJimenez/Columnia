@@ -129,6 +129,26 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- RV17 (FUN-03, FUN-06): «Rellenar» anuncia el valor que recibirá cada columna
+  y cuántas celdas («categoria: A · 7 celdas»). Al marcarlo, Columnia simula la
+  propuesta completa sobre una copia, así que el recuento ya descuenta los
+  huecos que caen en filas duplicadas y suma los marcadores «sin dato» que se
+  vuelven vacíos. Antes el título salía del perfil: con 2 huecos en filas
+  duplicadas anunciaba 9 y rellenaba 7. «Aplicar» espera a que termine la
+  simulación.
+- RV18 (FUN-07): «Convertir N columnas a número» se aplicaba en silencio sin
+  convertir nada en dos casos: en archivos grandes (leídos sin cargar en
+  memoria, como un CSV de 40 MiB) si no se marcaba también «Rellenar», y cuando
+  era el único cambio marcado. Ahora `Quantity` y `UnitPrice` llegan como
+  números en ambos casos, y el mensaje dice cuántas columnas se convirtieron.
+- RV19 (FUN-05): Entregar avisa antes de exportar si el dataset no cabe en
+  Excel (más de 1.048.575 filas o celdas de más de 32.767 caracteres), nombra
+  las columnas, bloquea «Exportar Excel» y ofrece «Exportar como CSV». El
+  resultado de una exportación a Excel dice cuántas celdas tenían caracteres de
+  control y se cambiaron por «�».
+- RV22 (DAT-01): el aviso de cierre inesperado dice la hora y el nombre del
+  último proyecto guardado («Último guardado: 26 sept 2026, 15:40 (Ventas)»), o
+  que no había ninguno.
 - RV22 (UX-01, parcial): el historial nombra lo que hizo cada aplicación de la
   propuesta («Recortar espacios · Quitar duplicados») en lugar de repetir
   «Aplicar correcciones recomendadas»; Proyectos muestra las filas con el mismo
@@ -241,6 +261,14 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Interno
 
+- RV21 (QA-02): `npm run smoke:roundtrip` pasa cada fixture de
+  `fixtures/roundtrip/` por la app real (cargar, propuesta de Preparar,
+  aplicar) y falla si lo anunciado no coincide con los datos resultantes: filas
+  duplicadas quitadas, columnas convertidas a número y huecos que «Rellenar»
+  rellenaría. La nueva fixture `categorias-con-huecos.csv` reproduce FUN-06. El
+  probe también aprueba la conversión Windows-1252, registra la propuesta y los
+  tipos finales y comprueba en Entregar si Excel queda bloqueado por sus límites. Nuevo comando IPC de solo lectura `preview_safe_corrections`
+  (88 comandos, 73 estructuras compartidas).
 - RV22 (CODE-01): los informes locales de fallo registran el crate y la ruta
   interna (`polars-core-0.55.2/src/frame/mod.rs:128`) en lugar de solo `mod.rs`,
   sin incluir carpetas del usuario, para poder localizar un fallo de la beta.

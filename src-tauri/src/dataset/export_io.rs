@@ -297,11 +297,27 @@ const EXCEL_MAX_CELL_CHARS: usize = 32_767;
 
 /// XML 1.0 forbids most control characters; one of them made the whole sheet
 /// unreadable. They become U+FFFD so the gap stays visible.
+fn xml_forbidden(character: char) -> bool {
+    (character < ' ' && !matches!(character, '\t' | '\n' | '\r'))
+        || matches!(character, '\u{FFFE}' | '\u{FFFF}')
+}
+
+/// Whether Excel receives this text changed: the export reports how many
+/// cells lost a control character (RV19 / FUN-05).
+pub(super) fn excel_text_needs_replacement(value: &str) -> bool {
+    value.chars().any(xml_forbidden)
+}
+
+fn excel_value_needs_replacement(value: &AnyValue<'_>) -> bool {
+    match value {
+        AnyValue::String(text) => excel_text_needs_replacement(text),
+        AnyValue::StringOwned(text) => excel_text_needs_replacement(text.as_str()),
+        _ => false,
+    }
+}
+
 fn xml_safe_text(value: &str) -> std::borrow::Cow<'_, str> {
-    let forbidden = |character: char| {
-        (character < ' ' && !matches!(character, '\t' | '\n' | '\r'))
-            || matches!(character, '\u{FFFE}' | '\u{FFFF}')
-    };
+    let forbidden = xml_forbidden;
     if value.chars().any(forbidden) {
         std::borrow::Cow::Owned(
             value
@@ -458,7 +474,7 @@ pub(super) fn write_source_backed_xlsx<F, C>(
     output: &mut File,
     mut report: F,
     is_cancelled: C,
-) -> Result<(), String>
+) -> Result<usize, String>
 where
     F: FnMut(u8),
     C: Fn() -> bool + Send + 'static,
@@ -517,6 +533,7 @@ where
         .map_err(|error| format!("No se pudo cerrar el encabezado Excel: {error}"))?;
 
     let mut streamed_rows = 0_usize;
+    let mut replaced_control_cell_count = 0_usize;
     let streamed_columns = crate::duckdb_query::stream_file_rows(
         source_path,
         source_format,
@@ -531,6 +548,8 @@ where
             for (column_index, (column, value)) in
                 schema.columns().iter().zip(values.iter()).enumerate()
             {
+                replaced_control_cell_count +=
+                    usize::from(value.as_deref().is_some_and(excel_text_needs_replacement));
                 let cell = xlsx_source_cell(
                     column_index,
                     row_index + 1,
@@ -584,7 +603,7 @@ where
         .finish()
         .map_err(|error| format!("No se pudo finalizar el libro Excel: {error}"))?;
     report(85);
-    Ok(())
+    Ok(replaced_control_cell_count)
 }
 
 pub(super) fn export_source_backed_xlsx_atomic<F, C>(
@@ -623,7 +642,7 @@ where
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
     report("Escribiendo dataset", 25);
-    write_source_backed_xlsx(
+    let replaced_control_cell_count = write_source_backed_xlsx(
         &source_path,
         source_format,
         &schema_frame,
@@ -661,6 +680,7 @@ where
         format: ExportFormat::Excel.label(),
         protected_column_count: 0,
         protected_columns: Vec::new(),
+        replaced_control_cell_count,
     })
 }
 
@@ -669,7 +689,7 @@ pub(super) fn write_xlsx<F, C>(
     output: &mut File,
     mut report: F,
     is_cancelled: C,
-) -> Result<(), String>
+) -> Result<usize, String>
 where
     F: FnMut(u8),
     C: Fn() -> bool,
@@ -729,6 +749,7 @@ where
         .write_all(b"</row>")
         .map_err(|error| format!("No se pudo cerrar el encabezado Excel: {error}"))?;
 
+    let mut replaced_control_cell_count = 0_usize;
     for row_index in 0..frame.height() {
         ensure_not_cancelled(is_cancelled())?;
         write!(archive, "<row r=\"{}\">", row_index + 2)
@@ -737,6 +758,7 @@ where
             let value = column.get(row_index).map_err(|error| {
                 format!("No se pudo leer la fila {row_index} para Excel: {error}")
             })?;
+            replaced_control_cell_count += usize::from(excel_value_needs_replacement(&value));
             archive
                 .write_all(xlsx_cell(column_index, row_index + 1, value)?.as_bytes())
                 .map_err(|error| format!("No se pudo escribir una fila Excel: {error}"))?;
@@ -758,7 +780,7 @@ where
         .finish()
         .map_err(|error| format!("No se pudo finalizar el libro Excel: {error}"))?;
     report(85);
-    Ok(())
+    Ok(replaced_control_cell_count)
 }
 
 pub(super) fn sqlite_type(data_type: &DataType) -> &'static str {
@@ -1125,6 +1147,7 @@ where
         format: ExportFormat::Sqlite.label(),
         protected_column_count: 0,
         protected_columns: Vec::new(),
+        replaced_control_cell_count: 0,
     })
 }
 
@@ -1401,6 +1424,7 @@ where
         format: ExportFormat::Parquet.label(),
         protected_column_count: 0,
         protected_columns: Vec::new(),
+        replaced_control_cell_count: 0,
     })
 }
 
@@ -1478,6 +1502,7 @@ where
         format: ExportFormat::Csv.label(),
         protected_column_count: 0,
         protected_columns: Vec::new(),
+        replaced_control_cell_count: 0,
     })
 }
 
@@ -1555,6 +1580,7 @@ where
         format: ExportFormat::Sql.label(),
         protected_column_count: 0,
         protected_columns: Vec::new(),
+        replaced_control_cell_count: 0,
     })
 }
 
@@ -1631,6 +1657,7 @@ where
         format: ExportFormat::Json.label(),
         protected_column_count: 0,
         protected_columns: Vec::new(),
+        replaced_control_cell_count: 0,
     })
 }
 
@@ -1908,6 +1935,7 @@ where
         format: ExportFormat::Bundle.label(),
         protected_column_count: 0,
         protected_columns: Vec::new(),
+        replaced_control_cell_count: 0,
     })
 }
 
@@ -1986,6 +2014,7 @@ where
         privacy_safe_frame_with_cancel(frame, privacy_mode, &is_cancelled)?;
 
     report("Escribiendo dataset", 25);
+    let mut replaced_control_cell_count = 0;
     match format {
         ExportFormat::Csv => {
             write_csv_frame_with_cancel(&protected_frame, temporary.as_file_mut(), &is_cancelled)?
@@ -2004,12 +2033,14 @@ where
             |percent| report("Escribiendo SQL", percent),
             &is_cancelled,
         )?,
-        ExportFormat::Excel => write_xlsx(
-            &protected_frame,
-            temporary.as_file_mut(),
-            |percent| report("Escribiendo Excel", percent),
-            &is_cancelled,
-        )?,
+        ExportFormat::Excel => {
+            replaced_control_cell_count = write_xlsx(
+                &protected_frame,
+                temporary.as_file_mut(),
+                |percent| report("Escribiendo Excel", percent),
+                &is_cancelled,
+            )?
+        }
         ExportFormat::Sqlite => write_sqlite_database(
             &protected_frame,
             temporary.path(),
@@ -2050,6 +2081,7 @@ where
         format: format.label(),
         protected_column_count: protected_columns.len(),
         protected_columns,
+        replaced_control_cell_count,
     })
 }
 

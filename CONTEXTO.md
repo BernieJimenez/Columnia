@@ -106,6 +106,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/check-bundle.mjs` | Mide presupuestos JS/CSS e inventaría bundles de distribución nuevos o actualizados. |
 | `tools/smoke-tauri.ps1` | Arranca `npm run tauri dev`, comprueba Vite y el ejecutable debug, registra hitos monotónicos de Vite/proceso/ventana, ejecuta un preflight de contrato de `ProjectsPanel` y limpia solo su Job Object con reintento acotado. |
 | `tools/probe-webview2-cdp.ps1` | Arranca el comando real con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de loopback, verifica `/json/version` y `/json/list`, conecta Playwright al WebView2, atribuye el perfil por proceso/fase y aplica presupuestos observables de 512 MiB de working set, 256 MiB de memoria privada y transformaciones nativas sostenidas solo a procesos de su Job Object; admite un CSV temporal configurable para medir el recorrido grande; restaura el entorno y limpia su Job Object. |
+| `tools/probe-roundtrip.ps1` | Batería de ida y vuelta (RV21, `npm run smoke:roundtrip`): pasa cada CSV de `fixtures/roundtrip/` por el probe CDP con `-RunPrepareFlow` y falla si lo que anuncia la propuesta de Preparar (filas duplicadas, columnas a número, celdas de «Rellenar») difiere de lo que muestran los datos resultantes, medidos con consultas y no con los contadores del motor. |
 | `tools/probe-webview2-restart.ps1` | Ejecuta las fases aisladas prepare/verify del reinicio real y eleva al resumen de cada fase el estado del presupuesto y el conteo/duración IPC, delegando el cleanup al probe CDP. |
 | `tools/probe-webview2-playwright.mjs` | Conecta al endpoint CDP con Playwright, espera el shell listo y separa estado funcional de presupuesto de primer render relativo al bootstrap; ambos son necesarios para aprobar el probe. |
 | `tools/probe-webview2-projects.mjs` | Conecta al endpoint CDP y verifica el contrato accesible de `ProjectsPanel`, repite transformaciones/exportaciones nativas sostenidas, y en el smoke debug guarda/abre/consulta/elimina un proyecto sintético con cleanup; registra duración por comando y total, pero no rutas ni datos del catálogo. |
@@ -314,6 +315,7 @@ La superficie pública está centralizada en `src/bridge.ts` y registrada en `sr
 - `normalize_column_names`
 - `trim_text_values`
 - `normalize_text_values`
+- `preview_safe_corrections`
 - `apply_safe_corrections`
 - `apply_transform_recipe`
 - `save_transform_recipe`
@@ -360,7 +362,7 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
 - eliminación de duplicados;
 - normalización determinista de encabezados;
 - recorte y normalización de texto;
-- correcciones recomendadas agrupadas; su propuesta de un clic solo rellena huecos de hasta el 5 % en columnas numéricas o categóricas cortas, nunca identificadores, datos personales, fechas ni texto libre, llega desmarcada y envía a Rust la lista exacta de columnas (`imputeColumns`), de modo que lo anunciado coincide con lo aplicado; también propone, marcada, tipar como número las columnas de texto 100 % numéricas que no son claves ni datos personales (`castColumns`), y Rust solo las convierte si ningún valor se pierde (sin inválidos ni códigos con ceros a la izquierda);
+- correcciones recomendadas agrupadas; su propuesta de un clic solo rellena huecos de hasta el 5 % en columnas numéricas o categóricas cortas, nunca identificadores, datos personales, fechas ni texto libre, llega desmarcada y envía a Rust la lista exacta de columnas (`imputeColumns`); al marcarla, `preview_safe_corrections` ejecuta la misma cadena sobre una copia (sin publicar ni tomar la generación de Preparar, para no cancelar una aplicación en curso) y la propuesta muestra el valor y las celdas exactas por columna, así que lo anunciado coincide con lo aplicado aunque «Quitar duplicados» elimine filas con huecos; también propone, marcada, tipar como número las columnas de texto 100 % numéricas que no son claves ni datos personales (`castColumns`), y Rust solo las convierte si ningún valor se pierde (sin inválidos ni códigos con ceros a la izquierda); un plan que tipa o rellena no usa el atajo source-backed de DuckDB, que no sabe hacerlo;
 - renombres, casts estrictos y parseo de fechas;
 - hasta tres filtros AND y una columna calculada;
 - buscar/reemplazar literal y selección/reordenamiento de columnas;
@@ -396,7 +398,7 @@ Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, 
 
 ### Entrega
 
-- exportación atómica a CSV, JSON, Parquet, SQL, Excel y SQLite, con neutralización de fórmulas de texto en CSV (sin tocar números completos); el XLSX sustituye por `U+FFFD` los caracteres prohibidos en XML 1.0 y rechaza más de 1.048.575 filas de datos o celdas de más de 32.767 caracteres; el bundle ZIP auditable añade `recipe.json` validada cuando existe un borrador y la referencia/hash correspondiente en `manifest.json`;
+- exportación atómica a CSV, JSON, Parquet, SQL, Excel y SQLite, con neutralización de fórmulas de texto en CSV (sin tocar números completos); el XLSX sustituye por `U+FFFD` los caracteres prohibidos en XML 1.0 y rechaza más de 1.048.575 filas de datos o celdas de más de 32.767 caracteres, e informa cuántas celdas cambió (`replacedControlCellCount`); Entregar avisa de esos límites antes de exportar con la fila y la longitud máxima del perfil, bloquea Excel y ofrece CSV; el bundle ZIP auditable añade `recipe.json` validada cuando existe un borrador y la referencia/hash correspondiente en `manifest.json`;
 - contratos de hasta 16 reglas base y avanzadas: `allowed_values`, `regex`, `dtype`,
   unicidad compuesta, comparación, referencias, monotonía, agregados, drift,
   fechas, condiciones, esquema y conteo de filas;
@@ -454,6 +456,7 @@ npm run smoke:desktop -- -TimeoutSeconds 120
 npm run smoke:cli
 npm run smoke:installer
 npm run smoke:cdp
+npm run smoke:roundtrip
 npm run updater:key:check
 npm run updater:verify-published -- --manifest-url <https-url> --output-dir <evidence-dir> --target windows-x86_64 --expected-version <version>
 npm run perf:summary

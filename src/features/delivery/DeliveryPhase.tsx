@@ -58,6 +58,8 @@ interface DeliveryPhaseProps {
   personalDataColumns?: string[];
   /** Rules the data already meets, offered when the delivery has no contract. */
   suggestedRules?: QualityRule[];
+  /** Why the dataset would not open in Excel (RV19); empty when it fits. */
+  excelLimitIssues?: string[];
   onContractAction: (action: DeliveryContractAction) => void;
   onExport: (request: DeliveryExportRequest) => void;
   onCancelExport: () => void;
@@ -209,6 +211,7 @@ export function DeliveryPhase({
   onPrivacyModeChange,
   personalDataColumns = [],
   suggestedRules = [],
+  excelLimitIssues = [],
   onContractAction,
   onExport,
   onCancelExport,
@@ -223,6 +226,7 @@ export function DeliveryPhase({
   >({ kind: "idle" });
   const selectedPrivacyMode = privacyMode ?? localPrivacyMode;
   const selectedExportFormat = exportFormat ?? localExportFormat;
+  const exceedsExcel = selectedExportFormat === "excel" && excelLimitIssues.length > 0;
   const [databaseTarget, setDatabaseTarget] = useState<DatabaseTarget>(INITIAL_DATABASE_TARGET);
   const [databasePreflightState, setDatabasePreflightState] = useState<
     | { kind: "idle" }
@@ -1879,7 +1883,7 @@ export function DeliveryPhase({
             className="primary-action export-action"
             type="button"
             onClick={() => void requestExport(selectedExportFormat)}
-            disabled={busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || !databaseReady}
+            disabled={busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || !databaseReady || exceedsExcel}
           >
             {contract.kind === "with_contract" && !gatePassed
               ? `Validar y exportar ${exportFormatLabel}`
@@ -1996,6 +2000,15 @@ export function DeliveryPhase({
             {presetNotice && <p className="notice notice--success" role="status">{presetNotice}</p>}
           </details>
         </div>
+        {exceedsExcel && (
+          <div className="notice notice--warning" role="alert">
+            <p><strong>Este dataset no cabe en Excel.</strong> CSV y Parquet lo conservan entero.</p>
+            <ul>{excelLimitIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+            <button type="button" className="secondary-action" disabled={busy} onClick={() => changeExportFormat("csv")}>
+              Exportar como CSV
+            </button>
+          </div>
+        )}
         {selectedExportFormat === "bundle" && (
           <p className="export-requirement" role="note">
             {recipeDraft
@@ -2079,6 +2092,13 @@ export function DeliveryPhase({
               <summary>Ver cambios incluidos ({preparationChanges.length.toLocaleString()})</summary>
               <ol>{preparationChanges.map((change, index) => <li key={`${index}-${change}`}>{change}</li>)}</ol>
             </details>
+          )}
+          {(exportState.result.replacedControlCellCount ?? 0) > 0 && (
+            <p className="notice notice--warning">
+              {exportState.result.replacedControlCellCount === 1
+                ? "1 celda tenía caracteres de control que Excel no admite; se cambiaron por «\uFFFD»."
+                : `${exportState.result.replacedControlCellCount.toLocaleString()} celdas tenían caracteres de control que Excel no admite; se cambiaron por «\uFFFD».`}
+            </p>
           )}
           {exportState.result.format === "Paquete Columnia" && (
             <p className="delivery-result__note">
