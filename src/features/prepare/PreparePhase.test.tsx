@@ -972,7 +972,11 @@ describe("PreparePhase", () => {
       {...props}
       datasetRevision={9}
       profileStatus={{ kind: "ready", profile: afterProfile }}
-      changeStatus={{ kind: "applied", message: "Se retiraron 1 filas duplicadas exactas" }}
+      changeStatus={{
+        kind: "applied",
+        message: "Plan aplicado: se retiraron 1 filas duplicadas exactas y 1 columna convertida a número.",
+        changes: ["1 fila duplicada quitada", "1 columna convertida a número"],
+      }}
       historyStatus={{
         ...props.historyStatus,
         canUndo: true,
@@ -986,6 +990,11 @@ describe("PreparePhase", () => {
     expect(result).toHaveTextContent(/Filas\s*5 → 4/);
     expect(result).toHaveTextContent(/Filas duplicadas\s*1 → 0/);
     expect(result).toHaveTextContent(/Valores vacíos\s*\d+ → 0/);
+    expect(within(result).getByRole("list", { name: "Cambios aplicados" })).toHaveTextContent(
+      "1 fila duplicada quitada1 columna convertida a número",
+    );
+    // Figures that did not move are left out.
+    expect(result).not.toHaveTextContent("Columnas");
     fireEvent.click(within(result).getByRole("button", { name: "Deshacer" }));
     expect(props.onUndo).toHaveBeenCalledOnce();
     expect(screen.queryByRole("region", { name: "Listo: cambios aplicados" })).not.toBeInTheDocument();

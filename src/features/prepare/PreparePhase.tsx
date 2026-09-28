@@ -153,7 +153,11 @@ export function PreparePhase({
       return;
     }
     if (datasetRevision !== pending.sourceRevision + 1 || profileStatus.kind !== "ready") return;
-    setPlanComparison({ before: pending.profile, after: profileStatus.profile });
+    setPlanComparison({
+      before: pending.profile,
+      after: profileStatus.profile,
+      changes: changeStatus.kind === "applied" ? changeStatus.changes ?? [] : [],
+    });
     pendingPlanComparison.current = null;
   }, [changeStatus, datasetRevision, profileStatus]);
 

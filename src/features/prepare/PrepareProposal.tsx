@@ -18,6 +18,8 @@ import {
 export interface ProposalResult {
   before: DatasetProfile;
   after: DatasetProfile;
+  /** What the proposal applied, one line per kind of change. */
+  changes: string[];
 }
 
 interface PrepareProposalProps {
@@ -101,26 +103,33 @@ export function PrepareProposal({
   );
 
   if (result) {
+    // Only the figures that moved: the list above already says what changed.
     const rows = [
       { label: "Filas", before: result.before.rowCount, after: result.after.rowCount },
       { label: "Valores vacíos", before: nullTotal(result.before), after: nullTotal(result.after) },
       { label: "Filas duplicadas", before: result.before.duplicateRowCount, after: result.after.duplicateRowCount },
       { label: "Columnas", before: result.before.columns.length, after: result.after.columns.length },
-    ];
+    ].filter((row) => row.before !== row.after);
     return (
       <section className="prepare-proposal" aria-labelledby="prepare-result-title">
         <div role="status">
           <h3 id="prepare-result-title" className="prepare-proposal__title">Listo: cambios aplicados</h3>
-          <p className="prepare-proposal__lead">Así quedaron tus datos.</p>
         </div>
-        <dl className="prepare-proposal__result">
-          {rows.map((row) => (
-            <div key={row.label}>
-              <dt>{row.label}</dt>
-              <dd>{row.before.toLocaleString()} → <strong>{row.after.toLocaleString()}</strong></dd>
-            </div>
-          ))}
-        </dl>
+        {result.changes.length > 0 && (
+          <ul className="prepare-proposal__changes" aria-label="Cambios aplicados">
+            {result.changes.map((change) => <li key={change}>{change}</li>)}
+          </ul>
+        )}
+        {rows.length > 0 && (
+          <dl className="prepare-proposal__result">
+            {rows.map((row) => (
+              <div key={row.label}>
+                <dt>{row.label}</dt>
+                <dd>{row.before.toLocaleString()} → <strong>{row.after.toLocaleString()}</strong></dd>
+              </div>
+            ))}
+          </dl>
+        )}
         <div className="prepare-proposal__actions">
           <button type="button" className="prepare-proposal__primary" onClick={onDismissResult}>
             Ver qué más se puede mejorar
