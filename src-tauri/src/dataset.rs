@@ -10722,7 +10722,10 @@ pub async fn preview_safe_corrections(
     })
     .await
     .map_err(|error| {
-        crate::crash_report::task_interrupted("La vista previa de la propuesta se interrumpió", &error)
+        crate::crash_report::task_interrupted(
+            "La vista previa de la propuesta se interrumpió",
+            &error,
+        )
     })?
 }
 

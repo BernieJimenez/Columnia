@@ -17565,10 +17565,19 @@ fn safe_correction_plan_reports_each_fill_value_after_the_whole_chain() {
     );
     assert_eq!(
         plan.imputed_cell_count,
-        plan.imputations.iter().map(|fill| fill.cell_count).sum::<usize>(),
+        plan.imputations
+            .iter()
+            .map(|fill| fill.cell_count)
+            .sum::<usize>(),
         "lo anunciado por columna suma lo aplicado"
     );
-    assert_eq!(plan.frame.column("categoria_principal").unwrap().null_count(), 0);
+    assert_eq!(
+        plan.frame
+            .column("categoria_principal")
+            .unwrap()
+            .null_count(),
+        0
+    );
 }
 
 #[test]
@@ -17578,7 +17587,11 @@ fn safe_corrections_leave_the_duckdb_shortcut_when_the_plan_types_or_fills() {
     let cast = ["Quantity".to_owned()];
     assert!(safe_corrections_stay_source_backed(true, false, None));
     assert!(safe_corrections_stay_source_backed(true, false, Some(&[])));
-    assert!(!safe_corrections_stay_source_backed(true, false, Some(&cast)));
+    assert!(!safe_corrections_stay_source_backed(
+        true,
+        false,
+        Some(&cast)
+    ));
     assert!(!safe_corrections_stay_source_backed(true, true, None));
     assert!(!safe_corrections_stay_source_backed(false, false, None));
 }
