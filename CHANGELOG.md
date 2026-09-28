@@ -129,6 +129,19 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Un CSV con una columna sin nombre en el encabezado (el índice que exportan R
+  o pandas, `""`) ya no hace fallar el análisis con «zero-length delimited
+  identifier». La columna se llama `column_N` por su posición, como al importar
+  sin encabezados, y las consultas DuckDB leen el archivo con los mismos nombres
+  que muestra Columnia, también cuando un encabezado se repite. Un encabezado
+  con comillas escapadas (`"fecha ""pedido"""`) se muestra como `fecha "pedido"`
+  en lugar de conservar las comillas dobladas.
+- El análisis de un archivo grande que se lee desde disco ya no falla por
+  memoria («Out of Memory Error») cuando tiene textos largos, como una columna de
+  descripciones. Si el conteo exacto de filas y valores distintos no cabe en los
+  512 MB de DuckDB, se repite comparando una huella MD5 de 128 bits de cada fila y
+  de cada texto (la probabilidad de confundir dos valores es del orden de
+  10⁻²⁸); los demás tipos se cuentan exactos.
 - RV22 (UX-01): Entregar empieza en «Validar calidad» con las comprobaciones que
   los datos ya cumplen. Exportar sin validar sigue disponible y, si se elige, no
   vuelve a cambiarse sola para ese dataset.
