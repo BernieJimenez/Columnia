@@ -106,7 +106,6 @@ for (const theme of themes) {
     await page.goto("/");
     await page.getByRole("button", { name: "Seleccionar dataset" }).click();
     const review = page.getByRole("dialog", { name: "Revisar encabezados de contraste.csv" });
-    await review.getByRole("button", { name: "Revisar esquema" }).click();
     await review.getByRole("button", { name: "Cargar archivo" }).click();
     await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
     await page.getByRole("tab", { name: "Vista previa" }).click();
@@ -149,7 +148,6 @@ async function phaseSnapshots(page: Page, colorScheme: "dark", dataTheme: "dark"
   snapshots.Cargar = await colorSnapshot(page);
   await page.getByRole("button", { name: "Seleccionar dataset" }).click();
   const review = page.getByRole("dialog", { name: "Revisar encabezados de contraste.csv" });
-  await review.getByRole("button", { name: "Revisar esquema" }).click();
   await review.getByRole("button", { name: "Cargar archivo" }).click();
   await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
   await page.waitForTimeout(300);

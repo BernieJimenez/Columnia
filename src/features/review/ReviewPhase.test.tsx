@@ -86,6 +86,7 @@ const profile: DatasetProfile = {
       ],
       dateOrder: null,
       dateHasTime: null,
+      untrimmedCount: null,
     },
     {
       name: "nombre",
@@ -114,6 +115,7 @@ const profile: DatasetProfile = {
       histogram: null,
       dateOrder: null,
       dateHasTime: null,
+      untrimmedCount: null,
     },
   ],
 };
@@ -164,6 +166,7 @@ const temporalProfile: DatasetProfile = {
       histogram: null,
       dateOrder: null,
       dateHasTime: null,
+      untrimmedCount: null,
     },
     {
       ...profile.columns[0],
@@ -193,6 +196,7 @@ const temporalProfile: DatasetProfile = {
       histogram: null,
       dateOrder: null,
       dateHasTime: null,
+      untrimmedCount: null,
     },
   ],
 };

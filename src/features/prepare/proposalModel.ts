@@ -221,10 +221,21 @@ export function buildPrepareProposal(profile: DatasetProfile, dataset: DatasetPr
     });
   }
 
-  if (dataset.columns.some((column) => isTextType(column.dataType) && column.name !== ROW_AUDIT_COLUMN)) {
+  // With the profile's count the item says how many cells change and is left
+  // out when none would (UX-01); older cached profiles have no count.
+  const untrimmed = columns.filter((column) => isTextType(column.dataType)).map((column) => column.untrimmedCount);
+  const untrimmedTotal = untrimmed.length > 0 && untrimmed.every((count) => typeof count === "number")
+    ? untrimmed.reduce<number>((sum, count) => sum + (count ?? 0), 0)
+    : null;
+  if (
+    dataset.columns.some((column) => isTextType(column.dataType) && column.name !== ROW_AUDIT_COLUMN)
+    && untrimmedTotal !== 0
+  ) {
     items.push({
       id: "trim",
-      title: "Recortar espacios al inicio y al final del texto",
+      title: untrimmedTotal === null
+        ? "Recortar espacios al inicio y al final del texto"
+        : `Recortar espacios en ${plural(untrimmedTotal, "celda", "celdas")}`,
       hint: "Solo cambian las celdas con espacios sobrantes.",
       examples: trimExamples(dataset),
     });

@@ -262,6 +262,8 @@ export interface ColumnProfile {
   /** Set when every value is a date in one order, or "ambiguous" when day/month and month/day both fit (RV18). */
   dateOrder: "iso" | "dmy" | "mdy" | "ambiguous" | null;
   dateHasTime: boolean | null;
+  /** Text values with leading or trailing spaces (UX-01). */
+  untrimmedCount: number | null;
 }
 
 export interface DatasetProfile {

@@ -61,6 +61,9 @@ export function useDeliveryController({
   const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("none");
   const [exportStatus, setExportStatus] = useState<DeliveryExportState>({ kind: "idle" });
   const [contract, setContract] = useState<DeliveryContractState>(INITIAL_DELIVERY_CONTRACT);
+  // Once the person picks «Exportar sin validar» for a dataset, suggestions
+  // no longer switch validation back on (UX-01).
+  const validationDeclinedRef = useRef(false);
   const exportRequestRef = useRef(0);
   const exportInFlightRef = useRef(false);
   const previousFingerprintRef = useRef<string | null>(null);
@@ -86,6 +89,7 @@ export function useDeliveryController({
   }
 
   function updateContract(action: DeliveryContractAction) {
+    if (action.kind === "rules_changed") validationDeclinedRef.current = action.rules.length === 0;
     setContract((current) => reduceDeliveryContract(current, action));
     if (action.kind === "rules_changed") setExportStatus({ kind: "idle" });
   }
@@ -97,7 +101,20 @@ export function useDeliveryController({
   }
 
   function resetContract() {
+    validationDeclinedRef.current = false;
     setContract(INITIAL_DELIVERY_CONTRACT);
+  }
+
+  /**
+   * Entregar starts validating with the checks the data already meets
+   * (UX-01), unless the person already chose to export without validating
+   * or already has rules of their own.
+   */
+  function proposeValidation(rules: QualityRule[]) {
+    if (rules.length === 0 || validationDeclinedRef.current) return;
+    setContract((current) => (current.kind === "without_contract" && current.confirmation === "required"
+      ? reduceDeliveryContract(current, { kind: "rules_changed", rules })
+      : current));
   }
 
   function applySettings(settings: DeliverySettings) {
@@ -190,6 +207,7 @@ export function useDeliveryController({
     exportActiveDataset,
     cancelExport,
     updateContract,
+    proposeValidation,
     invalidateGate,
     invalidateRequests,
     resetOutput,

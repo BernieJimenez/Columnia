@@ -280,3 +280,25 @@ describe("date typing (RV18)", () => {
     expect(dateExample("pendiente", "dmy")).toBeNull();
   });
 });
+
+describe("trim count (UX-01)", () => {
+  it("says how many cells trimming changes and leaves the item out when none would", () => {
+    const withSpaces = profile({
+      columns: [
+        column({ name: "ciudad", untrimmedCount: 1204 }),
+        column({ name: "estado", untrimmedCount: 1 }),
+      ],
+    });
+    const trim = buildPrepareProposal(withSpaces, dataset).find((item) => item.id === "trim");
+    expect(trim?.title).toBe(`Recortar espacios en ${(1205).toLocaleString()} celdas`);
+
+    const clean = profile({ columns: [column({ name: "ciudad", untrimmedCount: 0 })] });
+    expect(buildPrepareProposal(clean, dataset).some((item) => item.id === "trim")).toBe(false);
+  });
+
+  it("keeps the generic item for profiles saved before the count existed", () => {
+    const older = profile({ columns: [column({ name: "ciudad", untrimmedCount: null })] });
+    expect(buildPrepareProposal(older, dataset).find((item) => item.id === "trim")?.title)
+      .toBe("Recortar espacios al inicio y al final del texto");
+  });
+});

@@ -14,8 +14,14 @@ $Failed = @()
 
 foreach ($Fixture in $Fixtures) {
     Write-Host "Ida y vuelta: $($Fixture.Name)"
-    & $Probe -RunNativeSelectors -RunPrepareFlow -NativeDatasetPath $Fixture.FullName -TimeoutSeconds $TimeoutSeconds
-    if (-not $?) {
+    # One failing fixture must not hide the result of the others.
+    try {
+        & $Probe -RunNativeSelectors -RunPrepareFlow -NativeDatasetPath $Fixture.FullName -TimeoutSeconds $TimeoutSeconds
+        if (-not $?) {
+            $Failed += $Fixture.Name
+        }
+    }
+    catch {
         $Failed += $Fixture.Name
     }
 }

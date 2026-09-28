@@ -523,9 +523,7 @@ describe("App", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     const importDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de reintento.csv" });
-    const reviewButton = within(importDialog).getByRole("button", { name: "Revisar esquema" });
-    await waitFor(() => expect(reviewButton).toBeEnabled());
-    fireEvent.click(reviewButton);
+    // The schema is reviewed on its own once the headers are read (UX-01).
 
     expect(await within(importDialog).findByRole("alert")).toHaveTextContent(
       "No se pudo revisar el esquema: lectura temporal fallida",
@@ -639,7 +637,6 @@ describe("App", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     const importDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de ventas.csv" });
-    fireEvent.click(await within(importDialog).findByRole("button", { name: "Revisar esquema" }));
     const proposal = await within(importDialog).findByRole("region", { name: "Leer como Excel para Windows" });
     expect(importDialog).not.toHaveTextContent("__columnia");
 
@@ -650,7 +647,8 @@ describe("App", () => {
       selectionId: "selection-test", fileName: "ventas.csv", fileSizeBytes: 70_010, format: "csv",
       sheets: [], defaultSheetId: null, isCompressedContainer: false, resourceEstimate: resourceEstimate(70_010),
     });
-    expect(await within(importDialog).findByRole("button", { name: "Revisar esquema" })).toBeEnabled();
+    // The converted copy is reviewed on its own: one click left to load it.
+    expect(await within(importDialog).findByRole("button", { name: "Cargar archivo" })).toBeEnabled();
   });
 
   it("avisa en Cargar si la sesión anterior se cerró de forma inesperada (DAT-01)", async () => {
@@ -1264,7 +1262,6 @@ describe("App", () => {
     fireEvent.click(within(headerDialog).getByText("Interpretación de fechas y números (opcional)"));
     fireEvent.change(within(headerDialog).getByRole("combobox", { name: "Fechas" }), { target: { value: "dmy" } });
     fireEvent.change(within(headerDialog).getByRole("combobox", { name: "Números" }), { target: { value: "commaDecimalDotGrouping" } });
-    fireEvent.click(within(headerDialog).getByRole("button", { name: "Revisar esquema" }));
     fireEvent.click(await within(headerDialog).findByRole("button", { name: "Cargar archivo" }));
 
     expect(await screen.findByRole("heading", { name: "temperaturas.csv" })).toBeInTheDocument();
@@ -1339,7 +1336,6 @@ describe("App", () => {
     expect(within(dialog).getByText(/Lectura source-backed/)).toBeInTheDocument();
     expect(loadSpy).not.toHaveBeenCalled();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Revisar esquema" }));
     fireEvent.click(await within(dialog).findByRole("button", { name: "Cargar archivo" }));
     expect(await screen.findByRole("heading", { name: "clientes-grande.csv" })).toBeInTheDocument();
     expect(loadSpy).toHaveBeenCalledWith("large-source-selection", null, "firstRow", expect.any(Function), null, null, null);
@@ -1479,6 +1475,50 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
   });
 
+  it("solo compara el esquema con el perfil anterior al recargar el mismo archivo (UX-01)", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.26.0", platform: "windows" });
+    const source = (selectionId: string, fileName: string) => ({
+      selectionId, fileName, fileSizeBytes: 128, format: "csv" as const, sheets: [], defaultSheetId: null,
+      isCompressedContainer: false, resourceEstimate: resourceEstimate(128),
+    });
+    const dataset = (fileName: string): DatasetPreview => ({
+      fileName, fileSizeBytes: 128, rowCount: 1, columnCount: 1,
+      columns: [{ name: "value", dataType: "String" }], rows: [["1"]],
+    });
+    mockDatasetLoad(dataset("activo.csv"));
+    vi.spyOn(bridge, "pickDatasetSource")
+      .mockResolvedValueOnce(source("selection-active", "activo.csv"))
+      .mockResolvedValueOnce(source("selection-other", "clientes.csv"))
+      .mockResolvedValueOnce(source("selection-again", "activo.csv"));
+    vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue(dataset("activo.csv"));
+    vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
+    vi.spyOn(bridge, "discardDatasetSelection").mockResolvedValue(undefined);
+    const preview = vi.mocked(bridge.previewDatasetSelection);
+    const expectedProfileFor = (selectionId: string) =>
+      preview.mock.calls.filter((call) => call[0] === selectionId).at(-1)?.[3];
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    const first = await screen.findByRole("dialog", { name: "Revisar encabezados de activo.csv" });
+    fireEvent.click(await within(first).findByRole("button", { name: "Cargar archivo" }));
+    await screen.findByRole("heading", { name: "activo.csv" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
+    const other = await screen.findByRole("dialog", { name: "Revisar encabezados de clientes.csv" });
+    await within(other).findByRole("button", { name: "Cargar archivo" });
+    expect(expectedProfileFor("selection-other")).toBeNull();
+    fireEvent.click(within(other).getByRole("button", { name: "Cancelar" }));
+
+    const selectAgain = await screen.findByRole("button", { name: "Seleccionar otro dataset" });
+    await waitFor(() => expect(selectAgain).toBeEnabled());
+    fireEvent.click(selectAgain);
+    const again = await screen.findByRole("dialog", { name: "Revisar encabezados de activo.csv" });
+    await within(again).findByRole("button", { name: "Cargar archivo" });
+    expect(expectedProfileFor("selection-again")).toMatchObject({ version: 1, format: "csv" });
+  });
+
   it("conserva el dataset activo y permite reintentar si falla la cancelación de una sustitución", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
@@ -1517,13 +1557,11 @@ describe("App", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     const activeHeaderDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de activo.csv" });
-    fireEvent.click(within(activeHeaderDialog).getByRole("button", { name: "Revisar esquema" }));
     fireEvent.click(await within(activeHeaderDialog).findByRole("button", { name: "Cargar archivo" }));
     await screen.findByRole("heading", { name: "activo.csv" });
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
     const replacementHeaderDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de nuevo.csv" });
-    fireEvent.click(within(replacementHeaderDialog).getByRole("button", { name: "Revisar esquema" }));
     fireEvent.click(await within(replacementHeaderDialog).findByRole("button", { name: "Cargar archivo" }));
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
 
@@ -1888,6 +1926,7 @@ describe("App", () => {
           histogram: null,
           dateOrder: null,
           dateHasTime: null,
+          untrimmedCount: null,
         },
       ],
     });
@@ -2018,6 +2057,7 @@ describe("App", () => {
           histogram: null,
           dateOrder: null,
           dateHasTime: null,
+          untrimmedCount: null,
         },
       ],
     });
@@ -2081,6 +2121,7 @@ describe("App", () => {
           histogram: null,
           dateOrder: null,
           dateHasTime: null,
+          untrimmedCount: null,
         },
       ],
     });
@@ -2144,6 +2185,7 @@ describe("App", () => {
           histogram: null,
           dateOrder: null,
           dateHasTime: null,
+          untrimmedCount: null,
         },
       ],
     });

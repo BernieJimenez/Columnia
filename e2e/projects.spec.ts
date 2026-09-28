@@ -144,7 +144,6 @@ async function installTauriProjectMock(page: Page, seedRecoveryCandidate = false
 async function selectAndConfirmDataset(page: Page) {
   await page.getByRole("button", { name: "Seleccionar dataset" }).click();
   const headerReview = page.getByRole("dialog", { name: "Revisar encabezados de ventas.csv" });
-  await headerReview.getByRole("button", { name: "Revisar esquema" }).click();
   const loadButton = headerReview.getByRole("button", { name: "Cargar archivo" });
   await expect(loadButton).toBeEnabled();
   await loadButton.click();

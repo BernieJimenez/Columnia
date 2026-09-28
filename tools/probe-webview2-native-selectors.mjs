@@ -694,13 +694,15 @@ async function readExcelCheck(page) {
   await page.getByRole("button", { name: "Continuar a Entregar" }).click();
   const format = page.getByRole("combobox", { name: "Formato de exportación" });
   await format.waitFor({ state: "visible", timeout: probeTimeoutMs });
+  // UX-01: Entregar starts validating with the checks the data already meets.
+  const validatesByDefault = await page.getByRole("radio", { name: /Validar calidad/ }).isChecked();
   await format.selectOption("excel");
   const notice = page.getByRole("alert").filter({ hasText: "Este dataset no cabe en Excel." });
   const blocked = await notice.waitFor({ state: "visible", timeout: 5_000 }).then(() => true, () => false);
   const issues = blocked ? await notice.locator("li").allInnerTexts() : [];
-  const exportDisabled = await page.getByRole("button", { name: /Exportar Excel$/ }).isDisabled();
+  const exportDisabled = await page.getByRole("button", { name: /[Ee]xportar Excel$/ }).isDisabled();
   await format.selectOption("csv");
-  return { blocked, issues, exportDisabled };
+  return { validatesByDefault, blocked, issues, exportDisabled };
 }
 
 async function runPrepareFlowSteps(page) {

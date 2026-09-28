@@ -147,3 +147,32 @@ describe("useDeliveryController", () => {
     expect(hook.current.exportFormat).toBe("csv");
   });
 });
+
+describe("validation by default (UX-01)", () => {
+  const other = { id: "r2", kind: "unique", column: "id" } as unknown as QualityRule;
+
+  it("starts validating with the suggested checks", () => {
+    const hook = setup();
+    act(() => hook.result.current.proposeValidation([rule]));
+    expect(hook.result.current.contract).toMatchObject({ kind: "with_contract", rules: [rule] });
+  });
+
+  it("respects an explicit «Exportar sin validar» until the dataset changes", () => {
+    const hook = setup();
+    act(() => hook.result.current.proposeValidation([rule]));
+    act(() => hook.result.current.updateContract({ kind: "rules_changed", rules: [] }));
+    act(() => hook.result.current.proposeValidation([rule, other]));
+    expect(hook.result.current.contract.kind).toBe("without_contract");
+
+    act(() => hook.result.current.resetContract());
+    act(() => hook.result.current.proposeValidation([rule]));
+    expect(hook.result.current.contract.kind).toBe("with_contract");
+  });
+
+  it("never replaces rules the person already has", () => {
+    const hook = setup();
+    act(() => hook.result.current.updateContract({ kind: "rules_changed", rules: [other] }));
+    act(() => hook.result.current.proposeValidation([rule]));
+    expect(hook.result.current.contract).toMatchObject({ kind: "with_contract", rules: [other] });
+  });
+});

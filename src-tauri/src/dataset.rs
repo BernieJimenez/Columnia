@@ -972,6 +972,9 @@ pub struct ColumnProfile {
     date_order: Option<String>,
     #[serde(default)]
     date_has_time: Option<bool>,
+    /// Text values with leading or trailing spaces (UX-01).
+    #[serde(default)]
+    untrimmed_count: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
