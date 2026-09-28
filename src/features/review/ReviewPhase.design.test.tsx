@@ -46,6 +46,7 @@ const profile: DatasetProfile = {
     histogram: null,
     dateOrder: null,
     dateHasTime: null,
+    untrimmedCount: null,
   }],
 };
 

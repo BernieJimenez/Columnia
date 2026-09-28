@@ -17613,6 +17613,28 @@ fn safe_correction_plan_reports_each_fill_value_after_the_whole_chain() {
 }
 
 #[test]
+fn profile_counts_the_cells_that_trimming_would_change() {
+    // UX-01: «Recortar espacios» announces how many cells it changes and
+    // disappears when there are none.
+    let frame = df!(
+        "ciudad" => [Some(" Santiago "), Some("Santiago"), Some("La Vega	"), None],
+        "limpia" => [Some("a"), Some("b"), Some("c"), Some("d")],
+    )
+    .expect("frame de prueba");
+    let profile = profile_dataset(&frame).expect("perfil");
+    let count = |name: &str| {
+        profile
+            .columns
+            .iter()
+            .find(|column| column.name == name)
+            .and_then(|column| column.untrimmed_count)
+    };
+
+    assert_eq!(count("ciudad"), Some(2));
+    assert_eq!(count("limpia"), Some(0));
+}
+
+#[test]
 fn profile_names_the_date_order_only_when_every_value_is_a_date() {
     // RV18: the proposal types dates only if the whole column agrees.
     let frame = df!(

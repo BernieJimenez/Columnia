@@ -170,9 +170,6 @@ async function loadSyntheticDataset(page: Page, stopAt: "review" | "delivery" = 
   await expect(headerReview).toBeVisible();
   await expect.poll(() => headerReview.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true);
 
-  const reviewSchema = headerReview.getByRole("button", { name: "Revisar esquema" });
-  await expect(reviewSchema).toBeEnabled();
-  await activateWithKeyboard(page, reviewSchema, "Revisar esquema");
   const loadButton = headerReview.getByRole("button", { name: "Cargar archivo" });
   await expect(loadButton).toBeEnabled();
   await activateWithKeyboard(page, loadButton, "Cargar archivo");

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import { excelLimitIssues, personalDataColumnNames, suggestQualityRules } from "./features/delivery/deliveryModel";
@@ -262,6 +262,17 @@ export function App() {
     },
   });
   const { profileStatus } = review;
+  const suggestedDeliveryRules = useMemo(
+    () => (profileStatus.kind === "ready"
+      ? suggestQualityRules(profileStatus.profile.columns, profileStatus.profile.rowCount)
+      : []),
+    [profileStatus],
+  );
+  const suggestedDeliveryRulesKey = suggestedDeliveryRules.map((rule) => `${rule.kind}:${rule.column}`).join("|");
+  const proposeDeliveryValidation = useEffectEvent(() => delivery.proposeValidation(suggestedDeliveryRules));
+  useEffect(() => {
+    proposeDeliveryValidation();
+  }, [suggestedDeliveryRulesKey]);
   const prepare = usePrepareController({
     activeDataset: datasetStatus.kind === "ready" ? datasetStatus.dataset : null,
     exceptionPolicy: activeExceptionPolicy,
@@ -488,7 +499,9 @@ export function App() {
     expectedProfile: ImportProfile | null,
     conventions: Required<Pick<ImportProfile, "dateConvention" | "numberConvention">>,
   ) {
-    if (schemaPreviewInFlightRef.current) return;
+    // Blocks a second click on the same review; a review made stale by a
+    // change of options must not block the new one (UX-01 auto review).
+    if (schemaPreviewInFlightRef.current && schemaPreviewActiveRequestRef.current === schemaPreviewRequestRef.current) return;
     schemaPreviewInFlightRef.current = true;
     const requestId = ++schemaPreviewRequestRef.current;
     schemaPreviewActiveRequestRef.current = requestId;
@@ -647,7 +660,11 @@ export function App() {
         setLoadInspection({ kind: "idle" });
         return;
       }
-      const selectedImportProfile = queuedReusableTask?.task.importProfile ?? activeImportProfile;
+      // The active dataset's profile only describes a reload of that same file;
+      // compared with another file it only warns about unrelated columns (UX-01).
+      const reloadsActiveFile = datasetStatus.kind === "ready" && datasetStatus.dataset.fileName === source.fileName;
+      const selectedImportProfile = queuedReusableTask?.task.importProfile
+        ?? (reloadsActiveFile ? activeImportProfile : null);
       if (source.format === "excel") {
         if (!isCurrentRequest()) return;
         setLoadInspection({ kind: "workbook_inspecting", source });
@@ -783,6 +800,31 @@ export function App() {
     setLoadInspection({ kind: "idle" });
     inspectionInFlightRef.current = false;
   }
+
+  // A CSV or TSV reviews its schema as soon as its headers are read, and again
+  // after any change of headers or conventions: one click («Cargar archivo»)
+  // instead of «Revisar esquema» first (UX-01).
+  const autoSchemaReviewKey = loadInspection.kind === "sheet"
+    && (loadInspection.source.format === "csv" || loadInspection.source.format === "tsv")
+    && loadInspection.headerReview
+    && !loadInspection.headerReviewLoading
+    && !loadInspection.schemaPreview
+    && !loadInspection.schemaPreviewLoading
+    && !loadInspection.schemaPreviewError
+    && !loadInspection.error
+    && !encodingConversionPending
+    ? [
+      loadInspection.source.selectionId,
+      loadInspection.headerMode,
+      loadInspection.dateConvention,
+      loadInspection.numberConvention,
+      loadInspection.useSavedProfile,
+    ].join(":")
+    : null;
+  const reviewSchemaAutomatically = useEffectEvent(() => handleSheetSelection({ kind: "confirmed" }));
+  useEffect(() => {
+    if (autoSchemaReviewKey !== null) reviewSchemaAutomatically();
+  }, [autoSchemaReviewKey]);
 
   function handleSheetSelection(action: SheetSelectionAction) {
     if (action.kind === "cancelled") {
@@ -1440,9 +1482,7 @@ export function App() {
                 personalDataColumns={personalDataColumnNames(
                   profileStatus.kind === "ready" ? profileStatus.profile.columns : null,
                 )}
-                suggestedRules={profileStatus.kind === "ready"
-                  ? suggestQualityRules(profileStatus.profile.columns, profileStatus.profile.rowCount)
-                  : []}
+                suggestedRules={suggestedDeliveryRules}
                 excelLimitIssues={excelLimitIssues(
                   readyDataset.dataset.rowCount,
                   profileStatus.kind === "ready" ? profileStatus.profile.columns : null,

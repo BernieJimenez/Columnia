@@ -71,6 +71,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     histogram: null,
     dateOrder: null,
     dateHasTime: null,
+    untrimmedCount: null,
   }, {
     name: "fecha_alta",
     dataType: "String",
@@ -98,6 +99,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     histogram: null,
     dateOrder: null,
     dateHasTime: null,
+    untrimmedCount: null,
   }, {
     name: "cantidad",
     dataType: "String",
@@ -125,6 +127,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     histogram: null,
     dateOrder: null,
     dateHasTime: null,
+    untrimmedCount: null,
   }, {
     name: "empty_column",
     dataType: "String",
@@ -152,6 +155,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     histogram: null,
     dateOrder: null,
     dateHasTime: null,
+    untrimmedCount: null,
   }, {
     name: "high_null",
     dataType: "String",
@@ -179,6 +183,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     histogram: null,
     dateOrder: null,
     dateHasTime: null,
+    untrimmedCount: null,
   }, {
     name: "customer_id",
     dataType: "String",
@@ -206,6 +211,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     histogram: null,
     dateOrder: null,
     dateHasTime: null,
+    untrimmedCount: null,
   }, {
     name: "amount",
     dataType: "Int64",
@@ -233,6 +239,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     histogram: null,
     dateOrder: null,
     dateHasTime: null,
+    untrimmedCount: null,
   }],
 };
 

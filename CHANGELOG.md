@@ -129,6 +129,18 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- RV22 (UX-01): Entregar empieza en «Validar calidad» con las comprobaciones que
+  los datos ya cumplen. Exportar sin validar sigue disponible y, si se elige, no
+  vuelve a cambiarse sola para ese dataset.
+- RV22 (UX-01): al elegir un CSV o TSV, el esquema se revisa solo en cuanto se
+  leen los encabezados y otra vez si cambian las opciones: basta un clic en
+  «Cargar archivo» (antes había que pulsar primero «Revisar esquema»). El aviso
+  «El esquema no coincide con el perfil guardado» ya no aparece al elegir un
+  archivo distinto: solo compara al recargar el mismo archivo o al reutilizar
+  una tarea guardada.
+- RV22 (UX-01): «Recortar espacios» dice cuántas celdas cambia («Recortar
+  espacios en 113.452 celdas») y no aparece cuando no hay ninguna. Antes se
+  proponía siempre, incluso justo después de aplicarlo.
 - RV18 (FUN-07): las fechas de archivos grandes llegaban a SQL Server, a Excel y
   al script SQL como números sin sentido (`1291191960000ms` en lugar de
   `2010-12-01 08:26:00`, `14944` en lugar de `2010-12-01`), y SQL Server
@@ -288,6 +300,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Interno
 
+- `smoke:roundtrip` sigue con las demás fixtures cuando una falla, y el probe
+  registra si Entregar empieza validando.
 - RV21 (QA-02): `npm run smoke:roundtrip` pasa cada fixture de
   `fixtures/roundtrip/` por la app real (cargar, propuesta de Preparar,
   aplicar) y falla si lo anunciado no coincide con los datos resultantes: filas

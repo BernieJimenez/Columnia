@@ -15,6 +15,8 @@ pub(super) struct TextStatistics {
     pub(super) temporal_bounds: TemporalBounds,
     /// Set only when every non-empty value is a date in one order (RV18).
     pub(super) date_inference: Option<DateInference>,
+    /// Values with spaces the proposal's trim would remove (UX-01).
+    pub(super) untrimmed_count: usize,
 }
 
 #[derive(Clone, Default)]
@@ -344,6 +346,7 @@ pub(super) fn text_statistics(column: &Column) -> Result<Option<TextStatistics>,
     let mut minimum_length: Option<usize> = None;
     let mut maximum_length: Option<usize> = None;
     let mut date_tally = DateTally::default();
+    let mut untrimmed_count = 0;
 
     for value in values.iter().flatten() {
         let length = value.chars().count();
@@ -352,6 +355,7 @@ pub(super) fn text_statistics(column: &Column) -> Result<Option<TextStatistics>,
         empty_count += usize::from(trimmed.is_empty());
         sentinel_count += usize::from(SENTINEL_VALUES.contains(&normalized.as_str()));
         encoding_issue_count += usize::from(repair_mojibake(value).is_some());
+        untrimmed_count += usize::from(trimmed.len() != value.len());
         if !trimmed.is_empty() && !SENTINEL_VALUES.contains(&normalized.as_str()) {
             date_tally.observe(trimmed);
         }
@@ -398,6 +402,7 @@ pub(super) fn text_statistics(column: &Column) -> Result<Option<TextStatistics>,
         invalid_type_count,
         temporal_bounds,
         date_inference: date_tally.finish(),
+        untrimmed_count,
     }))
 }
 
@@ -569,6 +574,9 @@ where
             .as_ref()
             .and_then(|statistics| statistics.date_inference)
             .map(DateInference::has_time),
+        untrimmed_count: text_statistics
+            .as_ref()
+            .map(|statistics| statistics.untrimmed_count),
     })
 }
 
@@ -587,6 +595,7 @@ pub(super) struct SourceTextAccumulator {
     maximum_length: Option<usize>,
     categorical_candidates: HashMap<GroupKey, usize>,
     date_tally: DateTally,
+    untrimmed_count: usize,
 }
 
 impl SourceTextAccumulator {
@@ -606,6 +615,7 @@ impl SourceTextAccumulator {
             maximum_length: None,
             categorical_candidates: HashMap::with_capacity(MAX_GROUP_CANDIDATES),
             date_tally: DateTally::default(),
+            untrimmed_count: 0,
         }
     }
 
@@ -634,6 +644,9 @@ impl SourceTextAccumulator {
             self.encoding_issue_count = self
                 .encoding_issue_count
                 .saturating_add(usize::from(repair_mojibake(value).is_some()));
+            self.untrimmed_count = self
+                .untrimmed_count
+                .saturating_add(usize::from(trimmed.len() != value.len()));
             self.value_count = self.value_count.saturating_add(1);
             self.total_length = self.total_length.saturating_add(length);
             self.minimum_length = Some(
@@ -700,6 +713,7 @@ impl SourceTextAccumulator {
                 invalid_type_count,
                 temporal_bounds: self.temporal_bounds,
                 date_inference: self.date_tally.finish(),
+                untrimmed_count: self.untrimmed_count,
             },
             categorical_candidates,
         )
@@ -929,6 +943,7 @@ impl SourceColumnAccumulator {
                     .as_ref()
                     .and_then(|statistics| statistics.date_inference)
                     .map(DateInference::has_time),
+                untrimmed_count: text.as_ref().map(|statistics| statistics.untrimmed_count),
             },
             categorical_candidates,
         ))
