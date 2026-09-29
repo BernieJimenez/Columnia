@@ -84,9 +84,13 @@ export function openLastExport(): Promise<void> {
   return invoke<void>("open_last_export");
 }
 
-/** Writes a .pbids next to the last CSV or Excel export and opens Power BI Desktop on it. */
-export function openLastExportInPowerBi(): Promise<void> {
-  return invoke<void>("open_last_export_in_power_bi");
+/**
+ * Writes a .pbids next to the last CSV or Excel export and opens Power BI
+ * Desktop on it. Resolves to whether the CSV has line breaks inside quoted
+ * cells, which Power BI's default import splits into extra rows.
+ */
+export function openLastExportInPowerBi(): Promise<boolean> {
+  return invoke<boolean>("open_last_export_in_power_bi");
 }
 
 export function validateQualityRules(

@@ -150,6 +150,52 @@ describe("señales de datos personales en Entregar", () => {
     expect(exportButton).toBeEnabled();
   });
 
+  it("exporta y abre Power BI al terminar solo cuando se pidió desde su botón", async () => {
+    const onExport = vi.fn();
+    const openInPowerBi = vi.spyOn(bridge, "openLastExportInPowerBi").mockResolvedValue(false);
+    const success: DeliveryExportState = {
+      kind: "success",
+      result: {
+        fileName: "ventas.csv",
+        fileSizeBytes: 2048,
+        format: "CSV",
+        protectedColumnCount: 0,
+        protectedColumns: [],
+        replacedControlCellCount: 0,
+      },
+    };
+    const view = render(<DeliveryHarness onExport={onExport} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+
+    // A plain export never opens Power BI.
+    fireEvent.click(screen.getByRole("button", { name: "Exportar CSV" }));
+    await waitFor(() => expect(onExport).toHaveBeenCalledTimes(1));
+    view.rerender(<DeliveryHarness onExport={onExport} exportState={success} />);
+    expect(openInPowerBi).not.toHaveBeenCalled();
+
+    view.rerender(<DeliveryHarness onExport={onExport} exportState={{ kind: "idle" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Exportar y abrir en Power BI" }));
+    await waitFor(() => expect(onExport).toHaveBeenCalledTimes(2));
+    expect(onExport).toHaveBeenLastCalledWith(expect.objectContaining({ format: "csv" }));
+    view.rerender(<DeliveryHarness onExport={onExport} exportState={{ ...success }} />);
+    await waitFor(() => expect(openInPowerBi).toHaveBeenCalledOnce());
+    expect(screen.getByText("Power BI Desktop se abre con esta copia.")).toBeInTheDocument();
+
+    // A cancelled export forgets the request.
+    view.rerender(<DeliveryHarness onExport={onExport} exportState={{ kind: "idle" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Exportar y abrir en Power BI" }));
+    view.rerender(<DeliveryHarness onExport={onExport} exportState={{ kind: "cancelled" }} />);
+    view.rerender(<DeliveryHarness onExport={onExport} exportState={{ ...success }} />);
+    expect(openInPowerBi).toHaveBeenCalledOnce();
+  });
+
+  it("solo ofrece Exportar y abrir en Power BI para CSV y Excel", () => {
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Exportar y abrir en Power BI" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: /Formato/ }), { target: { value: "parquet" } });
+    expect(screen.queryByRole("button", { name: "Exportar y abrir en Power BI" })).not.toBeInTheDocument();
+  });
+
   it("no pide confirmación cuando se elige una protección", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} personalDataColumns={["correo"]} />);
@@ -1117,10 +1163,14 @@ describe("DeliveryPhase", () => {
         },
       }}
     />);
-    const openInPowerBi = vi.spyOn(bridge, "openLastExportInPowerBi").mockResolvedValue(undefined);
+    const openInPowerBi = vi.spyOn(bridge, "openLastExportInPowerBi").mockResolvedValue(false);
     fireEvent.click(screen.getByRole("button", { name: "Abrir en Power BI" }));
     await waitFor(() => expect(openInPowerBi).toHaveBeenCalledOnce());
     expect(screen.getByText("Power BI Desktop se abre con esta copia.")).toBeInTheDocument();
+    expect(screen.queryByText(/saltos de línea/)).not.toBeInTheDocument();
+    openInPowerBi.mockResolvedValueOnce(true);
+    fireEvent.click(screen.getByRole("button", { name: "Abrir en Power BI" }));
+    expect(await screen.findByRole("note")).toHaveTextContent("Algunas celdas tienen saltos de línea");
     openInPowerBi.mockRejectedValueOnce(new Error("Power BI Desktop no está instalado."));
     fireEvent.click(screen.getByRole("button", { name: "Abrir en Power BI" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Power BI Desktop no está instalado."));

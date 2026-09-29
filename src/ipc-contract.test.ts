@@ -241,6 +241,7 @@ function normalizeRustReturnType(type: string): string {
   if (vector !== null) return `${normalizeRustReturnType(vector)}[]`;
 
   if (compact === "()") return "void";
+  if (compact === "bool") return "boolean";
   if (compact === "StoredTransformRecipe") return "SavedRecipe";
   return compact;
 }

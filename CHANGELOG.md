@@ -15,6 +15,14 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
   Desktop con ella. Si Power BI Desktop no está instalado, lo dice y deja el
   `.pbids` para usarlo después. Nuevo comando IPC `open_last_export_in_power_bi`
   (89 comandos).
+- «Exportar y abrir en Power BI» junto al botón de exportar cuando el formato es
+  CSV o Excel: hace la misma exportación (validación, confirmaciones y diálogo de
+  guardar) y, si termina bien, abre Power BI Desktop sin otro clic. Si la
+  exportación se cancela o falla, no abre nada.
+- Al abrir en Power BI un CSV con saltos de línea dentro de alguna celda,
+  Entregar avisa en una línea de cómo leerlo en Power BI (tener en cuenta los
+  saltos entre comillas en el paso Origen) o de exportar a Excel; por defecto
+  Power BI parte esas filas en dos. El comando devuelve si el CSV los tiene.
 - Entregar propone comprobaciones de calidad que los datos ya cumplen (sin nulos
   y valores únicos en columnas identificadoras, sin nulos en columnas completas;
   hasta 6). Se marcan o desmarcan y «Usar estas comprobaciones» las activa: la
@@ -134,6 +142,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Una columna de números enteros escritos en notación científica o con `.0`
+  (`1e+05`, `55003.0`, como exporta R) se convierte a entero en lugar de a
+  decimal, así que la copia muestra `55003` y no `55003.0`. Solo si todos los
+  valores son enteros exactos y caben sin pérdida.
 - Un CSV con una columna sin nombre en el encabezado (el índice que exportan R
   o pandas, `""`) ya no hace fallar el análisis con «zero-length delimited
   identifier». La columna se llama `column_N` por su posición, como al importar

@@ -240,6 +240,8 @@ export function DeliveryPhase({
   const databaseRequestGeneration = useRef(0);
   const exportRequestGeneration = useRef(0);
   const exportInFlightRef = useRef(false);
+  // Set by «Exportar y abrir en Power BI»; the next successful export opens it.
+  const openPowerBiAfterExportRef = useRef(false);
   const databaseTargetFingerprint = JSON.stringify({
     target: databaseTarget,
     privacyMode: selectedPrivacyMode,
@@ -300,7 +302,10 @@ export function DeliveryPhase({
     "idle" | "working" | "opened" | "error"
   >("idle");
   const [powerBiState, setPowerBiState] = useState<
-    { kind: "idle" } | { kind: "working" } | { kind: "opened" } | { kind: "error"; message: string }
+    | { kind: "idle" }
+    | { kind: "working" }
+    | { kind: "opened"; quotedLineBreaks: boolean }
+    | { kind: "error"; message: string }
   >({ kind: "idle" });
   const [rulesEditorOpen, setRulesEditorOpen] = useState(false);
   const [pendingRuleFocus, setPendingRuleFocus] = useState<number | null>(null);
@@ -855,12 +860,27 @@ export function DeliveryPhase({
     if (powerBiState.kind === "working") return;
     setPowerBiState({ kind: "working" });
     try {
-      await openLastExportInPowerBi();
-      setPowerBiState({ kind: "opened" });
+      const quotedLineBreaks = await openLastExportInPowerBi();
+      setPowerBiState({ kind: "opened", quotedLineBreaks });
     } catch (error: unknown) {
       setPowerBiState({ kind: "error", message: error instanceof Error ? error.message : String(error) });
     }
   }
+
+  const openPowerBiAfterExport = useEffectEvent(() => {
+    void openInPowerBi();
+  });
+  useEffect(() => {
+    if (!openPowerBiAfterExportRef.current) return;
+    if (exportState.kind === "success") {
+      openPowerBiAfterExportRef.current = false;
+      if (exportState.result.format === "CSV" || exportState.result.format === "Excel") {
+        openPowerBiAfterExport();
+      }
+    } else if (exportState.kind === "cancelled" || exportState.kind === "error") {
+      openPowerBiAfterExportRef.current = false;
+    }
+  }, [exportState]);
 
   async function revealLastExport() {
     if (openOutputState === "working") return;
@@ -1895,16 +1915,34 @@ export function DeliveryPhase({
               Confirmo que quiero exportar sin validar la calidad
             </label>
           )}
-          <button
-            className="primary-action export-action"
-            type="button"
-            onClick={() => void requestExport(selectedExportFormat)}
-            disabled={busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || !databaseReady || exceedsExcel}
-          >
-            {contract.kind === "with_contract" && !gatePassed
-              ? `Validar y exportar ${exportFormatLabel}`
-              : `Exportar ${exportFormatLabel}`}
-          </button>
+          <div className="export-actions-row">
+            <button
+              className="primary-action export-action"
+              type="button"
+              onClick={() => {
+                openPowerBiAfterExportRef.current = false;
+                void requestExport(selectedExportFormat);
+              }}
+              disabled={busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || !databaseReady || exceedsExcel}
+            >
+              {contract.kind === "with_contract" && !gatePassed
+                ? `Validar y exportar ${exportFormatLabel}`
+                : `Exportar ${exportFormatLabel}`}
+            </button>
+            {(selectedExportFormat === "csv" || selectedExportFormat === "excel") && (
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={() => {
+                  openPowerBiAfterExportRef.current = true;
+                  void requestExport(selectedExportFormat);
+                }}
+                disabled={busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || exceedsExcel}
+              >
+                Exportar y abrir en Power BI
+              </button>
+            )}
+          </div>
           <details
             className="delivery-presets"
             onToggle={(event) => {
@@ -2144,6 +2182,11 @@ export function DeliveryPhase({
           )}
           {powerBiState.kind === "opened" && (
             <p className="notice notice--success" role="status">Power BI Desktop se abre con esta copia.</p>
+          )}
+          {powerBiState.kind === "opened" && powerBiState.quotedLineBreaks && (
+            <p className="notice notice--warning" role="note">
+              Algunas celdas tienen saltos de línea. En Power BI, en el paso Origen, elige tener en cuenta los saltos entre comillas, o exporta a Excel.
+            </p>
           )}
           {powerBiState.kind === "error" && (
             <p className="notice notice--error" role="alert">{powerBiState.message}</p>

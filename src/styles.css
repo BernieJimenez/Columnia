@@ -1897,6 +1897,7 @@ body { color: var(--text-primary); background: var(--canvas); }
   .export-controls,
 .database-target__grid { grid-template-columns: 1fr; }
   .export-action,
+.export-actions-row > .secondary-action,
 .local-query__actions button { width: 100%; }
 }
 

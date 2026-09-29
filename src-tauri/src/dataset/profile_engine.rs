@@ -237,7 +237,9 @@ pub(super) fn is_valid_suggested_type(value: &str, suggested_type: &str) -> bool
     let value = value.trim();
     match suggested_type {
         "boolean" => boolean_token(value).is_some(),
-        "integer" => value.parse::<i64>().is_ok() && semantic_numeric_value(value).is_some(),
+        "integer" => semantic_numeric_value(value)
+            .and_then(exact_integer)
+            .is_some(),
         "decimal" => semantic_numeric_value(value).is_some(),
         "date" => is_supported_date(value),
         _ => false,
@@ -427,8 +429,7 @@ impl TextTally {
                     "true" | "yes" | "si" | "false" | "no"
                 ));
             let numeric = semantic_numeric_value(trimmed);
-            self.integer_count +=
-                count * usize::from(trimmed.parse::<i64>().is_ok() && numeric.is_some());
+            self.integer_count += count * usize::from(numeric.and_then(exact_integer).is_some());
             self.decimal_count += count * usize::from(numeric.is_some());
             if is_supported_date_candidate(trimmed) {
                 if let Some(datetime) = quality_datetime_value(AnyValue::String(trimmed)) {
@@ -744,7 +745,7 @@ impl SourceTextAccumulator {
             )));
             let parsed_numeric = semantic_numeric_value(trimmed);
             self.integer_count = self.integer_count.saturating_add(usize::from(
-                trimmed.parse::<i64>().is_ok() && parsed_numeric.is_some(),
+                parsed_numeric.and_then(exact_integer).is_some(),
             ));
             self.decimal_count = self
                 .decimal_count

@@ -5550,6 +5550,23 @@ fn cast_fully_numeric_columns(
             )
         } else if present
             .iter()
+            .all(|value| value.parse::<f64>().ok().and_then(exact_integer).is_some())
+        {
+            // Whole numbers written as 1e+05 or 10.0 (R and spreadsheet
+            // exports) stay integers instead of exporting as 55003.0.
+            Column::new(
+                name.as_str().into(),
+                values
+                    .iter()
+                    .map(|value| {
+                        value.and_then(|value| {
+                            value.trim().parse::<f64>().ok().and_then(exact_integer)
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        } else if present
+            .iter()
             .all(|value| value.parse::<f64>().is_ok_and(f64::is_finite))
         {
             Column::new(
@@ -5567,6 +5584,13 @@ fn cast_fully_numeric_columns(
         typed_column_count += 1;
     }
     Ok((cast, typed_column_count))
+}
+
+/// The integer a finite float holds exactly, if any. Limited to ±2^53 so
+/// every such value came from, and prints back as, that exact integer.
+fn exact_integer(value: f64) -> Option<i64> {
+    const LIMIT: f64 = 9_007_199_254_740_992.0;
+    (value.is_finite() && value.fract() == 0.0 && value.abs() <= LIMIT).then_some(value as i64)
 }
 
 /// A text column the proposal types as a date, in the order the profile (or
@@ -9788,13 +9812,19 @@ pub fn open_last_export(state: State<'_, DatasetState>) -> Result<(), String> {
 
 /// Writes a Power BI data source file (`.pbids`) next to the last CSV or Excel
 /// export and opens it, so Power BI Desktop starts on that file. Like
-/// `open_last_export`, it never takes a path from React.
+/// `open_last_export`, it never takes a path from React. Returns whether the
+/// CSV has line breaks inside quoted cells: Power BI's default import splits
+/// those rows unless its quoted line breaks option is chosen.
 #[tauri::command]
-pub fn open_last_export_in_power_bi(state: State<'_, DatasetState>) -> Result<(), String> {
+pub fn open_last_export_in_power_bi(state: State<'_, DatasetState>) -> Result<bool, String> {
     let path = state.last_export()?;
     let path = canonicalize_existing_file(&path, "la última exportación")
         .map_err(|_| "La última exportación ya no está disponible.".to_owned())?;
     let data_source = power_bi_data_source(&path)?;
+    let quoted_line_breaks = path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("csv"))
+        && csv_has_quoted_line_breaks(&path)?;
     let pbids = path.with_extension("pbids");
     fs::write(&pbids, data_source)
         .map_err(|error| format!("No se pudo preparar el archivo para Power BI: {error}"))?;
@@ -9819,11 +9849,40 @@ pub fn open_last_export_in_power_bi(state: State<'_, DatasetState>) -> Result<()
             .arg(&pbids)
             .spawn()
             .map_err(|_| "No se pudo abrir Power BI Desktop.".to_owned())?;
-        Ok(())
+        Ok(quoted_line_breaks)
     }
     #[cfg(not(windows))]
     {
+        let _ = quoted_line_breaks;
         Err("Power BI Desktop solo está disponible para Windows. El archivo .pbids quedó junto a la exportación.".to_owned())
+    }
+}
+
+/// Whether a CSV has a line break inside a quoted field. Streams the file with
+/// a quote-state machine: an escaped `""` toggles the state twice, so it ends
+/// where it started.
+fn csv_has_quoted_line_breaks(path: &Path) -> Result<bool, String> {
+    let mut reader = BufReader::with_capacity(
+        1024 * 1024,
+        File::open(path).map_err(|error| format!("No se pudo revisar la exportación: {error}"))?,
+    );
+    let mut in_quotes = false;
+    loop {
+        let buffer = reader
+            .fill_buf()
+            .map_err(|error| format!("No se pudo revisar la exportación: {error}"))?;
+        if buffer.is_empty() {
+            return Ok(false);
+        }
+        for &byte in buffer {
+            match byte {
+                b'"' => in_quotes = !in_quotes,
+                b'\n' | b'\r' if in_quotes => return Ok(true),
+                _ => {}
+            }
+        }
+        let consumed = buffer.len();
+        reader.consume(consumed);
     }
 }
 

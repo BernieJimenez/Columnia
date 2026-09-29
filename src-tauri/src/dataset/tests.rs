@@ -17914,3 +17914,60 @@ fn power_bi_data_source_points_at_the_export_without_the_verbatim_prefix() {
         "Power BI se abre con exportaciones CSV o Excel."
     );
 }
+
+#[test]
+fn whole_numbers_in_scientific_or_decimal_notation_are_typed_as_integers() {
+    // R writes 100000 as 1e+05; typed as a float, the whole column exported
+    // as 55003.0.
+    let frame = df!(
+        "X1" => [Some("1"), Some("1e+05"), None, Some("55003.0")],
+        "precio" => [Some("1.5"), Some("2"), Some("3"), None],
+        "grande" => [Some("1"), Some("9007199254740993"), Some("2"), Some("3")],
+    )
+    .expect("frame de prueba");
+    let names = ["X1", "precio", "grande"].map(str::to_owned);
+    let (cast, typed) = cast_fully_numeric_columns(&frame, &names).expect("conversión");
+
+    assert_eq!(typed, 3);
+    assert_eq!(cast.column("X1").unwrap().dtype(), &DataType::Int64);
+    assert_eq!(
+        cast.column("X1")
+            .unwrap()
+            .i64()
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>(),
+        [Some(1), Some(100_000), None, Some(55_003)]
+    );
+    assert_eq!(cast.column("precio").unwrap().dtype(), &DataType::Float64);
+    // Beyond 2^53 a float cannot hold the integer exactly; i64 parsing keeps it.
+    assert_eq!(cast.column("grande").unwrap().dtype(), &DataType::Int64);
+    assert_eq!(exact_integer(9_007_199_254_740_994.0), None);
+    assert_eq!(exact_integer(-0.0), Some(0));
+    assert_eq!(exact_integer(f64::NAN), None);
+
+    let statistics = text_statistics(frame.column("X1").unwrap())
+        .unwrap()
+        .expect("columna de texto");
+    assert_eq!(statistics.suggested_type, Some("integer"));
+}
+
+#[test]
+fn detects_line_breaks_only_inside_quoted_csv_fields() {
+    let directory = tempfile::tempdir().unwrap();
+    let write = |name: &str, text: &str| {
+        let path = directory.path().join(name);
+        fs::write(&path, text).unwrap();
+        path
+    };
+    let quoted = write("con-salto.csv", "id,nota\r\n1,\"linea uno\nlinea dos\"\r\n");
+    let escaped = write(
+        "comillas.csv",
+        "id,nota\n1,\"dice \"\"hola\"\"\"\n2,sin comillas\n",
+    );
+    let plain = write("simple.csv", "id,nota\r\n1,uno\r\n2,dos\r\n");
+
+    assert!(csv_has_quoted_line_breaks(&quoted).unwrap());
+    assert!(!csv_has_quoted_line_breaks(&escaped).unwrap());
+    assert!(!csv_has_quoted_line_breaks(&plain).unwrap());
+}
