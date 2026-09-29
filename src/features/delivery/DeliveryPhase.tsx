@@ -7,6 +7,7 @@ import {
   listDeliveryPresets,
   openDeliveryPreset,
   openLastExport,
+  openLastExportInPowerBi,
   preflightDatabaseExport,
   pickQualityRulesMigration,
   saveDeliveryPreset,
@@ -298,6 +299,9 @@ export function DeliveryPhase({
   const [openOutputState, setOpenOutputState] = useState<
     "idle" | "working" | "opened" | "error"
   >("idle");
+  const [powerBiState, setPowerBiState] = useState<
+    { kind: "idle" } | { kind: "working" } | { kind: "opened" } | { kind: "error"; message: string }
+  >({ kind: "idle" });
   const [rulesEditorOpen, setRulesEditorOpen] = useState(false);
   const [pendingRuleFocus, setPendingRuleFocus] = useState<number | null>(null);
   const rules = contract.kind === "with_contract" ? contract.rules : [];
@@ -552,6 +556,7 @@ export function DeliveryPhase({
     exportRequestGeneration.current = requestId;
     const requestedGeneration = requestId;
     setOpenOutputState("idle");
+    setPowerBiState({ kind: "idle" });
     try {
       if (isDatabaseExportFormat(format)
         && (databaseTargetError !== null
@@ -843,6 +848,17 @@ export function DeliveryPhase({
       setPresetsError(error instanceof Error ? error.message : String(error));
     } finally {
       setPresetWorking(false);
+    }
+  }
+
+  async function openInPowerBi() {
+    if (powerBiState.kind === "working") return;
+    setPowerBiState({ kind: "working" });
+    try {
+      await openLastExportInPowerBi();
+      setPowerBiState({ kind: "opened" });
+    } catch (error: unknown) {
+      setPowerBiState({ kind: "error", message: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -2043,14 +2059,26 @@ export function DeliveryPhase({
             {exportState.result.format !== "PostgreSQL"
               && exportState.result.format !== "MySQL"
               && exportState.result.format !== "SQL Server" && (
-              <button
-                type="button"
-                className="primary-action"
-                onClick={() => void revealLastExport()}
-                disabled={openOutputState === "working"}
-              >
-                {openOutputState === "working" ? "Abriendo carpeta…" : "Abrir carpeta"}
-              </button>
+              <div className="delivery-result__actions">
+                <button
+                  type="button"
+                  className="primary-action"
+                  onClick={() => void revealLastExport()}
+                  disabled={openOutputState === "working"}
+                >
+                  {openOutputState === "working" ? "Abriendo carpeta…" : "Abrir carpeta"}
+                </button>
+                {(exportState.result.format === "CSV" || exportState.result.format === "Excel") && (
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    onClick={() => void openInPowerBi()}
+                    disabled={powerBiState.kind === "working"}
+                  >
+                    {powerBiState.kind === "working" ? "Abriendo Power BI…" : "Abrir en Power BI"}
+                  </button>
+                )}
+              </div>
             )}
           </div>
           <dl className="delivery-result__facts">
@@ -2113,6 +2141,12 @@ export function DeliveryPhase({
           )}
           {openOutputState === "error" && (
             <p className="notice notice--error" role="alert">No se pudo abrir la carpeta de exportación.</p>
+          )}
+          {powerBiState.kind === "opened" && (
+            <p className="notice notice--success" role="status">Power BI Desktop se abre con esta copia.</p>
+          )}
+          {powerBiState.kind === "error" && (
+            <p className="notice notice--error" role="alert">{powerBiState.message}</p>
           )}
         </section>
       )}

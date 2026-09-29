@@ -197,6 +197,7 @@ pub fn run() {
             dataset::cancel_operation,
             dataset::export_dataset,
             dataset::open_last_export,
+            dataset::open_last_export_in_power_bi,
             dataset::save_transform_recipe,
             dataset::pick_transform_recipe,
             dataset::save_quality_rules_document,

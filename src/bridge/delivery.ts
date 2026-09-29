@@ -84,6 +84,11 @@ export function openLastExport(): Promise<void> {
   return invoke<void>("open_last_export");
 }
 
+/** Writes a .pbids next to the last CSV or Excel export and opens Power BI Desktop on it. */
+export function openLastExportInPowerBi(): Promise<void> {
+  return invoke<void>("open_last_export_in_power_bi");
+}
+
 export function validateQualityRules(
   qualityRules: QualityRule[],
 ): Promise<QualityValidationResult> {

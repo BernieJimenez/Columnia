@@ -17885,3 +17885,32 @@ fn readable_header_names_only_rename_empty_headers_and_avoid_collisions() {
         ["fecha \"pedido\"", "a\"\"b", "a\"b"]
     );
 }
+
+#[test]
+fn power_bi_data_source_points_at_the_export_without_the_verbatim_prefix() {
+    let document =
+        power_bi_data_source(Path::new(r"\\?\C:\Datos\ventas limpias.csv")).expect("CSV admitido");
+    let value: serde_json::Value = serde_json::from_str(&document).expect("JSON válido");
+    assert_eq!(value["version"], "0.1");
+    let connection = &value["connections"][0];
+    assert_eq!(connection["details"]["protocol"], "file");
+    assert_eq!(
+        connection["details"]["address"]["path"],
+        r"C:\Datos\ventas limpias.csv"
+    );
+    assert_eq!(connection["mode"], "Import");
+    assert_eq!(value["connections"].as_array().map(Vec::len), Some(1));
+
+    let network = power_bi_data_source(Path::new(r"\\?\UNC\servidor\datos\ventas.XLSX"))
+        .expect("Excel admitido");
+    let network: serde_json::Value = serde_json::from_str(&network).expect("JSON válido");
+    assert_eq!(
+        network["connections"][0]["details"]["address"]["path"],
+        r"\\servidor\datos\ventas.XLSX"
+    );
+
+    assert_eq!(
+        power_bi_data_source(Path::new("ventas.parquet")).unwrap_err(),
+        "Power BI se abre con exportaciones CSV o Excel."
+    );
+}

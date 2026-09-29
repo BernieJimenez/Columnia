@@ -10,6 +10,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- «Abrir en Power BI» en el resultado de Entregar para exportaciones CSV y
+  Excel: Columnia escribe un archivo `.pbids` junto a la copia y abre Power BI
+  Desktop con ella. Si Power BI Desktop no está instalado, lo dice y deja el
+  `.pbids` para usarlo después. Nuevo comando IPC `open_last_export_in_power_bi`
+  (89 comandos).
 - Entregar propone comprobaciones de calidad que los datos ya cumplen (sin nulos
   y valores únicos en columnas identificadoras, sin nulos en columnas completas;
   hasta 6). Se marcan o desmarcan y «Usar estas comprobaciones» las activa: la
