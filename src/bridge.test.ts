@@ -38,6 +38,7 @@ import {
   nullifyInvalidTypeValues,
   normalizeTextValues,
   openLastExport,
+  openLastExportInPowerBi,
   openProject,
   listProjectVersions,
   autosaveProject,
@@ -1019,6 +1020,13 @@ describe("desktop bridge", () => {
     await openLastExport();
 
     expect(invoke).toHaveBeenCalledWith("open_last_export");
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("abre el último output en Power BI sin recibir rutas desde React", async () => {
+    await openLastExportInPowerBi();
+
+    expect(invoke).toHaveBeenCalledWith("open_last_export_in_power_bi");
     expect(invoke).toHaveBeenCalledTimes(1);
   });
 

@@ -208,6 +208,11 @@
       "debug": false
     },
     {
+      "name": "open_last_export_in_power_bi",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "save_transform_recipe",
       "module": "dataset",
       "debug": false

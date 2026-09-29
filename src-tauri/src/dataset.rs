@@ -9786,6 +9786,75 @@ pub fn open_last_export(state: State<'_, DatasetState>) -> Result<(), String> {
     Ok(())
 }
 
+/// Writes a Power BI data source file (`.pbids`) next to the last CSV or Excel
+/// export and opens it, so Power BI Desktop starts on that file. Like
+/// `open_last_export`, it never takes a path from React.
+#[tauri::command]
+pub fn open_last_export_in_power_bi(state: State<'_, DatasetState>) -> Result<(), String> {
+    let path = state.last_export()?;
+    let path = canonicalize_existing_file(&path, "la última exportación")
+        .map_err(|_| "La última exportación ya no está disponible.".to_owned())?;
+    let data_source = power_bi_data_source(&path)?;
+    let pbids = path.with_extension("pbids");
+    fs::write(&pbids, data_source)
+        .map_err(|error| format!("No se pudo preparar el archivo para Power BI: {error}"))?;
+
+    #[cfg(windows)]
+    {
+        let installed = std::process::Command::new("reg.exe")
+            .args(["query", r"HKCR\.pbids"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        if !installed {
+            return Err(
+                "Power BI Desktop no está instalado. El archivo .pbids quedó junto a la exportación para abrirlo cuando lo instales."
+                    .to_owned(),
+            );
+        }
+        // explorer.exe opens the file with its registered app without a shell,
+        // so characters in the folder name are never interpreted.
+        std::process::Command::new("explorer.exe")
+            .arg(&pbids)
+            .spawn()
+            .map_err(|_| "No se pudo abrir Power BI Desktop.".to_owned())?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Power BI Desktop solo está disponible para Windows. El archivo .pbids quedó junto a la exportación.".to_owned())
+    }
+}
+
+/// The `.pbids` document for one exported file (Microsoft's "Text file"
+/// data source: protocol `file` and the file path). Only CSV and Excel exports
+/// open this way.
+fn power_bi_data_source(path: &Path) -> Result<String, String> {
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase);
+    if !matches!(extension.as_deref(), Some("csv" | "xlsx")) {
+        return Err("Power BI se abre con exportaciones CSV o Excel.".to_owned());
+    }
+    // Windows canonical paths carry the \\?\ prefix, which Power BI rejects.
+    let display = path.to_string_lossy();
+    let display = display
+        .strip_prefix(r"\\?\UNC\")
+        .map(|rest| format!(r"\\{rest}"))
+        .or_else(|| display.strip_prefix(r"\\?\").map(str::to_owned))
+        .unwrap_or_else(|| display.into_owned());
+    serde_json::to_string_pretty(&serde_json::json!({
+        "version": "0.1",
+        "connections": [{
+            "details": { "protocol": "file", "address": { "path": display } },
+            "mode": "Import"
+        }]
+    }))
+    .map_err(|error| format!("No se pudo preparar el archivo para Power BI: {error}"))
+}
+
 #[tauri::command]
 pub async fn save_transform_recipe(
     app: AppHandle,

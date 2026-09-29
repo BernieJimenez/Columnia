@@ -959,6 +959,7 @@ a:visited { color: #80548b; }
   justify-content: space-between;
   gap: 20px;
 }
+.delivery-result__actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .delivery-result__heading h3 { margin: 3px 0 4px; font-size: 1.2rem; }
 .delivery-result__heading p { margin: 0; color: var(--text-secondary); }
 .delivery-result__facts {

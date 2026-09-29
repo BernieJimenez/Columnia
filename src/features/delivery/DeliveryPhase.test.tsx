@@ -1099,6 +1099,31 @@ describe("DeliveryPhase", () => {
     openLastExport.mockRejectedValueOnce(new Error("salida eliminada"));
     fireEvent.click(screen.getByRole("button", { name: "Abrir carpeta" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("No se pudo abrir la carpeta de exportación."));
+    // A bundle is not a file Power BI opens directly.
+    expect(screen.queryByRole("button", { name: "Abrir en Power BI" })).not.toBeInTheDocument();
+
+    cleanup();
+    render(<DeliveryHarness
+      onExport={vi.fn()}
+      exportState={{
+        kind: "success",
+        result: {
+          fileName: "ventas.csv",
+          fileSizeBytes: 2048,
+          format: "CSV",
+          protectedColumnCount: 0,
+          protectedColumns: [],
+          replacedControlCellCount: 0,
+        },
+      }}
+    />);
+    const openInPowerBi = vi.spyOn(bridge, "openLastExportInPowerBi").mockResolvedValue(undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Abrir en Power BI" }));
+    await waitFor(() => expect(openInPowerBi).toHaveBeenCalledOnce());
+    expect(screen.getByText("Power BI Desktop se abre con esta copia.")).toBeInTheDocument();
+    openInPowerBi.mockRejectedValueOnce(new Error("Power BI Desktop no está instalado."));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir en Power BI" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Power BI Desktop no está instalado."));
 
     cleanup();
     render(<DeliveryHarness onExport={vi.fn()} exportState={{ kind: "cancelled" }} />);
