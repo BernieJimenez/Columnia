@@ -2263,6 +2263,7 @@ fn active_phase_label(phase: Option<&str>) -> Result<&'static str, String> {
     match phase {
         Some("load") => Ok("load"),
         Some("prepare") => Ok("prepare"),
+        Some("explore") => Ok("explore"),
         Some("deliver") => Ok("deliver"),
         Some("review") | None => Ok("review"),
         Some(_) => Err("La etapa guardada del proyecto no es válida.".to_owned()),

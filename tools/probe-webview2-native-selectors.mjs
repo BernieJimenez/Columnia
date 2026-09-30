@@ -691,6 +691,11 @@ async function readSaveCheck(page, result) {
 
 // RV19: in Entregar, choosing Excel says beforehand whether the dataset fits.
 async function readExcelCheck(page) {
+  // EX01: Explorar sits between Preparar and Entregar; its panel must load.
+  await page.getByRole("button", { name: "Continuar a Explorar" }).click();
+  await page.getByRole("heading", { name: "Explora los datos limpios" }).waitFor({ state: "visible", timeout: probeTimeoutMs });
+  await page.locator(".explore__kpi").first().waitFor({ state: "visible", timeout: analysisTimeoutMs });
+  await capturePhase(page, "5-explorar");
   await page.getByRole("button", { name: "Continuar a Entregar" }).click();
   const format = page.getByRole("combobox", { name: "Formato de exportación" });
   await format.waitFor({ state: "visible", timeout: probeTimeoutMs });

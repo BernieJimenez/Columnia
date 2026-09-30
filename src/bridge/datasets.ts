@@ -23,6 +23,8 @@ import type {
   TemporalAggregationSeries,
   CancellableOperation,
   ConflictResolution,
+  ExploreFilter,
+  ExplorePanel,
 } from "./contracts";
 import { progressChannel, type ProgressHandler } from "./progress";
 
@@ -187,4 +189,9 @@ export function getTemporalAggregation(
 
 export function cancelOperation(operation: CancellableOperation): Promise<void> {
   return invoke<void>("cancel_operation", { operation });
+}
+
+/** Explorar (EX01): the automatic panel of the active dataset, computed over every row. */
+export function getExplorePanel(filters: ExploreFilter[]): Promise<ExplorePanel> {
+  return invoke<ExplorePanel>("get_explore_panel", { filters });
 }

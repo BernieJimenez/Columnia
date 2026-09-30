@@ -284,9 +284,9 @@ describe("App", () => {
     expect(within(screen.getByRole("button", { name: "Cargar" })).getByText("Hecho")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continuar a Entregar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continuar a Explorar" }));
 
-    expect(screen.getByRole("button", { name: "Entregar" })).toHaveAttribute("aria-current", "step");
+    expect(screen.getByRole("button", { name: "Explorar" })).toHaveAttribute("aria-current", "step");
     expect(within(screen.getByRole("button", { name: "Preparar" })).queryByText("Hecho")).not.toBeInTheDocument();
     expect(within(screen.getByRole("button", { name: "Revisar" })).queryByText("Hecho")).not.toBeInTheDocument();
   });
@@ -1125,10 +1125,10 @@ describe("App", () => {
     expect(profileSpy).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
     expect(await screen.findByRole("button", { name: "Reintentar análisis" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Continuar a Entregar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Continuar a Explorar" })).not.toBeInTheDocument();
     fireEvent.click(retry);
 
-    expect(await screen.findByRole("button", { name: "Continuar a Entregar" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Continuar a Explorar" })).toBeEnabled();
     expect(profileSpy).toHaveBeenCalledTimes(2);
   });
 

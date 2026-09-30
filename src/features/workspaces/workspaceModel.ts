@@ -6,7 +6,8 @@ export const workflowPhases = [
   { id: "load", number: "01", label: "Cargar", description: "Elegir una fuente local" },
   { id: "review", number: "02", label: "Revisar", description: "Entender señales y calidad" },
   { id: "prepare", number: "03", label: "Preparar", description: "Corregir y transformar" },
-  { id: "deliver", number: "04", label: "Entregar", description: "Validar y exportar" },
+  { id: "explore", number: "04", label: "Explorar", description: "Ver los datos limpios" },
+  { id: "deliver", number: "05", label: "Entregar", description: "Validar y exportar" },
 ] as const satisfies readonly {
   id: ProjectActivePhase;
   number: string;
@@ -38,6 +39,7 @@ export const workspaceByPhase = {
   load: "analyze",
   review: "analyze",
   prepare: "analyze",
+  explore: "analyze",
   deliver: "analyze",
 } as const satisfies Record<ProjectActivePhase, WorkspaceId>;
 

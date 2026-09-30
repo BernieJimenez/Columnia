@@ -120,12 +120,18 @@ interface ReusableTaskApplicationReview {
 }
 
 const loadDeliveryPhase = () => import("./features/delivery/DeliveryPhase");
+const loadExplorePhase = () => import("./features/explore/ExplorePhase");
 const loadPreparePhase = () => import("./features/prepare/PreparePhase");
 const loadReviewPhase = () => import("./features/review/ReviewPhase");
 
 const DeliveryPhase = lazy(async () => {
   const module = await loadDeliveryPhase();
   return { default: module.DeliveryPhase };
+});
+
+const ExplorePhase = lazy(async () => {
+  const module = await loadExplorePhase();
+  return { default: module.ExplorePhase };
 });
 
 const PreparePhase = lazy(async () => {
@@ -141,6 +147,7 @@ const ReviewPhase = lazy(async () => {
 function preloadPhase(phase: WorkflowPhase): void {
   if (phase === "review") void loadReviewPhase();
   if (phase === "prepare") void loadPreparePhase();
+  if (phase === "explore") void loadExplorePhase();
   if (phase === "deliver") void loadDeliveryPhase();
 }
 
@@ -1048,9 +1055,7 @@ export function App() {
         : "Analizar calidad"
     : activePhase === "review"
       ? "Ver cambios propuestos"
-      : activePhase === "prepare"
-        ? "Continuar a Entregar"
-        : nextPhase ? `Continuar a ${nextPhase.label}` : "";
+      : nextPhase ? `Continuar a ${nextPhase.label}` : "";
   const primaryNextDescription = profileGatedPhase && profileStatus.kind !== "ready"
     ? profileStatus.kind === "error"
       ? "El análisis tuvo un problema; puedes intentarlo de nuevo."
@@ -1075,6 +1080,9 @@ export function App() {
       }
       return;
     }
+    if (activePhase === "explore") {
+      setCompletedPhaseRevisions((current) => ({ ...current, explore: datasetRevisionRef.current }));
+    }
     setActivePhase(nextPhase.id);
   }
 
@@ -1082,6 +1090,7 @@ export function App() {
     switch (phase) {
       case "load":
       case "review":
+      case "explore":
         return completedPhaseRevisions[phase] === datasetRevision;
       case "prepare":
         return prepare.changeStatus.kind === "applied";
@@ -1144,7 +1153,7 @@ export function App() {
         Etapa activa: {activePhaseMeta.label}.
       </p>
       <p id="dataset-required-hint" className="visually-hidden">
-        Carga un dataset para habilitar las etapas Revisar, Preparar y Entregar.
+        Carga un dataset para habilitar las etapas Revisar, Preparar, Explorar y Entregar.
       </p>
       <aside className="sidebar" aria-label="Navegación principal">
         <div className="brand">
@@ -1476,6 +1485,14 @@ export function App() {
               />
             )}
 
+            {activePhase === "explore" && readyDataset && (
+              <ExplorePhase
+                dataset={readyDataset.dataset}
+                datasetRevision={datasetRevision}
+                profileReady={profileStatus.kind === "ready"}
+              />
+            )}
+
             {activePhase === "deliver" && readyDataset && (
               <DeliveryPhase
                 dataset={readyDataset.dataset}
@@ -1598,7 +1615,7 @@ export function App() {
       {diagnosticsOpen && (
         <DiagnosticsDialog
           appVersion={status.kind === "ready" ? status.info?.version ?? null : null}
-          activePhase={activePhase}
+          activePhase={activePhase === "explore" ? "prepare" : activePhase}
           datasetMetrics={activeDataset
             ? {
               rowCount: activeDataset.dataset.rowCount,

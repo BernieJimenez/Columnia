@@ -70,6 +70,20 @@ async function installSyntheticTauriMock(page: Page) {
             duplicatePercentage: 0,
             columns: [],
           };
+        case "get_explore_panel":
+          return {
+            rowCount: dataset.rowCount,
+            totalRowCount: dataset.rowCount,
+            kpis: [{ kind: "count", column: null, value: dataset.rowCount }],
+            categories: [{
+              column: dataset.columns[0]?.name ?? "columna",
+              bars: [{ value: "A", count: 2 }, { value: null, count: 1 }],
+              otherCount: 0,
+              distinctCount: 2,
+            }],
+            histogram: { column: "importe", bins: [{ lower: 0, upper: 10, count: 2 }, { lower: 10, upper: 20, count: 1 }] },
+            trend: null,
+          };
         case "get_history_state":
           return {
             canUndo: false,
@@ -187,6 +201,14 @@ async function loadSyntheticDataset(page: Page, stopAt: "review" | "delivery" = 
   const prepareStep = workflow.getByRole("button", { name: "Preparar", exact: true });
   await expect(prepareStep).toHaveAttribute("aria-current", "step");
   await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
+
+  const continueToExplore = page.getByRole("button", { name: "Continuar a Explorar" });
+  await expect(continueToExplore).toBeVisible();
+  await activateWithKeyboard(page, continueToExplore, "Continuar a Explorar");
+  const exploreStep = workflow.getByRole("button", { name: "Explorar", exact: true });
+  await expect(exploreStep).toHaveAttribute("aria-current", "step");
+  await expect(page.getByRole("heading", { name: "Explora los datos limpios" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Sin dato/ })).toBeVisible();
 
   const continueToDelivery = page.getByRole("button", { name: "Continuar a Entregar" });
   await expect(continueToDelivery).toBeVisible();
@@ -311,11 +333,14 @@ test.describe("recorrido cargado de accesibilidad", () => {
       document.documentElement.dataset.columniaZoom = "2";
     });
     await inspectHorizontalLayout("zoom 200 % · Entregar");
+    await activateWithKeyboard(page, page.getByRole("button", { name: "Volver a Explorar", exact: true }), "Volver a Explorar");
+    await expect(page.getByRole("heading", { name: "Explora los datos limpios" })).toBeVisible();
+    await inspectHorizontalLayout("zoom 200 % · Explorar");
     await activateWithKeyboard(page, page.getByRole("button", { name: "Volver a Preparar", exact: true }), "Volver a Preparar");
     await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
     await inspectHorizontalLayout("zoom 200 % · Preparar");
     const prepareAction = page.getByRole("button", { name: /^Aplicar \d+ cambios?$/ });
-    const nextAction = page.getByRole("button", { name: "Continuar a Entregar" });
+    const nextAction = page.getByRole("button", { name: "Continuar a Explorar" });
     await expect(prepareAction).toBeEnabled();
     await expect(nextAction).toBeEnabled();
     const [prepareBackground, nextBackground] = await Promise.all([
@@ -359,6 +384,9 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await activateWithKeyboard(page, page.getByRole("button", { name: "Ver cambios propuestos" }), "Ver cambios propuestos · 320 px");
     await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
     await inspectHorizontalLayout("viewport de 320 píxeles CSS · Preparar");
+    await activateWithKeyboard(page, page.getByRole("button", { name: "Continuar a Explorar" }), "Continuar a Explorar · 320 px");
+    await expect(page.getByRole("heading", { name: "Explora los datos limpios" })).toBeVisible();
+    await inspectHorizontalLayout("viewport de 320 píxeles CSS · Explorar");
     await activateWithKeyboard(page, page.getByRole("button", { name: "Continuar a Entregar" }), "Continuar a Entregar · 320 px");
     await expect(page.getByRole("heading", { name: "Exportar dataset activo" })).toBeVisible();
     await inspectHorizontalLayout("viewport de 320 píxeles CSS · Entregar");

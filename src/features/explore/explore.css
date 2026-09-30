@@ -1,0 +1,49 @@
+/* Explorar (EX01): KPI row over a two-column grid of linked charts; colours come from the app's theme tokens. */
+.explore { display: grid; gap: 18px; margin-top: 18px; }
+.explore[aria-busy="true"] .explore__grid,
+.explore[aria-busy="true"] .explore__kpis { opacity: .7; transition: opacity .15s ease; }
+.explore__filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 36px; }
+.explore__hint { color: var(--text-secondary); font-size: .85rem; }
+.explore__chip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 12px;
+  border: 1px solid var(--accent); border-radius: 999px; background: var(--surface-subtle);
+  color: var(--text-primary); font: inherit; font-size: .82rem; cursor: pointer;
+}
+.explore__kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 0; }
+.explore__kpi { min-width: 0; padding: 14px 16px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-subtle); }
+.explore__kpi dt { color: var(--text-secondary); font-size: .8rem; overflow-wrap: anywhere; }
+.explore__kpi dd { margin: 4px 0 0; color: var(--text-primary); font-family: var(--font-display); font-size: 1.6rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.explore__kpi small { color: var(--text-secondary); font-size: .75rem; font-variant-numeric: tabular-nums; }
+.explore__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.explore__panel { display: grid; align-content: start; gap: 10px; min-width: 0; padding: 14px 16px; border: 1px solid var(--border-subtle); border-radius: 10px; }
+.explore__panel--wide { grid-column: 1 / -1; }
+.explore__panel h4 { margin: 0; color: var(--text-primary); font-family: var(--font-display); font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
+.explore__bars { display: grid; gap: 4px; }
+.explore__bar {
+  display: grid; grid-template-columns: minmax(70px, 36%) minmax(0, 1fr) 70px; align-items: center; gap: 8px;
+  width: 100%; min-height: 30px; padding: 3px 4px; border: 0; border-radius: 6px; background: none;
+  color: var(--text-primary); font: inherit; font-size: .84rem; text-align: left; cursor: pointer;
+}
+.explore__bar:hover, .explore__column:hover { background: var(--surface-subtle); }
+.explore__bar:focus-visible, .explore__column:focus-visible, .explore__chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.explore__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explore__track { height: 14px; overflow: hidden; border-radius: 3px; background: var(--surface-subtle); }
+.explore__fill { display: block; height: 100%; border-radius: 3px; background: var(--accent); opacity: .55; transition: width .25s ease, height .25s ease; }
+.explore__value { color: var(--text-secondary); font-variant-numeric: tabular-nums; text-align: right; }
+.explore__bar[aria-pressed="true"] .explore__fill,
+.explore__column[aria-pressed="true"] .explore__fill { opacity: 1; }
+.explore__bar[aria-pressed="true"] .explore__label { font-weight: 700; }
+.explore__bars--dim [aria-pressed="false"] .explore__fill { opacity: .25; }
+.explore__columns { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; gap: 3px; height: 160px; }
+.explore__column { display: flex; align-items: stretch; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 4px; background: none; cursor: pointer; }
+.explore__column--static { cursor: default; }
+.explore__area { display: flex; align-items: flex-end; width: 100%; }
+.explore__area .explore__fill { width: 100%; min-height: 1px; border-radius: 3px 3px 0 0; }
+.explore__axis { display: flex; justify-content: space-between; margin: 0; color: var(--text-secondary); font-size: .75rem; font-variant-numeric: tabular-nums; }
+.explore__note { margin: 0; color: var(--text-secondary); font-size: .8rem; }
+@media (max-width: 760px) { .explore__grid { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .explore__fill { transition: none; } }
+@media (forced-colors: active) {
+  .explore__fill { background: CanvasText; opacity: 1; }
+  .explore__bar[aria-pressed="true"] .explore__fill, .explore__column[aria-pressed="true"] .explore__fill { background: Highlight; }
+}

@@ -462,3 +462,64 @@ export interface SafeCorrectionOptions {
   /** Text columns whose every value is a date in the given order (RV18). */
   dateColumns?: DateColumnPlan[];
 }
+
+/** Explorar (EX01): keeps rows whose value is in `values` or whose number is in `range`. */
+export interface ExploreFilter {
+  column: string;
+  values?: Array<string | null>;
+  range?: ExploreRange;
+}
+
+export interface ExploreRange {
+  min: number;
+  max: number;
+}
+
+export interface ExplorePanel {
+  rowCount: number;
+  totalRowCount: number;
+  kpis: ExploreKpi[];
+  categories: ExploreCategoryChart[];
+  histogram: ExploreHistogram | null;
+  trend: ExploreTrend | null;
+}
+
+export interface ExploreKpi {
+  kind: "count" | "median" | "mean";
+  column: string | null;
+  value: number | null;
+}
+
+export interface ExploreCategoryChart {
+  column: string;
+  bars: ExploreBar[];
+  otherCount: number;
+  distinctCount: number;
+}
+
+export interface ExploreBar {
+  value: string | null;
+  count: number;
+}
+
+export interface ExploreHistogram {
+  column: string;
+  bins: ExploreBin[];
+}
+
+export interface ExploreBin {
+  lower: number;
+  upper: number;
+  count: number;
+}
+
+export interface ExploreTrend {
+  column: string;
+  granularity: "day" | "month" | "year";
+  points: ExplorePoint[];
+}
+
+export interface ExplorePoint {
+  period: string;
+  count: number;
+}
