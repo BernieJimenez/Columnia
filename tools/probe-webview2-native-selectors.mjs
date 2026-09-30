@@ -752,7 +752,13 @@ async function runPrepareFlowSteps(page) {
   // finishes and the app switches to Revisar on its own.
   const reachedReview = await reviewHeading.waitFor({ state: "visible", timeout: 5_000 })
     .then(() => true, () => false);
-  if (!reachedReview) await toReview.click();
+  if (!reachedReview) {
+    // The button may already be gone because the app switched on its own.
+    if (await toReview.isVisible().catch(() => false)) {
+      await toReview.click({ timeout: 5_000 }).catch(() => {});
+    }
+    await reviewHeading.waitFor({ state: "visible", timeout: probeTimeoutMs });
+  }
   // The quality analysis of a large file can take minutes in a debug build.
   const proposalEntry = page.getByRole("button", { name: /^(Ver cambios propuestos|Continuar a Preparar)$/ });
   await proposalEntry.waitFor({ state: "visible", timeout: analysisTimeoutMs });

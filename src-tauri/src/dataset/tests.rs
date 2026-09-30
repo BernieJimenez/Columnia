@@ -10903,7 +10903,7 @@ fn counts_blank_text_and_unicode_characters() {
 #[test]
 fn suggests_dates_and_reports_values_that_do_not_match() {
     let path = temporary_csv(
-        "date_added\n\"September 9, 2019\"\n\"September 10, 2019\"\n\"September 11, 2019\"\n\"September 12, 2019\"\n\"September 13, 2019\"\n\"September 14, 2019\"\n\"September 15, 2019\"\n\"September 16, 2019\"\n\"September 17, 2019\"\nunknown\n",
+        "date_added\n\"September 9, 2019\"\n\"September 10, 2019\"\n\"September 11, 2019\"\n\"September 12, 2019\"\n\"September 13, 2019\"\n\"September 14, 2019\"\n\"September 15, 2019\"\n\"September 16, 2019\"\n\"September 17, 2019\"\npendiente\n",
     );
     let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
 
@@ -17970,4 +17970,62 @@ fn detects_line_breaks_only_inside_quoted_csv_fields() {
     assert!(csv_has_quoted_line_breaks(&quoted).unwrap());
     assert!(!csv_has_quoted_line_breaks(&escaped).unwrap());
     assert!(!csv_has_quoted_line_breaks(&plain).unwrap());
+}
+
+#[test]
+fn sin_dato_markers_do_not_hide_a_numeric_column_from_the_first_proposal() {
+    // ALL2.csv: lat1, lon1, GDP hold numbers and "NA". The markers are
+    // missing values (sentinelCount), not incompatible types, so the column is
+    // suggested as a number and one plan converts markers and types it.
+    let frame = df!(
+        "lat1" => [Some("39.5"), Some("NA"), Some("NA"), Some("40.25"), Some("NA"), Some("41")],
+        "nota" => [Some("a"), Some("NA"), Some("b"), Some("c"), Some("d"), Some("e")],
+    )
+    .expect("frame de prueba");
+
+    let statistics = text_statistics(frame.column("lat1").unwrap())
+        .unwrap()
+        .expect("columna de texto");
+    assert_eq!(statistics.sentinel_count, 3);
+    assert_eq!(statistics.suggested_type, Some("decimal"));
+    assert_eq!(statistics.invalid_type_count, Some(0));
+    assert_eq!(statistics.type_match_percentage, Some(100.0));
+
+    // The profile of a file read from disk counts the same way.
+    let path = temporary_csv("lat1\n39.5\nNA\nNA\n40.25\nNA\n41\n");
+    let size = fs::metadata(&path).unwrap().len();
+    let profile = profile_source_backed_with_progress(
+        &path,
+        "csv",
+        size,
+        6,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("perfil desde disco");
+    let lat1 = &profile.columns[0];
+    assert_eq!(lat1.suggested_type.as_deref(), Some("decimal"));
+    assert_eq!(lat1.invalid_type_count, Some(0));
+    fs::remove_file(path).ok();
+
+    let cast = ["lat1".to_owned()];
+    let plan = safe_corrected_plan_frame(
+        &frame,
+        false,
+        false,
+        true,
+        false,
+        false,
+        None,
+        Some(&cast),
+        None,
+    )
+    .expect("plan");
+    assert_eq!(plan.typed_column_count, 1);
+    assert_eq!(
+        plan.frame.column("lat1").unwrap().dtype(),
+        &DataType::Float64
+    );
+    assert_eq!(plan.frame.column("lat1").unwrap().null_count(), 3);
 }

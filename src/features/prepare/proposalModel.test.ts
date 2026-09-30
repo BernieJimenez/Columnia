@@ -189,6 +189,37 @@ describe("numeric typing (RV18 / FUN-07)", () => {
     expect(proposalOptions(items, selection).castColumns).toEqual(["Quantity", "UnitPrice"]);
     expect(proposalOptions(items, { ...selection, types: false }).castColumns).toBeUndefined();
   });
+
+  it("types a column whose only non-numbers are «sin dato» markers, while they are converted", () => {
+    const withMarkers = profile({
+      columns: [
+        column({ name: "lat1", suggestedType: "decimal", invalidTypeCount: 0, sentinelCount: 1200 }),
+        column({ name: "precio", suggestedType: "integer", invalidTypeCount: 0 }),
+      ],
+    });
+    const items = buildPrepareProposal(withMarkers, dataset);
+    const types = items.find((item) => item.id === "types")!;
+    const selection = defaultProposalSelection(items);
+    expect(selection.sentinels).toBe(true);
+    expect(proposalItemTitle(types, selection)).toBe("Convertir 2 columnas a número");
+    expect(proposalOptions(items, selection).castColumns).toEqual(["lat1", "precio"]);
+
+    // Without converting the markers, «NA» stays text and the column cannot type.
+    const keepMarkers = { ...selection, sentinels: false };
+    expect(proposalItemTitle(types, keepMarkers)).toBe("Convertir 1 columna a número");
+    expect(proposalOptions(items, keepMarkers).castColumns).toEqual(["precio"]);
+  });
+
+  it("does not count the numeric change when every column waits on the markers", () => {
+    const onlyMarkers = profile({
+      columns: [column({ name: "lat1", suggestedType: "decimal", invalidTypeCount: 0, sentinelCount: 10 })],
+    });
+    const items = buildPrepareProposal(onlyMarkers, dataset);
+    const types = items.find((item) => item.id === "types")!;
+    const keepMarkers = { ...defaultProposalSelection(items), sentinels: false };
+    expect(proposalItemTitle(types, keepMarkers)).toBe("Convertir a número: requiere convertir los marcadores «sin dato»");
+    expect(selectedProposalCount(items, keepMarkers)).toBe(selectedProposalCount(items, { ...keepMarkers, types: false }));
+  });
 });
 
 describe("proposal selection", () => {

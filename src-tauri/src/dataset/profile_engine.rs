@@ -394,6 +394,9 @@ pub(super) fn text_statistics_with_unique_count(
 struct TextTally {
     empty_count: usize,
     sentinel_count: usize,
+    /// Non-empty «sin dato» markers (NA, N/A…): missing values, so they do not
+    /// count against the suggested type.
+    marker_count: usize,
     encoding_issue_count: usize,
     value_count: usize,
     boolean_count: usize,
@@ -417,6 +420,7 @@ impl TextTally {
         let is_sentinel = SENTINEL_VALUES.contains(&normalized.as_str());
         self.empty_count += count * usize::from(trimmed.is_empty());
         self.sentinel_count += count * usize::from(is_sentinel);
+        self.marker_count += count * usize::from(is_sentinel && !trimmed.is_empty());
         self.encoding_issue_count += count * usize::from(repair_mojibake(value).is_some());
         self.untrimmed_count += count * usize::from(trimmed.len() != value.len());
         if !trimmed.is_empty() && !is_sentinel {
@@ -455,7 +459,7 @@ impl TextTally {
             (self.value_count > 0).then(|| self.total_length as f64 / self.value_count as f64);
         let non_empty_count = self.value_count.saturating_sub(self.empty_count);
         let (suggested_type, type_match_percentage, invalid_type_count) = suggest_text_type(
-            non_empty_count,
+            non_empty_count.saturating_sub(self.marker_count),
             self.boolean_count,
             self.integer_count,
             self.decimal_count,
@@ -656,6 +660,7 @@ where
 pub(super) struct SourceTextAccumulator {
     empty_count: usize,
     sentinel_count: usize,
+    marker_count: usize,
     encoding_issue_count: usize,
     value_count: usize,
     boolean_count: usize,
@@ -676,6 +681,7 @@ impl SourceTextAccumulator {
         Self {
             empty_count: 0,
             sentinel_count: 0,
+            marker_count: 0,
             encoding_issue_count: 0,
             value_count: 0,
             boolean_count: 0,
@@ -711,9 +717,11 @@ impl SourceTextAccumulator {
             self.empty_count = self
                 .empty_count
                 .saturating_add(usize::from(trimmed.is_empty()));
-            self.sentinel_count = self
-                .sentinel_count
-                .saturating_add(usize::from(SENTINEL_VALUES.contains(&normalized.as_str())));
+            let is_sentinel = SENTINEL_VALUES.contains(&normalized.as_str());
+            self.sentinel_count = self.sentinel_count.saturating_add(usize::from(is_sentinel));
+            self.marker_count = self
+                .marker_count
+                .saturating_add(usize::from(is_sentinel && !trimmed.is_empty()));
             self.encoding_issue_count = self
                 .encoding_issue_count
                 .saturating_add(usize::from(repair_mojibake(value).is_some()));
@@ -765,7 +773,7 @@ impl SourceTextAccumulator {
         let categorical_candidates = self.categorical_candidates;
         let non_empty_count = self.value_count.saturating_sub(self.empty_count);
         let (suggested_type, type_match_percentage, invalid_type_count) = suggest_text_type(
-            non_empty_count,
+            non_empty_count.saturating_sub(self.marker_count),
             self.boolean_count,
             self.integer_count,
             self.decimal_count,
