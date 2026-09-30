@@ -93,7 +93,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
                     {filterLabel(filter)} ✕
                   </button>
                 ))}
-                <button type="button" className="link-action" onClick={() => setFilters([])}>Quitar filtros</button>
+                <button type="button" className="explore__clear" onClick={() => setFilters([])}>Quitar filtros</button>
               </>
             )}
           </div>
