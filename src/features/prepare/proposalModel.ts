@@ -247,7 +247,9 @@ export function buildPrepareProposal(profile: DatasetProfile, dataset: DatasetPr
       id: "types",
       title: `Convertir ${plural(typeable.length, "columna", "columnas")} a número`,
       hint: "Todos sus valores son números; así se suman, ordenan y exportan como números. Los identificadores no se tocan.",
-      columns: typeable.map((column) => ({ name: column.name, missing: 0, sentinels: 0 })),
+      // A column whose only non-numbers are «sin dato» markers types once
+      // those markers become gaps, so it depends on that change.
+      columns: typeable.map((column) => ({ name: column.name, missing: 0, sentinels: column.sentinelCount ?? 0 })),
       examples: typeable.slice(0, MAX_EXAMPLES).map((column) => ({
         column: column.name,
         before: "Texto",
@@ -331,11 +333,27 @@ export function defaultProposalSelection(items: ProposalItem[]): ProposalSelecti
  * simulation of the whole selected chain when there is one (RV17 / FUN-06);
  * otherwise they are estimated from the profile and the current selection.
  */
+/**
+ * The columns «Convertir a número» types with this selection: one that holds
+ * «sin dato» markers only types when those markers are converted first.
+ */
+export function typedColumns(item: ProposalItem, selection: ProposalSelection): string[] {
+  return (item.columns ?? [])
+    .filter((column) => selection.sentinels || column.sentinels === 0)
+    .map((column) => column.name);
+}
+
 export function proposalItemTitle(
   item: ProposalItem,
   selection: ProposalSelection,
   preview?: SafeCorrectionsPreview | null,
 ): string {
+  if (item.id === "types" && item.columns) {
+    const count = typedColumns(item, selection).length;
+    return count === 0
+      ? "Convertir a número: requiere convertir los marcadores «sin dato»"
+      : `Convertir ${plural(count, "columna", "columnas")} a número`;
+  }
   if (item.id !== "impute" || !item.columns) return item.title;
   if (preview) {
     return preview.imputedCellCount === 0
@@ -356,7 +374,9 @@ export function imputationExamples(preview: SafeCorrectionsPreview): ProposalExa
 }
 
 export function selectedProposalCount(items: ProposalItem[], selection: ProposalSelection): number {
-  return items.filter((item) => selection[item.id]).length;
+  // «Convertir a número» with every column waiting on the markers changes nothing.
+  return items.filter((item) => selection[item.id]
+    && !(item.id === "types" && item.columns && typedColumns(item, selection).length === 0)).length;
 }
 
 export function proposalOptions(
@@ -374,10 +394,15 @@ export function proposalOptions(
     normalizeColumnNames,
     removeDuplicates: on("duplicates"),
     imputeMissing: on("impute"),
-    ...(on("types") ? { castColumns: items.find((item) => item.id === "types")?.columns?.map((column) => column.name) ?? [] } : {}),
+    ...(on("types") ? { castColumns: typedColumnsOf(items, selection) } : {}),
     ...(dateColumns.length > 0 ? { dateColumns } : {}),
     ...(on("impute") ? { imputeColumns: items.find((item) => item.id === "impute")?.columns?.map((column) => column.name) ?? [] } : {}),
   };
+}
+
+function typedColumnsOf(items: ProposalItem[], selection: ProposalSelection): string[] {
+  const item = items.find((candidate) => candidate.id === "types");
+  return item ? typedColumns(item, selection) : [];
 }
 
 export function applyLabel(count: number): string {

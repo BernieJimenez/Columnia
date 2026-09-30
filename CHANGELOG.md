@@ -142,6 +142,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La primera propuesta de Preparar ya convierte a número las columnas cuyos
+  únicos valores no numéricos son marcadores «sin dato» (`NA`, `N/A`…), junto
+  con la conversión de esos marcadores; antes había que aplicar dos veces. El
+  perfil cuenta esos marcadores como datos que faltan y no como valores de tipo
+  incompatible. Si se desmarca «Convertir marcadores», la propuesta deja fuera
+  esas columnas y lo dice, para que lo anunciado coincida con lo aplicado.
 - Una columna de números enteros escritos en notación científica o con `.0`
   (`1e+05`, `55003.0`, como exporta R) se convierte a entero en lugar de a
   decimal, así que la copia muestra `55003` y no `55003.0`. Solo si todos los
