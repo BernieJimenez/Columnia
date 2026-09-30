@@ -9,6 +9,7 @@ const sourceFiles = [
   "src-tauri/src/lib.rs",
   "src-tauri/src/dataset.rs",
   "src-tauri/src/dataset/comparison_io.rs",
+  "src-tauri/src/dataset/explore.rs",
   "src-tauri/src/dataset/export_io.rs",
   "src-tauri/src/dataset/history.rs",
   "src-tauri/src/dataset/json_reader.rs",
@@ -128,6 +129,16 @@ const sharedStructures = [
   ["DiagnosticReport", "DiagnosticReport"],
   ["DiagnosticMetrics", "DiagnosticMetrics"],
   ["SessionStatus", "SessionStatus"],
+  ["ExploreFilter", "ExploreFilter"],
+  ["ExploreRange", "ExploreRange"],
+  ["ExplorePanel", "ExplorePanel"],
+  ["ExploreKpi", "ExploreKpi"],
+  ["ExploreCategoryChart", "ExploreCategoryChart"],
+  ["ExploreBar", "ExploreBar"],
+  ["ExploreHistogram", "ExploreHistogram"],
+  ["ExploreBin", "ExploreBin"],
+  ["ExploreTrend", "ExploreTrend"],
+  ["ExplorePoint", "ExplorePoint"],
 ];
 
 function handlerEntries(source) {
@@ -193,7 +204,7 @@ try {
   if (comparable(current.sharedStructures) !== comparable(expected.sharedStructures)) {
     throw new Error("La lista de estructuras compartidas IPC cambió; actualiza el inventario y sus contratos.");
   }
-  if (current.productionCommands.length !== 89 || current.debugCommands.length !== 4) {
+  if (current.productionCommands.length !== 90 || current.debugCommands.length !== 4) {
     throw new Error(`Conteo IPC inesperado: ${current.productionCommands.length} producción, ${current.debugCommands.length} debug.`);
   }
   console.log(`Inventario IPC aprobado: ${current.productionCommands.length} comandos producción, ${current.debugCommands.length} debug, ${current.sharedStructures.length} estructuras.`);

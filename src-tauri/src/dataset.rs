@@ -166,8 +166,10 @@ use recipe_source_projection::{
     apply_source_backed_projection_recipe_with_cancellation, duckdb_iso8601_expression,
     duckdb_string_literal, source_backed_projection_recipe_supported,
 };
+mod explore;
 #[path = "dataset/export_io.rs"]
 mod export_io;
+pub use explore::{ExploreFilter, ExplorePanel};
 #[path = "dataset/snapshot_comparison.rs"]
 mod snapshot_comparison;
 #[path = "dataset/source_loading.rs"]
@@ -9808,6 +9810,47 @@ pub fn open_last_export(state: State<'_, DatasetState>) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Explorar (EX01): the automatic panel of the active dataset with the given
+/// filters, computed in Rust over every row. The profile chooses the charts.
+#[tauri::command]
+pub async fn get_explore_panel(
+    app: AppHandle,
+    filters: Vec<ExploreFilter>,
+) -> Result<ExplorePanel, String> {
+    if filters.len() > 32 {
+        return Err("Demasiados filtros a la vez.".to_owned());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let current = state.current.lock_recovering();
+        let dataset = current.as_ref().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let profile = dataset
+            .profile
+            .as_ref()
+            .ok_or_else(|| "Analiza la calidad del dataset antes de explorarlo.".to_owned())?;
+        let plan = if dataset.source_backed {
+            let (source_path, _, _) = current_source_backed_context(dataset)
+                .ok_or_else(|| "La fuente cambió o ya no está disponible.".to_owned())?;
+            match dataset_extension(&source_path)?.as_str() {
+                "parquet" => parquet_scan(&source_path)?,
+                extension @ ("csv" | "tsv" | "txt") => delimited_scan_with_header(
+                    &source_path,
+                    extension,
+                    dataset.delimited_header_mode != Some(SpreadsheetHeaderMode::Generated),
+                )?,
+                _ => return Err("Este formato todavía no se puede explorar.".to_owned()),
+            }
+        } else {
+            dataset.frame.clone().lazy()
+        };
+        explore::explore_panel(plan, profile, &filters)
+    })
+    .await
+    .map_err(|error| crate::crash_report::task_interrupted("El panel se interrumpió", &error))?
 }
 
 /// Writes a Power BI data source file (`.pbids`) next to the last CSV or Excel

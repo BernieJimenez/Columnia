@@ -10,6 +10,16 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- EX01 — Fase «Explorar» entre Preparar y Entregar: un panel que Columnia elige
+  solo a partir del perfil, con los datos ya limpios. Muestra el número de filas,
+  la mediana y la media de las medidas principales, barras de hasta seis columnas
+  de categorías (las de texto primero; nunca datos personales ni
+  identificadores), el histograma de la primera medida y la tendencia en el
+  tiempo si hay una columna de fecha. Pulsar una barra o un tramo del histograma
+  filtra todo el panel; cada gráfico ignora su propio filtro para que se pueda
+  cambiar la selección. Nuevo comando IPC `get_explore_panel` (90 comandos, 84
+  estructuras), que agrega en Rust sobre todas las filas: con 1 000 000 de filas
+  tarda 131 ms y 47 ms con un filtro; con ALL2.csv (368 428 filas), 61 ms.
 - «Abrir en Power BI» en el resultado de Entregar para exportaciones CSV y
   Excel: Columnia escribe un archivo `.pbids` junto a la copia y abre Power BI
   Desktop con ella. Si Power BI Desktop no está instalado, lo dice y deja el

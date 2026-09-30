@@ -4,6 +4,7 @@
     "src-tauri/src/lib.rs",
     "src-tauri/src/dataset.rs",
     "src-tauri/src/dataset/comparison_io.rs",
+    "src-tauri/src/dataset/explore.rs",
     "src-tauri/src/dataset/export_io.rs",
     "src-tauri/src/dataset/history.rs",
     "src-tauri/src/dataset/json_reader.rs",
@@ -209,6 +210,11 @@
     },
     {
       "name": "open_last_export_in_power_bi",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "get_explore_panel",
       "module": "dataset",
       "debug": false
     },
@@ -806,6 +812,46 @@
     {
       "rust": "SessionStatus",
       "typescript": "SessionStatus"
+    },
+    {
+      "rust": "ExploreFilter",
+      "typescript": "ExploreFilter"
+    },
+    {
+      "rust": "ExploreRange",
+      "typescript": "ExploreRange"
+    },
+    {
+      "rust": "ExplorePanel",
+      "typescript": "ExplorePanel"
+    },
+    {
+      "rust": "ExploreKpi",
+      "typescript": "ExploreKpi"
+    },
+    {
+      "rust": "ExploreCategoryChart",
+      "typescript": "ExploreCategoryChart"
+    },
+    {
+      "rust": "ExploreBar",
+      "typescript": "ExploreBar"
+    },
+    {
+      "rust": "ExploreHistogram",
+      "typescript": "ExploreHistogram"
+    },
+    {
+      "rust": "ExploreBin",
+      "typescript": "ExploreBin"
+    },
+    {
+      "rust": "ExploreTrend",
+      "typescript": "ExploreTrend"
+    },
+    {
+      "rust": "ExplorePoint",
+      "typescript": "ExplorePoint"
     }
   ]
 }

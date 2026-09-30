@@ -18029,3 +18029,125 @@ fn sin_dato_markers_do_not_hide_a_numeric_column_from_the_first_proposal() {
     );
     assert_eq!(plan.frame.column("lat1").unwrap().null_count(), 3);
 }
+
+fn explore_frame() -> DataFrame {
+    let dates = [
+        "2025-01-05",
+        "2025-01-20",
+        "2025-02-03",
+        "2025-02-14",
+        "2025-03-01",
+        "2025-03-09",
+        "2025-04-11",
+        "2025-05-02",
+    ]
+    .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").unwrap());
+    df!(
+        "id" => [1_i64, 2, 3, 4, 5, 6, 7, 8],
+        "estado" => ["FL", "FL", "CA", "CA", "CA", "TX", "FL", "TX"],
+        "tipo" => ["casa", "apto", "apto", "apto", "casa", "apto", "apto", "casa"],
+        "habitaciones" => [1_i64, 2, 2, 3, 1, 2, 3, 2],
+        "precio" => [100_i64, 200, 300, 400, 500, 600, 700, 800],
+        "correo" => ["a@x.com", "b@x.com", "c@x.com", "d@x.com", "e@x.com", "f@x.com", "g@x.com", "h@x.com"],
+        "fecha" => dates,
+    )
+    .expect("frame de prueba")
+}
+
+fn explore_values(column: &str, values: &[&str]) -> ExploreFilter {
+    serde_json::from_value(serde_json::json!({ "column": column, "values": values }))
+        .expect("filtro de valores")
+}
+
+#[test]
+fn explore_panel_chooses_charts_from_the_profile_and_counts_every_row() {
+    let frame = explore_frame();
+    let profile = profile_dataset(&frame).expect("perfil");
+    let panel = explore::explore_panel(frame.lazy(), &profile, &[]).expect("panel");
+    let value = serde_json::to_value(&panel).unwrap();
+
+    assert_eq!(value["rowCount"], 8);
+    assert_eq!(value["totalRowCount"], 8);
+    // Count, then the median of the first measure (the id is a key, not a measure).
+    assert_eq!(value["kpis"][0]["kind"], "count");
+    assert_eq!(value["kpis"][1]["kind"], "median");
+    assert_eq!(value["kpis"][1]["column"], "precio");
+    assert_eq!(value["kpis"][1]["value"], 450.0);
+    // Text categories first, then small numeric ones; personal data never.
+    let charts = value["categories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|chart| chart["column"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(charts, ["estado", "tipo", "habitaciones"]);
+    assert_eq!(
+        value["categories"][0]["bars"][0],
+        serde_json::json!({ "value": "CA", "count": 3 })
+    );
+    assert_eq!(value["histogram"]["column"], "precio");
+    let histogram_total: u64 = value["histogram"]["bins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|bin| bin["count"].as_u64().unwrap())
+        .sum();
+    assert_eq!(histogram_total, 8);
+    assert_eq!(value["trend"]["granularity"], "month");
+    assert_eq!(
+        value["trend"]["points"][0],
+        serde_json::json!({ "period": "2025-01", "count": 2 })
+    );
+}
+
+#[test]
+fn explore_filters_cross_every_chart_except_their_own() {
+    let frame = explore_frame();
+    let profile = profile_dataset(&frame).expect("perfil");
+    let filters = [explore_values("estado", &["FL"])];
+    let panel = explore::explore_panel(frame.lazy(), &profile, &filters).expect("panel");
+    let value = serde_json::to_value(&panel).unwrap();
+
+    assert_eq!(value["rowCount"], 3);
+    assert_eq!(value["kpis"][0]["value"], 3.0);
+    // The state chart ignores its own filter so every state stays selectable.
+    let states = value["categories"][0]["bars"].as_array().unwrap();
+    assert_eq!(states.len(), 3);
+    // The type chart only counts rows in FL: casa 1, apto 2.
+    assert_eq!(
+        value["categories"][1]["bars"],
+        serde_json::json!([{ "value": "apto", "count": 2 }, { "value": "casa", "count": 1 }])
+    );
+
+    let range: ExploreFilter = serde_json::from_value(serde_json::json!({
+        "column": "precio", "range": { "min": 450.0, "max": 800.0 }
+    }))
+    .unwrap();
+    let panel = explore::explore_panel(explore_frame().lazy(), &profile, &[range]).expect("panel");
+    let value = serde_json::to_value(&panel).unwrap();
+    // 500 CA, 600 TX, 700 FL, 800 TX.
+    assert_eq!(value["rowCount"], 4);
+    assert_eq!(
+        value["categories"][0]["bars"][0],
+        serde_json::json!({ "value": "TX", "count": 2 })
+    );
+}
+
+#[test]
+fn explore_rejects_unknown_columns_and_ambiguous_filters() {
+    let frame = explore_frame();
+    let profile = profile_dataset(&frame).expect("perfil");
+    let unknown = [explore_values("no_existe", &["x"])];
+    assert_eq!(
+        explore::explore_panel(frame.clone().lazy(), &profile, &unknown).unwrap_err(),
+        "La columna 'no_existe' no existe en el dataset."
+    );
+    let both: ExploreFilter = serde_json::from_value(serde_json::json!({
+        "column": "precio", "values": ["1"], "range": { "min": 0.0, "max": 1.0 }
+    }))
+    .unwrap();
+    assert_eq!(
+        explore::explore_panel(frame.lazy(), &profile, &[both]).unwrap_err(),
+        "Cada filtro necesita valores o un rango, no ambos."
+    );
+}

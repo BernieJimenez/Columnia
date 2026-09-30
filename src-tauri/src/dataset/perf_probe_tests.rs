@@ -114,6 +114,17 @@ fn perf_probe_interactive_path() {
         count_normalized_duplicate_rows(&frame, 0, &|| false, &mut |_, _| {}).unwrap()
     });
     timed("dataset page", || dataset_preview(&source, &frame).unwrap());
+    let profile = profile_dataset(&frame).expect("perfil para Explorar");
+    timed("explore panel", || {
+        explore::explore_panel(frame.clone().lazy(), &profile, &[]).expect("panel")
+    });
+    let state_filter: ExploreFilter = serde_json::from_value(serde_json::json!({
+        "column": "Categoría", "values": ["Hogar"]
+    }))
+    .unwrap();
+    timed("explore panel, one filter", || {
+        explore::explore_panel(frame.clone().lazy(), &profile, &[state_filter]).expect("panel")
+    });
 
     let mut history = timed("history: new (baseline snapshot)", || {
         HistoryManager::new(&frame).expect("historial")

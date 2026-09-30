@@ -1,0 +1,515 @@
+//! Explorar (EX01): the automatic panel over the prepared dataset. Charts are
+//! chosen from the quality profile and every figure is computed over all
+//! rows; each chart applies every filter except its own column (crossfilter).
+
+use super::*;
+use chrono::Datelike;
+use std::collections::BTreeMap;
+
+const MAX_CATEGORY_CHARTS: usize = 6;
+const MAX_CATEGORY_VALUES: usize = 60;
+const MAX_CATEGORY_TEXT_LENGTH: f64 = 40.0;
+/// A number is a category (bedrooms, a 0/1 flag) only with few repeated values.
+const MAX_NUMERIC_CATEGORY_VALUES: usize = 12;
+const MAX_BARS: usize = 12;
+const HISTOGRAM_BINS: usize = 20;
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExploreFilter {
+    column: String,
+    /// Keep rows whose value (as text) is one of these; `null` keeps gaps.
+    #[serde(default)]
+    values: Option<Vec<Option<String>>>,
+    /// Keep rows whose number falls in `[min, max]`.
+    #[serde(default)]
+    range: Option<ExploreRange>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExploreRange {
+    min: f64,
+    max: f64,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplorePanel {
+    row_count: usize,
+    total_row_count: usize,
+    kpis: Vec<ExploreKpi>,
+    categories: Vec<ExploreCategoryChart>,
+    histogram: Option<ExploreHistogram>,
+    trend: Option<ExploreTrend>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreKpi {
+    /// "count", "median" or "mean".
+    kind: String,
+    column: Option<String>,
+    value: Option<f64>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreCategoryChart {
+    column: String,
+    bars: Vec<ExploreBar>,
+    /// Rows in values beyond the bars shown.
+    other_count: usize,
+    distinct_count: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreBar {
+    value: Option<String>,
+    count: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreHistogram {
+    column: String,
+    bins: Vec<ExploreBin>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreBin {
+    lower: f64,
+    upper: f64,
+    count: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreTrend {
+    column: String,
+    /// "day", "month" or "year".
+    granularity: String,
+    points: Vec<ExplorePoint>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplorePoint {
+    period: String,
+    count: usize,
+}
+
+/// The columns each chart uses, chosen once from the profile.
+struct PanelPlan {
+    categories: Vec<String>,
+    measures: Vec<String>,
+    date: Option<String>,
+}
+
+fn is_numeric_type(data_type: &str) -> bool {
+    let lower = data_type.to_ascii_lowercase();
+    [
+        "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64",
+    ]
+    .contains(&lower.as_str())
+        || lower.starts_with("int")
+        || lower.starts_with("uint")
+        || lower.starts_with("float")
+}
+
+fn is_text_type(data_type: &str) -> bool {
+    matches!(
+        data_type.to_ascii_lowercase().as_str(),
+        "str" | "string" | "utf8"
+    )
+}
+
+fn is_date_type(data_type: &str) -> bool {
+    let lower = data_type.to_ascii_lowercase();
+    lower == "date" || lower.starts_with("datetime")
+}
+
+/// A row number or key: every value distinct and, when numeric, a run of
+/// consecutive integers (1..n). Unique prices are a measure, not a key.
+fn is_row_identifier(column: &ColumnProfile, row_count: usize) -> bool {
+    if row_count == 0 || column.unique_count < row_count {
+        return false;
+    }
+    let bound =
+        |value: &Option<String>| value.as_deref().and_then(|value| value.parse::<f64>().ok());
+    match (bound(&column.minimum), bound(&column.maximum)) {
+        (Some(minimum), Some(maximum)) => (maximum - minimum + 1.0 - row_count as f64).abs() < 0.5,
+        _ => true,
+    }
+}
+
+fn plan_panel(profile: &DatasetProfile) -> PanelPlan {
+    let columns = profile
+        .columns
+        .iter()
+        .filter(|column| column.name != "_cambios" && column.privacy_signal.is_none());
+    let mut text_categories = Vec::new();
+    let mut numeric_categories = Vec::new();
+    let mut binary_categories = Vec::new();
+    let mut measures = Vec::new();
+    let mut date = None;
+    for column in columns {
+        let numeric = is_numeric_type(&column.data_type)
+            || (is_text_type(&column.data_type)
+                && matches!(
+                    column.suggested_type.as_deref(),
+                    Some("integer" | "decimal")
+                ));
+        let identifier = is_row_identifier(column, profile.row_count);
+        if is_date_type(&column.data_type) {
+            date.get_or_insert_with(|| column.name.clone());
+        } else if numeric {
+            let repeats = column.unique_count.saturating_mul(2) <= profile.row_count;
+            if column.unique_count == 2 {
+                binary_categories.push(column.name.clone());
+            } else if column.unique_count > 2
+                && column.unique_count <= MAX_NUMERIC_CATEGORY_VALUES
+                && repeats
+            {
+                numeric_categories.push(column.name.clone());
+            } else if !identifier {
+                measures.push(column.name.clone());
+            }
+        } else if column.unique_count >= 2
+            && column.unique_count <= MAX_CATEGORY_VALUES
+            && column.average_length.unwrap_or(0.0) <= MAX_CATEGORY_TEXT_LENGTH
+        {
+            text_categories.push(column.name.clone());
+        }
+    }
+    PanelPlan {
+        categories: text_categories
+            .into_iter()
+            .chain(numeric_categories)
+            .chain(binary_categories)
+            .take(MAX_CATEGORY_CHARTS)
+            .collect(),
+        measures,
+        date,
+    }
+}
+
+fn value_expression(column: &str) -> Expr {
+    col(column).cast(DataType::String)
+}
+
+fn number_expression(column: &str) -> Expr {
+    col(column).cast(DataType::Float64)
+}
+
+/// Every filter except the ones on `skip`, combined with AND.
+fn filter_expression(filters: &[ExploreFilter], skip: Option<&str>) -> Option<Expr> {
+    filters
+        .iter()
+        .filter(|filter| Some(filter.column.as_str()) != skip)
+        .filter_map(|filter| {
+            if let Some(values) = filter.values.as_ref() {
+                values
+                    .iter()
+                    .map(|value| match value {
+                        Some(value) => value_expression(&filter.column).eq(lit(value.clone())),
+                        None => col(filter.column.as_str()).is_null(),
+                    })
+                    .reduce(|left, right| left.or(right))
+            } else {
+                filter.range.map(|range| {
+                    number_expression(&filter.column)
+                        .gt_eq(lit(range.min))
+                        .and(number_expression(&filter.column).lt_eq(lit(range.max)))
+                })
+            }
+        })
+        .reduce(|left, right| left.and(right))
+}
+
+fn filtered(plan: &LazyFrame, filters: &[ExploreFilter], skip: Option<&str>) -> LazyFrame {
+    match filter_expression(filters, skip) {
+        Some(expression) => plan.clone().filter(expression),
+        None => plan.clone(),
+    }
+}
+
+fn collect(plan: LazyFrame) -> Result<DataFrame, String> {
+    plan.collect()
+        .map_err(|error| format!("No se pudo calcular el panel: {error}"))
+}
+
+fn numbers(frame: &DataFrame, column: &str) -> Result<Vec<f64>, String> {
+    let values = frame
+        .column(column)
+        .and_then(|column| column.f64())
+        .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?;
+    Ok(values
+        .iter()
+        .flatten()
+        .filter(|value| value.is_finite())
+        .collect())
+}
+
+fn row_count(plan: LazyFrame) -> Result<usize, String> {
+    let frame = collect(plan.select([len().alias("n")]))?;
+    let value = frame
+        .column("n")
+        .map_err(|error| format!("No se pudo contar las filas: {error}"))?
+        .get(0)
+        .map_err(|error| format!("No se pudo contar las filas: {error}"))?;
+    Ok(match value {
+        AnyValue::UInt32(value) => value as usize,
+        AnyValue::UInt64(value) => value as usize,
+        AnyValue::Int64(value) => value.max(0) as usize,
+        AnyValue::Int32(value) => value.max(0) as usize,
+        _ => 0,
+    })
+}
+
+fn median(values: &mut [f64]) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_unstable_by(f64::total_cmp);
+    let middle = values.len() / 2;
+    Some(if values.len().is_multiple_of(2) {
+        (values[middle - 1] + values[middle]) / 2.0
+    } else {
+        values[middle]
+    })
+}
+
+fn category_chart(
+    plan: &LazyFrame,
+    filters: &[ExploreFilter],
+    column: &str,
+) -> Result<ExploreCategoryChart, String> {
+    let counts = collect(
+        filtered(plan, filters, Some(column))
+            .group_by([value_expression(column).alias("value")])
+            .agg([len().alias("count")]),
+    )?;
+    let values = counts
+        .column("value")
+        .and_then(|column| column.str())
+        .map_err(|error| format!("No se pudo agrupar '{column}': {error}"))?;
+    let totals = counts
+        .column("count")
+        .map_err(|error| format!("No se pudo agrupar '{column}': {error}"))?
+        .cast(&DataType::UInt64)
+        .map_err(|error| format!("No se pudo agrupar '{column}': {error}"))?;
+    let totals = totals
+        .u64()
+        .map_err(|error| format!("No se pudo agrupar '{column}': {error}"))?;
+    let mut bars = values
+        .iter()
+        .zip(totals.iter())
+        .map(|(value, count)| ExploreBar {
+            value: value.map(str::to_owned),
+            count: count.unwrap_or(0) as usize,
+        })
+        .collect::<Vec<_>>();
+    // Most frequent first; ties keep a stable, readable order.
+    bars.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.value.cmp(&right.value))
+    });
+    let distinct_count = bars.len();
+    let other_count = bars.iter().skip(MAX_BARS).map(|bar| bar.count).sum();
+    bars.truncate(MAX_BARS);
+    Ok(ExploreCategoryChart {
+        column: column.to_owned(),
+        bars,
+        other_count,
+        distinct_count,
+    })
+}
+
+fn histogram(
+    plan: &LazyFrame,
+    filters: &[ExploreFilter],
+    column: &str,
+) -> Result<Option<ExploreHistogram>, String> {
+    // Bins span the whole column so they stay put while filters change.
+    let all = numbers(
+        &collect(
+            plan.clone()
+                .select([number_expression(column).alias(column)]),
+        )?,
+        column,
+    )?;
+    let (Some(minimum), Some(maximum)) = (
+        all.iter().copied().reduce(f64::min),
+        all.iter().copied().reduce(f64::max),
+    ) else {
+        return Ok(None);
+    };
+    let width = if maximum > minimum {
+        (maximum - minimum) / HISTOGRAM_BINS as f64
+    } else {
+        1.0
+    };
+    let bin_count = if maximum > minimum { HISTOGRAM_BINS } else { 1 };
+    let mut counts = vec![0usize; bin_count];
+    let selected = numbers(
+        &collect(
+            filtered(plan, filters, Some(column)).select([number_expression(column).alias(column)]),
+        )?,
+        column,
+    )?;
+    for value in selected {
+        let index = (((value - minimum) / width) as usize).min(bin_count - 1);
+        counts[index] += 1;
+    }
+    Ok(Some(ExploreHistogram {
+        column: column.to_owned(),
+        bins: counts
+            .into_iter()
+            .enumerate()
+            .map(|(index, count)| ExploreBin {
+                lower: minimum + width * index as f64,
+                upper: if index + 1 == bin_count {
+                    maximum
+                } else {
+                    minimum + width * (index + 1) as f64
+                },
+                count,
+            })
+            .collect(),
+    }))
+}
+
+fn trend(
+    plan: &LazyFrame,
+    filters: &[ExploreFilter],
+    column: &str,
+) -> Result<Option<ExploreTrend>, String> {
+    let frame = collect(
+        filtered(plan, filters, Some(column))
+            .select([col(column).cast(DataType::Date).alias(column)]),
+    )?;
+    let days = frame
+        .column(column)
+        .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
+        .cast(&DataType::Int32)
+        .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?;
+    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("fecha base válida");
+    let dates = days
+        .i32()
+        .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
+        .iter()
+        .flatten()
+        .filter_map(|day| epoch.checked_add_signed(chrono::Duration::days(day.into())))
+        .collect::<Vec<_>>();
+    let (Some(first), Some(last)) = (dates.iter().min(), dates.iter().max()) else {
+        return Ok(None);
+    };
+    let span = (*last - *first).num_days();
+    let granularity = if span <= 92 {
+        "day"
+    } else if span <= 366 * 5 {
+        "month"
+    } else {
+        "year"
+    };
+    let mut points = BTreeMap::<String, usize>::new();
+    for date in &dates {
+        let period = match granularity {
+            "day" => date.format("%Y-%m-%d").to_string(),
+            "month" => format!("{:04}-{:02}", date.year(), date.month()),
+            _ => format!("{:04}", date.year()),
+        };
+        *points.entry(period).or_default() += 1;
+    }
+    Ok(Some(ExploreTrend {
+        column: column.to_owned(),
+        granularity: granularity.to_owned(),
+        points: points
+            .into_iter()
+            .map(|(period, count)| ExplorePoint { period, count })
+            .collect(),
+    }))
+}
+
+/// The panel for `plan` (the prepared dataset) with the given filters.
+pub(super) fn explore_panel(
+    plan: LazyFrame,
+    profile: &DatasetProfile,
+    filters: &[ExploreFilter],
+) -> Result<ExplorePanel, String> {
+    for filter in filters {
+        if filter.values.is_some() == filter.range.is_some() {
+            return Err("Cada filtro necesita valores o un rango, no ambos.".to_owned());
+        }
+        if !profile
+            .columns
+            .iter()
+            .any(|column| column.name == filter.column)
+        {
+            return Err(format!(
+                "La columna '{}' no existe en el dataset.",
+                filter.column
+            ));
+        }
+    }
+    let layout = plan_panel(profile);
+    let total_row_count = profile.row_count;
+    let everything = filtered(&plan, filters, None);
+    let row_count = row_count(everything.clone())?;
+
+    let mut kpis = vec![ExploreKpi {
+        kind: "count".to_owned(),
+        column: None,
+        value: Some(row_count as f64),
+    }];
+    for (index, measure) in layout.measures.iter().take(2).enumerate() {
+        let mut values = numbers(
+            &collect(
+                everything
+                    .clone()
+                    .select([number_expression(measure).alias(measure.as_str())]),
+            )?,
+            measure,
+        )?;
+        let (kind, value) = if index == 0 {
+            ("median", median(&mut values))
+        } else {
+            (
+                "mean",
+                (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64),
+            )
+        };
+        kpis.push(ExploreKpi {
+            kind: kind.to_owned(),
+            column: Some(measure.clone()),
+            value,
+        });
+    }
+
+    let categories = layout
+        .categories
+        .iter()
+        .map(|column| category_chart(&plan, filters, column))
+        .collect::<Result<Vec<_>, _>>()?;
+    let histogram = match layout.measures.first() {
+        Some(measure) => histogram(&plan, filters, measure)?,
+        None => None,
+    };
+    let trend = match layout.date.as_deref() {
+        Some(date) => trend(&plan, filters, date)?,
+        None => None,
+    };
+    Ok(ExplorePanel {
+        row_count,
+        total_row_count,
+        kpis,
+        categories,
+        histogram,
+        trend,
+    })
+}

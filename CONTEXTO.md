@@ -57,12 +57,13 @@ Los cinco comandos CLI de proyectos exigen siempre `--store <directorio>`: no in
 
 ## Flujo de producto
 
-La interfaz sigue cuatro fases declaradas en `src/App.tsx`:
+La interfaz sigue cinco fases declaradas en `src/features/workspaces/workspaceModel.ts`:
 
 1. **Cargar**: inspecciona una fuente local desde el selector nativo o el arrastre a la ventana, permite seleccionar una hoja cuando corresponde, muestra hasta cinco archivos recientes sin persistir rutas y materializa el dataset activo.
 2. **Revisar**: calcula el perfil de calidad automáticamente al cargar, resume lo que hay que arreglar y pagina la vista previa.
 3. **Preparar**: propone correcciones con su antes y después, aplica las elegidas o una receta estructural atómica y ofrece Deshacer/Rehacer.
-4. **Entregar**: propone comprobaciones de calidad, valida el contrato y exporta a CSV, JSON, Parquet, SQL, Excel, SQLite, un paquete ZIP o una base de datos por ODBC.
+4. **Explorar**: muestra un panel que Columnia elige a partir del perfil (indicadores, barras de categorías, histograma de la primera medida y tendencia si hay fecha) con filtro cruzado: cada gráfico aplica todos los filtros menos el suyo. `get_explore_panel` agrega en Rust con Polars *lazy* sobre todas las filas, del frame en memoria o, si el dataset se lee desde disco, del archivo o su snapshot Parquet en streaming (`src-tauri/src/dataset/explore.rs`, `src/features/explore/`).
+5. **Entregar**: propone comprobaciones de calidad, valida el contrato y exporta a CSV, JSON, Parquet, SQL, Excel, SQLite, un paquete ZIP o una base de datos por ODBC.
 
 Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una operación activa bloquea la navegación que pueda competir con ella. Si el dataset cambia, cualquier validación de entrega previa queda obsoleta y debe ejecutarse de nuevo.
 
@@ -570,7 +571,7 @@ Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
 ## Riesgos y deuda técnica visibles
 
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.
-2. **Editor de recetas amplio**: las cuatro fases viven en módulos feature y el estado de Revisar y Entregar está en `useReviewController` y `useDeliveryController` (T10-23 y T10-24). `App.tsx` conserva la carga, la navegación y la coordinación entre fases. `TransformRecipeEditor.tsx` reúne muchos subdominios de receta. Cualquier división futura debe preservar el orden, dependencias y confirmaciones destructivas.
+2. **Editor de recetas amplio**: las cinco fases viven en módulos feature y el estado de Revisar y Entregar está en `useReviewController` y `useDeliveryController` (T10-23 y T10-24). `App.tsx` conserva la carga, la navegación y la coordinación entre fases. `TransformRecipeEditor.tsx` reúne muchos subdominios de receta. Cualquier división futura debe preservar el orden, dependencias y confirmaciones destructivas.
 3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 69 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
 4. **Memoria**: los datasets no tienen un tope fijo de tamaño. Polars materializa el dataset y algunas operaciones crean candidatos completos, por lo que la capacidad efectiva depende de la RAM, el espacio disponible y los demás recursos del equipo.
 5. **Consumo de disco durable**: cada proyecto puede conservar generaciones e historial Parquet de hasta 12 revisiones/1 GiB; los límites por proyecto no forman un presupuesto global para todos los proyectos.

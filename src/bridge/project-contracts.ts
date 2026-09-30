@@ -74,4 +74,4 @@ export interface ProjectVersionSummary {
 }
 
 export type ProjectReviewTab = "diagnosis" | "preview";
-export type ProjectActivePhase = "load" | "review" | "prepare" | "deliver";
+export type ProjectActivePhase = "load" | "review" | "prepare" | "explore" | "deliver";
