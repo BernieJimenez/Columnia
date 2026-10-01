@@ -79,7 +79,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src/features/review/` | Fase Revisar: diagnóstico, perfil de calidad, tabs y vista previa paginada. Los gráficos del perfil viven en `ReviewCharts.tsx` y la comparación de datasets en `DatasetComparisonSection.tsx`. |
 | `src/features/prepare/` | Fase Preparar: vistas, editor de recetas, historial, modelo puro y controlador de IPC/invalidationes. |
 | `src/features/projects/` | Catálogo, guardado, apertura, recuperación y eliminación accesible de proyectos locales. |
-| `src/features/delivery/` | Fase Entregar: vista, métricas y modelo tipado de contrato, compuerta de calidad y exportación. |
+| `src/features/delivery/` | Fase Entregar: vista, métricas y modelo tipado de contrato, compuerta de calidad y exportación. El editor de reglas vive en `QualityRulesEditor.tsx`, los presets locales en `DeliveryPresets.tsx` y el resultado («Copia lista», abrir carpeta o Power BI) en `DeliveryResult.tsx`. |
 | `src/bridge.ts` | Contrato TypeScript del IPC y única fachada de `invoke()` usada por la UI. |
 | `src/styles.css` | Sistema visual y layout de la aplicación; incluye foco visible, targets mínimos, reducción de movimiento y una paleta explícita para `forced-colors: active`. |
 | `playwright.config.ts` | Configuración de Playwright para E2E del shell web Vite, con Chromium/Edge local, preview de producción reutilizable, trazas y artefactos solo en fallos. |

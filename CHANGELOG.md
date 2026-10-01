@@ -376,6 +376,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Interno
 
+- `DeliveryPhase.tsx` pasa de 2 209 a 1 116 líneas: el editor de reglas de
+  calidad va a `QualityRulesEditor.tsx`, los presets de entrega a
+  `DeliveryPresets.tsx` y el resultado de la exportación a `DeliveryResult.tsx`,
+  que tiene su propio estado y lo reinicia en cada exportación. El
+  comportamiento no cambia. Se quitan reglas CSS sin uso de `quality-overview`.
 - Sonda de tiempos opt-in del camino interactivo (cargar, perfil, correcciones,
   historial, exportar) sobre un CSV sintético: `perf_probe_tests.rs`, con
   `COLUMNIA_PROBE_ROWS`. El flujo de Preparar de la sonda nativa guarda una
