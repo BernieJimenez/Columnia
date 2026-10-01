@@ -169,7 +169,7 @@ use recipe_source_projection::{
 mod explore;
 #[path = "dataset/export_io.rs"]
 mod export_io;
-pub use explore::{ExploreFilter, ExplorePanel};
+pub use explore::{ExploreFilter, ExploreLayout, ExplorePanel};
 #[path = "dataset/snapshot_comparison.rs"]
 mod snapshot_comparison;
 #[path = "dataset/source_loading.rs"]
@@ -9814,12 +9814,15 @@ pub fn open_last_export(state: State<'_, DatasetState>) -> Result<(), String> {
 }
 
 /// Explorar (EX01): the automatic panel of the active dataset with the given
-/// filters, computed in Rust over every row. The profile chooses the charts.
+/// filters, computed in Rust over every row. The profile chooses the charts
+/// unless `layout` («Personalizar») names the columns.
 #[tauri::command]
 pub async fn get_explore_panel(
     app: AppHandle,
     filters: Vec<ExploreFilter>,
+    layout: Option<ExploreLayout>,
 ) -> Result<ExplorePanel, String> {
+    let layout = layout.unwrap_or_default();
     if filters.len() > 32 {
         return Err("Demasiados filtros a la vez.".to_owned());
     }
@@ -9848,7 +9851,7 @@ pub async fn get_explore_panel(
         } else {
             dataset.frame.clone().lazy()
         };
-        explore::explore_panel(plan, profile, &filters)
+        explore::explore_panel(plan, profile, &filters, &layout)
     })
     .await
     .map_err(|error| crate::crash_report::task_interrupted("El panel se interrumpió", &error))?

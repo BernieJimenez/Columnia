@@ -1,11 +1,18 @@
 /* Explorar (EX01): KPI row over a two-column grid of linked charts; colours come from the app's theme tokens. */
 .explore { display: grid; gap: 18px; margin-top: 18px; }
 .explore[aria-busy="true"] .explore__grid,
-.explore[aria-busy="true"] .explore__clear { min-height: 32px; padding: 0 6px; border: 0; background: none; color: var(--accent); font: inherit; font-size: .85rem; text-decoration: underline; cursor: pointer; }
+.explore[aria-busy="true"] .explore__kpis { opacity: .7; transition: opacity .15s ease; }
+.explore__clear { min-height: 32px; padding: 0 6px; border: 0; background: none; color: var(--accent); font: inherit; font-size: .85rem; text-decoration: underline; cursor: pointer; }
 .explore__clear:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.explore__kpis { opacity: .7; transition: opacity .15s ease; }
 .explore__filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 36px; }
 .explore__hint { color: var(--text-secondary); font-size: .85rem; }
+.explore__customize { margin-left: auto; }
+.explore__custom { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 20px; padding: 14px 16px; border: 1px solid var(--border-subtle); border-radius: 10px; font-size: .85rem; }
+.explore__custom fieldset { flex: 1 1 100%; min-width: 0; margin: 0; padding: 0; border: 0; }
+.explore__custom legend { padding: 0; color: var(--text-secondary); }
+.explore__custom > label { display: grid; gap: 4px; color: var(--text-secondary); }
+.explore__choices { display: flex; flex-wrap: wrap; gap: 4px 16px; max-height: 132px; margin-top: 6px; overflow-y: auto; }
+.explore__choices label { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; color: var(--text-primary); }
 .explore__chip {
   display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 12px;
   border: 1px solid var(--accent); border-radius: 999px; background: var(--surface-subtle);
@@ -38,7 +45,6 @@
 .explore__bars--dim [aria-pressed="false"] .explore__fill { opacity: .25; }
 .explore__columns { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; gap: 3px; height: 160px; }
 .explore__column { display: flex; align-items: stretch; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 4px; background: none; cursor: pointer; }
-.explore__column--static { cursor: default; }
 .explore__area { display: flex; align-items: flex-end; width: 100%; }
 .explore__area .explore__fill { width: 100%; min-height: 1px; border-radius: 3px 3px 0 0; }
 .explore__axis { display: flex; justify-content: space-between; margin: 0; color: var(--text-secondary); font-size: .75rem; font-variant-numeric: tabular-nums; }

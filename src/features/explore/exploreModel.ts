@@ -1,4 +1,6 @@
-import type { ExploreFilter, ExploreKpi } from "../../bridge";
+import type { ExploreFilter, ExploreKpi, ExploreLayout } from "../../bridge";
+
+export const MAX_CHARTS = 6;
 
 /** One filter per column: several values for bars, one range for the histogram. */
 export function toggleValue(filters: ExploreFilter[], column: string, value: string | null): ExploreFilter[] {
@@ -24,6 +26,37 @@ export function isRangeSelected(filters: ExploreFilter[], column: string, min: n
   return filters.some((filter) => filter.column === column && filter.range?.min === min && filter.range.max === max);
 }
 
+/** One trend period at a time; a second click clears it. */
+export function togglePeriod(filters: ExploreFilter[], column: string, period: string): ExploreFilter[] {
+  const others = filters.filter((filter) => filter.column !== column);
+  return isPeriodSelected(filters, column, period) ? others : [...others, { column, period }];
+}
+
+export function isPeriodSelected(filters: ExploreFilter[], column: string, period: string): boolean {
+  return filters.some((filter) => filter.column === column && filter.period === period);
+}
+
+/** Adds or removes a bar chart, starting from the ones on screen. */
+export function toggleChart(layout: ExploreLayout, shown: string[], column: string): ExploreLayout {
+  const current = layout.categories ?? shown;
+  const categories = current.includes(column)
+    ? current.filter((item) => item !== column)
+    : [...current, column].slice(0, MAX_CHARTS);
+  return { ...layout, categories };
+}
+
+/** «Ver todos» / «Ver menos» for one bar chart. */
+export function toggleExpanded(layout: ExploreLayout, column: string): ExploreLayout {
+  const current = layout.expanded ?? [];
+  const expanded = current.includes(column) ? current.filter((item) => item !== column) : [...current, column];
+  return { ...layout, expanded };
+}
+
+/** Five evenly spaced marks for the histogram axis. */
+export function axisTicks(lower: number, upper: number): number[] {
+  return [0, 1, 2, 3, 4].map((step) => lower + ((upper - lower) * step) / 4);
+}
+
 export function valueLabel(value: string | null): string {
   return value === null ? "Sin dato" : value;
 }
@@ -34,6 +67,7 @@ export function formatNumber(value: number, fractionDigits = 0): string {
 
 /** Chip text for an active filter. */
 export function filterLabel(filter: ExploreFilter): string {
+  if (filter.period) return `${filter.column}: ${filter.period}`;
   if (filter.range) {
     return `${filter.column}: ${formatNumber(filter.range.min, 2)}–${formatNumber(filter.range.max, 2)}`;
   }

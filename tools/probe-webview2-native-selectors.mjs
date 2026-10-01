@@ -696,6 +696,23 @@ async function readExcelCheck(page) {
   await page.getByRole("heading", { name: "Explora los datos limpios" }).waitFor({ state: "visible", timeout: probeTimeoutMs });
   await page.locator(".explore__kpi").first().waitFor({ state: "visible", timeout: analysisTimeoutMs });
   await capturePhase(page, "5-explorar");
+  // «Personalizar»: dropping a chart recomputes the panel, and the automatic
+  // choice comes back with one click.
+  await page.getByRole("button", { name: "Personalizar" }).click();
+  const chosen = page.locator(".explore__choices input:checked");
+  const chartCount = await chosen.count();
+  if (chartCount > 1) {
+    await chosen.first().click();
+    await page.getByText("Tú elegiste estos gráficos").waitFor({ state: "visible", timeout: probeTimeoutMs });
+    await page.waitForFunction(
+      (expected) => document.querySelectorAll(".explore__bars").length === expected,
+      chartCount - 1,
+      { timeout: analysisTimeoutMs },
+    );
+    await capturePhase(page, "5-explorar-personalizado");
+    await page.getByRole("button", { name: "Volver a lo automático" }).click();
+    await page.getByText("Columnia eligió estos gráficos").waitFor({ state: "visible", timeout: probeTimeoutMs });
+  }
   await page.getByRole("button", { name: "Continuar a Entregar" }).click();
   const format = page.getByRole("combobox", { name: "Formato de exportación" });
   await format.waitFor({ state: "visible", timeout: probeTimeoutMs });
