@@ -10,7 +10,7 @@
   [![Licencia MIT](https://img.shields.io/badge/licencia-MIT-f2c94c?style=flat-square)](LICENSE)
 </div>
 
-> **Estado:** prototipo local con compilación y pruebas automatizadas verificadas en Windows x64. La beta con participantes y datos reales sigue pendiente; todavía no hay resultados sanitizados de beta que publicar. La aceptación manual y macOS/Linux no están validados. La publicación actual contiene código fuente, no instaladores oficiales ni updater.
+> **Estado:** prototipo local con compilación y pruebas automatizadas verificadas en Windows x64. Es una aplicación de uso personal: la beta con participantes, la prueba con lector de pantalla y la distribución están aparcadas (ver [`ROADMAP.md`](ROADMAP.md)). macOS/Linux no están validados. La publicación actual contiene código fuente, no instaladores oficiales ni updater.
 
 ![Recorrido por Cargar, Revisar, Preparar y Entregar en Columnia](docs/images/gallery/00-recorrido.gif)
 
