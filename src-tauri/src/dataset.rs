@@ -9854,8 +9854,8 @@ pub async fn get_explore_panel(
     .map_err(|error| crate::crash_report::task_interrupted("El panel se interrumpió", &error))?
 }
 
-/// Writes a Power BI data source file (`.pbids`) next to the last CSV or Excel
-/// export and opens it, so Power BI Desktop starts on that file. Like
+/// Writes a Power BI data source file (`.pbids`) next to the last CSV, Excel
+/// or Parquet export and opens it, so Power BI Desktop starts on that file. Like
 /// `open_last_export`, it never takes a path from React. Returns whether the
 /// CSV has line breaks inside quoted cells: Power BI's default import splits
 /// those rows unless its quoted line breaks option is chosen.
@@ -9931,15 +9931,15 @@ fn csv_has_quoted_line_breaks(path: &Path) -> Result<bool, String> {
 }
 
 /// The `.pbids` document for one exported file (Microsoft's "Text file"
-/// data source: protocol `file` and the file path). Only CSV and Excel exports
-/// open this way.
+/// data source: protocol `file` and the file path). CSV, Excel and Parquet
+/// exports open this way; Power BI picks the reader from the extension.
 fn power_bi_data_source(path: &Path) -> Result<String, String> {
     let extension = path
         .extension()
         .and_then(|extension| extension.to_str())
         .map(str::to_ascii_lowercase);
-    if !matches!(extension.as_deref(), Some("csv" | "xlsx")) {
-        return Err("Power BI se abre con exportaciones CSV o Excel.".to_owned());
+    if !matches!(extension.as_deref(), Some("csv" | "xlsx" | "parquet")) {
+        return Err("Power BI se abre con exportaciones CSV, Excel o Parquet.".to_owned());
     }
     // Windows canonical paths carry the \\?\ prefix, which Power BI rejects.
     let display = path.to_string_lossy();

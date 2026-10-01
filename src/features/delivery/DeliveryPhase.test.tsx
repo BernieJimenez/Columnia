@@ -189,10 +189,12 @@ describe("señales de datos personales en Entregar", () => {
     expect(openInPowerBi).toHaveBeenCalledOnce();
   });
 
-  it("solo ofrece Exportar y abrir en Power BI para CSV y Excel", () => {
+  it("solo ofrece Exportar y abrir en Power BI para CSV, Excel y Parquet", () => {
     render(<DeliveryHarness onExport={vi.fn()} />);
     expect(screen.getByRole("button", { name: "Exportar y abrir en Power BI" })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: /Formato/ }), { target: { value: "parquet" } });
+    expect(screen.getByRole("button", { name: "Exportar y abrir en Power BI" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: /Formato/ }), { target: { value: "json" } });
     expect(screen.queryByRole("button", { name: "Exportar y abrir en Power BI" })).not.toBeInTheDocument();
   });
 

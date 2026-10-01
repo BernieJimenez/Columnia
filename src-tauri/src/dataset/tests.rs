@@ -17909,9 +17909,17 @@ fn power_bi_data_source_points_at_the_export_without_the_verbatim_prefix() {
         r"\\servidor\datos\ventas.XLSX"
     );
 
+    // Parquet keeps the column types, so Power BI needs no type detection.
+    let parquet = power_bi_data_source(Path::new("ventas.parquet")).expect("Parquet admitido");
+    let parquet: serde_json::Value = serde_json::from_str(&parquet).unwrap();
     assert_eq!(
-        power_bi_data_source(Path::new("ventas.parquet")).unwrap_err(),
-        "Power BI se abre con exportaciones CSV o Excel."
+        parquet["connections"][0]["details"]["address"]["path"],
+        "ventas.parquet"
+    );
+
+    assert_eq!(
+        power_bi_data_source(Path::new("ventas.json")).unwrap_err(),
+        "Power BI se abre con exportaciones CSV, Excel o Parquet."
     );
 }
 
