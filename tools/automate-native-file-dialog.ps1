@@ -527,6 +527,15 @@ try {
                 if ($Mode -eq "open") {
                     throw "open_dialog_closed_without_selection"
                 }
+                # A large export keeps writing after the dialog closes.
+                $outputDeadline = [DateTimeOffset]::UtcNow.AddSeconds(120)
+                while ([DateTimeOffset]::UtcNow -lt $outputDeadline) {
+                    if (Test-Path -LiteralPath $TargetPath -PathType Leaf) {
+                        Write-Result -Status "passed" -Phase "native_dialog_saved"
+                        exit 0
+                    }
+                    Start-Sleep -Milliseconds 150
+                }
                 throw "save_dialog_closed_without_output"
             }
             Start-Sleep -Milliseconds 150

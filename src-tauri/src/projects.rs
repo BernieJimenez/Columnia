@@ -2677,6 +2677,7 @@ where
     let parent = destination.parent().ok_or_else(storage_error)?;
     let temporary = tempfile::NamedTempFile::new_in(parent).map_err(|_| storage_error())?;
     ParquetWriter::new(temporary.as_file())
+        .with_row_group_size(Some(crate::dataset::parquet_row_group_rows(&frame)))
         .finish(&mut frame)
         .map_err(|_| storage_error())?;
     ensure_project_operation_not_cancelled(is_cancelled())?;

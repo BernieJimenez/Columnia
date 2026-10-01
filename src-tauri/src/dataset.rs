@@ -248,6 +248,16 @@ const MAX_PAGE_SIZE: usize = 200;
 // Each batch becomes one Parquet row group and one cancellation check; 4 096
 // rows produced tiny row groups and made every snapshot ~4x slower to write.
 const HISTORY_SNAPSHOT_BATCH_ROWS: usize = 65_536;
+/// Target size of one Parquet row group. DuckDB reads a whole column chunk at
+/// once within its 512 MB limit, so wide rows (free text) get fewer rows.
+const PARQUET_ROW_GROUP_BYTES: usize = 32 * 1024 * 1024;
+
+/// Rows per Parquet row group for `frame`: `HISTORY_SNAPSHOT_BATCH_ROWS`, or
+/// fewer when rows are wide enough to pass `PARQUET_ROW_GROUP_BYTES`.
+pub(crate) fn parquet_row_group_rows(frame: &DataFrame) -> usize {
+    let row_bytes = frame.estimated_size() / frame.height().max(1);
+    (PARQUET_ROW_GROUP_BYTES / row_bytes.max(1)).clamp(1_024, HISTORY_SNAPSHOT_BATCH_ROWS)
+}
 const SOURCE_BACKED_LOAD_THRESHOLD_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_QUERY_CHARS: usize = 2 * 1024;
 const LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX: &str =

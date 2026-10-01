@@ -1,9 +1,9 @@
 use super::{
     collect_lazy_frame_streaming_with_cancel, dataset_preview_from_schema_and_page,
     ensure_not_cancelled, fresh_history_entry_id, loaded_dataset_preview, parquet_row_count,
-    parquet_scan, read_parquet_frame_with_cancel, read_parquet_schema_frame, validate_dataset_file,
-    DatasetPreview, DatasetState, IdxSize, LoadedDataset, PrepareCancellation,
-    HISTORY_DISK_BUDGET_BYTES, HISTORY_MAX_ENTRIES, HISTORY_SNAPSHOT_BATCH_ROWS,
+    parquet_row_group_rows, parquet_scan, read_parquet_frame_with_cancel,
+    read_parquet_schema_frame, validate_dataset_file, DatasetPreview, DatasetState, IdxSize,
+    LoadedDataset, PrepareCancellation, HISTORY_DISK_BUDGET_BYTES, HISTORY_MAX_ENTRIES,
     OPERATION_CANCELLED_MESSAGE, PREVIEW_ROW_LIMIT,
 };
 use crate::crash_report::LockRecovering;
@@ -200,6 +200,7 @@ impl HistoryManager {
             .map_err(|error| format!("No se pudo preparar el snapshot del historial: {error}"))?;
         let mut snapshot = frame.clone();
         ParquetWriter::new(temporary.as_file())
+            .with_row_group_size(Some(parquet_row_group_rows(frame)))
             .finish(&mut snapshot)
             .map_err(|error| format!("No se pudo escribir el snapshot del historial: {error}"))?;
         temporary.as_file().sync_all().map_err(|error| {
@@ -377,12 +378,13 @@ impl HistoryManager {
             .set_parallel(false)
             .batched(schema)
             .map_err(|error| format!("No se pudo preparar el snapshot del historial: {error}"))?;
+        let batch_rows = parquet_row_group_rows(frame);
         let mut offset = 0;
         while offset < frame.height() {
             if is_cancelled() {
                 return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
             }
-            let row_count = HISTORY_SNAPSHOT_BATCH_ROWS.min(frame.height() - offset);
+            let row_count = batch_rows.min(frame.height() - offset);
             let mut batch = frame.slice(offset as i64, row_count);
             // Mutations rebuild some columns as one chunk while streamed loads
             // keep several; the batched writer requires equal chunk layouts.
