@@ -175,6 +175,10 @@ pub(super) fn is_supported_date_candidate(value: &str) -> bool {
 }
 
 pub(super) fn is_missing_sentinel(value: &str) -> bool {
+    // Same bound the profile uses, so both count the same markers.
+    if value.trim().len() > SHORT_VALUE_BYTES {
+        return false;
+    }
     let normalized = normalize_text_value(value, true);
     SENTINEL_VALUES.contains(&normalized.as_str())
 }
@@ -213,8 +217,22 @@ pub(super) fn mojibake_byte(character: char) -> Option<u8> {
     }
 }
 
+/// Longest text still checked as a marker, boolean, number or date. Numbers,
+/// dates and «sin dato» markers are far shorter; anything longer is free text.
+const SHORT_VALUE_BYTES: usize = 64;
+
+/// Characters in `value`; for ASCII that is its byte length.
+fn text_length(value: &str) -> usize {
+    if value.is_ascii() {
+        value.len()
+    } else {
+        value.chars().count()
+    }
+}
+
 pub(super) fn repair_mojibake(value: &str) -> Option<String> {
-    if !MOJIBAKE_MARKERS.iter().any(|marker| value.contains(marker)) {
+    // Every marker starts with a non-ASCII character, so ASCII text has none.
+    if value.is_ascii() || !MOJIBAKE_MARKERS.iter().any(|marker| value.contains(marker)) {
         return None;
     }
     let bytes = value
@@ -414,10 +432,17 @@ struct TextTally {
 impl TextTally {
     /// Records `count` occurrences of `value`.
     fn observe(&mut self, value: &str, count: usize) {
-        let length = value.chars().count();
+        let length = text_length(value);
         let trimmed = value.trim();
-        let normalized = normalize_text_value(trimmed, true);
-        let is_sentinel = SENTINEL_VALUES.contains(&normalized.as_str());
+        // Free text cannot be a marker, a boolean, a number or a date, so the
+        // per-value normalisation and parsing are skipped for it.
+        let short = trimmed.len() <= SHORT_VALUE_BYTES;
+        let normalized = if short {
+            normalize_text_value(trimmed, true)
+        } else {
+            String::new()
+        };
+        let is_sentinel = short && SENTINEL_VALUES.contains(&normalized.as_str());
         self.empty_count += count * usize::from(trimmed.is_empty());
         self.sentinel_count += count * usize::from(is_sentinel);
         self.marker_count += count * usize::from(is_sentinel && !trimmed.is_empty());
@@ -432,10 +457,10 @@ impl TextTally {
                     normalized.as_str(),
                     "true" | "yes" | "si" | "false" | "no"
                 ));
-            let numeric = semantic_numeric_value(trimmed);
+            let numeric = short.then(|| semantic_numeric_value(trimmed)).flatten();
             self.integer_count += count * usize::from(numeric.and_then(exact_integer).is_some());
             self.decimal_count += count * usize::from(numeric.is_some());
-            if is_supported_date_candidate(trimmed) {
+            if short && is_supported_date_candidate(trimmed) {
                 if let Some(datetime) = quality_datetime_value(AnyValue::String(trimmed)) {
                     self.date_count += count;
                     self.temporal_bounds.observe_str(datetime, trimmed);
@@ -711,13 +736,18 @@ impl SourceTextAccumulator {
                 retain_group_candidate(&mut self.categorical_candidates, GroupKey::Missing);
                 continue;
             };
-            let length = value.chars().count();
+            let length = text_length(value);
             let trimmed = value.trim();
-            let normalized = normalize_text_value(trimmed, true);
+            let short = trimmed.len() <= SHORT_VALUE_BYTES;
+            let normalized = if short {
+                normalize_text_value(trimmed, true)
+            } else {
+                String::new()
+            };
             self.empty_count = self
                 .empty_count
                 .saturating_add(usize::from(trimmed.is_empty()));
-            let is_sentinel = SENTINEL_VALUES.contains(&normalized.as_str());
+            let is_sentinel = short && SENTINEL_VALUES.contains(&normalized.as_str());
             self.sentinel_count = self.sentinel_count.saturating_add(usize::from(is_sentinel));
             self.marker_count = self
                 .marker_count
@@ -744,21 +774,21 @@ impl SourceTextAccumulator {
             if trimmed.is_empty() {
                 continue;
             }
-            if !SENTINEL_VALUES.contains(&normalized.as_str()) {
+            if !is_sentinel {
                 self.date_tally.observe(trimmed);
             }
             self.boolean_count = self.boolean_count.saturating_add(usize::from(matches!(
                 normalized.as_str(),
                 "true" | "yes" | "si" | "false" | "no"
             )));
-            let parsed_numeric = semantic_numeric_value(trimmed);
+            let parsed_numeric = short.then(|| semantic_numeric_value(trimmed)).flatten();
             self.integer_count = self.integer_count.saturating_add(usize::from(
                 parsed_numeric.and_then(exact_integer).is_some(),
             ));
             self.decimal_count = self
                 .decimal_count
                 .saturating_add(usize::from(parsed_numeric.is_some()));
-            if is_supported_date_candidate(trimmed) {
+            if short && is_supported_date_candidate(trimmed) {
                 if let Some(datetime) = quality_datetime_value(AnyValue::String(trimmed)) {
                     self.date_count = self.date_count.saturating_add(1);
                     self.temporal_bounds.observe(datetime, trimmed.to_owned());
@@ -909,9 +939,13 @@ impl SourceColumnAccumulator {
         let numeric_eligible = self.is_primitive_numeric
             || (self.is_string
                 && text.as_ref().is_some_and(|text| {
+                    // Same rule as the in-memory profile: every value is a
+                    // number, «sin dato» markers aside.
                     self.numeric.value_count > 0
-                        && self.numeric.value_count
+                        && (self.numeric.value_count
                             == text.value_count.saturating_sub(text.empty_count)
+                            || (matches!(text.suggested_type, Some("integer" | "decimal"))
+                                && text.invalid_type_count == Some(0)))
                 }));
         let numeric_runs = self
             .numeric

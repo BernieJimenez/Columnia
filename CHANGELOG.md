@@ -342,6 +342,15 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Mejorado
 
+- Los archivos grandes con columnas de texto libre (descripciones, comentarios)
+  se analizan y se limpian mucho más rápido. Un valor de más de 64 bytes no
+  puede ser un marcador «sin dato», un número ni una fecha, así que ya no se
+  normaliza ni se intenta interpretar; sigue contando para longitudes,
+  codificación rota y espacios sobrantes. Después de un cambio el análisis usa
+  los datos en memoria en vez de releer la copia del historial, y rellenar huecos
+  ya no copia cada texto. Con un CSV de 486 MiB (368 428 filas, 27 columnas) el
+  análisis posterior a un cambio pasa de 12,3 s a 3,3 s y calcular el plan de la
+  propuesta de 5,4 s a 1,5 s. Los resultados no cambian.
 - El análisis de calidad, que se repite al cargar y después de cada cambio, es
   unas 2,5 veces más rápido: cada valor distinto de una columna con repeticiones
   se analiza una vez y se pondera por su frecuencia, y los duplicados parecidos se

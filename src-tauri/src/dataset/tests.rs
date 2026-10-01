@@ -18151,3 +18151,60 @@ fn explore_rejects_unknown_columns_and_ambiguous_filters() {
         "Cada filtro necesita valores o un rango, no ambos."
     );
 }
+
+#[test]
+fn free_text_keeps_its_statistics_without_being_parsed_as_data() {
+    // Long values skip marker, number and date parsing (ALL2.csv `description`),
+    // yet they still count for length, mojibake and surrounding spaces.
+    let long = "Amplio departamento con vista al parque, cocina equipada y dos baños completos.";
+    let accented = "Señorial edificio de los años cuarenta con balcón, terraza y jardín común.";
+    let broken =
+        "Edificio con jard\u{c3}\u{ad}n comÃºn, balcÃ³n y terraza para toda la comunidad vecina.";
+    let padded = format!("  {long} ");
+    let values = [long, accented, broken, padded.as_str(), "NA", "12"];
+    let frame = df!("description" => values).expect("frame de prueba");
+
+    let statistics = text_statistics(frame.column("description").unwrap())
+        .unwrap()
+        .expect("columna de texto");
+    assert_eq!(statistics.value_count, 6);
+    assert_eq!(statistics.sentinel_count, 1);
+    assert_eq!(statistics.encoding_issue_count, 1);
+    assert_eq!(statistics.untrimmed_count, 1);
+    assert_eq!(statistics.minimum_length, Some(2));
+    assert_eq!(statistics.maximum_length, Some(padded.chars().count()));
+    assert_eq!(statistics.suggested_type, None);
+    assert!(statistics.date_inference.is_none());
+    assert!(!is_missing_sentinel(long));
+    assert!(is_missing_sentinel(" N/A "));
+
+    // The profile read from disk describes the column the same way.
+    let in_memory = profile_dataset_with_progress(
+        &frame,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("perfil en memoria");
+    let mut csv = String::from("description\n");
+    for value in values {
+        csv.push_str(&format!("\"{value}\"\n"));
+    }
+    let path = temporary_csv(&csv);
+    let size = fs::metadata(&path).unwrap().len();
+    let from_disk = profile_source_backed_with_progress(
+        &path,
+        "csv",
+        size,
+        6,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("perfil desde disco");
+    fs::remove_file(path).ok();
+    assert_eq!(
+        serde_json::to_value(&in_memory.columns[0]).unwrap(),
+        serde_json::to_value(&from_disk.columns[0]).unwrap()
+    );
+}
