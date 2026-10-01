@@ -1914,6 +1914,7 @@ fn write_frame_snapshot(
         frame.clone()
     };
     ParquetWriter::new(&mut file)
+        .with_row_group_size(Some(crate::dataset::parquet_row_group_rows(&snapshot)))
         .finish(&mut snapshot)
         .map_err(|error| format!("No se pudo escribir el snapshot {label} para DuckDB: {error}"))?;
     file.sync_all()

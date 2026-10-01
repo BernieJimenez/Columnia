@@ -170,6 +170,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Exportar a Parquet (y cualquier lectura de DuckDB sobre la copia del
+  historial) fallaba con «Out of Memory» cuando el dataset preparado tenía una
+  columna de texto libre largo: la copia se escribía en grupos de 65 536 filas
+  y DuckDB lee cada grupo de una columna entero dentro de su límite de 512 MB.
+  Los grupos de las copias del historial, de los proyectos y de las consultas
+  se dimensionan ahora por peso (unos 32 MiB), con menos filas si son anchas.
 - Explorar ya no muestra dos gráficos para dos columnas que dicen lo mismo (un
   estado y su nombre completo): se queda con la primera.
 - En Explorar, «Quitar filtros» solo tenía su estilo mientras el panel cargaba y

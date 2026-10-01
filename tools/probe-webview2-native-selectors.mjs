@@ -724,7 +724,20 @@ async function readExcelCheck(page) {
   const issues = blocked ? await notice.locator("li").allInnerTexts() : [];
   const exportDisabled = await page.getByRole("button", { name: /[Ee]xportar Excel$/ }).isDisabled();
   await format.selectOption("csv");
-  return { validatesByDefault, blocked, issues, exportDisabled };
+  // The prepared dataset exports to Parquet from its history snapshot; free
+  // text used to exceed DuckDB's memory limit there.
+  const parquetPath = join(tmpdir(), "columnia-prepare-flow.parquet");
+  const parquet = await invokeWithNativeDialog(
+    page,
+    "export_dataset",
+    { format: "parquet", qualityRules: [], allowUnvalidated: true, privacyMode: "none", onProgress: null },
+    "save",
+    parquetPath,
+  );
+  if (!parquet || !existsSync(parquetPath) || statSync(parquetPath).size !== parquet.fileSizeBytes) {
+    throw new Error("prepared_parquet_export_invalid");
+  }
+  return { validatesByDefault, blocked, issues, exportDisabled, parquetBytes: parquet.fileSizeBytes };
 }
 
 // COLUMNIA_PROBE_SCREENSHOT_DIR: optional folder for one screenshot per phase,

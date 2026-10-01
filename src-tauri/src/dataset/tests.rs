@@ -18352,3 +18352,30 @@ fn explore_filters_by_a_trend_period_and_skips_a_mirrored_column() {
         .collect::<Vec<_>>();
     assert_eq!(charts, ["estado", "tipo"]);
 }
+
+#[test]
+fn parquet_row_groups_shrink_for_wide_rows() {
+    // Free text (ALL2.csv `description`): DuckDB reads a column chunk at once,
+    // so a snapshot of wide rows must not pack 65 536 of them in one group.
+    let narrow = df!("n" => (0..2_000_i64).collect::<Vec<_>>()).expect("frame de prueba");
+    assert_eq!(parquet_row_group_rows(&narrow), HISTORY_SNAPSHOT_BATCH_ROWS);
+
+    let text = "x".repeat(4_096);
+    let wide = df!("nota" => vec![text.as_str(); 2_000]).expect("frame de prueba");
+    let rows = parquet_row_group_rows(&wide);
+    assert!((1_024..=8_192).contains(&rows), "filas por grupo: {rows}");
+    assert_eq!(
+        parquet_row_group_rows(&wide.slice(0, 0)),
+        HISTORY_SNAPSHOT_BATCH_ROWS
+    );
+
+    // The snapshot DuckDB reads is split accordingly.
+    let history = HistoryManager::new(&wide).expect("historial");
+    let file = File::open(&history.entries[0].path).expect("snapshot");
+    let groups = ParquetReader::new(file)
+        .get_metadata()
+        .expect("metadatos")
+        .row_groups
+        .len();
+    assert_eq!(groups, 2_000_usize.div_ceil(rows));
+}
