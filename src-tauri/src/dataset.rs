@@ -6111,13 +6111,14 @@ fn impute_missing_values_in_columns(
             let values = column
                 .str()
                 .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
-            let mut counts = HashMap::<String, usize>::new();
+            // Values are borrowed: free-text columns are too large to copy.
+            let mut counts = HashMap::<&str, usize>::new();
             for value in values
                 .iter()
                 .flatten()
                 .filter(|value| !value.trim().is_empty())
             {
-                *counts.entry((*value).to_owned()).or_insert(0) += 1;
+                *counts.entry(value).or_insert(0) += 1;
             }
             let mut mode = None;
             let mut mode_count = 0;
@@ -6128,7 +6129,7 @@ fn impute_missing_values_in_columns(
             {
                 let count = counts.get(value).copied().unwrap_or(0);
                 if count > mode_count {
-                    mode = Some((*value).to_owned());
+                    mode = Some(value);
                     mode_count = count;
                 }
             }
@@ -6140,16 +6141,16 @@ fn impute_missing_values_in_columns(
             let transformed = values
                 .iter()
                 .enumerate()
-                .map(|(row_index, value)| match value {
-                    Some(value) => Some((*value).to_owned()),
-                    None => {
+                .map(|(row_index, value)| {
+                    value.or_else(|| {
                         column_changes += 1;
                         changed_cell_count += 1;
                         changed_rows[row_index] = true;
-                        Some(mode.clone())
-                    }
+                        Some(mode)
+                    })
                 })
                 .collect::<Vec<_>>();
+            let mode = mode.to_owned();
             cleaned
                 .replace(&name, Column::new(name.clone().into(), transformed))
                 .map_err(|error| format!("No se pudo imputar la columna '{name}': {error}"))?;

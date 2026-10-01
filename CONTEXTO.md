@@ -583,6 +583,10 @@ Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
 9. **Rendimiento con alcance acotado**: el benchmark durable de 100 MiB y tres
     ciclos WebView2 cumplen sus presupuestos actuales, pero la capacidad global
     para datasets mayores y la interacción nativa requieren validación adicional.
+    Medido el 2026-10-01 con un CSV real de 486 MiB (368 428 filas, texto libre
+    largo) en la app de desarrollo: cargar y analizar 10,9 s, aplicar la
+    propuesta 6,5 s. El perfil y la limpieza no interpretan valores de más de
+    64 bytes (`SHORT_VALUE_BYTES`): no pueden ser marcador, número ni fecha.
 10. **Persistencia recuperable en evolución**: los reintentos de inicialización y
     la reconciliación de generaciones ya están implementados; deben conservarse
     las pruebas de fallo y el margen de seguridad al ampliar el esquema.
