@@ -468,6 +468,24 @@ export interface ExploreFilter {
   column: string;
   values?: Array<string | null>;
   range?: ExploreRange;
+  /** A trend period: `2025`, `2025-03` or `2025-03-09`. */
+  period?: string;
+}
+
+/** «Personalizar»: anything left out stays automatic. */
+export interface ExploreLayout {
+  categories?: string[];
+  measure?: string;
+  date?: string;
+  /** Bar charts that show every value. */
+  expanded?: string[];
+}
+
+/** The columns each kind of chart accepts. */
+export interface ExploreOptions {
+  categories: string[];
+  measures: string[];
+  dates: string[];
 }
 
 export interface ExploreRange {
@@ -482,6 +500,7 @@ export interface ExplorePanel {
   categories: ExploreCategoryChart[];
   histogram: ExploreHistogram | null;
   trend: ExploreTrend | null;
+  options: ExploreOptions;
 }
 
 export interface ExploreKpi {

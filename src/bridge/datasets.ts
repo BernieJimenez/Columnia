@@ -24,6 +24,7 @@ import type {
   CancellableOperation,
   ConflictResolution,
   ExploreFilter,
+  ExploreLayout,
   ExplorePanel,
 } from "./contracts";
 import { progressChannel, type ProgressHandler } from "./progress";
@@ -192,6 +193,6 @@ export function cancelOperation(operation: CancellableOperation): Promise<void> 
 }
 
 /** Explorar (EX01): the automatic panel of the active dataset, computed over every row. */
-export function getExplorePanel(filters: ExploreFilter[]): Promise<ExplorePanel> {
-  return invoke<ExplorePanel>("get_explore_panel", { filters });
+export function getExplorePanel(filters: ExploreFilter[], layout: ExploreLayout = {}): Promise<ExplorePanel> {
+  return invoke<ExplorePanel>("get_explore_panel", { filters, layout });
 }

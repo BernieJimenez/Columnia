@@ -4,7 +4,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as bridge from "../../bridge";
 import type { DatasetPreview, ExplorePanel } from "../../bridge";
 import { ExplorePhase } from "./ExplorePhase";
-import { filterLabel, isRangeSelected, isValueSelected, kpiLabel, toggleRange, toggleValue } from "./exploreModel";
+import {
+  axisTicks,
+  filterLabel,
+  isPeriodSelected,
+  isRangeSelected,
+  isValueSelected,
+  kpiLabel,
+  toggleChart,
+  toggleExpanded,
+  togglePeriod,
+  toggleRange,
+  toggleValue,
+} from "./exploreModel";
 
 afterEach(() => {
   cleanup();
@@ -30,6 +42,7 @@ const panel = (rowCount: number): ExplorePanel => ({
   categories: [
     { column: "estado", bars: [{ value: "CA", count: 3 }, { value: "FL", count: 3 }, { value: null, count: 2 }], otherCount: 0, distinctCount: 3 },
   ],
+  options: { categories: ["estado", "ciudad"], measures: ["precio", "metros"], dates: ["fecha", "alta"] },
   histogram: { column: "precio", bins: [{ lower: 100, upper: 450, count: 4 }, { lower: 450, upper: 800, count: 4 }] },
   trend: { column: "fecha", granularity: "month", points: [{ period: "2025-01", count: 2 }, { period: "2025-02", count: 6 }] },
 });
@@ -53,6 +66,22 @@ describe("exploreModel", () => {
     expect(toggleRange(filters, "precio", 450, 800)).toEqual([]);
   });
 
+  it("filters by one trend period, picks charts and spaces the axis", () => {
+    let filters = togglePeriod([], "fecha", "2025-01");
+    filters = togglePeriod(filters, "fecha", "2025-02");
+    expect(filters).toEqual([{ column: "fecha", period: "2025-02" }]);
+    expect(isPeriodSelected(filters, "fecha", "2025-02")).toBe(true);
+    expect(filterLabel(filters[0])).toBe("fecha: 2025-02");
+    expect(togglePeriod(filters, "fecha", "2025-02")).toEqual([]);
+
+    expect(toggleChart({}, ["estado"], "ciudad")).toEqual({ categories: ["estado", "ciudad"] });
+    expect(toggleChart({ categories: ["estado", "ciudad"] }, [], "estado")).toEqual({ categories: ["ciudad"] });
+    expect(toggleChart({}, ["a", "b", "c", "d", "e", "f"], "g").categories).toHaveLength(6);
+    expect(toggleExpanded({}, "estado")).toEqual({ expanded: ["estado"] });
+    expect(toggleExpanded({ expanded: ["estado"] }, "estado")).toEqual({ expanded: [] });
+    expect(axisTicks(0, 100)).toEqual([0, 25, 50, 75, 100]);
+  });
+
   it("names the indicators in plain words", () => {
     expect(kpiLabel({ kind: "count", column: null, value: 1 })).toBe("Filas");
     expect(kpiLabel({ kind: "mean", column: "sqfeet", value: 1 })).toBe("Media de sqfeet");
@@ -70,10 +99,10 @@ describe("ExplorePhase", () => {
     expect(within(chart).getByRole("button", { name: /Sin dato/ })).toBeInTheDocument();
     expect(screen.getByText("Mediana de precio")).toBeInTheDocument();
     expect(screen.getByText("Pulsa una barra para filtrar todo el panel.")).toBeInTheDocument();
-    expect(getPanel).toHaveBeenCalledWith([]);
+    expect(getPanel).toHaveBeenCalledWith([], {});
 
     fireEvent.click(within(chart).getByRole("button", { name: /FL/ }));
-    await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([{ column: "estado", values: ["FL"] }]));
+    await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([{ column: "estado", values: ["FL"] }], {}));
     expect(await screen.findByText("de 8")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Quitar filtro estado: FL" })).toBeInTheDocument();
 
@@ -81,7 +110,46 @@ describe("ExplorePhase", () => {
     await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([
       { column: "estado", values: ["FL"] },
       { column: "precio", range: { min: 450, max: 800 } },
-    ]));
+    ], {}));
+  });
+
+  it("lets the person choose the charts and go back to the automatic panel", async () => {
+    const many: ExplorePanel = {
+      ...panel(8),
+      categories: [{ column: "estado", bars: [{ value: "CA", count: 3 }], otherCount: 5, distinctCount: 14 }],
+    };
+    const getPanel = vi.spyOn(bridge, "getExplorePanel").mockResolvedValue(many);
+    render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
+
+    const customize = await screen.findByRole("button", { name: "Personalizar" });
+    expect(customize).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText(/Columnia eligió estos gráficos/)).toBeInTheDocument();
+    fireEvent.click(customize);
+    expect(screen.getByRole("checkbox", { name: "estado" })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "ciudad" }));
+    await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([], { categories: ["estado", "ciudad"] }));
+    expect(screen.getByText(/Tú elegiste estos gráficos/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Medida" }), { target: { value: "metros" } });
+    await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([], { categories: ["estado", "ciudad"], measure: "metros" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Fecha" }), { target: { value: "alta" } });
+    await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([], { categories: ["estado", "ciudad"], measure: "metros", date: "alta" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Volver a lo automático" }));
+    await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([], {}));
+
+    // «Otros 13 valores» opens every value of that chart, and closes again.
+    expect(screen.getByText(/Otros 13 valores: 5 filas/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Ver todos los valores de estado" }));
+    await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([], { expanded: ["estado"] }));
+    fireEvent.click(screen.getByRole("button", { name: "Ver menos los valores de estado" }));
+    await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([], { expanded: [] }));
+
+    // The trend filters like any other chart.
+    fireEvent.click(screen.getByRole("button", { name: "2025-02: 6 filas" }));
+    await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([{ column: "fecha", period: "2025-02" }], { expanded: [] }));
+    expect(screen.getByRole("button", { name: "Quitar filtro fecha: 2025-02" })).toBeInTheDocument();
   });
 
   it("waits for the analysis and explains a failure", async () => {

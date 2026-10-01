@@ -1,14 +1,20 @@
 import { useEffect, useState } from "react";
 
 import { getExplorePanel } from "../../bridge";
-import type { DatasetPreview, ExploreFilter, ExplorePanel } from "../../bridge";
+import type { DatasetPreview, ExploreFilter, ExploreLayout, ExplorePanel } from "../../bridge";
 import {
+  MAX_CHARTS,
+  axisTicks,
   filterLabel,
   formatNumber,
+  isPeriodSelected,
   isRangeSelected,
   isValueSelected,
   kpiLabel,
   kpiValue,
+  toggleChart,
+  toggleExpanded,
+  togglePeriod,
   toggleRange,
   toggleValue,
   valueLabel,
@@ -29,12 +35,16 @@ type PanelState =
 
 export function ExplorePhase({ dataset, datasetRevision, profileReady }: ExplorePhaseProps) {
   const [filters, setFilters] = useState<ExploreFilter[]>([]);
+  // «Personalizar»: empty means Columnia chooses the charts.
+  const [layout, setLayout] = useState<ExploreLayout>({});
+  const [customizing, setCustomizing] = useState(false);
   const [state, setState] = useState<PanelState>({ kind: "loading", previous: null });
   const [shownRevision, setShownRevision] = useState(datasetRevision);
   if (shownRevision !== datasetRevision) {
-    // New data: filters may name values that no longer exist.
+    // New data: filters and chosen columns may no longer exist.
     setShownRevision(datasetRevision);
     setFilters([]);
+    setLayout({});
   }
 
   useEffect(() => {
@@ -44,16 +54,23 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
       kind: "loading",
       previous: previous.kind === "ready" ? previous.panel : previous.kind === "loading" ? previous.previous : null,
     }));
-    getExplorePanel(filters).then(
+    getExplorePanel(filters, layout).then(
       (panel) => { if (current) setState({ kind: "ready", panel }); },
       (error: unknown) => {
         if (current) setState({ kind: "error", message: error instanceof Error ? error.message : String(error) });
       },
     );
     return () => { current = false; };
-  }, [filters, datasetRevision, profileReady]);
+  }, [filters, layout, datasetRevision, profileReady]);
 
   const panel = state.kind === "ready" ? state.panel : state.kind === "loading" ? state.previous : null;
+  const shownCharts = panel?.categories.map((chart) => chart.column) ?? [];
+  const custom = Object.keys(layout).length > 0;
+  // A chart that leaves the panel takes its filter with it.
+  function changeLayout(next: ExploreLayout, dropped?: string | null) {
+    setLayout(next);
+    if (dropped) setFilters((current) => current.filter((filter) => filter.column !== dropped));
+  }
 
   return (
     <>
@@ -62,7 +79,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
           <h2>Explora los datos limpios</h2>
           <h3 className="phase-file">{dataset.fileName}</h3>
           <p className="phase-meta">
-            {formatNumber(dataset.rowCount)} filas · Columnia eligió estos gráficos
+            {formatNumber(dataset.rowCount)} filas · {custom ? "Tú elegiste estos gráficos" : "Columnia eligió estos gráficos"}
           </p>
         </div>
       </header>
@@ -96,7 +113,67 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
                 <button type="button" className="explore__clear" onClick={() => setFilters([])}>Quitar filtros</button>
               </>
             )}
+            <button
+              type="button"
+              className="secondary-action explore__customize"
+              aria-expanded={customizing}
+              aria-controls="explore-custom"
+              onClick={() => setCustomizing((open) => !open)}
+            >
+              Personalizar
+            </button>
           </div>
+
+          {customizing && (
+            <div id="explore-custom" className="explore__custom">
+              <fieldset>
+                <legend>Gráficos de barras (hasta {MAX_CHARTS})</legend>
+                <div className="explore__choices">
+                  {panel.options.categories.map((column) => {
+                    const checked = shownCharts.includes(column);
+                    return (
+                      <label key={column}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={!checked && shownCharts.length >= MAX_CHARTS}
+                          onChange={() => changeLayout(toggleChart(layout, shownCharts, column), checked ? column : null)}
+                        />
+                        {column}
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+              {panel.options.measures.length > 1 && (
+                <label>
+                  Medida
+                  <select
+                    value={panel.histogram?.column ?? ""}
+                    onChange={(event) => changeLayout({ ...layout, measure: event.target.value }, panel.histogram?.column)}
+                  >
+                    {panel.options.measures.map((column) => <option key={column}>{column}</option>)}
+                  </select>
+                </label>
+              )}
+              {panel.options.dates.length > 1 && (
+                <label>
+                  Fecha
+                  <select
+                    value={panel.trend?.column ?? ""}
+                    onChange={(event) => changeLayout({ ...layout, date: event.target.value }, panel.trend?.column)}
+                  >
+                    {panel.options.dates.map((column) => <option key={column}>{column}</option>)}
+                  </select>
+                </label>
+              )}
+              {custom && (
+                <button type="button" className="explore__clear" onClick={() => { setLayout({}); setFilters([]); }}>
+                  Volver a lo automático
+                </button>
+              )}
+            </div>
+          )}
 
           <dl className="explore__kpis">
             {panel.kpis.map((kpi) => (
@@ -135,9 +212,17 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
                       );
                     })}
                   </div>
-                  {chart.otherCount > 0 && (
+                  {(chart.otherCount > 0 || layout.expanded?.includes(chart.column)) && (
                     <p className="explore__note">
-                      Otros {formatNumber(chart.distinctCount - chart.bars.length)} valores: {formatNumber(chart.otherCount)} filas
+                      {chart.otherCount > 0 && `Otros ${formatNumber(chart.distinctCount - chart.bars.length)} valores: ${formatNumber(chart.otherCount)} filas `}
+                      <button
+                        type="button"
+                        className="explore__clear"
+                        aria-label={`${layout.expanded?.includes(chart.column) ? "Ver menos" : "Ver todos"} los valores de ${chart.column}`}
+                        onClick={() => setLayout(toggleExpanded(layout, chart.column))}
+                      >
+                        {layout.expanded?.includes(chart.column) ? "Ver menos" : "Ver todos"}
+                      </button>
                     </p>
                   )}
                 </section>
@@ -169,9 +254,11 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
                     })}
                   </div>
                   <p className="explore__axis">
-                    <span>{formatNumber(histogram.bins[0]?.lower ?? 0, 2)}</span>
-                    <span>{formatNumber(histogram.bins.at(-1)?.upper ?? 0, 2)}</span>
+                    {axisTicks(histogram.bins[0]?.lower ?? 0, histogram.bins.at(-1)?.upper ?? 0).map((tick, index) => (
+                      <span key={index}>{formatNumber(tick, 2)}</span>
+                    ))}
                   </p>
+                  <p className="explore__note">Filas por tramo de {histogram.column}; el tramo más alto tiene {formatNumber(max)}.</p>
                 </section>
               );
             })()}
@@ -179,20 +266,23 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
             {panel.trend && panel.trend.points.length > 0 && (() => {
               const trend = panel.trend;
               const max = Math.max(1, ...trend.points.map((point) => point.count));
+              const active = filters.some((filter) => filter.column === trend.column);
               return (
                 <section className="explore__panel explore__panel--wide" aria-label={`Filas en el tiempo por ${trend.column}`}>
                   <h4>{trend.column}</h4>
-                  <div className="explore__columns">
+                  <div className={`explore__columns${active ? " explore__bars--dim" : ""}`}>
                     {trend.points.map((point) => (
-                      <span
+                      <button
                         key={point.period}
-                        className="explore__column explore__column--static"
-                        role="img"
+                        type="button"
+                        className="explore__column"
+                        aria-pressed={isPeriodSelected(filters, trend.column, point.period)}
                         aria-label={`${point.period}: ${formatNumber(point.count)} filas`}
                         title={`${point.period}: ${formatNumber(point.count)}`}
+                        onClick={() => setFilters((current) => togglePeriod(current, trend.column, point.period))}
                       >
                         <span className="explore__area"><span className="explore__fill" style={{ height: `${(point.count / max) * 100}%` }} /></span>
-                      </span>
+                      </button>
                     ))}
                   </div>
                   <p className="explore__axis">

@@ -83,6 +83,7 @@ async function installSyntheticTauriMock(page: Page) {
             }],
             histogram: { column: "importe", bins: [{ lower: 0, upper: 10, count: 2 }, { lower: 10, upper: 20, count: 1 }] },
             trend: null,
+            options: { categories: [], measures: [], dates: [] },
           };
         case "get_history_state":
           return {

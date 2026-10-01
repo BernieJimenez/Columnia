@@ -18071,7 +18071,8 @@ fn explore_values(column: &str, values: &[&str]) -> ExploreFilter {
 fn explore_panel_chooses_charts_from_the_profile_and_counts_every_row() {
     let frame = explore_frame();
     let profile = profile_dataset(&frame).expect("perfil");
-    let panel = explore::explore_panel(frame.lazy(), &profile, &[]).expect("panel");
+    let panel = explore::explore_panel(frame.lazy(), &profile, &[], &ExploreLayout::default())
+        .expect("panel");
     let value = serde_json::to_value(&panel).unwrap();
 
     assert_eq!(value["rowCount"], 8);
@@ -18113,7 +18114,8 @@ fn explore_filters_cross_every_chart_except_their_own() {
     let frame = explore_frame();
     let profile = profile_dataset(&frame).expect("perfil");
     let filters = [explore_values("estado", &["FL"])];
-    let panel = explore::explore_panel(frame.lazy(), &profile, &filters).expect("panel");
+    let panel = explore::explore_panel(frame.lazy(), &profile, &filters, &ExploreLayout::default())
+        .expect("panel");
     let value = serde_json::to_value(&panel).unwrap();
 
     assert_eq!(value["rowCount"], 3);
@@ -18131,7 +18133,13 @@ fn explore_filters_cross_every_chart_except_their_own() {
         "column": "precio", "range": { "min": 450.0, "max": 800.0 }
     }))
     .unwrap();
-    let panel = explore::explore_panel(explore_frame().lazy(), &profile, &[range]).expect("panel");
+    let panel = explore::explore_panel(
+        explore_frame().lazy(),
+        &profile,
+        &[range],
+        &ExploreLayout::default(),
+    )
+    .expect("panel");
     let value = serde_json::to_value(&panel).unwrap();
     // 500 CA, 600 TX, 700 FL, 800 TX.
     assert_eq!(value["rowCount"], 4);
@@ -18147,7 +18155,13 @@ fn explore_rejects_unknown_columns_and_ambiguous_filters() {
     let profile = profile_dataset(&frame).expect("perfil");
     let unknown = [explore_values("no_existe", &["x"])];
     assert_eq!(
-        explore::explore_panel(frame.clone().lazy(), &profile, &unknown).unwrap_err(),
+        explore::explore_panel(
+            frame.clone().lazy(),
+            &profile,
+            &unknown,
+            &ExploreLayout::default()
+        )
+        .unwrap_err(),
         "La columna 'no_existe' no existe en el dataset."
     );
     let both: ExploreFilter = serde_json::from_value(serde_json::json!({
@@ -18155,7 +18169,8 @@ fn explore_rejects_unknown_columns_and_ambiguous_filters() {
     }))
     .unwrap();
     assert_eq!(
-        explore::explore_panel(frame.lazy(), &profile, &[both]).unwrap_err(),
+        explore::explore_panel(frame.lazy(), &profile, &[both], &ExploreLayout::default())
+            .unwrap_err(),
         "Cada filtro necesita valores o un rango, no ambos."
     );
 }
@@ -18215,4 +18230,125 @@ fn free_text_keeps_its_statistics_without_being_parsed_as_data() {
         serde_json::to_value(&in_memory.columns[0]).unwrap(),
         serde_json::to_value(&from_disk.columns[0]).unwrap()
     );
+}
+
+#[test]
+fn explore_layout_chooses_columns_and_expands_a_chart() {
+    let frame = explore_frame();
+    let profile = profile_dataset(&frame).expect("perfil");
+    let layout: ExploreLayout = serde_json::from_value(serde_json::json!({
+        "categories": ["tipo", "precio"],
+        "measure": "habitaciones",
+        "expanded": ["precio"],
+    }))
+    .unwrap();
+    let panel =
+        explore::explore_panel(frame.clone().lazy(), &profile, &[], &layout).expect("panel");
+    let value = serde_json::to_value(&panel).unwrap();
+
+    let charts = value["categories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|chart| chart["column"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(charts, ["tipo", "precio"]);
+    assert_eq!(value["kpis"][1]["column"], "habitaciones");
+    assert_eq!(value["histogram"]["column"], "habitaciones");
+    // The person may pick any short column; keys and personal data are not offered.
+    assert_eq!(
+        value["options"],
+        serde_json::json!({
+            "categories": ["estado", "tipo", "habitaciones", "precio"],
+            "measures": ["habitaciones", "precio"],
+            "dates": ["fecha"],
+        })
+    );
+
+    let personal: ExploreLayout =
+        serde_json::from_value(serde_json::json!({ "categories": ["correo"] })).unwrap();
+    assert_eq!(
+        explore::explore_panel(frame.lazy(), &profile, &[], &personal).unwrap_err(),
+        "La columna 'correo' no se puede usar en este gráfico."
+    );
+
+    // Twelve bars by default, every value once expanded.
+    let many =
+        df!("zona" => (0..40).map(|index| format!("z{:02}", index % 20)).collect::<Vec<_>>())
+            .expect("frame de prueba");
+    let profile = profile_dataset(&many).expect("perfil");
+    let short = explore::explore_panel(
+        many.clone().lazy(),
+        &profile,
+        &[],
+        &ExploreLayout::default(),
+    )
+    .expect("panel");
+    let short = serde_json::to_value(&short).unwrap();
+    assert_eq!(short["categories"][0]["bars"].as_array().unwrap().len(), 12);
+    assert_eq!(short["categories"][0]["otherCount"], 16);
+    let expanded: ExploreLayout =
+        serde_json::from_value(serde_json::json!({ "expanded": ["zona"] })).unwrap();
+    let full = explore::explore_panel(many.lazy(), &profile, &[], &expanded).expect("panel");
+    let full = serde_json::to_value(&full).unwrap();
+    assert_eq!(full["categories"][0]["bars"].as_array().unwrap().len(), 20);
+    assert_eq!(full["categories"][0]["otherCount"], 0);
+}
+
+#[test]
+fn explore_filters_by_a_trend_period_and_skips_a_mirrored_column() {
+    let frame = explore_frame();
+    let profile = profile_dataset(&frame).expect("perfil");
+    let period: ExploreFilter =
+        serde_json::from_value(serde_json::json!({ "column": "fecha", "period": "2025-02" }))
+            .unwrap();
+    let panel = explore::explore_panel(
+        frame.clone().lazy(),
+        &profile,
+        &[period],
+        &ExploreLayout::default(),
+    )
+    .expect("panel");
+    let value = serde_json::to_value(&panel).unwrap();
+    // February: one CA row and one more CA row.
+    assert_eq!(value["rowCount"], 2);
+    assert_eq!(
+        value["categories"][0]["bars"],
+        serde_json::json!([{ "value": "CA", "count": 2 }])
+    );
+    // The trend ignores its own filter so every period stays selectable.
+    assert_eq!(value["trend"]["points"].as_array().unwrap().len(), 5);
+
+    let invalid: ExploreFilter =
+        serde_json::from_value(serde_json::json!({ "column": "fecha", "period": "2025-13" }))
+            .unwrap();
+    assert_eq!(
+        explore::explore_panel(
+            frame.lazy(),
+            &profile,
+            &[invalid],
+            &ExploreLayout::default()
+        )
+        .unwrap_err(),
+        "El periodo del filtro no es una fecha válida."
+    );
+
+    // `nombre` repeats `estado` value for value (ALL2.csv: state and NAME).
+    let mirrored = df!(
+        "estado" => ["FL", "FL", "CA", "CA", "TX", "TX"],
+        "nombre" => ["Florida", "Florida", "California", "California", "Texas", "Texas"],
+        "tipo" => ["casa", "apto", "casa", "casa", "apto", "loft"],
+    )
+    .expect("frame de prueba");
+    let profile = profile_dataset(&mirrored).expect("perfil");
+    let panel = explore::explore_panel(mirrored.lazy(), &profile, &[], &ExploreLayout::default())
+        .expect("panel");
+    let value = serde_json::to_value(&panel).unwrap();
+    let charts = value["categories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|chart| chart["column"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(charts, ["estado", "tipo"]);
 }

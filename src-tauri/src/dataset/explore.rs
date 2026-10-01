@@ -12,6 +12,10 @@ const MAX_CATEGORY_TEXT_LENGTH: f64 = 40.0;
 /// A number is a category (bedrooms, a 0/1 flag) only with few repeated values.
 const MAX_NUMERIC_CATEGORY_VALUES: usize = 12;
 const MAX_BARS: usize = 12;
+/// Bars of a chart the person expanded with «Ver todos».
+const MAX_EXPANDED_BARS: usize = 60;
+/// Most distinct values a column may have to be offered as a bar chart.
+const MAX_CUSTOM_CATEGORY_VALUES: usize = 1_000;
 const HISTOGRAM_BINS: usize = 20;
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -24,6 +28,34 @@ pub struct ExploreFilter {
     /// Keep rows whose number falls in `[min, max]`.
     #[serde(default)]
     range: Option<ExploreRange>,
+    /// Keep rows whose date falls in this trend period: `2025`, `2025-03`
+    /// or `2025-03-09`.
+    #[serde(default)]
+    period: Option<String>,
+}
+
+/// What the person chose in «Personalizar»; anything left out stays automatic.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExploreLayout {
+    #[serde(default)]
+    categories: Option<Vec<String>>,
+    #[serde(default)]
+    measure: Option<String>,
+    #[serde(default)]
+    date: Option<String>,
+    /// Bar charts that show every value instead of the most frequent ones.
+    #[serde(default)]
+    expanded: Vec<String>,
+}
+
+/// The columns each kind of chart accepts, for «Personalizar».
+#[derive(Debug, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreOptions {
+    categories: Vec<String>,
+    measures: Vec<String>,
+    dates: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
@@ -42,6 +74,7 @@ pub struct ExplorePanel {
     categories: Vec<ExploreCategoryChart>,
     histogram: Option<ExploreHistogram>,
     trend: Option<ExploreTrend>,
+    options: ExploreOptions,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -103,9 +136,11 @@ pub struct ExplorePoint {
 
 /// The columns each chart uses, chosen once from the profile.
 struct PanelPlan {
-    categories: Vec<String>,
+    /// Automatic bar charts in order of preference, with their distinct counts.
+    categories: Vec<(String, usize)>,
     measures: Vec<String>,
     date: Option<String>,
+    options: ExploreOptions,
 }
 
 fn is_numeric_type(data_type: &str) -> bool {
@@ -155,6 +190,7 @@ fn plan_panel(profile: &DatasetProfile) -> PanelPlan {
     let mut binary_categories = Vec::new();
     let mut measures = Vec::new();
     let mut date = None;
+    let mut options = ExploreOptions::default();
     for column in columns {
         let numeric = is_numeric_type(&column.data_type)
             || (is_text_type(&column.data_type)
@@ -163,25 +199,41 @@ fn plan_panel(profile: &DatasetProfile) -> PanelPlan {
                     Some("integer" | "decimal")
                 ));
         let identifier = is_row_identifier(column, profile.row_count);
-        if is_date_type(&column.data_type) {
+        let dated = is_date_type(&column.data_type);
+        let short_text = column.average_length.unwrap_or(0.0) <= MAX_CATEGORY_TEXT_LENGTH;
+        if dated {
+            options.dates.push(column.name.clone());
+        } else {
+            if (2..=MAX_CUSTOM_CATEGORY_VALUES).contains(&column.unique_count)
+                && (numeric || short_text)
+                && !identifier
+            {
+                options.categories.push(column.name.clone());
+            }
+            if numeric && !identifier && column.unique_count >= 2 {
+                options.measures.push(column.name.clone());
+            }
+        }
+        let entry = (column.name.clone(), column.unique_count);
+        if dated {
             date.get_or_insert_with(|| column.name.clone());
         } else if numeric {
             let repeats = column.unique_count.saturating_mul(2) <= profile.row_count;
             if column.unique_count == 2 {
-                binary_categories.push(column.name.clone());
+                binary_categories.push(entry);
             } else if column.unique_count > 2
                 && column.unique_count <= MAX_NUMERIC_CATEGORY_VALUES
                 && repeats
             {
-                numeric_categories.push(column.name.clone());
+                numeric_categories.push(entry);
             } else if !identifier {
                 measures.push(column.name.clone());
             }
         } else if column.unique_count >= 2
             && column.unique_count <= MAX_CATEGORY_VALUES
-            && column.average_length.unwrap_or(0.0) <= MAX_CATEGORY_TEXT_LENGTH
+            && short_text
         {
-            text_categories.push(column.name.clone());
+            text_categories.push(entry);
         }
     }
     PanelPlan {
@@ -189,10 +241,10 @@ fn plan_panel(profile: &DatasetProfile) -> PanelPlan {
             .into_iter()
             .chain(numeric_categories)
             .chain(binary_categories)
-            .take(MAX_CATEGORY_CHARTS)
             .collect(),
         measures,
         date,
+        options,
     }
 }
 
@@ -202,6 +254,61 @@ fn value_expression(column: &str) -> Expr {
 
 fn number_expression(column: &str) -> Expr {
     col(column).cast(DataType::Float64)
+}
+
+/// Days since 1970-01-01, the unit Polars stores dates in.
+fn day_expression(column: &str) -> Expr {
+    col(column).cast(DataType::Date).cast(DataType::Int32)
+}
+
+/// First day of a trend period and first day after it, as days since 1970.
+fn period_days(period: &str) -> Option<(i32, i32)> {
+    let parts = period
+        .split('-')
+        .map(|part| part.parse::<u32>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    let year = i32::try_from(*parts.first()?).ok()?;
+    let (first, next) = match parts.as_slice() {
+        [_] => (
+            NaiveDate::from_ymd_opt(year, 1, 1)?,
+            NaiveDate::from_ymd_opt(year + 1, 1, 1)?,
+        ),
+        [_, month] => {
+            let first = NaiveDate::from_ymd_opt(year, *month, 1)?;
+            (first, first.checked_add_months(chrono::Months::new(1))?)
+        }
+        [_, month, day] => {
+            let first = NaiveDate::from_ymd_opt(year, *month, *day)?;
+            (first, first.succ_opt()?)
+        }
+        _ => return None,
+    };
+    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1)?;
+    let days = |date: NaiveDate| i32::try_from((date - epoch).num_days()).ok();
+    Some((days(first)?, days(next)?))
+}
+
+/// Whether two columns say the same thing (a state and its full name): every
+/// value of one goes with exactly one value of the other.
+fn mirrors(plan: &LazyFrame, left: &str, right: &str) -> Result<bool, String> {
+    let text = |column: &str| value_expression(column).fill_null(lit("\u{0}"));
+    let frame = collect(
+        plan.clone().select([
+            text(left).n_unique().alias("left"),
+            text(right).n_unique().alias("right"),
+            concat_str([text(left), text(right)], "\u{1f}", false)
+                .n_unique()
+                .alias("pair"),
+        ]),
+    )?;
+    let count = |name: &str| {
+        frame
+            .column(name)
+            .ok()
+            .and_then(|column| column.get(0).ok())
+            .and_then(|value| value.extract::<u64>())
+    };
+    Ok(count("pair") == count("left") && count("pair") == count("right"))
 }
 
 /// Every filter except the ones on `skip`, combined with AND.
@@ -218,6 +325,12 @@ fn filter_expression(filters: &[ExploreFilter], skip: Option<&str>) -> Option<Ex
                         None => col(filter.column.as_str()).is_null(),
                     })
                     .reduce(|left, right| left.or(right))
+            } else if let Some(period) = filter.period.as_deref() {
+                period_days(period).map(|(first, next)| {
+                    day_expression(&filter.column)
+                        .gt_eq(lit(first))
+                        .and(day_expression(&filter.column).lt(lit(next)))
+                })
             } else {
                 filter.range.map(|range| {
                     number_expression(&filter.column)
@@ -286,6 +399,7 @@ fn category_chart(
     plan: &LazyFrame,
     filters: &[ExploreFilter],
     column: &str,
+    max_bars: usize,
 ) -> Result<ExploreCategoryChart, String> {
     let counts = collect(
         filtered(plan, filters, Some(column))
@@ -320,8 +434,8 @@ fn category_chart(
             .then_with(|| left.value.cmp(&right.value))
     });
     let distinct_count = bars.len();
-    let other_count = bars.iter().skip(MAX_BARS).map(|bar| bar.count).sum();
-    bars.truncate(MAX_BARS);
+    let other_count = bars.iter().skip(max_bars).map(|bar| bar.count).sum();
+    bars.truncate(max_bars);
     Ok(ExploreCategoryChart {
         column: column.to_owned(),
         bars,
@@ -441,10 +555,21 @@ pub(super) fn explore_panel(
     plan: LazyFrame,
     profile: &DatasetProfile,
     filters: &[ExploreFilter],
+    custom: &ExploreLayout,
 ) -> Result<ExplorePanel, String> {
     for filter in filters {
-        if filter.values.is_some() == filter.range.is_some() {
+        let kinds = usize::from(filter.values.is_some())
+            + usize::from(filter.range.is_some())
+            + usize::from(filter.period.is_some());
+        if kinds != 1 {
             return Err("Cada filtro necesita valores o un rango, no ambos.".to_owned());
+        }
+        if filter
+            .period
+            .as_deref()
+            .is_some_and(|period| period_days(period).is_none())
+        {
+            return Err("El periodo del filtro no es una fecha válida.".to_owned());
         }
         if !profile
             .columns
@@ -457,7 +582,58 @@ pub(super) fn explore_panel(
             ));
         }
     }
-    let layout = plan_panel(profile);
+    let mut layout = plan_panel(profile);
+    let offered = |options: &[String], column: &String| {
+        if options.contains(column) {
+            Ok(())
+        } else {
+            Err(format!(
+                "La columna '{column}' no se puede usar en este gráfico."
+            ))
+        }
+    };
+    let categories = match custom.categories.as_ref() {
+        Some(chosen) => {
+            if chosen.len() > MAX_CATEGORY_CHARTS {
+                return Err(format!(
+                    "Elige como máximo {MAX_CATEGORY_CHARTS} gráficos de barras."
+                ));
+            }
+            for column in chosen {
+                offered(&layout.options.categories, column)?;
+            }
+            chosen.clone()
+        }
+        None => {
+            // Two columns that say the same thing get one chart, not two.
+            let mut kept = Vec::<(String, usize)>::new();
+            for (column, distinct) in std::mem::take(&mut layout.categories) {
+                if kept.len() == MAX_CATEGORY_CHARTS {
+                    break;
+                }
+                let mut repeated = false;
+                for (other, other_distinct) in &kept {
+                    if *other_distinct == distinct && mirrors(&plan, other, &column)? {
+                        repeated = true;
+                        break;
+                    }
+                }
+                if !repeated {
+                    kept.push((column, distinct));
+                }
+            }
+            kept.into_iter().map(|(column, _)| column).collect()
+        }
+    };
+    if let Some(measure) = custom.measure.as_ref() {
+        offered(&layout.options.measures, measure)?;
+        layout.measures.retain(|column| column != measure);
+        layout.measures.insert(0, measure.clone());
+    }
+    if let Some(date) = custom.date.as_ref() {
+        offered(&layout.options.dates, date)?;
+        layout.date = Some(date.clone());
+    }
     let total_row_count = profile.row_count;
     let everything = filtered(&plan, filters, None);
     let row_count = row_count(everything.clone())?;
@@ -491,10 +667,16 @@ pub(super) fn explore_panel(
         });
     }
 
-    let categories = layout
-        .categories
+    let categories = categories
         .iter()
-        .map(|column| category_chart(&plan, filters, column))
+        .map(|column| {
+            let max_bars = if custom.expanded.contains(column) {
+                MAX_EXPANDED_BARS
+            } else {
+                MAX_BARS
+            };
+            category_chart(&plan, filters, column, max_bars)
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let histogram = match layout.measures.first() {
         Some(measure) => histogram(&plan, filters, measure)?,
@@ -511,5 +693,6 @@ pub(super) fn explore_panel(
         categories,
         histogram,
         trend,
+        options: layout.options,
     })
 }

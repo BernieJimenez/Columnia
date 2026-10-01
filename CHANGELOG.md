@@ -10,6 +10,16 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- «Personalizar» en Explorar: un botón abre la elección de los gráficos de
+  barras (hasta seis columnas), la medida del histograma y de los indicadores y,
+  si hay varias, la columna de fecha. «Volver a lo automático» recupera el panel
+  que elige Columnia. `get_explore_panel` recibe esa elección (`layout`) y
+  devuelve las columnas que admite cada gráfico (`options`); nunca ofrece datos
+  personales ni identificadores.
+- En Explorar, «Ver todos» junto a «Otros N valores» muestra hasta 60 valores de
+  ese gráfico; pulsar un periodo de la tendencia filtra todo el panel, igual que
+  las barras; y el histograma lleva cinco marcas en el eje y dice cuántas filas
+  tiene el tramo más alto.
 - EX01 — Fase «Explorar» entre Preparar y Entregar: un panel que Columnia elige
   solo a partir del perfil, con los datos ya limpios. Muestra el número de filas,
   la mediana y la media de las medidas principales, barras de hasta seis columnas
@@ -125,6 +135,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
   escaneos en la auditoría de cadena de suministro y ahora también los E2E). Las
   pruebas Rust siguen en `cargo test --lib`: los binarios no tienen pruebas y
   `--all-targets` duplica el manifiesto de Windows al enlazarlos.
+- Presupuesto del bundle frontend: el total raw sube de 800 a 832 KiB en
+  `tools/check-bundle.mjs` por decisión explícita, para «Personalizar» en
+  Explorar (el margen previo era de 479 bytes). El límite gzip de 240 KiB no
+  cambia.
 - Presupuesto del bundle frontend: el total raw sube de 768 a 800 KiB en
   `tools/check-bundle.mjs` y en la línea base de rendimiento. Los cambios del
   Tier 10 lo llevaron a 788.352 bytes (el margen previo era de 824 bytes); el
@@ -155,6 +169,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
   cosa se rechaza con un mensaje claro.
 
 ### Corregido
+
+- Explorar ya no muestra dos gráficos para dos columnas que dicen lo mismo (un
+  estado y su nombre completo): se queda con la primera.
+- En Explorar, «Quitar filtros» solo tenía su estilo mientras el panel cargaba y
+  los indicadores se veían siempre atenuados; ahora se atenúan solo al cargar.
 
 - La primera propuesta de Preparar ya convierte a número las columnas cuyos
   únicos valores no numéricos son marcadores «sin dato» (`NA`, `N/A`…), junto
