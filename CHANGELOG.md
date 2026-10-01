@@ -20,6 +20,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
   cambiar la selección. Nuevo comando IPC `get_explore_panel` (90 comandos, 84
   estructuras), que agrega en Rust sobre todas las filas: con 1 000 000 de filas
   tarda 131 ms y 47 ms con un filtro; con ALL2.csv (368 428 filas), 61 ms.
+- «Abrir en Power BI» y «Exportar y abrir en Power BI» también con Parquet,
+  que conserva los tipos de cada columna y no tiene el problema de los saltos de
+  línea del CSV. Comprobado con Power BI Desktop: el `.pbids` abre el Parquet
+  con sus columnas.
 - «Abrir en Power BI» en el resultado de Entregar para exportaciones CSV y
   Excel: Columnia escribe un archivo `.pbids` junto a la copia y abre Power BI
   Desktop con ella. Si Power BI Desktop no está instalado, lo dice y deja el
@@ -31,7 +35,7 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
   exportación se cancela o falla, no abre nada.
 - Al abrir en Power BI un CSV con saltos de línea dentro de alguna celda,
   Entregar avisa en una línea de cómo leerlo en Power BI (tener en cuenta los
-  saltos entre comillas en el paso Origen) o de exportar a Excel; por defecto
+  saltos entre comillas en el paso Origen) o de exportar a Excel o Parquet; por defecto
   Power BI parte esas filas en dos. El comando devuelve si el CSV los tiene.
 - Entregar propone comprobaciones de calidad que los datos ya cumplen (sin nulos
   y valores únicos en columnas identificadoras, sin nulos en columnas completas;

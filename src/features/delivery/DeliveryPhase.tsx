@@ -574,7 +574,7 @@ export function DeliveryPhase({
   }
 
 
-  // «Exportar y abrir en Power BI»: the next successful CSV or Excel export opens it.
+  // «Exportar y abrir en Power BI»: the next successful CSV, Excel or Parquet export opens it.
   useEffect(() => {
     // Only the export that asked for it opens Power BI, once.
     if (exportState.kind !== "success") setAutoOpenResult(null);
@@ -1024,7 +1024,7 @@ export function DeliveryPhase({
                 ? `Validar y exportar ${exportFormatLabel}`
                 : `Exportar ${exportFormatLabel}`}
             </button>
-            {(selectedExportFormat === "csv" || selectedExportFormat === "excel") && (
+            {(selectedExportFormat === "csv" || selectedExportFormat === "excel" || selectedExportFormat === "parquet") && (
               <button
                 className="secondary-action"
                 type="button"

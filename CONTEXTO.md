@@ -311,7 +311,7 @@ La superficie pública está centralizada en `src/bridge.ts` y registrada en `sr
 - `export_dataset`
 - `open_last_export_in_power_bi`: escribe `<nombre>.pbids` (origen de datos de
   Power BI Desktop: protocolo `file` y la ruta, sin el prefijo `\\?\`) junto a la
-  última exportación CSV o Excel y lo abre con `explorer.exe`; si la extensión
+  última exportación CSV, Excel o Parquet y lo abre con `explorer.exe`; si la extensión
   `.pbids` no está registrada, explica que falta Power BI Desktop. No recibe rutas
   desde React. Devuelve si el CSV tiene saltos de línea dentro de celdas entre
   comillas, que la importación por defecto de Power BI parte en dos filas.

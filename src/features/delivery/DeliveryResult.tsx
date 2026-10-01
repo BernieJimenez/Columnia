@@ -83,7 +83,7 @@ export function DeliveryResult({
                 >
                   {openOutputState === "working" ? "Abriendo carpeta…" : "Abrir carpeta"}
                 </button>
-                {(result.format === "CSV" || result.format === "Excel") && (
+                {(result.format === "CSV" || result.format === "Excel" || result.format === "Parquet") && (
                   <button
                     type="button"
                     className="secondary-action"
@@ -162,7 +162,7 @@ export function DeliveryResult({
           )}
           {powerBiState.kind === "opened" && powerBiState.quotedLineBreaks && (
             <p className="notice notice--warning" role="note">
-              Algunas celdas tienen saltos de línea. En Power BI, en el paso Origen, elige tener en cuenta los saltos entre comillas, o exporta a Excel.
+              Algunas celdas tienen saltos de línea. En Power BI, en el paso Origen, elige tener en cuenta los saltos entre comillas, o exporta a Excel o Parquet.
             </p>
           )}
           {powerBiState.kind === "error" && (
