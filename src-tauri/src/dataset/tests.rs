@@ -16789,7 +16789,8 @@ fn quality_rules_apply_conditional_row_rules_and_skip_null_conditions() {
     let result = evaluate_quality_rules(&frame, &[conditional.clone()]).unwrap();
 
     assert!(!result.passed);
-    assert_eq!(result.rules[0].checked_count, 4);
+    // FUN-35: only the three rows where `when` holds are checked.
+    assert_eq!(result.rules[0].checked_count, 3);
     assert_eq!(result.rules[0].invalid_count, 1);
     assert_eq!(result.rules[0].when, conditional.when);
     assert_eq!(result.rules[0].then, conditional.then);
@@ -16826,7 +16827,7 @@ fn quality_rules_match_numeric_conditions_across_integer_widths() {
     assert!(result.passed);
     assert_eq!(result.rules[0].invalid_count, 0);
     assert_eq!(result.rules[1].invalid_count, 0);
-    assert_eq!(result.rules[1].checked_count, 3);
+    assert_eq!(result.rules[1].checked_count, 2);
     assert_eq!(result.failed_rules, 0);
 }
 
@@ -19977,4 +19978,79 @@ fn every_recipe_step_matches_between_eager_and_lazy_on_chunked_frames() {
     assert!(large_compared.len() >= 10, "{large_compared:?}");
     // The lazy path takes most steps; the comparison ran for each of them.
     assert!(compared.len() >= 10, "{compared:?}");
+}
+
+/// RV42 (FUN-36, PROD-03): aggregate and drift rules do not pass on values
+/// they cannot read, do not fail on decimal rounding, and both paths agree.
+#[test]
+fn aggregate_rules_count_unreadable_cells_and_absorb_rounding_in_both_paths() {
+    let path = temporary_csv("importe,flotante,vacio\n10,0.1,\nabc,0.2,\n5,,\n");
+    let frame = read_delimited_frame(&path, "csv").expect("el CSV debe leerse como texto");
+    let mut text_sum = quality_rule("importe", QualityRuleKind::AggregateCheck);
+    text_sum.aggregate = Some(QualityAggregate::Sum);
+    text_sum.expected = Some(15.0);
+    let mut float_sum = quality_rule("flotante", QualityRuleKind::AggregateCheck);
+    float_sum.aggregate = Some(QualityAggregate::Sum);
+    float_sum.expected = Some(0.3);
+    let mut empty_drift = quality_rule("vacio", QualityRuleKind::DistributionDrift);
+    empty_drift.baseline = Some(vec!["0".to_owned()]);
+    empty_drift.threshold = Some(1.0);
+    let rules = vec![text_sum, float_sum, empty_drift];
+
+    let expected = evaluate_quality_rules(&frame, &rules).expect("en memoria");
+    let passed = expected
+        .rules
+        .iter()
+        .map(|rule| rule.passed)
+        .collect::<Vec<_>>();
+    assert_eq!(passed, [false, true, false]);
+    assert_eq!(
+        expected.rules[0].invalid_count, 1,
+        "«abc» no se lee como número"
+    );
+
+    let actual = evaluate_source_quality_rules_with_cancel(
+        &path,
+        "csv",
+        fs::metadata(&path).expect("la fuente debe existir").len(),
+        frame.height(),
+        &rules,
+        || false,
+    )
+    .expect("archivo grande");
+    for (actual_rule, expected_rule) in actual.rules.iter().zip(&expected.rules) {
+        assert_eq!(actual_rule.checked_count, expected_rule.checked_count);
+        assert_eq!(actual_rule.invalid_count, expected_rule.invalid_count);
+        assert_eq!(actual_rule.passed, expected_rule.passed);
+    }
+    fs::remove_file(path).ok();
+}
+
+/// FUN-35: a condition value the `when` column cannot read is refused when
+/// the rule is defined, instead of matching no row.
+#[test]
+fn conditional_rules_refuse_values_the_when_column_cannot_read() {
+    let frame = df![
+        "importe" => &[1_i64, 2],
+        "activo" => &[true, false],
+        "estado" => &[Some("ok"), None]
+    ]
+    .unwrap();
+    let conditional = |column: &str, value: &str| {
+        let mut rule = quality_rule("estado", QualityRuleKind::Conditional);
+        rule.when = Some(QualityCondition {
+            column: column.to_owned(),
+            operator: Some(QualityComparison::Gt),
+            value: Some(value.to_owned()),
+        });
+        rule.then = Some(Box::new(quality_rule("estado", QualityRuleKind::NotNull)));
+        rule
+    };
+    let error = evaluate_quality_rules(&frame, &[conditional("importe", "1,5")]).unwrap_err();
+    assert!(error.contains("no es un número"), "{error}");
+    let mut boolean = conditional("activo", "sí");
+    boolean.when.as_mut().unwrap().operator = Some(QualityComparison::Eq);
+    let error = evaluate_quality_rules(&frame, &[boolean]).unwrap_err();
+    assert!(error.contains("true o false"), "{error}");
+    assert!(evaluate_quality_rules(&frame, &[conditional("importe", "1.5")]).is_ok());
 }

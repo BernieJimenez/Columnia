@@ -149,7 +149,7 @@ use quality_evaluation::{
     evaluate_quality_rules_with_cancel, evaluate_source_quality_rules_with_cancel,
     quality_aggregate_numeric_value, quality_aggregate_observation, quality_datetime_value,
     quality_monotonic_ordering, source_quality_rule_is_incremental,
-    validate_quality_rule_definition,
+    validate_quality_rule_definition, AggregateObservation,
 };
 #[allow(unused_imports)]
 use query_execution::*;

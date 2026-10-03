@@ -185,6 +185,13 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Reglas de calidad: una condición con un valor que la columna no puede leer
+  («1,5» en una columna numérica, «sí» en una booleana) se rechaza al definirla
+  y la regla solo cuenta las filas donde se cumple; las reglas agregadas cuentan
+  como fallo las celdas de texto que no son números y ya no fallan por redondeo
+  de decimales (0,1 + 0,2 = 0,3); la regla de media («Cambio de la media») no
+  aprueba una columna sin números; y la condicional con expresión regular la
+  compila una sola vez.
 - Recetas: los tres motores (en memoria, lazy y archivo grande) dan el mismo
   resultado o el mismo error: una columna calculada con el nombre que un
   renombrado da a otra se rechaza siempre (también en la CLI, que ya no lo

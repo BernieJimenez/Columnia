@@ -1029,11 +1029,39 @@ pub(super) fn validate_quality_rule_definition(
                     rule.column
                 ));
             }
-            if condition.value.is_none() {
+            let Some(condition_value) = condition.value.as_deref() else {
                 return Err(format!(
                     "La condición de '{}' debe indicar value.",
                     rule.column
                 ));
+            };
+            // FUN-35: a value the column's type cannot read would match no
+            // row and let the rule pass without checking anything.
+            match condition_column.dtype() {
+                DataType::Boolean if condition_value.parse::<bool>().is_err() => {
+                    return Err(format!(
+                        "La condición de '{}' compara la columna booleana '{}' con «{condition_value}»: usa true o false.",
+                        rule.column, condition.column
+                    ));
+                }
+                DataType::Int8
+                | DataType::Int16
+                | DataType::Int32
+                | DataType::Int64
+                | DataType::UInt8
+                | DataType::UInt16
+                | DataType::UInt32
+                | DataType::UInt64
+                | DataType::Float32
+                | DataType::Float64
+                    if !condition_value.parse::<f64>().is_ok_and(f64::is_finite) =>
+                {
+                    return Err(format!(
+                        "La condición de '{}' compara la columna numérica '{}' con «{condition_value}», que no es un número (usa punto decimal, sin separador de miles).",
+                        rule.column, condition.column
+                    ));
+                }
+                _ => {}
             }
             let then = rule.then.as_deref().ok_or_else(|| {
                 format!(
@@ -1465,32 +1493,135 @@ pub(super) fn quality_aggregate_numeric_value(value: AnyValue<'_>) -> Option<f64
     }
 }
 
+/// What an aggregate rule reads from a column: the numbers, and the cells
+/// with a value that is not a number (FUN-36), which the rule cannot leave
+/// out in silence.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct AggregateObservation {
+    pub(super) count: usize,
+    sum: f64,
+    /// Neumaier compensation, so that `0.1 + 0.2` adds up to `0.3` (FUN-36).
+    compensation: f64,
+    pub(super) minimum: Option<f64>,
+    pub(super) maximum: Option<f64>,
+    pub(super) unreadable: usize,
+}
+
+impl AggregateObservation {
+    fn add(&mut self, number: f64) {
+        self.count += 1;
+        let total = self.sum + number;
+        self.compensation += if self.sum.abs() >= number.abs() {
+            (self.sum - total) + number
+        } else {
+            (number - total) + self.sum
+        };
+        self.sum = total;
+        self.minimum = Some(self.minimum.map_or(number, |current| current.min(number)));
+        self.maximum = Some(self.maximum.map_or(number, |current| current.max(number)));
+    }
+
+    fn observe(&mut self, value: AnyValue<'_>) {
+        let blank = match &value {
+            AnyValue::Null => return,
+            AnyValue::String(text) => text.trim().is_empty(),
+            AnyValue::StringOwned(text) => text.trim().is_empty(),
+            _ => false,
+        };
+        if blank {
+            return;
+        }
+        match quality_aggregate_numeric_value(value) {
+            Some(number) => self.add(number),
+            None => self.unreadable += 1,
+        }
+    }
+
+    pub(super) fn merge(&mut self, other: &Self) {
+        self.count += other.count;
+        self.unreadable += other.unreadable;
+        let other_sum = other.sum + other.compensation;
+        let total = self.sum + other_sum;
+        self.compensation += if self.sum.abs() >= other_sum.abs() {
+            (self.sum - total) + other_sum
+        } else {
+            (other_sum - total) + self.sum
+        };
+        self.sum = total;
+        for value in [other.minimum, other.maximum].into_iter().flatten() {
+            self.minimum = Some(self.minimum.map_or(value, |current| current.min(value)));
+            self.maximum = Some(self.maximum.map_or(value, |current| current.max(value)));
+        }
+    }
+
+    pub(super) fn sum(&self) -> f64 {
+        self.sum + self.compensation
+    }
+}
+
 pub(super) fn quality_aggregate_observation<C>(
     column: &Column,
     row_count: usize,
     is_cancelled: &C,
-) -> Result<(usize, f64, Option<f64>, Option<f64>), String>
+) -> Result<AggregateObservation, String>
 where
     C: Fn() -> bool,
 {
-    let mut count = 0;
-    let mut sum = 0.0;
-    let mut minimum = None;
-    let mut maximum = None;
+    let mut observation = AggregateObservation::default();
     for row_index in 0..row_count {
         if row_index % 1024 == 0 {
             ensure_not_cancelled(is_cancelled())?;
         }
-        let value = column.get(row_index).map_err(|error| error.to_string())?;
-        let Some(number) = quality_aggregate_numeric_value(value) else {
-            continue;
-        };
-        count += 1;
-        sum += number;
-        minimum = Some(minimum.map_or(number, |current: f64| current.min(number)));
-        maximum = Some(maximum.map_or(number, |current: f64| current.max(number)));
+        observation.observe(column.get(row_index).map_err(|error| error.to_string())?);
     }
-    Ok((count, sum, minimum, maximum))
+    Ok(observation)
+}
+
+/// Failed cells of `aggregate_check`: the unreadable ones, plus one when the
+/// aggregate misses the expected value (FUN-36). Shared by both paths.
+pub(super) fn aggregate_check_invalid_count(
+    rule: &QualityRule,
+    observation: &AggregateObservation,
+) -> usize {
+    let aggregate = rule.aggregate.unwrap_or(QualityAggregate::Sum);
+    let observed = match aggregate {
+        QualityAggregate::Count => Some(observation.count as f64),
+        QualityAggregate::Sum => Some(observation.sum()),
+        QualityAggregate::Min => observation.minimum,
+        QualityAggregate::Max => observation.maximum,
+    };
+    let expected =
+        quality_aggregate_expected(rule, aggregate).expect("expected o referenceValues validados");
+    let tolerance = quality_aggregate_tolerance(rule, expected);
+    observation.unreadable
+        + usize::from(observed.is_none_or(|value| (value - expected).abs() > tolerance))
+}
+
+/// Failed cells of a two-column `aggregate_reconciliation` (FUN-36).
+pub(super) fn aggregate_reconciliation_invalid_count(
+    rule: &QualityRule,
+    left: &AggregateObservation,
+    right: &AggregateObservation,
+) -> usize {
+    let (left_sum, right_sum) = (left.sum(), right.sum());
+    let tolerance = quality_aggregate_tolerance(rule, left_sum.abs().max(right_sum.abs()));
+    left.unreadable + right.unreadable + usize::from((left_sum - right_sum).abs() > tolerance)
+}
+
+/// Failed cells of `distribution_drift`, which compares the mean with the
+/// baseline's (PROD-03): a column without numbers cannot pass.
+pub(super) fn distribution_drift_invalid_count(
+    rule: &QualityRule,
+    observation: &AggregateObservation,
+) -> usize {
+    if observation.count == 0 {
+        return observation.unreadable.max(1);
+    }
+    let observed_mean = observation.sum() / observation.count as f64;
+    let baseline_mean = quality_distribution_baseline_mean(rule)
+        .expect("baseline validado para distribution_drift");
+    let threshold = rule.tolerance_abs.or(rule.threshold).unwrap_or(0.0);
+    observation.unreadable + usize::from((observed_mean - baseline_mean).abs() > threshold)
 }
 
 fn quality_aggregate_expected(rule: &QualityRule, aggregate: QualityAggregate) -> Option<f64> {
@@ -1515,7 +1646,13 @@ fn quality_aggregate_tolerance(rule: &QualityRule, reference: f64) -> f64 {
     let relative = rule
         .tolerance_rel
         .map_or(0.0, |value| reference.abs() * value);
-    rule.tolerance_abs.unwrap_or(0.0).max(relative)
+    // FUN-36: sums of decimals carry rounding; a billionth of the amount is
+    // never a real difference.
+    let rounding = reference.abs().max(1.0) * 1e-9;
+    rule.tolerance_abs
+        .unwrap_or(0.0)
+        .max(relative)
+        .max(rounding)
 }
 
 fn quality_distribution_baseline_mean(rule: &QualityRule) -> Option<f64> {
@@ -1541,6 +1678,7 @@ fn quality_conditional_row_invalid(
     frame: &DataFrame,
     row_index: usize,
     rule: &QualityRule,
+    regex: Option<&Regex>,
 ) -> Result<bool, String> {
     let column = frame
         .column(&rule.column)
@@ -1574,8 +1712,8 @@ fn quality_conditional_row_invalid(
             })
         }
         QualityRuleKind::Regex => {
-            let regex = Regex::new(rule.pattern.as_deref().expect("pattern validado"))
-                .expect("pattern validado");
+            // REN-07: compiled once per rule, before the row loop.
+            let regex = regex.expect("pattern compilado antes del bucle");
             Ok(match value {
                 AnyValue::String(text) => !regex.is_match(text),
                 AnyValue::StringOwned(text) => !regex.is_match(text.as_str()),
@@ -1761,19 +1899,15 @@ where
                 counts[index] = (row_count, invalid_count);
             }
             QualityRuleKind::DistributionDrift => {
-                let (count, sum, _, _) = quality_aggregate_observation_from_parquet(
+                let observation = quality_aggregate_observation_from_parquet(
                     &snapshot_path,
                     row_count,
                     &rule.column,
                     &is_cancelled,
                 )?;
-                let observed_mean = if count == 0 { 0.0 } else { sum / count as f64 };
-                let baseline_mean = quality_distribution_baseline_mean(rule)
-                    .expect("baseline validado para distribution_drift");
-                let threshold = rule.tolerance_abs.or(rule.threshold).unwrap_or(0.0);
                 counts[index] = (
                     row_count,
-                    usize::from((observed_mean - baseline_mean).abs() > threshold),
+                    distribution_drift_invalid_count(rule, &observation),
                 );
             }
             QualityRuleKind::AggregateCheck | QualityRuleKind::AggregateReconciliation => {
@@ -1785,48 +1919,30 @@ where
                         .is_some_and(|columns| columns.len() >= 2);
                 if has_column_pair {
                     let columns = rule.columns.as_deref().expect("columns validadas");
-                    let (_, left_sum, _, _) = quality_aggregate_observation_from_parquet(
+                    let left = quality_aggregate_observation_from_parquet(
                         &snapshot_path,
                         row_count,
                         &columns[0],
                         &is_cancelled,
                     )?;
-                    let (_, right_sum, _, _) = quality_aggregate_observation_from_parquet(
+                    let right = quality_aggregate_observation_from_parquet(
                         &snapshot_path,
                         row_count,
                         &columns[1],
                         &is_cancelled,
                     )?;
-                    let reference = left_sum.abs().max(right_sum.abs());
-                    let tolerance = quality_aggregate_tolerance(rule, reference);
                     counts[index] = (
                         row_count,
-                        usize::from((left_sum - right_sum).abs() > tolerance),
+                        aggregate_reconciliation_invalid_count(rule, &left, &right),
                     );
                 } else {
-                    let aggregate = rule.aggregate.unwrap_or(QualityAggregate::Sum);
-                    let (count, sum, minimum, maximum) =
-                        quality_aggregate_observation_from_parquet(
-                            &snapshot_path,
-                            row_count,
-                            &rule.column,
-                            &is_cancelled,
-                        )?;
-                    let observed = match aggregate {
-                        QualityAggregate::Count => Some(count as f64),
-                        QualityAggregate::Sum => Some(sum),
-                        QualityAggregate::Min => minimum,
-                        QualityAggregate::Max => maximum,
-                    };
-                    let expected = quality_aggregate_expected(rule, aggregate)
-                        .expect("expected o referenceValues validados");
-                    let tolerance = quality_aggregate_tolerance(rule, expected);
-                    counts[index] = (
+                    let observation = quality_aggregate_observation_from_parquet(
+                        &snapshot_path,
                         row_count,
-                        usize::from(
-                            observed.is_none_or(|value| (value - expected).abs() > tolerance),
-                        ),
-                    );
+                        &rule.column,
+                        &is_cancelled,
+                    )?;
+                    counts[index] = (row_count, aggregate_check_invalid_count(rule, &observation));
                 }
             }
             _ => {}
@@ -1956,6 +2072,14 @@ where
                 let condition_column = frame
                     .column(&condition.column)
                     .map_err(|error| error.to_string())?;
+                let regex = (then.kind == QualityRuleKind::Regex)
+                    .then(|| Regex::new(then.pattern.as_deref().expect("pattern validado")))
+                    .transpose()
+                    .map_err(|error| {
+                        format!("El patrón de conditional.then no es válido: {error}")
+                    })?;
+                // FUN-35: only the rows where `when` holds are checked.
+                let mut checked_count = 0;
                 let mut invalid_count = 0;
                 for row_index in 0..row_count {
                     ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
@@ -1964,12 +2088,15 @@ where
                         .map_err(|error| error.to_string())?;
                     if !matches!(condition_value, AnyValue::Null)
                         && quality_condition_matches(condition_value, condition)
-                        && quality_conditional_row_invalid(frame, row_index, then)?
                     {
-                        invalid_count += 1;
+                        checked_count += 1;
+                        if quality_conditional_row_invalid(frame, row_index, then, regex.as_ref())?
+                        {
+                            invalid_count += 1;
+                        }
                     }
                 }
-                (row_count, invalid_count)
+                (checked_count, invalid_count)
             }
             QualityRuleKind::DateRange => {
                 let column = frame
@@ -2164,15 +2291,10 @@ where
                 let column = frame
                     .column(&rule.column)
                     .map_err(|error| error.to_string())?;
-                let (count, sum, _, _) =
-                    quality_aggregate_observation(column, row_count, &is_cancelled)?;
-                let observed_mean = if count == 0 { 0.0 } else { sum / count as f64 };
-                let baseline_mean = quality_distribution_baseline_mean(rule)
-                    .expect("baseline validado para distribution_drift");
-                let threshold = rule.tolerance_abs.or(rule.threshold).unwrap_or(0.0);
+                let observation = quality_aggregate_observation(column, row_count, &is_cancelled)?;
                 (
                     row_count,
-                    usize::from((observed_mean - baseline_mean).abs() > threshold),
+                    distribution_drift_invalid_count(rule, &observation),
                 )
             }
             QualityRuleKind::AggregateCheck | QualityRuleKind::AggregateReconciliation => {
@@ -2190,36 +2312,19 @@ where
                     let right = frame
                         .column(&columns[1])
                         .map_err(|error| error.to_string())?;
-                    let (_, left_sum, _, _) =
-                        quality_aggregate_observation(left, row_count, &is_cancelled)?;
-                    let (_, right_sum, _, _) =
-                        quality_aggregate_observation(right, row_count, &is_cancelled)?;
-                    let reference = left_sum.abs().max(right_sum.abs());
-                    let tolerance = quality_aggregate_tolerance(rule, reference);
+                    let left = quality_aggregate_observation(left, row_count, &is_cancelled)?;
+                    let right = quality_aggregate_observation(right, row_count, &is_cancelled)?;
                     (
                         row_count,
-                        usize::from((left_sum - right_sum).abs() > tolerance),
+                        aggregate_reconciliation_invalid_count(rule, &left, &right),
                     )
                 } else {
                     let column = frame
                         .column(&rule.column)
                         .map_err(|error| error.to_string())?;
-                    let aggregate = rule.aggregate.unwrap_or(QualityAggregate::Sum);
-                    let (count, sum, minimum, maximum) =
+                    let observation =
                         quality_aggregate_observation(column, row_count, &is_cancelled)?;
-                    let observed = match aggregate {
-                        QualityAggregate::Count => Some(count as f64),
-                        QualityAggregate::Sum => Some(sum),
-                        QualityAggregate::Min => minimum,
-                        QualityAggregate::Max => maximum,
-                    };
-                    let expected = quality_aggregate_expected(rule, aggregate)
-                        .expect("expected o referenceValues validados");
-                    let tolerance = quality_aggregate_tolerance(rule, expected);
-                    let invalid = usize::from(
-                        observed.is_none_or(|value| (value - expected).abs() > tolerance),
-                    );
-                    (row_count, invalid)
+                    (row_count, aggregate_check_invalid_count(rule, &observation))
                 }
             }
             _ => {

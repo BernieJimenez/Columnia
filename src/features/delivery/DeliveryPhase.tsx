@@ -118,8 +118,8 @@ const QUALITY_ISSUE_GUIDANCE: Record<QualityRuleKind, { title: string; nextStep:
     nextStep: "Confirma las columnas comparadas, el alcance de datos y la tolerancia de conciliación.",
   },
   distribution_drift: {
-    title: "Distribución fuera de tolerancia",
-    nextStep: "Verifica que la línea base y la población actual sean comparables antes de ajustar el umbral.",
+    title: "Media fuera de tolerancia",
+    nextStep: "Compara la media actual con la de la línea base: verifica que ambas poblaciones sean comparables antes de ajustar el umbral.",
   },
   date_range: {
     title: "Fecha fuera del rango esperado",
@@ -153,7 +153,7 @@ const QUALITY_RULE_SUMMARY: Record<QualityRuleKind, string> = {
   monotonic: "debe mantener el orden esperado",
   aggregate_check: "debe cumplir el total o agregado esperado",
   aggregate_reconciliation: "debe conciliar los agregados comparados",
-  distribution_drift: "debe permanecer dentro de la variación permitida",
+  distribution_drift: "debe mantener su media cerca de la de la línea base",
   date_range: "debe permanecer dentro del periodo definido",
   conditional: "debe cumplir la condición configurada",
   schema_contract: "debe conservar las columnas requeridas",

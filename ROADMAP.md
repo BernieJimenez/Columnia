@@ -157,10 +157,10 @@ medio = 1 día; agregado por suma.
 - [ ] **RV42** — **Reglas de calidad** — Mínimo/máximo temporales de columnas de texto ignoran el orden de fecha inferido (siempre… (y 4 problemas más) · *Esfuerzo: 2,8 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-18, FUN-35, FUN-36, REN-07, PROD-03.
   - [ ] `FUN-18` (Medio) Mínimo/máximo temporales de columnas de texto ignoran el orden de fecha inferido (siempre día/mes primero)
-  - [ ] `FUN-35` (Medio) `conditional`: si el valor de `when` no se puede interpretar para el tipo de la columna, la regla pasa en vacío
-  - [ ] `FUN-36` (Medio) Reglas agregadas: textos no numéricos se omiten sin contarlos, y la tolerancia por defecto es 0 sobre sumas f64
-  - [ ] `REN-07` (Medio) `conditional` con `then: regex` compila la expresión regular en cada fila
-  - [ ] `PROD-03` (Medio) `distribution_drift` solo compara la media y trata la columna vacía como media 0
+  - [x] `FUN-35` (Medio) `conditional`: si el valor de `when` no se puede interpretar para el tipo de la columna, la regla pasa en vacío — hecho el 2026-10-03
+  - [x] `FUN-36` (Medio) Reglas agregadas: textos no numéricos se omiten sin contarlos, y la tolerancia por defecto es 0 sobre sumas f64 — hecho el 2026-10-03
+  - [x] `REN-07` (Medio) `conditional` con `then: regex` compila la expresión regular en cada fila — hecho el 2026-10-03
+  - [x] `PROD-03` (Medio) `distribution_drift` solo compara la media y trata la columna vacía como media 0 — hecho el 2026-10-03
 - [ ] **RV43** — **Varios** — «Marcadores sin dato» convierte en nulo un título legítimo («Unknown») y rompe el contrat… (y 1 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-19, UX-03.
   - [ ] `FUN-19` (Medio) «Marcadores sin dato» convierte en nulo un título legítimo («Unknown») y rompe el contrato propuesto

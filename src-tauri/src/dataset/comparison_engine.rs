@@ -814,32 +814,24 @@ pub(super) fn quality_aggregate_observation_from_parquet<C>(
     row_count: usize,
     column_name: &str,
     is_cancelled: &C,
-) -> Result<(usize, f64, Option<f64>, Option<f64>), String>
+) -> Result<AggregateObservation, String>
 where
     C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
-    let mut count = 0usize;
-    let mut sum = 0.0;
-    let mut minimum = None;
-    let mut maximum = None;
+    let mut observation = AggregateObservation::default();
     for_each_parquet_block(path, row_count, |_, block| {
         let column = block
             .column(column_name)
             .map_err(|error| format!("No se pudo evaluar la agregación source-backed: {error}"))?;
-        let (block_count, block_sum, block_minimum, block_maximum) =
-            quality_aggregate_observation(column, block.height(), is_cancelled)?;
-        count = count.saturating_add(block_count);
-        sum += block_sum;
-        if let Some(value) = block_minimum {
-            minimum = Some(minimum.map_or(value, |current: f64| current.min(value)));
-        }
-        if let Some(value) = block_maximum {
-            maximum = Some(maximum.map_or(value, |current: f64| current.max(value)));
-        }
+        observation.merge(&quality_aggregate_observation(
+            column,
+            block.height(),
+            is_cancelled,
+        )?);
         Ok(())
     })?;
-    Ok((count, sum, minimum, maximum))
+    Ok(observation)
 }
 
 pub(super) fn count_normalized_duplicate_fingerprints<C>(

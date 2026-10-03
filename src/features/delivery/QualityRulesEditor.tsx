@@ -235,7 +235,7 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
                         <option value="monotonic">Monotonicidad</option>
                         <option value="aggregate_check">Comprobación agregada</option>
                         <option value="aggregate_reconciliation" disabled={dataset.columns.length < 2}>Reconciliación agregada</option>
-                        <option value="distribution_drift">Drift de distribución</option>
+                        <option value="distribution_drift">Cambio de la media</option>
                         <option value="date_range">Rango de fechas</option>
                         <option value="conditional">Comprobación condicional</option>
                         <option value="schema_contract">Contrato de esquema</option>
@@ -454,7 +454,7 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
                     )}
                     {isDistributionDriftRule && (
                       <fieldset className="quality-rule__wide quality-rule__columns">
-                        <legend>Drift de distribución</legend>
+                        <legend>Cambio de la media respecto a la línea base</legend>
                         <label className="quality-rule__wide">Línea base numérica
                           <ListTextarea
                             rows={3}
