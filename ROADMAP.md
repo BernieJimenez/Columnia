@@ -100,13 +100,13 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-29` (Medio) XLSX exportado pierde precisión silenciosamente en enteros de más de 15 dígitos — hecho el 2026-10-03
   - [x] `FUN-31` (Medio) Columnas de libro con fechas mezcladas con texto o errores se convierten en texto/serial sin aviso — hecho el 2026-10-03
   - [x] `SEG-01` (Medio) Las cabeceras que empiezan por `=` (y `+`, `-`, `@`) no se neutralizan al exportar a CSV — hecho el 2026-10-03
-- [ ] **RV33** — **Exportación y libros** — El modo «hash» de privacidad es SHA-256 sin sal: reversible por diccionario en datos de b… (y 4 problemas más) · *Esfuerzo: 2 días*
+- [x] **RV33** — **Exportación y libros** — El modo «hash» de privacidad es SHA-256 sin sal: reversible por diccionario en datos de b… (y 4 problemas más) · *Esfuerzo: 2 días* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de SEG-02, ARQ-05, LIM-02, QA-14, DOC-02.
   - [x] `SEG-02` (Medio) El modo «hash» de privacidad es SHA-256 sin sal: reversible por diccionario en datos de baja entropía — hecho el 2026-10-03
   - [x] `ARQ-05` (Medio) Los ZIP (bundle, xlsx) no activan `large_file`: entradas de más de 4 GiB fallarán — hecho el 2026-10-03
   - [x] `LIM-02` (Medio) Esqueleto de exportación duplicado en siete variantes y bloques idénticos — hecho el 2026-10-03
   - [x] `QA-14` (Medio) Las pruebas de exportación source-backed no cubren ceros a la izquierda, destino igual a fuente ni fórmulas — hecho el 2026-10-03
-  - [ ] `DOC-02` (Medio) THREAT_MODEL.md: fecha de verificación vencida, omisiones y contradicciones con el código
+  - [x] `DOC-02` (Medio) THREAT_MODEL.md: fecha de verificación vencida, omisiones y contradicciones con el código — hecho el 2026-10-03
 - [ ] **RV34** — **Motor (dataset.rs)** — «Eliminar duplicados parecidos» necesita dos pasadas y la primera deja una pareja parecida (y 4 problemas más) · *Esfuerzo: 3,8 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-08, FUN-16, REN-03, REN-04, LIM-01.
   - [ ] `FUN-08` (Medio) «Eliminar duplicados parecidos» necesita dos pasadas y la primera deja una pareja parecida
