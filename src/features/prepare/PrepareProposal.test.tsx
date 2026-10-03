@@ -187,3 +187,46 @@ describe("PrepareProposal duplicate count (FUN-12)", () => {
     expect(onPreview).toHaveBeenCalledWith(expect.objectContaining({ trimText: true, removeDuplicates: true }));
   });
 });
+
+describe("PrepareProposal date count (FUN-24)", () => {
+  const mixed: ProposalItem[] = [{
+    id: "dates",
+    title: "Convertir 3 columnas a fecha",
+    hint: "Todos sus valores son fechas.",
+    dateColumns: [
+      { name: "alta", order: "iso", sample: "2024-01-05" },
+      { name: "baja", order: "iso", sample: "2024-02-05" },
+      { name: "pago", order: null, sample: "01/02/2024" },
+    ],
+    examples: [],
+  }];
+
+  it("counts only the columns it will convert and names the pending ones", () => {
+    render(
+      <PrepareProposal items={mixed} columnCount={3} busy={false} canUndo={false} result={null}
+        onApply={vi.fn()} onUndo={vi.fn()} onDismissResult={vi.fn()} />,
+    );
+    expect(screen.getByLabelText("Convertir 2 columnas a fecha (1 columna necesita que elijas el orden)")).toBeChecked();
+    fireEvent.click(screen.getByLabelText("Mes/día: 2024-01-02"));
+    expect(screen.getByLabelText("Convertir 3 columnas a fecha")).toBeChecked();
+  });
+
+  it("asks the order in step by step mode before applying", () => {
+    const onApply = vi.fn();
+    render(
+      <PrepareProposal items={[{ ...mixed[0], dateColumns: [mixed[0].dateColumns![2]] }]} columnCount={1}
+        busy={false} canUndo={false} result={null} onApply={onApply} onUndo={vi.fn()} onDismissResult={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
+    fireEvent.click(screen.getByLabelText("Sí, convertir"));
+    const question = screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" });
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Atrás" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" })).getByLabelText("Día/mes: 2024-02-01"));
+    expect(question).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ dateColumns: [{ column: "pago", order: "dmy" }] }));
+  });
+});

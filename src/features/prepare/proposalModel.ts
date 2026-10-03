@@ -174,6 +174,21 @@ export function resolvedDateColumns(item: ProposalItem, ambiguousOrder: DateOrde
   });
 }
 
+/**
+ * The dates title counts the columns that will be converted; columns whose
+ * order is still unknown are named apart, so the figure matches the result
+ * (FUN-24).
+ */
+export function datesItemTitle(item: ProposalItem, ambiguousOrder: DateOrder | null): string {
+  const resolved = resolvedDateColumns(item, ambiguousOrder).length;
+  const pending = (item.dateColumns ?? []).length - resolved;
+  if (pending === 0) return datesTitle(resolved);
+  if (resolved === 0) {
+    return `Convertir ${plural(pending, "columna", "columnas")} a fecha: elige cómo se lee${pending === 1 ? "" : "n"}`;
+  }
+  return `${datesTitle(resolved)} (${plural(pending, "columna necesita", "columnas necesitan")} que elijas el orden)`;
+}
+
 export function hasAmbiguousDates(item: ProposalItem): boolean {
   return (item.dateColumns ?? []).some((column) => column.order === null);
 }

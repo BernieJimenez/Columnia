@@ -10,6 +10,7 @@ import {
   defaultProposalSelection,
   hasAmbiguousDates,
   resolvedDateColumns,
+  datesItemTitle,
   imputationExamples,
   proposalItemTitle,
   proposalOptions,
@@ -120,7 +121,9 @@ export function PrepareProposal({
       ? "Rellenar valores vacíos: calculando cuántos…"
       : item.id === "duplicates" && !fillsReady
         ? "Quitar filas duplicadas: calculando cuántas…"
-      : proposalItemTitle(item, selection, preview)
+      : item.id === "dates"
+        ? datesItemTitle(item, ambiguousDateOrder)
+        : proposalItemTitle(item, selection, preview)
   );
 
   if (result) {
@@ -164,6 +167,37 @@ export function PrepareProposal({
   }
 
   const disabled = busy;
+  // «Convertir a fecha» checked with only ambiguous columns and no answer yet.
+  const datesItem = items.find((item) => item.id === "dates");
+  const datesPending = Boolean(selection.dates && datesItem && resolvedDateColumns(datesItem, ambiguousDateOrder).length === 0);
+
+  // «¿Cómo se lee…?» for the dates whose order is ambiguous, in both modes.
+  function dateOrderQuestion(item: ProposalItem) {
+                const sample = item.dateColumns?.find((column) => column.order === null)?.sample ?? "01/02/2024";
+                const options: { order: DateOrder; label: string }[] = [
+                  { order: "dmy", label: `Día/mes: ${dateExample(sample, "dmy") ?? ""}` },
+                  { order: "mdy", label: `Mes/día: ${dateExample(sample, "mdy") ?? ""}` },
+                ];
+                return (
+                  <fieldset className="prepare-proposal__date-order" disabled={disabled}>
+                    <legend>¿Cómo se lee «{sample}»?</legend>
+                    {options.map((option) => (
+                      <label key={option.order} className="prepare-proposal__option">
+                        <input
+                          type="radio"
+                          name="prepare-date-order"
+                          checked={ambiguousDateOrder === option.order}
+                          onChange={() => {
+                            setAmbiguousDateOrder(option.order);
+                            setSelection((previous) => ({ ...previous, dates: true }));
+                          }}
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </fieldset>
+                );
+              }
 
   if (mode === "steps") {
     const totalSteps = items.length + 1;
@@ -199,6 +233,7 @@ export function PrepareProposal({
             </label>
           ))}
         </fieldset>
+        {current?.id === "dates" && value && hasAmbiguousDates(current) && dateOrderQuestion(current)}
         <div className="prepare-proposal__actions">
           <button
             type="button"
@@ -211,7 +246,7 @@ export function PrepareProposal({
             <button
               type="button"
               className="prepare-proposal__primary"
-              disabled={disabled || !fillsReady || (selectedProposalCount(items, selection) === 0 && !normalizeNames)}
+              disabled={disabled || !fillsReady || datesPending || (selectedProposalCount(items, selection) === 0 && !normalizeNames)}
               onClick={() => onApply(proposalOptions(items, selection, normalizeNames, ambiguousDateOrder))}
             >
               Aplicar
@@ -241,9 +276,6 @@ export function PrepareProposal({
   }
 
   const count = selectedProposalCount(items, selection);
-  // «Convertir a fecha» checked with only ambiguous columns and no answer yet.
-  const datesItem = items.find((item) => item.id === "dates");
-  const datesPending = Boolean(selection.dates && datesItem && resolvedDateColumns(datesItem, ambiguousDateOrder).length === 0);
   // One table for every checked change, instead of a toggle per change.
   // Every filled column keeps its row: it shows the value it will receive.
   const beforeAfter = [
@@ -278,32 +310,7 @@ export function PrepareProposal({
                 <label htmlFor={`prepare-item-${item.id}`}>{titleOf(item)}</label>
               </div>
               <p id={`prepare-hint-${item.id}`} className="prepare-proposal__hint">{item.hint}</p>
-              {item.id === "dates" && hasAmbiguousDates(item) && (() => {
-                const sample = item.dateColumns?.find((column) => column.order === null)?.sample ?? "01/02/2024";
-                const options: { order: DateOrder; label: string }[] = [
-                  { order: "dmy", label: `Día/mes: ${dateExample(sample, "dmy") ?? ""}` },
-                  { order: "mdy", label: `Mes/día: ${dateExample(sample, "mdy") ?? ""}` },
-                ];
-                return (
-                  <fieldset className="prepare-proposal__date-order" disabled={disabled}>
-                    <legend>¿Cómo se lee «{sample}»?</legend>
-                    {options.map((option) => (
-                      <label key={option.order} className="prepare-proposal__option">
-                        <input
-                          type="radio"
-                          name="prepare-date-order"
-                          checked={ambiguousDateOrder === option.order}
-                          onChange={() => {
-                            setAmbiguousDateOrder(option.order);
-                            setSelection((previous) => ({ ...previous, dates: true }));
-                          }}
-                        />
-                        {option.label}
-                      </label>
-                    ))}
-                  </fieldset>
-                );
-              })()}
+              {item.id === "dates" && hasAmbiguousDates(item) && dateOrderQuestion(item)}
             </li>
           );
         })}

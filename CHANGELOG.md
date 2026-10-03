@@ -185,6 +185,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La propuesta de fechas cuenta solo las columnas que convertirá y nombra aparte
+  las que esperan que elijas el orden día/mes; el modo «paso a paso» también
+  pregunta el orden y no deja aplicar sin respuesta (FUN-24).
 - La estimación de filas de una receta con filtro entiende fechas ISO y números
   con coma decimal; si no puede comparar los valores, dice que no se puede
   estimar en vez de anunciar 0 filas. Una celda vacía ya no cuenta como

@@ -125,13 +125,13 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-10` (Medio) Paginar la vista previa de Revisar invalida la validación de Entregar sin cambio en el dataset — hecho el 2026-10-03
   - [x] `ARQ-03` (Medio) No hay error boundary ni manejador global: una excepción de render deja la ventana en blanco — hecho el 2026-10-03
   - [x] `QA-05` (Medio) `src/App.test.tsx`: archivo único de 3.495 líneas, dependiente de temporizadores, de la configuración regional y con flujos sin test — hecho el 2026-10-03
-- [ ] **RV37** — **Preparar** — La pantalla «Listo: cambios aplicados» queda obsoleta tras Deshacer desde el Historial (y 4 problemas más) · *Esfuerzo: 1,2 días*
+- [x] **RV37** — **Preparar** — La pantalla «Listo: cambios aplicados» queda obsoleta tras Deshacer desde el Historial (y 4 problemas más) · *Esfuerzo: 1,2 días* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-11, FUN-12, FUN-22, FUN-23, FUN-24.
   - [x] `FUN-11` (Medio) La pantalla «Listo: cambios aplicados» queda obsoleta tras Deshacer desde el Historial — hecho el 2026-10-03
   - [x] `FUN-12` (Medio) La propuesta de Preparar anuncia menos duplicados de los que aplica — hecho el 2026-10-03
   - [x] `FUN-22` (Medio) `looksLikeIdentifier` solo mira la última palabra: `id_cliente`, `codigo_postal`, `num_factura` no se detectan como identificadores — hecho el 2026-10-03
   - [x] `FUN-23` (Medio) La estimación de filas del filtro cuenta 0 coincidencias para filtros por fecha o con coma decimal — hecho el 2026-10-03
-  - [ ] `FUN-24` (Medio) «Convertir N columnas a fecha» cuenta las columnas ambiguas, pero se aplican solo las resueltas; el modo «paso a paso» nunca pregunta el orden
+  - [x] `FUN-24` (Medio) «Convertir N columnas a fecha» cuenta las columnas ambiguas, pero se aplican solo las resueltas; el modo «paso a paso» nunca pregunta el orden — hecho el 2026-10-03
 - [ ] **RV38** — **Preparar** — Conversiones de tipo, interpretación de fechas y «buscar y reemplazar» no piden confirmac… (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-25, FUN-26, TXT-01, COD-01, QA-08.
   - [ ] `FUN-25` (Medio) Conversiones de tipo, interpretación de fechas y «buscar y reemplazar» no piden confirmación y el asesor las califica de «bajo riesgo» aunque pueden anular o reescribir datos
