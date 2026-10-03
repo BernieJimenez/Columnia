@@ -244,12 +244,14 @@ export function App() {
   const delivery = useDeliveryController({
     datasetRevisionRef,
     datasetReady: datasetStatus.kind === "ready",
+    // The revision changes with every change of the data; the visible page
+    // does not, so paging Revisar keeps the approved contract (FUN-10).
     datasetFingerprint: datasetStatus.kind === "ready"
       ? JSON.stringify({
           fileName: datasetStatus.dataset.fileName,
           rowCount: datasetStatus.dataset.rowCount,
           columns: datasetStatus.dataset.columns,
-          rows: datasetStatus.dataset.rows,
+          revision: datasetRevision,
         })
       : null,
     recipeDraft,

@@ -122,7 +122,7 @@ medio = 1 día; agregado por suma.
   - [x] `QA-12` (Medio) LoadPhase al 72,2 %: los caminos sin prueba son los de error, cancelación, codificación y perfil — hecho el 2026-10-03
 - [ ] **RV36** — **App y puente** — Paginar la vista previa de Revisar invalida la validación de Entregar sin cambio en el da… (y 2 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-10, ARQ-03, QA-05.
-  - [ ] `FUN-10` (Medio) Paginar la vista previa de Revisar invalida la validación de Entregar sin cambio en el dataset
+  - [x] `FUN-10` (Medio) Paginar la vista previa de Revisar invalida la validación de Entregar sin cambio en el dataset — hecho el 2026-10-03
   - [ ] `ARQ-03` (Medio) No hay error boundary ni manejador global: una excepción de render deja la ventana en blanco
   - [ ] `QA-05` (Medio) `src/App.test.tsx`: archivo único de 3.495 líneas, dependiente de temporizadores, de la configuración regional y con flujos sin test
 - [ ] **RV37** — **Preparar** — La pantalla «Listo: cambios aplicados» queda obsoleta tras Deshacer desde el Historial (y 4 problemas más) · *Esfuerzo: 1,2 días*

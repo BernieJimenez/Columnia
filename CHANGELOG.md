@@ -185,6 +185,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Pasar de página en la vista previa de Revisar ya no invalida la validación de
+  Entregar: el «Contrato aprobado» sigue vigente mientras el dataset no cambie
+  (FUN-10).
 - Los diálogos toman el foco aunque se abran justo después del selector de
   archivos de Windows, y al cerrarse con Esc lo devuelven al botón que los
   abrió, también si ese botón tarda un instante en volver a estar disponible

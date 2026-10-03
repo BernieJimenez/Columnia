@@ -1740,6 +1740,14 @@ describe("App", () => {
     await waitFor(() => expect(exportSpy).toHaveBeenCalledWith(
       "csv", [{ column: "total", kind: "not_null", maxInvalid: 0 }], false, expect.any(Function), "none",
     ));
+    // FUN-10: paging the preview in Revisar keeps the approved contract.
+    vi.spyOn(bridge, "getDatasetPage").mockResolvedValue({ offset: 50, rows: [["200"]] });
+    await switchPhase("Revisar");
+    fireEvent.click(await screen.findByRole("tab", { name: "Vista previa" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Siguiente" }));
+    expect(await screen.findByRole("cell", { name: "200" })).toBeInTheDocument();
+    await switchPhase("Entregar");
+    expect(screen.getByText("Contrato aprobado")).toBeInTheDocument();
   });
 
   it("bloquea la exportación cuando el contrato falla o cambia después de validarse", async () => {
