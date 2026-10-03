@@ -492,9 +492,11 @@ pub(crate) fn materialize_file_query_to_parquet(
     let statement = format!(
         "SET preserve_insertion_order = true; COPY ({query}) TO '{destination}' (FORMAT PARQUET)"
     );
-    connection
-        .execute_batch(&statement)
-        .map_err(|error| format!("DuckDB no pudo publicar la receta source-backed: {error}"))
+    connection.execute_batch(&statement).map_err(|error| {
+        crate::dataset::explain_invalid_recipe_date(format!(
+            "DuckDB no pudo publicar la receta source-backed: {error}"
+        ))
+    })
 }
 
 pub(crate) fn materialize_file_query_to_parquet_with_cancel<C>(
@@ -520,9 +522,11 @@ where
         let statement = format!(
             "SET preserve_insertion_order = true; COPY ({query}) TO '{destination}' (FORMAT PARQUET)"
         );
-        connection
-            .execute_batch(&statement)
-            .map_err(|error| format!("DuckDB no pudo publicar la receta source-backed: {error}"))
+        connection.execute_batch(&statement).map_err(|error| {
+            crate::dataset::explain_invalid_recipe_date(format!(
+                "DuckDB no pudo publicar la receta source-backed: {error}"
+            ))
+        })
     })
 }
 

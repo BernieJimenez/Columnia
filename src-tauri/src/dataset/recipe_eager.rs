@@ -1,3 +1,4 @@
+use super::date_inference::{parse_calendar_date, DateOrder};
 use super::*;
 
 pub(super) fn strict_column_text(column: &Column) -> Result<Vec<Option<String>>, String> {
@@ -92,20 +93,49 @@ pub(super) fn strict_cast_column(
     }
 }
 
+/// Text a recipe date of `format` must match before Polars or DuckDB parse it,
+/// so that the three engines accept the same values as `parse_recipe_datetime`.
+/// Replaces a value that fails `recipe_date_pattern`, so that the strict
+/// Polars and DuckDB parsers reject it.
+pub(crate) const INVALID_RECIPE_DATE: &str = "fecha-no-valida";
+
+/// What the person reads when Polars or DuckDB rejected a recipe date.
+pub(crate) fn explain_invalid_recipe_date(error: String) -> String {
+    if error.contains(INVALID_RECIPE_DATE)
+        || error.contains("conversion from `str` to `date")
+        || error.contains("conversion from `str` to `datetime")
+    {
+        "Una columna que la receta interpreta como fecha contiene un valor que no es una fecha \
+         del formato elegido con el año en cuatro cifras."
+            .to_owned()
+    } else {
+        error
+    }
+}
+
+pub(super) fn recipe_date_pattern(format: RecipeDateFormat) -> Option<&'static str> {
+    match format {
+        RecipeDateFormat::Ymd => Some(r"^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}$"),
+        RecipeDateFormat::Dmy | RecipeDateFormat::Mdy => Some(r"^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$"),
+        RecipeDateFormat::Iso8601 => None,
+    }
+}
+
 pub(super) fn parse_recipe_datetime(
     value: &str,
     format: RecipeDateFormat,
 ) -> Result<NaiveDateTime, ()> {
     let value = value.trim();
-    let date_format = match format {
-        RecipeDateFormat::Ymd => Some("%Y-%m-%d"),
-        RecipeDateFormat::Dmy => Some("%d/%m/%Y"),
-        RecipeDateFormat::Mdy => Some("%m/%d/%Y"),
+    // Recipes need a four-digit year in every engine (see
+    // `RECIPE_*_PATTERN`): `01/02/25` is an invalid date, not the year 0025.
+    let date_order = match format {
+        RecipeDateFormat::Ymd => Some((DateOrder::Iso, '-')),
+        RecipeDateFormat::Dmy => Some((DateOrder::Dmy, '/')),
+        RecipeDateFormat::Mdy => Some((DateOrder::Mdy, '/')),
         RecipeDateFormat::Iso8601 => None,
     };
-    if let Some(format) = date_format {
-        return NaiveDate::parse_from_str(value, format)
-            .ok()
+    if let Some((order, separator)) = date_order {
+        return parse_calendar_date(value, order, &[separator], false)
             .and_then(|date| date.and_hms_opt(0, 0, 0))
             .ok_or(());
     }

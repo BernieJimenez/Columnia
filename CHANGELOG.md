@@ -170,6 +170,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Con la convención «día-mes-año» (o «mes-día-año») al importar, las fechas con
+  año de 2 cifras siguen la regla de Excel, igual que en Preparar: `01/02/25` es
+  2025-02-01 y `28/11/99` es 1999-11-28, no los años 0025 y 0099. Un año de 1 o
+  3 cifras deja la columna como texto. Las recetas exigen el año con 4 cifras en
+  sus tres motores y lo dicen con un mensaje claro (FUN-02).
 - «Convertir números detectados» e «Interpretar fechas detectadas» piden
   confirmación cuando alguna celda que no encaja quedaría vacía, y dicen cuántas
   por columna; el mensaje final cuenta también las celdas que quedaron vacías.

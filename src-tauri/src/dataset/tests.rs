@@ -18443,3 +18443,68 @@ fn parquet_row_groups_shrink_for_wide_rows() {
         .len();
     assert_eq!(groups, 2_000_usize.div_ceil(rows));
 }
+
+/// FUN-02: every recipe engine rejects a year without four digits instead of
+/// reading `01/02/25` as the year 0025, and keeps accepting four-digit years.
+#[test]
+fn recipe_dates_need_a_four_digit_year_in_every_engine() {
+    let recipe = TransformRecipe {
+        date_parses: vec![RecipeDateParse {
+            column: "when".to_owned(),
+            format: RecipeDateFormat::Dmy,
+            target: RecipeDateTarget::Date,
+        }],
+        ..TransformRecipe::default()
+    };
+    for (contents, accepted) in [
+        ("id,when\n1,01/02/25\n2,28/11/99\n", false),
+        ("id,when\n1,01/02/025\n", false),
+        ("id,when\n1,01/02/2025\n2,\n3,28/11/1999\n", true),
+    ] {
+        let path = temporary_csv(contents);
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let eager = apply_eager_recipe_to_frame(&source_frame, &recipe).map(|outcome| outcome.0);
+        let lazy = apply_lazy_recipe_to_frame(&source_frame, &recipe).map(|outcome| outcome.0);
+        let (schema, _, row_count) =
+            source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "fechas.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            delimited_header_mode: None,
+            profile: None,
+            history: HistoryManager::deferred().expect("el historial debe inicializarse"),
+        };
+        let source_backed = apply_recipe_to_dataset(&mut dataset, &recipe).map(|_| {
+            read_parquet_frame(dataset.source_path.as_deref().expect("snapshot"))
+                .expect("el snapshot debe leerse")
+        });
+        if accepted {
+            let eager = eager.expect("eager acepta años de cuatro cifras");
+            assert_eq!(
+                eager
+                    .column("when")
+                    .unwrap()
+                    .cast(&DataType::String)
+                    .unwrap()
+                    .str()
+                    .unwrap()
+                    .get(0),
+                Some("2025-02-01")
+            );
+            assert!(lazy.expect("lazy acepta lo mismo").equals_missing(&eager));
+            assert!(source_backed
+                .expect("DuckDB acepta lo mismo")
+                .equals_missing(&eager));
+        } else {
+            assert!(eager.unwrap_err().contains("fecha inválida"));
+            assert!(lazy.unwrap_err().contains("cuatro cifras"));
+            assert!(source_backed.unwrap_err().contains("cuatro cifras"));
+        }
+        let _ = fs::remove_file(path);
+    }
+}

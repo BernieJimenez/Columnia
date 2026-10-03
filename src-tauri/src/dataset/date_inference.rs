@@ -3,7 +3,7 @@
 //! with the same order, so typing it never loses a value; when both day/month
 //! and month/day fit every value, the order is ambiguous and the person picks.
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DateOrder {
@@ -43,16 +43,26 @@ fn parse_time(text: &str) -> Option<NaiveTime> {
         .ok()
 }
 
-/// Parses one value with one order; `None` when it is not a date in it.
-pub(super) fn parse_ordered_date(value: &str, order: DateOrder) -> Option<NaiveDateTime> {
-    let value = value.trim();
-    let (date_text, time_text) = match value.split_once(['T', ' ']) {
-        Some((date, time)) => (date, Some(time.trim())),
-        None => (value, None),
-    };
+/// Separators a date may use between its three parts.
+pub(super) const DATE_SEPARATORS: &[char] = &['/', '-', '.'];
+
+/// Parses a date without time in one order, the only date parser behind
+/// Preparar, the import conventions and the recipes (FUN-02). The year has
+/// four digits; with `two_digit_years`, day- or month-first dates also accept
+/// two, following Excel's rule (00-29 is 20xx, 30-99 is 19xx). Years of one
+/// or three digits are never a date, so `01/02/25` cannot become year 0025.
+pub(super) fn parse_calendar_date(
+    date_text: &str,
+    order: DateOrder,
+    separators: &[char],
+    two_digit_years: bool,
+) -> Option<NaiveDate> {
     let separator = date_text
         .chars()
-        .find(|character| matches!(character, '/' | '-' | '.'))?;
+        .find(|character| DATE_SEPARATORS.contains(character))?;
+    if !separators.contains(&separator) {
+        return None;
+    }
     let parts = date_text.split(separator).collect::<Vec<_>>();
     if parts.len() != 3
         || parts
@@ -61,24 +71,37 @@ pub(super) fn parse_ordered_date(value: &str, order: DateOrder) -> Option<NaiveD
     {
         return None;
     }
-    let number = |index: usize| parts[index].parse::<u32>().ok();
-    let (year_text, year, month, day) = match order {
-        DateOrder::Iso => (parts[0], number(0)?, number(1)?, number(2)?),
-        DateOrder::Dmy => (parts[2], number(2)?, number(1)?, number(0)?),
-        DateOrder::Mdy => (parts[2], number(2)?, number(0)?, number(1)?),
+    let (day_text, month_text, year_text) = match order {
+        DateOrder::Iso => (parts[2], parts[1], parts[0]),
+        DateOrder::Dmy => (parts[0], parts[1], parts[2]),
+        DateOrder::Mdy => (parts[1], parts[0], parts[2]),
     };
-    // Two-digit years follow Excel's rule (00-29 is 20xx, 30-99 is 19xx):
-    // it is how Excel wrote them, and the proposal shows the result first.
-    let year = match (order, year_text.len()) {
-        (_, 4) => year,
-        (DateOrder::Dmy | DateOrder::Mdy, 2) if year < 30 => 2000 + year,
-        (DateOrder::Dmy | DateOrder::Mdy, 2) => 1900 + year,
-        _ => return None,
-    };
-    if !(1900..=2100).contains(&year) {
+    if day_text.len() > 2 || month_text.len() > 2 {
         return None;
     }
-    let date = NaiveDate::from_ymd_opt(i32::try_from(year).ok()?, month, day)?;
+    let year = year_text.parse::<i32>().ok()?;
+    let year = match (order, year_text.len()) {
+        (_, 4) => year,
+        (DateOrder::Dmy | DateOrder::Mdy, 2) if two_digit_years && year < 30 => 2000 + year,
+        (DateOrder::Dmy | DateOrder::Mdy, 2) if two_digit_years => 1900 + year,
+        _ => return None,
+    };
+    NaiveDate::from_ymd_opt(year, month_text.parse().ok()?, day_text.parse().ok()?)
+}
+
+/// Parses one value with one order; `None` when it is not a date in it.
+pub(super) fn parse_ordered_date(value: &str, order: DateOrder) -> Option<NaiveDateTime> {
+    let value = value.trim();
+    let (date_text, time_text) = match value.split_once(['T', ' ']) {
+        Some((date, time)) => (date, Some(time.trim())),
+        None => (value, None),
+    };
+    // Two-digit years follow Excel's rule: it is how Excel wrote them, and
+    // the proposal shows the result first.
+    let date = parse_calendar_date(date_text, order, DATE_SEPARATORS, true)?;
+    if !(1900..=2100).contains(&date.year()) {
+        return None;
+    }
     let time = match time_text {
         Some(text) => parse_time(text)?,
         None => NaiveTime::MIN,

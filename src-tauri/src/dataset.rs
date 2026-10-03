@@ -158,6 +158,7 @@ use recipe_documents::{
     recipe_suggested_file_name, save_recipe_atomic, validate_recipe_structure,
     validate_semantic_text_budget, validate_stored_recipe,
 };
+pub(crate) use recipe_eager::explain_invalid_recipe_date;
 #[allow(unused_imports)]
 use recipe_eager::*;
 #[cfg(test)]

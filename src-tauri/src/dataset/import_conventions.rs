@@ -1,6 +1,7 @@
 use chrono::NaiveDate;
 use polars::prelude::*;
 
+use super::date_inference::{parse_calendar_date, DateOrder, DATE_SEPARATORS};
 use super::{ImportDateConvention, ImportNumberConvention, ImportProfile};
 
 pub(super) fn validate_profile_conventions(
@@ -124,17 +125,17 @@ where
     Ok(found_value.then_some(parsed))
 }
 
+/// Two-digit years follow Excel's rule, as in Preparar: with «día-mes-año»,
+/// `01/02/25` is 2025-02-01, never the year 0025.
 fn parse_date(value: &str, convention: ImportDateConvention) -> Option<NaiveDate> {
-    let formats: &[&str] = match convention {
+    let (order, separators): (DateOrder, &[char]) = match convention {
         ImportDateConvention::Unresolved => return None,
-        ImportDateConvention::Iso8601 => &["%Y-%m-%d"],
-        ImportDateConvention::Ymd => &["%Y/%m/%d", "%Y.%m.%d", "%Y-%m-%d"],
-        ImportDateConvention::Dmy => &["%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y"],
-        ImportDateConvention::Mdy => &["%m/%d/%Y", "%m-%d-%Y", "%m.%d.%Y"],
+        ImportDateConvention::Iso8601 => (DateOrder::Iso, &['-']),
+        ImportDateConvention::Ymd => (DateOrder::Iso, DATE_SEPARATORS),
+        ImportDateConvention::Dmy => (DateOrder::Dmy, DATE_SEPARATORS),
+        ImportDateConvention::Mdy => (DateOrder::Mdy, DATE_SEPARATORS),
     };
-    formats
-        .iter()
-        .find_map(|format| NaiveDate::parse_from_str(value, format).ok())
+    parse_calendar_date(value, order, separators, true)
 }
 
 fn parse_integer_column<C>(
@@ -383,6 +384,54 @@ mod tests {
         assert_eq!(
             strings(&unchanged, "fecha"),
             vec![Some("01/02/2025".into()), Some("03/04/2025".into())]
+        );
+    }
+
+    /// FUN-02: two-digit years follow Excel's rule, as in Preparar; years of
+    /// one or three digits and impossible dates keep the column as text.
+    #[test]
+    fn two_digit_years_follow_the_rule_of_preparar_and_odd_years_keep_text() {
+        let source = text_frame(
+            "fecha",
+            &[Some("01/02/25"), Some("28/11/99"), Some("5.6.2024")],
+        );
+        let parsed =
+            apply_import_conventions(&source, Some(ImportDateConvention::Dmy), None, || false)
+                .expect("las fechas DMY deben interpretarse");
+        assert_eq!(parsed.column("fecha").unwrap().dtype(), &DataType::Date);
+        assert_eq!(
+            strings(&parsed, "fecha"),
+            vec![
+                Some("2025-02-01".into()),
+                Some("1999-11-28".into()),
+                Some("2024-06-05".into())
+            ]
+        );
+        let preparar = super::super::date_inference::parse_ordered_date(
+            "01/02/25",
+            super::super::date_inference::DateOrder::Dmy,
+        )
+        .expect("Preparar interpreta la misma fecha");
+        assert_eq!(preparar.date().to_string(), "2025-02-01");
+
+        for odd in ["01/02/025", "01/02/5", "29/02/2023", "01/13/2024"] {
+            let source = text_frame("fecha", &[Some("01/02/2024"), Some(odd)]);
+            let unchanged =
+                apply_import_conventions(&source, Some(ImportDateConvention::Dmy), None, || false)
+                    .expect("un año raro no debe abortar la importación");
+            assert_eq!(
+                unchanged.column("fecha").unwrap().dtype(),
+                &DataType::String,
+                "{odd}"
+            );
+        }
+        let iso = text_frame("fecha", &[Some("2024/01/02")]);
+        let unchanged =
+            apply_import_conventions(&iso, Some(ImportDateConvention::Iso8601), None, || false)
+                .expect("ISO solo acepta guiones");
+        assert_eq!(
+            unchanged.column("fecha").unwrap().dtype(),
+            &DataType::String
         );
     }
 

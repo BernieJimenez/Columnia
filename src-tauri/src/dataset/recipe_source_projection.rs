@@ -1309,8 +1309,12 @@ fn duckdb_date_expression(
     if format == RecipeDateFormat::Iso8601 {
         return Ok(duckdb_iso8601_expression(column, target));
     }
+    let value = format!("NULLIF(TRIM(CAST({column} AS VARCHAR)), '')");
+    let pattern = recipe_date_pattern(format).unwrap_or_default();
     let parsed = format!(
-        "strptime(NULLIF(TRIM(CAST({column} AS VARCHAR)), ''), {})",
+        "strptime(CASE WHEN {value} IS NULL OR regexp_full_match({value}, {}) THEN {value} ELSE {} END, {})",
+        duckdb_string_literal(pattern),
+        duckdb_string_literal(INVALID_RECIPE_DATE),
         duckdb_string_literal(duckdb_date_format(format)?)
     );
     Ok(match target {

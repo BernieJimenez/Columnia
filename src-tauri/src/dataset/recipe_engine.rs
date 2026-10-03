@@ -1019,19 +1019,25 @@ pub(super) fn apply_lazy_recipe_to_frame(
                 RecipeDateTarget::Date => DataType::Date,
                 RecipeDateTarget::Datetime => DataType::Datetime(TimeUnit::Milliseconds, None),
             };
-            col(effective_name)
-                .str()
-                .strip_chars(lit(NULL))
-                .str()
-                .strptime(
-                    target,
-                    StrptimeOptions {
-                        format: Some(format.into()),
-                        ..Default::default()
-                    },
-                    lit("raise"),
-                )
-                .alias(effective_name)
+            let text = col(effective_name).str().strip_chars(lit(NULL));
+            let pattern = recipe_date_pattern(parse.format).unwrap_or_default();
+            when(
+                text.clone()
+                    .is_null()
+                    .or(text.clone().str().contains(lit(pattern), true)),
+            )
+            .then(text)
+            .otherwise(lit(INVALID_RECIPE_DATE))
+            .str()
+            .strptime(
+                target,
+                StrptimeOptions {
+                    format: Some(format.into()),
+                    ..Default::default()
+                },
+                lit("raise"),
+            )
+            .alias(effective_name)
         };
         date_expressions.push(expression);
         parsed_date_column_count += 1;
@@ -1733,7 +1739,8 @@ pub(super) fn apply_lazy_recipe_to_frame(
         (None, None)
     };
 
-    let candidate = collect_lazy_frame_streaming(plan, "No se pudo ejecutar la receta lazy")?;
+    let candidate = collect_lazy_frame_streaming(plan, "No se pudo ejecutar la receta lazy")
+        .map_err(explain_invalid_recipe_date)?;
     if let Some(aggregations) = &summary_aggregations {
         for (name, output, operation) in aggregations {
             if !matches!(
