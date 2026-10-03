@@ -107,13 +107,13 @@ medio = 1 día; agregado por suma.
   - [x] `LIM-02` (Medio) Esqueleto de exportación duplicado en siete variantes y bloques idénticos — hecho el 2026-10-03
   - [x] `QA-14` (Medio) Las pruebas de exportación source-backed no cubren ceros a la izquierda, destino igual a fuente ni fórmulas — hecho el 2026-10-03
   - [x] `DOC-02` (Medio) THREAT_MODEL.md: fecha de verificación vencida, omisiones y contradicciones con el código — hecho el 2026-10-03
-- [ ] **RV34** — **Motor (dataset.rs)** — «Eliminar duplicados parecidos» necesita dos pasadas y la primera deja una pareja parecida (y 4 problemas más) · *Esfuerzo: 3,8 días*
+- [x] **RV34** — **Motor (dataset.rs)** — «Eliminar duplicados parecidos» necesita dos pasadas y la primera deja una pareja parecida (y 4 problemas más) · *Esfuerzo: 3,8 días* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-08, FUN-16, REN-03, REN-04, LIM-01.
   - [x] `FUN-08` (Medio) «Eliminar duplicados parecidos» necesita dos pasadas y la primera deja una pareja parecida — hecho el 2026-10-03
   - [x] `FUN-16` (Medio) `apply_outlier_mode` (Cap) cambia una columna Int64 a Float64 y `impute_missing_values_in_columns` pasa enteros grandes por f64 — hecho el 2026-10-03
   - [x] `REN-03` (Medio) `validate_conflict_decisions_with_cancel` es O(conflictos × decisiones) — hecho el 2026-10-03
   - [x] `REN-04` (Medio) `open_last_export_in_power_bi` lee el CSV completo en un comando síncrono — hecho el 2026-10-03
-  - [ ] `LIM-01` (Medio) `src-tauri/src/dataset.rs` mezcla modelo de datos, historial de mutaciones, rutas DuckDB y comandos; deuda estructural y código duplicado entre rutas
+  - [x] `LIM-01` (Medio) `src-tauri/src/dataset.rs` mezcla modelo de datos, historial de mutaciones, rutas DuckDB y comandos; deuda estructural y código duplicado entre rutas — hecho el 2026-10-03
 - [ ] **RV35** — **Cargar** — No existe la noción de «cambios sin guardar»: cargar otro archivo, abrir otro proyecto o… (y 3 problemas más) · *Esfuerzo: 2,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-09, ACC-10, PROD-02, QA-12.
   - [ ] `FUN-09` (Medio) No existe la noción de «cambios sin guardar»: cargar otro archivo, abrir otro proyecto o cerrar la ventana descartan el trabajo sin avisar

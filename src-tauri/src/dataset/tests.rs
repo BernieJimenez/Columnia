@@ -18991,3 +18991,255 @@ fn conflict_decision_check_is_linear_in_the_number_of_conflicts() {
         started.elapsed()
     );
 }
+
+/// LIM-01: every Prepare operation that exists twice gives the same frame and
+/// the same counts through the in-memory path and the large-file path.
+#[test]
+fn every_prepare_operation_matches_between_both_paths() {
+    let frame = df!(
+        "nombre" => [Some(" Ana "), Some("Ana"), Some("N/A"), Some("José"), Some("Jose "), None, Some("Luis"), Some("Marta"), Some("Ã©xito"), Some("Pedro"), Some(" Ana "), None],
+        "importe" => [Some("10"), Some("20"), Some("30"), Some("n/d"), Some("40"), Some("50"), Some("60"), Some("70"), Some("80"), Some("9999"), Some("10"), None],
+        "fecha" => [Some("2024-01-01"), Some("2024-01-02"), Some("2024-01-03"), Some("2024-01-04"), None, Some("2024-01-06"), Some("2024-01-07"), Some("2024-01-08"), Some("2024-01-09"), Some("2024-01-10"), Some("2024-01-01"), None],
+        "activo" => [Some("sí"), Some("no"), Some("yes"), Some("no"), Some("true"), Some("false"), Some("sí"), Some("no"), Some("sí"), Some("no"), Some("sí"), None],
+        "cantidad" => [Some(1_i64), Some(2), Some(2), Some(3), Some(3), Some(4), Some(100), None, Some(2), Some(3), Some(1), None],
+        "precio" => [Some(1.5_f64), Some(2.5), None, Some(3.5), Some(4.5), Some(5.5), Some(6.5), Some(7.5), Some(1000.0), Some(2.0), Some(1.5), None],
+        "ciudad" => [Some("Santiago"), None, Some("Santiago"), Some("Moca"), None, Some("Santiago"), Some("Moca"), Some("La Vega"), Some("Santiago"), Some("Moca"), Some("Santiago"), None],
+    )
+    .expect("frame");
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    let source = directory.path().join("fuente.parquet");
+    let mut written = frame.clone();
+    ParquetWriter::new(File::create(&source).unwrap())
+        .finish(&mut written)
+        .unwrap();
+
+    type Eager = fn(&DataFrame) -> (DataFrame, usize, usize);
+    type Large = fn(&mut LoadedDataset) -> (usize, usize);
+    let cases: Vec<(&str, Eager, Large)> = vec![
+        (
+            "recortar espacios",
+            |frame| {
+                let (frame, rows, cells, _) =
+                    clean_text_columns(frame, None, TextCleaningMode::Trim).unwrap();
+                (frame, rows, cells)
+            },
+            |dataset| {
+                let result = source_backed_text_cleaning(dataset, None, TextCleaningMode::Trim)
+                    .unwrap()
+                    .unwrap();
+                (result.affected_row_count, result.changed_cell_count)
+            },
+        ),
+        (
+            "normalizar texto",
+            |frame| {
+                let mode = TextCleaningMode::Normalize {
+                    remove_accents: true,
+                };
+                let (frame, rows, cells, _) = clean_text_columns(frame, None, mode).unwrap();
+                (frame, rows, cells)
+            },
+            |dataset| {
+                let mode = TextCleaningMode::Normalize {
+                    remove_accents: true,
+                };
+                let result = source_backed_text_cleaning(dataset, None, mode)
+                    .unwrap()
+                    .unwrap();
+                (result.affected_row_count, result.changed_cell_count)
+            },
+        ),
+        (
+            "marcadores sin dato",
+            |frame| {
+                let (frame, rows, cells, _) =
+                    clean_text_columns(frame, None, TextCleaningMode::Sentinels).unwrap();
+                (frame, rows, cells)
+            },
+            |dataset| {
+                let result =
+                    source_backed_text_cleaning(dataset, None, TextCleaningMode::Sentinels)
+                        .unwrap()
+                        .unwrap();
+                (result.affected_row_count, result.changed_cell_count)
+            },
+        ),
+        (
+            "booleanos",
+            |frame| {
+                let (frame, rows, cells, _) =
+                    clean_text_columns(frame, None, TextCleaningMode::Booleans).unwrap();
+                (frame, rows, cells)
+            },
+            |dataset| {
+                let result = source_backed_text_cleaning(dataset, None, TextCleaningMode::Booleans)
+                    .unwrap()
+                    .unwrap();
+                (result.affected_row_count, result.changed_cell_count)
+            },
+        ),
+        (
+            "codificación",
+            |frame| {
+                let (frame, rows, cells, _) =
+                    clean_text_columns(frame, None, TextCleaningMode::FixEncoding).unwrap();
+                (frame, rows, cells)
+            },
+            |dataset| {
+                let result =
+                    source_backed_text_cleaning(dataset, None, TextCleaningMode::FixEncoding)
+                        .unwrap()
+                        .unwrap();
+                (result.affected_row_count, result.changed_cell_count)
+            },
+        ),
+        (
+            "números detectados",
+            |frame| {
+                let (frame, rows, cells, _) = cast_inferred_numeric_columns(frame).unwrap();
+                (frame, rows, cells)
+            },
+            |dataset| {
+                let result = source_backed_numeric_cast(dataset).unwrap().unwrap();
+                (result.affected_row_count, result.changed_cell_count)
+            },
+        ),
+        (
+            "fechas detectadas",
+            |frame| {
+                let (frame, rows, cells, _) = parse_inferred_date_columns(frame).unwrap();
+                (frame, rows, cells)
+            },
+            |dataset| {
+                let result = source_backed_date_parsing(dataset).unwrap().unwrap();
+                (result.affected_row_count, result.changed_cell_count)
+            },
+        ),
+        (
+            "imputación numérica",
+            |frame| {
+                let (frame, rows, cells, _) = impute_missing_values_in_frame(frame).unwrap();
+                (frame, rows, cells)
+            },
+            |dataset| {
+                let result = source_backed_imputation(dataset, false).unwrap().unwrap();
+                (result.affected_row_count, result.changed_cell_count)
+            },
+        ),
+        (
+            "imputación categórica",
+            |frame| {
+                let (frame, rows, cells, _) = impute_categorical_values_in_frame(frame).unwrap();
+                (frame, rows, cells)
+            },
+            |dataset| {
+                let result = source_backed_imputation(dataset, true).unwrap().unwrap();
+                (result.affected_row_count, result.changed_cell_count)
+            },
+        ),
+        (
+            "limitar outliers",
+            |frame| {
+                let (frame, rows, cells, _) = apply_outlier_mode(frame, OutlierMode::Cap).unwrap();
+                (frame, rows, cells)
+            },
+            |dataset| {
+                let result = source_backed_direct_outlier(dataset, OutlierAction::Cap, "Limitar")
+                    .unwrap()
+                    .unwrap();
+                (result.affected_row_count, result.changed_cell_count)
+            },
+        ),
+        (
+            "eliminar outliers",
+            |frame| {
+                let (frame, rows, cells, _) = apply_outlier_mode(frame, OutlierMode::Drop).unwrap();
+                (frame, rows, cells)
+            },
+            |dataset| {
+                let result = source_backed_direct_outlier(dataset, OutlierAction::Drop, "Eliminar")
+                    .unwrap()
+                    .unwrap();
+                (result.affected_row_count, result.changed_cell_count)
+            },
+        ),
+        (
+            "imputar outliers",
+            |frame| {
+                let (frame, rows, cells, _) = impute_outlier_values_in_frame(frame).unwrap();
+                (frame, rows, cells)
+            },
+            |dataset| {
+                let result =
+                    source_backed_direct_outlier(dataset, OutlierAction::Impute, "Imputar")
+                        .unwrap()
+                        .unwrap();
+                (result.affected_row_count, result.changed_cell_count)
+            },
+        ),
+        (
+            "filas vacías",
+            |frame| {
+                let (frame, rows) = remove_empty_rows_from_frame(frame).unwrap();
+                (frame, rows, 0)
+            },
+            |dataset| {
+                let mutation = remove_empty_rows_source_backed(dataset).unwrap().unwrap();
+                (mutation.affected_row_count, 0)
+            },
+        ),
+        (
+            "duplicados exactos",
+            |frame| {
+                let (frame, rows) = remove_duplicate_rows(frame).unwrap();
+                (frame, rows, 0)
+            },
+            |dataset| {
+                let mutation = remove_duplicates_source_backed(dataset).unwrap().unwrap();
+                (mutation.affected_row_count, 0)
+            },
+        ),
+        (
+            "duplicados parecidos",
+            |frame| {
+                let (frame, rows) = remove_near_duplicate_rows(frame).unwrap();
+                (frame, rows, 0)
+            },
+            |dataset| {
+                let mutation = remove_near_duplicates_source_backed(dataset)
+                    .unwrap()
+                    .unwrap();
+                (mutation.affected_row_count, 0)
+            },
+        ),
+    ];
+    let mut differences = Vec::new();
+    for (name, eager, large) in cases {
+        let (expected, expected_rows, expected_cells) = eager(&frame);
+        let (schema, _, row_count) =
+            source_backed_load(&source, "parquet", || false).expect("fuente");
+        let mut dataset = LoadedDataset {
+            source_path: Some(source.clone()),
+            file_name: "fuente.parquet".to_owned(),
+            file_size_bytes: fs::metadata(&source).unwrap().len(),
+            row_count,
+            frame: schema,
+            source_backed: true,
+            delimited_header_mode: None,
+            profile: None,
+            history: HistoryManager::deferred().unwrap(),
+        };
+        let (rows, cells) = large(&mut dataset);
+        let output_path = dataset.source_path.clone().unwrap();
+        let output = read_parquet_frame(&output_path).expect("salida");
+        if !output.equals_missing(&expected) {
+            differences.push(format!("{name}: datos\n{expected}\n{output}"));
+        }
+        if (rows, cells) != (expected_rows, expected_cells) {
+            differences.push(format!(
+                "{name}: cifras en memoria {expected_rows}/{expected_cells}, archivos grandes {rows}/{cells}"
+            ));
+        }
+    }
+    assert!(differences.is_empty(), "{}", differences.join("\n\n"));
+}
