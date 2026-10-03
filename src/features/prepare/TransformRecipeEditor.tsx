@@ -44,7 +44,7 @@ function TransformAdvisor({ preview }: { preview: TransformPreview }) {
   const riskDescription = preview.risk === "high"
     ? "Puede reducir filas o columnas, o reunir varias filas en una. Revisa la estimación antes de aplicar."
     : preview.risk === "medium"
-      ? "Puede cambiar valores o quitar columnas originales. Revisa el resultado y deshaz los cambios si hace falta."
+      ? "Puede cambiar valores (conversiones, reemplazos) o quitar columnas originales. Revisa el resultado y deshaz los cambios si hace falta."
       : "Esta receta no quitará filas ni columnas.";
   const rowDelta = preview.rowsDelta === null
     ? "Por determinar"

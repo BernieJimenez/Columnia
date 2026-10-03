@@ -80,6 +80,13 @@ describe("modelo de preparación", () => {
     })).toBe(false);
   });
 
+  it("pide confirmar un buscar y reemplazar, que reescribe celdas (FUN-25)", () => {
+    expect(requiresImpactConfirmation({
+      ...emptyRecipe,
+      findReplace: { scope: "all_text_columns", column: null, find: "N/D", replace: "", regex: false },
+    })).toBe(true);
+  });
+
   it("mantiene mensajes explícitos para deshacer y rehacer", () => {
     expect(changeProgressMessage("undo")).toBe("Deshaciendo cambio…");
     expect(changeProgressMessage("redo")).toBe("Rehaciendo cambio…");

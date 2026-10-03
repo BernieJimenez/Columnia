@@ -118,3 +118,21 @@ describe("estimación de filtros con fechas y coma decimal (FUN-23)", () => {
     }).afterRows).toBe(50);
   });
 });
+
+describe("recetas que cambian valores (FUN-25)", () => {
+  it("las conversiones y los reemplazos no se presentan como de bajo riesgo", () => {
+    const cast = buildTransformPreview(dataset, {
+      ...emptyRecipe,
+      casts: [{ column: "total", target: "integer" }],
+    });
+    expect(cast.risk).toBe("medium");
+    expect(cast.recommendations.join(" ")).toContain("la receta se detiene sin aplicar nada");
+    const replace = buildTransformPreview(dataset, {
+      ...emptyRecipe,
+      findReplace: { scope: "all_text_columns", column: null, find: "a", replace: "b", regex: false },
+    });
+    expect(replace.risk).toBe("medium");
+    expect(replace.recommendations.join(" ")).toContain("reescribe todas las celdas");
+    expect(buildTransformPreview(dataset, emptyRecipe).risk).toBe("low");
+  });
+});

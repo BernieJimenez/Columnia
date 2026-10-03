@@ -79,6 +79,8 @@ export function requiresImpactConfirmation(recipe: TransformRecipe): boolean {
     Boolean(recipe.mergeColumns?.dropSources) ||
     recipe.outlierTreatments.length > 0 ||
     recipe.groupSummary !== null ||
+    // Find-and-replace rewrites every matching cell (FUN-25).
+    recipe.findReplace !== null ||
     recipe.contactNormalizations.length > 0;
 }
 

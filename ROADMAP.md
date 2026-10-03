@@ -134,7 +134,7 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-24` (Medio) «Convertir N columnas a fecha» cuenta las columnas ambiguas, pero se aplican solo las resueltas; el modo «paso a paso» nunca pregunta el orden — hecho el 2026-10-03
 - [ ] **RV38** — **Preparar** — Conversiones de tipo, interpretación de fechas y «buscar y reemplazar» no piden confirmac… (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-25, FUN-26, TXT-01, COD-01, QA-08.
-  - [ ] `FUN-25` (Medio) Conversiones de tipo, interpretación de fechas y «buscar y reemplazar» no piden confirmación y el asesor las califica de «bajo riesgo» aunque pueden anular o reescribir datos
+  - [x] `FUN-25` (Medio) Conversiones de tipo, interpretación de fechas y «buscar y reemplazar» no piden confirmación y el asesor las califica de «bajo riesgo» aunque pueden anular o reescribir datos — hecho el 2026-10-03
   - [ ] `FUN-26` (Medio) El editor guarda estado inicial de las columnas (`keptColumns`, borradores) y solo se reinicia con `recipeSession`: si el dataset cambia sin remontar, una columna nueva se trata como «descartada»
   - [ ] `TXT-01` (Medio) Afirmaciones absolutas que el producto no cumple: «nunca inventa valores», «todas las acciones son reversibles», «reversible desde el historial»
   - [ ] `COD-01` (Medio) La detección de cancelación compara texto en español, copiado en 6 sitios

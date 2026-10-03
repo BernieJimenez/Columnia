@@ -131,9 +131,16 @@ function previewColumnNames(dataset: DatasetPreview, recipe: TransformRecipe): {
   return { before, after };
 }
 
+/** Whether the recipe converts or rewrites cell values. */
+export function changesValues(recipe: TransformRecipe): boolean {
+  return recipe.casts.length > 0 || recipe.dateParses.length > 0 || recipe.findReplace !== null;
+}
+
 function getRisk(recipe: TransformRecipe): TransformRisk {
   if (recipe.groupSummary || recipe.filters.length > 0 || recipe.keepColumns || recipe.outlierTreatments.some((item) => item.action === "drop")) return "high";
-  if (recipe.splitColumn?.dropSource || recipe.mergeColumns?.dropSources || recipe.outlierTreatments.length > 0 || recipe.contactNormalizations.length > 0) return "medium";
+  // Conversions and find-and-replace change values, not only rows or columns (FUN-25).
+  if (recipe.splitColumn?.dropSource || recipe.mergeColumns?.dropSources || recipe.outlierTreatments.length > 0
+    || recipe.contactNormalizations.length > 0 || changesValues(recipe)) return "medium";
   return "low";
 }
 
@@ -145,6 +152,10 @@ function getRecommendations(recipe: TransformRecipe, risk: TransformRisk): strin
   }
   if (recipe.filters.length > 0) recommendations.push("Si el filtro es crítico, aplícalo después de confirmar que el tipo de la columna coincide con la comparación.");
   if (recipe.groupSummary) recommendations.push("Guarda la receta y una copia del dataset antes de generar el resumen agrupado.");
+  if (recipe.casts.length > 0 || recipe.dateParses.length > 0) {
+    recommendations.push("Las conversiones son estrictas: si un valor no encaja con el tipo, la receta se detiene sin aplicar nada.");
+  }
+  if (recipe.findReplace) recommendations.push("Buscar y reemplazar reescribe todas las celdas que coincidan; revisa el patrón antes de aplicar.");
   if (recommendations.length === 0) recommendations.push("La receta no elimina filas ni columnas; puedes validarla con bajo riesgo.");
   return recommendations.slice(0, 3);
 }

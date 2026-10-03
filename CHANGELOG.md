@@ -185,6 +185,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- El asesor de recetas ya no califica de «bajo riesgo» las conversiones de tipo,
+  la interpretación de fechas ni «buscar y reemplazar»: avisa de que cambian
+  valores, explica que las conversiones son estrictas (si un valor no encaja, la
+  receta no aplica nada) y pide confirmación antes de un reemplazo (FUN-25).
 - La propuesta de fechas cuenta solo las columnas que convertirá y nombra aparte
   las que esperan que elijas el orden día/mes; el modo «paso a paso» también
   pregunta el orden y no deja aplicar sin respuesta (FUN-24).
