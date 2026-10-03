@@ -170,6 +170,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Exportar a CSV o SQL un archivo de 512 MiB o más ya da los mismos valores que
+  con uno pequeño: `1.50`, `1e5`, `7.2500`, las fechas y el sufijo ` UTC` salen
+  como estaban, y el script SQL declara las columnas como `TEXT` igual que en la
+  ruta en memoria. Antes DuckDB volvía a inferir los tipos y reescribía la
+  notación sin decirlo (DAT-02).
 - Con la convención «día-mes-año» (o «mes-día-año») al importar, las fechas con
   año de 2 cifras siguen la regla de Excel, igual que en Preparar: `01/02/25` es
   2025-02-01 y `28/11/99` es 1999-11-28, no los años 0025 y 0099. Un año de 1 o

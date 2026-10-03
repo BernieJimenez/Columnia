@@ -341,7 +341,9 @@ where
             .map_err(|error| {
                 format!("DuckDB no pudo limitar los hilos de exportación CSV: {error}")
             })?;
-        let source = csv_export_scan_expression(source_path, source_format)?;
+        // Every value is read as text, as the in-memory path does, so that a
+        // large file exports `1.50`, `1e5` or `2020-01-05` unchanged (DAT-02).
+        let source = file_scan_expression(source_path, source_format)?;
         let destination = destination
             .to_string_lossy()
             .replace('\\', "/")
@@ -371,7 +373,9 @@ where
             format!("No se pudo preparar el espacio temporal para la exportación SQL: {error}")
         })?;
         configure_duckdb_resources(connection, resource_directory.path())?;
-        let source = csv_export_scan_expression(source_path, source_format)?;
+        // Every value is read as text, as the in-memory path does, so that a
+        // large file exports `1.50`, `1e5` or `2020-01-05` unchanged (DAT-02).
+        let source = file_scan_expression(source_path, source_format)?;
         let source_columns = describe_source_columns(connection, &source)?;
         let projection = source_columns
             .iter()
@@ -2035,32 +2039,6 @@ fn header_names_option(path: &Path, delimiter: u8) -> Result<String, String> {
     })
 }
 
-fn csv_export_scan_expression(path: &Path, format: DuckDbFileFormat) -> Result<String, String> {
-    let (delimiter, has_header, column_count) = match format {
-        DuckDbFileFormat::Delimited { delimiter } => (delimiter, true, 0),
-        DuckDbFileFormat::DelimitedWithoutHeader {
-            delimiter,
-            column_count,
-        } => (delimiter, false, column_count),
-        _ => return file_scan_expression(path, format),
-    };
-    let escaped_path = path
-        .to_string_lossy()
-        .replace('\\', "/")
-        .replace('\'', "''");
-    let delimiter_byte = delimiter;
-    let delimiter = char::from(delimiter);
-    let escaped_delimiter = delimiter.to_string().replace('\'', "''");
-    let names_option = if has_header {
-        header_names_option(path, delimiter_byte)?
-    } else {
-        generated_names_option(column_count)
-    };
-    Ok(format!(
-        "read_csv_auto('{escaped_path}', header = {has_header}{names_option}, delim = '{escaped_delimiter}')"
-    ))
-}
-
 fn generated_names_option(column_count: usize) -> String {
     if column_count == 0 {
         return String::new();
@@ -2829,10 +2807,10 @@ mod tests {
         let script = fs::read_to_string(&destination).expect("la salida SQL debe poder leerse");
         assert!(script.contains("CREATE TABLE \"dataset\""));
         assert!(script.contains("\"name\" TEXT"));
-        assert!(script.contains("\"amount\" BIGINT"));
+        assert!(script.contains("\"amount\" TEXT"));
         assert!(script.contains("'O''Brien'"));
         assert!(script.contains("'=1+1'"));
-        assert!(script.contains("-20"));
+        assert!(script.contains("'-20'"));
         assert!(script.ends_with("COMMIT;\n"));
         assert!(source.is_file());
         assert!(destination.is_file());

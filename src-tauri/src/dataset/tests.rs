@@ -18508,3 +18508,34 @@ fn recipe_dates_need_a_four_digit_year_in_every_engine() {
         let _ = fs::remove_file(path);
     }
 }
+
+/// DAT-02: the same CSV exports byte for byte the same to CSV and SQL through
+/// the in-memory path and through the large-file (source-backed) path.
+#[test]
+fn large_file_exports_match_the_in_memory_path_value_for_value() {
+    let contents = "id,flt,dt,ts,code,signo,formula\n\
+                    1,1.50,2020-01-05,2019-10-01 00:00:00 UTC,00123,-5,=SUM(A1)\n\
+                    2,1e5,2020-01-06,2019-10-02 10:30:00 UTC,01234,+34,@ana\n\
+                    3,7.2500,,2019-10-03 00:00:00 UTC,12345,,texto\n";
+    let source = temporary_csv(contents);
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    let recipe = build_stored_recipe(TransformRecipe::default(), "Identidad".to_owned())
+        .expect("la receta identidad es válida");
+    let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+    for (format, extension) in [(ExportFormat::Csv, "csv"), (ExportFormat::Sql, "sql")] {
+        let small = directory.path().join(format!("pequeno.{extension}"));
+        let large = directory.path().join(format!("grande.{extension}"));
+        export_frame_for_automation(&frame, &small, format).expect("ruta en memoria");
+        let result =
+            transform_source_backed_for_automation(&source, None, None, &recipe, &large, format)
+                .expect("ruta de archivos grandes");
+        assert!(!result.changed, "{extension}");
+        let small = fs::read_to_string(&small).expect("salida pequeña");
+        let large = fs::read_to_string(&large).expect("salida grande");
+        assert_eq!(small, large, "{extension}");
+        for kept in ["1.50", "1e5", "7.2500", "2020-01-05", " UTC", "00123"] {
+            assert!(large.contains(kept), "{extension}: {kept}");
+        }
+    }
+    let _ = fs::remove_file(source);
+}
