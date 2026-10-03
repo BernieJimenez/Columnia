@@ -50,12 +50,9 @@ fn lazy_iso8601_value_supported(value: &str) -> bool {
 
 fn lazy_iso8601_column_supported(column: &Column) -> bool {
     column.dtype() == &DataType::String
-        && strict_column_text(column).is_ok_and(|values| {
-            values
-                .iter()
-                .flatten()
-                .all(|value| lazy_iso8601_value_supported(value))
-        })
+        && column
+            .str()
+            .is_ok_and(|values| values.iter().flatten().all(lazy_iso8601_value_supported))
 }
 
 /// The text a lazy cast reads, prepared as the eager validator reads it
@@ -158,7 +155,7 @@ fn validate_lazy_recipe_inputs(source: &DataFrame, recipe: &TransformRecipe) -> 
                 | (DataType::Boolean, RecipeCastTarget::Boolean)
         );
         if !already_target {
-            strict_cast_column(column, cast.target)?;
+            validate_cast_column(column, cast.target)?;
         }
     }
 
@@ -174,9 +171,8 @@ fn validate_lazy_recipe_inputs(source: &DataFrame, recipe: &TransformRecipe) -> 
         {
             continue;
         }
-        let values = strict_column_text(column)?;
-        for (row, value) in values.iter().enumerate() {
-            if let Some(value) = value {
+        for_each_column_text(column, |row, value| {
+            {
                 if let Some(parse) = date_parse {
                     parse_recipe_datetime(value, parse.format).map_err(|_| {
                         format!(
@@ -200,7 +196,8 @@ fn validate_lazy_recipe_inputs(source: &DataFrame, recipe: &TransformRecipe) -> 
                     )?;
                 }
             }
-        }
+            Ok(())
+        })?;
     }
 
     if let Some(calculation) = &recipe.calculated_column {
@@ -236,20 +233,11 @@ fn validate_lazy_recipe_inputs(source: &DataFrame, recipe: &TransformRecipe) -> 
                 | CalculatedOperation::Divide
         ) {
             let source_name = calculation.source.as_str();
-            let source_values = strict_column_text(recipe_column(source, source_name)?)?;
-            let source_numbers = source_values
-                .iter()
-                .enumerate()
-                .map(|(row, value)| {
-                    value
-                        .as_deref()
-                        .map(|value| {
-                            strict_f64(value, &format!("La fila {} de '{source_name}'", row + 1))
-                        })
-                        .transpose()
-                })
-                .collect::<Result<Vec<_>, String>>()?;
-            let operand_numbers = match calculation.operand.as_ref().unwrap() {
+            // REN-06: row by row, without the columns as text or as vectors.
+            let source_numbers = strict_f64_values(recipe_column(source, source_name)?, |row| {
+                format!("La fila {} de '{source_name}'", row + 1)
+            })?;
+            let operand_numbers: StrictNumbers = match calculation.operand.as_ref().unwrap() {
                 CalculatedOperand {
                     kind: CalculatedOperandKind::Literal,
                     value,
@@ -257,28 +245,28 @@ fn validate_lazy_recipe_inputs(source: &DataFrame, recipe: &TransformRecipe) -> 
                     if value.is_empty() {
                         return Err("El operando numérico no puede estar vacío.".into());
                     }
-                    vec![Some(strict_f64(value, "El operando numérico")?); source.height()]
+                    let number = strict_f64(value, "El operando numérico")?;
+                    Box::new(std::iter::repeat_n(Ok(Some(number)), source.height()))
                 }
                 CalculatedOperand {
                     kind: CalculatedOperandKind::Column,
                     value,
-                } => strict_column_text(recipe_column(source, value)?)?
-                    .iter()
-                    .enumerate()
-                    .map(|(row, value)| {
-                        value
-                            .as_deref()
-                            .map(|value| {
-                                strict_f64(value, &format!("El operando de la fila {}", row + 1))
-                            })
-                            .transpose()
-                    })
-                    .collect::<Result<Vec<_>, String>>()?,
+                } => strict_f64_values(recipe_column(source, value)?, |row| {
+                    format!("El operando de la fila {}", row + 1)
+                })?,
             };
-            for (row, (left, right)) in source_numbers.iter().zip(&operand_numbers).enumerate() {
-                let (Some(left), Some(right)) = (left, right) else {
+            // The whole source column is checked before the operand, as
+            // before, so the first error reported stays the same.
+            for number in strict_f64_values(recipe_column(source, source_name)?, |row| {
+                format!("La fila {} de '{source_name}'", row + 1)
+            })? {
+                number?;
+            }
+            for (row, (left, right)) in source_numbers.zip(operand_numbers).enumerate() {
+                let (Some(left), Some(right)) = (left?, right?) else {
                     continue;
                 };
+                let (left, right) = (&left, &right);
                 if calculation.operation == CalculatedOperation::Divide && *right == 0.0 {
                     return Err(format!("División por cero en la fila {}.", row + 1));
                 }
@@ -799,7 +787,8 @@ fn validate_lazy_group_summary(
     }
 
     if !integer_sum_columns.is_empty() {
-        let mut sums = vec![HashMap::<Vec<Option<String>>, i64>::new(); integer_sum_columns.len()];
+        // One running total per group and column, keyed once per row (REN-06).
+        let mut sums = HashMap::<Vec<Option<String>>, Vec<i64>>::new();
         let validation_height = validation.map_or(source.height(), DataFrame::height);
         for row in 0..validation_height {
             let key = group_columns
@@ -807,6 +796,9 @@ fn validate_lazy_group_summary(
                 .zip(&groups)
                 .map(|(column, name)| lazy_summary_group_key(column, row, name))
                 .collect::<Result<Vec<_>, String>>()?;
+            let totals = sums
+                .entry(key)
+                .or_insert_with(|| vec![0; integer_sum_columns.len()]);
             for (index, (name, column)) in integer_sum_columns.iter().enumerate() {
                 let Some(value) = (match column
                     .get(row)
@@ -818,7 +810,7 @@ fn validate_lazy_group_summary(
                 }) else {
                     continue;
                 };
-                let total = sums[index].entry(key.clone()).or_insert(0);
+                let total = &mut totals[index];
                 *total = total
                     .checked_add(value)
                     .ok_or_else(|| format!("La suma de '{name}' desbordó Int64."))?;

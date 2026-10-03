@@ -151,7 +151,7 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-34` (Medio) Camino «source-backed»: los casts SQL aceptan o redondean valores que eager rechaza — hecho el 2026-10-03
 - [ ] **RV41** — **Motor de recetas** — Materializaciones completas de columnas como `Vec<Option<String>>` y accesos celda a celd… (y 2 problemas más) · *Esfuerzo: 4 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de REN-06, COD-03, QA-13.
-  - [ ] `REN-06` (Medio) Materializaciones completas de columnas como `Vec<Option<String>>` y accesos celda a celda en validación y caminos eager (candidato a medir)
+  - [x] `REN-06` (Medio) Materializaciones completas de columnas como `Vec<Option<String>>` y accesos celda a celda en validación y caminos eager (candidato a medir) — hecho el 2026-10-03
   - [ ] `COD-03` (Medio) Tres implementaciones paralelas de cada paso de receta con validaciones copiadas (origen de las divergencias R6-06/07/12/13)
   - [x] `QA-13` (Medio) Los tests «source-backed igual que eager» comparan en realidad con el motor lazy, no con el eager — hecho el 2026-10-03
 - [ ] **RV42** — **Reglas de calidad** — Mínimo/máximo temporales de columnas de texto ignoran el orden de fecha inferido (siempre… (y 4 problemas más) · *Esfuerzo: 2,8 días*

@@ -12,6 +12,128 @@ pub(super) fn strict_column_text(column: &Column) -> Result<Vec<Option<String>>,
         .collect()
 }
 
+/// Calls `check` with each non-null value of `column` written as
+/// `strict_column_text` writes it, one at a time, so that validating a column
+/// does not keep it whole as text (REN-06).
+pub(super) fn for_each_column_text(
+    column: &Column,
+    mut check: impl FnMut(usize, &str) -> Result<(), String>,
+) -> Result<(), String> {
+    if let Ok(values) = column.str() {
+        for (row, value) in values.iter().enumerate() {
+            if let Some(value) = value {
+                check(row, value)?;
+            }
+        }
+        return Ok(());
+    }
+    for row in 0..column.len() {
+        let value = column
+            .get(row)
+            .map_err(|error| format!("No se pudo leer la fila {}: {error}", row + 1))?;
+        if let Some(text) = preview_value(value) {
+            check(row, &text)?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether `value` converts to `target` as `strict_cast_column` reads it.
+fn cast_text_is_valid(value: &str, target: RecipeCastTarget) -> bool {
+    let trimmed = value.trim();
+    match target {
+        RecipeCastTarget::String => true,
+        RecipeCastTarget::Integer => trimmed.parse::<i64>().is_ok(),
+        RecipeCastTarget::Decimal => trimmed.parse::<f64>().is_ok_and(f64::is_finite),
+        RecipeCastTarget::Boolean => {
+            matches!(trimmed.to_ascii_lowercase().as_str(), "true" | "false")
+        }
+    }
+}
+
+/// The error `strict_cast_column` would give for `column`, found without
+/// building the converted column (REN-06).
+pub(super) fn validate_cast_column(
+    column: &Column,
+    target: RecipeCastTarget,
+) -> Result<(), String> {
+    let target_name = match target {
+        RecipeCastTarget::String => return Ok(()),
+        RecipeCastTarget::Integer => "entero",
+        RecipeCastTarget::Decimal => "decimal",
+        RecipeCastTarget::Boolean => "booleano (true/false)",
+    };
+    for_each_column_text(column, |row, value| {
+        if cast_text_is_valid(value, target) {
+            Ok(())
+        } else {
+            Err(format!(
+                "La columna '{}' no se puede convertir a {target_name}: fila {}, valor '{}'.",
+                column.name(),
+                row + 1,
+                value
+            ))
+        }
+    })
+}
+
+/// Numbers read one row at a time; `None` for an empty cell.
+pub(super) type StrictNumbers<'a> = Box<dyn Iterator<Item = Result<Option<f64>, String>> + 'a>;
+
+/// The numbers `strict_f64` reads in `column`, row by row, without writing
+/// numeric columns as text first (REN-06). `context` names a row in errors.
+pub(super) fn strict_f64_values<'a>(
+    column: &'a Column,
+    context: impl Fn(usize) -> String + 'a,
+) -> Result<StrictNumbers<'a>, String> {
+    Ok(match column.dtype() {
+        DataType::String => {
+            let values = column.str().map_err(|error| error.to_string())?;
+            Box::new(values.iter().enumerate().map(move |(row, value)| {
+                value
+                    .map(|value| strict_f64(value, &context(row)))
+                    .transpose()
+            }))
+        }
+        DataType::Int64 => {
+            let values = column.i64().map_err(|error| error.to_string())?;
+            Box::new(values.iter().enumerate().map(move |(row, value)| {
+                value
+                    .map(|value| {
+                        if value.unsigned_abs() > 1_u64 << 53 {
+                            strict_f64(&value.to_string(), &context(row))
+                        } else {
+                            Ok(value as f64)
+                        }
+                    })
+                    .transpose()
+            }))
+        }
+        DataType::Float64 => {
+            let values = column.f64().map_err(|error| error.to_string())?;
+            Box::new(values.iter().enumerate().map(move |(row, value)| {
+                value
+                    .map(|value| {
+                        if value.is_finite() {
+                            Ok(value)
+                        } else {
+                            strict_f64(&value.to_string(), &context(row))
+                        }
+                    })
+                    .transpose()
+            }))
+        }
+        _ => Box::new((0..column.len()).map(move |row| {
+            let value = column
+                .get(row)
+                .map_err(|error| format!("No se pudo leer la fila {}: {error}", row + 1))?;
+            preview_value(value)
+                .map(|value| strict_f64(&value, &context(row)))
+                .transpose()
+        })),
+    })
+}
+
 pub(super) fn recipe_column<'a>(frame: &'a DataFrame, name: &str) -> Result<&'a Column, String> {
     frame
         .column(name)
@@ -1504,24 +1626,27 @@ pub(super) fn apply_group_summary(
 
     let mut positions: HashMap<Vec<Option<String>>, usize> = HashMap::new();
     let mut buckets: Vec<Vec<IdxSize>> = Vec::new();
+    // REN-06: each key column is found and rechunked once, not per row.
+    let key_columns = groups
+        .iter()
+        .map(|name| {
+            recipe_column(&frame, name)
+                .map(|column| (name, column.as_materialized_series().rechunk()))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     for row in 0..frame.height() {
-        let key = groups
+        let key = key_columns
             .iter()
-            .map(|name| {
-                match frame
-                    .column(name)
-                    .unwrap()
-                    .get(row)
-                    .map_err(|error| error.to_string())?
-                {
+            .map(
+                |(name, column)| match column.get(row).map_err(|error| error.to_string())? {
                     AnyValue::Null => Ok(None),
                     AnyValue::Float64(value) if !value.is_finite() => Err(format!(
                         "La clave de grupo '{name}' contiene NaN o infinito."
                     )),
                     AnyValue::Float64(0.0) => Ok(Some("0".into())),
                     value => Ok(Some(value.to_string())),
-                }
-            })
+                },
+            )
             .collect::<Result<Vec<_>, String>>()?;
         let index = if let Some(index) = positions.get(&key) {
             *index

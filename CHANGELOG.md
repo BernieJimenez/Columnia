@@ -511,6 +511,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Mejorado
 
+- Recetas en memoria más rápidas: validar conversiones, filtros y cálculos ya no
+  copia columnas enteras como texto (5 M filas: 10,9 s → 6,3 s; el pico de
+  memoria queda en la carga más una copia del resultado) y los resúmenes por
+  grupo buscan cada columna una sola vez.
 - Las pruebas de recetas comparan de verdad el camino en memoria con el lazy y
   el de archivos grandes, también con datos partidos en varios bloques.
 - «Abrir en Power BI» revisa el CSV exportado en segundo plano: la ventana sigue
