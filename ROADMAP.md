@@ -114,12 +114,12 @@ medio = 1 día; agregado por suma.
   - [x] `REN-03` (Medio) `validate_conflict_decisions_with_cancel` es O(conflictos × decisiones) — hecho el 2026-10-03
   - [x] `REN-04` (Medio) `open_last_export_in_power_bi` lee el CSV completo en un comando síncrono — hecho el 2026-10-03
   - [x] `LIM-01` (Medio) `src-tauri/src/dataset.rs` mezcla modelo de datos, historial de mutaciones, rutas DuckDB y comandos; deuda estructural y código duplicado entre rutas — hecho el 2026-10-03
-- [ ] **RV35** — **Cargar** — No existe la noción de «cambios sin guardar»: cargar otro archivo, abrir otro proyecto o… (y 3 problemas más) · *Esfuerzo: 2,5 días*
+- [x] **RV35** — **Cargar** — No existe la noción de «cambios sin guardar»: cargar otro archivo, abrir otro proyecto o… (y 3 problemas más) · *Esfuerzo: 2,5 días* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-09, ACC-10, PROD-02, QA-12.
   - [x] `FUN-09` (Medio) No existe la noción de «cambios sin guardar»: cargar otro archivo, abrir otro proyecto o cerrar la ventana descartan el trabajo sin avisar — hecho el 2026-10-03
   - [x] `ACC-10` (Medio) El diálogo de importación no recibe el foco al abrirse ni lo devuelve al cerrarse con Esc — hecho el 2026-10-03
   - [x] `PROD-02` (Medio) Una detección equivocada del separador o la codificación no se puede corregir desde el diálogo de importación — hecho el 2026-10-03
-  - [ ] `QA-12` (Medio) LoadPhase al 72,2 %: los caminos sin prueba son los de error, cancelación, codificación y perfil
+  - [x] `QA-12` (Medio) LoadPhase al 72,2 %: los caminos sin prueba son los de error, cancelación, codificación y perfil — hecho el 2026-10-03
 - [ ] **RV36** — **App y puente** — Paginar la vista previa de Revisar invalida la validación de Entregar sin cambio en el da… (y 2 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-10, ARQ-03, QA-05.
   - [ ] `FUN-10` (Medio) Paginar la vista previa de Revisar invalida la validación de Entregar sin cambio en el dataset

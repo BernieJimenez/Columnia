@@ -8,6 +8,7 @@ import {
   completeDelimitedHeaderReview,
   completeSchemaPreview,
   delimitedHeaderInspection,
+  LEGACY_ENCODING_PREFIX,
   workbookInspection,
 } from "./loadModel";
 import type { RecentDataset } from "./recentFilesModel";
@@ -425,3 +426,201 @@ describe("LoadPhase", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Continuar con la carga" }));
     expect(onResourcePreflightAction).toHaveBeenCalledWith({ kind: "confirmed" });
   });
+
+describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12)", () => {
+  const profile = {
+    version: 1 as const,
+    format: "csv" as const,
+    headerMode: "firstRow" as const,
+    schema: [{ name: "id", dataType: "String" }],
+  };
+
+  it("explica el cierre inesperado según el último proyecto guardado", () => {
+    const onDismissPreviousExit = vi.fn();
+    const view = render(<LoadPhase {...loadPhaseProps({ previousExitUnclean: true, onDismissPreviousExit })} lastSavedProject={undefined} />);
+    expect(screen.getByRole("heading", { name: "La sesión anterior se cerró de forma inesperada" })).toBeInTheDocument();
+    expect(screen.getByText(/Si guardaste uno, puedes recuperarlo/)).toBeInTheDocument();
+    view.rerender(<LoadPhase {...loadPhaseProps({ previousExitUnclean: true, onDismissPreviousExit })} lastSavedProject={null} />);
+    expect(screen.getByText(/No había ningún proyecto guardado/)).toBeInTheDocument();
+    view.rerender(<LoadPhase
+      {...loadPhaseProps({ previousExitUnclean: true, onDismissPreviousExit })}
+      lastSavedProject={{ name: "Ventas", updatedAt: "2026-10-02T10:00:00Z" }}
+    />);
+    expect(screen.getByText(/Último guardado: .*\(Ventas\)/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Entendido" }));
+    expect(onDismissPreviousExit).toHaveBeenCalledOnce();
+  });
+
+  it("deja cancelar la inspección de un libro y reintentar una cancelación fallida", () => {
+    const onCancelWorkbookInspection = vi.fn();
+    const onRetrySelectionCancellation = vi.fn();
+    const view = render(<LoadPhase
+      {...loadPhaseProps({ onCancelWorkbookInspection, onRetrySelectionCancellation })}
+      inspection={{ kind: "workbook_inspecting", source: workbook }}
+    />);
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar inspección" }));
+    expect(onCancelWorkbookInspection).toHaveBeenCalledOnce();
+    view.rerender(<LoadPhase
+      {...loadPhaseProps({ onCancelWorkbookInspection, onRetrySelectionCancellation })}
+      inspection={{ kind: "workbook_inspecting", source: workbook }}
+      workbookInspectionCancellationPending
+    />);
+    expect(screen.getByRole("button", { name: "Cancelando inspección…" })).toBeDisabled();
+
+    view.rerender(<LoadPhase {...loadPhaseProps()} inspection={{ kind: "selection_cancelling", source: workbook }} />);
+    expect(screen.getByText(/Cancelando la selección de/)).toBeInTheDocument();
+
+    view.rerender(<LoadPhase
+      {...loadPhaseProps({ onRetrySelectionCancellation })}
+      inspection={{ kind: "selection_cancellation_failed", source: workbook, message: "La lectura sigue activa.", cancelPending: false, discardPending: false }}
+    />);
+    expect(screen.getByRole("alert")).toHaveTextContent("La lectura sigue activa.");
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar cancelación" }));
+    expect(onRetrySelectionCancellation).toHaveBeenCalledOnce();
+  });
+
+  it("muestra los errores de carga y de importación", () => {
+    const view = render(<LoadPhase {...loadPhaseProps()} datasetStatus={{ kind: "error", message: "archivo dañado" }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("No se pudo cargar el archivo: archivo dañado");
+    view.rerender(<LoadPhase {...loadPhaseProps()} inspection={{ kind: "error", message: "formato desconocido" }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("No se pudo importar el archivo: formato desconocido");
+  });
+
+  it("ofrece reutilizar, ignorar o cancelar el perfil guardado", () => {
+    const onProfileReviewAction = vi.fn();
+    render(<LoadPhase
+      {...loadPhaseProps({ onProfileReviewAction })}
+      pendingTaskName="Ventas mensuales"
+      inspection={{ kind: "profile_review", source: delimitedSource, profile }}
+    />);
+    const dialog = screen.getByRole("dialog", { name: "Reutilizar interpretación guardada" });
+    expect(dialog).toHaveTextContent("1 columnas de esquema");
+    expect(dialog).toHaveTextContent("Ventas mensuales");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Usar perfil y revisar esquema" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Importar sin perfil" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(onProfileReviewAction.mock.calls.map(([action]) => action.kind)).toEqual([
+      "use_profile", "use_defaults", "cancelled", "cancelled",
+    ]);
+  });
+
+  it("cierra el preflight de recursos con Esc", () => {
+    const onResourcePreflightAction = vi.fn();
+    render(<LoadPhase {...loadPhaseProps({ onResourcePreflightAction })} inspection={{ kind: "resource_preflight", source: delimitedSource }} />);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onResourcePreflightAction).toHaveBeenCalledWith({ kind: "cancelled" });
+  });
+
+  it("resume más de doce diferencias de esquema y deja importar o conservar", () => {
+    const onSchemaMismatchAction = vi.fn();
+    const mismatch = {
+      code: "importProfileSchemaMismatch" as const,
+      missingColumns: Array.from({ length: 6 }, (_, index) => `vieja_${index}`),
+      addedColumns: Array.from({ length: 6 }, (_, index) => `nueva_${index}`),
+      changedTypes: [
+        { column: "total", expected: "Int64", actual: "String" },
+        { column: "fecha", expected: "Date", actual: "String" },
+      ],
+    };
+    render(<LoadPhase
+      {...loadPhaseProps({ onSchemaMismatchAction })}
+      pendingTaskName="Ventas"
+      inspection={{ kind: "schema_mismatch", source: delimitedSource, profile, mismatch, sheetId: null, headerMode: "firstRow" }}
+    />);
+    const list = screen.getByRole("list", { name: "Diferencias de esquema" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(13);
+    expect(list).toHaveTextContent("Y 2 diferencias más.");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("La tarea “Ventas” no se aplicará");
+    fireEvent.click(screen.getByRole("button", { name: "Importar con esquema nuevo" }));
+    fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+    expect(onSchemaMismatchAction.mock.calls.map(([action]) => action.kind)).toEqual(["import_new_schema", "cancelled"]);
+  });
+
+  it("propone convertir un CSV en Windows-1252 y reintentar la muestra tras otro error", () => {
+    const onConvertEncoding = vi.fn();
+    const onRetryHeaderPreview = vi.fn();
+    const onSheetAction = vi.fn();
+    const pending = delimitedHeaderInspection(delimitedSource);
+    if (pending.kind !== "sheet") throw new Error("estado inesperado");
+    const view = render(<LoadPhase
+      {...loadPhaseProps({ onConvertEncoding, onRetryHeaderPreview, onSheetAction })}
+      inspection={{ ...pending, headerReviewLoading: false, error: `${LEGACY_ENCODING_PREFIX}Año` }}
+    />);
+    expect(screen.getByRole("heading", { name: "Leer como Excel para Windows" })).toBeInTheDocument();
+    expect(screen.getByText(/Así se leerá: «Año»/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Convertir y continuar" }));
+    expect(onConvertEncoding).toHaveBeenCalledOnce();
+
+    view.rerender(<LoadPhase
+      {...loadPhaseProps({ onConvertEncoding, onRetryHeaderPreview, onSheetAction })}
+      inspection={{ ...pending, headerReviewLoading: false, error: "muestra ilegible" }}
+    />);
+    expect(screen.getByRole("alert")).toHaveTextContent("No se pudo previsualizar el archivo: muestra ilegible");
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar muestra" }));
+    expect(onRetryHeaderPreview).toHaveBeenCalledOnce();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onSheetAction).toHaveBeenCalledWith({ kind: "cancelled" });
+  });
+
+  it("emite las convenciones y el perfil guardado, y las desactiva en lectura por bloques", () => {
+    const onSheetAction = vi.fn();
+    const ready = completeDelimitedHeaderReview(delimitedHeaderInspection(delimitedSource, profile), delimitedHeaderReview);
+    if (ready.kind !== "sheet") throw new Error("estado inesperado");
+    const view = render(<LoadPhase {...loadPhaseProps({ onSheetAction })} inspection={{ ...ready, headerMode: "generated" }} />);
+    fireEvent.click(screen.getByRole("radio", { name: /Usar la primera fila como encabezados/ }));
+    expect(onSheetAction).toHaveBeenCalledWith({ kind: "header_mode_changed", headerMode: "firstRow" });
+    fireEvent.change(screen.getByLabelText("Fechas"), { target: { value: "dmy" } });
+    expect(onSheetAction).toHaveBeenCalledWith({ kind: "date_convention_changed", value: "dmy" });
+    const profileToggle = screen.queryByRole("checkbox", { name: /Usar/ });
+    if (profileToggle) {
+      fireEvent.click(profileToggle);
+      expect(onSheetAction).toHaveBeenCalledWith(expect.objectContaining({ kind: "profile_toggled" }));
+    }
+
+    const sourceBacked = {
+      ...delimitedSource,
+      resourceEstimate: { ...delimitedSource.resourceEstimate, processingPath: "sourceBacked" as const },
+    };
+    view.rerender(<LoadPhase {...loadPhaseProps({ onSheetAction })} inspection={{ ...ready, source: sourceBacked }} />);
+    expect(screen.getByText(/Esta fuente requiere lectura por bloques/)).toBeInTheDocument();
+  });
+
+  it("no falla cuando una acción opcional no recibe manejador", () => {
+    const pending = delimitedHeaderInspection(delimitedSource);
+    if (pending.kind !== "sheet") throw new Error("estado inesperado");
+    const minimal = {
+      runtime: { kind: "connected" as const },
+      datasetStatus: { kind: "empty" as const },
+      recentDatasets: [],
+      onSelect: () => undefined,
+      onSelectRecent: () => undefined,
+      onClearRecent: () => undefined,
+      onRemoveRecent: () => undefined,
+      onSheetAction: () => undefined,
+      onCancelLoad: () => undefined,
+    };
+    const view = render(<LoadPhase {...minimal} previousExitUnclean inspection={{ kind: "workbook_inspecting", source: workbook }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Entendido" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar inspección" }));
+    view.rerender(<LoadPhase {...minimal} inspection={{ kind: "selection_cancellation_failed", source: workbook, message: "x", cancelPending: false, discardPending: false }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar cancelación" }));
+    view.rerender(<LoadPhase {...minimal} inspection={{ kind: "profile_review", source: delimitedSource, profile }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Importar sin perfil" }));
+    view.rerender(<LoadPhase {...minimal} inspection={{ kind: "resource_preflight", source: delimitedSource }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Continuar con la carga" }));
+    view.rerender(<LoadPhase {...minimal} inspection={{ kind: "schema_mismatch", source: delimitedSource, profile, mismatch: { code: "importProfileSchemaMismatch", missingColumns: ["a"], addedColumns: [], changedTypes: [] }, sheetId: null, headerMode: null }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar y conservar dataset" }));
+    view.rerender(<LoadPhase {...minimal} inspection={{ ...pending, headerReviewLoading: false, error: `${LEGACY_ENCODING_PREFIX}x` }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Convertir y continuar" }));
+    view.rerender(<LoadPhase {...minimal} inspection={{ ...pending, headerReviewLoading: false, error: "y" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar muestra" }));
+    view.rerender(<LoadPhase {...minimal} inspection={completeDelimitedHeaderReview(pending, delimitedHeaderReview)} />);
+    fireEvent.click(screen.getByText("¿Columnas o acentos mal leídos?"));
+    fireEvent.change(screen.getByRole("combobox", { name: "Separador" }), { target: { value: "|" } });
+    fireEvent.click(screen.getByRole("button", { name: "Volver a leer" }));
+    view.rerender(<LoadPhase {...minimal} inspection={{ kind: "idle" }} sampleDatasets={[{ id: "s", name: "Ejemplo", format: "csv", description: "d" }]} />);
+    const sample = screen.queryAllByRole("button").find((button) => button.textContent?.includes("Ejemplo"));
+    if (sample) fireEvent.click(sample);
+  });
+});
