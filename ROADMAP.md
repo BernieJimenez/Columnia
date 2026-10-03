@@ -76,10 +76,10 @@ medio = 1 día; agregado por suma.
 
 ### Tier 2 — Mejoras sustanciales
 
-- [ ] **RV29** — **Entregar** — Los textareas de listas del editor de reglas pierden el Intro y los espacios al teclear (y 1 problemas más) · *Esfuerzo: 1,2 días*
+- [x] **RV29** — **Entregar** — Los textareas de listas del editor de reglas pierden el Intro y los espacios al teclear (y 1 problemas más) · *Esfuerzo: 1,2 días* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-04, QA-11.
-  - [ ] `FUN-04` (Medio) Los textareas de listas del editor de reglas pierden el Intro y los espacios al teclear
-  - [ ] `QA-11` (Medio) Pruebas de Entregar que no pueden fallar por lo importante y huecos de la compuerta
+  - [x] `FUN-04` (Medio) Los textareas de listas del editor de reglas pierden el Intro y los espacios al teclear — hecho el 2026-10-03
+  - [x] `QA-11` (Medio) Pruebas de Entregar que no pueden fallar por lo importante y huecos de la compuerta — hecho el 2026-10-03
 - [ ] **RV30** — **Consulta SQL y DuckDB** — Los dos motores SQL dan resultados distintos para la misma consulta y la interfaz no dice… (y 4 problemas más) · *Esfuerzo: 3,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-05, FUN-13, DAT-08, DAT-11, REN-05.
   - [ ] `FUN-05` (Medio) Los dos motores SQL dan resultados distintos para la misma consulta y la interfaz no dice cuál respondió
@@ -362,7 +362,7 @@ medio = 1 día; agregado por suma.
   - [ ] `UX-18` (Bajo) «Guardar preset» sobrescribe el preset seleccionado sin avisar
   - [ ] `UX-19` (Bajo) Campos numéricos de tolerancia vuelven a 0 al vaciarlos y la tolerancia por defecto de «Comprobación agregada» es 0
   - [ ] `ACC-12` (Bajo) Nombres accesibles repetidos: varios «Eliminar» y dos «Deshacer» sin contexto
-  - [ ] `PROD-05` (Bajo) «Exportar y abrir en Power BI» con Parquet exporta y no abre nada, sin decirlo
+  - [x] `PROD-05` (Bajo) «Exportar y abrir en Power BI» con Parquet exporta y no abre nada, sin decirlo — hecho el 2026-10-03
 - [ ] **RV77** — **Entregar** — Los presets prometen guardar «columnas», pero siempre guardan todas y al aplicar se ignoran · *Esfuerzo: 2 h*
   - Criterio de cierre: Se cumplen los criterios de aceptación de PROD-06.
   - [ ] `PROD-06` (Bajo) Los presets prometen guardar «columnas», pero siempre guardan todas y al aplicar se ignoran

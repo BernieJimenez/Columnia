@@ -581,7 +581,7 @@ export function DeliveryPhase({
     if (!openPowerBiAfterExportRef.current) return;
     if (exportState.kind === "success") {
       openPowerBiAfterExportRef.current = false;
-      if (exportState.result.format === "CSV" || exportState.result.format === "Excel") {
+      if (["CSV", "Excel", "Parquet"].includes(exportState.result.format)) {
         setAutoOpenResult(exportState.result);
       }
     } else if (exportState.kind === "cancelled" || exportState.kind === "error") {

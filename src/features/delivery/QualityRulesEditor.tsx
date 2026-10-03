@@ -1,3 +1,5 @@
+import { useEffect, useState, type TextareaHTMLAttributes } from "react";
+
 import {
   QUALITY_DATASET_COLUMN,
   type DatasetPreview,
@@ -16,6 +18,42 @@ interface QualityRulesEditorProps {
   /** The rule the current validation error points at, if any. */
   validationErrorRuleIndex: number | null;
   onRulesChange: (rules: QualityRule[]) => void;
+}
+
+interface ListTextareaProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange"> {
+  values: string[];
+  /** Trims each line, for column names. */
+  trim?: boolean;
+  onValuesChange: (values: string[]) => void;
+}
+
+function listFromText(text: string, trim: boolean): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((value) => (trim ? value.trim() : value))
+    .filter((value) => value.length > 0);
+}
+
+/**
+ * A one-value-per-line list. The typed text stays as written, so Intro and
+ * spaces survive while typing (FUN-04); only the list sent upward is cleaned.
+ */
+export function ListTextarea({ values, trim = false, onValuesChange, ...props }: ListTextareaProps) {
+  const [text, setText] = useState(() => values.join("\n"));
+  const key = values.join("\n");
+  useEffect(() => {
+    setText((current) => (listFromText(current, trim).join("\n") === key ? current : key));
+  }, [key, trim]);
+  return (
+    <textarea
+      {...props}
+      value={text}
+      onChange={(event) => {
+        setText(event.target.value);
+        onValuesChange(listFromText(event.target.value, trim));
+      }}
+    />
+  );
 }
 
 /** The rules with a new «not null» rule on the first column, or null when full. */
@@ -271,13 +309,13 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
                     )}
                     {rule.kind === "allowed_values" && (
                       <label className="quality-rule__wide">Valores permitidos
-                        <textarea
+                        <ListTextarea
                           rows={2}
                           aria-label={`Valores permitidos regla ${index + 1}`}
                           aria-describedby={`quality-values-help-${index}`}
-                          value={rule.values?.join("\n") ?? ""}
-                          onChange={(event) => updateRule(index, {
-                            values: event.target.value.split(/\r?\n/).filter((value) => value.length > 0),
+                          values={rule.values ?? []}
+                          onValuesChange={(values) => updateRule(index, {
+                            values,
                           })}
                         />
                         <span id={`quality-values-help-${index}`} className="quality-rule__help">Un valor por línea; se compara sin transformar.</span>
@@ -342,13 +380,13 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
                           </label>
                         ))}
                         <label className="quality-rule__wide">Valores permitidos de referencia
-                          <textarea
+                          <ListTextarea
                             rows={3}
                             aria-label={`Valores permitidos de referencia regla ${index + 1}`}
                             aria-describedby={`quality-reference-values-help-${index}`}
-                            value={rule.referenceValues?.join("\n") ?? ""}
-                            onChange={(event) => updateRule(index, {
-                              referenceValues: event.target.value.split(/\r?\n/).filter((value) => value.length > 0),
+                            values={rule.referenceValues ?? []}
+                            onValuesChange={(values) => updateRule(index, {
+                              referenceValues: values,
                             })}
                           />
                           <span id={`quality-reference-values-help-${index}`} className="quality-rule__help">
@@ -401,12 +439,12 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
                           />
                         </label>
                         <label className="quality-rule__wide">Referencias numéricas opcionales
-                          <textarea
+                          <ListTextarea
                             rows={2}
                             aria-label={`Referencias numéricas opcionales regla ${index + 1}`}
-                            value={rule.referenceValues?.join("\n") ?? ""}
-                            onChange={(event) => updateRule(index, {
-                              referenceValues: event.target.value.split(/\r?\n/).filter((value) => value.length > 0),
+                            values={rule.referenceValues ?? []}
+                            onValuesChange={(values) => updateRule(index, {
+                              referenceValues: values,
                               expected: undefined,
                             })}
                           />
@@ -418,13 +456,13 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
                       <fieldset className="quality-rule__wide quality-rule__columns">
                         <legend>Drift de distribución</legend>
                         <label className="quality-rule__wide">Línea base numérica
-                          <textarea
+                          <ListTextarea
                             rows={3}
                             aria-label={`Línea base numérica regla ${index + 1}`}
                             aria-describedby={`quality-drift-baseline-help-${index}`}
-                            value={rule.baseline?.join("\n") ?? ""}
-                            onChange={(event) => updateRule(index, {
-                              baseline: event.target.value.split(/\r?\n/).filter((value) => value.length > 0),
+                            values={rule.baseline ?? []}
+                            onValuesChange={(values) => updateRule(index, {
+                              baseline: values,
                               referenceValues: undefined,
                             })}
                           />
@@ -656,12 +694,12 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
                           )}
                           {rule.then?.kind === "allowed_values" && (
                             <label className="quality-rule__wide">Valores permitidos then
-                              <textarea
+                              <ListTextarea
                                 rows={2}
                                 aria-label={`Valores permitidos then regla ${index + 1}`}
-                                value={rule.then.values?.join("\n") ?? ""}
-                                onChange={(event) => updateConditionalThen(index, {
-                                  values: event.target.value.split(/\r?\n/).filter((value) => value.length > 0),
+                                values={rule.then.values ?? []}
+                                onValuesChange={(values) => updateConditionalThen(index, {
+                                  values,
                                 })}
                               />
                             </label>
@@ -699,15 +737,13 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
                       <fieldset className="quality-rule__wide quality-rule__columns">
                         <legend>Contrato de esquema</legend>
                         <label className="quality-rule__wide">Columnas requeridas
-                          <textarea
+                          <ListTextarea
                             rows={3}
                             aria-label={`Columnas requeridas esquema regla ${index + 1}`}
-                            value={rule.columns?.join("\n") ?? ""}
-                            onChange={(event) => updateRule(index, {
-                              columns: event.target.value
-                                .split(/\r?\n/)
-                                .map((value) => value.trim())
-                                .filter((value) => value.length > 0),
+                            values={rule.columns ?? []}
+                            trim
+                            onValuesChange={(values) => updateRule(index, {
+                              columns: values,
                             })}
                           />
                           <span className="quality-rule__help">Una columna por línea; el dataset puede tener columnas adicionales si se permite abajo.</span>
@@ -722,17 +758,13 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
                           Permitir columnas adicionales
                         </label>
                         <label className="quality-rule__wide">Orden requerido, opcional
-                          <textarea
+                          <ListTextarea
                             rows={2}
                             aria-label={`Orden requerido, opcional esquema regla ${index + 1}`}
-                            value={rule.requiredOrder?.join("\n") ?? ""}
-                            onChange={(event) => updateRule(index, {
-                              requiredOrder: event.target.value.trim().length === 0
-                                ? undefined
-                                : event.target.value
-                                  .split(/\r?\n/)
-                                  .map((value) => value.trim())
-                                  .filter((value) => value.length > 0),
+                            values={rule.requiredOrder ?? []}
+                            trim
+                            onValuesChange={(values) => updateRule(index, {
+                              requiredOrder: values.length === 0 ? undefined : values,
                             })}
                           />
                         </label>

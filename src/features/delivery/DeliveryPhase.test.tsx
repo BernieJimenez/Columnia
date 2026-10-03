@@ -71,6 +71,181 @@ function DeliveryHarness({
   );
 }
 
+/** Like DeliveryHarness, and it records every contract the phase produces. */
+function RecordingDelivery({
+  initial,
+  contracts,
+  onExport = vi.fn(),
+}: {
+  initial: DeliveryContractState;
+  contracts: DeliveryContractState[];
+  onExport?: (request: DeliveryExportRequest) => void;
+}) {
+  const [contract, setContract] = useState<DeliveryContractState>(initial);
+  return (
+    <DeliveryPhase
+      dataset={dataset}
+      contract={contract}
+      exportState={{ kind: "idle" }}
+      onContractAction={(action) => setContract((current) => {
+        const next = reduceDeliveryContract(current, action);
+        contracts.push(next);
+        return next;
+      })}
+      onExport={onExport}
+      onCancelExport={vi.fn()}
+    />
+  );
+}
+
+function lastRules(contracts: DeliveryContractState[]): QualityRule[] {
+  const last = contracts.at(-1);
+  return last?.kind === "with_contract" ? last.rules : [];
+}
+
+const failingNotNull = {
+  passed: false,
+  rowCount: 2,
+  totalRules: 1,
+  failedRules: 1,
+  rules: [{
+    column: "total",
+    kind: "not_null" as const,
+    maxInvalid: 0,
+    checkedCount: 2,
+    invalidCount: 1,
+    invalidPct: 50,
+    passed: false,
+  }],
+};
+const passingNotNull = {
+  ...failingNotNull,
+  passed: true,
+  failedRules: 0,
+  rules: [{ ...failingNotNull.rules[0], invalidCount: 0, invalidPct: 0, passed: true }],
+};
+
+describe("compuerta de calidad y editor de reglas (QA-11)", () => {
+  it("vuelve a validar al exportar cuando el resultado quedó desactualizado", async () => {
+    const validate = vi.spyOn(bridge, "validateQualityRules").mockResolvedValue(passingNotNull);
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} initialContract={{
+      kind: "with_contract",
+      rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      gate: { kind: "stale", result: passingNotNull },
+    }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
+
+    await waitFor(() => expect(onExport).toHaveBeenCalledOnce());
+    expect(validate).toHaveBeenCalledOnce();
+  });
+
+  it("descarta la respuesta tardía de una validación si las reglas cambiaron mientras tanto", async () => {
+    let resolveValidation!: (result: typeof passingNotNull) => void;
+    vi.spyOn(bridge, "validateQualityRules").mockReturnValue(new Promise((resolve) => {
+      resolveValidation = resolve;
+    }));
+    const onExport = vi.fn();
+    const contracts: DeliveryContractState[] = [];
+    render(<RecordingDelivery onExport={onExport} contracts={contracts} initial={{
+      kind: "with_contract",
+      rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      gate: { kind: "idle" },
+    }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+      target: { value: "json" },
+    });
+    await act(async () => resolveValidation(passingNotNull));
+
+    expect(onExport).not.toHaveBeenCalled();
+    expect(contracts.at(-1)).toMatchObject({ gate: { kind: "loading" } });
+  });
+
+  it("conserva Intro y espacios al teclear listas carácter a carácter", () => {
+    const contracts: DeliveryContractState[] = [];
+    render(<RecordingDelivery contracts={contracts} initial={{
+      kind: "with_contract",
+      rules: [{ column: "estado", kind: "allowed_values", maxInvalid: 0, values: [] }],
+      gate: { kind: "idle" },
+    }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Editar reglas" }));
+
+    const values = screen.getByRole("textbox", { name: "Valores permitidos regla 1" });
+    for (const typed of ["a", "a\n", "a\nb"]) {
+      fireEvent.change(values, { target: { value: typed } });
+    }
+    expect(values).toHaveValue("a\nb");
+    expect(lastRules(contracts)[0].values).toEqual(["a", "b"]);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
+      target: { value: "schema_contract" },
+    });
+    const columns = screen.getByRole("textbox", { name: "Columnas requeridas esquema regla 1" });
+    fireEvent.change(columns, { target: { value: "" } });
+    for (const typed of ["N", "Nombre", "Nombre ", "Nombre c", "Nombre completo"]) {
+      fireEvent.change(columns, { target: { value: typed } });
+    }
+    expect(columns).toHaveValue("Nombre completo");
+    expect(lastRules(contracts)[0].columns).toEqual(["Nombre completo"]);
+  });
+
+  it("abre Power BI al terminar «Exportar y abrir en Power BI» con Parquet", async () => {
+    const onExport = vi.fn();
+    const openInPowerBi = vi.spyOn(bridge, "openLastExportInPowerBi").mockResolvedValue(true);
+    const view = render(<DeliveryHarness onExport={onExport} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+      target: { value: "parquet" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Exportar y abrir en Power BI" }));
+    await waitFor(() => expect(onExport).toHaveBeenCalledWith(expect.objectContaining({ format: "parquet" })));
+
+    view.rerender(<DeliveryHarness onExport={onExport} exportState={{
+      kind: "success",
+      result: {
+        fileName: "ventas.parquet",
+        fileSizeBytes: 2048,
+        format: "Parquet",
+        protectedColumnCount: 0,
+        protectedColumns: [],
+        replacedControlCellCount: 0,
+      },
+    }} />);
+
+    await waitFor(() => expect(openInPowerBi).toHaveBeenCalledOnce());
+  });
+
+  it("tras un contrato fallido, editar la regla obliga a validar de nuevo antes de exportar", async () => {
+    const validate = vi.spyOn(bridge, "validateQualityRules").mockResolvedValue(failingNotNull);
+    const onExport = vi.fn();
+    const contracts: DeliveryContractState[] = [];
+    render(<RecordingDelivery onExport={onExport} contracts={contracts} initial={{
+      kind: "with_contract",
+      rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      gate: { kind: "idle" },
+    }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Contrato fallido"));
+    fireEvent.click(screen.getByRole("button", { name: "Editar reglas" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Inválidos máximos regla 1" }), {
+      target: { value: "0" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Columna regla 1" }), {
+      target: { value: "limite" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
+
+    await waitFor(() => expect(validate).toHaveBeenCalledTimes(2));
+    expect(validate).toHaveBeenLastCalledWith([{ column: "limite", kind: "not_null", maxInvalid: 0 }]);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Contrato fallido"));
+    expect(onExport).not.toHaveBeenCalled();
+  });
+});
+
 describe("límites de Excel (RV19)", () => {
   it("avisa antes de exportar, bloquea Excel y ofrece CSV", () => {
     render(<DeliveryHarness onExport={vi.fn()} excelLimitIssues={["notas: hay celdas de más de 32,767 caracteres, el máximo de Excel."]} />);
@@ -895,6 +1070,7 @@ describe("DeliveryPhase", () => {
   });
 
   it("cubre los editores de parámetros y sus transiciones de regla", () => {
+    const validate = vi.spyOn(bridge, "validateQualityRules").mockReturnValue(new Promise(() => undefined));
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
@@ -999,6 +1175,18 @@ describe("DeliveryPhase", () => {
 
     expect(screen.getByRole("textbox", { name: "Columnas requeridas esquema regla 1" })).toHaveValue("total\nestado");
     expect(screen.getByRole("textbox", { name: "Orden requerido, opcional esquema regla 1" })).toHaveValue("total\nestado");
+    fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
+    expect(validate).toHaveBeenCalledOnce();
+    const [rule] = validate.mock.calls[0][0];
+    expect(rule).toMatchObject({
+      kind: "schema_contract",
+      columns: ["total", "estado"],
+      requiredOrder: ["total", "estado"],
+    });
+    // Changing the kind drops the parameters of the previous kinds.
+    for (const leftover of ["values", "pattern", "then", "when", "expected", "referenceValues", "dtype"] as const) {
+      expect(rule[leftover]).toBeUndefined();
+    }
   });
 
   it("guarda el contrato activo como documento Columnia v1", async () => {
@@ -1218,8 +1406,16 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Columna compuesta limite, regla 1" }));
     fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), { target: { value: "column_compare" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Columna derecha comparar regla 1" }), { target: { value: "estado" } });
+    const ruleChanges = onContractAction.mock.calls
+      .map(([action]) => action)
+      .filter((action) => action.kind === "rules_changed");
+    expect(ruleChanges.at(1)?.rules[0]).toMatchObject({ maxInvalidPct: 5 });
+    expect(ruleChanges.at(-1)?.rules).toEqual([
+      expect.objectContaining({ kind: "column_compare", columns: ["total", "estado"] }),
+    ]);
+    expect(ruleChanges.at(-1)?.rules[0].values).toBeUndefined();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar regla 1" }));
-    expect(onContractAction).toHaveBeenCalled();
+    expect(onContractAction).toHaveBeenLastCalledWith({ kind: "rules_changed", rules: [] });
     expect(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" })).toBeInTheDocument();
   });
 

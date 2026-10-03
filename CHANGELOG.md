@@ -170,6 +170,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- En el editor de reglas de Entregar, las listas (valores permitidos, columnas
+  requeridas, orden, referencias, línea base) conservan el Intro y los espacios
+  mientras se escribe: ya se pueden teclear varias líneas y columnas como
+  «Nombre completo» (FUN-04). «Exportar y abrir en Power BI» con Parquet abre
+  Power BI al terminar; antes exportaba y no abría nada (PROD-05).
 - Abrir un libro Excel cuyo rango declarado es enorme (`A1:XFD1048576`, habitual
   al dar formato a filas o columnas enteras) ya no agota la memoria: Columnia
   usa la extensión de las celdas con datos. Un libro de 5 KB que antes superaba
