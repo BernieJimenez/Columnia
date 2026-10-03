@@ -467,7 +467,7 @@ describe("PreparePhase", () => {
     expect(screen.getByText(/Columnia conserva los nulos por defecto/)).toBeInTheDocument();
     expect(screen.getByText(/Los espacios en blanco no son nulos/)).toBeInTheDocument();
     const signals = screen.getByRole("list", { name: "Señales de limpieza detectadas" });
-    expect(signals).toHaveTextContent("1 filas adicionales");
+    expect(signals).toHaveTextContent("1 fila adicional; puedes eliminarla");
     expect(signals).toHaveTextContent("Posible dato personal: 1 columna detectada por categoría agregada: correo electrónico (1)");
     expect(screen.getByRole("button", { name: "Revisar identificadores detectados" })).toBeInTheDocument();
     expect(signals).toHaveTextContent("Duplicados parecidos: 1");
@@ -631,7 +631,7 @@ describe("PreparePhase", () => {
     openIndividualSignalActions();
     fireEvent.click(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }));
     const dialog = screen.getByRole("alertdialog", { name: "Eliminar duplicados parecidos" });
-    expect(dialog).toHaveTextContent("1 filas");
+    expect(dialog).toHaveTextContent("1 fila que coincide");
     expect(dialog).not.toHaveTextContent("Ana");
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(onRemoveNearDuplicates).not.toHaveBeenCalled();
@@ -796,6 +796,10 @@ describe("PreparePhase", () => {
   });
 
   it("ejecuta callbacks opcionales y cierra confirmaciones con Escape", () => {
+    const onRemoveNearDuplicates = vi.fn();
+    const onRemoveIdentifierColumns = vi.fn();
+    const onRemovePersonalColumns = vi.fn();
+    const onMaskPersonalValues = vi.fn();
     render(<PreparePhase
       dataset={dataset}
       profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
@@ -805,6 +809,10 @@ describe("PreparePhase", () => {
       recipeSession={0}
 
       onCancelProfile={() => undefined}
+      onRemoveNearDuplicates={onRemoveNearDuplicates}
+      onRemoveIdentifierColumns={onRemoveIdentifierColumns}
+      onRemovePersonalColumns={onRemovePersonalColumns}
+      onMaskPersonalValues={onMaskPersonalValues}
       onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={() => undefined}
@@ -826,23 +834,39 @@ describe("PreparePhase", () => {
     openIndividualSignalActions();
     fireEvent.click(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }));
     fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Eliminar duplicados parecidos" }), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog", { name: "Eliminar duplicados parecidos" })).not.toBeInTheDocument();
+    expect(onRemoveNearDuplicates).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }));
     fireEvent.click(screen.getByRole("button", { name: "Eliminar duplicados parecidos" }));
+    expect(onRemoveNearDuplicates).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alertdialog", { name: "Eliminar duplicados parecidos" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Revisar identificadores detectados" }));
     fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Retirar identificadores detectados" }), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog", { name: "Retirar identificadores detectados" })).not.toBeInTheDocument();
+    expect(onRemoveIdentifierColumns).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Revisar identificadores detectados" }));
     fireEvent.click(screen.getByRole("button", { name: "Retirar identificadores" }));
+    expect(onRemoveIdentifierColumns).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alertdialog", { name: "Retirar identificadores detectados" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Revisar datos personales detectados" }));
     fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Retirar datos personales detectados" }), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog", { name: "Retirar datos personales detectados" })).not.toBeInTheDocument();
+    expect(onRemovePersonalColumns).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Revisar datos personales detectados" }));
     fireEvent.click(screen.getByRole("button", { name: "Retirar datos personales" }));
+    expect(onRemovePersonalColumns).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alertdialog", { name: "Retirar datos personales detectados" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Proteger valores personales detectados" }));
     fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Proteger datos personales detectados" }), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog", { name: "Proteger datos personales detectados" })).not.toBeInTheDocument();
+    expect(onMaskPersonalValues).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Proteger valores personales detectados" }));
     fireEvent.click(screen.getByRole("button", { name: "Proteger valores personales" }));
+    expect(onMaskPersonalValues).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alertdialog", { name: "Proteger datos personales detectados" })).not.toBeInTheDocument();
   });
 
   it("cubre estados de análisis, navegación de tabs y limpieza de texto seleccionada", () => {
@@ -1117,6 +1141,90 @@ describe("PreparePhase", () => {
     expect(screen.queryByRole("region", { name: "Listo: cambios aplicados" })).not.toBeInTheDocument();
   });
 
+  it("un plan cancelado no se atribuye el siguiente cambio (FUN-F2-24)", async () => {
+    const props = {
+      dataset,
+      datasetRevision: 8,
+      profileStatus: { kind: "ready" as const, profile: cleaningSignalsProfile },
+      changeStatus: { kind: "idle" as const },
+      historyStatus: EMPTY_HISTORY,
+      recipeDraft: null,
+      recipeSession: 0,
+      onCancelProfile: vi.fn(),
+      onRemoveDuplicates: vi.fn(),
+      onRemoveEmptyRows: vi.fn(),
+      onRemoveConstantColumns: vi.fn(),
+      onRemoveEmptyColumns: vi.fn(),
+      onRemoveHighNullColumns: vi.fn(),
+      onNormalizeBooleans: vi.fn(),
+      onImputeMissingValues: vi.fn(),
+      onEnableRowAudit: vi.fn(),
+      onNormalizeColumns: vi.fn(),
+      onApplyRecommended: vi.fn(),
+      onTrimText: vi.fn(),
+      onNormalizeText: vi.fn(),
+      onApplyTransforms: vi.fn(),
+      onRecipeDraftChange: vi.fn(),
+      onUndo: vi.fn(),
+      onRedo: vi.fn(),
+    };
+    const { rerender } = render(<PreparePhase {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Aplicar 4 cambios" }));
+    rerender(<PreparePhase {...props} changeStatus={{ kind: "cancelled", message: "Preparación cancelada." }} />);
+
+    // Another action moves the revision by one: it is not the plan's result.
+    rerender(<PreparePhase
+      {...props}
+      datasetRevision={9}
+      profileStatus={{ kind: "ready", profile: { ...cleaningSignalsProfile, rowCount: 4, duplicateRowCount: 0 } }}
+      changeStatus={{ kind: "applied", message: "Se eliminó 1 fila duplicada adicional." }}
+    />);
+    expect(screen.queryByRole("region", { name: "Listo: cambios aplicados" })).not.toBeInTheDocument();
+  });
+
+  it("al cambiar de pestaña descarta la edición inválida y vuelve al último borrador válido", () => {
+    const props = {
+      dataset,
+      datasetRevision: 8,
+      profileStatus: { kind: "ready" as const, profile: cleaningSignalsProfile },
+      changeStatus: { kind: "idle" as const },
+      historyStatus: EMPTY_HISTORY,
+      recipeDraft: null,
+      recipeSession: 0,
+      onCancelProfile: vi.fn(),
+      onRemoveDuplicates: vi.fn(),
+      onRemoveEmptyRows: vi.fn(),
+      onRemoveConstantColumns: vi.fn(),
+      onRemoveEmptyColumns: vi.fn(),
+      onRemoveHighNullColumns: vi.fn(),
+      onNormalizeBooleans: vi.fn(),
+      onImputeMissingValues: vi.fn(),
+      onEnableRowAudit: vi.fn(),
+      onNormalizeColumns: vi.fn(),
+      onApplyRecommended: vi.fn(),
+      onTrimText: vi.fn(),
+      onNormalizeText: vi.fn(),
+      onApplyTransforms: vi.fn(),
+      onRecipeDraftChange: vi.fn(),
+      onUndo: vi.fn(),
+      onRedo: vi.fn(),
+    };
+    const restored: LoadedRecipe = {
+      version: 1,
+      name: "Limpieza persistida",
+      savedAt: "2026-08-21T00:00:00Z",
+      recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "cliente" }] },
+    };
+    render(<PreparePhase {...props} recipeDraft={restored} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Nuevo nombre 1" }), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("tab", { name: "Correcciones" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+
+    expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue("cliente");
+    expect(props.onRecipeDraftChange).not.toHaveBeenCalled();
+  });
+
   it("prioriza correcciones con señal y oculta herramientas sin columnas compatibles", () => {
     const onlyNumericDataset: DatasetPreview = {
       ...dataset,
@@ -1385,6 +1493,19 @@ describe("TransformRecipeEditor", () => {
     }));
   });
 
+  it("avisa antes de aplicar una conversión que puede dejar celdas vacías (FUN-F2-19)", () => {
+    const onApply = vi.fn();
+    render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={onApply} onDraftChange={() => undefined} />);
+    fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "nombre" } });
+    fireEvent.change(screen.getByLabelText("Tipo destino 1"), { target: { value: "integer" } });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+
+    expect(onApply).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("dejarán vacías las celdas que no encajen");
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar y aplicar" }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ casts: [{ column: "nombre", target: "integer" }] }));
+  });
+
   it("interpone el alertdialog antes de aplicar filtros destructivos", () => {
     const onApply = vi.fn();
     render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={onApply} onDraftChange={() => undefined} />);
@@ -1394,7 +1515,7 @@ describe("TransformRecipeEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
 
     expect(onApply).not.toHaveBeenCalled();
-    expect(screen.getByRole("alertdialog")).toHaveTextContent("1 filtros unidos por AND");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("La receta aplicará 1 filtro sobre 2 filas actuales");
     fireEvent.click(screen.getByRole("button", { name: "Confirmar y aplicar" }));
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
       filters: [{ column: "nombre", operator: "eq", value: "Ana" }],

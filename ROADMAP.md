@@ -139,9 +139,9 @@ medio = 1 día; agregado por suma.
   - [x] `TXT-01` (Medio) Afirmaciones absolutas que el producto no cumple: «nunca inventa valores», «todas las acciones son reversibles», «reversible desde el historial» — hecho el 2026-10-03
   - [x] `COD-01` (Medio) La detección de cancelación compara texto en español, copiado en 6 sitios — hecho el 2026-10-03
   - [x] `QA-08` (Medio) `src/features/prepare/usePrepareController.test.tsx`: fija los plurales defectuosos y no cubre los caminos que importan (historial desactivado, anulados, cancelación tardía) — hecho el 2026-10-03
-- [ ] **RV39** — **Preparar** — `PreparePhase.test.tsx`: un test sin aserciones, plurales fijados y huecos en los caminos de estado de la propuesta y e… · *Esfuerzo: 1 día*
+- [x] **RV39** — **Preparar** — `PreparePhase.test.tsx`: un test sin aserciones, plurales fijados y huecos en los caminos de estado de la propuesta y e… · *Esfuerzo: 1 día* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-09.
-  - [ ] `QA-09` (Medio) `src/features/prepare/PreparePhase.test.tsx`: un test sin aserciones, plurales fijados y huecos en los caminos de estado de la propuesta y el editor
+  - [x] `QA-09` (Medio) `src/features/prepare/PreparePhase.test.tsx`: un test sin aserciones, plurales fijados y huecos en los caminos de estado de la propuesta y el editor — hecho el 2026-10-03
 - [ ] **RV40** — **Motor de recetas** — Renombrar `a→total` y añadir una columna calculada `total`: en pequeños sobrescribe en si… (y 4 problemas más) · *Esfuerzo: 3,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-14, FUN-17, FUN-32, FUN-33, FUN-34.
   - [ ] `FUN-14` (Medio) Renombrar `a→total` y añadir una columna calculada `total`: en pequeños sobrescribe en silencio, en grandes falla sin explicar

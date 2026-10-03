@@ -81,6 +81,9 @@ export function requiresImpactConfirmation(recipe: TransformRecipe): boolean {
     recipe.groupSummary !== null ||
     // Find-and-replace rewrites every matching cell (FUN-25).
     recipe.findReplace !== null ||
+    // Conversions leave empty the cells that do not fit the new type (FUN-F2-19).
+    recipe.casts.some((cast) => cast.target !== "string") ||
+    recipe.dateParses.length > 0 ||
     recipe.contactNormalizations.length > 0;
 }
 

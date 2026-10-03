@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { TransformRecipe } from "../../bridge";
+import type { DatasetProfile, TransformRecipe } from "../../bridge";
 import {
   EMPTY_HISTORY,
   appliedPlanChanges,
   changeProgressMessage,
   isLoadedRecipe,
+  numericConversionCandidates,
   requiresImpactConfirmation,
 } from "./prepareModel";
 
@@ -26,6 +27,20 @@ const emptyRecipe: TransformRecipe = {
 };
 
 describe("modelo de preparación", () => {
+  it("«Convertir números» considera columnas con más del 90 % de valores numéricos, no exactamente 90", () => {
+    const profile = {
+      rowCount: 10,
+      columns: [90, 90.1, 100].map((typeMatchPercentage) => ({
+        name: `c${typeMatchPercentage}`,
+        dataType: "String",
+        suggestedType: "integer",
+        typeMatchPercentage,
+        privacySignal: null,
+      })),
+    } as unknown as DatasetProfile;
+    expect(numericConversionCandidates(profile).map((column) => column.name)).toEqual(["c90.1", "c100"]);
+  });
+
   it("parte de un historial disponible pero vacío", () => {
     expect(EMPTY_HISTORY).toMatchObject({
       snapshotsEnabled: true,
@@ -78,6 +93,15 @@ describe("modelo de preparación", () => {
       ...emptyRecipe,
       renames: [{ from: "nombre", to: "cliente" }],
     })).toBe(false);
+  });
+
+  it("pide confirmar conversiones de tipo y de fecha, que pueden dejar celdas vacías (FUN-F2-19)", () => {
+    expect(requiresImpactConfirmation({ ...emptyRecipe, casts: [{ column: "importe", target: "integer" }] })).toBe(true);
+    expect(requiresImpactConfirmation({ ...emptyRecipe, casts: [{ column: "importe", target: "string" }] })).toBe(false);
+    expect(requiresImpactConfirmation({
+      ...emptyRecipe,
+      dateParses: [{ column: "alta", format: "iso8601", target: "date" }],
+    })).toBe(true);
   });
 
   it("pide confirmar un buscar y reemplazar, que reescribe celdas (FUN-25)", () => {

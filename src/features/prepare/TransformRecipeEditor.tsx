@@ -17,6 +17,7 @@ import {
 import { canMapRecipeSchema, inspectRecipeSchema, mapRecipeColumns, recipeSourceSchema } from "./recipeSchema";
 import { buildTransformPreview, visibleColumnNames, type TransformPreview } from "./transformAdvisor";
 import { isDateType, isDatetimeType, isNumericType, isTextType } from "../../dataTypes";
+import { plural } from "../../plural";
 
 function operationGroupStatus(count: number, singular: string, plural: string) {
   if (count === 0) return "Sin cambios";
@@ -50,7 +51,7 @@ function TransformAdvisor({ preview }: { preview: TransformPreview }) {
     ? "Por determinar"
     : preview.rowsDelta === 0
       ? "Sin cambio esperado"
-      : `${preview.rowsDelta > 0 ? "+" : ""}${preview.rowsDelta.toLocaleString()} filas`;
+      : `${preview.rowsDelta > 0 ? "+" : ""}${preview.rowsDelta.toLocaleString()} ${Math.abs(preview.rowsDelta) === 1 ? "fila" : "filas"}`;
   const columnDelta = preview.columnsDelta === 0
     ? "Sin cambio"
     : `${preview.columnsDelta > 0 ? "+" : ""}${preview.columnsDelta.toLocaleString()} columnas`;
@@ -68,12 +69,12 @@ function TransformAdvisor({ preview }: { preview: TransformPreview }) {
       <div className="transform-advisor__metrics" aria-label="Comparación antes y después">
         <div>
           <span>Antes</span>
-          <strong>{preview.beforeRows.toLocaleString()} filas · {preview.beforeColumns} columnas</strong>
+          <strong>{plural(preview.beforeRows, "fila", "filas")} · {plural(preview.beforeColumns, "columna", "columnas")}</strong>
           <small>{visibleColumnNames(preview.beforeColumnNames)}</small>
         </div>
         <div>
           <span>Después</span>
-          <strong>{preview.afterRows === null ? "No se puede estimar cuántas filas quedarán" : `${preview.afterRows.toLocaleString()} filas`} · {preview.afterColumns} columnas</strong>
+          <strong>{preview.afterRows === null ? "No se puede estimar cuántas filas quedarán" : plural(preview.afterRows, "fila", "filas")} · {plural(preview.afterColumns, "columna", "columnas")}</strong>
           <small>{visibleColumnNames(preview.afterColumnNames)}</small>
         </div>
       </div>
@@ -903,13 +904,14 @@ export function TransformRecipeEditor({
             <p className="step">Cambio de alto impacto</p>
             <h3 id="filter-confirm-title">Confirmar cambios de alto impacto</h3>
             <p id="filter-confirm-description">
-              {pendingConfirmation.recipe.filters.length > 0 && <>La receta aplicará {pendingConfirmation.recipe.filters.length} filtros unidos por AND sobre {dataset.rowCount.toLocaleString()} filas actuales. El número final de filas depende de los datos. </>}
+              {(pendingConfirmation.recipe.casts.some((cast) => cast.target !== "string") || pendingConfirmation.recipe.dateParses.length > 0) && <>Las conversiones de tipo y de fecha dejarán vacías las celdas que no encajen en el tipo nuevo. </>}
+              {pendingConfirmation.recipe.filters.length > 0 && <>La receta aplicará {pendingConfirmation.recipe.filters.length === 1 ? "1 filtro" : `${pendingConfirmation.recipe.filters.length} filtros unidos por AND`} sobre {plural(dataset.rowCount, "fila actual", "filas actuales")}. El número final de filas depende de los datos. </>}
               {(pendingConfirmation.recipe.keepColumns !== null || pendingConfirmation.recipe.splitColumn?.dropSource || pendingConfirmation.recipe.mergeColumns?.dropSources) && <> En total se eliminarán {new Set([...(pendingConfirmation.recipe.keepColumns ? dataset.columns.map((column) => column.name).filter((name) => !pendingConfirmation.recipe.keepColumns?.includes(name)) : []), ...(pendingConfirmation.recipe.splitColumn?.dropSource ? [pendingConfirmation.recipe.splitColumn.source] : []), ...(pendingConfirmation.recipe.mergeColumns?.dropSources ? pendingConfirmation.recipe.mergeColumns.sources : [])]).size} columnas originales, sin contar dos veces las fuentes compartidas.</>}
-              {pendingConfirmation.recipe.outlierTreatments.some((item) => item.action === "cap") && <> Se limitarán valores atípicos en {pendingConfirmation.recipe.outlierTreatments.filter((item) => item.action === "cap").length} columnas.</>}
-              {pendingConfirmation.recipe.outlierTreatments.some((item) => item.action === "impute") && <> Se reemplazarán valores atípicos por la mediana en {pendingConfirmation.recipe.outlierTreatments.filter((item) => item.action === "impute").length} columnas.</>}
-              {pendingConfirmation.recipe.outlierTreatments.some((item) => item.action === "drop") && <> Se podrán eliminar filas atípicas detectadas en {pendingConfirmation.recipe.outlierTreatments.filter((item) => item.action === "drop").length} columnas.</>}
-              {pendingConfirmation.recipe.groupSummary && <> El dataset será reemplazado por un resumen de {pendingConfirmation.recipe.groupSummary.groupBy.length} claves y {pendingConfirmation.recipe.groupSummary.aggregations.length} agregaciones sobre {dataset.rowCount.toLocaleString()} filas actuales.</>}
-              {pendingConfirmation.recipe.contactNormalizations.length > 0 && <> Se normalizarán valores de contacto en {pendingConfirmation.recipe.contactNormalizations.length} columnas.</>}
+              {pendingConfirmation.recipe.outlierTreatments.some((item) => item.action === "cap") && <> Se limitarán valores atípicos en {plural(pendingConfirmation.recipe.outlierTreatments.filter((item) => item.action === "cap").length, "columna", "columnas")}.</>}
+              {pendingConfirmation.recipe.outlierTreatments.some((item) => item.action === "impute") && <> Se reemplazarán valores atípicos por la mediana en {plural(pendingConfirmation.recipe.outlierTreatments.filter((item) => item.action === "impute").length, "columna", "columnas")}.</>}
+              {pendingConfirmation.recipe.outlierTreatments.some((item) => item.action === "drop") && <> Se podrán eliminar filas atípicas detectadas en {plural(pendingConfirmation.recipe.outlierTreatments.filter((item) => item.action === "drop").length, "columna", "columnas")}.</>}
+              {pendingConfirmation.recipe.groupSummary && <> El dataset será reemplazado por un resumen de {plural(pendingConfirmation.recipe.groupSummary.groupBy.length, "clave", "claves")} y {plural(pendingConfirmation.recipe.groupSummary.aggregations.length, "agregación", "agregaciones")} sobre {plural(dataset.rowCount, "fila actual", "filas actuales")}.</>}
+              {pendingConfirmation.recipe.contactNormalizations.length > 0 && <> Se normalizarán valores de contacto en {plural(pendingConfirmation.recipe.contactNormalizations.length, "columna", "columnas")}.</>}
             </p>
             <div className="sheet-dialog__actions"><button type="button" onClick={() => setPendingConfirmation(null)}>Cancelar</button><button type="button" className="primary-action" disabled={recipeBusy || pendingConfirmation.datasetRevision !== datasetRevision} onClick={() => { const pending = pendingConfirmation; setPendingConfirmation(null); if (pending.datasetRevision !== datasetRevision) { setStaleConfirmation(true); return; } onApply(pending.recipe); }}>Confirmar y aplicar</button></div>
         </ModalDialog>

@@ -185,6 +185,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Preparar: las recetas con conversiones de tipo o de fecha piden confirmación
+  porque pueden dejar celdas vacías, un plan cancelado ya no se atribuye el
+  cambio siguiente y los textos de duplicados, filtros y recetas concuerdan en
+  número («1 fila adicional», «1 filtro»).
 - Los mensajes de preparación concuerdan en número («Se eliminó 1 fila», «Se
   eliminaron 3 filas») gracias a un helper de plurales con pruebas, y las
   pruebas del controlador cubren el historial desactivado y todas las acciones

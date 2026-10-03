@@ -22,6 +22,7 @@ import { qualityActionTargetDomId } from "../review/qualityActionPlan";
 import type { QualityActionTarget } from "../review/qualityActionPlan";
 
 import { formatPercent } from "../../format";
+import { plural } from "../../plural";
 import { isTextType } from "../../dataTypes";
 
 interface PreparePhaseProps {
@@ -171,7 +172,7 @@ export function PreparePhase({
   useEffect(() => {
     const pending = pendingPlanComparison.current;
     if (!pending) return;
-    if (changeStatus.kind === "error"
+    if (changeStatus.kind === "error" || changeStatus.kind === "cancelled"
       || (changeStatus.kind === "applied" && changeStatus.message.startsWith("El dataset ya cumplía"))) {
       pendingPlanComparison.current = null;
       return;
@@ -397,7 +398,7 @@ export function PreparePhase({
                   <p className="step">Revisión con confirmación</p>
                   <h3 id="near-duplicates-title">Duplicados parecidos</h3>
                   <p>
-                    Se identificaron {nearDuplicateCount.toLocaleString()} filas parecidas por normalización de texto.
+                    Se identificaron {plural(nearDuplicateCount, "fila parecida", "filas parecidas")} por normalización de texto.
                     La primera fila y las copias exactas se conservarán.
                   </p>
                 </div>
@@ -515,7 +516,7 @@ export function PreparePhase({
           <p className="step">Confirmación requerida</p>
           <h3 id="near-duplicates-confirm-title">Eliminar duplicados parecidos</h3>
           <p id="near-duplicates-confirm-description">
-            Se eliminarán hasta {nearDuplicateCount.toLocaleString()} filas que coinciden después
+            Se eliminarán hasta {plural(nearDuplicateCount, "fila que coincide", "filas que coinciden")} después
             de normalizar espacios, mayúsculas y acentos. No se mostrarán valores del dataset.
             Se conservará la primera fila de cada grupo, el orden actual y las copias exactas.{undoNote}
           </p>
@@ -953,10 +954,10 @@ function CleaningSignals({
           <div className="detected-signals__content">
           <ul className="cleaning-signals__list" aria-label="Señales de limpieza detectadas">
           {profile.duplicateRowCount > 0 && (
-            <li><strong>Duplicados exactos:</strong> {profile.duplicateRowCount.toLocaleString()} filas adicionales; puedes eliminarlas.</li>
+            <li><strong>Duplicados exactos:</strong> {plural(profile.duplicateRowCount, "fila adicional", "filas adicionales")}; puedes {profile.duplicateRowCount === 1 ? "eliminarla" : "eliminarlas"}.</li>
           )}
           {nearDuplicates && (
-            <li><strong>Duplicados parecidos:</strong> {profile.nearDuplicateRowCount.toLocaleString()} filas adicionales coinciden al normalizar mayúsculas, espacios y acentos; requieren revisión manual.</li>
+            <li><strong>Duplicados parecidos:</strong> {plural(profile.nearDuplicateRowCount, "fila adicional coincide", "filas adicionales coinciden")} al normalizar mayúsculas, espacios y acentos; requieren revisión manual.</li>
           )}
           {constant.length > 0 && (
             <li><strong>Constantes:</strong> {constant.map((column) => column.name).join(", ")} {constant.length === 1 ? "no cambia" : "no cambian"} entre filas.</li>

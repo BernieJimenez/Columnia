@@ -128,6 +128,51 @@ describe("PrepareProposal ambiguous dates (RV18)", () => {
   });
 });
 
+describe("PrepareProposal ambiguous dates in steps (FUN-F2-14)", () => {
+  const dateItems: ProposalItem[] = [
+    {
+      id: "dates",
+      title: "Convertir 1 columna a fecha",
+      hint: "Todos sus valores son fechas.",
+      dateColumns: [{ name: "alta", order: null, sample: "01/02/2024" }],
+      examples: [],
+    },
+  ];
+
+  it("asks the reading order in the dates step and does not apply until it is answered", () => {
+    const onApply = vi.fn();
+    render(
+      <PrepareProposal items={dateItems} columnCount={1} busy={false} canUndo={false} result={null}
+        onApply={onApply} onUndo={vi.fn()} onDismissResult={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
+    fireEvent.click(screen.getByLabelText("Sí, convertir"));
+    const question = screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Atrás" }));
+    expect(question).not.toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" })).getByLabelText("Mes/día: 2024-01-02"));
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
+      dateColumns: [{ column: "alta", order: "mdy" }],
+    }));
+  });
+
+  it("leaves the dates as text without asking when the step is declined", () => {
+    render(
+      <PrepareProposal items={dateItems} columnCount={1} busy={false} canUndo={false} result={null}
+        onApply={vi.fn()} onUndo={vi.fn()} onDismissResult={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
+    fireEvent.click(screen.getByLabelText("No, dejarlas como texto"));
+    expect(screen.queryByRole("group", { name: "¿Cómo se lee «01/02/2024»?" })).not.toBeInTheDocument();
+  });
+});
+
 describe("PrepareProposal result", () => {
   function profileWith(nullCount: number, sentinelCount: number, rowCount: number) {
     return {

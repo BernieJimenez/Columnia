@@ -527,6 +527,7 @@ describe("App", () => {
     expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue("id_limpio");
     expect(applyRecipeSpy).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Confirmar y aplicar" }));
     await waitFor(() => expect(applyRecipeSpy).toHaveBeenCalledWith(
       expect.objectContaining({ casts: [{ column: "id", target: "integer" }] }),
       expect.objectContaining({
@@ -2460,6 +2461,7 @@ describe("App", () => {
       target: { value: "dmy" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Confirmar y aplicar" }));
 
     expect(applySpy).toHaveBeenCalledOnce();
     expect(applySpy).toHaveBeenCalledWith({
@@ -2628,7 +2630,7 @@ describe("App", () => {
     applyRecipeButton.focus();
     fireEvent.click(applyRecipeButton);
     let dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
-    expect(within(dialog).getByText(/1 filtros unidos por AND sobre 20 filas/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/1 filtro sobre 20 filas/)).toBeInTheDocument();
     expect(within(dialog).getByText(/En total se eliminarán 2 columnas originales/)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Cancelar" })).toHaveFocus();
     expect(applySpy).not.toHaveBeenCalled();
@@ -2718,8 +2720,8 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Acción para valores atípicos 2"), { target: { value: "drop" } });
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     let dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
-    expect(within(dialog).getByText(/Se limitarán valores atípicos en 1 columnas/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/eliminar filas atípicas detectadas en 1 columnas/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Se limitarán valores atípicos en 1 columna./)).toBeInTheDocument();
+    expect(within(dialog).getByText(/eliminar filas atípicas detectadas en 1 columna./)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
     expect(applySpy).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
@@ -2798,7 +2800,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Cálculo 2"), { target: { value: "count_unique" } });
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     const dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
-    expect(within(dialog).getByText(/resumen de 1 claves y 2 agregaciones sobre 6 filas/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/resumen de 1 clave y 2 agregaciones sobre 6 filas/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
     expect(applySpy).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
@@ -2838,7 +2840,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Separador para extraer texto 1"), { target: { value: "-" } });
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     const dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
-    expect(within(dialog).getByText(/normalizarán valores de contacto en 1 columnas/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/normalizarán valores de contacto en 1 columna./)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
     expect(applySpy).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
