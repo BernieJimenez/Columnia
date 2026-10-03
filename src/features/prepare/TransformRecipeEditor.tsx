@@ -187,7 +187,12 @@ export function TransformRecipeEditor({
   const [schemaReviewDismissed, setSchemaReviewDismissed] = useState(false);
   const [findReplaceEnabled, setFindReplaceEnabled] = useState(initialRecipe?.findReplace !== null && initialRecipe?.findReplace !== undefined);
   const [findReplace, setFindReplace] = useState<FindReplaceDraft>(initialRecipe?.findReplace ?? { scope: "column", column: null, find: "", replace: "", regex: false });
-  const [keptColumns, setKeptColumns] = useState<string[]>(initialRecipe?.keepColumns ?? dataset.columns.map((column) => column.name));
+  // The columns the person unchecked, not the ones kept: a column that the
+  // dataset gains later (a calculation, renamed headers) stays kept (FUN-26).
+  const [droppedColumns, setDroppedColumns] = useState<string[]>(() => initialRecipe?.keepColumns
+    ? dataset.columns.map((column) => column.name).filter((name) => !initialRecipe.keepColumns?.includes(name))
+    : []);
+  const keptColumns = dataset.columns.map((column) => column.name).filter((name) => !droppedColumns.includes(name));
   const [splitEnabled, setSplitEnabled] = useState(initialRecipe?.splitColumn !== null && initialRecipe?.splitColumn !== undefined);
   const [split, setSplit] = useState<SplitDraft>(initialRecipe?.splitColumn ?? { source: "", delimiter: "", names: [], dropSource: false });
   const [splitNamesInput, setSplitNamesInput] = useState(initialRecipe?.splitColumn?.names.join(", ") ?? "");
@@ -425,7 +430,9 @@ export function TransformRecipeEditor({
     setCalculation(recipe.calculatedColumn ?? { name: "", source: "", operation: "add", operand: { kind: "literal", value: "" } });
     setFindReplaceEnabled(recipe.findReplace !== null);
     setFindReplace(recipe.findReplace ?? { scope: "column", column: null, find: "", replace: "", regex: false });
-    setKeptColumns(recipe.keepColumns ?? dataset.columns.map((column) => column.name));
+    setDroppedColumns(recipe.keepColumns
+      ? dataset.columns.map((column) => column.name).filter((name) => !recipe.keepColumns?.includes(name))
+      : []);
     setSplitEnabled(recipe.splitColumn !== null);
     setSplit(recipe.splitColumn ?? { source: "", delimiter: "", names: [], dropSource: false });
     setSplitNamesInput(recipe.splitColumn?.names.join(", ") ?? "");
@@ -752,7 +759,7 @@ export function TransformRecipeEditor({
           active={dropsColumns}
         >
           <div className="keep-columns" role="group" aria-label="Seleccionar columnas a conservar">
-            {dataset.columns.map((column) => <label key={column.name}><input type="checkbox" checked={keptColumns.includes(column.name)} onChange={(event) => setKeptColumns((current) => event.target.checked ? dataset.columns.map((item) => item.name).filter((name) => current.includes(name) || name === column.name) : current.filter((name) => name !== column.name))} />{column.name}</label>)}
+            {dataset.columns.map((column) => <label key={column.name}><input type="checkbox" checked={keptColumns.includes(column.name)} onChange={(event) => setDroppedColumns((current) => event.target.checked ? current.filter((name) => name !== column.name) : [...current, column.name])} />{column.name}</label>)}
           </div>
           <p className="recipe-hint">Se conserva el orden actual. Debe permanecer al menos una columna.</p>
         </RecipeOperationGroup>

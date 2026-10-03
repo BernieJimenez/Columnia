@@ -185,6 +185,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- El editor de recetas ya no trata como descartadas las columnas que el dataset
+  gana mientras está abierto (una columna calculada, nombres normalizados):
+  «Columnas a conservar» solo excluye las que la persona desmarcó (FUN-26).
 - El asesor de recetas ya no califica de «bajo riesgo» las conversiones de tipo,
   la interpretación de fechas ni «buscar y reemplazar»: avisa de que cambian
   valores, explica que las conversiones son estrictas (si un valor no encaja, la

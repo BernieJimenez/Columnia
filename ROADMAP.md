@@ -135,7 +135,7 @@ medio = 1 día; agregado por suma.
 - [ ] **RV38** — **Preparar** — Conversiones de tipo, interpretación de fechas y «buscar y reemplazar» no piden confirmac… (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-25, FUN-26, TXT-01, COD-01, QA-08.
   - [x] `FUN-25` (Medio) Conversiones de tipo, interpretación de fechas y «buscar y reemplazar» no piden confirmación y el asesor las califica de «bajo riesgo» aunque pueden anular o reescribir datos — hecho el 2026-10-03
-  - [ ] `FUN-26` (Medio) El editor guarda estado inicial de las columnas (`keptColumns`, borradores) y solo se reinicia con `recipeSession`: si el dataset cambia sin remontar, una columna nueva se trata como «descartada»
+  - [x] `FUN-26` (Medio) El editor guarda estado inicial de las columnas (`keptColumns`, borradores) y solo se reinicia con `recipeSession`: si el dataset cambia sin remontar, una columna nueva se trata como «descartada» — hecho el 2026-10-03
   - [ ] `TXT-01` (Medio) Afirmaciones absolutas que el producto no cumple: «nunca inventa valores», «todas las acciones son reversibles», «reversible desde el historial»
   - [ ] `COD-01` (Medio) La detección de cancelación compara texto en español, copiado en 6 sitios
   - [ ] `QA-08` (Medio) `src/features/prepare/usePrepareController.test.tsx`: fija los plurales defectuosos y no cubre los caminos que importan (historial desactivado, anulados, cancelación tardía)

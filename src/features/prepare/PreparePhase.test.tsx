@@ -1154,6 +1154,21 @@ describe("PreparePhase", () => {
 });
 
 describe("TransformRecipeEditor", () => {
+  it("conserva las columnas que el dataset gana sin volver a montar el editor (FUN-26)", () => {
+    const props = { busy: false, initialDraft: null, onApply: () => undefined, onDraftChange: () => undefined };
+    const view = render(<TransformRecipeEditor {...props} dataset={dataset} />);
+    expect(screen.getByText("Todas las columnas")).toBeInTheDocument();
+    const grown = {
+      ...dataset,
+      columnCount: dataset.columnCount + 1,
+      columns: [...dataset.columns, { name: "total_con_iva", dataType: "Float64" }],
+    };
+    view.rerender(<TransformRecipeEditor {...props} dataset={grown} datasetRevision={1} />);
+    expect(screen.getByText("Todas las columnas")).toBeInTheDocument();
+    const keep = screen.getByRole("group", { name: "Seleccionar columnas a conservar" });
+    expect(within(keep).getByLabelText("total_con_iva")).toBeChecked();
+  });
+
   it("explica en lenguaje claro los cambios de grupos y valores atípicos", () => {
     const initialDraft: LoadedRecipe = {
       version: 1,
