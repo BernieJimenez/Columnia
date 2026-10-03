@@ -211,6 +211,7 @@ pub fn run() {
             dataset::inspect_dropped_dataset,
             dataset::inspect_workbook_sheets,
             dataset::convert_dataset_selection_encoding,
+            dataset::reinterpret_dataset_selection,
             session_guard::get_session_status,
             session_guard::set_unsaved_work,
             dataset::preview_delimited_header_review,

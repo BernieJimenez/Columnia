@@ -58,6 +58,17 @@ export function convertDatasetSelectionEncoding(selectionId: string): Promise<Da
   return invoke<DatasetSourceInspection>("convert_dataset_selection_encoding", { selectionId });
 }
 
+export type SourceTextEncoding = "utf-8" | "windows-1252" | "utf-16le" | "utf-16be" | "iso-8859-15";
+
+/** PROD-02: reads the pending delimited selection again with this separator and encoding. */
+export function reinterpretDatasetSelection(
+  selectionId: string,
+  delimiter: string | null,
+  encoding: SourceTextEncoding,
+): Promise<DatasetSourceInspection> {
+  return invoke<DatasetSourceInspection>("reinterpret_dataset_selection", { selectionId, delimiter, encoding });
+}
+
 export function previewDelimitedHeaderReview(selectionId: string): Promise<DelimitedHeaderReview> {
   return invoke<DelimitedHeaderReview>("preview_delimited_header_review", { selectionId });
 }

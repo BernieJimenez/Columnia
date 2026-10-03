@@ -10,6 +10,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- En el diálogo de importación de un CSV o TXT, «¿Columnas o acentos mal
+  leídos?» deja elegir el separador (coma, punto y coma, tabulador o barra
+  vertical) y la codificación (UTF-8, Windows-1252, ISO-8859-15, UTF-16) y
+  vuelve a leer el archivo; Columnia trabaja con una copia UTF-8 separada por
+  comas y el original no cambia. Nuevo comando IPC
+  `reinterpret_dataset_selection` (92 comandos) (PROD-02).
 - Columnia avisa antes de perder cambios que ningún proyecto guarda: al cargar
   otro archivo, un ejemplo o uno arrastrado, o al abrir otro proyecto, pide
   confirmar y «Cancelar» conserva el dataset; al cerrar la ventana pregunta con

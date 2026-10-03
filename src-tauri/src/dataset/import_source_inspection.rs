@@ -233,6 +233,18 @@ pub(super) async fn convert_dataset_selection_encoding_impl(
     app: AppHandle,
     selection_id: String,
 ) -> Result<DatasetSourceInspection, String> {
+    reinterpret_dataset_selection_impl(app, selection_id, None, SourceTextEncoding::Windows1252)
+        .await
+}
+
+/// Replaces the pending selection by a UTF-8 copy read with `encoding` and,
+/// when given, `delimiter`; the copy is separated by commas.
+pub(super) async fn reinterpret_dataset_selection_impl(
+    app: AppHandle,
+    selection_id: String,
+    delimiter: Option<char>,
+    encoding: SourceTextEncoding,
+) -> Result<DatasetSourceInspection, String> {
     let pending = {
         let state = app.state::<DatasetState>();
         let selection = state.pending_selection.lock_recovering();
@@ -252,11 +264,23 @@ pub(super) async fn convert_dataset_selection_encoding_impl(
     if !matches!(extension.as_str(), "csv" | "tsv" | "txt") {
         return Err("Solo los archivos delimitados se pueden convertir a UTF-8.".to_owned());
     }
-    let file_name = path
+    let mut file_name = path
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("dataset.csv")
         .to_owned();
+    // A copy separated by commas is a CSV whatever the original extension.
+    let extension = if delimiter.is_some() {
+        if let Some(stem) = Path::new(&file_name)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+        {
+            file_name = format!("{stem}.csv");
+        }
+        "csv".to_owned()
+    } else {
+        extension
+    };
 
     // Like the schema preview, the conversion is its own load step: the
     // selection's generation may already be superseded by that preview.
@@ -270,8 +294,9 @@ pub(super) async fn convert_dataset_selection_encoding_impl(
             .tempdir()
             .map_err(|error| format!("No se pudo preparar la copia convertida: {error}"))?;
         let converted = directory.path().join(&conversion_name);
-        let bytes =
-            convert_windows_1252_file(&path, &converted, &|| state.load_was_cancelled(generation))?;
+        let bytes = reinterpret_delimited_file(&path, &converted, encoding, delimiter, &|| {
+            state.load_was_cancelled(generation)
+        })?;
         Ok::<_, String>((directory, converted, bytes))
     })
     .await

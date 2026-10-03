@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { renderCellValue } from "../../components/CellText";
 import { ModalDialog } from "../../components/ModalDialog";
@@ -19,6 +19,7 @@ import type {
   ImportNumberConvention,
   ImportProfileMismatch,
   SampleDatasetDescriptor,
+  SourceTextEncoding,
 } from "../../bridge";
 import { legacyEncodingExample } from "./loadModel";
 import { DATE_CONVENTIONS, NUMBER_CONVENTIONS } from "./importProfile";
@@ -58,6 +59,8 @@ interface LoadPhaseProps {
   onRetryHeaderPreview?: () => void;
   /** Approves reading a Windows-1252 file through a UTF-8 copy (RV20). */
   onConvertEncoding?: () => void;
+  /** PROD-02: read the selection again with another separator or encoding. */
+  onReinterpret?: (delimiter: string | null, encoding: SourceTextEncoding) => void;
   encodingConversionPending?: boolean;
   /** DAT-01: the previous session ended without a normal exit. */
   previousExitUnclean?: boolean;
@@ -91,6 +94,7 @@ export function LoadPhase({
   onSheetAction,
   onRetryHeaderPreview = () => undefined,
   onConvertEncoding = () => undefined,
+  onReinterpret = () => undefined,
   encodingConversionPending = false,
   previousExitUnclean = false,
   lastSavedProject,
@@ -508,6 +512,12 @@ export function LoadPhase({
                   <p className="notice notice--error" role="alert">No se pudo previsualizar el archivo: {sheetSelection.error}</p>
                 )}
                 {sheetSelection.headerReview && (
+                  <SourceReadingOptions
+                    disabled={encodingConversionPending || sheetSelection.headerReviewLoading === true}
+                    onApply={onReinterpret}
+                  />
+                )}
+                {sheetSelection.headerReview && (
                   <HeaderInterpretationPreview
                     preview={sheetSelection.headerReview[sheetSelection.headerMode === "firstRow" ? "firstRow" : "generated"]}
                   />
@@ -819,5 +829,60 @@ function SchemaDifferenceList({ mismatch }: { mismatch: ImportProfileMismatch })
       {visible.map((item) => <li key={item.key}>{item.text}</li>)}
       {items.length > visible.length && <li>Y {items.length - visible.length} diferencias más.</li>}
     </ul>
+  );
+}
+
+const SEPARATOR_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "", label: "Como se detectó" },
+  { value: ",", label: "Coma" },
+  { value: ";", label: "Punto y coma" },
+  { value: "\t", label: "Tabulador" },
+  { value: "|", label: "Barra vertical" },
+];
+
+const ENCODING_OPTIONS: Array<{ value: SourceTextEncoding; label: string }> = [
+  { value: "utf-8", label: "UTF-8" },
+  { value: "windows-1252", label: "Windows-1252 (Excel en español)" },
+  { value: "iso-8859-15", label: "ISO-8859-15" },
+  { value: "utf-16le", label: "UTF-16 LE (Excel «Unicode»)" },
+  { value: "utf-16be", label: "UTF-16 BE" },
+];
+
+/** PROD-02: a wrong separator or encoding can be fixed without leaving Cargar. */
+function SourceReadingOptions({
+  disabled,
+  onApply,
+}: {
+  disabled: boolean;
+  onApply: (delimiter: string | null, encoding: SourceTextEncoding) => void;
+}) {
+  const [delimiter, setDelimiter] = useState("");
+  const [encoding, setEncoding] = useState<SourceTextEncoding>("utf-8");
+  return (
+    <details className="source-reading-options">
+      <summary>¿Columnas o acentos mal leídos?</summary>
+      <div className="source-reading-options__fields">
+        <label>
+          Separador
+          <select value={delimiter} onChange={(event) => setDelimiter(event.target.value)} disabled={disabled}>
+            {SEPARATOR_OPTIONS.map((option) => <option key={option.label} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <label>
+          Codificación
+          <select value={encoding} onChange={(event) => setEncoding(event.target.value as SourceTextEncoding)} disabled={disabled}>
+            {ENCODING_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="secondary-action"
+          disabled={disabled || (delimiter === "" && encoding === "utf-8")}
+          onClick={() => onApply(delimiter === "" ? null : delimiter, encoding)}
+        >
+          Volver a leer
+        </button>
+      </div>
+    </details>
   );
 }

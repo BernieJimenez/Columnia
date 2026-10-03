@@ -1403,3 +1403,9 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .prepare-proposal__before-after { margin: 4px 0 16px; }
 .prepare-proposal__before-after .table-region { margin-top: 8px; }
 .prepare-proposal__before-after td, .prepare-proposal__before-after th { white-space: nowrap; }
+
+/* PROD-02: separator and encoding override, folded by default. */
+.source-reading-options { margin: 8px 0; font-size: .9rem; }
+.source-reading-options summary { color: var(--accent); cursor: pointer; min-height: 24px; }
+.source-reading-options__fields { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 16px; margin-top: 8px; }
+.source-reading-options__fields label { display: grid; gap: 4px; color: var(--text-secondary); }

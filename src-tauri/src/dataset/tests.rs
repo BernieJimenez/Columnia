@@ -19243,3 +19243,45 @@ fn every_prepare_operation_matches_between_both_paths() {
     }
     assert!(differences.is_empty(), "{}", differences.join("\n\n"));
 }
+
+/// PROD-02: a delimited file can be read again with the separator and the
+/// encoding the person chooses; quoted fields keep their separators, quotes
+/// and line breaks.
+#[test]
+fn reinterpreting_a_selection_rewrites_separator_and_encoding() {
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    let rewrite = |bytes: &[u8], encoding: SourceTextEncoding, delimiter: Option<char>| {
+        let source = directory.path().join("origen.txt");
+        let destination = directory.path().join("copia.csv");
+        fs::write(&source, bytes).unwrap();
+        reinterpret_delimited_file(&source, &destination, encoding, delimiter, &|| false)
+            .map(|_| fs::read_to_string(&destination).unwrap())
+    };
+
+    let piped = "id|nombre|nota\r\n1|Pérez, Ana|\"dijo \"\"hola\"\"\"\r\n2|Luis|\"dos\nlíneas|y barra\"\r\n";
+    assert_eq!(
+        rewrite(piped.as_bytes(), SourceTextEncoding::Utf8, Some('|')).unwrap(),
+        "id,nombre,nota\n1,\"Pérez, Ana\",\"dijo \"\"hola\"\"\"\n2,Luis,\"dos\nlíneas|y barra\"\n"
+    );
+
+    let semicolons = "a;b\n1,5;2\n";
+    assert_eq!(
+        rewrite(semicolons.as_bytes(), SourceTextEncoding::Utf8, Some(';')).unwrap(),
+        "a,b\n\"1,5\",2\n"
+    );
+
+    let mut utf16 = vec![0xFF, 0xFE];
+    for unit in "año,valor\n2024,ñ\n".encode_utf16() {
+        utf16.extend_from_slice(&unit.to_le_bytes());
+    }
+    assert_eq!(
+        rewrite(&utf16, SourceTextEncoding::Utf16le, None).unwrap(),
+        "año,valor\n2024,ñ\n"
+    );
+    assert_eq!(
+        rewrite(b"a,b\n\xe9,1\n", SourceTextEncoding::Windows1252, None).unwrap(),
+        "a,b\né,1\n"
+    );
+    let error = rewrite(b"a,b\n\xe9,1\n", SourceTextEncoding::Utf8, None).unwrap_err();
+    assert!(error.contains("no es UTF-8"), "{error}");
+}

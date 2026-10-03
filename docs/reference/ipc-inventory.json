@@ -99,6 +99,11 @@
       "debug": false
     },
     {
+      "name": "reinterpret_dataset_selection",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "get_session_status",
       "module": "session_guard",
       "debug": false

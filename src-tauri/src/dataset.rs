@@ -7043,6 +7043,9 @@ pub(crate) fn legacy_encoding_error(message: String) -> String {
 
 /// Writes a UTF-8 copy of a Windows-1252 file. Single-byte decoding, so the
 /// file is converted in fixed blocks without holding it in memory.
+/// The approved Windows-1252 conversion (RV20), now one case of
+/// `reinterpret_delimited_file`.
+#[cfg(test)]
 pub(super) fn convert_windows_1252_file<C>(
     source: &Path,
     destination: &Path,
@@ -7051,29 +7054,184 @@ pub(super) fn convert_windows_1252_file<C>(
 where
     C: Fn() -> bool + ?Sized,
 {
+    reinterpret_delimited_file(
+        source,
+        destination,
+        SourceTextEncoding::Windows1252,
+        None,
+        is_cancelled,
+    )
+}
+
+/// Text encodings the person can choose for a delimited file (PROD-02).
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SourceTextEncoding {
+    Utf8,
+    Windows1252,
+    Utf16le,
+    Utf16be,
+    Iso885915,
+}
+
+impl SourceTextEncoding {
+    fn encoding(self) -> &'static encoding_rs::Encoding {
+        match self {
+            Self::Utf8 => encoding_rs::UTF_8,
+            Self::Windows1252 => encoding_rs::WINDOWS_1252,
+            Self::Utf16le => encoding_rs::UTF_16LE,
+            Self::Utf16be => encoding_rs::UTF_16BE,
+            Self::Iso885915 => encoding_rs::ISO_8859_15,
+        }
+    }
+}
+
+/// Writes `field` to `output` as one CSV field separated by commas.
+fn push_csv_field(output: &mut String, field: &str) {
+    if field.contains([',', '"', '\n', '\r']) {
+        output.push('"');
+        output.push_str(&field.replace('"', "\"\""));
+        output.push('"');
+    } else {
+        output.push_str(field);
+    }
+}
+
+/// Reads a delimited text in `delimiter` (quotes as in RFC 4180) and writes
+/// it again separated by commas. It keeps state between chunks, so a quoted
+/// field may span chunk boundaries.
+#[derive(Default)]
+struct Redelimiter {
+    field: String,
+    in_quotes: bool,
+    pending_quote: bool,
+    row_started: bool,
+    after_cr: bool,
+}
+
+impl Redelimiter {
+    fn feed(&mut self, text: &str, delimiter: char, output: &mut String) {
+        for character in text.chars() {
+            if self.in_quotes {
+                if self.pending_quote {
+                    self.pending_quote = false;
+                    if character == '"' {
+                        self.field.push('"');
+                        continue;
+                    }
+                    self.in_quotes = false;
+                } else if character == '"' {
+                    self.pending_quote = true;
+                    continue;
+                } else {
+                    self.field.push(character);
+                    continue;
+                }
+            }
+            if self.after_cr {
+                self.after_cr = false;
+                if character == '\n' {
+                    continue;
+                }
+            }
+            match character {
+                '"' if self.field.is_empty() => {
+                    self.in_quotes = true;
+                    self.row_started = true;
+                }
+                '\r' | '\n' => {
+                    push_csv_field(output, &self.field);
+                    self.field.clear();
+                    output.push('\n');
+                    self.row_started = false;
+                    self.after_cr = character == '\r';
+                }
+                character if character == delimiter => {
+                    push_csv_field(output, &self.field);
+                    self.field.clear();
+                    output.push(',');
+                    self.row_started = true;
+                }
+                character => {
+                    self.field.push(character);
+                    self.row_started = true;
+                }
+            }
+        }
+    }
+
+    fn finish(&mut self, output: &mut String) {
+        if self.row_started || !self.field.is_empty() {
+            push_csv_field(output, &self.field);
+            self.field.clear();
+        }
+    }
+}
+
+/// Writes a UTF-8 copy of a delimited file read with the chosen encoding and,
+/// when given, separator; the copy is separated by commas (PROD-02).
+pub(super) fn reinterpret_delimited_file<C>(
+    source: &Path,
+    destination: &Path,
+    encoding: SourceTextEncoding,
+    delimiter: Option<char>,
+    is_cancelled: &C,
+) -> Result<u64, String>
+where
+    C: Fn() -> bool + ?Sized,
+{
     use std::io::Write;
     ensure_not_cancelled(is_cancelled())?;
     let mut input = fs::File::open(source)
-        .map_err(|error| format!("No se pudo abrir el archivo para convertirlo: {error}"))?;
+        .map_err(|error| format!("No se pudo abrir el archivo para leerlo de nuevo: {error}"))?;
     let mut output = std::io::BufWriter::new(
         fs::File::create(destination)
             .map_err(|error| format!("No se pudo crear la copia convertida: {error}"))?,
     );
+    let mut decoder = encoding.encoding().new_decoder_with_bom_removal();
     let mut buffer = vec![0_u8; 1024 * 1024];
+    let mut decoded = String::with_capacity(buffer.len() * 2);
+    let mut rewritten = String::with_capacity(buffer.len() * 2);
+    let mut redelimiter = Redelimiter::default();
     let mut written = 0_u64;
     loop {
         ensure_not_cancelled(is_cancelled())?;
         let read = input
             .read(&mut buffer)
-            .map_err(|error| format!("No se pudo leer el archivo para convertirlo: {error}"))?;
-        if read == 0 {
-            break;
+            .map_err(|error| format!("No se pudo leer el archivo: {error}"))?;
+        let last = read == 0;
+        decoded.clear();
+        decoded.reserve(
+            decoder
+                .max_utf8_buffer_length(read)
+                .unwrap_or(read.saturating_mul(3)),
+        );
+        let (result, _, replaced) = decoder.decode_to_string(&buffer[..read], &mut decoded, last);
+        debug_assert_eq!(result, encoding_rs::CoderResult::InputEmpty);
+        if replaced && encoding == SourceTextEncoding::Utf8 {
+            return Err(
+                "El archivo no es UTF-8 válido. Elige otra codificación, por ejemplo Windows-1252."
+                    .to_owned(),
+            );
         }
-        let text = decode_windows_1252(&buffer[..read]);
+        let text = match delimiter {
+            Some(delimiter) => {
+                rewritten.clear();
+                redelimiter.feed(&decoded, delimiter, &mut rewritten);
+                if last {
+                    redelimiter.finish(&mut rewritten);
+                }
+                rewritten.as_str()
+            }
+            None => decoded.as_str(),
+        };
         output
             .write_all(text.as_bytes())
             .map_err(|error| format!("No se pudo escribir la copia convertida: {error}"))?;
         written += text.len() as u64;
+        if last {
+            break;
+        }
     }
     let file = output
         .into_inner()
@@ -8522,6 +8680,36 @@ pub async fn convert_dataset_selection_encoding(
     selection_id: String,
 ) -> Result<DatasetSourceInspection, String> {
     import_source_inspection::convert_dataset_selection_encoding_impl(app, selection_id).await
+}
+
+/// Reads the pending delimited selection again with the separator and
+/// encoding the person chose (PROD-02).
+#[tauri::command]
+pub async fn reinterpret_dataset_selection(
+    app: AppHandle,
+    selection_id: String,
+    delimiter: Option<String>,
+    encoding: SourceTextEncoding,
+) -> Result<DatasetSourceInspection, String> {
+    let delimiter = match delimiter.as_deref() {
+        None => None,
+        Some(",") => Some(','),
+        Some(";") => Some(';'),
+        Some("\t") => Some('\t'),
+        Some("|") => Some('|'),
+        Some(_) => {
+            return Err(
+                "El separador debe ser coma, punto y coma, tabulador o barra vertical.".to_owned(),
+            )
+        }
+    };
+    import_source_inspection::reinterpret_dataset_selection_impl(
+        app,
+        selection_id,
+        delimiter,
+        encoding,
+    )
+    .await
 }
 
 #[tauri::command]

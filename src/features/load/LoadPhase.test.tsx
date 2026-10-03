@@ -171,6 +171,27 @@ describe("LoadPhase", () => {
     expect(screen.getByRole("heading", { name: "anterior.csv" })).toBeInTheDocument();
   });
 
+  it("permite volver a leer el archivo con otro separador o codificación (PROD-02)", () => {
+    const onReinterpret = vi.fn();
+    const readyInspection = completeDelimitedHeaderReview(
+      delimitedHeaderInspection(delimitedSource),
+      delimitedHeaderReview,
+    );
+    render(<LoadPhase {...loadPhaseProps({})} inspection={readyInspection} onReinterpret={onReinterpret} />);
+
+    fireEvent.click(screen.getByText("¿Columnas o acentos mal leídos?"));
+    const reread = screen.getByRole("button", { name: "Volver a leer" });
+    expect(reread).toBeDisabled();
+    fireEvent.change(screen.getByRole("combobox", { name: "Separador" }), { target: { value: "|" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Codificación" }), { target: { value: "windows-1252" } });
+    fireEvent.click(reread);
+    expect(onReinterpret).toHaveBeenCalledWith("|", "windows-1252");
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Separador" }), { target: { value: "" } });
+    fireEvent.click(reread);
+    expect(onReinterpret).toHaveBeenLastCalledWith(null, "windows-1252");
+  });
+
   it("expone el diálogo accesible y emite acciones nominales para la hoja", () => {
     const onSheetAction = vi.fn();
     render(

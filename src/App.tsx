@@ -83,6 +83,8 @@ import {
   loadDatasetSelection,
   pickDatasetSource,
   convertDatasetSelectionEncoding,
+  reinterpretDatasetSelection,
+  type SourceTextEncoding,
   previewDelimitedHeaderReview,
   previewDatasetSelection,
   type AppInfo,
@@ -491,13 +493,17 @@ export function App() {
   }
 
   /** RV20: the person approved reading a Windows-1252 file through a UTF-8 copy. */
-  async function convertSelectionEncoding() {
+  async function convertSelectionEncoding(
+    reading: { delimiter: string | null; encoding: SourceTextEncoding } | null = null,
+  ) {
     if (loadInspection.kind !== "sheet" || encodingConversionPending) return;
     const source = loadInspection.source;
     schemaPreviewRequestRef.current += 1;
     setEncodingConversionPending(true);
     try {
-      const converted = await convertDatasetSelectionEncoding(source.selectionId);
+      const converted = reading
+        ? await reinterpretDatasetSelection(source.selectionId, reading.delimiter, reading.encoding)
+        : await convertDatasetSelectionEncoding(source.selectionId);
       setLoadInspection((current) =>
         current.kind === "sheet" && current.source.selectionId === source.selectionId
           ? beginDelimitedHeaderReview({ ...current, source: converted, schemaPreview: null, schemaPreviewError: null })
@@ -1392,6 +1398,7 @@ export function App() {
                 onSheetAction={handleSheetSelection}
                 onRetryHeaderPreview={retryDelimitedHeaderReview}
                 onConvertEncoding={() => void convertSelectionEncoding()}
+                onReinterpret={(delimiter, encoding) => void convertSelectionEncoding({ delimiter, encoding })}
                 previousExitUnclean={previousExitUnclean}
                 lastSavedProject={projects.catalog.kind === "ready" ? projects.catalog.projects[0] ?? null : undefined}
                 onDismissPreviousExit={() => setPreviousExitUnclean(false)}
