@@ -149,10 +149,10 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-32` (Medio) Los dos caminos de receta no son equivalentes: la validación usa el parser eager y la ejecución lazy usa Polars (ISO con `strict:false`, números con espacios) — hecho el 2026-10-03
   - [x] `FUN-33` (Medio) Camino «source-backed» (DuckDB/RE2): las expresiones regulares y los tokens no significan lo mismo que en Rust, con datos en español — hecho el 2026-10-03
   - [x] `FUN-34` (Medio) Camino «source-backed»: los casts SQL aceptan o redondean valores que eager rechaza — hecho el 2026-10-03
-- [ ] **RV41** — **Motor de recetas** — Materializaciones completas de columnas como `Vec<Option<String>>` y accesos celda a celd… (y 2 problemas más) · *Esfuerzo: 4 días*
+- [x] **RV41** — **Motor de recetas** — Materializaciones completas de columnas como `Vec<Option<String>>` y accesos celda a celd… (y 2 problemas más) · *Esfuerzo: 4 días* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de REN-06, COD-03, QA-13.
   - [x] `REN-06` (Medio) Materializaciones completas de columnas como `Vec<Option<String>>` y accesos celda a celda en validación y caminos eager (candidato a medir) — hecho el 2026-10-03
-  - [ ] `COD-03` (Medio) Tres implementaciones paralelas de cada paso de receta con validaciones copiadas (origen de las divergencias R6-06/07/12/13)
+  - [x] `COD-03` (Medio) Tres implementaciones paralelas de cada paso de receta con validaciones copiadas (origen de las divergencias R6-06/07/12/13) — hecho el 2026-10-03
   - [x] `QA-13` (Medio) Los tests «source-backed igual que eager» comparan en realidad con el motor lazy, no con el eager — hecho el 2026-10-03
 - [ ] **RV42** — **Reglas de calidad** — Mínimo/máximo temporales de columnas de texto ignoran el orden de fecha inferido (siempre… (y 4 problemas más) · *Esfuerzo: 2,8 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-18, FUN-35, FUN-36, REN-07, PROD-03.

@@ -19939,12 +19939,42 @@ fn every_recipe_step_matches_between_eager_and_lazy_on_chunked_frames() {
     let chunked = frame_in_three_chunks(&frame);
     assert!(chunked.first_col_n_chunks() >= 3);
     let mut compared = Vec::new();
+    let mut large_compared = Vec::new();
+    let mut large_differences = Vec::new();
     for (name, recipe) in steps {
         if lazy_recipe_supported(&chunked, &recipe) {
             compared.push(name);
         }
-        expected_recipe_outcome(&frame, &recipe).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let eager = expected_recipe_outcome(&frame, &recipe)
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        // COD-03: the large-file path, when it takes the step, agrees too.
+        if source_backed_projection_recipe_supported(&frame, &recipe) {
+            let directory = tempfile::tempdir().expect("carpeta temporal");
+            let mut dataset = source_backed_parquet_dataset(directory.path(), &frame);
+            if !dataset.source_backed {
+                continue;
+            }
+            large_compared.push(name);
+            let large = apply_recipe_to_dataset(&mut dataset, &recipe)
+                .and_then(|_| {
+                    read_parquet_frame(dataset.source_path.as_deref().unwrap())
+                        .map_err(|error| error.to_string())
+                })
+                .unwrap_or_else(|error| panic!("{name} (grande): {error}"));
+            if !large.equals_missing(&eager.0) {
+                large_differences.push(format!(
+                    "{name}:\n  eager {:?}\n  grande {large:?}",
+                    eager.0
+                ));
+            }
+        }
     }
+    assert!(
+        large_differences.is_empty(),
+        "{}",
+        large_differences.join("\n")
+    );
+    assert!(large_compared.len() >= 10, "{large_compared:?}");
     // The lazy path takes most steps; the comparison ran for each of them.
     assert!(compared.len() >= 10, "{compared:?}");
 }

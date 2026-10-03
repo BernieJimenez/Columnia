@@ -589,6 +589,29 @@ pub(super) fn column_named_after_renames(
     })
 }
 
+/// The calculated column's name, checked by one function for the three
+/// paths (COD-03, FUN-14): not empty, without surrounding spaces, and not the
+/// final name of a column of `frame` once `renames` apply.
+pub(super) fn validate_calculated_column_name(
+    calculation: &CalculatedColumnRecipe,
+    frame: &DataFrame,
+    renames: &HashMap<&str, &str>,
+) -> Result<(), String> {
+    if calculation.name.trim().is_empty() || calculation.name != calculation.name.trim() {
+        return Err(
+            "El nombre de la columna calculada no puede estar vacío ni tener espacios exteriores."
+                .into(),
+        );
+    }
+    if column_named_after_renames(frame, renames, &calculation.name) {
+        return Err(format!(
+            "La columna calculada '{}' ya existe.",
+            calculation.name
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn strict_f64(value: &str, context: &str) -> Result<f64, String> {
     let trimmed = value.trim();
     if !trimmed.contains(['.', 'e', 'E'])
@@ -608,46 +631,92 @@ pub(super) fn strict_f64(value: &str, context: &str) -> Result<f64, String> {
         .ok_or_else(|| format!("{context} debe ser un número finito: '{value}'."))
 }
 
+/// The recipe's renames as `from → to`, checked by one function for the
+/// three paths (COD-03): names not empty, new names without surrounding
+/// spaces, each column renamed once and present in `source`.
+pub(super) fn validated_rename_map<'a>(
+    source: &DataFrame,
+    recipe: &'a TransformRecipe,
+) -> Result<HashMap<&'a str, &'a str>, String> {
+    let mut rename_sources = HashSet::new();
+    recipe
+        .renames
+        .iter()
+        .map(|rename| {
+            if rename.from.trim().is_empty() || rename.to.trim().is_empty() {
+                return Err("Los nombres de columna no pueden estar vacíos.".to_owned());
+            }
+            if rename.to != rename.to.trim() {
+                return Err(
+                    "El nuevo nombre de columna no puede tener espacios exteriores.".to_owned(),
+                );
+            }
+            if !rename_sources.insert(rename.from.as_str()) {
+                return Err(format!(
+                    "La columna '{}' aparece en más de un renombrado.",
+                    rename.from
+                ));
+            }
+            recipe_column(source, &rename.from)?;
+            Ok((rename.from.as_str(), rename.to.as_str()))
+        })
+        .collect()
+}
+
+/// At most three filters, combined with AND, in every path (COD-03).
+pub(super) fn validate_recipe_filter_count(filters: &[RecipeFilter]) -> Result<(), String> {
+    if filters.len() > 3 {
+        return Err("La receta admite como máximo tres filtros combinados con AND.".into());
+    }
+    Ok(())
+}
+
+/// The filter's value, after the rules every path applies (COD-03): null
+/// checks take none, the others one, and ordered or text matches a non-empty
+/// one.
+pub(super) fn recipe_filter_literal(filter: &RecipeFilter) -> Result<&str, String> {
+    let unary = matches!(
+        filter.operator,
+        RecipeFilterOperator::IsNull | RecipeFilterOperator::NotNull
+    );
+    if unary != filter.value.is_none() {
+        return Err(format!(
+            "El filtro '{}' {} un valor.",
+            filter.column,
+            if unary { "no acepta" } else { "requiere" }
+        ));
+    }
+    let literal = filter.value.as_deref().unwrap_or_default();
+    if matches!(
+        filter.operator,
+        RecipeFilterOperator::Gt
+            | RecipeFilterOperator::Lt
+            | RecipeFilterOperator::Gte
+            | RecipeFilterOperator::Lte
+            | RecipeFilterOperator::Contains
+            | RecipeFilterOperator::NotContains
+    ) && literal.is_empty()
+    {
+        return Err(format!(
+            "El filtro '{}' requiere un valor no vacío.",
+            filter.column
+        ));
+    }
+    Ok(literal)
+}
+
 pub(super) fn apply_recipe_filters(
     frame: DataFrame,
     filters: &[RecipeFilter],
     renames: &HashMap<&str, &str>,
 ) -> Result<(DataFrame, usize), String> {
-    if filters.len() > 3 {
-        return Err("La receta admite como máximo tres filtros combinados con AND.".into());
-    }
+    validate_recipe_filter_count(filters)?;
     let original_height = frame.height();
     let mut combined_mask = vec![true; original_height];
     for filter in filters {
         let name = remapped_name(&filter.column, renames);
         let values = strict_column_text(recipe_column(&frame, name)?)?;
-        let unary = matches!(
-            filter.operator,
-            RecipeFilterOperator::IsNull | RecipeFilterOperator::NotNull
-        );
-        if unary != filter.value.is_none() {
-            return Err(format!(
-                "El filtro '{}' {} un valor.",
-                filter.column,
-                if unary { "no acepta" } else { "requiere" }
-            ));
-        }
-        let literal = filter.value.as_deref().unwrap_or_default();
-        if matches!(
-            filter.operator,
-            RecipeFilterOperator::Gt
-                | RecipeFilterOperator::Lt
-                | RecipeFilterOperator::Gte
-                | RecipeFilterOperator::Lte
-                | RecipeFilterOperator::Contains
-                | RecipeFilterOperator::NotContains
-        ) && literal.is_empty()
-        {
-            return Err(format!(
-                "El filtro '{}' requiere un valor no vacío.",
-                filter.column
-            ));
-        }
+        let literal = recipe_filter_literal(filter)?;
 
         let column_dtype = recipe_column(&frame, name)?.dtype();
         let temporal_literal = if recipe_filter_uses_temporal_literal(filter.operator)
@@ -965,18 +1034,7 @@ pub(super) fn add_calculated_column(
     calculation: &CalculatedColumnRecipe,
     renames: &HashMap<&str, &str>,
 ) -> Result<(), String> {
-    if calculation.name.trim().is_empty() || calculation.name != calculation.name.trim() {
-        return Err(
-            "El nombre de la columna calculada no puede estar vacío ni tener espacios exteriores."
-                .into(),
-        );
-    }
-    if column_named_after_renames(frame, renames, &calculation.name) {
-        return Err(format!(
-            "La columna calculada '{}' ya existe.",
-            calculation.name
-        ));
-    }
+    validate_calculated_column_name(calculation, frame, renames)?;
     let source_name = remapped_name(&calculation.source, renames);
     let source = recipe_column(frame, source_name)?;
     let unary = matches!(
@@ -2110,29 +2168,7 @@ pub(super) fn apply_eager_recipe_to_frame_with_exception_policy(
     exception_policy: Option<&ImportExceptionPolicy>,
 ) -> Result<RecipeFrameOutcome, String> {
     let mut candidate = source.clone();
-    let mut rename_sources = HashSet::new();
-    let rename_map = recipe
-        .renames
-        .iter()
-        .map(|rename| {
-            if rename.from.trim().is_empty() || rename.to.trim().is_empty() {
-                return Err("Los nombres de columna no pueden estar vacíos.".to_owned());
-            }
-            if rename.to != rename.to.trim() {
-                return Err(
-                    "El nuevo nombre de columna no puede tener espacios exteriores.".to_owned(),
-                );
-            }
-            if !rename_sources.insert(rename.from.as_str()) {
-                return Err(format!(
-                    "La columna '{}' aparece en más de un renombrado.",
-                    rename.from
-                ));
-            }
-            recipe_column(source, &rename.from)?;
-            Ok((rename.from.as_str(), rename.to.as_str()))
-        })
-        .collect::<Result<HashMap<_, _>, String>>()?;
+    let rename_map = validated_rename_map(source, recipe)?;
     for cast in &recipe.casts {
         recipe_column(source, &cast.column)?;
     }

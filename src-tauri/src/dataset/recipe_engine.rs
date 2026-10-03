@@ -294,33 +294,7 @@ fn lazy_filter_expression(
     filter: &RecipeFilter,
     effective_name: &str,
 ) -> Result<Expr, String> {
-    let unary = matches!(
-        filter.operator,
-        RecipeFilterOperator::IsNull | RecipeFilterOperator::NotNull
-    );
-    if unary != filter.value.is_none() {
-        return Err(format!(
-            "El filtro '{}' {} un valor.",
-            filter.column,
-            if unary { "no acepta" } else { "requiere" }
-        ));
-    }
-    let literal = filter.value.as_deref().unwrap_or_default();
-    if matches!(
-        filter.operator,
-        RecipeFilterOperator::Gt
-            | RecipeFilterOperator::Lt
-            | RecipeFilterOperator::Gte
-            | RecipeFilterOperator::Lte
-            | RecipeFilterOperator::Contains
-            | RecipeFilterOperator::NotContains
-    ) && literal.is_empty()
-    {
-        return Err(format!(
-            "El filtro '{}' requiere un valor no vacío.",
-            filter.column
-        ));
-    }
+    let literal = recipe_filter_literal(filter)?;
 
     let value = col(effective_name);
     Ok(match filter.operator {
@@ -825,34 +799,10 @@ pub(super) fn apply_lazy_recipe_to_frame(
     source: &DataFrame,
     recipe: &TransformRecipe,
 ) -> Result<RecipeFrameOutcome, String> {
-    if recipe.filters.len() > 3 {
-        return Err("La receta admite como máximo tres filtros combinados con AND.".into());
-    }
+    validate_recipe_filter_count(&recipe.filters)?;
     validate_lazy_recipe_inputs(source, recipe)?;
 
-    let mut rename_sources = HashSet::new();
-    let rename_map = recipe
-        .renames
-        .iter()
-        .map(|rename| {
-            if rename.from.trim().is_empty() || rename.to.trim().is_empty() {
-                return Err("Los nombres de columna no pueden estar vacíos.".to_owned());
-            }
-            if rename.to != rename.to.trim() {
-                return Err(
-                    "El nuevo nombre de columna no puede tener espacios exteriores.".to_owned(),
-                );
-            }
-            if !rename_sources.insert(rename.from.as_str()) {
-                return Err(format!(
-                    "La columna '{}' aparece en más de un renombrado.",
-                    rename.from
-                ));
-            }
-            recipe_column(source, &rename.from)?;
-            Ok((rename.from.as_str(), rename.to.as_str()))
-        })
-        .collect::<Result<HashMap<_, _>, String>>()?;
+    let rename_map = validated_rename_map(source, recipe)?;
 
     for cast in &recipe.casts {
         recipe_column(source, &cast.column)?;
@@ -869,11 +819,7 @@ pub(super) fn apply_lazy_recipe_to_frame(
         {
             recipe_column(source, value)?;
         }
-        if calculation.name.trim().is_empty() || calculation.name != calculation.name.trim() {
-            return Err(
-                "El nombre calculado no puede estar vacío ni tener espacios exteriores.".into(),
-            );
-        }
+        validate_calculated_column_name(calculation, source, &rename_map)?;
     }
 
     let final_names = source
@@ -1277,12 +1223,6 @@ pub(super) fn apply_lazy_recipe_to_frame(
             CalculatedOperation::Month => col(source_name).dt().month(),
             CalculatedOperation::Day => col(source_name).dt().day(),
         };
-        if column_named_after_renames(source, &rename_map, &calculation.name) {
-            return Err(format!(
-                "La columna calculada '{}' ya existe.",
-                calculation.name
-            ));
-        }
         plan = plan.with_columns(vec![expression.alias(calculation.name.clone())]);
         1
     } else {

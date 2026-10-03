@@ -511,6 +511,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Mejorado
 
+- Los tres motores de recetas validan renombrados, filtros y el nombre de la
+  columna calculada con las mismas funciones y mensajes, y una prueba ejecuta
+  cada paso de receta en los tres y exige el mismo resultado.
 - Recetas en memoria más rápidas: validar conversiones, filtros y cálculos ya no
   copia columnas enteras como texto (5 M filas: 10,9 s → 6,3 s; el pico de
   memoria queda en la carga más una copia del resultado) y los resúmenes por
