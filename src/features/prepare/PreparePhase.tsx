@@ -10,7 +10,14 @@ import { TransformRecipeEditor } from "./TransformRecipeEditor";
 import { RevisionComparison } from "./RevisionComparison";
 import { PrepareProposal, type ProposalResult } from "./PrepareProposal";
 import { buildPrepareProposal } from "./proposalModel";
-import type { ChangeStatus } from "./prepareModel";
+import {
+  cellCount,
+  conversionNullEstimate,
+  dateConversionCandidates,
+  numericConversionCandidates,
+  type ChangeStatus,
+  type TypeConversionKind,
+} from "./prepareModel";
 import { qualityActionTargetDomId } from "../review/qualityActionPlan";
 import type { QualityActionTarget } from "../review/qualityActionPlan";
 
@@ -118,6 +125,7 @@ export function PreparePhase({
   const [personalConfirmation, setPersonalConfirmation] = useState(false);
   const [maskPersonalConfirmation, setMaskPersonalConfirmation] = useState(false);
   const [invalidTypeConfirmation, setInvalidTypeConfirmation] = useState(false);
+  const [conversionConfirmation, setConversionConfirmation] = useState<TypeConversionKind | null>(null);
   const [outlierConfirmation, setOutlierConfirmation] = useState<"cap" | "drop" | null>(null);
   const identifierColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => column.privacySignal === "identifier")
@@ -132,6 +140,21 @@ export function PreparePhase({
     ? profileStatus.profile.columns.filter((column) => (column.outlierCount ?? 0) > 0 && column.name !== "_cambios")
     : [];
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
+  const conversionLoss = profileStatus.kind === "ready" && conversionConfirmation !== null
+    ? conversionNullEstimate(profileStatus.profile, conversionConfirmation)
+    : [];
+  const conversionLossTotal = conversionLoss.reduce((total, column) => total + column.count, 0);
+
+  /** Converts right away when nothing would become empty; asks first otherwise. */
+  function requestConversion(kind: TypeConversionKind) {
+    const loss = profileStatus.kind === "ready" ? conversionNullEstimate(profileStatus.profile, kind) : [];
+    if (loss.length === 0) {
+      if (kind === "numeric") onCastNumeric();
+      else onParseDates();
+      return;
+    }
+    setConversionConfirmation(kind);
+  }
 
   useEffect(() => {
     const available = new Set(dataset.columns
@@ -351,8 +374,8 @@ export function PreparePhase({
               onRemovePersonalColumns={() => setPersonalConfirmation(true)}
               onMaskPersonalValues={() => setMaskPersonalConfirmation(true)}
               onNormalizeBooleans={onNormalizeBooleans}
-              onParseDates={onParseDates}
-              onCastNumeric={onCastNumeric}
+              onParseDates={() => requestConversion("dates")}
+              onCastNumeric={() => requestConversion("numeric")}
               onFixEncoding={onFixEncoding}
               onNullifyInvalidTypes={() => setInvalidTypeConfirmation(true)}
               onImputeMissingValues={onImputeMissingValues}
@@ -636,6 +659,41 @@ export function PreparePhase({
           </div>
         </ModalDialog>
       )}
+      {conversionConfirmation !== null && conversionLossTotal > 0 && (
+        <ModalDialog
+          role="alertdialog"
+          labelledBy="conversion-confirm-title"
+          describedBy="conversion-confirm-description"
+          onDismiss={() => setConversionConfirmation(null)}
+        >
+          <p className="step">Confirmación requerida</p>
+          <h3 id="conversion-confirm-title">
+            {conversionConfirmation === "numeric" ? "Convertir números detectados" : "Interpretar fechas detectadas"}
+          </h3>
+          <p id="conversion-confirm-description">
+            {cellCount(conversionLossTotal)} que no {conversionConfirmation === "numeric" ? "son números" : "son fechas"} {conversionLossTotal === 1 ? "quedará vacía" : "quedarán vacías"}:{" "}
+            {conversionLoss.map((column) => `${column.name} (${column.count.toLocaleString()})`).join(", ")}. Puedes deshacerlo desde el historial.
+          </p>
+          <div className="sheet-dialog__actions">
+            <button type="button" className="secondary-action" onClick={() => setConversionConfirmation(null)}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="danger-action"
+              onClick={() => {
+                const kind = conversionConfirmation;
+                setConversionConfirmation(null);
+                if (kind === "numeric") onCastNumeric();
+                else onParseDates();
+              }}
+              disabled={changing}
+            >
+              Convertir y dejar vacías
+            </button>
+          </div>
+        </ModalDialog>
+      )}
       {outlierConfirmation !== null && outlierColumns.length > 0 && (
         <ModalDialog
           role="alertdialog"
@@ -759,15 +817,8 @@ function CleaningSignals({
   const booleans = profile.columns.filter(
     (column) => column.suggestedType === "boolean" && (column.typeMatchPercentage ?? 0) >= 90,
   );
-  const dateCandidates = profile.columns.filter(
-    (column) => column.name !== "_cambios" && isTextType(column.dataType) && column.suggestedType === "date",
-  );
-  const numericCandidates = profile.columns.filter(
-    (column) => column.name !== "_cambios" && isTextType(column.dataType) &&
-      (column.suggestedType === "integer" || column.suggestedType === "decimal") &&
-      (column.typeMatchPercentage ?? 0) > 90 &&
-      column.privacySignal !== "identifier",
-  );
+  const dateCandidates = dateConversionCandidates(profile);
+  const numericCandidates = numericConversionCandidates(profile);
   const typeDrift = profile.columns.filter(
     (column) => (column.invalidTypeCount ?? 0) > 0,
   );
@@ -1015,8 +1066,8 @@ function CleaningSignals({
             <div className="cleaning-signals__action">
               <p>
                 Puedes convertir estas columnas de texto a <strong>Datetime</strong>. Solo se usa
-                un formato dominante cerrado, se omiten columnas ambiguas y la operación es
-                reversible desde el historial.
+                un formato dominante cerrado y se omiten columnas ambiguas. Los valores que no
+                sean fechas quedan vacíos: si hay alguno, se pide confirmación.
               </p>
               <button type="button" onClick={onParseDates} disabled={busy}>
                 Interpretar fechas detectadas
@@ -1026,9 +1077,10 @@ function CleaningSignals({
           {numericCandidates.length > 0 && (
             <div className="cleaning-signals__action">
               <p>
-                Puedes convertir estas columnas de texto a números. Se exige al menos 90% de
-                valores numéricos válidos, se rechaza la pérdida de precisión y se conservan los
-                identificadores o códigos con ceros iniciales.
+                Puedes convertir estas columnas de texto a números. Se exige más del 90 % de
+                valores numéricos, se rechaza la pérdida de precisión y se conservan los
+                identificadores o códigos con ceros iniciales. Los valores que no sean números
+                quedan vacíos: si hay alguno, se pide confirmación.
               </p>
               <button type="button" onClick={onCastNumeric} disabled={busy}>
                 Convertir números detectados

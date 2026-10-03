@@ -58,9 +58,9 @@ medio = 1 día; agregado por suma.
 - [x] **RV23** — Impedir que una exportación (ventana, CLI y `project-export`) escriba sobre el archivo de origen o, en la CLI, sobre un archivo existente sin `--force` · *Esfuerzo: 1 día* — hecho el 2026-10-03
   - Criterio de cierre: Exportar eligiendo el propio origen falla con un mensaje claro en la ventana y en la CLI, también con rutas alias (`..`, mayúsculas, enlaces); `transform` sobre un archivo existente exige `--force`; prueba Rust y el original queda sin cambios.
   - [x] `DAT-01` (Alto) Exportar puede sobrescribir el archivo original: la CLI sin ningún aviso y la ventana con solo el aviso de Windows — hecho el 2026-10-03
-- [ ] **RV24** — Que «Convertir números detectados» e «Interpretar fechas» cuenten, anuncien y pidan confirmar las celdas que pasarían a nulo · *Esfuerzo: 1 día*
+- [x] **RV24** — Que «Convertir números detectados» e «Interpretar fechas» cuenten, anuncien y pidan confirmar las celdas que pasarían a nulo · *Esfuerzo: 1 día* — hecho el 2026-10-03
   - Criterio de cierre: La propuesta y el mensaje final dicen cuántas celdas quedan nulas por columna; con más de 0 se pide confirmación como en «Apartar valores incompatibles»; prueba con una columna al 95 % numérica.
-  - [ ] `FUN-01` (Alto) «Convertir números detectados» e «Interpretar fechas» anulan celdas sin pedir confirmación ni decirlo
+  - [x] `FUN-01` (Alto) «Convertir números detectados» e «Interpretar fechas» anulan celdas sin pedir confirmación ni decirlo — hecho el 2026-10-03
 - [ ] **RV25** — Rechazar o resolver los años de 1-3 dígitos en la convención de fechas de la importación y en las recetas (un solo analizador de fechas) · *Esfuerzo: 1 día*
   - Criterio de cierre: `01/02/25` con «día-mes-año» se importa como 2025 o se rechaza con aviso, igual que en Preparar; prueba con años de 2 dígitos y fechas imposibles.
   - [ ] `FUN-02` (Alto) Con la convención «día-mes-año», las fechas con año de 2 dígitos se importan como años 0025 o 0099

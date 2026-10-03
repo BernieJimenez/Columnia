@@ -35,7 +35,7 @@ import {
   type ReusableTaskExceptionPolicy,
   type TransformRecipe,
 } from "../../bridge";
-import { EMPTY_HISTORY, appliedPlanChanges, type ChangeStatus } from "./prepareModel";
+import { EMPTY_HISTORY, appliedPlanChanges, nullifiedCellsSentence, type ChangeStatus } from "./prepareModel";
 
 interface PrepareControllerOptions {
   activeDataset: DatasetPreview | null;
@@ -323,7 +323,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.changedCellCount === 0
           ? "No se detectaron columnas de texto con un formato de fecha dominante y seguro."
-          : `Se interpretaron ${result.changedCellCount.toLocaleString()} valores de fecha en: ${columns}. Las columnas ambiguas se dejaron intactas y el cambio puede revertirse desde el historial.`,
+          : `Se interpretaron ${result.changedCellCount.toLocaleString()} valores de fecha en: ${columns}.${nullifiedCellsSentence(result.changedColumns)} Las columnas ambiguas se dejaron intactas y el cambio puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -367,7 +367,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.changedCellCount === 0
           ? "No se detectaron columnas de texto numéricas seguras para convertir."
-          : `Se convirtieron ${result.changedCellCount.toLocaleString()} valores numéricos en: ${columns}. Los identificadores y códigos con ceros iniciales se conservaron; el cambio puede revertirse desde el historial.`,
+          : `Se convirtieron ${result.changedCellCount.toLocaleString()} valores numéricos en: ${columns}.${nullifiedCellsSentence(result.changedColumns)} Los identificadores y códigos con ceros iniciales se conservaron; el cambio puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();

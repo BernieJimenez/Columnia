@@ -1920,6 +1920,70 @@ fn source_backed_inferred_numeric_and_date_casts_keep_safe_columns_lazy() {
     );
 }
 
+/// FUN-01: a column that is 95 % numeric converts, and the two non-numeric
+/// cells it leaves empty are counted in both engines.
+#[test]
+fn numeric_cast_counts_the_cells_it_leaves_empty_in_both_engines() {
+    let mut csv = String::from("importe\n");
+    for index in 0..95 {
+        csv.push_str(&format!("{index}\n"));
+    }
+    csv.push_str("pendiente\npendiente\n");
+    let source = temporary_csv(&csv);
+
+    let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+    let (_, _, changed_cells, changed_columns) =
+        cast_inferred_numeric_columns(&frame).expect("la conversión debe completarse");
+    assert_eq!(changed_cells, 95);
+    assert_eq!(changed_columns[0].changed_cell_count, 95);
+    assert_eq!(changed_columns[0].nullified_cell_count, 2);
+    let serialized = serde_json::to_value(&changed_columns[0]).unwrap();
+    assert_eq!(serialized["nullifiedCellCount"], 2);
+
+    let (schema, _, row_count) = source_backed_load(&source, "csv", || false)
+        .expect("la fuente debe inspeccionarse en disco");
+    let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
+    let mut dataset = LoadedDataset {
+        source_path: Some(source),
+        file_name: "importe.csv".to_owned(),
+        file_size_bytes,
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial debe inicializarse"),
+    };
+    let result = source_backed_numeric_cast(&mut dataset)
+        .expect("la conversión source-backed debe procesarse")
+        .expect("la fuente debe ser compatible");
+    assert_eq!(result.changed_cell_count, 95);
+    assert_eq!(result.changed_columns[0].nullified_cell_count, 2);
+}
+
+#[test]
+fn date_parsing_counts_the_cells_it_leaves_empty() {
+    let mut csv = String::from("fecha\n");
+    for day in 1..=28 {
+        for month in 1..=12 {
+            csv.push_str(&format!("2024-{month:02}-{day:02}\n"));
+        }
+    }
+    csv.push_str("sin fecha\n");
+    let source = temporary_csv(&csv);
+    let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+    let frame = frame
+        .lazy()
+        .with_column(col("fecha").cast(DataType::String))
+        .collect()
+        .expect("la fecha debe quedar como texto");
+    let (_, _, changed_cells, changed_columns) =
+        parse_inferred_date_columns(&frame).expect("la interpretación debe completarse");
+    assert_eq!(changed_cells, 336);
+    assert_eq!(changed_columns[0].nullified_cell_count, 1);
+    let _ = fs::remove_file(source);
+}
+
 #[test]
 fn source_backed_imputation_matches_eager_replacements_without_rows_in_memory() {
     let source = temporary_csv("amount,category\n10,x\n,\n30,x\n");

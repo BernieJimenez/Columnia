@@ -170,6 +170,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- «Convertir números detectados» e «Interpretar fechas detectadas» piden
+  confirmación cuando alguna celda que no encaja quedaría vacía, y dicen cuántas
+  por columna; el mensaje final cuenta también las celdas que quedaron vacías.
+  Antes solo anunciaban lo convertido (FUN-01).
 - Exportar ya no puede escribir sobre el archivo de origen: la ventana lo
   rechaza con un mensaje aunque se elija en el diálogo de Windows, y la CLI
   (`transform` y `project-export`) también, incluso con `..`, otras mayúsculas o

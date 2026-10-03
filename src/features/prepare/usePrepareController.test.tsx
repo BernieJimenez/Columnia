@@ -508,6 +508,22 @@ describe("usePrepareController", () => {
     expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
   });
 
+  it("dice cuántas celdas dejó vacías la conversión numérica", async () => {
+    vi.spyOn(bridge, "castNumericValues").mockResolvedValue({
+      dataset,
+      affectedRowCount: 95,
+      changedCellCount: 95,
+      changedColumns: [{ name: "importe", changedCellCount: 95, nullifiedCellCount: 2 }],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    render(<ControllerHarness onDatasetChanged={vi.fn()} onProfileInvalidated={vi.fn()} onDeliveryInvalidated={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Números" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se convirtieron 95 valores numéricos en: importe. 2 celdas que no encajaban quedaron vacías (importe: 2).",
+    ));
+  });
+
   it("aparta valores incompatibles como nulos y publica el impacto", async () => {
     vi.spyOn(bridge, "nullifyInvalidTypeValues").mockResolvedValue({
       dataset,

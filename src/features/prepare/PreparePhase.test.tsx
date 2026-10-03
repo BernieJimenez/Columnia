@@ -513,6 +513,55 @@ describe("PreparePhase", () => {
     expect(onEnableRowAudit).toHaveBeenCalledOnce();
   });
 
+  it("pide confirmar «Convertir números detectados» cuando quedarían celdas vacías", () => {
+    const onCastNumeric = vi.fn();
+    const profile: DatasetProfile = {
+      ...cleaningSignalsProfile,
+      columns: cleaningSignalsProfile.columns.map((column) => column.name === "cantidad"
+        ? { ...column, typeMatchPercentage: 95, invalidTypeCount: 2 }
+        : column),
+    };
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "ready", profile }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+
+      onCancelProfile={() => undefined}
+      onRemoveDuplicates={() => undefined}
+      onRemoveEmptyRows={() => undefined}
+      onRemoveConstantColumns={() => undefined}
+      onRemoveEmptyColumns={() => undefined}
+      onRemoveHighNullColumns={() => undefined}
+      onNormalizeBooleans={() => undefined}
+      onCastNumeric={onCastNumeric}
+      onImputeMissingValues={() => undefined}
+      onEnableRowAudit={() => undefined}
+      onNormalizeColumns={() => undefined}
+      onApplyRecommended={() => undefined}
+      onTrimText={() => undefined}
+      onNormalizeText={() => undefined}
+      onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
+      onUndo={() => undefined}
+      onRedo={() => undefined}
+    />);
+
+    openIndividualSignalActions();
+    fireEvent.click(screen.getByRole("button", { name: "Convertir números detectados" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Convertir números detectados" });
+    expect(dialog).toHaveTextContent("2 celdas que no son números quedarán vacías: cantidad (2)");
+    expect(onCastNumeric).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    expect(onCastNumeric).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Convertir números detectados" }));
+    fireEvent.click(screen.getByRole("button", { name: "Convertir y dejar vacías" }));
+    expect(onCastNumeric).toHaveBeenCalledOnce();
+  });
+
   it("confirma el impacto de duplicados parecidos sin exponer valores y permite cancelar", () => {
     const onRemoveNearDuplicates = vi.fn();
     render(<PreparePhase

@@ -302,6 +302,8 @@ export interface ColumnNormalizationResult {
 export interface ChangedTextColumn {
   name: string;
   changedCellCount: number;
+  /** Non-empty cells that a type conversion left empty. Omitted when 0. */
+  nullifiedCellCount?: number;
 }
 
 export interface TextCleaningResult {

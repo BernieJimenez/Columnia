@@ -1046,6 +1046,14 @@ pub struct ColumnNormalizationResult {
 pub struct ChangedTextColumn {
     name: String,
     changed_cell_count: usize,
+    /// Non-empty cells that a conversion left empty because they did not
+    /// match the detected type.
+    #[serde(skip_serializing_if = "is_zero")]
+    nullified_cell_count: usize,
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -4491,6 +4499,7 @@ fn source_backed_text_cleaning_with_cancellation(
         .map(|(name, changed_cell_count)| ChangedTextColumn {
             name: name.clone(),
             changed_cell_count,
+            nullified_cell_count: 0,
         })
         .collect::<Vec<_>>();
     if changed_cell_count == 0 {
@@ -4562,7 +4571,7 @@ fn source_backed_numeric_cast_with_cancellation(
         Ok(stats) => stats,
         Err(_) => return Ok(None),
     };
-    let mut conversions = Vec::<(String, String, String)>::new();
+    let mut conversions = Vec::<(String, String, String, usize)>::new();
     for (name, stats) in columns.iter().zip(stats) {
         if stats.non_null_count == 0
             || privacy_signal(name) == Some("identifier")
@@ -4580,6 +4589,7 @@ fn source_backed_numeric_cast_with_cancellation(
                 name.clone(),
                 expression.clone(),
                 format!("({expression}) IS NOT NULL"),
+                stats.non_null_count,
             ));
             continue;
         }
@@ -4599,6 +4609,7 @@ fn source_backed_numeric_cast_with_cancellation(
             name.clone(),
             expression.clone(),
             format!("({expression}) IS NOT NULL"),
+            stats.non_null_count,
         ));
     }
     if conversions.is_empty() {
@@ -4611,7 +4622,7 @@ fn source_backed_numeric_cast_with_cancellation(
     }
     let predicates = conversions
         .iter()
-        .map(|(_, _, predicate)| predicate.clone())
+        .map(|(_, _, predicate, _)| predicate.clone())
         .collect::<Vec<_>>();
     let (affected_row_count, changed_counts) =
         match crate::duckdb_query::count_file_predicate_matches(
@@ -4627,9 +4638,10 @@ fn source_backed_numeric_cast_with_cancellation(
         .iter()
         .zip(changed_counts)
         .filter(|(_, count)| *count > 0)
-        .map(|((name, _, _), count)| ChangedTextColumn {
+        .map(|((name, _, _, non_null_count), count)| ChangedTextColumn {
             name: name.clone(),
             changed_cell_count: count,
+            nullified_cell_count: non_null_count.saturating_sub(count),
         })
         .collect::<Vec<_>>();
     let changed_cell_count = changed_columns
@@ -4652,9 +4664,9 @@ fn source_backed_numeric_cast_with_cancellation(
             let identifier = duckdb_identifier(name);
             if name.as_str() == "_cambios" {
                 source_backed_text_audit_expression(&identifier, "Convertir números detectados")
-            } else if let Some((_, expression, _)) = conversions
+            } else if let Some((_, expression, _, _)) = conversions
                 .iter()
-                .find(|(column, _, _)| column == name.as_str())
+                .find(|(column, _, _, _)| column == name.as_str())
             {
                 format!("{expression} AS {identifier}")
             } else {
@@ -4816,7 +4828,7 @@ fn source_backed_date_parsing_with_cancellation(
                 && extra_null_count.saturating_mul(100) <= dataset.row_count.saturating_mul(1)
                 && stats.in_range_count == stats.parsed_count
         })
-        .map(|((name, expression, _), stats)| (name, expression, stats.parsed_count))
+        .map(|((name, expression, _), stats)| (name, expression, stats.non_null_count))
         .collect::<Vec<_>>();
     if conversions.is_empty() {
         return Ok(Some(TextCleaningResult {
@@ -4844,9 +4856,10 @@ fn source_backed_date_parsing_with_cancellation(
         .iter()
         .zip(changed_counts)
         .filter(|(_, count)| *count > 0)
-        .map(|((name, _, _), count)| ChangedTextColumn {
+        .map(|((name, _, non_null_count), count)| ChangedTextColumn {
             name: name.clone(),
             changed_cell_count: count,
+            nullified_cell_count: non_null_count.saturating_sub(count),
         })
         .collect::<Vec<_>>();
     let changed_cell_count = changed_columns
@@ -5032,6 +5045,7 @@ fn source_backed_imputation_with_cancellation(
         changed_columns.push(ChangedTextColumn {
             name: name.clone(),
             changed_cell_count: stats.null_count,
+            nullified_cell_count: 0,
         });
     }
     if replacements.is_empty() {
@@ -5221,6 +5235,7 @@ fn source_backed_direct_outlier_with_cancellation(
         .map(|(plan, count)| ChangedTextColumn {
             name: plan.name.clone(),
             changed_cell_count: count,
+            nullified_cell_count: 0,
         })
         .collect::<Vec<_>>();
     let changed_cell_count = changed_columns
@@ -5883,6 +5898,7 @@ fn clean_text_columns(
         changed_columns.push(ChangedTextColumn {
             name,
             changed_cell_count: column_changes,
+            nullified_cell_count: 0,
         });
     }
 
@@ -6065,6 +6081,7 @@ fn parse_inferred_date_columns(
         changed_columns.push(ChangedTextColumn {
             name,
             changed_cell_count: parsed_count,
+            nullified_cell_count: extra_null_count,
         });
     }
 
@@ -6168,6 +6185,7 @@ fn impute_missing_values_in_columns(
             changed_columns.push(ChangedTextColumn {
                 name,
                 changed_cell_count: column_changes,
+                nullified_cell_count: 0,
             });
             fill_values.push(mode);
             continue;
@@ -6220,6 +6238,7 @@ fn impute_missing_values_in_columns(
         changed_columns.push(ChangedTextColumn {
             name,
             changed_cell_count: column_changes,
+            nullified_cell_count: 0,
         });
         fill_values.push(imputation_number_label(replacement, column.dtype()));
     }
@@ -6269,6 +6288,7 @@ fn impute_categorical_values_in_frame(
         changed_columns.push(ChangedTextColumn {
             name,
             changed_cell_count: column_changes,
+            nullified_cell_count: 0,
         });
     }
 
@@ -6342,6 +6362,7 @@ fn cast_inferred_numeric_columns(
             changed_columns.push(ChangedTextColumn {
                 name,
                 changed_cell_count: integer_count,
+                nullified_cell_count: non_null_count - integer_count,
             });
             continue;
         }
@@ -6381,6 +6402,7 @@ fn cast_inferred_numeric_columns(
         changed_columns.push(ChangedTextColumn {
             name,
             changed_cell_count: float_count,
+            nullified_cell_count: non_null_count - float_count,
         });
     }
 
@@ -6456,6 +6478,7 @@ fn impute_outlier_values_in_frame(
         changed_columns.push(ChangedTextColumn {
             name,
             changed_cell_count: column_changes,
+            nullified_cell_count: 0,
         });
     }
 
@@ -6546,6 +6569,7 @@ fn apply_outlier_mode(
             changed_columns.push(ChangedTextColumn {
                 name,
                 changed_cell_count: column_changes,
+                nullified_cell_count: 0,
             });
         }
     }

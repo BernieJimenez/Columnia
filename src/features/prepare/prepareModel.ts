@@ -1,4 +1,6 @@
 import type {
+  ChangedTextColumn,
+  DatasetProfile,
   HistoryState,
   LoadedRecipe,
   RecipeExportOptions,
@@ -6,6 +8,7 @@ import type {
   SafeCorrectionsResult,
   TransformRecipe,
 } from "../../bridge";
+import { isTextType } from "../../dataTypes";
 
 export type ChangeStatus =
   | { kind: "idle" }
@@ -150,4 +153,49 @@ export function appliedPlanChanges(
       ? counted(result.imputedCellCount, "valor vacío rellenado", "valores vacíos rellenados")
       : null,
   ].filter((change): change is string => change !== null);
+}
+
+export type TypeConversionKind = "numeric" | "dates";
+
+/** Text columns that «Convertir números detectados» would consider. */
+export function numericConversionCandidates(profile: DatasetProfile) {
+  return profile.columns.filter(
+    (column) => column.name !== "_cambios" && isTextType(column.dataType) &&
+      (column.suggestedType === "integer" || column.suggestedType === "decimal") &&
+      (column.typeMatchPercentage ?? 0) > 90 &&
+      column.privacySignal !== "identifier",
+  );
+}
+
+/** Text columns that «Interpretar fechas detectadas» would consider. */
+export function dateConversionCandidates(profile: DatasetProfile) {
+  return profile.columns.filter(
+    (column) => column.name !== "_cambios" && isTextType(column.dataType) && column.suggestedType === "date",
+  );
+}
+
+/**
+ * Cells that the profile counted as not matching the detected type: a
+ * conversion leaves them empty. Only columns with at least one are listed.
+ */
+export function conversionNullEstimate(profile: DatasetProfile, kind: TypeConversionKind) {
+  const candidates = kind === "numeric" ? numericConversionCandidates(profile) : dateConversionCandidates(profile);
+  return candidates
+    .filter((column) => (column.invalidTypeCount ?? 0) > 0)
+    .map((column) => ({ name: column.name, count: column.invalidTypeCount ?? 0 }));
+}
+
+export function cellCount(count: number): string {
+  return count === 1 ? "1 celda" : `${count.toLocaleString()} celdas`;
+}
+
+/** «2 celdas quedaron vacías (importe: 2).» or "" when nothing was emptied. */
+export function nullifiedCellsSentence(columns: ChangedTextColumn[]): string {
+  const emptied = columns.filter((column) => (column.nullifiedCellCount ?? 0) > 0);
+  const total = emptied.reduce((sum, column) => sum + (column.nullifiedCellCount ?? 0), 0);
+  if (total === 0) return "";
+  const detail = emptied
+    .map((column) => `${column.name}: ${(column.nullifiedCellCount ?? 0).toLocaleString()}`)
+    .join(", ");
+  return ` ${cellCount(total)} que no encajaban ${total === 1 ? "quedó vacía" : "quedaron vacías"} (${detail}).`;
 }
