@@ -170,6 +170,15 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La protección contra fórmulas del CSV ya no altera datos legítimos: los
+  importes con separador de miles (`-1.234,56`), los teléfonos (`+34 600 000
+  000`) y el `-` de «sin dato» salen sin apóstrofo; `=`, `@` y las expresiones
+  siguen protegidos (FUN-07). Los encabezados que empiezan como una fórmula
+  también se protegen al exportar a CSV (SEG-01). Un libro con encabezados `a,
+  a, a_2` se abre con tres nombres distintos (FUN-15). Los enteros de más de 15
+  cifras llegan a Excel como texto con todos sus dígitos (FUN-29). Una fecha de
+  Excel en una columna mezclada con texto se lee como fecha (`2023-07-14
+  12:00:00`), no como número de serie (FUN-31).
 - En Explorar, la cifra de cada barra del histograma coincide con «Filas» al
   pulsarla: el filtro deja fuera el borde superior del tramo salvo en el último,
   igual que el recuento (FUN-06). Si el panel falla tras un filtro, los filtros

@@ -97,9 +97,11 @@ mod recipe_engine;
 mod recipe_source_projection;
 mod temporal_profile;
 pub(crate) use automation::*;
+use csv_formula_safety::csv_formula_safe_column_names;
 #[cfg(test)]
 use csv_formula_safety::csv_formula_safe_frame;
 use csv_formula_safety::csv_formula_safe_frame_with_cancel;
+pub(crate) use csv_formula_safety::{neutralize_spreadsheet_formula, SAFE_SIGNED_TEXT_PATTERN};
 #[cfg(test)]
 use delimited_header_import::delimited_header_review;
 use delimited_header_import::delimited_header_review_with_cancel;

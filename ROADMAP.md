@@ -93,13 +93,13 @@ medio = 1 día; agregado por suma.
   - [x] `ARQ-04` (Medio) Varias operaciones largas retienen el mutex del dataset durante todo el cálculo (Explorar, consultas, agregación temporal, deshacer, comparación) — hecho el 2026-10-03
   - [x] `UX-01` (Medio) Si el panel de Explorar falla tras un filtro, desaparece todo (chips y botón «Personalizar» incluidos) y no hay forma de quitar el filtro — hecho el 2026-10-03
   - [x] `ACC-01` (Medio) Barras de la tendencia de Explorar con 60 periodos miden 10,9 × 160 px (9,7 a 900 px de ancho) — hecho el 2026-10-03
-- [ ] **RV32** — **Exportación y libros** — La protección contra fórmulas altera datos legítimos (`-5`, `+34…`, `@ana`) y la interfaz… (y 4 problemas más) · *Esfuerzo: 2 días*
+- [x] **RV32** — **Exportación y libros** — La protección contra fórmulas altera datos legítimos (`-5`, `+34…`, `@ana`) y la interfaz… (y 4 problemas más) · *Esfuerzo: 2 días* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-07, FUN-15, FUN-29, FUN-31, SEG-01.
-  - [ ] `FUN-07` (Medio) La protección contra fórmulas altera datos legítimos (`-5`, `+34…`, `@ana`) y la interfaz no la anuncia ni deja elegirla
-  - [ ] `FUN-15` (Medio) Encabezados de hoja `a, a, a_2` repiten nombres y el libro no se puede abrir
-  - [ ] `FUN-29` (Medio) XLSX exportado pierde precisión silenciosamente en enteros de más de 15 dígitos
-  - [ ] `FUN-31` (Medio) Columnas de libro con fechas mezcladas con texto o errores se convierten en texto/serial sin aviso
-  - [ ] `SEG-01` (Medio) Las cabeceras que empiezan por `=` (y `+`, `-`, `@`) no se neutralizan al exportar a CSV
+  - [x] `FUN-07` (Medio) La protección contra fórmulas altera datos legítimos (`-5`, `+34…`, `@ana`) y la interfaz no la anuncia ni deja elegirla — hecho el 2026-10-03
+  - [x] `FUN-15` (Medio) Encabezados de hoja `a, a, a_2` repiten nombres y el libro no se puede abrir — hecho el 2026-10-03
+  - [x] `FUN-29` (Medio) XLSX exportado pierde precisión silenciosamente en enteros de más de 15 dígitos — hecho el 2026-10-03
+  - [x] `FUN-31` (Medio) Columnas de libro con fechas mezcladas con texto o errores se convierten en texto/serial sin aviso — hecho el 2026-10-03
+  - [x] `SEG-01` (Medio) Las cabeceras que empiezan por `=` (y `+`, `-`, `@`) no se neutralizan al exportar a CSV — hecho el 2026-10-03
 - [ ] **RV33** — **Exportación y libros** — El modo «hash» de privacidad es SHA-256 sin sal: reversible por diccionario en datos de b… (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de SEG-02, ARQ-05, LIM-02, QA-14, DOC-02.
   - [ ] `SEG-02` (Medio) El modo «hash» de privacidad es SHA-256 sin sal: reversible por diccionario en datos de baja entropía

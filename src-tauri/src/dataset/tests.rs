@@ -9077,8 +9077,18 @@ fn exports_csv_by_atomically_replacing_the_destination() {
 fn csv_export_keeps_signed_numbers_stored_as_text() {
     // RV18 / FUN-04: CSV loads keep columns as text, so negatives such as
     // returns must not gain an apostrophe; signed expressions still do.
-    let numbers = ["-1", "-11062.06", "+3", "-0,5", "-1.5e3", "+.25"];
-    let formulas = ["-2+3", "+1+1", "-", "+cmd", "-1-", "--1"];
+    let numbers = [
+        "-1",
+        "-11062.06",
+        "+3",
+        "-0,5",
+        "-1.5e3",
+        "+.25",
+        "-",
+        "-1.234,56",
+        "+34 600 000 000",
+    ];
+    let formulas = ["-2+3", "+1+1", "+cmd", "@ana", "+1-800-555", "-1-", "--1"];
     let values = numbers
         .iter()
         .chain(formulas.iter())
@@ -18711,4 +18721,92 @@ fn every_histogram_bar_matches_the_rows_its_filter_keeps() {
         let filtered = serde_json::to_value(&filtered).unwrap();
         assert_eq!(filtered["rowCount"], bin["count"], "tramo {index}: {bin}");
     }
+}
+
+/// FUN-07 and SEG-01: numbers, phones and the lone «-» leave the CSV as they
+/// came, formulas get an apostrophe also in the header, in both export paths.
+#[test]
+fn csv_formula_protection_keeps_data_and_covers_headers_in_both_paths() {
+    let source = temporary_csv(concat!(
+        "id,=1+1,valor\n",
+        "1,-5,\"-1.234,56\"\n",
+        "2,+34 600 000 000,-\n",
+        "3,@ana,=SUM(A1)\n",
+        "4,\"-1,234.5\",+1-800-555\n",
+    ));
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    let recipe = build_stored_recipe(TransformRecipe::default(), "Identidad".to_owned())
+        .expect("receta identidad");
+    let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+    let small = directory.path().join("pequeno.csv");
+    let large = directory.path().join("grande.csv");
+    export_frame_for_automation(&frame, &small, ExportFormat::Csv).expect("ruta en memoria");
+    transform_source_backed_for_automation(&source, None, None, &recipe, &large, ExportFormat::Csv)
+        .expect("ruta de archivos grandes");
+    let small = fs::read_to_string(small).unwrap();
+    let large = fs::read_to_string(large).unwrap();
+    assert_eq!(small, large);
+    assert!(small.starts_with("id,'=1+1,valor\n"), "{small}");
+    for kept in ["1,-5,\"-1.234,56\"", "2,+34 600 000 000,-", "\"-1,234.5\""] {
+        assert!(small.contains(kept), "{kept}: {small}");
+    }
+    for protected in ["'@ana", "'=SUM(A1)", "'+1-800-555"] {
+        assert!(small.contains(protected), "{protected}: {small}");
+    }
+    let _ = fs::remove_file(source);
+}
+
+/// FUN-15: a repeated header never takes the name of another header.
+#[test]
+fn repeated_workbook_headers_get_names_no_other_header_has() {
+    let names = spreadsheet_io::unique_spreadsheet_headers(
+        ["a", "a", "a_2", "", "a"].map(str::to_owned).to_vec(),
+    );
+    assert_eq!(names, ["a", "a_3", "a_2", "column_4", "a_4"]);
+}
+
+/// FUN-29: an integer above 2^53 reaches Excel as text, with every digit.
+#[test]
+fn excel_export_keeps_every_digit_of_large_integers() {
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    let destination = directory.path().join("ids.xlsx");
+    let frame = df!("id" => [9_007_199_254_740_993_i64, 12]).expect("frame");
+    export_frame_for_automation(&frame, &destination, ExportFormat::Excel).expect("Excel");
+    let mut workbook = open_workbook_auto(&destination).expect("el libro se abre");
+    let range = workbook.worksheet_range("dataset").expect("hoja");
+    assert_eq!(
+        range.get((1, 0)),
+        Some(&Data::String("9007199254740993".to_owned()))
+    );
+    assert_eq!(
+        range.get((2, 0)).map(ToString::to_string).as_deref(),
+        Some("12")
+    );
+}
+
+/// FUN-31: a date in a column mixed with text keeps its date as text.
+#[test]
+fn workbook_dates_mixed_with_text_keep_their_date() {
+    let date = Data::DateTime(calamine::ExcelDateTime::new(
+        45121.5,
+        calamine::ExcelDateTimeType::DateTime,
+        false,
+    ));
+    let text = Data::String("N/D".to_owned());
+    let column =
+        spreadsheet_io::spreadsheet_cells_to_column("fecha", &[&date, &text], None, &|| false)
+            .expect("columna");
+    let values = column
+        .str()
+        .unwrap()
+        .iter()
+        .map(|v| v.map(str::to_owned))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        values,
+        [
+            Some("2023-07-14 12:00:00".to_owned()),
+            Some("N/D".to_owned())
+        ]
+    );
 }

@@ -2075,14 +2075,16 @@ fn csv_export_projection(connection: &Connection, source: &str) -> Result<String
         .into_iter()
         .map(|(name, data_type)| {
             let identifier = quote_identifier(&name);
+            // Headers get the same protection as values (SEG-01).
+            let header = quote_identifier(&crate::dataset::neutralize_spreadsheet_formula(&name));
             if data_type.to_ascii_uppercase().starts_with("VARCHAR") {
-                // Same rule as csv_formula_safety::is_signed_number: a complete
-                // signed number (-1, +3, -1.5e3) is data, not a formula (FUN-04).
+                // Same rule as csv_formula_safety::is_signed_number (FUN-07).
                 format!(
-                    "CASE WHEN left({identifier}, 1) IN ('=', '+', '-', '@', chr(9), chr(10), chr(13)) AND NOT regexp_full_match({identifier}, '[+-]([0-9]+([.,][0-9]*)?|[.,][0-9]+)([eE][+-]?[0-9]+)?') THEN chr(39) || {identifier} ELSE {identifier} END AS {identifier}"
+                    "CASE WHEN left({identifier}, 1) IN ('=', '+', '-', '@', chr(9), chr(10), chr(13)) AND NOT regexp_full_match({identifier}, '{}') THEN chr(39) || {identifier} ELSE {identifier} END AS {header}",
+                    crate::dataset::SAFE_SIGNED_TEXT_PATTERN
                 )
             } else {
-                identifier
+                format!("{identifier} AS {header}")
             }
         })
         .collect::<Vec<_>>()

@@ -64,6 +64,7 @@ where
     C: Fn() -> bool + ?Sized,
 {
     ensure_not_cancelled(is_cancelled())?;
+    let frame = &csv_formula_safe_column_names(frame)?;
     let batch_size = std::num::NonZeroUsize::new(EAGER_EXPORT_BATCH_ROWS)
         .expect("el tamaño de lote CSV debe ser mayor que cero");
     let mut writer = CsvWriter::new(&mut *output)
@@ -410,6 +411,9 @@ pub(super) fn xlsx_cell(
 /// Appends the same XML as [`xlsx_cell`] to `output` without allocating per
 /// cell; `column_name` is the precomputed column letter and `row_number` the
 /// 1-based sheet row.
+/// Largest integer an Excel number (an IEEE double) holds exactly: 2^53.
+const EXCEL_EXACT_INTEGER: u64 = 1 << 53;
+
 fn push_xlsx_cell(
     output: &mut String,
     column_name: &str,
@@ -426,6 +430,14 @@ fn push_xlsx_cell(
         AnyValue::Int8(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
         AnyValue::Int16(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
         AnyValue::Int32(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
+        // Excel keeps 15 significant digits: a larger integer goes as text,
+        // as the reader does, so an ID keeps every digit (FUN-29).
+        AnyValue::Int64(value) if value.unsigned_abs() > EXCEL_EXACT_INTEGER => {
+            return push_excel_text_cell(output, column_name, row_number, &value.to_string());
+        }
+        AnyValue::UInt64(value) if value > EXCEL_EXACT_INTEGER => {
+            return push_excel_text_cell(output, column_name, row_number, &value.to_string());
+        }
         AnyValue::Int64(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
         AnyValue::UInt8(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
         AnyValue::UInt16(value) => write!(output, " t=\"n\"><v>{value}</v></c>"),
@@ -493,7 +505,10 @@ pub(super) fn xlsx_source_cell(
             | DataType::UInt64
     );
     if numeric {
-        if value.parse::<i128>().is_ok() {
+        if value
+            .parse::<i128>()
+            .is_ok_and(|number| number.unsigned_abs() <= u128::from(EXCEL_EXACT_INTEGER))
+        {
             return Ok(format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"));
         }
     } else if matches!(data_type, DataType::Float32 | DataType::Float64) {

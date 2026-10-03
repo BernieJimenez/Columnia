@@ -37,6 +37,11 @@ la receta, tampoco a través de `..`, otras mayúsculas o un enlace duro, ni
 siquiera con `--force`. Reemplazar cualquier otro archivo existente exige
 `--force`. Los fallos no dejan outputs parciales.
 
+En CSV, una celda o un encabezado que una hoja de cálculo leería como fórmula
+(empieza por `=`, `+`, `-` o `@`) se escribe con un apóstrofo delante. No lo
+llevan los números con signo (`-5`, `-1.234,56`, `-1,5e3`), los teléfonos con
+`+` y espacios (`+34 600 000 000`) ni un `-` suelto.
+
 ### `validate`
 
 ```text

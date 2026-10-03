@@ -68,25 +68,36 @@ pub(super) fn merge_spreadsheet_kinds(
     }
 }
 
+/// Unique column names. A repeated header gets the first `_n` suffix that is
+/// neither taken nor another header of the sheet, so `a, a, a_2` gives three
+/// names (FUN-15).
 pub(super) fn unique_spreadsheet_headers(headers: Vec<String>) -> Vec<String> {
-    let mut occurrences = HashMap::<String, usize>::new();
-    headers
+    let bases = headers
         .into_iter()
         .enumerate()
         .map(|(index, header)| {
             let trimmed = header.trim();
-            let base = if trimmed.is_empty() {
+            if trimmed.is_empty() {
                 format!("column_{}", index + 1)
             } else {
                 trimmed.to_owned()
-            };
-            let count = occurrences.entry(base.clone()).or_default();
-            *count += 1;
-            if *count == 1 {
-                base
-            } else {
-                format!("{base}_{}", *count)
             }
+        })
+        .collect::<Vec<_>>();
+    let reserved = bases.iter().cloned().collect::<HashSet<_>>();
+    let mut used = HashSet::<String>::with_capacity(bases.len());
+    bases
+        .into_iter()
+        .map(|base| {
+            if used.insert(base.clone()) {
+                return base;
+            }
+            let name = (2..)
+                .map(|suffix| format!("{base}_{suffix}"))
+                .find(|candidate| !used.contains(candidate) && !reserved.contains(candidate))
+                .expect("siempre hay un sufijo libre");
+            used.insert(name.clone());
+            name
         })
         .collect()
 }
@@ -228,6 +239,13 @@ where
             let values = map_spreadsheet_cells_with_cancel(cells, is_cancelled, |cell| {
                 Ok(match cell {
                     Data::Empty => None,
+                    // A date in a column mixed with text keeps its date, not
+                    // Excel's serial number (FUN-31).
+                    Data::DateTime(value) if !value.is_duration() => Some(
+                        cell.as_datetime()
+                            .map(|datetime| datetime.to_string())
+                            .unwrap_or_else(|| value.to_string()),
+                    ),
                     value => Some(value.to_string()),
                 })
             })?;
