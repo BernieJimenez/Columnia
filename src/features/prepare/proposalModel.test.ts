@@ -5,6 +5,7 @@ import type { ColumnProfile, DatasetPreview, DatasetProfile } from "../../bridge
 import {
   applyLabel,
   buildPrepareProposal,
+  looksLikeIdentifier,
   dateExample,
   dateExamples,
   defaultProposalSelection,
@@ -331,5 +332,16 @@ describe("trim count (UX-01)", () => {
     const older = profile({ columns: [column({ name: "ciudad", untrimmedCount: null })] });
     expect(buildPrepareProposal(older, dataset).find((item) => item.id === "trim")?.title)
       .toBe("Recortar espacios al inicio y al final del texto");
+  });
+});
+
+describe("identifier names (FUN-22)", () => {
+  it("recognises the key word first or last, in Spanish and English order", () => {
+    for (const name of ["id_cliente", "codigo_postal", "num_factura", "ref_pedido", "CustomerID", "vm_id", "InvoiceNo", "StockCode"]) {
+      expect(looksLikeIdentifier(name), name).toBe(true);
+    }
+    for (const name of ["importe", "no_contesta", "numero_de_hijos", "cantidad"]) {
+      expect(looksLikeIdentifier(name), name).toBe(false);
+    }
   });
 });

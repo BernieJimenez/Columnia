@@ -185,6 +185,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La propuesta de Preparar reconoce como identificadores las columnas con
+  nombres en orden español (`id_cliente`, `codigo_postal`, `num_factura`) y ya
+  no propone rellenarlas ni convertirlas (FUN-22).
 - Tras «Deshacer» desde el historial, Preparar vuelve a la propuesta en lugar de
   seguir mostrando «Listo: cambios aplicados» con cifras que ya no eran ciertas
   (FUN-11).

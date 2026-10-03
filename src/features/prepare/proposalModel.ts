@@ -65,15 +65,23 @@ function plural(count: number, one: string, many: string): string {
   return `${count.toLocaleString()} ${count === 1 ? one : many}`;
 }
 
-/** «CustomerID», «vm_id», «InvoiceNo», «StockCode»: the last word names a key. */
-function looksLikeIdentifier(name: string): boolean {
+/**
+ * A key word first or last names a key: «CustomerID», «vm_id», «InvoiceNo» in
+ * English order, and «id_cliente», «codigo_postal», «num_factura» in Spanish
+ * order (FUN-22).
+ */
+export function looksLikeIdentifier(name: string): boolean {
   const words = name
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .toLowerCase()
     .split(/[^a-z0-9áéíóúñ]+/)
     .filter(Boolean);
+  const first = words[0];
   const last = words.at(-1);
-  return last !== undefined && IDENTIFIER_WORDS.has(last);
+  // «no» only names a key at the end («InvoiceNo»); first it is usually a
+  // negation («no_contesta»).
+  return (last !== undefined && IDENTIFIER_WORDS.has(last))
+    || (first !== undefined && first !== "no" && IDENTIFIER_WORDS.has(first));
 }
 
 /**
