@@ -129,6 +129,8 @@ export function PreparePhase({
   const [maskPersonalConfirmation, setMaskPersonalConfirmation] = useState(false);
   const [invalidTypeConfirmation, setInvalidTypeConfirmation] = useState(false);
   const [conversionConfirmation, setConversionConfirmation] = useState<TypeConversionKind | null>(null);
+  // TXT-01: changes can be undone only while the history keeps snapshots.
+  const undoNote = undoAvailabilityNote(historyStatus.snapshotsEnabled);
   const [outlierConfirmation, setOutlierConfirmation] = useState<"cap" | "drop" | null>(null);
   const identifierColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => column.privacySignal === "identifier")
@@ -371,6 +373,7 @@ export function PreparePhase({
             <CleaningSignals
               profile={profileStatus.profile}
               busy={changing}
+              undoNote={undoNote}
               onRemoveConstantColumns={onRemoveConstantColumns}
               onRemoveEmptyColumns={onRemoveEmptyColumns}
               onRemoveHighNullColumns={onRemoveHighNullColumns}
@@ -488,7 +491,7 @@ export function PreparePhase({
         <div>
           <p className="step">Corrección segura</p>
           <h3 id="empty-rows-title">Filas completamente vacías</h3>
-          <p>Elimina filas cuyos valores son todos nulos o texto en blanco. La operación conserva el orden y es reversible.</p>
+          <p>Elimina filas cuyos valores son todos nulos o texto en blanco. La operación conserva el orden.{undoNote}</p>
         </div>
         <button type="button" onClick={onRemoveEmptyRows} disabled={changing}>
           Eliminar filas vacías
@@ -514,8 +517,7 @@ export function PreparePhase({
           <p id="near-duplicates-confirm-description">
             Se eliminarán hasta {nearDuplicateCount.toLocaleString()} filas que coinciden después
             de normalizar espacios, mayúsculas y acentos. No se mostrarán valores del dataset.
-            Se conservará la primera fila de cada grupo, el orden actual y las copias exactas.
-            La operación podrá revertirse desde el historial.
+            Se conservará la primera fila de cada grupo, el orden actual y las copias exactas.{undoNote}
           </p>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => setNearDuplicateConfirmation(false)}>
@@ -546,7 +548,7 @@ export function PreparePhase({
           <h3 id="identifier-confirm-title">Retirar identificadores detectados</h3>
           <p id="identifier-confirm-description">
             Se retirarán {identifierColumns.length === 1 ? "1 columna identificadora" : `${identifierColumns.length} columnas identificadoras`} detectadas por el nombre del encabezado: {identifierColumns.map((column) => column.name).join(", ")}.
-            No se mostrarán celdas ni valores del dataset. Se conservará al menos una columna y el cambio podrá revertirse desde el historial.
+            No se mostrarán celdas ni valores del dataset. Se conservará al menos una columna.{undoNote}
             Las columnas de email, teléfono, dirección y nombre no se retiran con esta acción.
           </p>
           <div className="sheet-dialog__actions">
@@ -579,7 +581,7 @@ export function PreparePhase({
           <p id="personal-confirm-description">
             Se retirarán {personalColumns.length === 1 ? "1 columna personal" : `${personalColumns.length} columnas personales`} identificadas por categorías agregadas: {personalCategories}.
             No se mostrarán nombres de columnas, celdas ni valores del dataset. Se excluirá _cambios,
-            se conservará al menos una columna utilizable y el cambio podrá revertirse desde el historial.
+            y se conservará al menos una columna utilizable.{undoNote}
             Los identificadores se gestionan con la acción separada de esta sección.
           </p>
           <div className="sheet-dialog__actions">
@@ -612,7 +614,7 @@ export function PreparePhase({
           <p id="personal-mask-confirm-description">
             Se sustituirán los valores no nulos de {personalColumns.length === 1 ? "1 columna personal" : `${personalColumns.length} columnas personales`} por <code>[REDACTED]</code>, identificadas por categorías agregadas: {personalCategories}.
             No se mostrarán nombres de columnas, celdas ni valores del dataset. Se conservarán las columnas,
-            se excluirá _cambios y el cambio podrá revertirse desde el historial.
+            y se excluirá _cambios.{undoNote}
             Los identificadores se gestionan con la acción separada de esta sección.
           </p>
           <div className="sheet-dialog__actions">
@@ -643,7 +645,7 @@ export function PreparePhase({
           <p className="step">Confirmación requerida</p>
           <h3 id="invalid-types-confirm-title">Apartar valores incompatibles</h3>
           <p id="invalid-types-confirm-description">
-            Se convertirán en nulos los valores que no coincidan con un tipo sugerido con al menos 90% de coincidencia en {typeDriftColumns.length === 1 ? "1 columna" : `${typeDriftColumns.length} columnas`}. Las celdas no se mostrarán y el cambio podrá revertirse desde el historial.
+            Se convertirán en nulos los valores que no coincidan con un tipo sugerido con al menos 90% de coincidencia en {typeDriftColumns.length === 1 ? "1 columna" : `${typeDriftColumns.length} columnas`}. Las celdas no se mostrarán.{undoNote}
           </p>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => setInvalidTypeConfirmation(false)}>
@@ -713,7 +715,7 @@ export function PreparePhase({
             {outlierConfirmation === "cap"
               ? "Se limitarán los valores que excedan los límites IQR de 1.5 al límite correspondiente."
               : "Se eliminará cualquier fila que contenga un valor que exceda los límites IQR de 1.5."}
-            {" "}No se mostrarán celdas ni valores del dataset. La operación será reversible desde el historial.
+            {" "}No se mostrarán celdas ni valores del dataset.{undoNote}
           </p>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => setOutlierConfirmation(null)}>
@@ -762,9 +764,17 @@ function summarizePersonalPrivacySignals(columns: Array<{ privacySignal: string 
     .join(", ");
 }
 
+/** The sentence that says whether a change can be undone (TXT-01). */
+export function undoAvailabilityNote(snapshotsEnabled: boolean): string {
+  return snapshotsEnabled
+    ? " Podrás deshacerlo desde el historial."
+    : " El historial reversible está desactivado: este cambio no se podrá deshacer.";
+}
+
 function CleaningSignals({
   profile,
   busy,
+  undoNote,
   onRemoveConstantColumns,
   onRemoveEmptyColumns,
   onRemoveHighNullColumns,
@@ -784,6 +794,7 @@ function CleaningSignals({
 }: {
   profile: DatasetProfile;
   busy: boolean;
+  undoNote: string;
   onRemoveConstantColumns: () => void;
   onRemoveEmptyColumns: () => void;
   onRemoveHighNullColumns: () => void;
@@ -907,7 +918,7 @@ function CleaningSignals({
               <li>
                 <div>
                   <strong>Completar solo cuando tenga sentido</strong>
-                  <p>Usa la mediana en números y la moda en texto; nunca inventa valores.</p>
+                  <p>Rellena con la mediana en números y la moda en texto: esos valores no son reales, son una estimación.</p>
                 </div>
                 <div className="missing-data-plan__actions">
                   {imputable.length > 0 && (
@@ -929,7 +940,7 @@ function CleaningSignals({
           <summary>Cómo decide Columnia</summary>
           <div>
             <p>Columnia conserva los nulos por defecto. Un nulo no siempre es un error. Primero normaliza los marcadores de ausencia y después decide si conviene completar o retirar.</p>
-            <p>Los espacios en blanco no son nulos. Puedes recortarlos con las correcciones recomendadas; todas las acciones son reversibles desde el historial.</p>
+            <p>Los espacios en blanco no son nulos. Puedes recortarlos con las correcciones recomendadas.{undoNote}</p>
           </div>
         </details>
       </section>
@@ -942,7 +953,7 @@ function CleaningSignals({
           <div className="detected-signals__content">
           <ul className="cleaning-signals__list" aria-label="Señales de limpieza detectadas">
           {profile.duplicateRowCount > 0 && (
-            <li><strong>Duplicados exactos:</strong> {profile.duplicateRowCount.toLocaleString()} filas adicionales; puedes eliminarlas de forma reversible.</li>
+            <li><strong>Duplicados exactos:</strong> {profile.duplicateRowCount.toLocaleString()} filas adicionales; puedes eliminarlas.</li>
           )}
           {nearDuplicates && (
             <li><strong>Duplicados parecidos:</strong> {profile.nearDuplicateRowCount.toLocaleString()} filas adicionales coinciden al normalizar mayúsculas, espacios y acentos; requieren revisión manual.</li>
@@ -987,8 +998,7 @@ function CleaningSignals({
             <div className="cleaning-signals__action">
               <p>
                 Puedes reemplazar los valores atípicos por la mediana de cada columna usando
-                límites IQR de 1.5. La operación conserva el tipo numérico, no muestra celdas y
-                es reversible desde el historial.
+                límites IQR de 1.5. La operación conserva el tipo numérico y no muestra celdas.{undoNote}
               </p>
               <button type="button" onClick={onImputeOutliers} disabled={busy}>
                 Imputar outliers con mediana
@@ -1032,7 +1042,7 @@ function CleaningSignals({
             <div className="cleaning-signals__action">
               <p>
                 Corrige secuencias heredadas como `Ã©` o `â€™`; solo se aplican reparaciones
-                UTF-8 inequívocas y la operación es reversible desde el historial.
+                UTF-8 inequívocas.{undoNote}
               </p>
               <button type="button" onClick={onFixEncoding} disabled={busy}>
                 Corregir codificación
@@ -1047,8 +1057,7 @@ function CleaningSignals({
             >
               <p>
                 Puedes apartar como nulos los valores que no coincidan con una sugerencia con al
-                menos 90% de confianza. La acción no muestra celdas, requiere confirmación y es
-                reversible desde el historial.
+                menos 90% de confianza. La acción no muestra celdas y requiere confirmación.{undoNote}
               </p>
               <button type="button" onClick={onNullifyInvalidTypes} disabled={busy}>
                 Revisar tipos incompatibles

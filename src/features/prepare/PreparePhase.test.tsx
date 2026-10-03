@@ -564,6 +564,40 @@ describe("PreparePhase", () => {
     expect(onCastNumeric).toHaveBeenCalledOnce();
   });
 
+  it("solo promete deshacer cuando el historial está activo y no dice que la imputación no inventa (TXT-01)", () => {
+    const base = {
+      dataset,
+      profileStatus: { kind: "ready" as const, profile: cleaningSignalsProfile },
+      changeStatus: { kind: "idle" as const },
+      recipeDraft: null,
+      recipeSession: 0,
+      onCancelProfile: () => undefined,
+      onRemoveDuplicates: () => undefined,
+      onRemoveEmptyRows: () => undefined,
+      onRemoveConstantColumns: () => undefined,
+      onRemoveEmptyColumns: () => undefined,
+      onRemoveHighNullColumns: () => undefined,
+      onNormalizeBooleans: () => undefined,
+      onImputeMissingValues: () => undefined,
+      onEnableRowAudit: () => undefined,
+      onNormalizeColumns: () => undefined,
+      onApplyRecommended: () => undefined,
+      onTrimText: () => undefined,
+      onNormalizeText: () => undefined,
+      onApplyTransforms: () => undefined,
+      onRecipeDraftChange: () => undefined,
+      onUndo: () => undefined,
+      onRedo: () => undefined,
+    };
+    const view = render(<PreparePhase {...base} historyStatus={{ ...EMPTY_HISTORY, snapshotsEnabled: true }} />);
+    expect(document.body).toHaveTextContent("Podrás deshacerlo desde el historial.");
+    expect(document.body).not.toHaveTextContent("nunca inventa");
+    expect(document.body).toHaveTextContent("esos valores no son reales");
+    view.rerender(<PreparePhase {...base} historyStatus={{ ...EMPTY_HISTORY, snapshotsEnabled: false }} />);
+    expect(document.body).not.toHaveTextContent("Podrás deshacerlo desde el historial.");
+    expect(document.body).toHaveTextContent("este cambio no se podrá deshacer");
+  });
+
   it("confirma el impacto de duplicados parecidos sin exponer valores y permite cancelar", () => {
     const onRemoveNearDuplicates = vi.fn();
     render(<PreparePhase

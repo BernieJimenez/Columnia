@@ -185,6 +185,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Preparar ya no afirma que la imputación «nunca inventa valores» (dice que la
+  mediana o la moda son una estimación) ni que todo se puede deshacer: la frase
+  de reversibilidad solo aparece con el historial activo, y con el historial
+  desactivado avisa de que el cambio no se podrá deshacer (TXT-01).
 - El editor de recetas ya no trata como descartadas las columnas que el dataset
   gana mientras está abierto (una columna calculada, nombres normalizados):
   «Columnas a conservar» solo excluye las que la persona desmarcó (FUN-26).
