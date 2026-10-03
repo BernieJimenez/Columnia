@@ -17,6 +17,19 @@ import type {
 
 const headerConfirmationTimers = new Set<number>();
 
+// ARQ-03: a test can make Preparar throw while rendering.
+const prepareFailure = vi.hoisted(() => ({ throwOnRender: false }));
+vi.mock("./features/prepare/PreparePhase", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./features/prepare/PreparePhase")>();
+  return {
+    ...actual,
+    PreparePhase: (props: Parameters<typeof actual.PreparePhase>[0]) => {
+      if (prepareFailure.throwOnRender) throw new Error("fallo forzado en Preparar");
+      return actual.PreparePhase(props);
+    },
+  };
+});
+
 function historyState(overrides: Partial<HistoryState> = {}): HistoryState {
   return {
     canUndo: true, canRedo: false, currentIndex: 1, entryCount: 2,
@@ -317,6 +330,31 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
     fireEvent.click(screen.getByRole("button", { name: "Continuar sin guardar" }));
     await waitFor(() => expect(pick.mock.calls.length).toBe(picks + 1));
+  });
+
+  it("muestra un mensaje si una etapa falla al dibujarse y deja seguir trabajando (ARQ-03)", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.26.0", platform: "windows" });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockDatasetLoad({
+      fileName: "clientes.csv", fileSizeBytes: 128, rowCount: 1, columnCount: 1,
+      columns: [{ name: "city", dataType: "String" }], rows: [["Moca"]],
+    });
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await screen.findByRole("heading", { name: "Revisa antes de modificar" });
+
+    prepareFailure.throwOnRender = true;
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
+      const alert = await screen.findByRole("alert", { name: "Esta etapa tuvo un error inesperado" });
+      expect(alert).toHaveTextContent("fallo forzado en Preparar");
+      expect(screen.getByRole("navigation")).toBeInTheDocument();
+    } finally {
+      prepareFailure.throwOnRender = false;
+    }
+    await switchPhase("Revisar");
+    expect(screen.queryByRole("alert", { name: "Esta etapa tuvo un error inesperado" })).not.toBeInTheDocument();
   });
 
   it("no marca Preparar como completada por avanzar solo con el footer genérico", async () => {

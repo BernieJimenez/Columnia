@@ -185,6 +185,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Si una etapa falla al dibujarse, Columnia muestra un aviso con «Reintentar» en
+  lugar de dejar la ventana en blanco; la barra lateral y las demás etapas
+  siguen funcionando y los datos cargados se conservan. Un fallo al arrancar
+  también muestra un mensaje (ARQ-03).
 - Pasar de página en la vista previa de Revisar ya no invalida la validación de
   Entregar: el «Contrato aprobado» sigue vigente mientras el dataset no cambie
   (FUN-10).

@@ -1966,3 +1966,6 @@ body { color: var(--text-primary); background: var(--canvas); }
     grid-template-columns: 1fr;
   }
 }
+
+/* ARQ-03: shown only when the whole window failed to render. */
+.app-failure { max-width: 640px; margin: 48px auto; padding: 0 16px; color: var(--text-primary); }

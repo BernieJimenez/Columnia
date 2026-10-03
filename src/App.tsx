@@ -11,6 +11,7 @@ import {
   refreshReusableTaskExceptionPolicy,
 } from "./features/load/reusableTaskExceptions";
 import { ModalDialog } from "./components/ModalDialog";
+import { ErrorBoundary, PhaseErrorMessage } from "./components/ErrorBoundary";
 import {
   beginDatasetLoad,
   createReadyDatasetStatus,
@@ -1369,6 +1370,10 @@ export function App() {
             tabIndex={-1}
             aria-label={`Contenido de la etapa ${activePhaseMeta.label}`}
           >
+          <ErrorBoundary
+            resetKey={activePhase}
+            fallback={(error, retry) => <PhaseErrorMessage error={error} onRetry={retry} />}
+          >
           <Suspense fallback={<div className="phase-loading" role="status">Cargando etapa…</div>}>
             {activePhase === "load" && (
               <LoadPhase
@@ -1562,6 +1567,7 @@ export function App() {
               />
             )}
           </Suspense>
+          </ErrorBoundary>
           </div>
           {(previousPhase || activeDataset) && (
           <footer className={`flow-footer${nextPhase ? "" : " flow-footer--terminal"}`} aria-label="Navegación entre etapas">
