@@ -576,6 +576,7 @@ describe("ReviewPhase", () => {
     expect(screen.getByRole("list", { name: "Historial de consultas SQL" })).toHaveTextContent("Cancelada");
 
     resolveQuery({
+      engine: "polars",
       columns: [{ name: "id", dataType: "Int64" }],
       rowCount: 1,
       offset: 0,
@@ -646,6 +647,7 @@ describe("ReviewPhase", () => {
       />,
     );
     resolveQuery({
+      engine: "polars",
       columns: [{ name: "id", dataType: "Int64" }],
       rowCount: 1,
       offset: 0,
@@ -1392,6 +1394,7 @@ describe("ReviewPhase · consulta SQL local", () => {
 
   it("recuerda el motor de consulta elegido y lo usa en la siguiente consulta", async () => {
     vi.spyOn(bridge, "queryDataset").mockResolvedValue({
+      engine: "polars",
       columns: [{ name: "id", dataType: "Int64" }],
       rowCount: 1,
       offset: 0,
