@@ -18951,3 +18951,43 @@ fn outlier_cap_and_imputation_keep_integer_columns_exact() {
     assert_eq!(values.get(1), Some(big + 2));
     assert_eq!(values.get(3), Some(big + 4));
 }
+
+/// REN-03: checking per-column decisions for many conflicts is linear.
+#[test]
+fn conflict_decision_check_is_linear_in_the_number_of_conflicts() {
+    let conflicts = (0..20_000)
+        .map(|index| comparison_engine::KeyConflictRows {
+            current_row_index: index,
+            compared_row_index: index,
+            conflict: DatasetConflict {
+                key: vec![Some(index.to_string())],
+                cells: ["a", "b", "c"]
+                    .iter()
+                    .map(|column| DatasetConflictCell {
+                        column: (*column).to_owned(),
+                        current: Some("1".to_owned()),
+                        compared: Some("2".to_owned()),
+                    })
+                    .collect(),
+            },
+        })
+        .collect::<Vec<_>>();
+    let decisions = (0..conflicts.len())
+        .flat_map(|conflict_index| {
+            ["a", "b", "c"].map(|column| ConflictResolution::UseSource {
+                conflict_index,
+                source: ConflictSource::Compared,
+                column: Some(column.to_owned()),
+            })
+        })
+        .collect::<Vec<_>>();
+    let started = std::time::Instant::now();
+    let choices = validate_conflict_decisions_with_cancel(&conflicts, &decisions, &|| false)
+        .expect("decisiones válidas");
+    assert_eq!(choices.len(), 60_000);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+}

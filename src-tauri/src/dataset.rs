@@ -7750,14 +7750,19 @@ where
         }
     }
 
+    // Decisions grouped by conflict once, so the check is linear (REN-03).
+    let mut by_conflict = HashMap::<usize, Vec<_>>::with_capacity(conflicts.len());
+    for entry in &choices {
+        by_conflict.entry(entry.0 .0).or_default().push(entry);
+    }
     for (conflict_index, conflict) in conflicts.iter().enumerate() {
         if conflict_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
             ensure_not_cancelled(is_cancelled())?;
         }
-        let conflict_choices = choices
-            .iter()
-            .filter(|((index, _), _)| *index == conflict_index)
-            .collect::<Vec<_>>();
+        let conflict_choices = by_conflict
+            .get(&conflict_index)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
         let excludes = conflict_choices
             .iter()
             .any(|(_, choice)| **choice == ConflictResolutionChoice::Exclude);
