@@ -10,3 +10,6 @@ Thumbs.db
 .local/
 playwright-report/
 test-results/
+
+# Informes de revisión: solo en local (el repositorio es público)
+docs/auditorias/
