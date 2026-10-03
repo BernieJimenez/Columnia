@@ -1108,34 +1108,31 @@ fn remote_types_compatible(source_type: &str, destination_type: &str) -> bool {
     }
 }
 
+/// Classifies both Polars dtype names (`str`, `f64`, `datetime[μs]`) and the
+/// type names that ODBC catalogs report (`nvarchar(10)`, `double precision`).
+/// Only the base name counts, so `interval` or `point` are not integers.
 fn type_family(data_type: &str) -> TypeFamily {
-    let normalized = data_type.to_ascii_lowercase();
-    if normalized.contains("bool") || normalized == "bit" {
-        TypeFamily::Boolean
-    } else if normalized.contains("int")
-        || normalized.starts_with('u')
-        || normalized.starts_with('i')
-    {
-        TypeFamily::Integer
-    } else if ["float", "double", "decimal", "numeric", "real", "money"]
-        .iter()
-        .any(|kind| normalized.contains(kind))
-    {
-        TypeFamily::Decimal
-    } else if ["date", "time", "timestamp", "datetime"]
-        .iter()
-        .any(|kind| normalized.contains(kind))
-    {
-        TypeFamily::Temporal
-    } else if [
-        "string", "text", "char", "clob", "varchar", "nvarchar", "longtext",
-    ]
-    .iter()
-    .any(|kind| normalized.contains(kind))
-    {
-        TypeFamily::Text
-    } else {
-        TypeFamily::Unknown
+    let normalized = data_type.trim().to_ascii_lowercase();
+    let base = normalized
+        .split(|character: char| matches!(character, '(' | '[' | ' '))
+        .next()
+        .unwrap_or_default();
+    match base {
+        "bool" | "boolean" | "bit" => TypeFamily::Boolean,
+        "i8" | "i16" | "i32" | "i64" | "i128" | "u8" | "u16" | "u32" | "u64" | "int"
+        | "integer" | "tinyint" | "smallint" | "mediumint" | "bigint" | "int1" | "int2"
+        | "int4" | "int8" | "int16" | "int32" | "int64" | "uint8" | "uint16" | "uint32"
+        | "uint64" | "serial" | "smallserial" | "bigserial" => TypeFamily::Integer,
+        "f32" | "f64" | "float" | "float4" | "float8" | "float32" | "float64" | "real"
+        | "double" | "decimal" | "numeric" | "number" | "money" | "smallmoney" => {
+            TypeFamily::Decimal
+        }
+        "date" | "datetime" | "datetime2" | "smalldatetime" | "datetimeoffset" | "timestamp"
+        | "timestamptz" | "time" | "timetz" => TypeFamily::Temporal,
+        "str" | "string" | "utf8" | "text" | "ntext" | "tinytext" | "mediumtext" | "longtext"
+        | "citext" | "char" | "nchar" | "character" | "varchar" | "nvarchar" | "varchar2"
+        | "nvarchar2" | "clob" | "nclob" | "cat" | "categorical" | "enum" => TypeFamily::Text,
+        _ => TypeFamily::Unknown,
     }
 }
 
@@ -1718,7 +1715,7 @@ mod tests {
     use odbc_api::{buffers::RowVec, parameter::VarWCharArray, Cursor};
     use polars::{
         df,
-        prelude::{DataFrame, DataType, ParquetWriter},
+        prelude::{col, DataFrame, DataType, IntoLazy, ParquetWriter},
     };
     use tempfile::tempdir;
 
@@ -2204,6 +2201,77 @@ mod tests {
     }
 
     #[test]
+    fn append_preflight_accepts_real_polars_dtypes_against_a_table_columnia_created() {
+        let frame = df!(
+            "id" => [1i64, 2],
+            "nombre" => ["Ana", "Luis"],
+            "precio" => [1.5f64, 2.25],
+            "activo" => [true, false],
+        )
+        .expect("frame")
+        .lazy()
+        .with_column(col("id").cast(DataType::Date).alias("fecha"))
+        .collect()
+        .expect("fecha");
+        let input = input_shape_from_frame(&frame).expect("shape");
+        assert_eq!(
+            input
+                .iter()
+                .map(|column| column.data_type.as_str())
+                .collect::<Vec<_>>(),
+            ["i64", "str", "f64", "bool", "date"]
+        );
+        assert_eq!(input[1].maximum_length, Some(4));
+        let existing = [
+            ("id", "bigint", None),
+            ("nombre", "nvarchar", Some(4000)),
+            ("precio", "float", None),
+            ("activo", "bit", None),
+            ("fecha", "datetime2", None),
+        ]
+        .into_iter()
+        .map(|(name, data_type, maximum_length)| ExistingColumn {
+            name: name.to_owned(),
+            data_type: data_type.to_owned(),
+            maximum_length,
+            nullable: true,
+            has_default: false,
+        })
+        .collect::<Vec<_>>();
+        let mut destination = target(DatabaseKind::SqlServer);
+        destination.connection_string = "Driver={test};Server=db;Encrypt=yes".to_owned();
+        destination.table_policy = DatabaseTablePolicy::Append;
+        let report = assess_remote_export(&destination, &input, true, true, &existing);
+        let blocking = report
+            .issues
+            .iter()
+            .filter(|issue| issue.severity == "blocking")
+            .map(|issue| issue.message.as_str())
+            .collect::<Vec<_>>();
+        assert!(blocking.is_empty(), "{blocking:?}");
+    }
+
+    #[test]
+    fn type_family_uses_the_base_type_name() {
+        for (name, family) in [
+            ("str", TypeFamily::Text),
+            ("f64", TypeFamily::Decimal),
+            ("datetime[μs, UTC]", TypeFamily::Temporal),
+            ("decimal[38,2]", TypeFamily::Decimal),
+            ("NVARCHAR(10)", TypeFamily::Text),
+            ("double precision", TypeFamily::Decimal),
+            ("int unsigned", TypeFamily::Integer),
+            ("timestamp with time zone", TypeFamily::Temporal),
+            ("character varying", TypeFamily::Text),
+            ("interval", TypeFamily::Unknown),
+            ("image", TypeFamily::Unknown),
+            ("point", TypeFamily::Unknown),
+        ] {
+            assert_eq!(type_family(name), family, "{name}");
+        }
+    }
+
+    #[test]
     fn replace_policy_is_reported_as_explicit_warning() {
         let mut destination = target(DatabaseKind::Postgresql);
         destination.table_policy = DatabaseTablePolicy::Replace;
@@ -2482,5 +2550,46 @@ mod tests {
         let target = external_target(DatabaseKind::SqlServer, "COLUMNIA_ODBC_SQLSERVER");
         run_external_round_trip(&target, &unique_suffix("sqlserver"))
             .expect("round-trip SQL Server completo");
+    }
+
+    /// FUN-03: a table that Columnia created accepts the same dataset again
+    /// with the append policy.
+    #[test]
+    #[ignore = "requiere servidor y controlador ODBC SQL Server reales configurados por variables de sesión"]
+    fn external_odbc_append_to_a_table_columnia_created_sql_server() {
+        let mut target = external_target(DatabaseKind::SqlServer, "COLUMNIA_ODBC_SQLSERVER");
+        target.table = unique_suffix("columnia_fun03");
+        let frame = df!(
+            "id" => [1i64, 2],
+            "nombre" => ["Ana", "Luis"],
+            "precio" => [1.5f64, 2.25],
+            "activo" => [true, false],
+        )
+        .expect("frame")
+        .lazy()
+        .with_column(col("id").cast(DataType::Date).alias("fecha"))
+        .collect()
+        .expect("fecha");
+        let input = input_shape_from_frame(&frame).expect("shape");
+        export_frame(&frame, &target, |_, _| {}, || false, ()).expect("crear tabla");
+        target.table_policy = DatabaseTablePolicy::Append;
+        let result = preflight_export_with_cancel(&target, &input, &|| false).and_then(|report| {
+            let blocking = report
+                .issues
+                .iter()
+                .filter(|issue| issue.severity == "blocking")
+                .map(|issue| issue.message.clone())
+                .collect::<Vec<_>>();
+            if blocking.is_empty() {
+                export_frame(&frame, &target, |_, _| {}, || false, ())
+            } else {
+                Err(blocking.join(" | "))
+            }
+        });
+        let _ = execute_external_sql(
+            &target,
+            &drop_table_sql(&qualified_table(&target), target.kind),
+        );
+        result.expect("añadir a la tabla creada por Columnia");
     }
 }

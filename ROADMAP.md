@@ -67,9 +67,9 @@ medio = 1 día; agregado por suma.
 - [ ] **RV26** — Exportar los datasets grandes (≥ 512 MiB) con los mismos valores y tipos que los pequeños · *Esfuerzo: 1 día*
   - Criterio de cierre: La misma receta exportada a CSV y SQL desde un CSV de 600 MiB y desde su versión de 1 MiB da salidas idénticas valor a valor (incluidos `1.50`, `1e5`, fechas y el sufijo ` UTC`); `changed` refleja lo que cambia.
   - [ ] `DAT-02` (Alto) Con archivos de 512 MiB o más, la exportación a CSV y SQL reescribe números, fechas y zonas horarias y lo da por «sin cambios»
-- [ ] **RV27** — Reconocer los nombres de tipo de Polars 0.55 (`str`, `f64`, …) en la compatibilidad ODBC y probarlo con los nombres reales · *Esfuerzo: 2 h*
+- [x] **RV27** — Reconocer los nombres de tipo de Polars 0.55 (`str`, `f64`, …) en la compatibilidad ODBC y probarlo con los nombres reales · *Esfuerzo: 2 h* — hecho el 2026-10-03
   - Criterio de cierre: «Añadir a tabla existente» funciona sobre una tabla creada por la propia Columnia con columnas de texto y decimales; las pruebas usan los nombres que produce Polars y cubren `interval`/`image`.
-  - [ ] `FUN-03` (Alto) «Añadir a tabla existente» está bloqueado para toda columna de texto o decimal, incluso al reañadir a una tabla que creó Columnia (confirma FUN-R4-13)
+  - [x] `FUN-03` (Alto) «Añadir a tabla existente» está bloqueado para toda columna de texto o decimal, incluso al reañadir a una tabla que creó Columnia (confirma FUN-R4-13) — hecho el 2026-10-03
 - [ ] **RV28** — Acotar la memoria al abrir libros con un rango declarado enorme (no reservar filas × ancho declarados) · *Esfuerzo: 1 día*
   - Criterio de cierre: un libro de 5 KB con `A1:XFD1048576` se inspecciona con menos de 500 MB o se rechaza con un mensaje; prueba Rust con una dimensión inflada.
   - [ ] `ARQ-01` (Alto) Un libro XLSX de 5 KB con `<dimension ref="A1:XFD1048576">` agota más de 8 GB de memoria en `inspect`

@@ -170,6 +170,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- «Añadir a tabla existente» en Entregar ya acepta columnas de texto y
+  decimales: la comprobación previa no reconocía los nombres de tipo de Polars
+  (`str`, `f64`) y bloqueaba incluso reañadir a una tabla que había creado
+  Columnia. Tampoco confunde ya `interval`, `image` o `point` con enteros
+  (FUN-03).
 - Exportar a Parquet (y cualquier lectura de DuckDB sobre la copia del
   historial) fallaba con «Out of Memory» cuando el dataset preparado tenía una
   columna de texto libre largo: la copia se escribía en grupos de 65 536 filas
