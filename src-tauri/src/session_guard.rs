@@ -58,6 +58,35 @@ pub fn get_session_status(guard: State<'_, SessionGuard>) -> SessionStatus {
     guard.status()
 }
 
+/// Whether the window holds changes that no project keeps (FUN-09). React
+/// reports it; closing the window then asks before discarding them.
+#[derive(Default)]
+pub struct UnsavedWork(std::sync::atomic::AtomicBool);
+
+impl UnsavedWork {
+    pub fn is_set(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    fn set(&self, unsaved: bool) {
+        self.0.store(unsaved, std::sync::atomic::Ordering::Release);
+    }
+
+    pub fn set_clean(&self) {
+        self.set(false);
+    }
+}
+
+#[tauri::command]
+pub fn set_unsaved_work(state: State<'_, UnsavedWork>, unsaved: bool) -> Result<(), String> {
+    state.set(unsaved);
+    Ok(())
+}
+
+/// Text of the native question shown when the window closes with unsaved work.
+pub const UNSAVED_WORK_CLOSE_MESSAGE: &str =
+    "Hay cambios que no están guardados en un proyecto. Si cierras Columnia ahora, se perderán.";
+
 #[cfg(test)]
 mod tests {
     use super::SessionGuard;

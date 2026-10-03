@@ -104,6 +104,11 @@
       "debug": false
     },
     {
+      "name": "set_unsaved_work",
+      "module": "session_guard",
+      "debug": false
+    },
+    {
       "name": "preview_delimited_header_review",
       "module": "dataset",
       "debug": false

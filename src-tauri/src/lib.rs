@@ -139,6 +139,7 @@ pub fn run() {
                 .map_err(Box::<dyn std::error::Error>::from)?;
             crash_report::install(&app_data_dir);
             app.manage(session_guard::SessionGuard::begin(&app_data_dir));
+            app.manage(session_guard::UnsavedWork::default());
             dataset::remove_stale_converted_sources(&std::env::temp_dir());
             let projects = projects::ProjectState::initialize(app_data_dir.clone())
                 .map_err(std::io::Error::other)?;
@@ -153,6 +154,41 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let unsaved = window
+                    .app_handle()
+                    .try_state::<session_guard::UnsavedWork>()
+                    .is_some_and(|state| state.is_set());
+                if unsaved {
+                    // FUN-09: ask before discarding work no project keeps. The
+                    // answer arrives later, so the window closes from here.
+                    api.prevent_close();
+                    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+                    let closing = window.clone();
+                    window
+                        .app_handle()
+                        .dialog()
+                        .message(session_guard::UNSAVED_WORK_CLOSE_MESSAGE)
+                        .title("Cambios sin guardar")
+                        .kind(MessageDialogKind::Warning)
+                        .buttons(MessageDialogButtons::OkCancelCustom(
+                            "Cerrar sin guardar".to_owned(),
+                            "Volver".to_owned(),
+                        ))
+                        .show(move |close| {
+                            if close {
+                                if let Some(state) = closing
+                                    .app_handle()
+                                    .try_state::<session_guard::UnsavedWork>()
+                                {
+                                    state.set_clean();
+                                }
+                                let _ = closing.destroy();
+                            }
+                        });
+                }
+                return;
+            }
             if let WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) = event {
                 if let Some(path) = paths.first() {
                     window
@@ -176,6 +212,7 @@ pub fn run() {
             dataset::inspect_workbook_sheets,
             dataset::convert_dataset_selection_encoding,
             session_guard::get_session_status,
+            session_guard::set_unsaved_work,
             dataset::preview_delimited_header_review,
             dataset::preview_dataset_selection,
             dataset::load_dataset_selection,

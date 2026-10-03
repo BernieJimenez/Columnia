@@ -116,7 +116,7 @@ medio = 1 día; agregado por suma.
   - [x] `LIM-01` (Medio) `src-tauri/src/dataset.rs` mezcla modelo de datos, historial de mutaciones, rutas DuckDB y comandos; deuda estructural y código duplicado entre rutas — hecho el 2026-10-03
 - [ ] **RV35** — **Cargar** — No existe la noción de «cambios sin guardar»: cargar otro archivo, abrir otro proyecto o… (y 3 problemas más) · *Esfuerzo: 2,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-09, ACC-10, PROD-02, QA-12.
-  - [ ] `FUN-09` (Medio) No existe la noción de «cambios sin guardar»: cargar otro archivo, abrir otro proyecto o cerrar la ventana descartan el trabajo sin avisar
+  - [x] `FUN-09` (Medio) No existe la noción de «cambios sin guardar»: cargar otro archivo, abrir otro proyecto o cerrar la ventana descartan el trabajo sin avisar — hecho el 2026-10-03
   - [ ] `ACC-10` (Medio) El diálogo de importación no recibe el foco al abrirse ni lo devuelve al cerrarse con Esc
   - [ ] `PROD-02` (Medio) Una detección equivocada del separador o la codificación no se puede corregir desde el diálogo de importación
   - [ ] `QA-12` (Medio) LoadPhase al 72,2 %: los caminos sin prueba son los de error, cancelación, codificación y perfil

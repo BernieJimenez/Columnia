@@ -268,6 +268,57 @@ describe("App", () => {
     expect(within(screen.getByRole("button", { name: "Preparar" })).getByText("Hecho")).toBeInTheDocument();
   });
 
+  it("pide confirmar antes de sustituir un dataset con cambios sin guardar (FUN-09)", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    const unsaved = vi.spyOn(bridge, "setUnsavedWork").mockResolvedValue(undefined);
+    const original: DatasetPreview = {
+      fileName: "clientes.csv",
+      fileSizeBytes: 128,
+      rowCount: 1,
+      columnCount: 1,
+      columns: [{ name: "city", dataType: "String" }],
+      rows: [[" Bogotá "]],
+    };
+    mockDatasetLoad(original);
+    vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({
+      dataset: { ...original, rows: [["Bogotá"]] },
+      affectedRowCount: 1,
+      changedCellCount: 1,
+      removedRowCount: 0,
+      renamedColumnCount: 0,
+      renames: [],
+      typedColumnCount: 0,
+      datedColumnCount: 0,
+      imputedCellCount: 0,
+    });
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", {
+      name: /Continuar a Preparar|Ver cambios propuestos/,
+    }));
+    await switchPhase("Preparar");
+    fireEvent.click(screen.getByRole("button", { name: /^Aplicar \d+ cambios?$/ }));
+    expect(await screen.findByText("Plan aplicado: 1 celda actualizada.")).toBeInTheDocument();
+    await waitFor(() => expect(unsaved).toHaveBeenLastCalledWith(true));
+
+    const pick = vi.mocked(bridge.pickDatasetSource);
+    const picks = pick.mock.calls.length;
+    await switchPhase("Cargar");
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Cambios sin guardar" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(pick.mock.calls.length).toBe(picks);
+
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continuar sin guardar" }));
+    await waitFor(() => expect(pick.mock.calls.length).toBe(picks + 1));
+  });
+
   it("no marca Preparar como completada por avanzar solo con el footer genérico", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({

@@ -10,6 +10,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- Columnia avisa antes de perder cambios que ningún proyecto guarda: al cargar
+  otro archivo, un ejemplo o uno arrastrado, o al abrir otro proyecto, pide
+  confirmar y «Cancelar» conserva el dataset; al cerrar la ventana pregunta con
+  un diálogo de Windows. Con un proyecto que se guarda solo no pregunta. Nuevo
+  comando IPC `set_unsaved_work` (91 comandos) (FUN-09).
 - «Personalizar» en Explorar: un botón abre la elección de los gráficos de
   barras (hasta seis columnas), la medida del histograma y de los indicadores y,
   si hay varias, la columna de fecha. «Volver a lo automático» recupera el panel

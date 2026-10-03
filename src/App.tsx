@@ -74,6 +74,7 @@ import {
   discardDatasetSelection,
   getAppInfo,
   getSessionStatus,
+  setUnsavedWork,
   getDatasetPage,
   inspectDroppedDataset as inspectDroppedDatasetSource,
   inspectSampleDataset,
@@ -206,6 +207,10 @@ export function App() {
   const [recipeDraft, setRecipeDraft] = useState<SavedRecipe | null>(null);
   const [activeExceptionPolicy, setActiveExceptionPolicy] = useState<ReusableTaskExceptionPolicy | null>(null);
   const [datasetRevision, setDatasetRevision] = useState(0);
+  // FUN-09: the dataset changed since it was loaded, opened or saved.
+  const [changedSinceSave, setChangedSinceSave] = useState(false);
+  // An action that would replace the dataset, waiting for confirmation.
+  const [discardRequest, setDiscardRequest] = useState<(() => void) | null>(null);
   const datasetRevisionRef = useRef(0);
   const pageRequestRef = useRef(0);
   const operationBusyRef = useRef(false);
@@ -252,6 +257,7 @@ export function App() {
     datasetRevision,
     datasetReady: datasetStatus.kind === "ready",
     onDatasetReplaced: async (dataset, mutation) => {
+      setChangedSinceSave(true);
       setDatasetStatus(createReadyDatasetStatus(dataset));
       bumpDatasetRevision();
       if (mutation !== "join") delivery.resetOutput();
@@ -284,6 +290,7 @@ export function App() {
     activeDataset: datasetStatus.kind === "ready" ? datasetStatus.dataset : null,
     exceptionPolicy: activeExceptionPolicy,
     onDatasetChanged: (dataset) => {
+      setChangedSinceSave(true);
       bumpDatasetRevision();
       setActiveExceptionPolicy((current) => current && exceptionPolicyMatchesSchema(current, dataset.columns)
         ? current
@@ -337,6 +344,7 @@ export function App() {
       delivery.resetOutput();
     },
     onProjectOpened: async ({ dataset, workspace, profile }) => {
+      setChangedSinceSave(false);
       bumpDatasetRevision();
       const initialDataset = createReadyDatasetStatus(dataset);
       setDatasetStatus(initialDataset);
@@ -375,6 +383,21 @@ export function App() {
       performance.mark("columnia:app-render");
     }
   }, []);
+
+  // A manual save keeps the changes made so far.
+  const savedProjectStamp = projects.activeProject
+    ? `${projects.activeProject.id}:${projects.activeProject.updatedAt}`
+    : null;
+  useEffect(() => {
+    if (savedProjectStamp) setChangedSinceSave(false);
+  }, [savedProjectStamp]);
+  const projectKeepsChanges = projects.activeProject !== null &&
+    projects.autoSave.kind !== "disabled" && projects.autoSave.kind !== "error";
+  const unsavedWork = datasetStatus.kind === "ready" && changedSinceSave && !projectKeepsChanges;
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    void setUnsavedWork(unsavedWork).catch(() => undefined);
+  }, [unsavedWork]);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -420,7 +443,7 @@ export function App() {
 
   const onDatasetDrop = useEffectEvent(() => {
     if (operationBusyRef.current) return;
-    void inspectDatasetSource(inspectDroppedDatasetSource());
+    whenWorkCanBeReplaced(() => void inspectDatasetSource(inspectDroppedDatasetSource()));
   });
 
   useEffect(() => {
@@ -606,6 +629,7 @@ export function App() {
         format: source.format,
       }));
       setDatasetStatus(createReadyDatasetStatus(dataset));
+      setChangedSinceSave(false);
       bumpDatasetRevision();
       projects.unlinkActiveProject();
       delivery.resetContract();
@@ -716,17 +740,26 @@ export function App() {
     }
   }
 
+  // FUN-09: replacing the dataset asks first when its changes are not kept by a project.
+  function whenWorkCanBeReplaced(action: () => void) {
+    if (unsavedWork) {
+      setDiscardRequest(() => action);
+    } else {
+      action();
+    }
+  }
+
   function selectDataset() {
-    return inspectDatasetSource(pickDatasetSource());
+    whenWorkCanBeReplaced(() => void inspectDatasetSource(pickDatasetSource()));
   }
 
   function selectSampleDataset(sampleId: string) {
-    return inspectDatasetSource(inspectSampleDataset(sampleId));
+    whenWorkCanBeReplaced(() => void inspectDatasetSource(inspectSampleDataset(sampleId)));
   }
 
   function selectRecentDataset(_item: RecentDataset) {
     // Recent entries never contain a path or reusable native selection. Reopen the picker.
-    void selectDataset();
+    selectDataset();
   }
 
   function invalidateSelectionRequests() {
@@ -1391,7 +1424,7 @@ export function App() {
                   restoreCancellationPending={projects.restoreCancellationPending}
                   onSave={(name) => void projects.save(name)}
                   onCancelSave={() => void projects.cancelSave()}
-                  onOpen={(projectId) => void projects.open(projectId)}
+                  onOpen={(projectId) => whenWorkCanBeReplaced(() => void projects.open(projectId))}
                   onCancelOpen={() => void projects.cancelOpen()}
                   onRestore={(projectId, versionId) => void projects.restore(projectId, versionId)}
                   onCancelRestore={() => void projects.cancelRestore()}
@@ -1607,6 +1640,37 @@ export function App() {
             </button>
             <button type="button" className="primary-action" onClick={applyReviewedReusableTask}>
               Aplicar tarea guardada
+            </button>
+          </div>
+        </ModalDialog>
+      )}
+
+      {discardRequest && (
+        <ModalDialog
+          role="alertdialog"
+          labelledBy="discard-work-title"
+          describedBy="discard-work-description"
+          onDismiss={() => setDiscardRequest(null)}
+        >
+          <p className="eyebrow">Confirmación requerida</p>
+          <h2 id="discard-work-title">Cambios sin guardar</h2>
+          <p id="discard-work-description">
+            Los cambios de este dataset no están guardados en un proyecto. Si continúas, se perderán.
+          </p>
+          <div className="sheet-dialog__actions">
+            <button type="button" className="secondary-action" onClick={() => setDiscardRequest(null)}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="danger-action"
+              onClick={() => {
+                const action = discardRequest;
+                setDiscardRequest(null);
+                action();
+              }}
+            >
+              Continuar sin guardar
             </button>
           </div>
         </ModalDialog>

@@ -18,6 +18,11 @@ export function getSessionStatus(): Promise<SessionStatus> {
   return invoke<SessionStatus>("get_session_status");
 }
 
+/** FUN-09: tells Rust whether closing the window would lose unsaved work. */
+export function setUnsavedWork(unsaved: boolean): Promise<void> {
+  return invoke<void>("set_unsaved_work", { unsaved });
+}
+
 export function checkForUpdate(): Promise<UpdateInfo | null> {
   return invoke<UpdateInfo | null>("check_for_update");
 }
