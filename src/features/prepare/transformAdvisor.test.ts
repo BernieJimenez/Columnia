@@ -79,3 +79,42 @@ describe("visibleColumnNames", () => {
     expect(visibleColumnNames(["a", "b", "c", "d", "e", "f", "g", "h", "i"])).toBe("a, b, c, d, e, f, g, h y 1 más");
   });
 });
+
+describe("estimación de filtros con fechas y coma decimal (FUN-23)", () => {
+  const dated: DatasetPreview = {
+    ...dataset,
+    columns: [
+      { name: "fecha", dataType: "Date" },
+      { name: "importe", dataType: "String" },
+      { name: "nota", dataType: "String" },
+    ],
+    rows: [["2023-12-31", "12,5", "a"], ["2024-02-01", "7,25", ""], ["2024-03-01", "30", "b"], ["2024-04-01", "1", "c"]],
+  };
+
+  it("compara fechas ISO y números con coma decimal", () => {
+    expect(buildTransformPreview(dated, {
+      ...emptyRecipe,
+      filters: [{ column: "fecha", operator: "gte", value: "2024-01-01" }],
+    }).afterRows).toBe(75);
+    expect(buildTransformPreview(dated, {
+      ...emptyRecipe,
+      filters: [{ column: "importe", operator: "gt", value: "10" }],
+    }).afterRows).toBe(50);
+  });
+
+  it("dice que no puede estimar cuando el valor no se puede comparar", () => {
+    const preview = buildTransformPreview(dated, {
+      ...emptyRecipe,
+      filters: [{ column: "nota", operator: "gt", value: "b" }],
+    });
+    expect(preview.afterRows).toBeNull();
+    expect(preview.basis).toContain("No se puede estimar");
+  });
+
+  it("no cuenta una celda vacía como distinta", () => {
+    expect(buildTransformPreview(dated, {
+      ...emptyRecipe,
+      filters: [{ column: "nota", operator: "neq", value: "a" }],
+    }).afterRows).toBe(50);
+  });
+});

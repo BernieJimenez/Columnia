@@ -185,6 +185,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La estimación de filas de una receta con filtro entiende fechas ISO y números
+  con coma decimal; si no puede comparar los valores, dice que no se puede
+  estimar en vez de anunciar 0 filas. Una celda vacía ya no cuenta como
+  «distinta de» un valor (FUN-23).
 - La propuesta de Preparar anuncia los duplicados que de verdad se quitarán:
   cuando también se recortan espacios, el motor simula la cadena y la casilla
   dice, por ejemplo, «Quitar 3 filas duplicadas» en lugar de 1 (FUN-12).

@@ -27,17 +27,37 @@ function valueAt(row: Array<string | null>, dataset: DatasetPreview, column: str
   return index < 0 ? undefined : row[index];
 }
 
-function matchesFilter(row: Array<string | null>, dataset: DatasetPreview, filter: RecipeFilter): boolean {
-  const value = valueAt(row, dataset, filter.column);
+/**
+ * A number ("12.5", "12,5") or an ISO date ("2024-03-01", with or without
+ * time) as a comparable number; null when the text is neither (FUN-23).
+ */
+function orderedValue(text: string): number | null {
+  const trimmed = text.trim();
+  if (/^[+-]?(\d+([.,]\d*)?|[.,]\d+)([eE][+-]?\d+)?$/.test(trimmed)) {
+    const number = Number(trimmed.replace(",", "."));
+    return Number.isFinite(number) ? number : null;
+  }
+  if (/^\d{4}-\d{2}-\d{2}([T ][\d:.]+Z?)?$/.test(trimmed)) {
+    const time = Date.parse(trimmed.replace(" ", "T"));
+    return Number.isNaN(time) ? null : time;
+  }
+  return null;
+}
+
+/** Whether a sample row passes the filter; null when it cannot be told from the text. */
+function matchesFilter(row: Array<string | null>, dataset: DatasetPreview, filter: RecipeFilter): boolean | null {
+  const raw = valueAt(row, dataset, filter.column);
+  const value = raw === null || raw === undefined || raw.trim() === "" ? null : raw;
   switch (filter.operator) {
     case "is_null":
-      return value === null || value === undefined || value.trim() === "";
+      return value === null;
     case "not_null":
-      return value !== null && value !== undefined && value.trim() !== "";
+      return value !== null;
     case "eq":
       return value === filter.value;
     case "neq":
-      return value !== filter.value;
+      // An empty cell is neither equal nor different, as in the engine.
+      return value !== null && value !== filter.value;
     case "contains":
       return value?.toLocaleLowerCase().includes((filter.value ?? "").toLocaleLowerCase()) ?? false;
     case "not_contains":
@@ -46,9 +66,10 @@ function matchesFilter(row: Array<string | null>, dataset: DatasetPreview, filte
     case "lt":
     case "gte":
     case "lte": {
-      const left = value === null || value === undefined ? Number.NaN : Number(value);
-      const right = Number(filter.value);
-      if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
+      if (value === null) return false;
+      const left = orderedValue(value);
+      const right = orderedValue(filter.value ?? "");
+      if (left === null || right === null) return null;
       if (filter.operator === "gt") return left > right;
       if (filter.operator === "lt") return left < right;
       if (filter.operator === "gte") return left >= right;
@@ -147,10 +168,17 @@ export function buildTransformPreview(dataset: DatasetPreview, recipe: Transform
   let basis = "El cambio de columnas se calcula sobre el esquema actual.";
 
   if (recipe.filters.length > 0) {
-    const matchingRows = sampleRows.filter((row) => recipe.filters.every((filter) => matchesFilter(row, dataset, filter))).length;
-    afterRows = sampleRows.length > 0 ? Math.round(dataset.rowCount * (matchingRows / sampleRows.length)) : null;
-    confidence = sampleRows.length === 0 ? 20 : Math.min(78, 40 + sampleRows.length);
-    basis = `Estimación de filas basada en ${sampleRows.length.toLocaleString()} filas visibles; el resultado real puede variar.`;
+    const outcomes = sampleRows.map((row) => recipe.filters.map((filter) => matchesFilter(row, dataset, filter)));
+    if (outcomes.some((row) => row.includes(null))) {
+      afterRows = null;
+      confidence = 20;
+      basis = "No se puede estimar cuántas filas quedan: el filtro compara valores que la muestra no permite interpretar.";
+    } else {
+      const matchingRows = outcomes.filter((row) => row.every(Boolean)).length;
+      afterRows = sampleRows.length > 0 ? Math.round(dataset.rowCount * (matchingRows / sampleRows.length)) : null;
+      confidence = sampleRows.length === 0 ? 20 : Math.min(78, 40 + sampleRows.length);
+      basis = `Estimación de filas basada en ${sampleRows.length.toLocaleString()} filas visibles; el resultado real puede variar.`;
+    }
   }
   if (recipe.groupSummary || recipe.outlierTreatments.some((item) => item.action === "drop")) {
     afterRows = null;
