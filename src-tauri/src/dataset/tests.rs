@@ -18836,3 +18836,24 @@ fn privacy_hashes_use_a_new_salt_in_every_export() {
     assert_ne!(first, hex::encode(Sha256::digest(b"ana@example.com")));
     assert_eq!(first.len(), 64);
 }
+
+/// ARQ-05: entries that can pass 4 GiB are written as ZIP64, small ones not.
+#[test]
+fn zip_entries_that_can_pass_four_gigabytes_use_zip64() {
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    for (bytes, zip64) in [(1024_u64, false), (5 * 1024 * 1024 * 1024, true)] {
+        let path = directory.path().join(format!("{bytes}.zip"));
+        let mut archive = ::zip::ZipWriter::new(File::create(&path).unwrap());
+        archive
+            .start_file("dataset.csv", export_io::zip_entry_options(bytes))
+            .unwrap();
+        archive.write_all(b"a\n1\n").unwrap();
+        archive.finish().unwrap();
+        // The ZIP64 extra field: header id 0x0001 and 16 bytes of sizes.
+        let raw = fs::read(&path).unwrap();
+        let extra = raw.windows(4).any(|bytes| bytes == [1, 0, 16, 0]);
+        let mut reader = ZipArchive::new(File::open(&path).unwrap()).unwrap();
+        assert_eq!(reader.by_index(0).unwrap().size(), 4);
+        assert_eq!(extra, zip64, "{bytes}");
+    }
+}

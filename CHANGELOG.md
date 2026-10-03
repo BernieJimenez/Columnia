@@ -174,6 +174,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- El paquete Columnia y los libros Excel de datasets muy grandes usan ZIP64
+  cuando una entrada puede pasar de 4 GiB, en lugar de fallar al final de la
+  exportación (ARQ-05).
 - La protección contra fórmulas del CSV ya no altera datos legítimos: los
   importes con separador de miles (`-1.234,56`), los teléfonos (`+34 600 000
   000`) y el `-` de «sin dato» salen sin apóstrofo; `=`, `@` y las expresiones

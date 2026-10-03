@@ -537,6 +537,25 @@ pub(super) fn xlsx_source_cell(
     excel_text_cell(&reference, value)
 }
 
+/// ZIP options for an entry of about `bytes`. Entries that can pass 4 GiB
+/// need ZIP64, or the crate refuses them at the end of a long export (ARQ-05).
+pub(super) fn zip_entry_options(bytes: u64) -> SimpleFileOptions {
+    SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .large_file(bytes >= ZIP64_THRESHOLD_BYTES)
+}
+
+/// Below `u32::MAX` with room for an estimate that falls short.
+const ZIP64_THRESHOLD_BYTES: u64 = 3 * 1024 * 1024 * 1024;
+
+/// Generous size of the sheet XML: about 64 bytes per cell.
+fn estimated_sheet_bytes(rows: usize, columns: usize) -> u64 {
+    (rows as u64)
+        .saturating_add(1)
+        .saturating_mul(columns as u64)
+        .saturating_mul(64)
+}
+
 pub(super) fn write_source_backed_xlsx<F, C>(
     source_path: &Path,
     source_format: crate::duckdb_query::DuckDbFileFormat,
@@ -577,7 +596,10 @@ where
             .map_err(|error| format!("No se pudo escribir el libro Excel: {error}"))?;
     }
     archive
-        .start_file("xl/worksheets/sheet1.xml", options)
+        .start_file(
+            "xl/worksheets/sheet1.xml",
+            zip_entry_options(estimated_sheet_bytes(row_count, schema.width())),
+        )
         .map_err(|error| format!("No se pudo preparar la hoja Excel: {error}"))?;
     archive
         .write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#)
@@ -793,7 +815,10 @@ where
     }
 
     archive
-        .start_file("xl/worksheets/sheet1.xml", options)
+        .start_file(
+            "xl/worksheets/sheet1.xml",
+            zip_entry_options(estimated_sheet_bytes(frame.height(), frame.width())),
+        )
         .map_err(|error| format!("No se pudo preparar la hoja Excel: {error}"))?;
     archive
         .write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#)
@@ -1970,7 +1995,7 @@ where
         .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
     let mut archive = ZipWriter::new(temporary.as_file_mut());
     archive
-        .start_file("dataset.csv", options)
+        .start_file("dataset.csv", zip_entry_options(dataset_bytes))
         .map_err(|error| format!("No se pudo preparar el dataset del paquete: {error}"))?;
     let mut copied = 0_u64;
     let mut buffer = [0_u8; 64 * 1024];
@@ -2550,7 +2575,7 @@ where
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     let mut archive = ZipWriter::new(output);
     archive
-        .start_file("dataset.csv", options)
+        .start_file("dataset.csv", zip_entry_options(dataset_bytes))
         .map_err(|error| format!("No se pudo preparar el dataset del paquete: {error}"))?;
     let mut copied = 0_u64;
     let mut buffer = [0_u8; 64 * 1024];
