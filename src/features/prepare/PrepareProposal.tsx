@@ -93,10 +93,13 @@ export function PrepareProposal({
     setNormalizeNames(false);
   }
 
-  // Filling gaps is the only change whose count depends on the rest of the
-  // chain (markers become gaps, duplicates take gaps away), so while it is
-  // checked the engine simulates the selection and the proposal shows that.
-  const previewKey = onPreview && selection.impute && items.some((item) => item.id === "impute")
+  // Filling gaps and removing duplicates depend on the rest of the chain
+  // (markers become gaps, trimmed spaces make rows identical), so while one of
+  // them is checked the engine simulates the selection and the proposal shows
+  // that (FUN-12).
+  const dependsOnChain = (selection.impute && items.some((item) => item.id === "impute"))
+    || (selection.duplicates && selection.trim && items.some((item) => item.id === "duplicates"));
+  const previewKey = onPreview && dependsOnChain
     ? JSON.stringify(proposalOptions(items, selection, false, ambiguousDateOrder))
     : null;
   const [fills, setFills] = useState<{ key: string; preview: SafeCorrectionsPreview | null } | null>(null);
@@ -115,6 +118,8 @@ export function PrepareProposal({
   const titleOf = (item: ProposalItem) => (
     item.id === "impute" && !fillsReady
       ? "Rellenar valores vacíos: calculando cuántos…"
+      : item.id === "duplicates" && !fillsReady
+        ? "Quitar filas duplicadas: calculando cuántas…"
       : proposalItemTitle(item, selection, preview)
   );
 

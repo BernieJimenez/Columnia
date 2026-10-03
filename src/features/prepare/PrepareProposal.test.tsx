@@ -162,3 +162,28 @@ describe("PrepareProposal result", () => {
     expect(result).not.toHaveTextContent("Valores vacíos");
   });
 });
+
+describe("PrepareProposal duplicate count (FUN-12)", () => {
+  it("counts the duplicates that trimming spaces creates, as the engine will remove them", async () => {
+    const onPreview = vi.fn(async () => ({ removedRowCount: 3, imputedCellCount: 0, imputations: [] }));
+    render(
+      <PrepareProposal
+        items={[
+          { id: "trim", title: "Recortar espacios en 3 celdas", hint: "Espacios al principio y al final.", examples: [] },
+          { id: "duplicates", title: "Quitar 1 fila duplicada", hint: "Se conserva la primera.", examples: [] },
+        ]}
+        columnCount={2}
+        busy={false}
+        canUndo={false}
+        result={null}
+        onApply={vi.fn()}
+        onPreview={onPreview}
+        onUndo={vi.fn()}
+        onDismissResult={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByLabelText("Quitar 3 filas duplicadas")).toBeChecked();
+    expect(onPreview).toHaveBeenCalledWith(expect.objectContaining({ trimText: true, removeDuplicates: true }));
+  });
+});

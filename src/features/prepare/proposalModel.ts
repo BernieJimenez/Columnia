@@ -362,6 +362,13 @@ export function proposalItemTitle(
       ? "Convertir a número: requiere convertir los marcadores «sin dato»"
       : `Convertir ${plural(count, "columna", "columnas")} a número`;
   }
+  // Trimming spaces can make more rows identical: the engine's simulation
+  // counts the duplicates that will really go (FUN-12).
+  if (item.id === "duplicates" && preview) {
+    return preview.removedRowCount === 0
+      ? "Quitar filas duplicadas: no queda ninguna tras los demás cambios"
+      : `Quitar ${plural(preview.removedRowCount, "fila duplicada", "filas duplicadas")}`;
+  }
   if (item.id !== "impute" || !item.columns) return item.title;
   if (preview) {
     return preview.imputedCellCount === 0

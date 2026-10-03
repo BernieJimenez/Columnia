@@ -185,6 +185,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La propuesta de Preparar anuncia los duplicados que de verdad se quitarán:
+  cuando también se recortan espacios, el motor simula la cadena y la casilla
+  dice, por ejemplo, «Quitar 3 filas duplicadas» en lugar de 1 (FUN-12).
 - La propuesta de Preparar reconoce como identificadores las columnas con
   nombres en orden español (`id_cliente`, `codigo_postal`, `num_factura`) y ya
   no propone rellenarlas ni convertirlas (FUN-22).

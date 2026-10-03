@@ -128,7 +128,7 @@ medio = 1 día; agregado por suma.
 - [ ] **RV37** — **Preparar** — La pantalla «Listo: cambios aplicados» queda obsoleta tras Deshacer desde el Historial (y 4 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-11, FUN-12, FUN-22, FUN-23, FUN-24.
   - [x] `FUN-11` (Medio) La pantalla «Listo: cambios aplicados» queda obsoleta tras Deshacer desde el Historial — hecho el 2026-10-03
-  - [ ] `FUN-12` (Medio) La propuesta de Preparar anuncia menos duplicados de los que aplica
+  - [x] `FUN-12` (Medio) La propuesta de Preparar anuncia menos duplicados de los que aplica — hecho el 2026-10-03
   - [x] `FUN-22` (Medio) `looksLikeIdentifier` solo mira la última palabra: `id_cliente`, `codigo_postal`, `num_factura` no se detectan como identificadores — hecho el 2026-10-03
   - [ ] `FUN-23` (Medio) La estimación de filas del filtro cuenta 0 coincidencias para filtros por fecha o con coma decimal
   - [ ] `FUN-24` (Medio) «Convertir N columnas a fecha» cuenta las columnas ambiguas, pero se aplican solo las resueltas; el modo «paso a paso» nunca pregunta el orden

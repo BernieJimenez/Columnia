@@ -405,7 +405,7 @@ describe("PreparePhase", () => {
     expect(screen.getByText(/Versión actual: Normalizar texto/)).toBeInTheDocument();
   });
 
-  it("expone señales agregadas de limpieza y privacidad sin mostrar celdas", () => {
+  it("expone señales agregadas de limpieza y privacidad sin mostrar celdas", async () => {
     const onRemoveConstantColumns = vi.fn();
     const onRemoveEmptyColumns = vi.fn();
     const onRemoveHighNullColumns = vi.fn();
@@ -474,7 +474,8 @@ describe("PreparePhase", () => {
     expect(signals).toHaveTextContent("Tipos sugeridos:");
     expect(signals).toHaveTextContent("Fechas detectadas: fecha_alta coincide con un formato de fecha cerrado.");
     expect(screen.queryByRole("button", { name: "Eliminar duplicados" })).not.toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Quitar 1 fila duplicada" })).toBeChecked();
+    // The duplicate count waits for the simulation of the chain (FUN-12).
+    expect(await screen.findByRole("checkbox", { name: "Quitar 1 fila duplicada" })).toBeChecked();
     expect(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }).closest("details")).toHaveClass("prepare-signal-details");
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas constantes" }));
     expect(onRemoveConstantColumns).toHaveBeenCalledOnce();
@@ -992,7 +993,7 @@ describe("PreparePhase", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Reintenta desde el pie de la aplicación.");
   });
 
-  it("muestra el antes y después del perfil tras aplicar un plan", () => {
+  it("muestra el antes y después del perfil tras aplicar un plan", async () => {
     const onApplyRecommended = vi.fn<(options: SafeCorrectionOptions) => void>();
     const props = {
       dataset,
@@ -1026,7 +1027,7 @@ describe("PreparePhase", () => {
     };
     const { rerender } = render(<PreparePhase {...props} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar 4 cambios" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Aplicar 4 cambios" }));
     expect(onApplyRecommended).toHaveBeenCalledOnce();
 
     const afterProfile: DatasetProfile = {
