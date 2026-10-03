@@ -120,11 +120,11 @@ medio = 1 día; agregado por suma.
   - [x] `ACC-10` (Medio) El diálogo de importación no recibe el foco al abrirse ni lo devuelve al cerrarse con Esc — hecho el 2026-10-03
   - [x] `PROD-02` (Medio) Una detección equivocada del separador o la codificación no se puede corregir desde el diálogo de importación — hecho el 2026-10-03
   - [x] `QA-12` (Medio) LoadPhase al 72,2 %: los caminos sin prueba son los de error, cancelación, codificación y perfil — hecho el 2026-10-03
-- [ ] **RV36** — **App y puente** — Paginar la vista previa de Revisar invalida la validación de Entregar sin cambio en el da… (y 2 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV36** — **App y puente** — Paginar la vista previa de Revisar invalida la validación de Entregar sin cambio en el da… (y 2 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-10, ARQ-03, QA-05.
   - [x] `FUN-10` (Medio) Paginar la vista previa de Revisar invalida la validación de Entregar sin cambio en el dataset — hecho el 2026-10-03
   - [x] `ARQ-03` (Medio) No hay error boundary ni manejador global: una excepción de render deja la ventana en blanco — hecho el 2026-10-03
-  - [ ] `QA-05` (Medio) `src/App.test.tsx`: archivo único de 3.495 líneas, dependiente de temporizadores, de la configuración regional y con flujos sin test
+  - [x] `QA-05` (Medio) `src/App.test.tsx`: archivo único de 3.495 líneas, dependiente de temporizadores, de la configuración regional y con flujos sin test — hecho el 2026-10-03
 - [ ] **RV37** — **Preparar** — La pantalla «Listo: cambios aplicados» queda obsoleta tras Deshacer desde el Historial (y 4 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-11, FUN-12, FUN-22, FUN-23, FUN-24.
   - [ ] `FUN-11` (Medio) La pantalla «Listo: cambios aplicados» queda obsoleta tras Deshacer desde el Historial

@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { localeText } from "../test/localeText";
 
 import { ResourceMonitor } from "./ResourceMonitor";
 
@@ -23,10 +24,10 @@ describe("ResourceMonitor", () => {
     render(<ResourceMonitor enabled fetchUsage={fetchUsage} />);
 
     await waitFor(() => expect(screen.getByText("120 MB")).toBeInTheDocument());
-    expect(screen.getByText("0.1 / 12 hilos")).toBeInTheDocument();
-    expect(screen.getByText("1.2%")).toBeInTheDocument();
-    expect(screen.getByText("8.9 / 31.9 GB")).toBeInTheDocument();
-    expect(screen.getByRole("meter", { name: "CPU de Columnia: 0.1 / 12 hilos" })).toBeInTheDocument();
+    expect(screen.getByText(localeText("0.1 / 12 hilos"))).toBeInTheDocument();
+    expect(screen.getByText(localeText("1.2%"))).toBeInTheDocument();
+    expect(screen.getByText(localeText("8.9 / 31.9 GB"))).toBeInTheDocument();
+    expect(screen.getByRole("meter", { name: localeText("CPU de Columnia: 0.1 / 12 hilos", { exact: true }) })).toBeInTheDocument();
     expect(screen.getByRole("meter", { name: "RAM de Columnia: 120 MB" })).toBeInTheDocument();
     expect(screen.getByText("no disponible")).toBeInTheDocument();
     expect(screen.getByText("No disponible")).toBeInTheDocument();
@@ -53,8 +54,8 @@ describe("ResourceMonitor", () => {
 
     render(<ResourceMonitor enabled fetchUsage={fetchUsage} />);
 
-    await waitFor(() => expect(screen.getByText("20.0 GB")).toBeInTheDocument());
-    expect(screen.getByText("42.5%")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(localeText("20.0 GB"))).toBeInTheDocument());
+    expect(screen.getByText(localeText("42.5%"))).toBeInTheDocument();
     expect(screen.getByText("Activa")).toBeInTheDocument();
   });
 

@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { localeText } from "../../test/localeText";
 
 import type { DatasetSourceInspection } from "../../bridge";
 import type { SampleDatasetDescriptor } from "../../bridge";
@@ -421,7 +422,7 @@ describe("LoadPhase", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Revisa el costo estimado de la carga" });
     expect(within(dialog).getByText(/Lectura source-backed/)).toBeInTheDocument();
-    expect(dialog).toHaveTextContent("Aprox. 2.3 GiB");
+    expect(dialog).toHaveTextContent(localeText("Aprox. 2.3 GiB"));
     expect(within(dialog).getByText(/No se prevé un snapshot/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Continuar con la carga" }));
     expect(onResourcePreflightAction).toHaveBeenCalledWith({ kind: "confirmed" });

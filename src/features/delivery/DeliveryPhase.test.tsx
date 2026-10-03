@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { localeText } from "../../test/localeText";
 
 import * as bridge from "../../bridge";
 import type { DatabaseKind, DatasetPreview, QualityRule, RemoteExportPreflight, SavedRecipe } from "../../bridge";
@@ -1236,7 +1237,7 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Contrato fallido");
     expect(screen.getByText("Problemas detectados")).toBeInTheDocument();
     expect(screen.getByText("Valores nulos · total")).toBeInTheDocument();
-    expect(screen.getByText(/1 incumplimientos entre 2 elementos evaluados \(50\.00%\)/)).toBeInTheDocument();
+    expect(screen.getByText(localeText("1 incumplimientos entre 2 elementos evaluados (50.00%)"))).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Revisar regla 1" }));
     expect(document.activeElement).toBe(document.getElementById("quality-rule-1"));
     expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).toBeEnabled();

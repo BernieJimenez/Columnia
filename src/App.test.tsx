@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { localeText } from "./test/localeText";
 
 import { App } from "./App";
 import * as bridge from "./bridge";
@@ -16,6 +17,15 @@ import type {
 } from "./bridge";
 
 const headerConfirmationTimers = new Set<number>();
+
+// QA-05: Tauri events reach the handlers that App registers.
+const tauriEvents = vi.hoisted(() => ({ handlers: new Map<string, () => void>() }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async (name: string, handler: () => void) => {
+    tauriEvents.handlers.set(name, handler);
+    return () => tauriEvents.handlers.delete(name);
+  }),
+}));
 
 // ARQ-03: a test can make Preparar throw while rendering.
 const prepareFailure = vi.hoisted(() => ({ throwOnRender: false }));
@@ -355,6 +365,32 @@ describe("App", () => {
     }
     await switchPhase("Revisar");
     expect(screen.queryByRole("alert", { name: "Esta etapa tuvo un error inesperado" })).not.toBeInTheDocument();
+  });
+
+  it("inspecciona un archivo arrastrado a la ventana (QA-05)", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.26.0", platform: "windows" });
+    mockDatasetLoad({
+      fileName: "arrastrado.csv", fileSizeBytes: 64, rowCount: 1, columnCount: 1,
+      columns: [{ name: "id", dataType: "String" }], rows: [["1"]],
+    });
+    const dropped = vi.spyOn(bridge, "inspectDroppedDataset").mockResolvedValue({
+      selectionId: "selection-drop",
+      fileName: "arrastrado.csv",
+      fileSizeBytes: 64,
+      format: "csv",
+      sheets: [],
+      defaultSheetId: null,
+      isCompressedContainer: false,
+      resourceEstimate: resourceEstimate(64),
+    });
+    renderAppWithHeaderConfirmation();
+    await waitFor(() => expect(tauriEvents.handlers.has("columnia://dataset-drop")).toBe(true));
+
+    act(() => tauriEvents.handlers.get("columnia://dataset-drop")?.());
+
+    await waitFor(() => expect(dropped).toHaveBeenCalledOnce());
+    expect(await screen.findByRole("heading", { name: "arrastrado.csv" })).toBeInTheDocument();
   });
 
   it("no marca Preparar como completada por avanzar solo con el footer genérico", async () => {
@@ -2081,7 +2117,7 @@ describe("App", () => {
       name: "Perfil de calidad por columna",
     });
     expect(within(generalProfile).getByRole("rowheader", { name: /temperature/ })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "66.7%" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: localeText("66.7%", { exact: true }) })).toBeInTheDocument();
     const issues = screen.getByLabelText("Resumen de calidad del dataset");
     expect(within(issues).getByText("Quitar 1 fila duplicada")).toBeInTheDocument();
     expect(profileSpy).toHaveBeenCalledOnce();
@@ -2167,7 +2203,7 @@ describe("App", () => {
     await openQualityAndAnalyze();
 
     expect(await screen.findByRole("region", { name: "Perfil de columnas de texto" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "7.5" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: localeText("7.5", { exact: true }) })).toBeInTheDocument();
   });
 
   it("muestra una sugerencia conservadora de tipo para texto", async () => {
@@ -2231,7 +2267,7 @@ describe("App", () => {
     await openQualityAndAnalyze();
 
     expect(await screen.findByRole("cell", { name: "Fecha" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "90.0%" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: localeText("90.0%", { exact: true }) })).toBeInTheDocument();
   });
 
   it("presenta cuartiles y outliers en una tabla numérica separada", async () => {
@@ -2295,7 +2331,7 @@ describe("App", () => {
     await openQualityAndAnalyze();
 
     expect(await screen.findByRole("region", { name: "Perfil de columnas numéricas" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "39.592" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: localeText("39.592", { exact: true }) })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "1" })).toBeInTheDocument();
   });
 

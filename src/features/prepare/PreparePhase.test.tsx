@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { localeText } from "../../test/localeText";
 
 import * as bridge from "../../bridge";
 import type { DatasetPreview, DatasetProfile, HistoryState, LoadedRecipe, SafeCorrectionOptions, SnapshotRevisionComparison, TransformRecipe } from "../../bridge";
@@ -462,7 +463,7 @@ describe("PreparePhase", () => {
     expect(screen.getByRole("heading", { name: "Valores nulos y datos faltantes" })).toBeInTheDocument();
     expect(screen.getByLabelText("Resumen de valores nulos")).toHaveTextContent("10 nulos");
     expect(screen.getByLabelText("Resumen de valores nulos")).toHaveTextContent("3 columnas afectadas");
-    expect(screen.getByLabelText("Resumen de valores nulos")).toHaveTextContent("71.4% completitud total");
+    expect(screen.getByLabelText("Resumen de valores nulos")).toHaveTextContent(localeText("71.4% completitud total"));
     expect(screen.getByText(/Columnia conserva los nulos por defecto/)).toBeInTheDocument();
     expect(screen.getByText(/Los espacios en blanco no son nulos/)).toBeInTheDocument();
     const signals = screen.getByRole("list", { name: "Señales de limpieza detectadas" });

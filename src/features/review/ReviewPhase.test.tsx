@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { localeText } from "../../test/localeText";
 
 import type {
   DatasetPreview,
@@ -693,8 +694,7 @@ describe("ReviewPhase", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Señales del perfil" })).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Completitud por columna" })).toHaveTextContent(
-      "nombre95.0%",
+    expect(screen.getByRole("list", { name: "Completitud por columna" })).toHaveTextContent(localeText("nombre95.0%"),
     );
     expect(screen.getByRole("list", { name: "Posibles outliers por columna" })).toHaveTextContent(
       "id2",
@@ -702,11 +702,9 @@ describe("ReviewPhase", () => {
     expect(screen.getByRole("list", { name: "Patrones de nulos por columna" })).toHaveTextContent(
       "nombre6 nulos",
     );
-    expect(screen.getByRole("table", { name: "Tabla de patrones de nulos" })).toHaveTextContent(
-      "5.0%",
+    expect(screen.getByRole("table", { name: "Tabla de patrones de nulos" })).toHaveTextContent(localeText("5.0%"),
     );
-    expect(screen.getByRole("list", { name: "Validación de formato por columna" })).toHaveTextContent(
-      "nombre95.0%",
+    expect(screen.getByRole("list", { name: "Validación de formato por columna" })).toHaveTextContent(localeText("nombre95.0%"),
     );
     expect(screen.getByRole("table", { name: "Tabla de validación de formato" })).toHaveTextContent(
       "6",
@@ -733,11 +731,10 @@ describe("ReviewPhase", () => {
     );
     expect(
       screen.getByRole("region", { name: "Matriz de correlaciones numéricas" }),
-    ).toHaveTextContent("-0.42");
+    ).toHaveTextContent(localeText("-0.42"));
     expect(screen.getByText(/el resto está agrupado para evitar ruido y preservar privacidad/i))
       .toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Perfil de calidad por columna" })).toHaveTextContent(
-      "95.0%",
+    expect(screen.getByRole("region", { name: "Perfil de calidad por columna" })).toHaveTextContent(localeText("95.0%"),
     );
   });
 
@@ -783,7 +780,7 @@ describe("ReviewPhase", () => {
     expect(table).toHaveTextContent("2024-01-15");
     expect(table).toHaveTextContent("2024-03-28");
     expect(table).toHaveTextContent("108 de 120");
-    expect(table).toHaveTextContent("90.0%");
+    expect(table).toHaveTextContent(localeText("90.0%"));
     expect(table).toHaveTextContent("actualizado_en");
     expect(table).toHaveTextContent("Fecha y hora");
     expect(table).toHaveTextContent("2024-12-31 18:30:00 UTC");
@@ -794,7 +791,7 @@ describe("ReviewPhase", () => {
     const trendTable = screen.getByRole("table", { name: "Tendencia temporal para fecha" });
     expect(trendTable).toHaveTextContent("2024-02");
     expect(trendTable).toHaveTextContent("36");
-    expect(trendTable).toHaveTextContent("33.3%");
+    expect(trendTable).toHaveTextContent(localeText("33.3%"));
     const temporalTrend = screen.getByRole("group", { name: "Tendencia temporal · fecha" });
     expect(temporalTrend).toHaveTextContent("Se incluyen 108 de 120 filas interpretables.");
     expect(temporalTrend).toHaveTextContent("Los periodos más antiguos se agruparon");
@@ -839,7 +836,7 @@ describe("ReviewPhase", () => {
     const trendTable = screen.getByRole("table", { name: "Tendencia temporal para fecha" });
     expect(trendTable).toHaveTextContent("2024-04-02");
     expect(trendTable).toHaveTextContent("2024-04-03");
-    expect(trendTable).toHaveTextContent("50.0%");
+    expect(trendTable).toHaveTextContent(localeText("50.0%"));
   });
 
   it("expone un estado vacío cuando no hay días interpretables", () => {

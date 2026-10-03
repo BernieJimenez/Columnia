@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { localeText } from "../../test/localeText";
 import { QualitySnapshot } from "./QualitySnapshot";
 
 afterEach(cleanup);
@@ -12,9 +13,9 @@ describe("QualitySnapshot", () => {
     );
 
     expect(screen.getByRole("progressbar", { name: "Completitud global" })).toHaveAttribute("aria-valuenow", "85");
-    expect(screen.getByText("3 · 15.0%")).toBeInTheDocument();
-    expect(screen.getByText("1 · 25.0%")).toBeInTheDocument();
-    expect(screen.getByText("2 · 10.0%")).toBeInTheDocument();
+    expect(screen.getByText(localeText("3 · 15.0%"))).toBeInTheDocument();
+    expect(screen.getByText(localeText("1 · 25.0%"))).toBeInTheDocument();
+    expect(screen.getByText(localeText("2 · 10.0%"))).toBeInTheDocument();
   });
 
   it("evita porcentajes inválidos cuando no hay celdas", () => {
