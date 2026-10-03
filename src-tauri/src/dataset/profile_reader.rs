@@ -198,6 +198,12 @@ pub(super) async fn get_temporal_aggregation_impl(
                 .temporal_was_cancelled(generation)
         };
         ensure_not_cancelled(is_cancelled())?;
+        // FUN-18: month-first text dates are read as the profile found them.
+        let month_first = dataset.profile.as_ref().is_some_and(|profile| {
+            profile.columns.iter().any(|column| {
+                column.name == date_column && column.date_order.as_deref() == Some("mdy")
+            })
+        });
         if dataset.source_backed {
             let (source_path, expected_file_size, row_count) =
                 current_source_backed_context(dataset).ok_or_else(|| {
@@ -227,6 +233,7 @@ pub(super) async fn get_temporal_aggregation_impl(
                 &date_column,
                 &value_column,
                 aggregation,
+                month_first,
                 &is_cancelled,
             )?;
             let (_, final_file_size, _) = validate_dataset_file(&source_path)?;
@@ -245,6 +252,7 @@ pub(super) async fn get_temporal_aggregation_impl(
                 &date_column,
                 &value_column,
                 aggregation,
+                month_first,
                 &is_cancelled,
             )
         } else {
@@ -253,6 +261,7 @@ pub(super) async fn get_temporal_aggregation_impl(
                 &date_column,
                 &value_column,
                 aggregation,
+                month_first,
                 &is_cancelled,
             )
         }

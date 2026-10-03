@@ -200,7 +200,9 @@ where
                 profile.name
             )
         })?;
-        let Some(datetime) = quality_datetime_value(value) else {
+        let Some(datetime) =
+            ordered_datetime_value(value, profile.date_order.as_deref() == Some("mdy"))
+        else {
             continue;
         };
         let key = temporal_period_key(datetime);
@@ -274,7 +276,9 @@ where
                         profile.name
                     )
                 })?;
-                let Some(datetime) = quality_datetime_value(value) else {
+                let Some(datetime) =
+                    ordered_datetime_value(value, profile.date_order.as_deref() == Some("mdy"))
+                else {
                     continue;
                 };
                 let key = temporal_period_key(datetime);

@@ -8734,6 +8734,7 @@ fn aggregates_temporal_values_and_distinguishes_empty_periods_from_missing_metri
         "created_at",
         "amount",
         TemporalAggregationKind::Sum,
+        false,
         &|| false,
     )
     .expect("la tendencia debe sumar valores numéricos, incluso si vienen como texto");
@@ -8742,6 +8743,7 @@ fn aggregates_temporal_values_and_distinguishes_empty_periods_from_missing_metri
         "created_at",
         "amount",
         TemporalAggregationKind::Mean,
+        false,
         &|| false,
     )
     .expect("la tendencia debe promediar valores numéricos");
@@ -8782,15 +8784,22 @@ fn source_temporal_aggregation_matches_materialized_csv_aggregation() {
     let row_count = parquet_row_count(&snapshot_path).expect("el snapshot debe contar sus filas");
 
     for aggregation in [TemporalAggregationKind::Sum, TemporalAggregationKind::Mean] {
-        let materialized =
-            temporal_aggregation_summary(&frame, "created_at", "amount", aggregation, &|| false)
-                .expect("la agregación materializada debe calcularse");
+        let materialized = temporal_aggregation_summary(
+            &frame,
+            "created_at",
+            "amount",
+            aggregation,
+            false,
+            &|| false,
+        )
+        .expect("la agregación materializada debe calcularse");
         let source_backed = source_temporal_aggregation_summary(
             &snapshot_path,
             row_count,
             "created_at",
             "amount",
             aggregation,
+            false,
             &|| false,
         )
         .expect("la agregación source-backed debe recorrer el snapshot");
@@ -8837,15 +8846,22 @@ fn temporal_projection_snapshot_preserves_quoted_column_order_and_aggregation() 
         parquet_row_count(&projection_path).expect("el snapshot proyectado debe contar sus filas");
 
     for aggregation in [TemporalAggregationKind::Sum, TemporalAggregationKind::Mean] {
-        let materialized =
-            temporal_aggregation_summary(&frame, date_column, "amount", aggregation, &|| false)
-                .expect("la agregación materializada debe calcularse");
+        let materialized = temporal_aggregation_summary(
+            &frame,
+            date_column,
+            "amount",
+            aggregation,
+            false,
+            &|| false,
+        )
+        .expect("la agregación materializada debe calcularse");
         let source_backed = source_temporal_aggregation_summary(
             &projection_path,
             row_count,
             date_column,
             "amount",
             aggregation,
+            false,
             &|| false,
         )
         .expect("la tendencia debe calcularse desde el Parquet proyectado");
@@ -8878,6 +8894,7 @@ fn temporal_truncation_uses_a_weighted_mean_for_previous_periods() {
         "created_at",
         "amount",
         TemporalAggregationKind::Mean,
+        false,
         &|| false,
     )
     .expect("la tendencia anual debe calcularse");
@@ -8914,6 +8931,7 @@ fn temporal_monthly_aggregation_merges_daily_values_in_date_order() {
             "created_at",
             "amount",
             TemporalAggregationKind::Sum,
+            false,
             &|| false,
         )
         .expect("la suma mensual debe ser estable ante el orden del HashMap");
@@ -20053,4 +20071,42 @@ fn conditional_rules_refuse_values_the_when_column_cannot_read() {
     let error = evaluate_quality_rules(&frame, &[boolean]).unwrap_err();
     assert!(error.contains("true o false"), "{error}");
     assert!(evaluate_quality_rules(&frame, &[conditional("importe", "1.5")]).is_ok());
+}
+
+/// FUN-18: a month-first text column gives its real first and last dates,
+/// and its trend periods, instead of reading the ambiguous ones day first.
+#[test]
+fn month_first_text_dates_give_the_right_bounds_and_periods() {
+    // Day first, 02/01 would be 2 January and the earliest date.
+    let frame = df!(
+        "fecha" => [Some("02/01/2024"), Some("01/03/2024"), Some("12/25/2024"), Some("03/15/2024")],
+        "importe" => [Some(1_i64), Some(2), Some(3), Some(4)],
+    )
+    .expect("frame de prueba");
+    let profile = profile_dataset(&frame).expect("perfil");
+    let column = profile
+        .columns
+        .iter()
+        .find(|column| column.name == "fecha")
+        .expect("columna fecha");
+    assert_eq!(column.date_order.as_deref(), Some("mdy"));
+    assert_eq!(column.minimum.as_deref(), Some("01/03/2024"));
+    assert_eq!(column.maximum.as_deref(), Some("12/25/2024"));
+
+    let series = temporal_aggregation_summary(
+        &frame,
+        "fecha",
+        "importe",
+        TemporalAggregationKind::Sum,
+        true,
+        &|| false,
+    )
+    .expect("la tendencia debe calcularse");
+    let labels = series
+        .periods
+        .iter()
+        .map(|period| period.period.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(labels.first().copied(), Some("2024-01"), "{labels:?}");
+    assert!(labels.contains(&"2024-02"), "02/01 es febrero: {labels:?}");
 }

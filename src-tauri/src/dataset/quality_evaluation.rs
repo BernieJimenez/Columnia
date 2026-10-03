@@ -1302,6 +1302,45 @@ pub(super) fn quality_datetime_value(value: AnyValue<'_>) -> Option<NaiveDateTim
     }
 }
 
+/// `text` read month first (`03/04/2024` is 4 March), or `None` when it is
+/// not a day-month date (FUN-18).
+pub(super) fn month_first_datetime(text: &str) -> Option<NaiveDateTime> {
+    let text = text.trim();
+    let separator = text
+        .chars()
+        .find(|character| matches!(character, '/' | '-' | '.'))?;
+    let mut parts = text.splitn(3, separator);
+    let (month, day, rest) = (parts.next()?, parts.next()?, parts.next()?);
+    let short_number = |part: &str| {
+        (1..=2).contains(&part.len()) && part.bytes().all(|byte| byte.is_ascii_digit())
+    };
+    if !short_number(month) || !short_number(day) || !rest.starts_with(|c: char| c.is_ascii_digit())
+    {
+        return None;
+    }
+    let day_first = format!("{day}{separator}{month}{separator}{rest}");
+    quality_datetime_value(AnyValue::String(&day_first))
+}
+
+/// A date of a column whose order the profile inferred: month first when it
+/// found `mdy`, as `quality_datetime_value` reads it otherwise (FUN-18).
+pub(super) fn ordered_datetime_value(
+    value: AnyValue<'_>,
+    month_first: bool,
+) -> Option<NaiveDateTime> {
+    if month_first {
+        let text = match &value {
+            AnyValue::String(text) => Some(*text),
+            AnyValue::StringOwned(text) => Some(text.as_str()),
+            _ => None,
+        };
+        if let Some(datetime) = text.and_then(month_first_datetime) {
+            return Some(datetime);
+        }
+    }
+    quality_datetime_value(value)
+}
+
 fn quality_comparison_matches(
     left: AnyValue<'_>,
     right: AnyValue<'_>,

@@ -154,9 +154,9 @@ medio = 1 día; agregado por suma.
   - [x] `REN-06` (Medio) Materializaciones completas de columnas como `Vec<Option<String>>` y accesos celda a celda en validación y caminos eager (candidato a medir) — hecho el 2026-10-03
   - [x] `COD-03` (Medio) Tres implementaciones paralelas de cada paso de receta con validaciones copiadas (origen de las divergencias R6-06/07/12/13) — hecho el 2026-10-03
   - [x] `QA-13` (Medio) Los tests «source-backed igual que eager» comparan en realidad con el motor lazy, no con el eager — hecho el 2026-10-03
-- [ ] **RV42** — **Reglas de calidad** — Mínimo/máximo temporales de columnas de texto ignoran el orden de fecha inferido (siempre… (y 4 problemas más) · *Esfuerzo: 2,8 días*
+- [x] **RV42** — **Reglas de calidad** — Mínimo/máximo temporales de columnas de texto ignoran el orden de fecha inferido (siempre… (y 4 problemas más) · *Esfuerzo: 2,8 días* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-18, FUN-35, FUN-36, REN-07, PROD-03.
-  - [ ] `FUN-18` (Medio) Mínimo/máximo temporales de columnas de texto ignoran el orden de fecha inferido (siempre día/mes primero)
+  - [x] `FUN-18` (Medio) Mínimo/máximo temporales de columnas de texto ignoran el orden de fecha inferido (siempre día/mes primero) — hecho el 2026-10-03
   - [x] `FUN-35` (Medio) `conditional`: si el valor de `when` no se puede interpretar para el tipo de la columna, la regla pasa en vacío — hecho el 2026-10-03
   - [x] `FUN-36` (Medio) Reglas agregadas: textos no numéricos se omiten sin contarlos, y la tolerancia por defecto es 0 sobre sumas f64 — hecho el 2026-10-03
   - [x] `REN-07` (Medio) `conditional` con `then: regex` compila la expresión regular en cada fila — hecho el 2026-10-03

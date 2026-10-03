@@ -25,6 +25,19 @@ pub(super) struct TemporalBounds {
     maximum: Option<(NaiveDateTime, String)>,
 }
 
+/// The bounds read in the order the column's dates use (FUN-18).
+fn bounds_for_order(
+    day_first: TemporalBounds,
+    month_first: TemporalBounds,
+    inference: Option<DateInference>,
+) -> TemporalBounds {
+    if inference.is_some_and(|inference| inference.order_label() == "mdy") {
+        month_first
+    } else {
+        day_first
+    }
+}
+
 impl TemporalBounds {
     fn observe(&mut self, datetime: NaiveDateTime, value: String) {
         if self
@@ -422,6 +435,8 @@ struct TextTally {
     decimal_count: usize,
     date_count: usize,
     temporal_bounds: TemporalBounds,
+    /// The same bounds read month first, used when the column is mdy (FUN-18).
+    month_first_bounds: TemporalBounds,
     total_length: usize,
     minimum_length: Option<usize>,
     maximum_length: Option<usize>,
@@ -464,6 +479,8 @@ impl TextTally {
                 if let Some(datetime) = quality_datetime_value(AnyValue::String(trimmed)) {
                     self.date_count += count;
                     self.temporal_bounds.observe_str(datetime, trimmed);
+                    self.month_first_bounds
+                        .observe_str(month_first_datetime(trimmed).unwrap_or(datetime), trimmed);
                 }
             }
         }
@@ -490,6 +507,7 @@ impl TextTally {
             self.decimal_count,
             self.date_count,
         );
+        let date_inference = self.date_tally.finish();
         TextStatistics {
             value_count: self.value_count,
             empty_count: self.empty_count,
@@ -501,8 +519,12 @@ impl TextTally {
             suggested_type,
             type_match_percentage,
             invalid_type_count,
-            temporal_bounds: self.temporal_bounds,
-            date_inference: self.date_tally.finish(),
+            temporal_bounds: bounds_for_order(
+                self.temporal_bounds,
+                self.month_first_bounds,
+                date_inference,
+            ),
+            date_inference,
             untrimmed_count: self.untrimmed_count,
         }
     }
@@ -693,6 +715,8 @@ pub(super) struct SourceTextAccumulator {
     decimal_count: usize,
     date_count: usize,
     temporal_bounds: TemporalBounds,
+    /// The same bounds read month first, used when the column is mdy (FUN-18).
+    month_first_bounds: TemporalBounds,
     total_length: usize,
     minimum_length: Option<usize>,
     maximum_length: Option<usize>,
@@ -714,6 +738,7 @@ impl SourceTextAccumulator {
             decimal_count: 0,
             date_count: 0,
             temporal_bounds: TemporalBounds::default(),
+            month_first_bounds: TemporalBounds::default(),
             total_length: 0,
             minimum_length: None,
             maximum_length: None,
@@ -791,7 +816,9 @@ impl SourceTextAccumulator {
             if short && is_supported_date_candidate(trimmed) {
                 if let Some(datetime) = quality_datetime_value(AnyValue::String(trimmed)) {
                     self.date_count = self.date_count.saturating_add(1);
-                    self.temporal_bounds.observe(datetime, trimmed.to_owned());
+                    self.temporal_bounds.observe_str(datetime, trimmed);
+                    self.month_first_bounds
+                        .observe_str(month_first_datetime(trimmed).unwrap_or(datetime), trimmed);
                 }
             }
             numeric.push(parsed_numeric)?;
@@ -809,6 +836,7 @@ impl SourceTextAccumulator {
             self.decimal_count,
             self.date_count,
         );
+        let date_inference = self.date_tally.finish();
         (
             TextStatistics {
                 value_count: self.value_count,
@@ -822,8 +850,12 @@ impl SourceTextAccumulator {
                 suggested_type,
                 type_match_percentage,
                 invalid_type_count,
-                temporal_bounds: self.temporal_bounds,
-                date_inference: self.date_tally.finish(),
+                temporal_bounds: bounds_for_order(
+                    self.temporal_bounds,
+                    self.month_first_bounds,
+                    date_inference,
+                ),
+                date_inference,
                 untrimmed_count: self.untrimmed_count,
             },
             categorical_candidates,
@@ -1739,6 +1771,7 @@ pub(super) fn temporal_aggregation_summary<C>(
     date_column: &str,
     value_column: &str,
     aggregation: TemporalAggregationKind,
+    month_first: bool,
     is_cancelled: &C,
 ) -> Result<TemporalAggregationSeries, String>
 where
@@ -1764,7 +1797,7 @@ where
         let date_value = date_values.get(row_index).map_err(|error| {
             format!("No se pudo leer la columna de fecha '{date_column}': {error}")
         })?;
-        let Some(datetime) = quality_datetime_value(date_value) else {
+        let Some(datetime) = ordered_datetime_value(date_value, month_first) else {
             continue;
         };
         let metric_value = metric_values.get(row_index).map_err(|error| {
@@ -1792,6 +1825,7 @@ pub(super) fn source_temporal_aggregation_summary<C>(
     date_column: &str,
     value_column: &str,
     aggregation: TemporalAggregationKind,
+    month_first: bool,
     is_cancelled: &C,
 ) -> Result<TemporalAggregationSeries, String>
 where
@@ -1826,7 +1860,7 @@ where
                 let date_value = date_values.get(row_index).map_err(|error| {
                     format!("No se pudo leer la columna de fecha '{date_column}': {error}")
                 })?;
-                let Some(datetime) = quality_datetime_value(date_value) else {
+                let Some(datetime) = ordered_datetime_value(date_value, month_first) else {
                     continue;
                 };
                 let metric_value = metric_values.get(row_index).map_err(|error| {

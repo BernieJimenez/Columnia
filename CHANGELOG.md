@@ -185,6 +185,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Revisar y Explorar leen las fechas de texto en formato mes/día
+  (estadounidense) como mes/día cuando el perfil detecta ese orden: el rango de
+  fechas y los meses de las tendencias ya no salen cambiados.
 - Reglas de calidad: una condición con un valor que la columna no puede leer
   («1,5» en una columna numérica, «sí» en una booleana) se rechaza al definirla
   y la regla solo cuenta las filas donde se cumple; las reglas agregadas cuentan
