@@ -102,6 +102,7 @@ function ControllerHarness({
       {controller.changeStatus.kind === "working" && controller.changeStatus.cancelRequested ? "sí" : "no"}
     </span>
     <span data-testid="history-index">{controller.historyStatus.currentIndex}</span>
+    <span data-testid="history-snapshots">{controller.historyStatus.snapshotsEnabled ? "activo" : "desactivado"}</span>
   </>;
 }
 
@@ -184,11 +185,23 @@ describe("usePrepareController", () => {
     render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Duplicar" }));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Se eliminaron 1 filas duplicadas adicionales."));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Se eliminó 1 fila duplicada adicional."));
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
     expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
     expect(screen.getByTestId("history-index")).toHaveTextContent("1");
+  });
+
+  it("aplica el cambio con el historial reversible desactivado y lo refleja en el estado", async () => {
+    vi.spyOn(bridge, "removeDuplicates").mockResolvedValue({ dataset, affectedRowCount: 3 });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue({ ...EMPTY_HISTORY, snapshotsEnabled: false });
+    const onDatasetChanged = vi.fn();
+    render(<ControllerHarness onDatasetChanged={onDatasetChanged} onProfileInvalidated={vi.fn()} onDeliveryInvalidated={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Duplicar" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Se eliminaron 3 filas duplicadas adicionales."));
+    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    await waitFor(() => expect(screen.getByTestId("history-snapshots")).toHaveTextContent("desactivado"));
   });
 
   it("serializa las mutaciones hasta que termina la operación activa", async () => {
@@ -218,7 +231,7 @@ describe("usePrepareController", () => {
 
     resolveRemoval({ dataset, affectedRowCount: 1 });
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se eliminaron 1 filas duplicadas adicionales.",
+      "Se eliminó 1 fila duplicada adicional.",
     ));
 
     fireEvent.click(screen.getByRole("button", { name: "Parecidos" }));
@@ -239,7 +252,7 @@ describe("usePrepareController", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Parecidos" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se eliminaron 1 filas duplicadas parecidas.",
+      "Se eliminó 1 fila duplicada parecida.",
     ));
     expect(bridge.removeNearDuplicates).toHaveBeenCalledOnce();
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
@@ -323,7 +336,7 @@ describe("usePrepareController", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Vacías" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se eliminaron 1 columnas completamente vacías: notas.",
+      "Se eliminó 1 columna completamente vacía: notas.",
     ));
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
@@ -344,7 +357,7 @@ describe("usePrepareController", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Alta nulidad" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se eliminaron 1 columnas con alta nulidad: comentarios.",
+      "Se eliminó 1 columna con alta nulidad: comentarios.",
     ));
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
@@ -365,7 +378,7 @@ describe("usePrepareController", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Identificadores" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se retiraron 1 columnas identificadoras: customer_id.",
+      "Se retiró 1 columna identificadora: customer_id.",
     ));
     expect(bridge.removeIdentifierColumns).toHaveBeenCalledOnce();
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
@@ -583,7 +596,7 @@ describe("usePrepareController", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Outliers" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se reemplazaron 1 outliers por la mediana en: total. El cambio puede revertirse desde el historial.",
+      "Se reemplazó 1 valor atípico por la mediana en: total. El cambio puede revertirse desde el historial.",
     ));
     expect(bridge.imputeOutlierValues).toHaveBeenCalledOnce();
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
@@ -608,7 +621,7 @@ describe("usePrepareController", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Capear" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se limitaron 1 outliers a los límites IQR en: total. El cambio puede revertirse desde el historial.",
+      "Se limitó 1 valor atípico a los límites IQR en: total. El cambio puede revertirse desde el historial.",
     ));
     expect(bridge.capOutlierValues).toHaveBeenCalledOnce();
     expect(callbacks.onProfileInvalidated).toHaveBeenCalledOnce();
@@ -840,16 +853,16 @@ describe("usePrepareController", () => {
 
     for (const [name, expected] of [
       ["Proteger personales", "1 valor en 1 columna"],
-      ["Booleanos", "1 valores booleanos"],
-      ["Fechas", "1 valores de fecha"],
+      ["Booleanos", "Se normalizó 1 valor booleano"],
+      ["Fechas", "Se interpretó 1 valor de fecha"],
       ["Codificación", "1 celda"],
-      ["Números", "1 valores numéricos"],
+      ["Números", "Se convirtió 1 valor numérico"],
       ["Tipos incompatibles", "2 valores incompatibles"],
-      ["Imputar", "1 valores nulos"],
-      ["Outliers", "1 outliers"],
+      ["Imputar", "Se imputó 1 valor nulo"],
+      ["Outliers", "Se reemplazó 1 valor atípico"],
       ["Capear", "No se detectaron outliers"],
       ["Eliminar atípicos", "No se detectaron filas atípicas"],
-      ["Categorías", "1 nulos textuales"],
+      ["Categorías", "Se completó 1 nulo textual"],
       ["Auditoría", "no produjo cambios"],
       ["Columnas", "Se normalizó 1 nombre"],
       ["Recortar", "1 celda en 1 fila"],
@@ -895,13 +908,23 @@ describe("usePrepareController", () => {
       "Alta nulidad",
       "Identificadores",
       "Personales",
+      "Proteger personales",
+      "Fechas",
+      "Números",
       "Booleanos",
+      "Codificación",
+      "Tipos incompatibles",
       "Imputar",
+      "Categorías",
+      "Outliers",
+      "Capear",
+      "Eliminar atípicos",
       "Auditoría",
       "Columnas",
       "Recortar",
       "Texto",
       "Recomendadas",
+      "Solo tipos",
       "Receta",
       "Deshacer controlador",
       "Rehacer controlador",

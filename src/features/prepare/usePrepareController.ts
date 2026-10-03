@@ -1,3 +1,4 @@
+import { plural } from "../../plural";
 import { isCancellationError } from "../../bridge/cancellation";
 import { useRef, useState } from "react";
 
@@ -116,7 +117,7 @@ export function usePrepareController({
       onProfileInvalidated();
       setChangeStatus({
         kind: "applied",
-        message: `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas duplicadas adicionales.`,
+        message: `${result.affectedRowCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.affectedRowCount, "fila duplicada adicional", "filas duplicadas adicionales")}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -136,7 +137,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.affectedRowCount === 0
           ? "No se detectaron duplicados parecidos adicionales."
-          : `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas duplicadas parecidas. La primera fila de cada grupo y las copias exactas se conservaron.`,
+          : `${result.affectedRowCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.affectedRowCount, "fila duplicada parecida", "filas duplicadas parecidas")}. La primera fila de cada grupo y las copias exactas se conservaron.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -156,7 +157,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.affectedRowCount === 0
           ? "No se detectaron filas completamente vacías."
-          : `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas completamente vacías.`,
+          : `${result.affectedRowCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.affectedRowCount, "fila completamente vacía", "filas completamente vacías")}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -176,7 +177,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.removedColumnCount === 0
           ? "No se eliminaron columnas constantes; se conserva al menos una columna del dataset."
-          : `Se eliminaron ${result.removedColumnCount.toLocaleString()} columnas constantes: ${result.removedColumns.join(", ")}.`,
+          : `${result.removedColumnCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.removedColumnCount, "columna constante", "columnas constantes")}: ${result.removedColumns.join(", ")}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -196,7 +197,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.removedColumnCount === 0
           ? "No se eliminaron columnas vacías; se conserva al menos una columna del dataset."
-          : `Se eliminaron ${result.removedColumnCount.toLocaleString()} columnas completamente vacías: ${result.removedColumns.join(", ")}.`,
+          : `${result.removedColumnCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.removedColumnCount, "columna completamente vacía", "columnas completamente vacías")}: ${result.removedColumns.join(", ")}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -216,7 +217,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.removedColumnCount === 0
           ? "No se detectaron columnas con al menos 80% de valores nulos."
-          : `Se eliminaron ${result.removedColumnCount.toLocaleString()} columnas con alta nulidad: ${result.removedColumns.join(", ")}.`,
+          : `${result.removedColumnCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.removedColumnCount, "columna con alta nulidad", "columnas con alta nulidad")}: ${result.removedColumns.join(", ")}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -236,7 +237,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.removedColumnCount === 0
           ? "No se detectaron columnas identificadoras para retirar; se conserva al menos una columna del dataset."
-          : `Se retiraron ${result.removedColumnCount.toLocaleString()} columnas identificadoras: ${result.removedColumns.join(", ")}. La operación puede revertirse desde el historial.`,
+          : `${result.removedColumnCount === 1 ? "Se retiró" : "Se retiraron"} ${plural(result.removedColumnCount, "columna identificadora", "columnas identificadoras")}: ${result.removedColumns.join(", ")}. La operación puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -256,7 +257,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.removedColumnCount === 0
           ? "No se detectaron columnas de datos personales para retirar; se conserva al menos una columna del dataset."
-          : `Se retiraron ${result.removedColumnCount.toLocaleString()} columnas de datos personales. No se muestran nombres ni valores. La operación puede revertirse desde el historial.`,
+          : `${result.removedColumnCount === 1 ? "Se retiró" : "Se retiraron"} ${plural(result.removedColumnCount, "columna de datos personales", "columnas de datos personales")}. No se muestran nombres ni valores. La operación puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -303,7 +304,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.changedCellCount === 0
           ? "No se encontraron alias booleanos que necesitaran normalización."
-          : `Se normalizaron ${result.changedCellCount.toLocaleString()} valores booleanos en: ${columns}.`,
+          : `${result.changedCellCount === 1 ? "Se normalizó" : "Se normalizaron"} ${plural(result.changedCellCount, "valor booleano", "valores booleanos")} en: ${columns}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -324,7 +325,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.changedCellCount === 0
           ? "No se detectaron columnas de texto con un formato de fecha dominante y seguro."
-          : `Se interpretaron ${result.changedCellCount.toLocaleString()} valores de fecha en: ${columns}.${nullifiedCellsSentence(result.changedColumns)} Las columnas ambiguas se dejaron intactas y el cambio puede revertirse desde el historial.`,
+          : `${result.changedCellCount === 1 ? "Se interpretó" : "Se interpretaron"} ${plural(result.changedCellCount, "valor de fecha", "valores de fecha")} en: ${columns}.${nullifiedCellsSentence(result.changedColumns)} Las columnas ambiguas se dejaron intactas y el cambio puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -368,7 +369,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.changedCellCount === 0
           ? "No se detectaron columnas de texto numéricas seguras para convertir."
-          : `Se convirtieron ${result.changedCellCount.toLocaleString()} valores numéricos en: ${columns}.${nullifiedCellsSentence(result.changedColumns)} Los identificadores y códigos con ceros iniciales se conservaron; el cambio puede revertirse desde el historial.`,
+          : `${result.changedCellCount === 1 ? "Se convirtió" : "Se convirtieron"} ${plural(result.changedCellCount, "valor numérico", "valores numéricos")} en: ${columns}.${nullifiedCellsSentence(result.changedColumns)} Los identificadores y códigos con ceros iniciales se conservaron; el cambio puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -414,7 +415,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.changedCellCount === 0
           ? "No se encontraron nulos imputables con una señal conservadora."
-          : `Se imputaron ${result.changedCellCount.toLocaleString()} valores nulos en: ${columns}.`,
+          : `${result.changedCellCount === 1 ? "Se imputó" : "Se imputaron"} ${plural(result.changedCellCount, "valor nulo", "valores nulos")} en: ${columns}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -435,7 +436,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.changedCellCount === 0
           ? "No se detectaron outliers que necesitaran imputación."
-          : `Se reemplazaron ${result.changedCellCount.toLocaleString()} outliers por la mediana en: ${columns}. El cambio puede revertirse desde el historial.`,
+          : `${result.changedCellCount === 1 ? "Se reemplazó" : "Se reemplazaron"} ${plural(result.changedCellCount, "valor atípico", "valores atípicos")} por la mediana en: ${columns}. El cambio puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -459,10 +460,10 @@ export function usePrepareController({
         message: action === "cap"
           ? result.changedCellCount === 0
             ? "No se detectaron outliers que necesitaran limitación."
-            : `Se limitaron ${result.changedCellCount.toLocaleString()} outliers a los límites IQR en: ${columns}. El cambio puede revertirse desde el historial.`
+            : `${result.changedCellCount === 1 ? "Se limitó" : "Se limitaron"} ${plural(result.changedCellCount, "valor atípico", "valores atípicos")} a los límites IQR en: ${columns}. El cambio puede revertirse desde el historial.`
           : result.affectedRowCount === 0
             ? "No se detectaron filas atípicas para eliminar."
-            : `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas atípicas según los límites IQR. El cambio puede revertirse desde el historial.`,
+            : `${result.affectedRowCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.affectedRowCount, "fila atípica", "filas atípicas")} según los límites IQR. El cambio puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -483,7 +484,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.changedCellCount === 0
           ? "No se encontraron nulos textuales para completar como Desconocido."
-          : `Se completaron ${result.changedCellCount.toLocaleString()} nulos textuales como Desconocido en: ${columns}. El cambio puede revertirse desde el historial.`,
+          : `${result.changedCellCount === 1 ? "Se completó" : "Se completaron"} ${plural(result.changedCellCount, "nulo textual", "nulos textuales")} como Desconocido en: ${columns}. El cambio puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -527,7 +528,7 @@ export function usePrepareController({
             ? "Los nombres de las columnas ya estaban normalizados."
             : result.renamedColumnCount === 1
               ? "Se normalizó 1 nombre de columna."
-              : `Se normalizaron ${result.renamedColumnCount.toLocaleString()} nombres de columnas.`,
+              : `${result.renamedColumnCount === 1 ? "Se normalizó" : "Se normalizaron"} ${plural(result.renamedColumnCount, "nombre de columna", "nombres de columnas")}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -596,7 +597,7 @@ export function usePrepareController({
         (options.trimText || options.normalizeSentinels) && result.changedCellCount > 0 ? changedCells : null,
         options.normalizeColumnNames && result.renamedColumnCount > 0 ? renamedColumns : null,
         options.removeDuplicates && result.removedRowCount > 0
-          ? `se retiraron ${result.removedRowCount.toLocaleString()} filas duplicadas exactas`
+          ? `${result.removedRowCount === 1 ? "se retiró" : "se retiraron"} ${plural(result.removedRowCount, "fila duplicada exacta", "filas duplicadas exactas")}`
           : null,
         result.typedColumnCount > 0
           ? `${result.typedColumnCount.toLocaleString()} ${result.typedColumnCount === 1 ? "columna convertida" : "columnas convertidas"} a número`
@@ -639,7 +640,7 @@ export function usePrepareController({
         kind: "applied",
         message: total === 0
           ? "La receta no produjo cambios en el dataset."
-          : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones, ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas, ${result.removedRowCount.toLocaleString()} filas filtradas, ${result.outlierRemovedRowCount.toLocaleString()} filas atípicas eliminadas, ${result.calculatedColumnCount.toLocaleString()} columnas calculadas, ${result.replacedCellCount.toLocaleString()} celdas reemplazadas, ${result.splitColumnCount.toLocaleString()} columnas divididas, ${result.mergedColumnCount.toLocaleString()} columnas combinadas, ${(result.droppedColumnCount + result.droppedSourceColumnCount).toLocaleString()} columnas descartadas, ${result.adjustedOutlierCellCount.toLocaleString()} outliers ajustados, ${result.normalizedContactCellCount.toLocaleString()} contactos normalizados en ${result.normalizedContactColumnCount.toLocaleString()} columnas, ${result.extractedColumnCount.toLocaleString()} columnas extraídas y resumen de ${result.groupCount.toLocaleString()} grupos con ${result.aggregatedColumnCount.toLocaleString()} agregaciones.`,
+          : `Receta aplicada: ${plural(result.renamedColumnCount, "renombre", "renombres")}, ${plural(result.convertedColumnCount, "conversión", "conversiones")}, ${plural(result.parsedDateColumnCount, "fecha interpretada", "fechas interpretadas")}, ${plural(result.removedRowCount, "fila filtrada", "filas filtradas")}, ${plural(result.outlierRemovedRowCount, "fila atípica eliminada", "filas atípicas eliminadas")}, ${plural(result.calculatedColumnCount, "columna calculada", "columnas calculadas")}, ${plural(result.replacedCellCount, "celda reemplazada", "celdas reemplazadas")}, ${plural(result.splitColumnCount, "columna dividida", "columnas divididas")}, ${plural(result.mergedColumnCount, "columna combinada", "columnas combinadas")}, ${plural(result.droppedColumnCount + result.droppedSourceColumnCount, "columna descartada", "columnas descartadas")}, ${plural(result.adjustedOutlierCellCount, "valor atípico ajustado", "valores atípicos ajustados")}, ${plural(result.normalizedContactCellCount, "contacto normalizado", "contactos normalizados")} en ${plural(result.normalizedContactColumnCount, "columna", "columnas")}, ${plural(result.extractedColumnCount, "columna extraída", "columnas extraídas")} y resumen de ${plural(result.groupCount, "grupo", "grupos")} con ${plural(result.aggregatedColumnCount, "agregación", "agregaciones")}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();

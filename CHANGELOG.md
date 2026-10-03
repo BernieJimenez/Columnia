@@ -185,6 +185,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Los mensajes de preparación concuerdan en número («Se eliminó 1 fila», «Se
+  eliminaron 3 filas») gracias a un helper de plurales con pruebas, y las
+  pruebas del controlador cubren el historial desactivado y todas las acciones
+  sin dataset.
 - Preparar ya no afirma que la imputación «nunca inventa valores» (dice que la
   mediana o la moda son una estimación) ni que todo se puede deshacer: la frase
   de reversibilidad solo aparece con el historial activo, y con el historial

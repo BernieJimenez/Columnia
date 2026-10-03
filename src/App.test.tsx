@@ -2476,7 +2476,7 @@ describe("App", () => {
       groupSummary: null,
       contactNormalizations: [], textExtractions: [],
     }, null);
-    expect(await screen.findByText(/Receta aplicada: 1 renombres, 1 conversiones, 1 fechas interpretadas/)).toBeInTheDocument();
+    expect(await screen.findByText(/Receta aplicada: 1 renombre, 1 conversión, 1 fecha interpretada/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
   });
 
@@ -2844,7 +2844,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Confirmar y aplicar" }));
     expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ contactNormalizations: [{ column: "correo", kind: "email" }], textExtractions: [{ source: "codigo", kind: "before", name: "prefijo", delimiter: "-" }] }), null);
-    expect(await screen.findByText(/1 contactos normalizados en 1 columnas, 1 columnas extraídas/)).toBeInTheDocument();
+    expect(await screen.findByText(/1 contacto normalizado en 1 columna, 1 columna extraída/)).toBeInTheDocument();
   });
 
   it("muestra el estado degradado del historial entregado por Rust", async () => {
