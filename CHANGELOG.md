@@ -174,6 +174,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- «Limitar outliers» conserva las columnas enteras como enteras (límites
+  redondeados hacia dentro) en archivos pequeños y grandes, y la imputación de
+  una columna de enteros grandes solo rellena las celdas vacías sin redondear
+  los demás valores (FUN-16).
 - «Eliminar duplicados parecidos» deja cada grupo con una sola fila en una
   pasada: antes conservaba las copias exactas de una variante retirada y la
   señal seguía apareciendo hasta repetir la acción (FUN-08).

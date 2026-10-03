@@ -110,7 +110,7 @@ medio = 1 día; agregado por suma.
 - [ ] **RV34** — **Motor (dataset.rs)** — «Eliminar duplicados parecidos» necesita dos pasadas y la primera deja una pareja parecida (y 4 problemas más) · *Esfuerzo: 3,8 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-08, FUN-16, REN-03, REN-04, LIM-01.
   - [x] `FUN-08` (Medio) «Eliminar duplicados parecidos» necesita dos pasadas y la primera deja una pareja parecida — hecho el 2026-10-03
-  - [ ] `FUN-16` (Medio) `apply_outlier_mode` (Cap) cambia una columna Int64 a Float64 y `impute_missing_values_in_columns` pasa enteros grandes por f64
+  - [x] `FUN-16` (Medio) `apply_outlier_mode` (Cap) cambia una columna Int64 a Float64 y `impute_missing_values_in_columns` pasa enteros grandes por f64 — hecho el 2026-10-03
   - [ ] `REN-03` (Medio) `validate_conflict_decisions_with_cancel` es O(conflictos × decisiones)
   - [ ] `REN-04` (Medio) `open_last_export_in_power_bi` lee el CSV completo en un comando síncrono
   - [ ] `LIM-01` (Medio) `src-tauri/src/dataset.rs` mezcla modelo de datos, historial de mutaciones, rutas DuckDB y comandos; deuda estructural y código duplicado entre rutas

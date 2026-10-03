@@ -15232,12 +15232,13 @@ fn direct_outlier_modes_report_affected_rows_and_preserve_nulls() {
     let (capped, cap_rows, cap_cells, cap_columns) =
         apply_outlier_mode(&frame, OutlierMode::Cap).unwrap();
     assert_eq!((cap_rows, cap_cells, cap_columns.len()), (1, 1, 1));
-    assert_eq!(capped.column("amount").unwrap().dtype(), &DataType::Float64);
+    // FUN-16: an integer column stays integer after capping.
+    assert_eq!(capped.column("amount").unwrap().dtype(), &DataType::Int64);
     assert_eq!(
-        capped.column("amount").unwrap().f64().unwrap().get(4),
-        Some(7.0)
+        capped.column("amount").unwrap().i64().unwrap().get(4),
+        Some(7)
     );
-    assert_eq!(capped.column("amount").unwrap().f64().unwrap().get(5), None);
+    assert_eq!(capped.column("amount").unwrap().i64().unwrap().get(5), None);
 
     let (dropped, drop_rows, drop_cells, drop_columns) =
         apply_outlier_mode(&frame, OutlierMode::Drop).unwrap();
@@ -18924,4 +18925,29 @@ fn one_near_duplicate_pass_leaves_no_near_duplicate_behind() {
     let output = read_parquet_frame(dataset.source_path.as_deref().unwrap()).unwrap();
     assert!(output.equals_missing(&cleaned));
     let _ = fs::remove_file(path);
+}
+
+/// FUN-16: capping keeps an integer column integer, and imputing a column of
+/// large integers only fills its empty cells.
+#[test]
+fn outlier_cap_and_imputation_keep_integer_columns_exact() {
+    let frame = df!("cantidad" => [1_i64, 2, 2, 3, 3, 4, 100]).expect("frame");
+    let (capped, _, changed, _) = apply_outlier_mode(&frame, OutlierMode::Cap).expect("cap");
+    assert_eq!(changed, 1);
+    assert_eq!(capped.column("cantidad").unwrap().dtype(), &DataType::Int64);
+    let values = capped.column("cantidad").unwrap().i64().unwrap();
+    assert!(
+        values.iter().flatten().all(|value| value <= 6),
+        "{values:?}"
+    );
+
+    let big = 9_007_199_254_740_993_i64;
+    let frame = df!("id" => [Some(big), None, Some(big + 2), Some(big + 4)]).expect("frame");
+    let (imputed, _, changed, _, _) =
+        impute_missing_values_in_columns(&frame, None).expect("imputar");
+    assert_eq!(changed, 1);
+    let values = imputed.column("id").unwrap().i64().unwrap();
+    assert_eq!(values.get(0), Some(big));
+    assert_eq!(values.get(1), Some(big + 2));
+    assert_eq!(values.get(3), Some(big + 4));
 }

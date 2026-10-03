@@ -5327,6 +5327,14 @@ fn source_backed_direct_outlier_with_cancellation(
             let lower = source_backed_outlier_literal(plan.lower);
             let upper = source_backed_outlier_literal(plan.upper);
             let expression = match action {
+                OutlierAction::Cap if plan.dtype == DataType::Int64 => {
+                    match integer_outlier_limits(plan.lower, plan.upper) {
+                        Some((low, high)) => format!(
+                            "CASE WHEN {value} IS NULL THEN NULL WHEN {value} < {lower} THEN CAST({low} AS BIGINT) WHEN {value} > {upper} THEN CAST({high} AS BIGINT) ELSE {identifier} END"
+                        ),
+                        None => identifier.clone(),
+                    }
+                }
                 OutlierAction::Cap => format!(
                     "CASE WHEN {value} IS NULL THEN NULL WHEN {value} < {lower} THEN {lower} WHEN {value} > {upper} THEN {upper} ELSE {value} END"
                 ),
@@ -6250,6 +6258,42 @@ fn impute_missing_values_in_columns(
             continue;
         }
 
+        // Integers keep every digit (FUN-16): only the empty cells change.
+        if column.dtype() == &DataType::Int64 {
+            let integers = column.i64().map_err(|error| {
+                format!("No se pudo leer la columna numérica '{name}': {error}")
+            })?;
+            let mut observed = integers.iter().flatten().collect::<Vec<_>>();
+            if observed.is_empty() {
+                continue;
+            }
+            observed.sort_unstable();
+            let replacement = observed[(observed.len() - 1) / 2];
+            let mut column_changes = 0;
+            let transformed = integers
+                .iter()
+                .enumerate()
+                .map(|(row_index, value)| {
+                    value.or_else(|| {
+                        column_changes += 1;
+                        changed_cell_count += 1;
+                        changed_rows[row_index] = true;
+                        Some(replacement)
+                    })
+                })
+                .collect::<Vec<_>>();
+            cleaned
+                .replace(&name, Column::new(name.clone().into(), transformed))
+                .map_err(|error| format!("No se pudo imputar la columna '{name}': {error}"))?;
+            changed_columns.push(ChangedTextColumn {
+                name,
+                changed_cell_count: column_changes,
+                nullified_cell_count: 0,
+            });
+            fill_values.push(replacement.to_string());
+            continue;
+        }
+
         let numeric = column.cast(&DataType::Float64).map_err(|error| {
             format!("No se pudo preparar la columna numérica '{name}': {error}")
         })?;
@@ -6551,6 +6595,14 @@ enum OutlierMode {
     Drop,
 }
 
+/// Integer limits for capping an integer column: inside `[lower, upper]`.
+fn integer_outlier_limits(lower: f64, upper: f64) -> Option<(i64, i64)> {
+    let low = lower.ceil();
+    let high = upper.floor();
+    (low <= high && low >= i64::MIN as f64 && high <= i64::MAX as f64)
+        .then_some((low as i64, high as i64))
+}
+
 fn apply_outlier_mode(
     frame: &DataFrame,
     mode: OutlierMode,
@@ -6587,6 +6639,43 @@ fn apply_outlier_mode(
 
         let mut column_changes = 0;
         match mode {
+            // Integer columns stay integers (FUN-16): the limits round inwards
+            // and every value is compared without passing through f64.
+            OutlierMode::Cap if column.dtype() == &DataType::Int64 => {
+                let Some((low, high)) = integer_outlier_limits(lower, upper) else {
+                    continue;
+                };
+                let integers = column
+                    .i64()
+                    .map_err(|error| format!("No se pudo leer '{name}': {error}"))?;
+                let transformed = integers
+                    .iter()
+                    .enumerate()
+                    .map(|(row_index, value)| {
+                        value.map(|value| {
+                            let as_number = value as f64;
+                            let capped = if as_number < lower {
+                                low
+                            } else if as_number > upper {
+                                high
+                            } else {
+                                value
+                            };
+                            if capped != value {
+                                column_changes += 1;
+                                changed_cell_count += 1;
+                                changed_rows[row_index] = true;
+                            }
+                            capped
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                if column_changes > 0 {
+                    candidate
+                        .replace(&name, Column::new(name.clone().into(), transformed))
+                        .map_err(|error| format!("No se pudo limitar '{name}': {error}"))?;
+                }
+            }
             OutlierMode::Cap => {
                 let transformed = values
                     .into_iter()
