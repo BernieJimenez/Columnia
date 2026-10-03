@@ -166,6 +166,8 @@ use recipe_eager::*;
 #[cfg(test)]
 use recipe_engine::{apply_lazy_recipe_to_frame, lazy_recipe_supported};
 use recipe_engine::{apply_recipe_to_frame, lazy_renames_have_no_cycles};
+#[cfg(test)]
+use recipe_source_projection::source_backed_unicode_regex;
 use recipe_source_projection::{
     apply_source_backed_projection_recipe_with_cancellation, duckdb_iso8601_expression,
     duckdb_string_literal, source_backed_projection_recipe_supported,

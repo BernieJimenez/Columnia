@@ -166,6 +166,15 @@ pub(super) fn export_source_backed_for_automation(
     }
 }
 
+/// Which step of a large-file transform failed (FUN-14): the CLI words a
+/// recipe that does not fit apart from an output it could not publish.
+#[derive(Debug)]
+pub(crate) enum AutomationTransformError {
+    Load,
+    Recipe,
+    Export,
+}
+
 pub(crate) fn transform_source_backed_for_automation(
     input: &Path,
     sheet_name: Option<&str>,
@@ -173,14 +182,18 @@ pub(crate) fn transform_source_backed_for_automation(
     recipe: &StoredTransformRecipe,
     output: &Path,
     format: ExportFormat,
-) -> Result<AutomationSourceBackedTransformResult, String> {
+) -> Result<AutomationSourceBackedTransformResult, AutomationTransformError> {
     let (mut dataset, _) =
-        load_source_backed_dataset_for_automation(input, sheet_name, header_mode)?;
+        load_source_backed_dataset_for_automation(input, sheet_name, header_mode)
+            .map_err(|_| AutomationTransformError::Load)?;
     let input_row_count = dataset.row_count;
     let input_column_count = dataset.frame.width();
-    let result = apply_recipe_to_dataset(&mut dataset, &recipe.recipe)?;
+    let result = validate_recipe_structure(&recipe.recipe)
+        .and_then(|()| apply_recipe_to_dataset(&mut dataset, &recipe.recipe))
+        .map_err(|_| AutomationTransformError::Recipe)?;
     let exported =
-        export_source_backed_for_automation(&dataset, output, format, None, Some(recipe))?;
+        export_source_backed_for_automation(&dataset, output, format, None, Some(recipe))
+            .map_err(|_| AutomationTransformError::Export)?;
     Ok(AutomationSourceBackedTransformResult {
         exported,
         changed: result.changed,

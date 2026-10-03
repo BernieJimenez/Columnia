@@ -13104,7 +13104,7 @@ fn lazy_recipe_applies_isolated_outlier_treatments_with_exact_counts() {
     let dropped = apply_recipe_to_frame(&frame, &drop).expect("el drop lazy debe completarse");
     assert_eq!(
         (dropped.4, dropped.12, dropped.13, dropped.14),
-        (1, 0, 1, 1)
+        (0, 0, 1, 1)
     );
     assert_eq!(dropped.0.height(), 5);
     assert!(matches!(
@@ -13206,7 +13206,8 @@ fn lazy_recipe_calculates_outlier_thresholds_after_filters() {
     };
     let dropped = apply_recipe_to_frame(&frame, &drop_recipe)
         .expect("el drop posterior al filtro debe conservar el conteo real");
-    assert_eq!(dropped.4, 2);
+    // FUN-17: one filtered row; the dropped outlier is counted apart.
+    assert_eq!(dropped.4, 1);
     assert_eq!(dropped.12, 0);
     assert_eq!(dropped.13, 1);
     assert_eq!(dropped.0.height(), 4);
@@ -19284,4 +19285,398 @@ fn reinterpreting_a_selection_rewrites_separator_and_encoding() {
     );
     let error = rewrite(b"a,b\n\xe9,1\n", SourceTextEncoding::Utf8, None).unwrap_err();
     assert!(error.contains("no es UTF-8"), "{error}");
+}
+
+/// A recipe dataset backed by `csv` on disk, as the large-file path sees it.
+fn source_backed_csv_dataset(csv: &str) -> (PathBuf, DataFrame, LoadedDataset) {
+    let path = temporary_csv(csv);
+    let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
+    let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+    let dataset = LoadedDataset {
+        source_path: Some(path.clone()),
+        file_name: "dataset.csv".to_owned(),
+        file_size_bytes,
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+    };
+    (path, source_frame, dataset)
+}
+
+/// FUN-14: the calculated column cannot take the name a rename gives to
+/// another column, whatever the path, and nothing is written.
+#[test]
+fn calculated_column_named_like_a_renamed_column_fails_in_every_path() {
+    let (path, frame, mut dataset) = source_backed_csv_dataset("id,a\n1,x\n2,y\n");
+    let recipe = TransformRecipe {
+        renames: vec![RecipeRename {
+            from: "a".to_owned(),
+            to: "total".to_owned(),
+        }],
+        calculated_column: Some(CalculatedColumnRecipe {
+            name: "total".to_owned(),
+            source: "id".to_owned(),
+            operation: CalculatedOperation::Add,
+            operand: Some(CalculatedOperand {
+                kind: CalculatedOperandKind::Literal,
+                value: "1".to_owned(),
+            }),
+        }),
+        ..TransformRecipe::default()
+    };
+    let expected = "La columna calculada 'total' ya existe.";
+
+    assert!(lazy_recipe_supported(&frame, &recipe));
+    let lazy = apply_recipe_to_frame(&frame, &recipe)
+        .err()
+        .expect("lazy debe rechazarla");
+    assert_eq!(lazy, expected);
+    let eager = apply_eager_recipe_to_frame(&frame, &recipe)
+        .err()
+        .expect("eager debe rechazarla");
+    assert_eq!(eager, expected);
+    let large =
+        apply_recipe_to_dataset(&mut dataset, &recipe).expect_err("source-backed debe rechazarla");
+    assert!(large.contains(expected), "{large}");
+    assert_eq!(dataset.source_path.as_deref(), Some(path.as_path()));
+
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+/// FUN-17: «filas filtradas» does not include the outlier rows, which are
+/// reported apart, in the three paths.
+#[test]
+fn removed_row_count_leaves_out_dropped_outliers_in_every_path() {
+    let recipe = TransformRecipe {
+        outlier_treatments: vec![OutlierTreatment {
+            column: "value".into(),
+            action: OutlierAction::Drop,
+        }],
+        ..Default::default()
+    };
+    let numbers = df!("value" => [Some(1_i64), Some(2), Some(3), Some(4), Some(100), None])
+        .expect("columna numérica");
+    assert!(lazy_recipe_supported(&numbers, &recipe));
+    let lazy = apply_recipe_to_frame(&numbers, &recipe).expect("lazy");
+    assert_eq!((lazy.4, lazy.13), (0, 1), "lazy");
+    let eager = apply_eager_recipe_to_frame(&numbers, &recipe).expect("eager");
+    assert_eq!((eager.4, eager.13), (0, 1), "eager");
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    let path = directory.path().join("fuente.parquet");
+    let mut written = numbers.clone();
+    ParquetWriter::new(File::create(&path).unwrap())
+        .finish(&mut written)
+        .unwrap();
+    let (schema, _, row_count) =
+        source_backed_load(&path, "parquet", || false).expect("la fuente debe inspeccionarse");
+    let mut dataset = LoadedDataset {
+        source_path: Some(path.clone()),
+        file_name: "fuente.parquet".to_owned(),
+        file_size_bytes: fs::metadata(&path).unwrap().len(),
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+    };
+    let large = apply_recipe_to_dataset(&mut dataset, &recipe).expect("source-backed");
+    assert_eq!(
+        (large.removed_row_count, large.outlier_removed_row_count),
+        (0, 1),
+        "source-backed"
+    );
+}
+
+/// FUN-32: the lazy and the eager recipe paths agree on boundary inputs:
+/// the same frame, or the same error, for each case.
+#[test]
+fn lazy_and_eager_recipes_agree_on_boundary_inputs() {
+    let cases: Vec<(&str, DataFrame, TransformRecipe)> = vec![
+        (
+            "ISO sin ceros a la izquierda",
+            df!("alta" => [Some("2024-1-2"), Some("2024-01-03"), None]).unwrap(),
+            TransformRecipe {
+                date_parses: vec![RecipeDateParse {
+                    column: "alta".to_owned(),
+                    format: RecipeDateFormat::Iso8601,
+                    target: RecipeDateTarget::Date,
+                }],
+                ..TransformRecipe::default()
+            },
+        ),
+        (
+            "ISO con t minúscula y Z",
+            df!("alta" => [Some("2024-01-02t10:00:00z"), Some("2024-01-03T11:30:00Z")]).unwrap(),
+            TransformRecipe {
+                date_parses: vec![RecipeDateParse {
+                    column: "alta".to_owned(),
+                    format: RecipeDateFormat::Iso8601,
+                    target: RecipeDateTarget::Datetime,
+                }],
+                ..TransformRecipe::default()
+            },
+        ),
+        (
+            "entero con espacios",
+            df!("cantidad" => [Some(" 12"), Some("7 "), None]).unwrap(),
+            TransformRecipe {
+                casts: vec![RecipeCast {
+                    column: "cantidad".to_owned(),
+                    target: RecipeCastTarget::Integer,
+                }],
+                ..TransformRecipe::default()
+            },
+        ),
+        (
+            "booleano con espacios y mayúsculas",
+            df!("activo" => [Some(" True"), Some("false "), None]).unwrap(),
+            TransformRecipe {
+                casts: vec![RecipeCast {
+                    column: "activo".to_owned(),
+                    target: RecipeCastTarget::Boolean,
+                }],
+                ..TransformRecipe::default()
+            },
+        ),
+        (
+            "decimal con espacios",
+            df!("precio" => [Some(" 1.5"), Some("2 ")]).unwrap(),
+            TransformRecipe {
+                casts: vec![RecipeCast {
+                    column: "precio".to_owned(),
+                    target: RecipeCastTarget::Decimal,
+                }],
+                ..TransformRecipe::default()
+            },
+        ),
+        (
+            "cálculo sobre texto numérico con espacios",
+            df!("precio" => [Some(" 1.5"), Some("2 ")]).unwrap(),
+            TransformRecipe {
+                calculated_column: Some(CalculatedColumnRecipe {
+                    name: "doble".to_owned(),
+                    source: "precio".to_owned(),
+                    operation: CalculatedOperation::Multiply,
+                    operand: Some(CalculatedOperand {
+                        kind: CalculatedOperandKind::Literal,
+                        value: "2".to_owned(),
+                    }),
+                }),
+                ..TransformRecipe::default()
+            },
+        ),
+    ];
+    for (name, frame, recipe) in cases {
+        let lazy_supported = lazy_recipe_supported(&frame, &recipe);
+        let lazy = apply_recipe_to_frame(&frame, &recipe);
+        let eager = apply_eager_recipe_to_frame(&frame, &recipe);
+        match (lazy, eager) {
+            (Ok(lazy), Ok(eager)) => assert!(
+                lazy.0.equals_missing(&eager.0),
+                "{name} (lazy: {lazy_supported})\nlazy: {:?}\neager: {:?}",
+                lazy.0,
+                eager.0
+            ),
+            (Err(lazy), Err(eager)) => assert_eq!(lazy, eager, "{name}"),
+            (lazy, eager) => panic!(
+                "{name} (lazy: {lazy_supported}): lazy {:?} / eager {:?}",
+                lazy.map(|outcome| outcome.0),
+                eager.map(|outcome| outcome.0)
+            ),
+        }
+    }
+}
+
+/// A large-file dataset over `frame` written as Parquet in `directory`.
+fn source_backed_parquet_dataset(directory: &Path, frame: &DataFrame) -> LoadedDataset {
+    let path = directory.join("fuente.parquet");
+    let mut written = frame.clone();
+    ParquetWriter::new(File::create(&path).unwrap())
+        .finish(&mut written)
+        .unwrap();
+    let (schema, _, row_count) =
+        source_backed_load(&path, "parquet", || false).expect("la fuente debe inspeccionarse");
+    LoadedDataset {
+        source_path: Some(path.clone()),
+        file_name: "fuente.parquet".to_owned(),
+        file_size_bytes: fs::metadata(&path).unwrap().len(),
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+    }
+}
+
+/// FUN-33 and FUN-34: the in-memory path and the large-file path give the
+/// same frame, or both refuse the recipe with the same message, on accented
+/// text, non-breaking spaces and casts that lose data.
+#[test]
+fn eager_and_source_backed_recipes_agree_on_boundary_inputs() {
+    let names = || {
+        df!("nombre" => [Some("José Pérez"), Some("Ana\u{A0}Pérez"), Some("  Ñandú 12 "), Some("Zoë"), None]).unwrap()
+    };
+    let extraction = |kind: ExtractionKind, name: &str| TransformRecipe {
+        text_extractions: vec![TextExtraction {
+            source: "nombre".to_owned(),
+            kind,
+            name: name.to_owned(),
+            delimiter: None,
+        }],
+        ..TransformRecipe::default()
+    };
+    let cast = |column: &str, target: RecipeCastTarget| TransformRecipe {
+        casts: vec![RecipeCast {
+            column: column.to_owned(),
+            target,
+        }],
+        ..TransformRecipe::default()
+    };
+    let cases: Vec<(&str, DataFrame, TransformRecipe)> = vec![
+        (
+            "regex \\w+ con acentos",
+            names(),
+            TransformRecipe {
+                find_replace: Some(FindReplaceRecipe {
+                    scope: FindReplaceScope::Column,
+                    column: Some("nombre".to_owned()),
+                    find: r"\w+".to_owned(),
+                    replace: "X".to_owned(),
+                    regex: true,
+                }),
+                ..TransformRecipe::default()
+            },
+        ),
+        (
+            "regex \\s con espacio duro",
+            names(),
+            TransformRecipe {
+                find_replace: Some(FindReplaceRecipe {
+                    scope: FindReplaceScope::Column,
+                    column: Some("nombre".to_owned()),
+                    find: r"\s".to_owned(),
+                    replace: "_".to_owned(),
+                    regex: true,
+                }),
+                ..TransformRecipe::default()
+            },
+        ),
+        (
+            "primer token",
+            names(),
+            extraction(ExtractionKind::FirstToken, "primero"),
+        ),
+        (
+            "último token",
+            names(),
+            extraction(ExtractionKind::LastToken, "ultimo"),
+        ),
+        (
+            "letras",
+            names(),
+            extraction(ExtractionKind::Letters, "letras"),
+        ),
+        (
+            "dígitos",
+            names(),
+            extraction(ExtractionKind::Digits, "digitos"),
+        ),
+        (
+            "decimal con fracción a entero",
+            df!("importe" => [Some(1.5_f64), Some(2.0)]).unwrap(),
+            cast("importe", RecipeCastTarget::Integer),
+        ),
+        (
+            "entero 5 a booleano",
+            df!("flag" => [Some(0_i64), Some(1), Some(5)]).unwrap(),
+            cast("flag", RecipeCastTarget::Boolean),
+        ),
+        (
+            "texto nan a decimal",
+            df!("precio" => [Some("1.5"), Some("nan")]).unwrap(),
+            cast("precio", RecipeCastTarget::Decimal),
+        ),
+        (
+            "texto inf a decimal",
+            df!("precio" => [Some("1.5"), Some("inf")]).unwrap(),
+            cast("precio", RecipeCastTarget::Decimal),
+        ),
+        (
+            "texto yes a booleano",
+            df!("activo" => [Some("true"), Some("yes")]).unwrap(),
+            cast("activo", RecipeCastTarget::Boolean),
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (name, frame, recipe) in cases {
+        let directory = tempfile::tempdir().expect("carpeta temporal");
+        let mut dataset = source_backed_parquet_dataset(directory.path(), &frame);
+        let eager = apply_eager_recipe_to_frame(&frame, &recipe).map(|outcome| outcome.0);
+        let large = apply_recipe_to_dataset(&mut dataset, &recipe).and_then(|_| {
+            read_parquet_frame(dataset.source_path.as_deref().unwrap())
+                .map_err(|error| error.to_string())
+        });
+        match (&eager, &large) {
+            (Ok(eager), Ok(large)) if eager.equals_missing(large) => {}
+            (Err(eager), Err(large)) if large.contains(eager.as_str()) => {}
+            _ => failures.push(format!("{name}:\n  eager {eager:?}\n  grande {large:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// FUN-33: Rust's Unicode classes are rewritten for RE2, and what RE2 cannot
+/// say keeps the recipe in memory.
+#[test]
+fn source_backed_regex_keeps_the_unicode_meaning_of_rust_classes() {
+    let word = r"\p{L}\p{M}\p{Nd}\p{Nl}\p{Pc}";
+    assert_eq!(
+        source_backed_unicode_regex(r"\w+").as_deref(),
+        Some(format!("[{word}]+").as_str())
+    );
+    assert_eq!(
+        source_backed_unicode_regex(r"[\w-]+\.").as_deref(),
+        Some(format!(r"[{word}-]+\.").as_str())
+    );
+    assert_eq!(
+        source_backed_unicode_regex(r"\D").as_deref(),
+        Some(r"[^\p{Nd}]")
+    );
+    assert_eq!(
+        source_backed_unicode_regex(r"\p{Lu}\\").as_deref(),
+        Some(r"\p{Lu}\\")
+    );
+    assert_eq!(
+        source_backed_unicode_regex(r"[]a]").as_deref(),
+        Some("[]a]")
+    );
+    assert_eq!(source_backed_unicode_regex(r"\bAna\b"), None);
+    assert_eq!(source_backed_unicode_regex(r"[^\S]"), None);
+
+    let schema = df!("nombre" => [Some("José")]).unwrap();
+    let replace = |find: &str| TransformRecipe {
+        find_replace: Some(FindReplaceRecipe {
+            scope: FindReplaceScope::Column,
+            column: Some("nombre".to_owned()),
+            find: find.to_owned(),
+            replace: "X".to_owned(),
+            regex: true,
+        }),
+        ..TransformRecipe::default()
+    };
+    assert!(source_backed_projection_recipe_supported(
+        &schema,
+        &replace(r"\w+")
+    ));
+    assert!(!source_backed_projection_recipe_supported(
+        &schema,
+        &replace(r"\bJ")
+    ));
 }

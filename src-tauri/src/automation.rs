@@ -1136,8 +1136,16 @@ pub fn transform_with_options(
             output,
             format.dataset_format(),
         )
-        .map_err(|_| {
-            AutomationError::new("No se pudo publicar el archivo de salida de forma atómica.")
+        .map_err(|error| match error {
+            dataset::AutomationTransformError::Load => AutomationError::new(
+                "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
+            ),
+            dataset::AutomationTransformError::Recipe => {
+                AutomationError::new("La receta no es válida para el dataset de entrada.")
+            }
+            dataset::AutomationTransformError::Export => {
+                AutomationError::new("No se pudo publicar el archivo de salida de forma atómica.")
+            }
         })?;
         return Ok(TransformOutput {
             schema_version: 1,

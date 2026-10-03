@@ -451,6 +451,22 @@ pub(super) fn remapped_name<'a>(name: &'a str, renames: &HashMap<&'a str, &'a st
     renames.get(name).copied().unwrap_or(name)
 }
 
+/// Whether a column of `frame` ends up called `name` once the recipe's
+/// renames apply (FUN-14): checked on the final names in every path.
+pub(super) fn column_named_after_renames(
+    frame: &DataFrame,
+    renames: &HashMap<&str, &str>,
+    name: &str,
+) -> bool {
+    frame.get_column_names().into_iter().any(|column| {
+        renames
+            .get(column.as_str())
+            .copied()
+            .unwrap_or(column.as_str())
+            == name
+    })
+}
+
 pub(super) fn strict_f64(value: &str, context: &str) -> Result<f64, String> {
     let trimmed = value.trim();
     if !trimmed.contains(['.', 'e', 'E'])
@@ -833,7 +849,7 @@ pub(super) fn add_calculated_column(
                 .into(),
         );
     }
-    if frame.column(&calculation.name).is_ok() {
+    if column_named_after_renames(frame, renames, &calculation.name) {
         return Err(format!(
             "La columna calculada '{}' ya existe.",
             calculation.name

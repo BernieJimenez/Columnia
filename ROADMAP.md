@@ -142,13 +142,13 @@ medio = 1 día; agregado por suma.
 - [x] **RV39** — **Preparar** — `PreparePhase.test.tsx`: un test sin aserciones, plurales fijados y huecos en los caminos de estado de la propuesta y e… · *Esfuerzo: 1 día* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-09.
   - [x] `QA-09` (Medio) `src/features/prepare/PreparePhase.test.tsx`: un test sin aserciones, plurales fijados y huecos en los caminos de estado de la propuesta y el editor — hecho el 2026-10-03
-- [ ] **RV40** — **Motor de recetas** — Renombrar `a→total` y añadir una columna calculada `total`: en pequeños sobrescribe en si… (y 4 problemas más) · *Esfuerzo: 3,5 días*
+- [x] **RV40** — **Motor de recetas** — Renombrar `a→total` y añadir una columna calculada `total`: en pequeños sobrescribe en si… (y 4 problemas más) · *Esfuerzo: 3,5 días* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-14, FUN-17, FUN-32, FUN-33, FUN-34.
-  - [ ] `FUN-14` (Medio) Renombrar `a→total` y añadir una columna calculada `total`: en pequeños sobrescribe en silencio, en grandes falla sin explicar
-  - [ ] `FUN-17` (Medio) Camino lazy: «filas filtradas» incluye las filas atípicas eliminadas, que además se informan aparte
-  - [ ] `FUN-32` (Medio) Los dos caminos de receta no son equivalentes: la validación usa el parser eager y la ejecución lazy usa Polars (ISO con `strict:false`, números con espacios)
-  - [ ] `FUN-33` (Medio) Camino «source-backed» (DuckDB/RE2): las expresiones regulares y los tokens no significan lo mismo que en Rust, con datos en español
-  - [ ] `FUN-34` (Medio) Camino «source-backed»: los casts SQL aceptan o redondean valores que eager rechaza
+  - [x] `FUN-14` (Medio) Renombrar `a→total` y añadir una columna calculada `total`: en pequeños sobrescribe en silencio, en grandes falla sin explicar — hecho el 2026-10-03
+  - [x] `FUN-17` (Medio) Camino lazy: «filas filtradas» incluye las filas atípicas eliminadas, que además se informan aparte — hecho el 2026-10-03
+  - [x] `FUN-32` (Medio) Los dos caminos de receta no son equivalentes: la validación usa el parser eager y la ejecución lazy usa Polars (ISO con `strict:false`, números con espacios) — hecho el 2026-10-03
+  - [x] `FUN-33` (Medio) Camino «source-backed» (DuckDB/RE2): las expresiones regulares y los tokens no significan lo mismo que en Rust, con datos en español — hecho el 2026-10-03
+  - [x] `FUN-34` (Medio) Camino «source-backed»: los casts SQL aceptan o redondean valores que eager rechaza — hecho el 2026-10-03
 - [ ] **RV41** — **Motor de recetas** — Materializaciones completas de columnas como `Vec<Option<String>>` y accesos celda a celd… (y 2 problemas más) · *Esfuerzo: 4 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de REN-06, COD-03, QA-13.
   - [ ] `REN-06` (Medio) Materializaciones completas de columnas como `Vec<Option<String>>` y accesos celda a celda en validación y caminos eager (candidato a medir)

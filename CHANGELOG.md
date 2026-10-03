@@ -185,6 +185,15 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Recetas: los tres motores (en memoria, lazy y archivo grande) dan el mismo
+  resultado o el mismo error: una columna calculada con el nombre que un
+  renombrado da a otra se rechaza siempre (también en la CLI, que ya no lo
+  confunde con un fallo de publicación), «filas filtradas» no incluye las
+  atípicas eliminadas, los casts leen números y booleanos con espacios igual en
+  todos los caminos (y el booleano desde texto ya no falla en lazy), las
+  expresiones regulares y los tokens respetan acentos y espacios duros en
+  archivos grandes, y los casts de archivos grandes rechazan 1.5→entero,
+  5→booleano y nan/inf con el mismo mensaje de fila.
 - Preparar: las recetas con conversiones de tipo o de fecha piden confirmación
   porque pueden dejar celdas vacías, un plan cancelado ya no se atribuye el
   cambio siguiente y los textos de duplicados, filtros y recetas concuerdan en

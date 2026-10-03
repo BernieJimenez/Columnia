@@ -58,6 +58,21 @@ fn lazy_iso8601_column_supported(column: &Column) -> bool {
         })
 }
 
+/// The text a lazy cast reads, prepared as the eager validator reads it
+/// (FUN-32): numbers without surrounding spaces, booleans also lowercased.
+fn lazy_cast_input(expression: Expr, dtype: &DataType, target: RecipeCastTarget) -> Expr {
+    if dtype != &DataType::String {
+        return expression;
+    }
+    match target {
+        RecipeCastTarget::String => expression,
+        RecipeCastTarget::Integer | RecipeCastTarget::Decimal => {
+            expression.str().strip_chars(lit(NULL))
+        }
+        RecipeCastTarget::Boolean => expression.str().strip_chars(lit(NULL)).str().to_lowercase(),
+    }
+}
+
 pub(super) fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
     lazy_renames_have_no_cycles(recipe)
         && lazy_outlier_columns_survive_keep(recipe)
@@ -931,11 +946,21 @@ pub(super) fn apply_lazy_recipe_to_frame(
                 RecipeCastTarget::Decimal => DataType::Float64,
                 RecipeCastTarget::Boolean => DataType::Boolean,
             };
-            cast_expressions.push(
-                col(effective_name)
-                    .strict_cast(target)
-                    .alias(effective_name),
-            );
+            let input = lazy_cast_input(col(effective_name), column.dtype(), cast.target);
+            // Polars has no text-to-boolean cast; the validator above already
+            // checked every value is true or false.
+            let converted = if column.dtype() == &DataType::String
+                && cast.target == RecipeCastTarget::Boolean
+            {
+                when(input.clone().eq(lit("true")))
+                    .then(lit(true))
+                    .when(input.eq(lit("false")))
+                    .then(lit(false))
+                    .otherwise(lit(NULL).cast(DataType::Boolean))
+            } else {
+                input.strict_cast(target)
+            };
+            cast_expressions.push(converted.alias(effective_name));
             cast_count += 1;
         }
     }
@@ -1202,7 +1227,20 @@ pub(super) fn apply_lazy_recipe_to_frame(
                         calculation.source
                     ));
                 }
-                let left = col(source_name).strict_cast(DataType::Float64);
+                // A column the recipe already cast is no longer text here.
+                let plan_dtype = |name: &str, column: &Column| {
+                    if recipe.casts.iter().any(|cast| cast.column == name) {
+                        DataType::Float64
+                    } else {
+                        column.dtype().clone()
+                    }
+                };
+                let left = lazy_cast_input(
+                    col(source_name),
+                    &plan_dtype(&calculation.source, source_column),
+                    RecipeCastTarget::Decimal,
+                )
+                .strict_cast(DataType::Float64);
                 let operand = calculation.operand.as_ref().unwrap();
                 let right = match operand.kind {
                     CalculatedOperandKind::Literal => {
@@ -1210,8 +1248,13 @@ pub(super) fn apply_lazy_recipe_to_frame(
                     }
                     CalculatedOperandKind::Column => {
                         let operand_name = remapped_name(&operand.value, &rename_map);
-                        recipe_column(source, &operand.value)?;
-                        col(operand_name).strict_cast(DataType::Float64)
+                        let operand_column = recipe_column(source, &operand.value)?;
+                        lazy_cast_input(
+                            col(operand_name),
+                            &plan_dtype(&operand.value, operand_column),
+                            RecipeCastTarget::Decimal,
+                        )
+                        .strict_cast(DataType::Float64)
                     }
                 };
                 match calculation.operation {
@@ -1242,7 +1285,7 @@ pub(super) fn apply_lazy_recipe_to_frame(
             CalculatedOperation::Month => col(source_name).dt().month(),
             CalculatedOperation::Day => col(source_name).dt().day(),
         };
-        if recipe_column(source, &calculation.name).is_ok() {
+        if column_named_after_renames(source, &rename_map, &calculation.name) {
             return Err(format!(
                 "La columna calculada '{}' ya existe.",
                 calculation.name
@@ -1769,9 +1812,11 @@ pub(super) fn apply_lazy_recipe_to_frame(
             }
         }
     }
+    // FUN-17: dropped outliers are reported apart, not as filtered rows.
     let removed_row_count = group_summary_input_rows
         .map(|input_rows| source.height().saturating_sub(input_rows))
-        .unwrap_or_else(|| source.height().saturating_sub(candidate.height()));
+        .unwrap_or_else(|| source.height().saturating_sub(candidate.height()))
+        .saturating_sub(outlier_removed_row_count);
     let group_count = summary_aggregations
         .as_ref()
         .map_or(0, |_| candidate.height());

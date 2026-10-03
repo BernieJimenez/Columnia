@@ -666,6 +666,40 @@ where
     })
 }
 
+/// The first row of `query` over the file as a row number and a text, or
+/// `None` when the query returns no rows.
+pub(crate) fn query_file_first_row(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    query: &str,
+) -> Result<Option<(i64, String)>, String> {
+    execute_duckdb_operation(
+        || false,
+        |connection| {
+            let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el espacio temporal de la validación source-backed: {error}")
+        })?;
+            configure_duckdb_resources(connection, resource_directory.path())?;
+            register_file_view(connection, "dataset", source_path, source_format, None)?;
+            let mut statement = connection.prepare(query).map_err(|error| {
+                format!("DuckDB no pudo preparar la validación source-backed: {error}")
+            })?;
+            let mut rows = statement.query([]).map_err(|error| {
+                format!("DuckDB no pudo validar la fuente source-backed: {error}")
+            })?;
+            rows.next()
+                .map_err(|error| {
+                    format!("DuckDB no pudo leer la validación source-backed: {error}")
+                })?
+                .map(|row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+                .transpose()
+                .map_err(|error: duckdb::Error| {
+                    format!("DuckDB no pudo leer la validación source-backed: {error}")
+                })
+        },
+    )
+}
+
 pub(crate) fn query_file_scalar(
     source_path: &Path,
     source_format: DuckDbFileFormat,

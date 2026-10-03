@@ -58,6 +58,7 @@ pub(super) fn source_backed_projection_recipe_supported(
                 && !replacement.replace.contains('\0')
                 && (!replacement.regex
                     || (Regex::new(&replacement.find).is_ok()
+                        && source_backed_unicode_regex(&replacement.find).is_some()
                         && source_backed_regex_replacement(&replacement.replace).is_ok()))
         })
         && recipe
@@ -1109,6 +1110,63 @@ pub(super) fn duckdb_string_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
+/// What Rust's Unicode `\w`, `\d` and `\s` match, written for RE2, whose
+/// own classes are ASCII only (FUN-33). Bodies go inside a character class.
+const UNICODE_WORD_CLASS: &str = r"\p{L}\p{M}\p{Nd}\p{Nl}\p{Pc}";
+const UNICODE_DIGIT_CLASS: &str = r"\p{Nd}";
+const UNICODE_SPACE_CLASS: &str = r"\t\n\x0B\f\r\x{85}\p{Z}";
+
+/// `pattern`, as the Rust `regex` crate reads it, rewritten so DuckDB's RE2
+/// matches the same text (FUN-33): `\w`, `\d` and `\s` become their Unicode
+/// classes. `None` when that cannot be written in RE2 (`\b`, a negated class
+/// inside brackets, nested classes); the recipe then runs in memory.
+pub(super) fn source_backed_unicode_regex(pattern: &str) -> Option<String> {
+    let mut output = String::with_capacity(pattern.len() * 2);
+    let mut characters = pattern.chars().peekable();
+    let mut in_class = false;
+    while let Some(character) = characters.next() {
+        match character {
+            '\\' => {
+                let escaped = characters.next()?;
+                let body = match escaped.to_ascii_lowercase() {
+                    'w' => Some(UNICODE_WORD_CLASS),
+                    'd' => Some(UNICODE_DIGIT_CLASS),
+                    's' => Some(UNICODE_SPACE_CLASS),
+                    _ => None,
+                };
+                match (body, escaped.is_ascii_uppercase(), in_class) {
+                    (Some(body), false, true) => output.push_str(body),
+                    (Some(body), false, false) => output.push_str(&format!("[{body}]")),
+                    (Some(body), true, false) => output.push_str(&format!("[^{body}]")),
+                    (Some(_), true, true) => return None,
+                    (None, _, _) if matches!(escaped, 'b' | 'B') => return None,
+                    (None, _, _) => {
+                        output.push('\\');
+                        output.push(escaped);
+                    }
+                }
+            }
+            '[' if in_class => return None,
+            '[' => {
+                in_class = true;
+                output.push('[');
+                if characters.peek() == Some(&'^') {
+                    output.push(characters.next()?);
+                }
+                if characters.peek() == Some(&']') {
+                    output.push(characters.next()?);
+                }
+            }
+            ']' if in_class => {
+                in_class = false;
+                output.push(']');
+            }
+            other => output.push(other),
+        }
+    }
+    (!in_class).then_some(output)
+}
+
 fn source_backed_regex_replacement(value: &str) -> Result<String, String> {
     let mut output = String::with_capacity(value.len());
     let mut characters = value.chars();
@@ -1154,9 +1212,12 @@ fn source_backed_replace_expression(
 ) -> Result<String, String> {
     if replacement.regex {
         let replacement_text = source_backed_regex_replacement(&replacement.replace)?;
+        let pattern = source_backed_unicode_regex(&replacement.find).ok_or_else(|| {
+            "La expresión regular no puede ejecutarse sobre el archivo de origen.".to_owned()
+        })?;
         Ok(format!(
             "regexp_replace(CAST({value} AS VARCHAR), {}, {}, 'g')",
-            duckdb_string_literal(&replacement.find),
+            duckdb_string_literal(&pattern),
             duckdb_string_literal(&replacement_text)
         ))
     } else {
@@ -1259,13 +1320,77 @@ fn source_backed_filter_expression(
     Ok(expression)
 }
 
-fn duckdb_cast_type(target: RecipeCastTarget) -> &'static str {
+/// `text` without the Unicode whitespace around it, as `str::trim` leaves it.
+fn duckdb_unicode_trim(text: &str) -> String {
+    format!(
+        "regexp_replace({text}, '^[{UNICODE_SPACE_CLASS}]+|[{UNICODE_SPACE_CLASS}]+$', '', 'g')"
+    )
+}
+
+/// Whether the trimmed text `text` is a value `strict_cast_column` accepts for
+/// `target` (FUN-34): DuckDB's own casts round `1.5` to an integer, take `5`
+/// as true and `nan` as a number.
+pub(super) fn duckdb_cast_accepts(text: &str, target: RecipeCastTarget) -> String {
     match target {
-        RecipeCastTarget::String => "VARCHAR",
-        RecipeCastTarget::Integer => "BIGINT",
-        RecipeCastTarget::Decimal => "DOUBLE",
-        RecipeCastTarget::Boolean => "BOOLEAN",
+        RecipeCastTarget::String => "true".to_owned(),
+        RecipeCastTarget::Integer => format!(
+            "(regexp_full_match({text}, '[+-]?[0-9]+') AND TRY_CAST({text} AS BIGINT) IS NOT NULL)"
+        ),
+        RecipeCastTarget::Decimal => format!(
+            "(regexp_full_match({text}, '[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?') AND coalesce(isfinite(TRY_CAST({text} AS DOUBLE)), false))"
+        ),
+        RecipeCastTarget::Boolean => format!("(lower({text}) IN ('true', 'false'))"),
     }
+}
+
+/// The value `input` takes once converted to `target`, read from its text as
+/// the in-memory path reads it. Values were validated beforehand.
+fn duckdb_cast_expression(input: &str, target: RecipeCastTarget) -> String {
+    let text = format!("CAST({input} AS VARCHAR)");
+    let trimmed = duckdb_unicode_trim(&text);
+    match target {
+        RecipeCastTarget::String => text,
+        RecipeCastTarget::Integer => format!("CAST({trimmed} AS BIGINT)"),
+        RecipeCastTarget::Decimal => format!("CAST({trimmed} AS DOUBLE)"),
+        RecipeCastTarget::Boolean => format!(
+            "CASE lower({trimmed}) WHEN 'true' THEN true WHEN 'false' THEN false ELSE NULL END"
+        ),
+    }
+}
+
+/// The first value of `column` that `target` does not accept, with its row,
+/// worded as `strict_cast_column` words it.
+fn source_backed_cast_error(
+    source_path: &Path,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
+    column: &str,
+    target: RecipeCastTarget,
+) -> Result<Option<String>, String> {
+    if target == RecipeCastTarget::String {
+        return Ok(None);
+    }
+    let trimmed = duckdb_unicode_trim("s");
+    let accepts = duckdb_cast_accepts(&trimmed, target);
+    let query = format!(
+        "SELECT n, s FROM (SELECT row_number() OVER () AS n, CAST({} AS VARCHAR) AS s FROM dataset) \
+         WHERE s IS NOT NULL AND NOT coalesce({accepts}, false) ORDER BY n LIMIT 1",
+        duckdb_identifier(column)
+    );
+    let target_name = match target {
+        RecipeCastTarget::String => unreachable!("se descartó arriba"),
+        RecipeCastTarget::Integer => "entero",
+        RecipeCastTarget::Decimal => "decimal",
+        RecipeCastTarget::Boolean => "booleano (true/false)",
+    };
+    Ok(
+        crate::duckdb_query::query_file_first_row(source_path, source_format, &query)?.map(
+            |(row, value)| {
+                format!(
+                    "La columna '{column}' no se puede convertir a {target_name}: fila {row}, valor '{value}'."
+                )
+            },
+        ),
+    )
 }
 
 fn duckdb_date_format(format: RecipeDateFormat) -> Result<&'static str, String> {
@@ -1418,16 +1543,22 @@ fn source_backed_text_extraction_expression(
         | ExtractionKind::LastToken
         | ExtractionKind::Digits
         | ExtractionKind::Letters => {
+            // FUN-33: whitespace and letters as `split_whitespace` and
+            // `char::is_alphabetic` read them, not RE2's ASCII classes.
             let pattern = match extraction.kind {
-                ExtractionKind::FirstToken => r"^\s*(\S+)",
-                ExtractionKind::LastToken => r"(\S+)\s*$",
-                ExtractionKind::Digits => r"([0-9]+)",
-                ExtractionKind::Letters => r"(\p{L}+)",
+                ExtractionKind::FirstToken => {
+                    format!("^[{UNICODE_SPACE_CLASS}]*([^{UNICODE_SPACE_CLASS}]+)")
+                }
+                ExtractionKind::LastToken => {
+                    format!("([^{UNICODE_SPACE_CLASS}]+)[{UNICODE_SPACE_CLASS}]*$")
+                }
+                ExtractionKind::Digits => r"([0-9]+)".to_owned(),
+                ExtractionKind::Letters => r"([\p{L}\p{Nl}]+)".to_owned(),
                 ExtractionKind::Before | ExtractionKind::After => {
                     unreachable!("el match exterior limita las extracciones regex")
                 }
             };
-            let pattern = duckdb_string_literal(pattern);
+            let pattern = duckdb_string_literal(&pattern);
             Ok(format!(
                 "CASE WHEN {value} IS NOT NULL AND regexp_matches({value}, {pattern}) THEN regexp_extract({value}, {pattern}, 1) ELSE NULL END AS {}",
                 duckdb_identifier(&extraction.name)
@@ -1601,8 +1732,8 @@ fn source_backed_projection_query(
             let input = format!("t.{}", duckdb_identifier(column));
             let expression = if let Some(target) = cast_targets.get(column) {
                 format!(
-                    "CAST({input} AS {}) AS {}",
-                    duckdb_cast_type(*target),
+                    "{} AS {}",
+                    duckdb_cast_expression(&input, *target),
                     duckdb_identifier(column)
                 )
             } else if let Some((format, target)) = date_targets.get(column) {
@@ -2497,6 +2628,14 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
     }
 
     let queries = source_backed_projection_query(&schema, recipe)?;
+    // FUN-34: the same values, and the same message, as the in-memory casts.
+    for cast in &recipe.casts {
+        if let Some(error) =
+            source_backed_cast_error(&source_path, source_format, &cast.column, cast.target)?
+        {
+            return Err(error);
+        }
+    }
     if let Some(query) = queries.group_validation.as_deref() {
         let invalid = crate::duckdb_query::query_file_scalar(&source_path, source_format, query)?;
         if invalid != 0 {
