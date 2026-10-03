@@ -51,6 +51,7 @@ pub(crate) enum DuckDbFileFormat {
     Json,
 }
 
+#[cfg(test)]
 pub(crate) fn execute_duckdb_query<C>(
     current: &DataFrame,
     compared: Option<&DataFrame>,

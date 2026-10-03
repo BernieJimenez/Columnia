@@ -1113,10 +1113,7 @@ fn remote_types_compatible(source_type: &str, destination_type: &str) -> bool {
 /// Only the base name counts, so `interval` or `point` are not integers.
 fn type_family(data_type: &str) -> TypeFamily {
     let normalized = data_type.trim().to_ascii_lowercase();
-    let base = normalized
-        .split(|character: char| matches!(character, '(' | '[' | ' '))
-        .next()
-        .unwrap_or_default();
+    let base = normalized.split(['(', '[', ' ']).next().unwrap_or_default();
     match base {
         "bool" | "boolean" | "bit" => TypeFamily::Boolean,
         "i8" | "i16" | "i32" | "i64" | "i128" | "u8" | "u16" | "u32" | "u64" | "int"

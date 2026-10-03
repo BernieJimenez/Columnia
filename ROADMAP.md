@@ -104,8 +104,8 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Se cumplen los criterios de aceptación de SEG-02, ARQ-05, LIM-02, QA-14, DOC-02.
   - [x] `SEG-02` (Medio) El modo «hash» de privacidad es SHA-256 sin sal: reversible por diccionario en datos de baja entropía — hecho el 2026-10-03
   - [x] `ARQ-05` (Medio) Los ZIP (bundle, xlsx) no activan `large_file`: entradas de más de 4 GiB fallarán — hecho el 2026-10-03
-  - [ ] `LIM-02` (Medio) Esqueleto de exportación duplicado en siete variantes y bloques idénticos
-  - [ ] `QA-14` (Medio) Las pruebas de exportación source-backed no cubren ceros a la izquierda, destino igual a fuente ni fórmulas
+  - [x] `LIM-02` (Medio) Esqueleto de exportación duplicado en siete variantes y bloques idénticos — hecho el 2026-10-03
+  - [x] `QA-14` (Medio) Las pruebas de exportación source-backed no cubren ceros a la izquierda, destino igual a fuente ni fórmulas — hecho el 2026-10-03
   - [ ] `DOC-02` (Medio) THREAT_MODEL.md: fecha de verificación vencida, omisiones y contradicciones con el código
 - [ ] **RV34** — **Motor (dataset.rs)** — «Eliminar duplicados parecidos» necesita dos pasadas y la primera deja una pareja parecida (y 4 problemas más) · *Esfuerzo: 3,8 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-08, FUN-16, REN-03, REN-04, LIM-01.

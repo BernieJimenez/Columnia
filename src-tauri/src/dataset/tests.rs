@@ -18857,3 +18857,33 @@ fn zip_entries_that_can_pass_four_gigabytes_use_zip64() {
         assert_eq!(extra, zip64, "{bytes}");
     }
 }
+
+/// QA-14: the large-file export keeps leading zeros, refuses to write over
+/// its own source and protects formulas in CSV.
+#[test]
+fn source_backed_exports_keep_zeros_refuse_the_source_and_protect_formulas() {
+    let source = temporary_csv("codigo,nota\n00123,=1+1\n01234,ok\n");
+    let original = fs::read(&source).unwrap();
+    let size = original.len() as u64;
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+
+    let csv = directory.path().join("salida.csv");
+    export_source_backed_csv_atomic(&source, size, &csv, |_, _| {}, || false).expect("CSV");
+    let text = fs::read_to_string(&csv).unwrap();
+    assert!(text.contains("00123,'=1+1"), "{text}");
+    assert!(text.contains("01234,ok"), "{text}");
+
+    let sql = directory.path().join("salida.sql");
+    export_source_backed_sql_atomic(&source, size, &sql, |_, _| {}, || false).expect("SQL");
+    let script = fs::read_to_string(&sql).unwrap();
+    assert!(
+        script.contains("'00123'") && script.contains("'=1+1'"),
+        "{script}"
+    );
+
+    let error = export_source_backed_csv_atomic(&source, size, &source, |_, _| {}, || false)
+        .expect_err("el origen no se sobrescribe");
+    assert!(error.contains("archivo de origen"), "{error}");
+    assert_eq!(fs::read(&source).unwrap(), original);
+    let _ = fs::remove_file(source);
+}

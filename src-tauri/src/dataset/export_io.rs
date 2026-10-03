@@ -699,17 +699,35 @@ where
     Ok(replaced_control_cell_count)
 }
 
-pub(super) fn export_source_backed_xlsx_atomic<F, C>(
+/// The source of a source-backed export, already validated.
+pub(super) struct SourceBackedExportSource<'a> {
+    pub(super) path: &'a Path,
+    pub(super) extension: &'a str,
+    pub(super) format: crate::duckdb_query::DuckDbFileFormat,
+}
+
+/// The steps every source-backed export shares (LIM-02): validate the source,
+/// refuse to write over it, write into a temporary file next to the
+/// destination, check that the source did not change and publish atomically.
+/// `write` fills the temporary file and returns the replaced control cells.
+pub(super) fn publish_source_backed_export<F, C, W>(
     source_path: &Path,
     expected_file_size: u64,
-    row_count: usize,
     destination: &Path,
+    format: ExportFormat,
     mut report: F,
     is_cancelled: C,
+    write: W,
 ) -> Result<ExportResult, String>
 where
     F: FnMut(&'static str, u8),
     C: Fn() -> bool + Clone + Send + 'static,
+    W: FnOnce(
+        &SourceBackedExportSource<'_>,
+        &mut tempfile::NamedTempFile,
+        &mut F,
+        C,
+    ) -> Result<usize, String>,
 {
     ensure_not_cancelled(is_cancelled())?;
     let destination = canonicalize_write_destination(destination, "la exportación")?;
@@ -720,30 +738,30 @@ where
     if source_size != expected_file_size {
         return Err("El archivo source-backed cambió después de la validación.".to_owned());
     }
+    ensure_destination_is_not_source(&destination, &[source_path.as_path()])?;
     let source_format = match extension.as_str() {
         "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
             delimiter: detect_delimiter(&source_path, &extension)?,
         },
         "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-        _ => return Err("El formato source-backed no se puede exportar a Excel.".to_owned()),
+        _ => {
+            return Err(format!(
+                "El formato source-backed no se puede exportar a {}.",
+                format.label()
+            ))
+        }
     };
-    let schema = source_scan(&source_path, &extension)?
-        .collect_schema()
-        .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
-    let schema_frame = DataFrame::empty_with_schema(&schema);
     report("Preparando archivo temporal", 10);
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
     report("Escribiendo dataset", 25);
-    let replaced_control_cell_count = write_source_backed_xlsx(
-        &source_path,
-        source_format,
-        &schema_frame,
-        row_count,
-        temporary.as_file_mut(),
-        |percent| report("Escribiendo Excel", percent),
-        is_cancelled.clone(),
-    )?;
+    let source = SourceBackedExportSource {
+        path: &source_path,
+        extension: &extension,
+        format: source_format,
+    };
+    let replaced_control_cell_count =
+        write(&source, &mut temporary, &mut report, is_cancelled.clone())?;
     temporary
         .as_file()
         .sync_all()
@@ -767,14 +785,77 @@ where
         file_name: destination
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or("dataset.xlsx")
-            .to_owned(),
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("dataset.{}", format.extension())),
         file_size_bytes,
-        format: ExportFormat::Excel.label(),
+        format: format.label(),
         protected_column_count: 0,
         protected_columns: Vec::new(),
         replaced_control_cell_count,
     })
+}
+
+/// Writes through DuckDB into a scratch file, then copies it into the
+/// publication file, as the CSV, JSON, SQL and Parquet exports do.
+fn write_through_scratch<C>(
+    temporary: &mut tempfile::NamedTempFile,
+    extension: &str,
+    is_cancelled: C,
+    write: impl FnOnce(&Path, C) -> Result<(), String>,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Clone + Send + 'static,
+{
+    let parent = temporary
+        .path()
+        .parent()
+        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?
+        .to_path_buf();
+    let scratch = tempfile::tempdir_in(&parent)
+        .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
+    let partial = scratch.path().join(format!("dataset.partial.{extension}"));
+    write(&partial, is_cancelled.clone())?;
+    ensure_not_cancelled(is_cancelled())?;
+    copy_file_with_cancel(&partial, temporary.as_file_mut(), is_cancelled)?;
+    Ok(0)
+}
+
+pub(super) fn export_source_backed_xlsx_atomic<F, C>(
+    source_path: &Path,
+    expected_file_size: u64,
+    row_count: usize,
+    destination: &Path,
+    report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Clone + Send + 'static,
+{
+    publish_source_backed_export(
+        source_path,
+        expected_file_size,
+        destination,
+        ExportFormat::Excel,
+        report,
+        is_cancelled,
+        |source, temporary, report, cancel| {
+            let schema = source_scan(source.path, source.extension)?
+                .collect_schema()
+                .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
+            let schema_frame = DataFrame::empty_with_schema(&schema);
+            let replaced = write_source_backed_xlsx(
+                source.path,
+                source.format,
+                &schema_frame,
+                row_count,
+                temporary.as_file_mut(),
+                |percent| report("Escribiendo Excel", percent),
+                cancel,
+            )?;
+            Ok(replaced)
+        },
+    )
 }
 
 pub(super) fn write_xlsx<F, C>(
@@ -1197,77 +1278,37 @@ pub(super) fn export_source_backed_sqlite_atomic<F, C>(
     expected_file_size: u64,
     row_count: usize,
     destination: &Path,
-    mut report: F,
+    report: F,
     is_cancelled: C,
 ) -> Result<ExportResult, String>
 where
     F: FnMut(&'static str, u8),
     C: Fn() -> bool + Clone + Send + 'static,
 {
-    ensure_not_cancelled(is_cancelled())?;
-    let destination = canonicalize_write_destination(destination, "la exportación")?;
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
-    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
-    if source_size != expected_file_size {
-        return Err("El archivo source-backed cambió después de la validación.".to_owned());
-    }
-    let source_format = match extension.as_str() {
-        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
-            delimiter: detect_delimiter(&source_path, &extension)?,
+    publish_source_backed_export(
+        source_path,
+        expected_file_size,
+        destination,
+        ExportFormat::Sqlite,
+        report,
+        is_cancelled,
+        |source, temporary, report, cancel| {
+            let schema = source_scan(source.path, source.extension)?
+                .collect_schema()
+                .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
+            let schema_frame = DataFrame::empty_with_schema(&schema);
+            write_source_backed_sqlite(
+                source.path,
+                source.format,
+                &schema_frame,
+                row_count,
+                temporary.path(),
+                |percent| report("Escribiendo SQLite", percent),
+                cancel,
+            )?;
+            Ok(0)
         },
-        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-        _ => return Err("El formato source-backed no se puede exportar a SQLite.".to_owned()),
-    };
-    let schema = source_scan(&source_path, &extension)?
-        .collect_schema()
-        .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
-    let schema_frame = DataFrame::empty_with_schema(&schema);
-    report("Preparando archivo temporal", 10);
-    let temporary = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
-    report("Escribiendo dataset", 25);
-    write_source_backed_sqlite(
-        &source_path,
-        source_format,
-        &schema_frame,
-        row_count,
-        temporary.path(),
-        |percent| report("Escribiendo SQLite", percent),
-        is_cancelled.clone(),
-    )?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
-    ensure_not_cancelled(is_cancelled())?;
-    let final_source_size = fs::metadata(&source_path)
-        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
-        .len();
-    if final_source_size != expected_file_size {
-        return Err("El archivo source-backed cambió durante la exportación.".to_owned());
-    }
-    report("Publicando archivo completo", 90);
-    temporary
-        .persist(&destination)
-        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
-    let file_size_bytes = fs::metadata(&destination)
-        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
-        .len();
-    report("Exportación lista", 100);
-    Ok(ExportResult {
-        file_name: destination
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("dataset.sqlite")
-            .to_owned(),
-        file_size_bytes,
-        format: ExportFormat::Sqlite.label(),
-        protected_column_count: 0,
-        protected_columns: Vec::new(),
-        replaced_control_cell_count: 0,
-    })
+    )
 }
 
 #[cfg(test)]
@@ -1512,311 +1553,125 @@ pub(super) fn export_source_backed_parquet_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
     destination: &Path,
-    mut report: F,
+    report: F,
     is_cancelled: C,
 ) -> Result<ExportResult, String>
 where
     F: FnMut(&'static str, u8),
     C: Fn() -> bool + Clone + Send + 'static,
 {
-    ensure_not_cancelled(is_cancelled())?;
-    let destination = canonicalize_write_destination(destination, "la exportación")?;
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
-    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
-    if source_size != expected_file_size {
-        return Err("El archivo source-backed cambió después de la validación.".to_owned());
-    }
-    let source_format = match extension.as_str() {
-        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
-            delimiter: detect_delimiter(&source_path, &extension)?,
+    publish_source_backed_export(
+        source_path,
+        expected_file_size,
+        destination,
+        ExportFormat::Parquet,
+        report,
+        is_cancelled,
+        |source, temporary, _, cancel| {
+            write_through_scratch(temporary, "parquet", cancel, |partial, cancel| {
+                crate::duckdb_query::materialize_file_to_parquet_with_cancel(
+                    source.path,
+                    source.format,
+                    partial,
+                    None,
+                    cancel,
+                )
+            })
         },
-        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-        _ => return Err("El formato source-backed no se puede exportar a Parquet.".to_owned()),
-    };
-
-    report("Preparando archivo temporal", 10);
-    let scratch = tempfile::tempdir_in(parent)
-        .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
-    let partial = scratch.path().join("dataset.partial.parquet");
-    report("Escribiendo dataset", 25);
-    crate::duckdb_query::materialize_file_to_parquet_with_cancel(
-        &source_path,
-        source_format,
-        &partial,
-        None,
-        is_cancelled.clone(),
-    )?;
-    ensure_not_cancelled(is_cancelled())?;
-
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
-    copy_file_with_cancel(&partial, temporary.as_file_mut(), is_cancelled.clone())?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
-    ensure_not_cancelled(is_cancelled())?;
-    let final_source_size = fs::metadata(&source_path)
-        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
-        .len();
-    if final_source_size != expected_file_size {
-        return Err("El archivo source-backed cambió durante la exportación.".to_owned());
-    }
-    report("Publicando archivo completo", 90);
-    temporary
-        .persist(&destination)
-        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
-    let file_size_bytes = fs::metadata(&destination)
-        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
-        .len();
-    report("Exportación lista", 100);
-    Ok(ExportResult {
-        file_name: destination
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("dataset.parquet")
-            .to_owned(),
-        file_size_bytes,
-        format: ExportFormat::Parquet.label(),
-        protected_column_count: 0,
-        protected_columns: Vec::new(),
-        replaced_control_cell_count: 0,
-    })
+    )
 }
 
 pub(super) fn export_source_backed_csv_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
     destination: &Path,
-    mut report: F,
+    report: F,
     is_cancelled: C,
 ) -> Result<ExportResult, String>
 where
     F: FnMut(&'static str, u8),
     C: Fn() -> bool + Clone + Send + 'static,
 {
-    ensure_not_cancelled(is_cancelled())?;
-    let destination = canonicalize_write_destination(destination, "la exportación")?;
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
-    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
-    if source_size != expected_file_size {
-        return Err("El archivo source-backed cambió después de la validación.".to_owned());
-    }
-    let source_format = match extension.as_str() {
-        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
-            delimiter: detect_delimiter(&source_path, &extension)?,
+    publish_source_backed_export(
+        source_path,
+        expected_file_size,
+        destination,
+        ExportFormat::Csv,
+        report,
+        is_cancelled,
+        |source, temporary, _, cancel| {
+            write_through_scratch(temporary, "csv", cancel, |partial, cancel| {
+                crate::duckdb_query::export_file_to_csv_with_cancel(
+                    source.path,
+                    source.format,
+                    partial,
+                    cancel,
+                )
+            })
         },
-        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-        _ => return Err("El formato source-backed no se puede exportar a CSV.".to_owned()),
-    };
-
-    report("Preparando archivo temporal", 10);
-    let scratch = tempfile::tempdir_in(parent)
-        .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
-    let partial = scratch.path().join("dataset.partial.csv");
-    report("Escribiendo dataset", 25);
-    let export_cancellation = is_cancelled.clone();
-    crate::duckdb_query::export_file_to_csv_with_cancel(
-        &source_path,
-        source_format,
-        &partial,
-        export_cancellation,
-    )?;
-    ensure_not_cancelled(is_cancelled())?;
-
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
-    copy_file_with_cancel(&partial, temporary.as_file_mut(), is_cancelled.clone())?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
-    ensure_not_cancelled(is_cancelled())?;
-    let final_source_size = fs::metadata(&source_path)
-        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
-        .len();
-    if final_source_size != expected_file_size {
-        return Err("El archivo source-backed cambió durante la exportación.".to_owned());
-    }
-    report("Publicando archivo completo", 90);
-    temporary
-        .persist(&destination)
-        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
-    let file_size_bytes = fs::metadata(&destination)
-        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
-        .len();
-    report("Exportación lista", 100);
-    Ok(ExportResult {
-        file_name: destination
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("dataset.csv")
-            .to_owned(),
-        file_size_bytes,
-        format: ExportFormat::Csv.label(),
-        protected_column_count: 0,
-        protected_columns: Vec::new(),
-        replaced_control_cell_count: 0,
-    })
+    )
 }
 
 pub(super) fn export_source_backed_sql_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
     destination: &Path,
-    mut report: F,
+    report: F,
     is_cancelled: C,
 ) -> Result<ExportResult, String>
 where
     F: FnMut(&'static str, u8),
     C: Fn() -> bool + Clone + Send + 'static,
 {
-    ensure_not_cancelled(is_cancelled())?;
-    let destination = canonicalize_write_destination(destination, "la exportación")?;
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
-    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
-    if source_size != expected_file_size {
-        return Err("El archivo source-backed cambió después de la validación.".to_owned());
-    }
-    let source_format = match extension.as_str() {
-        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
-            delimiter: detect_delimiter(&source_path, &extension)?,
+    publish_source_backed_export(
+        source_path,
+        expected_file_size,
+        destination,
+        ExportFormat::Sql,
+        report,
+        is_cancelled,
+        |source, temporary, _, cancel| {
+            write_through_scratch(temporary, "sql", cancel, |partial, cancel| {
+                crate::duckdb_query::export_file_to_sql_with_cancel(
+                    source.path,
+                    source.format,
+                    partial,
+                    cancel,
+                )
+            })
         },
-        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-        _ => return Err("El formato source-backed no se puede exportar a SQL.".to_owned()),
-    };
-
-    report("Preparando archivo temporal", 10);
-    let scratch = tempfile::tempdir_in(parent)
-        .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
-    let partial = scratch.path().join("dataset.partial.sql");
-    report("Escribiendo dataset", 25);
-    let export_cancellation = is_cancelled.clone();
-    crate::duckdb_query::export_file_to_sql_with_cancel(
-        &source_path,
-        source_format,
-        &partial,
-        export_cancellation,
-    )?;
-    ensure_not_cancelled(is_cancelled())?;
-
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
-    copy_file_with_cancel(&partial, temporary.as_file_mut(), is_cancelled.clone())?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
-    ensure_not_cancelled(is_cancelled())?;
-    let final_source_size = fs::metadata(&source_path)
-        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
-        .len();
-    if final_source_size != expected_file_size {
-        return Err("El archivo source-backed cambió durante la exportación.".to_owned());
-    }
-    report("Publicando archivo completo", 90);
-    temporary
-        .persist(&destination)
-        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
-    let file_size_bytes = fs::metadata(&destination)
-        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
-        .len();
-    report("Exportación lista", 100);
-    Ok(ExportResult {
-        file_name: destination
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("dataset.sql")
-            .to_owned(),
-        file_size_bytes,
-        format: ExportFormat::Sql.label(),
-        protected_column_count: 0,
-        protected_columns: Vec::new(),
-        replaced_control_cell_count: 0,
-    })
+    )
 }
 
 pub(super) fn export_source_backed_json_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
     destination: &Path,
-    mut report: F,
+    report: F,
     is_cancelled: C,
 ) -> Result<ExportResult, String>
 where
     F: FnMut(&'static str, u8),
     C: Fn() -> bool + Clone + Send + 'static,
 {
-    ensure_not_cancelled(is_cancelled())?;
-    let destination = canonicalize_write_destination(destination, "la exportación")?;
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
-    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
-    if source_size != expected_file_size {
-        return Err("El archivo source-backed cambió después de la validación.".to_owned());
-    }
-    let source_format = match extension.as_str() {
-        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
-            delimiter: detect_delimiter(&source_path, &extension)?,
+    publish_source_backed_export(
+        source_path,
+        expected_file_size,
+        destination,
+        ExportFormat::Json,
+        report,
+        is_cancelled,
+        |source, temporary, _, cancel| {
+            write_through_scratch(temporary, "json", cancel, |partial, cancel| {
+                crate::duckdb_query::export_file_to_json_with_cancel(
+                    source.path,
+                    source.format,
+                    partial,
+                    cancel,
+                )
+            })
         },
-        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-        _ => return Err("El formato source-backed no se puede exportar a JSON.".to_owned()),
-    };
-
-    report("Preparando archivo temporal", 10);
-    let scratch = tempfile::tempdir_in(parent)
-        .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
-    let partial = scratch.path().join("dataset.partial.json");
-    report("Escribiendo dataset", 25);
-    crate::duckdb_query::export_file_to_json_with_cancel(
-        &source_path,
-        source_format,
-        &partial,
-        is_cancelled.clone(),
-    )?;
-    ensure_not_cancelled(is_cancelled())?;
-
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
-    copy_file_with_cancel(&partial, temporary.as_file_mut(), is_cancelled.clone())?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
-    ensure_not_cancelled(is_cancelled())?;
-    let final_source_size = fs::metadata(&source_path)
-        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
-        .len();
-    if final_source_size != expected_file_size {
-        return Err("El archivo source-backed cambió durante la exportación.".to_owned());
-    }
-    report("Publicando archivo completo", 90);
-    temporary
-        .persist(&destination)
-        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
-    let file_size_bytes = fs::metadata(&destination)
-        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
-        .len();
-    report("Exportación lista", 100);
-    Ok(ExportResult {
-        file_name: destination
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("dataset.json")
-            .to_owned(),
-        file_size_bytes,
-        format: ExportFormat::Json.label(),
-        protected_column_count: 0,
-        protected_columns: Vec::new(),
-        replaced_control_cell_count: 0,
-    })
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1827,274 +1682,96 @@ pub(super) fn export_source_backed_bundle_atomic<F, C>(
     quality_validation: Option<&QualityValidationResult>,
     recipe: Option<&StoredTransformRecipe>,
     destination: &Path,
-    mut report: F,
+    report: F,
     is_cancelled: C,
 ) -> Result<ExportResult, String>
 where
     F: FnMut(&'static str, u8),
     C: Fn() -> bool + Clone + Send + 'static,
 {
-    ensure_not_cancelled(is_cancelled())?;
     if let Some(recipe) = recipe {
         validate_stored_recipe(recipe)?;
     }
-    let destination = canonicalize_write_destination(destination, "la exportación")?;
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
-    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
-    if source_size != expected_file_size {
-        return Err("El archivo source-backed cambió después de la validación.".to_owned());
-    }
-    let source_format = match extension.as_str() {
-        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
-            delimiter: detect_delimiter(&source_path, &extension)?,
-        },
-        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-        _ => return Err("El formato source-backed no se puede exportar a un Bundle.".to_owned()),
-    };
-    let schema = source_scan(&source_path, &extension)?
-        .collect_schema()
-        .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
-    let schema_frame = DataFrame::empty_with_schema(&schema);
-    let column_names = schema_frame
-        .columns()
-        .iter()
-        .map(|column| column.name().to_string())
-        .collect::<Vec<_>>();
-
-    report("Preparando archivo temporal", 10);
-    let scratch = tempfile::tempdir_in(parent)
-        .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
-    let dataset_path = scratch.path().join("dataset.partial.csv");
-    report("Escribiendo dataset", 25);
-    crate::duckdb_query::export_file_to_csv_with_cancel(
-        &source_path,
-        source_format,
-        &dataset_path,
-        is_cancelled.clone(),
-    )?;
-    ensure_not_cancelled(is_cancelled())?;
-    report("Preparando diccionario", 35);
-    let null_counts = crate::duckdb_query::count_file_nulls(
-        &source_path,
-        source_format,
-        &column_names,
-        is_cancelled.clone(),
-    )?;
-    if null_counts.len() != column_names.len() {
-        return Err(
-            "DuckDB no devolvió todos los conteos del diccionario source-backed.".to_owned(),
-        );
-    }
-    let dictionary = BundleDictionary {
-        format: "columnia-dictionary".to_owned(),
-        version: BUNDLE_DICTIONARY_VERSION,
-        columns: schema_frame
-            .columns()
-            .iter()
-            .zip(null_counts)
-            .map(|(column, null_count)| BundleDictionaryColumn {
-                name: column.name().to_string(),
-                data_type: column.dtype().to_string(),
-                null_count,
-            })
-            .collect(),
-    };
-    let dictionary_bytes = bundle_json_bytes(&dictionary, "el diccionario")?;
-    let dictionary_sha256 = hex::encode(Sha256::digest(&dictionary_bytes));
-    let quality_bytes = quality_validation
-        .map(|validation| {
-            let report = BundleQualityReport {
-                format: "columnia-quality-report".to_owned(),
-                version: BUNDLE_QUALITY_REPORT_VERSION,
-                passed: validation.passed,
-                row_count: validation.row_count,
-                total_rules: validation.total_rules,
-                failed_rules: validation.failed_rules,
-                rules: validation
-                    .rules
+    publish_source_backed_export(
+        source_path,
+        expected_file_size,
+        destination,
+        ExportFormat::Bundle,
+        report,
+        is_cancelled,
+        |source, temporary, report, cancel| {
+            let schema = source_scan(source.path, source.extension)?
+                .collect_schema()
+                .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
+            let schema_frame = DataFrame::empty_with_schema(&schema);
+            let column_names = schema_frame
+                .columns()
+                .iter()
+                .map(|column| column.name().to_string())
+                .collect::<Vec<_>>();
+            let parent = temporary
+                .path()
+                .parent()
+                .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?
+                .to_path_buf();
+            let scratch = tempfile::tempdir_in(&parent)
+                .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
+            let dataset_path = scratch.path().join("dataset.partial.csv");
+            crate::duckdb_query::export_file_to_csv_with_cancel(
+                source.path,
+                source.format,
+                &dataset_path,
+                cancel.clone(),
+            )?;
+            ensure_not_cancelled(cancel())?;
+            report("Preparando diccionario", 35);
+            let null_counts = crate::duckdb_query::count_file_nulls(
+                source.path,
+                source.format,
+                &column_names,
+                cancel.clone(),
+            )?;
+            if null_counts.len() != column_names.len() {
+                return Err(
+                    "DuckDB no devolvió todos los conteos del diccionario source-backed."
+                        .to_owned(),
+                );
+            }
+            let dictionary = BundleDictionary {
+                format: "columnia-dictionary".to_owned(),
+                version: BUNDLE_DICTIONARY_VERSION,
+                columns: schema_frame
+                    .columns()
                     .iter()
-                    .map(|rule| BundleQualityRuleReport {
-                        column: rule.column.clone(),
-                        kind: rule.kind,
-                        checked_count: rule.checked_count,
-                        invalid_count: rule.invalid_count,
-                        invalid_pct: rule.invalid_pct,
-                        passed: rule.passed,
+                    .zip(null_counts)
+                    .map(|(column, null_count)| BundleDictionaryColumn {
+                        name: column.name().to_string(),
+                        data_type: column.dtype().to_string(),
+                        null_count,
                     })
                     .collect(),
             };
-            bundle_json_bytes(&report, "el reporte de calidad")
-        })
-        .transpose()?;
-    let quality_manifest = quality_bytes.as_ref().map(|bytes| BundleFileManifest {
-        path: "quality-report.json".to_owned(),
-        bytes: bytes.len() as u64,
-        sha256: hex::encode(Sha256::digest(bytes)),
-    });
-    let recipe_bytes = recipe
-        .map(|recipe| bundle_json_bytes(recipe, "la receta"))
-        .transpose()?;
-    let recipe_manifest = recipe_bytes.as_ref().map(|bytes| BundleFileManifest {
-        path: "recipe.json".to_owned(),
-        bytes: bytes.len() as u64,
-        sha256: hex::encode(Sha256::digest(bytes)),
-    });
-    let mut dataset_file = File::open(&dataset_path)
-        .map_err(|error| format!("No se pudo leer el dataset temporal del paquete: {error}"))?;
-    let (dataset_bytes, dataset_sha256) =
-        hash_and_rewind_with_cancel(&mut dataset_file, &is_cancelled)?;
-    let mut files = vec![
-        BundleFileManifest {
-            path: "dataset.csv".to_owned(),
-            bytes: dataset_bytes,
-            sha256: dataset_sha256,
+            let mut dataset_file = File::open(&dataset_path).map_err(|error| {
+                format!("No se pudo leer el dataset temporal del paquete: {error}")
+            })?;
+            let (dataset_bytes, dataset_sha256) =
+                hash_and_rewind_with_cancel(&mut dataset_file, &cancel)?;
+            assemble_bundle(
+                temporary.as_file_mut(),
+                &mut dataset_file,
+                dataset_bytes,
+                dataset_sha256,
+                dictionary,
+                row_count,
+                schema_frame.width(),
+                quality_validation,
+                recipe,
+                report,
+                &cancel,
+            )?;
+            Ok(0)
         },
-        BundleFileManifest {
-            path: "dictionary.json".to_owned(),
-            bytes: dictionary_bytes.len() as u64,
-            sha256: dictionary_sha256,
-        },
-    ];
-    files.extend(quality_manifest);
-    files.extend(recipe_manifest);
-    let summary_bytes = bundle_delivery_summary(
-        row_count,
-        schema_frame.width(),
-        quality_validation,
-        recipe,
-        &files,
     )
-    .into_bytes();
-    files.push(BundleFileManifest {
-        path: BUNDLE_DELIVERY_SUMMARY_FILE.to_owned(),
-        bytes: summary_bytes.len() as u64,
-        sha256: hex::encode(Sha256::digest(&summary_bytes)),
-    });
-    let manifest = BundleManifest {
-        format: "columnia-bundle".to_owned(),
-        version: BUNDLE_MANIFEST_VERSION,
-        dataset_file: "dataset.csv".to_owned(),
-        dataset_format: "csv".to_owned(),
-        row_count,
-        column_count: schema_frame.width(),
-        dictionary_file: "dictionary.json".to_owned(),
-        quality_report_file: quality_bytes
-            .as_ref()
-            .map(|_| "quality-report.json".to_owned()),
-        recipe_file: recipe_bytes.as_ref().map(|_| "recipe.json".to_owned()),
-        delivery_summary_file: BUNDLE_DELIVERY_SUMMARY_FILE.to_owned(),
-        files,
-    };
-    let manifest_bytes = bundle_json_bytes(&manifest, "el manifest")?;
-    ensure_not_cancelled(is_cancelled())?;
-    report("Empaquetando archivos", 50);
-    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
-    let mut archive = ZipWriter::new(temporary.as_file_mut());
-    archive
-        .start_file("dataset.csv", zip_entry_options(dataset_bytes))
-        .map_err(|error| format!("No se pudo preparar el dataset del paquete: {error}"))?;
-    let mut copied = 0_u64;
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        ensure_not_cancelled(is_cancelled())?;
-        let read = dataset_file
-            .read(&mut buffer)
-            .map_err(|error| format!("No se pudo leer el dataset del paquete: {error}"))?;
-        if read == 0 {
-            break;
-        }
-        archive
-            .write_all(&buffer[..read])
-            .map_err(|error| format!("No se pudo empaquetar el dataset: {error}"))?;
-        copied = copied.saturating_add(read as u64);
-        let percent = if dataset_bytes == 0 {
-            65
-        } else {
-            50 + (copied
-                .saturating_mul(15)
-                .checked_div(dataset_bytes)
-                .unwrap_or(0) as u8)
-                .min(15)
-        };
-        report("Empaquetando dataset", percent);
-    }
-    ensure_not_cancelled(is_cancelled())?;
-    archive
-        .start_file("dictionary.json", options)
-        .map_err(|error| format!("No se pudo preparar el diccionario del paquete: {error}"))?;
-    archive
-        .write_all(&dictionary_bytes)
-        .map_err(|error| format!("No se pudo empaquetar el diccionario del paquete: {error}"))?;
-    if let Some(quality_bytes) = quality_bytes {
-        ensure_not_cancelled(is_cancelled())?;
-        archive
-            .start_file("quality-report.json", options)
-            .map_err(|error| format!("No se pudo preparar el reporte de calidad: {error}"))?;
-        archive
-            .write_all(&quality_bytes)
-            .map_err(|error| format!("No se pudo empaquetar el reporte de calidad: {error}"))?;
-    }
-    if let Some(recipe_bytes) = recipe_bytes {
-        ensure_not_cancelled(is_cancelled())?;
-        archive
-            .start_file("recipe.json", options)
-            .map_err(|error| format!("No se pudo preparar la receta del paquete: {error}"))?;
-        archive
-            .write_all(&recipe_bytes)
-            .map_err(|error| format!("No se pudo empaquetar la receta del paquete: {error}"))?;
-    }
-    ensure_not_cancelled(is_cancelled())?;
-    archive
-        .start_file(BUNDLE_DELIVERY_SUMMARY_FILE, options)
-        .map_err(|error| format!("No se pudo preparar el resumen de entrega: {error}"))?;
-    archive
-        .write_all(&summary_bytes)
-        .map_err(|error| format!("No se pudo empaquetar el resumen de entrega: {error}"))?;
-    ensure_not_cancelled(is_cancelled())?;
-    archive
-        .start_file("manifest.json", options)
-        .map_err(|error| format!("No se pudo preparar el manifest del paquete: {error}"))?;
-    archive
-        .write_all(&manifest_bytes)
-        .map_err(|error| format!("No se pudo empaquetar el manifest: {error}"))?;
-    archive
-        .finish()
-        .map_err(|error| format!("No se pudo cerrar el paquete: {error}"))?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
-    ensure_not_cancelled(is_cancelled())?;
-    let final_source_size = fs::metadata(&source_path)
-        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
-        .len();
-    if final_source_size != expected_file_size {
-        return Err("El archivo source-backed cambió durante la exportación.".to_owned());
-    }
-    report("Publicando archivo completo", 90);
-    temporary
-        .persist(&destination)
-        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
-    let file_size_bytes = fs::metadata(&destination)
-        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
-        .len();
-    report("Exportación lista", 100);
-    Ok(ExportResult {
-        file_name: destination
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("dataset.zip")
-            .to_owned(),
-        file_size_bytes,
-        format: ExportFormat::Bundle.label(),
-        protected_column_count: 0,
-        protected_columns: Vec::new(),
-        replaced_control_cell_count: 0,
-    })
 }
 
 pub(super) fn export_frame_atomic_with_privacy<F, C>(
@@ -2441,51 +2118,27 @@ where
     Ok((bytes, hex::encode(hasher.finalize())))
 }
 
-pub(super) fn write_bundle<F, C>(
-    frame: &DataFrame,
+/// Writes a Columnia bundle (LIM-02): the dataset CSV, already written and
+/// hashed, plus the dictionary, quality report, recipe, delivery summary and
+/// manifest. Both export paths build their bundle here.
+#[allow(clippy::too_many_arguments)]
+fn assemble_bundle<F, C>(
+    output: &mut File,
+    dataset_file: &mut File,
+    dataset_bytes: u64,
+    dataset_sha256: String,
+    dictionary: BundleDictionary,
+    row_count: usize,
+    column_count: usize,
     quality_validation: Option<&QualityValidationResult>,
     recipe: Option<&StoredTransformRecipe>,
-    output: &mut File,
-    mut report: F,
-    is_cancelled: C,
+    report: &mut F,
+    is_cancelled: &C,
 ) -> Result<(), String>
 where
     F: FnMut(&'static str, u8),
-    C: Fn() -> bool,
+    C: Fn() -> bool + ?Sized,
 {
-    ensure_not_cancelled(is_cancelled())?;
-    if let Some(recipe) = recipe {
-        validate_stored_recipe(recipe)?;
-    }
-    report("Preparando paquete", 10);
-
-    // El dataset se materializa en disco antes de abrir el ZIP para poder
-    // calcular su hash sin duplicar datasets grandes en memoria.
-    let mut dataset_file = tempfile::tempfile()
-        .map_err(|error| format!("No se pudo preparar el dataset del paquete: {error}"))?;
-    write_csv_frame_with_cancel(frame, &mut dataset_file, &is_cancelled)
-        .map_err(|error| format!("No se pudo escribir el dataset del paquete: {error}"))?;
-    dataset_file
-        .sync_all()
-        .map_err(|error| format!("No se pudo sincronizar el dataset del paquete: {error}"))?;
-    let (dataset_bytes, dataset_sha256) =
-        hash_and_rewind_with_cancel(&mut dataset_file, &is_cancelled)?;
-    ensure_not_cancelled(is_cancelled())?;
-    report("Preparando diccionario", 35);
-
-    let dictionary = BundleDictionary {
-        format: "columnia-dictionary".to_owned(),
-        version: BUNDLE_DICTIONARY_VERSION,
-        columns: frame
-            .columns()
-            .iter()
-            .map(|column| BundleDictionaryColumn {
-                name: column.name().to_string(),
-                data_type: column.dtype().to_string(),
-                null_count: column.null_count(),
-            })
-            .collect(),
-    };
     let dictionary_bytes = bundle_json_bytes(&dictionary, "el diccionario")?;
     let dictionary_sha256 = hex::encode(Sha256::digest(&dictionary_bytes));
     let quality_bytes = quality_validation
@@ -2540,14 +2193,9 @@ where
     ];
     files.extend(quality_manifest);
     files.extend(recipe_manifest);
-    let summary_bytes = bundle_delivery_summary(
-        frame.height(),
-        frame.width(),
-        quality_validation,
-        recipe,
-        &files,
-    )
-    .into_bytes();
+    let summary_bytes =
+        bundle_delivery_summary(row_count, column_count, quality_validation, recipe, &files)
+            .into_bytes();
     files.push(BundleFileManifest {
         path: BUNDLE_DELIVERY_SUMMARY_FILE.to_owned(),
         bytes: summary_bytes.len() as u64,
@@ -2558,8 +2206,8 @@ where
         version: BUNDLE_MANIFEST_VERSION,
         dataset_file: "dataset.csv".to_owned(),
         dataset_format: "csv".to_owned(),
-        row_count: frame.height(),
-        column_count: frame.width(),
+        row_count,
+        column_count,
         dictionary_file: "dictionary.json".to_owned(),
         quality_report_file: quality_bytes
             .as_ref()
@@ -2571,7 +2219,6 @@ where
     let manifest_bytes = bundle_json_bytes(&manifest, "el manifest")?;
     ensure_not_cancelled(is_cancelled())?;
     report("Empaquetando archivos", 50);
-
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     let mut archive = ZipWriter::new(output);
     archive
@@ -2590,7 +2237,7 @@ where
         archive
             .write_all(&buffer[..read])
             .map_err(|error| format!("No se pudo empaquetar el dataset: {error}"))?;
-        copied += read as u64;
+        copied = copied.saturating_add(read as u64);
         let percent = if dataset_bytes == 0 {
             65
         } else {
@@ -2608,7 +2255,7 @@ where
         .map_err(|error| format!("No se pudo preparar el diccionario del paquete: {error}"))?;
     archive
         .write_all(&dictionary_bytes)
-        .map_err(|error| format!("No se pudo empaquetar el diccionario: {error}"))?;
+        .map_err(|error| format!("No se pudo empaquetar el diccionario del paquete: {error}"))?;
     if let Some(quality_bytes) = quality_bytes {
         ensure_not_cancelled(is_cancelled())?;
         archive
@@ -2625,7 +2272,7 @@ where
             .map_err(|error| format!("No se pudo preparar la receta del paquete: {error}"))?;
         archive
             .write_all(&recipe_bytes)
-            .map_err(|error| format!("No se pudo empaquetar la receta: {error}"))?;
+            .map_err(|error| format!("No se pudo empaquetar la receta del paquete: {error}"))?;
     }
     ensure_not_cancelled(is_cancelled())?;
     archive
@@ -2644,6 +2291,67 @@ where
     archive
         .finish()
         .map_err(|error| format!("No se pudo cerrar el paquete: {error}"))?;
+    Ok(())
+}
+
+pub(super) fn write_bundle<F, C>(
+    frame: &DataFrame,
+    quality_validation: Option<&QualityValidationResult>,
+    recipe: Option<&StoredTransformRecipe>,
+    output: &mut File,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    if let Some(recipe) = recipe {
+        validate_stored_recipe(recipe)?;
+    }
+    report("Preparando paquete", 10);
+
+    // El dataset se materializa en disco antes de abrir el ZIP para poder
+    // calcular su hash sin duplicar datasets grandes en memoria.
+    let mut dataset_file = tempfile::tempfile()
+        .map_err(|error| format!("No se pudo preparar el dataset del paquete: {error}"))?;
+    write_csv_frame_with_cancel(frame, &mut dataset_file, &is_cancelled)
+        .map_err(|error| format!("No se pudo escribir el dataset del paquete: {error}"))?;
+    dataset_file
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar el dataset del paquete: {error}"))?;
+    let (dataset_bytes, dataset_sha256) =
+        hash_and_rewind_with_cancel(&mut dataset_file, &is_cancelled)?;
+    ensure_not_cancelled(is_cancelled())?;
+    report("Preparando diccionario", 35);
+
+    let dictionary = BundleDictionary {
+        format: "columnia-dictionary".to_owned(),
+        version: BUNDLE_DICTIONARY_VERSION,
+        columns: frame
+            .columns()
+            .iter()
+            .map(|column| BundleDictionaryColumn {
+                name: column.name().to_string(),
+                data_type: column.dtype().to_string(),
+                null_count: column.null_count(),
+            })
+            .collect(),
+    };
+    assemble_bundle(
+        output,
+        &mut dataset_file,
+        dataset_bytes,
+        dataset_sha256,
+        dictionary,
+        frame.height(),
+        frame.width(),
+        quality_validation,
+        recipe,
+        &mut report,
+        &is_cancelled,
+    )?;
     report("Paquete listo", 88);
     Ok(())
 }
