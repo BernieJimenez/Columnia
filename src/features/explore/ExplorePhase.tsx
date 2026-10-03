@@ -31,7 +31,7 @@ interface ExplorePhaseProps {
 type PanelState =
   | { kind: "loading"; previous: ExplorePanel | null }
   | { kind: "ready"; panel: ExplorePanel }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; previous: ExplorePanel | null };
 
 export function ExplorePhase({ dataset, datasetRevision, profileReady }: ExplorePhaseProps) {
   const [filters, setFilters] = useState<ExploreFilter[]>([]);
@@ -39,6 +39,8 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
   const [layout, setLayout] = useState<ExploreLayout>({});
   const [customizing, setCustomizing] = useState(false);
   const [state, setState] = useState<PanelState>({ kind: "loading", previous: null });
+  const [attempt, setAttempt] = useState(0);
+  const custom = Object.keys(layout).length > 0;
   const [shownRevision, setShownRevision] = useState(datasetRevision);
   if (shownRevision !== datasetRevision) {
     // New data: filters and chosen columns may no longer exist.
@@ -52,20 +54,25 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
     let current = true;
     setState((previous) => ({
       kind: "loading",
-      previous: previous.kind === "ready" ? previous.panel : previous.kind === "loading" ? previous.previous : null,
+      previous: previous.kind === "ready" ? previous.panel : previous.previous,
     }));
     getExplorePanel(filters, layout).then(
       (panel) => { if (current) setState({ kind: "ready", panel }); },
       (error: unknown) => {
-        if (current) setState({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+        if (!current) return;
+        // The last panel stays, so its chips can still remove the filter that failed (UX-01).
+        setState((previous) => ({
+          kind: "error",
+          message: error instanceof Error ? error.message : String(error),
+          previous: previous.kind === "ready" ? previous.panel : previous.previous,
+        }));
       },
     );
     return () => { current = false; };
-  }, [filters, layout, datasetRevision, profileReady]);
+  }, [filters, layout, datasetRevision, profileReady, attempt]);
 
-  const panel = state.kind === "ready" ? state.panel : state.kind === "loading" ? state.previous : null;
+  const panel = state.kind === "ready" ? state.panel : state.previous;
   const shownCharts = panel?.categories.map((chart) => chart.column) ?? [];
-  const custom = Object.keys(layout).length > 0;
   // A chart that leaves the panel takes its filter with it.
   function changeLayout(next: ExploreLayout, dropped?: string | null) {
     setLayout(next);
@@ -88,7 +95,18 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
         <p className="notice" role="status">Analizando la calidad para preparar el panel…</p>
       )}
       {state.kind === "error" && (
-        <p className="notice notice--error" role="alert">No se pudo preparar el panel: {state.message}</p>
+        <div className="notice notice--error" role="alert">
+          <p>No se pudo preparar el panel: {state.message}</p>
+          {filters.length > 0 || custom ? (
+            <button type="button" className="secondary-action" onClick={() => { setFilters([]); setLayout({}); }}>
+              Quitar filtros y volver a lo automático
+            </button>
+          ) : (
+            <button type="button" className="secondary-action" onClick={() => setAttempt((value) => value + 1)}>
+              Reintentar
+            </button>
+          )}
+        </div>
       )}
 
       {panel && (
@@ -237,7 +255,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
                 <section className="explore__panel explore__panel--wide" aria-label={`Distribución de ${histogram.column}`}>
                   <h4>{histogram.column}</h4>
                   <div className={`explore__columns${active ? " explore__bars--dim" : ""}`}>
-                    {histogram.bins.map((bin) => {
+                    {histogram.bins.map((bin, index) => {
                       const selected = isRangeSelected(filters, histogram.column, bin.lower, bin.upper);
                       return (
                         <button
@@ -246,7 +264,8 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
                           className="explore__column"
                           aria-pressed={selected}
                           aria-label={`${histogram.column} de ${formatNumber(bin.lower, 2)} a ${formatNumber(bin.upper, 2)}: ${formatNumber(bin.count)} filas`}
-                          onClick={() => setFilters((current) => toggleRange(current, histogram.column, bin.lower, bin.upper))}
+                          onClick={() => setFilters((current) =>
+                            toggleRange(current, histogram.column, bin.lower, bin.upper, index === histogram.bins.length - 1))}
                         >
                           <span className="explore__area"><span className="explore__fill" style={{ height: `${(bin.count / max) * 100}%` }} /></span>
                         </button>

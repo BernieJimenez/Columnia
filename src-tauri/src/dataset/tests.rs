@@ -18669,3 +18669,46 @@ fn query_frame_snapshot_is_written_once_per_dataset_version() {
     drop(cache);
     let _ = fs::remove_file(path);
 }
+
+/// FUN-06: for every histogram bar, its count is the row count after
+/// filtering by it, also for values on a bin's upper edge.
+#[test]
+fn every_histogram_bar_matches_the_rows_its_filter_keeps() {
+    let mut values = (0..=100_i64).collect::<Vec<_>>();
+    values.push(0);
+    let frame = df!("valor" => values, "grupo" => vec!["a"; 102]).expect("frame");
+    let profile = profile_dataset(&frame).expect("perfil");
+    let panel = explore::explore_panel(
+        frame.clone().lazy(),
+        &profile,
+        &[],
+        &ExploreLayout::default(),
+    )
+    .expect("panel");
+    let value = serde_json::to_value(&panel).unwrap();
+    let bins = value["histogram"]["bins"]
+        .as_array()
+        .expect("histograma")
+        .clone();
+    assert!(bins.len() > 1);
+    for (index, bin) in bins.iter().enumerate() {
+        let filter: ExploreFilter = serde_json::from_value(serde_json::json!({
+            "column": "valor",
+            "range": {
+                "min": bin["lower"],
+                "max": bin["upper"],
+                "exclusiveMax": index + 1 < bins.len(),
+            }
+        }))
+        .unwrap();
+        let filtered = explore::explore_panel(
+            frame.clone().lazy(),
+            &profile,
+            &[filter],
+            &ExploreLayout::default(),
+        )
+        .expect("panel filtrado");
+        let filtered = serde_json::to_value(&filtered).unwrap();
+        assert_eq!(filtered["rowCount"], bin["count"], "tramo {index}: {bin}");
+    }
+}

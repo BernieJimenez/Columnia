@@ -495,6 +495,8 @@ export interface ExploreOptions {
 export interface ExploreRange {
   min: number;
   max: number;
+  /** `[min, max)`: every histogram bin but the last one. */
+  exclusiveMax?: boolean;
 }
 
 export interface ExplorePanel {

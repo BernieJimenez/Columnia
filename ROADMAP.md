@@ -89,9 +89,9 @@ medio = 1 día; agregado por suma.
   - [x] `REN-05` (Medio) Cada consulta DuckDB sobre un DataFrame escribe un Parquet completo del dataset (candidato a medir) — hecho el 2026-10-03
 - [ ] **RV31** — **Explorar** — Las barras del histograma de Explorar cuentan `[a,b)` y el filtro filtra `[a,b]`: la cifr… (y 3 problemas más) · *Esfuerzo: 2,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-06, ARQ-04, UX-01, ACC-01.
-  - [ ] `FUN-06` (Medio) Las barras del histograma de Explorar cuentan `[a,b)` y el filtro filtra `[a,b]`: la cifra de la barra no coincide con «Filas»
+  - [x] `FUN-06` (Medio) Las barras del histograma de Explorar cuentan `[a,b)` y el filtro filtra `[a,b]`: la cifra de la barra no coincide con «Filas» — hecho el 2026-10-03
   - [ ] `ARQ-04` (Medio) Varias operaciones largas retienen el mutex del dataset durante todo el cálculo (Explorar, consultas, agregación temporal, deshacer, comparación)
-  - [ ] `UX-01` (Medio) Si el panel de Explorar falla tras un filtro, desaparece todo (chips y botón «Personalizar» incluidos) y no hay forma de quitar el filtro
+  - [x] `UX-01` (Medio) Si el panel de Explorar falla tras un filtro, desaparece todo (chips y botón «Personalizar» incluidos) y no hay forma de quitar el filtro — hecho el 2026-10-03
   - [ ] `ACC-01` (Medio) Barras de la tendencia de Explorar con 60 periodos miden 10,9 × 160 px (9,7 a 900 px de ancho)
 - [ ] **RV32** — **Exportación y libros** — La protección contra fórmulas altera datos legítimos (`-5`, `+34…`, `@ana`) y la interfaz… (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-07, FUN-15, FUN-29, FUN-31, SEG-01.
@@ -274,7 +274,7 @@ medio = 1 día; agregado por suma.
 - [ ] **RV62** — **Pruebas del motor** — El test de ida y vuelta solo cubre el camino eager de exportación; el source-backed (`all… (y 2 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-17, QA-18, QA-19.
   - [ ] `QA-17` (Medio) El test de ida y vuelta solo cubre el camino eager de exportación; el source-backed (`all_varchar`) no tiene equivalente
-  - [ ] `QA-18` (Medio) Explorar: ningún test cruza el filtro de rango con los intervalos del histograma (rango cerrado frente a bins semiabiertos)
+  - [x] `QA-18` (Medio) Explorar: ningún test cruza el filtro de rango con los intervalos del histograma (rango cerrado frente a bins semiabiertos) — hecho el 2026-10-03
   - [ ] `QA-19` (Medio) No hay ningún test de perfil numérico con NaN o infinito (el `expect` de Q1/Q3 en `src-tauri/src/dataset/numeric_profile.rs:549-550` queda sin cubrir)
 - [ ] **RV63** — **Documentación** — CONTEXTO.md: cifras e inventario de IPC desactualizados y contradictorios entre sí (y 2 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de DOC-01, DOC-03, DOC-04.

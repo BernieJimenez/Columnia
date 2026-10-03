@@ -170,6 +170,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- En Explorar, la cifra de cada barra del histograma coincide con «Filas» al
+  pulsarla: el filtro deja fuera el borde superior del tramo salvo en el último,
+  igual que el recuento (FUN-06). Si el panel falla tras un filtro, los filtros
+  siguen a la vista y un botón los quita y vuelve a lo automático; si falla la
+  primera carga, «Reintentar» (UX-01).
 - Una celda vacía entre comillas (`""`) se exporta como texto vacío y una celda
   sin nada como nulo, igual con archivos pequeños y grandes; antes los grandes
   convertían ambas en nulo (DAT-08). El script SQL exportado avisa en su

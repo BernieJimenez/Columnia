@@ -160,5 +160,37 @@ describe("ExplorePhase", () => {
 
     view.rerender(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
     expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo preparar el panel: sin perfil");
+
+    getPanel.mockResolvedValueOnce(panel(8));
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+    expect(await screen.findByRole("region", { name: "Filas por estado" })).toBeInTheDocument();
+    expect(getPanel).toHaveBeenCalledTimes(2);
+  });
+
+  it("filters a histogram bar as it counts it: [a, b) except the last bar", async () => {
+    const getPanel = vi.spyOn(bridge, "getExplorePanel").mockResolvedValue(panel(8));
+    render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /precio de 100 a 450/ }));
+    await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([
+      { column: "precio", range: { min: 100, max: 450, exclusiveMax: true } },
+    ], {}));
+  });
+
+  it("keeps the filters on screen after a failure so they can be removed (UX-01)", async () => {
+    const getPanel = vi.spyOn(bridge, "getExplorePanel")
+      .mockResolvedValueOnce(panel(8))
+      .mockRejectedValueOnce(new Error("columna renombrada"))
+      .mockResolvedValueOnce(panel(8));
+    render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
+
+    const chart = await screen.findByRole("region", { name: "Filas por estado" });
+    fireEvent.click(within(chart).getByRole("button", { name: /FL/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("columna renombrada");
+    expect(screen.getByRole("button", { name: "Quitar filtro estado: FL" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Quitar filtros y volver a lo automático" }));
+    await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([], {}));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 });

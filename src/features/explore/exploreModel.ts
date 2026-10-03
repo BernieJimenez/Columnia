@@ -11,11 +11,19 @@ export function toggleValue(filters: ExploreFilter[], column: string, value: str
   return next.length === 0 ? others : [...others, { column, values: next }];
 }
 
-export function toggleRange(filters: ExploreFilter[], column: string, min: number, max: number): ExploreFilter[] {
+/** `lastBin` keeps the upper edge, as the histogram counts it there. */
+export function toggleRange(
+  filters: ExploreFilter[],
+  column: string,
+  min: number,
+  max: number,
+  lastBin = true,
+): ExploreFilter[] {
   const current = filters.find((filter) => filter.column === column);
   const others = filters.filter((filter) => filter.column !== column);
   const same = current?.range?.min === min && current.range.max === max;
-  return same ? others : [...others, { column, range: { min, max } }];
+  const range = lastBin ? { min, max } : { min, max, exclusiveMax: true };
+  return same ? others : [...others, { column, range }];
 }
 
 export function isValueSelected(filters: ExploreFilter[], column: string, value: string | null): boolean {

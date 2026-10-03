@@ -63,6 +63,9 @@ pub struct ExploreOptions {
 pub struct ExploreRange {
     min: f64,
     max: f64,
+    /// `[min, max)`, as the histogram counts every bin but the last (FUN-06).
+    #[serde(default)]
+    exclusive_max: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -333,9 +336,14 @@ fn filter_expression(filters: &[ExploreFilter], skip: Option<&str>) -> Option<Ex
                 })
             } else {
                 filter.range.map(|range| {
+                    let upper = if range.exclusive_max {
+                        number_expression(&filter.column).lt(lit(range.max))
+                    } else {
+                        number_expression(&filter.column).lt_eq(lit(range.max))
+                    };
                     number_expression(&filter.column)
                         .gt_eq(lit(range.min))
-                        .and(number_expression(&filter.column).lt_eq(lit(range.max)))
+                        .and(upper)
                 })
             }
         })
