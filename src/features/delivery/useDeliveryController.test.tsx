@@ -118,7 +118,7 @@ describe("useDeliveryController", () => {
       cancellationError: "sin respuesta",
     });
 
-    await act(async () => pending.reject(new Error("Exportación cancelada por el usuario")));
+    await act(async () => pending.reject(new Error("Operación cancelada por el usuario.")));
     expect(hook.current.exportStatus).toEqual({ kind: "cancelled" });
   });
 

@@ -1,3 +1,4 @@
+import { isCancellationError } from "./bridge/cancellation";
 import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
@@ -165,9 +166,6 @@ function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-function isCancellationError(error: unknown): boolean {
-  return String(error).includes("cancelada por el usuario");
-}
 
 function reusableOutputFormat(format: ExportFormat): ReusableTaskOutputFormat {
   switch (format) {

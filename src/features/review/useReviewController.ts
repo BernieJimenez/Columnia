@@ -1,3 +1,4 @@
+import { isCancellationError } from "../../bridge/cancellation";
 import { useEffect, useEffectEvent, useRef, useState, type MutableRefObject } from "react";
 
 import type { ReviewTab } from "../../components/ReviewTabList";
@@ -91,9 +92,6 @@ interface ReviewControllerOptions {
   onDatasetReplaced: (dataset: DatasetPreview, mutation: ReviewMutationKind) => Promise<void>;
 }
 
-function isCancellationError(error: unknown): boolean {
-  return String(error).includes("cancelada por el usuario");
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

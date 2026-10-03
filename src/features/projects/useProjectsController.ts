@@ -1,3 +1,4 @@
+import { isCancellationError } from "../../bridge/cancellation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -65,9 +66,6 @@ function errorMessage(error: unknown): string {
   return (sanitized || "No se pudo completar la operación.").slice(0, 240);
 }
 
-function isCancellationError(error: unknown): boolean {
-  return String(error).includes("cancelada por el usuario");
-}
 
 export function useProjectsController({
   connected,

@@ -137,7 +137,7 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-25` (Medio) Conversiones de tipo, interpretación de fechas y «buscar y reemplazar» no piden confirmación y el asesor las califica de «bajo riesgo» aunque pueden anular o reescribir datos — hecho el 2026-10-03
   - [x] `FUN-26` (Medio) El editor guarda estado inicial de las columnas (`keptColumns`, borradores) y solo se reinicia con `recipeSession`: si el dataset cambia sin remontar, una columna nueva se trata como «descartada» — hecho el 2026-10-03
   - [x] `TXT-01` (Medio) Afirmaciones absolutas que el producto no cumple: «nunca inventa valores», «todas las acciones son reversibles», «reversible desde el historial» — hecho el 2026-10-03
-  - [ ] `COD-01` (Medio) La detección de cancelación compara texto en español, copiado en 6 sitios
+  - [x] `COD-01` (Medio) La detección de cancelación compara texto en español, copiado en 6 sitios — hecho el 2026-10-03
   - [ ] `QA-08` (Medio) `src/features/prepare/usePrepareController.test.tsx`: fija los plurales defectuosos y no cubre los caminos que importan (historial desactivado, anulados, cancelación tardía)
 - [ ] **RV39** — **Preparar** — `PreparePhase.test.tsx`: un test sin aserciones, plurales fijados y huecos en los caminos de estado de la propuesta y e… · *Esfuerzo: 1 día*
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-09.

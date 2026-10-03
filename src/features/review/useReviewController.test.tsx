@@ -97,7 +97,7 @@ describe("useReviewController", () => {
       cancellationError: "sin respuesta",
     });
 
-    await act(async () => pending.reject(new Error("Operación cancelada por el usuario")));
+    await act(async () => pending.reject(new Error("Operación cancelada por el usuario.")));
     expect(result.current.profileStatus).toEqual({ kind: "cancelled" });
 
     vi.spyOn(bridge, "getDatasetProfile").mockRejectedValueOnce(new Error("disco lleno"));
@@ -127,7 +127,7 @@ describe("useReviewController", () => {
       comparison: { conflictOffset: 50, conflictsTruncated: true },
     });
 
-    compare.mockRejectedValueOnce(new Error("Comparación cancelada por el usuario"));
+    compare.mockRejectedValueOnce(new Error("Operación cancelada por el usuario."));
     await act(async () => result.current.comparison.onCompare());
     await waitFor(() => expect(result.current.comparison.status.kind).toBe("ready"));
 
@@ -216,7 +216,7 @@ describe("useReviewController", () => {
     await waitFor(() => expect(result.current.busy).toBe(true));
     await act(async () => result.current.comparison.onCancelMutation?.());
     expect(cancel).toHaveBeenCalledWith("reviewMutation");
-    await act(async () => pending.reject(new Error("Resolución cancelada por el usuario")));
+    await act(async () => pending.reject(new Error("Operación cancelada por el usuario.")));
     expect(result.current.comparison.mutationStatus).toEqual({ kind: "idle" });
     expect(result.current.busy).toBe(false);
   });

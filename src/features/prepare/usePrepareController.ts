@@ -1,3 +1,4 @@
+import { isCancellationError } from "../../bridge/cancellation";
 import { useRef, useState } from "react";
 
 import {
@@ -87,7 +88,7 @@ export function usePrepareController({
 
   function changeFailureStatus(error: unknown): ChangeStatus {
     const message = error instanceof Error ? error.message : String(error);
-    return message.includes("cancelada por el usuario")
+    return isCancellationError(error)
       ? { kind: "cancelled", message: "Preparación cancelada. El dataset anterior sigue activo." }
       : { kind: "error", message };
   }

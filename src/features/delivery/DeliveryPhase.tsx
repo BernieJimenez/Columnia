@@ -1,3 +1,4 @@
+import { isCancellationError } from "../../bridge/cancellation";
 import {
   useEffect,
   useEffectEvent,
@@ -159,9 +160,6 @@ const QUALITY_RULE_SUMMARY: Record<QualityRuleKind, string> = {
   row_count: "debe mantener la cantidad de filas permitida",
 };
 
-function isCancellationError(error: unknown): boolean {
-  return String(error).includes("cancelada por el usuario");
-}
 
 function summarizeQualityRule(rule: QualityRule): string {
   const columns = rule.kind === "schema_contract" || rule.kind === "row_count"

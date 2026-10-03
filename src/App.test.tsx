@@ -86,6 +86,9 @@ function defaultDelimitedHeaderReview(): DelimitedHeaderReview {
 }
 
 beforeEach(() => {
+  // Without a simulation the proposal keeps the profile estimate (FUN-12);
+  // in these tests the engine call would never answer.
+  vi.spyOn(bridge, "previewSafeCorrections").mockRejectedValue(new Error("Sin simulación en las pruebas."));
   vi.spyOn(bridge, "previewDelimitedHeaderReview").mockResolvedValue(defaultDelimitedHeaderReview());
   vi.spyOn(bridge, "previewDatasetSelection").mockImplementation(
     async (_selectionId, _sheetId, _headerMode, expectedProfile) => ({
@@ -2899,7 +2902,7 @@ describe("App", () => {
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Copia lista" })).not.toBeInTheDocument());
     expect(within(screen.getByRole("button", { name: "Entregar" })).queryByText("Hecho")).not.toBeInTheDocument();
 
-    exportSpy.mockRejectedValueOnce(new Error("operación cancelada por el usuario"));
+    exportSpy.mockRejectedValueOnce(new Error("Operación cancelada por el usuario."));
     fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
     expect(await screen.findByText(/Exportación cancelada/)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
