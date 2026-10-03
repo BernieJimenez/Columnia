@@ -102,7 +102,7 @@ medio = 1 día; agregado por suma.
   - [x] `SEG-01` (Medio) Las cabeceras que empiezan por `=` (y `+`, `-`, `@`) no se neutralizan al exportar a CSV — hecho el 2026-10-03
 - [ ] **RV33** — **Exportación y libros** — El modo «hash» de privacidad es SHA-256 sin sal: reversible por diccionario en datos de b… (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de SEG-02, ARQ-05, LIM-02, QA-14, DOC-02.
-  - [ ] `SEG-02` (Medio) El modo «hash» de privacidad es SHA-256 sin sal: reversible por diccionario en datos de baja entropía
+  - [x] `SEG-02` (Medio) El modo «hash» de privacidad es SHA-256 sin sal: reversible por diccionario en datos de baja entropía — hecho el 2026-10-03
   - [ ] `ARQ-05` (Medio) Los ZIP (bundle, xlsx) no activan `large_file`: entradas de más de 4 GiB fallarán
   - [ ] `LIM-02` (Medio) Esqueleto de exportación duplicado en siete variantes y bloques idénticos
   - [ ] `QA-14` (Medio) Las pruebas de exportación source-backed no cubren ceros a la izquierda, destino igual a fuente ni fórmulas

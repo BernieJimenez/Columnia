@@ -884,6 +884,7 @@ dependencies = [
  "calamine",
  "chrono",
  "duckdb",
+ "getrandom 0.3.4",
  "hex",
  "odbc-api",
  "polars",

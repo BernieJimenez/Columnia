@@ -850,11 +850,11 @@ export function DeliveryPhase({
             >
               <option value="none">Sin protección adicional</option>
               <option value="mask">Enmascarar columnas detectadas</option>
-              <option value="hash">Aplicar hash SHA-256 a columnas detectadas</option>
+              <option value="hash">Seudonimizar columnas detectadas (hash con sal)</option>
             </select>
             {selectedPrivacyMode === "hash" && (
               <small id="privacy-mode-note" className="privacy-mode__note">
-                SHA-256 es determinista y no usa salt: valores predecibles pueden adivinarse. No equivale a anonimización; revisa el archivo antes de compartirlo.
+                Cada valor se sustituye por un hash SHA-256 con una sal nueva en cada exportación: no se puede adivinar probando valores, pero tampoco se pueden cruzar dos exportaciones. Es seudonimización, no anonimización; revisa el archivo antes de compartirlo.
               </small>
             )}
           </label>

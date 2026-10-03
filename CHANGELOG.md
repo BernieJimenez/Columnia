@@ -109,6 +109,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Seguridad
 
+- La protección «hash» de Entregar usa una sal aleatoria nueva en cada
+  exportación: el hash de un teléfono o un correo ya no se puede adivinar
+  probando valores. Las dos rutas de exportación dan el mismo resultado con la
+  misma sal, y la interfaz la presenta como seudonimización (SEG-02).
 - T10-14: una entrega ODBC en modo «Añadir filas» ya no duplica datos sin
   avisar. Si el mismo dataset ya se añadió a esa tabla, o si una entrega
   anterior no llegó a confirmar si se guardó, Columnia lo dice en un diálogo de

@@ -9569,6 +9569,7 @@ fn privacy_modes_mask_or_hash_detect_all_detected_columns_without_values() {
 
 #[test]
 fn privacy_modes_protect_final_csv_artifact_and_preserve_source_bytes() {
+    export_io::TEST_PRIVACY_SALT.with(|salt| *salt.borrow_mut() = Some("sal".to_owned()));
     let source = temporary_csv("email,identifier,city\nana@example.com,42,Santo Domingo\n");
     let original_source = fs::read(&source).expect("la fuente original debe poder leerse");
     let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
@@ -9608,8 +9609,8 @@ fn privacy_modes_protect_final_csv_artifact_and_preserve_source_bytes() {
     )
     .expect("la exportación CSV con hash debe funcionar");
     let hashed = fs::read_to_string(&hashed_path).expect("el CSV con hash debe leerse");
-    let email_hash = hex::encode(Sha256::digest(b"ana@example.com"));
-    let identifier_hash = hex::encode(Sha256::digest(b"42"));
+    let email_hash = export_io::salted_privacy_hash("sal", "ana@example.com");
+    let identifier_hash = export_io::salted_privacy_hash("sal", "42");
     assert_eq!(hashed_result.protected_columns, vec!["email", "identifier"]);
     assert!(hashed.contains(&email_hash));
     assert!(hashed.contains(&identifier_hash));
@@ -9627,6 +9628,7 @@ fn privacy_modes_protect_final_csv_artifact_and_preserve_source_bytes() {
 
 #[test]
 fn eager_and_source_backed_privacy_hashes_match_for_typed_values() {
+    export_io::TEST_PRIVACY_SALT.with(|salt| *salt.borrow_mut() = Some("sal".to_owned()));
     let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
     let source = directory.path().join("typed-source.parquet");
     let snapshot = directory.path().join("typed-hash.parquet");
@@ -9695,6 +9697,7 @@ fn eager_and_source_backed_privacy_hashes_match_for_typed_values() {
 
 #[test]
 fn source_backed_privacy_snapshot_masks_and_hashes_without_materializing_rows() {
+    export_io::TEST_PRIVACY_SALT.with(|salt| *salt.borrow_mut() = Some("sal".to_owned()));
     let source =
         temporary_csv("email,identifier,city\nana@example.com,42,Santo Domingo\n,7,Santiago\n");
     let original_source = fs::read(&source).expect("la fuente original debe poder leerse");
@@ -9739,8 +9742,8 @@ fn source_backed_privacy_snapshot_masks_and_hashes_without_materializing_rows() 
     .expect("el hash source-backed debe crear un snapshot");
     assert_eq!(hashed_columns, masked_columns);
     let hashed = read_parquet_frame(&hashed_path).expect("el snapshot hash debe abrir");
-    let expected_email_hash = hex::encode(Sha256::digest(b"ana@example.com"));
-    let expected_identifier_hash = hex::encode(Sha256::digest(b"42"));
+    let expected_email_hash = export_io::salted_privacy_hash("sal", "ana@example.com");
+    let expected_identifier_hash = export_io::salted_privacy_hash("sal", "42");
     assert_eq!(
         hashed.column("email").unwrap().str().unwrap().get(0),
         Some(expected_email_hash.as_str())
@@ -18809,4 +18812,27 @@ fn workbook_dates_mixed_with_text_keep_their_date() {
             Some("N/D".to_owned())
         ]
     );
+}
+
+/// SEG-02: the hash of a value is not its bare SHA-256, and two exports use
+/// different salts.
+#[test]
+fn privacy_hashes_use_a_new_salt_in_every_export() {
+    let frame = df!("email" => ["ana@example.com"], "city" => ["Santiago"]).expect("frame");
+    let hash = |frame: &DataFrame| {
+        let (hashed, _) = privacy_safe_frame(frame, PrivacyMode::Hash).expect("hash");
+        hashed
+            .column("email")
+            .unwrap()
+            .str()
+            .unwrap()
+            .get(0)
+            .unwrap()
+            .to_owned()
+    };
+    let first = hash(&frame);
+    let second = hash(&frame);
+    assert_ne!(first, second);
+    assert_ne!(first, hex::encode(Sha256::digest(b"ana@example.com")));
+    assert_eq!(first.len(), 64);
 }

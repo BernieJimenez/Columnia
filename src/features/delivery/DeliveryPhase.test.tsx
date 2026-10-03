@@ -735,7 +735,7 @@ describe("DeliveryPhase", () => {
     render(<DeliveryHarness onExport={onExport} />);
     const privacyControl = screen.getByRole("combobox", { name: "Protección de datos personales" });
     // The hash caveat only appears when hashing is chosen.
-    expect(screen.queryByText(/No equivale a anonimización/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Es seudonimización, no anonimización/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Confirmo que quiero exportar sin validar la calidad",
@@ -744,7 +744,7 @@ describe("DeliveryPhase", () => {
       target: { value: "hash" },
     });
     expect(privacyControl).toHaveAttribute("aria-describedby", "privacy-mode-note");
-    expect(screen.getByText(/No equivale a anonimización/)).toBeInTheDocument();
+    expect(screen.getByText(/Es seudonimización, no anonimización/)).toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
       target: { value: "excel" },
     });

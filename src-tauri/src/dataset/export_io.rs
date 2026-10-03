@@ -1245,6 +1245,34 @@ where
     })
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Lets a test fix the salt to compare both export paths.
+    pub(super) static TEST_PRIVACY_SALT: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// A random salt for one export (SEG-02): the hash of a phone or an e-mail
+/// cannot be reversed by hashing candidate values, and two exports do not
+/// share hashes.
+pub(super) fn fresh_privacy_salt() -> Result<String, String> {
+    #[cfg(test)]
+    if let Some(salt) = TEST_PRIVACY_SALT.with(|salt| salt.borrow().clone()) {
+        return Ok(salt);
+    }
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| format!("No se pudo generar la sal de la protección: {error}"))?;
+    Ok(hex::encode(bytes))
+}
+
+pub(super) fn salted_privacy_hash(salt: &str, value: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(salt.as_bytes());
+    digest.update(value.as_bytes());
+    hex::encode(digest.finalize())
+}
+
 pub(super) fn privacy_safe_frame(
     frame: &DataFrame,
     mode: PrivacyMode,
@@ -1265,6 +1293,11 @@ where
         return Ok((frame.clone(), Vec::new()));
     }
     let mut safe = frame.clone();
+    let salt = if mode == PrivacyMode::Hash {
+        fresh_privacy_salt()?
+    } else {
+        String::new()
+    };
     let protected_columns = frame
         .columns()
         .iter()
@@ -1296,7 +1329,7 @@ where
                     Some(match mode {
                         PrivacyMode::None => value,
                         PrivacyMode::Mask => REDACTED_VALUE.to_owned(),
-                        PrivacyMode::Hash => hex::encode(Sha256::digest(value.as_bytes())),
+                        PrivacyMode::Hash => salted_privacy_hash(&salt, &value),
                     })
                 }
             });
@@ -1343,6 +1376,11 @@ where
     if protected_columns.is_empty() {
         return Ok(protected_columns);
     }
+    let salt = if mode == PrivacyMode::Hash {
+        fresh_privacy_salt()?
+    } else {
+        String::new()
+    };
     let source_format = match extension.as_str() {
         "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
         "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
@@ -1364,7 +1402,8 @@ where
                     sql_string_literal(REDACTED_VALUE)
                 ),
                 PrivacyMode::Hash => format!(
-                    "CASE WHEN {identifier} IS NULL THEN NULL ELSE sha256(CAST({identifier} AS VARCHAR)) END AS {identifier}"
+                    "CASE WHEN {identifier} IS NULL THEN NULL ELSE sha256({} || CAST({identifier} AS VARCHAR)) END AS {identifier}",
+                    sql_string_literal(&salt)
                 ),
                 PrivacyMode::None => unreachable!("se validó un modo de privacidad explícito"),
             }
