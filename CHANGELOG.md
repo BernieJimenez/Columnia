@@ -185,6 +185,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Tras «Deshacer» desde el historial, Preparar vuelve a la propuesta en lugar de
+  seguir mostrando «Listo: cambios aplicados» con cifras que ya no eran ciertas
+  (FUN-11).
 - Si una etapa falla al dibujarse, Columnia muestra un aviso con «Reintentar» en
   lugar de dejar la ventana en blanco; la barra lateral y las demás etapas
   siguen funcionando y los datos cargados se conservan. Un fallo al arrancar

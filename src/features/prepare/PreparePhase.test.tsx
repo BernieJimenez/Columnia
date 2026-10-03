@@ -1067,7 +1067,17 @@ describe("PreparePhase", () => {
     );
     // Figures that did not move are left out.
     expect(result).not.toHaveTextContent("Columnas");
-    fireEvent.click(within(result).getByRole("button", { name: "Deshacer" }));
+    // FUN-11: Deshacer from the history panel changes the revision and the
+    // result screen gives way to the proposal.
+    rerender(<PreparePhase {...props} datasetRevision={10} profileStatus={{ kind: "ready", profile: afterProfile }} />);
+    expect(screen.queryByRole("region", { name: "Listo: cambios aplicados" })).not.toBeInTheDocument();
+    rerender(<PreparePhase
+      {...props}
+      datasetRevision={9}
+      profileStatus={{ kind: "ready", profile: afterProfile }}
+      historyStatus={{ ...props.historyStatus, canUndo: true }}
+    />);
+    fireEvent.click(within(screen.getByRole("region", { name: "Listo: cambios aplicados" })).getByRole("button", { name: "Deshacer" }));
     expect(props.onUndo).toHaveBeenCalledOnce();
     expect(screen.queryByRole("region", { name: "Listo: cambios aplicados" })).not.toBeInTheDocument();
   });

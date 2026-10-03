@@ -127,7 +127,7 @@ medio = 1 día; agregado por suma.
   - [x] `QA-05` (Medio) `src/App.test.tsx`: archivo único de 3.495 líneas, dependiente de temporizadores, de la configuración regional y con flujos sin test — hecho el 2026-10-03
 - [ ] **RV37** — **Preparar** — La pantalla «Listo: cambios aplicados» queda obsoleta tras Deshacer desde el Historial (y 4 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-11, FUN-12, FUN-22, FUN-23, FUN-24.
-  - [ ] `FUN-11` (Medio) La pantalla «Listo: cambios aplicados» queda obsoleta tras Deshacer desde el Historial
+  - [x] `FUN-11` (Medio) La pantalla «Listo: cambios aplicados» queda obsoleta tras Deshacer desde el Historial — hecho el 2026-10-03
   - [ ] `FUN-12` (Medio) La propuesta de Preparar anuncia menos duplicados de los que aplica
   - [ ] `FUN-22` (Medio) `looksLikeIdentifier` solo mira la última palabra: `id_cliente`, `codigo_postal`, `num_factura` no se detectan como identificadores
   - [ ] `FUN-23` (Medio) La estimación de filas del filtro cuenta 0 coincidencias para filtros por fecha o con coma decimal

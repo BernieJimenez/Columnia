@@ -118,7 +118,10 @@ export function PreparePhase({
     sourceRevision: number;
     profile: DatasetProfile;
   } | null>(null);
-  const [planComparison, setPlanComparison] = useState<ProposalResult | null>(null);
+  const [planComparison, setPlanComparison] = useState<(ProposalResult & { revision: number }) | null>(null);
+  // The result belongs to the revision it describes: any later change, such
+  // as Deshacer from the history panel, brings back the proposal (FUN-11).
+  const currentPlanComparison = planComparison?.revision === datasetRevision ? planComparison : null;
   const [activeTab, setActiveTab] = useState<"corrections" | "transformations">("corrections");
   const [nearDuplicateConfirmation, setNearDuplicateConfirmation] = useState(false);
   const [identifierConfirmation, setIdentifierConfirmation] = useState(false);
@@ -180,6 +183,7 @@ export function PreparePhase({
       before: pending.profile,
       after: profileStatus.profile,
       changes: changeStatus.kind === "applied" ? changeStatus.changes ?? [] : [],
+      revision: datasetRevision,
     });
     pendingPlanComparison.current = null;
   }, [changeStatus, datasetRevision, profileStatus]);
@@ -263,7 +267,7 @@ export function PreparePhase({
           columnCount={dataset.columns.length}
           busy={changing}
           canUndo={historyStatus.canUndo}
-          result={planComparison}
+          result={currentPlanComparison}
           onApply={applyProposal}
           onPreview={previewSafeCorrections}
           onUndo={undoFromProposal}
