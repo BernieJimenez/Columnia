@@ -2202,15 +2202,12 @@ fn remove_near_duplicate_rows(frame: &DataFrame) -> Result<(DataFrame, usize), S
             group_end += 1;
         }
 
-        // Keep the earliest normalized row. Exact repeats in the same normalized
-        // group stay untouched so this operation only handles the near-duplicate delta.
-        let mut seen_exact = HashSet::with_capacity(group_end - group_start);
-        for (position, fingerprint) in fingerprints[group_start..group_end].iter().enumerate() {
-            if position == 0 {
-                seen_exact.insert(fingerprint.exact);
-                continue;
-            }
-            if !seen_exact.insert(fingerprint.exact) {
+        // Keep the earliest normalized row and its exact copies, which the
+        // exact-duplicate action handles. Every other variant goes, also when
+        // it repeats: one pass leaves no near duplicate behind (FUN-08).
+        let kept_exact = fingerprints[group_start].exact;
+        for fingerprint in &fingerprints[group_start + 1..group_end] {
+            if fingerprint.exact == kept_exact {
                 continue;
             }
             keep[fingerprint.row_index] = false;
@@ -2393,11 +2390,13 @@ fn source_backed_near_duplicate_query(
     let keyed = format!(
         "SELECT dataset.*, ROW_NUMBER() OVER () AS {order}, {normalized_key} AS {normalized}, {exact_key} AS {exact} FROM dataset"
     );
+    // `exact_rank` holds the exact key of the first row of each normalized
+    // group: only that row and its exact copies stay (FUN-08).
     let ranked = format!(
-        "SELECT *, ROW_NUMBER() OVER (PARTITION BY {normalized} ORDER BY {order}) AS {normalized_rank}, ROW_NUMBER() OVER (PARTITION BY {normalized}, {exact} ORDER BY {order}) AS {exact_rank} FROM ({keyed}) AS keyed"
+        "SELECT *, ROW_NUMBER() OVER (PARTITION BY {normalized} ORDER BY {order}) AS {normalized_rank}, FIRST_VALUE({exact}) OVER (PARTITION BY {normalized} ORDER BY {order}) AS {exact_rank} FROM ({keyed}) AS keyed"
     );
     Ok(format!(
-        "SELECT {projection} FROM ({ranked}) AS ranked WHERE {normalized_rank} = 1 OR {exact_rank} > 1 ORDER BY {order}"
+        "SELECT {projection} FROM ({ranked}) AS ranked WHERE {normalized_rank} = 1 OR {exact} = {exact_rank} ORDER BY {order}"
     ))
 }
 

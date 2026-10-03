@@ -18887,3 +18887,41 @@ fn source_backed_exports_keep_zeros_refuse_the_source_and_protect_formulas() {
     assert_eq!(fs::read(&source).unwrap(), original);
     let _ = fs::remove_file(source);
 }
+
+/// FUN-08: one pass removes every variant of a near-duplicate group, also
+/// when a variant repeats exactly, in both engines.
+#[test]
+fn one_near_duplicate_pass_leaves_no_near_duplicate_behind() {
+    let path = temporary_csv(
+        "nombre,ciudad\nJuan Perez,Santiago\nJuan Pérez ,Santiago\nJuan Pérez ,Santiago\nAna,La Vega\nLuis,Moca\n",
+    );
+    let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+    let (cleaned, removed) = remove_near_duplicate_rows(&frame).expect("eager");
+    assert_eq!(removed, 2);
+    assert_eq!(cleaned.height(), 3);
+    assert_eq!(
+        profile_dataset(&cleaned).unwrap().near_duplicate_row_count,
+        0
+    );
+
+    let (schema, _, row_count) = source_backed_load(&path, "csv", || false).expect("fuente");
+    let file_size_bytes = fs::metadata(&path).unwrap().len();
+    let mut dataset = LoadedDataset {
+        source_path: Some(path.clone()),
+        file_name: "parecidos.csv".to_owned(),
+        file_size_bytes,
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().unwrap(),
+    };
+    let mutation = remove_near_duplicates_source_backed(&mut dataset)
+        .expect("source-backed")
+        .expect("compatible");
+    assert_eq!(mutation.affected_row_count, 2);
+    let output = read_parquet_frame(dataset.source_path.as_deref().unwrap()).unwrap();
+    assert!(output.equals_missing(&cleaned));
+    let _ = fs::remove_file(path);
+}

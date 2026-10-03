@@ -174,6 +174,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- «Eliminar duplicados parecidos» deja cada grupo con una sola fila en una
+  pasada: antes conservaba las copias exactas de una variante retirada y la
+  señal seguía apareciendo hasta repetir la acción (FUN-08).
 - El paquete Columnia y los libros Excel de datasets muy grandes usan ZIP64
   cuando una entrada puede pasar de 4 GiB, en lugar de fallar al final de la
   exportación (ARQ-05).
