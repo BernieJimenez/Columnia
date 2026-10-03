@@ -10064,9 +10064,19 @@ pub async fn get_explore_panel(
 /// CSV has line breaks inside quoted cells: Power BI's default import splits
 /// those rows unless its quoted line breaks option is chosen.
 #[tauri::command]
-pub fn open_last_export_in_power_bi(state: State<'_, DatasetState>) -> Result<bool, String> {
-    let path = state.last_export()?;
-    let path = canonicalize_existing_file(&path, "la última exportación")
+pub async fn open_last_export_in_power_bi(app: AppHandle) -> Result<bool, String> {
+    let path = app.state::<DatasetState>().last_export()?;
+    // Checking a CSV of several GB for quoted line breaks must not block the
+    // window thread (REN-04).
+    tauri::async_runtime::spawn_blocking(move || open_in_power_bi(&path))
+        .await
+        .map_err(|error| {
+            crate::crash_report::task_interrupted("La apertura en Power BI se interrumpió", &error)
+        })?
+}
+
+fn open_in_power_bi(path: &Path) -> Result<bool, String> {
+    let path = canonicalize_existing_file(path, "la última exportación")
         .map_err(|_| "La última exportación ya no está disponible.".to_owned())?;
     let data_source = power_bi_data_source(&path)?;
     let quoted_line_breaks = path

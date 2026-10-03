@@ -445,6 +445,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Mejorado
 
+- «Abrir en Power BI» revisa el CSV exportado en segundo plano: la ventana sigue
+  respondiendo aunque el archivo pese varios GB (REN-04).
 - Explorar calcula el panel sin bloquear el dataset, así que paginar, deshacer o
   guardar no esperan a que termine (con 1 000 000 de filas tarda 50 ms, 33 ms
   con un filtro) (ARQ-04). Las barras de la tendencia y del histograma miden al
