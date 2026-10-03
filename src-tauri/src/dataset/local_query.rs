@@ -85,9 +85,13 @@ fn split_local_sql_list(value: &str) -> Result<Vec<String>, String> {
     let mut start = 0;
     let mut depth = 0usize;
     let mut quoted = false;
+    // A comma inside a quoted column name ("Apellido, Nombre") is part of it.
+    let mut identifier = false;
     let characters = value.chars().collect::<Vec<_>>();
     for (index, character) in characters.iter().enumerate() {
         match character {
+            '"' if !quoted => identifier = !identifier,
+            _ if identifier => {}
             '\'' => {
                 if quoted && characters.get(index + 1) == Some(&'\'') {
                     continue;
@@ -112,7 +116,7 @@ fn split_local_sql_list(value: &str) -> Result<Vec<String>, String> {
             _ => {}
         }
     }
-    if quoted || depth != 0 {
+    if quoted || identifier || depth != 0 {
         return Err("La consulta tiene comillas o paréntesis desbalanceados.".to_owned());
     }
     let part = characters[start..].iter().collect::<String>();
@@ -473,7 +477,9 @@ fn parse_local_join_query_spec_with_input_limit(
     )
     .expect("el patrón de JOIN local debe ser válido");
     let Some(captures) = pattern.captures(query) else {
-        if query.to_ascii_lowercase().contains("join") {
+        // A JOIN keyword, not a column such as `join_date`.
+        let join_keyword = Regex::new(r"(?i)\bjoin\b").expect("el patrón de JOIN debe ser válido");
+        if join_keyword.is_match(&without_quoted_text(query)) {
             return Err(
                 "El JOIN local debe usar FROM dataset JOIN compared ON columna = columna [AND columna = columna]."
                     .to_owned(),
@@ -554,6 +560,28 @@ fn parse_local_join_query_spec_with_input_limit(
     }))
 }
 
+/// The query with quoted literals and identifiers blanked, so keywords are
+/// only looked for in the SQL itself.
+fn without_quoted_text(query: &str) -> String {
+    let mut output = String::with_capacity(query.len());
+    let mut quote: Option<char> = None;
+    for character in query.chars() {
+        match quote {
+            Some(open) if character == open => {
+                quote = None;
+                output.push(' ');
+            }
+            Some(_) => output.push(' '),
+            None if character == '\'' || character == '"' => {
+                quote = Some(character);
+                output.push(' ');
+            }
+            None => output.push(character),
+        }
+    }
+    output
+}
+
 fn parse_local_predicates(
     where_clause: Option<&str>,
     frame: &DataFrame,
@@ -565,6 +593,13 @@ fn parse_local_predicates(
         .expect("el patrón de nulos local debe ser válido");
     let comparison_pattern = Regex::new(r"(?is)^\s*(.+?)\s*(<>|!=|>=|<=|=|>|<)\s*(.+?)\s*$")
         .expect("el patrón de comparación local debe ser válido");
+    let or_keyword = Regex::new(r"(?i)\bor\b").expect("el patrón de OR debe ser válido");
+    if or_keyword.is_match(&without_quoted_text(where_clause)) {
+        return Err(
+            "Los filtros solo pueden combinarse con AND; OR no está disponible en la consulta local."
+                .to_owned(),
+        );
+    }
     split_local_predicates(where_clause)?
         .into_iter()
         .map(|condition| {
@@ -937,9 +972,7 @@ fn duckdb_predicate(predicate: &LocalPredicate) -> Result<String, String> {
         .value
         .as_deref()
         .ok_or_else(|| "La comparación local no tiene un literal válido.".to_owned())?;
-    let literal = if predicate.quoted_value {
-        format!("'{}'", value.replace('\'', "''"))
-    } else {
+    if !predicate.quoted_value {
         // Unquoted literals were already restricted to numbers and booleans.
         let numeric = Regex::new(r"^-?(?:\d+(?:\.\d*)?|\.\d+)$")
             .expect("el patrón numérico local debe ser válido");
@@ -948,9 +981,22 @@ fn duckdb_predicate(predicate: &LocalPredicate) -> Result<String, String> {
         {
             return Err("La comparación local no tiene un literal válido.".to_owned());
         }
-        value.to_owned()
-    };
-    Ok(format!("{column} {operator} {literal}"))
+    }
+    // Same rule as `local_compare` in the Polars engine (FUN-05): a value and
+    // a literal that both read as numbers compare as numbers, anything else
+    // as text, whether the literal was quoted or not.
+    let text = format!("CAST({column} AS VARCHAR)");
+    let text_literal = format!("'{}'", value.replace('\'', "''"));
+    match value.parse::<f64>() {
+        Ok(number) if number.is_finite() => {
+            let number = format!("CAST({} AS DOUBLE)", text_literal);
+            let as_number = format!("TRY_CAST({text} AS DOUBLE)");
+            Ok(format!(
+                "(CASE WHEN {as_number} IS NOT NULL THEN {as_number} {operator} {number} ELSE {text} {operator} {text_literal} END)"
+            ))
+        }
+        _ => Ok(format!("{text} {operator} {text_literal}")),
+    }
 }
 
 #[cfg(test)]
@@ -967,7 +1013,7 @@ mod duckdb_canonical_tests {
     #[test]
     fn rejects_a_quoted_literal_that_is_more_than_one_token() {
         let error = prepare_duckdb_query(
-            "SELECT city FROM dataset WHERE city = 'a' OR 'b' = 'b'",
+            "SELECT city FROM dataset WHERE city = 'a' 'b'",
             &frame(),
             None,
         )
@@ -986,7 +1032,7 @@ mod duckdb_canonical_tests {
         .expect("consulta válida");
         assert!(
             spec.bounded_query.starts_with(
-                r#"SELECT "city" FROM dataset WHERE "city" = 'O''Brien' AND "value" >= 10 ORDER BY"#
+                r#"SELECT "city" FROM dataset WHERE CAST("city" AS VARCHAR) = 'O''Brien' AND (CASE WHEN TRY_CAST(CAST("value" AS VARCHAR) AS DOUBLE) IS NOT NULL THEN TRY_CAST(CAST("value" AS VARCHAR) AS DOUBLE) >= CAST('10' AS DOUBLE) ELSE CAST("value" AS VARCHAR) >= '10' END) ORDER BY"#
             ),
             "{}",
             spec.bounded_query
@@ -1025,7 +1071,8 @@ mod duckdb_canonical_tests {
             spec.bounded_query
         );
         assert!(
-            spec.bounded_query.contains(r#""value" = 10"#),
+            spec.bounded_query
+                .contains(r#"TRY_CAST(CAST("value" AS VARCHAR) AS DOUBLE) = CAST('10' AS DOUBLE)"#),
             "{}",
             spec.bounded_query
         );

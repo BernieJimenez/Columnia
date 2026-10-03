@@ -170,6 +170,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- En la consola SQL de Revisar, los dos motores dan la misma cifra: un valor y
+  un literal que parecen números se comparan como números en Polars y en DuckDB
+  (`codigo > '5'` y `codigo > 5` daban 31 y 11 o un error), y el resultado dice
+  qué motor lo calculó. Ya se pueden consultar columnas como `join_date` o
+  `"Apellido, Nombre"`, y un filtro con OR explica que solo se admite AND
+  (FUN-05, FUN-13).
 - En el editor de reglas de Entregar, las listas (valores permitidos, columnas
   requeridas, orden, referencias, línea base) conservan el Intro y los espacios
   mientras se escribe: ya se pueden teclear varias líneas y columnas como

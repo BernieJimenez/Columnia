@@ -1839,6 +1839,7 @@ fn execute_query_with_connection(
     }
 
     Ok(DatasetQueryResult {
+        engine: "duckdb",
         columns,
         row_count,
         offset: spec.offset,

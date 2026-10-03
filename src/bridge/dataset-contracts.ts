@@ -156,6 +156,8 @@ export interface DatasetPage {
 }
 
 export interface DatasetQueryResult {
+  /** The engine that answered; the Polars choice sends some queries to DuckDB. */
+  engine?: DatasetQueryEngine;
   columns: DatasetColumn[];
   rowCount: number;
   offset: number;

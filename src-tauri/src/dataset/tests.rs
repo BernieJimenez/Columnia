@@ -18565,3 +18565,42 @@ fn inflated_workbook_dimension_does_not_reserve_the_declared_range() {
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
     fs::remove_file(path).expect("se debe limpiar el libro temporal");
 }
+
+/// FUN-05 and FUN-13: the Polars and DuckDB engines of the SQL console give
+/// the same answer, and column names with «join» or a comma are queryable.
+#[test]
+fn both_query_engines_agree_on_text_and_number_comparisons() {
+    let mut csv = String::from("codigo,join_date,\"Apellido, Nombre\"\n");
+    for (index, code) in [3, 7, 10, 25, 60, 100].iter().cycle().take(40).enumerate() {
+        csv.push_str(&format!(
+            "{code},2024-01-{:02},\"Pérez, Ana\"\n",
+            index % 28 + 1
+        ));
+    }
+    let path = temporary_csv(&csv);
+    let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+    assert_eq!(frame.column("codigo").unwrap().dtype(), &DataType::String);
+    let count = |query: &str| -> (usize, usize) {
+        let polars = execute_local_query(&frame, query).expect("Polars responde");
+        let spec = prepare_duckdb_query(query, &frame, None).expect("DuckDB prepara");
+        let duckdb = crate::duckdb_query::execute_duckdb_query(&frame, None, &spec, || false)
+            .expect("DuckDB responde");
+        assert_eq!(polars.rows, duckdb.rows, "{query}");
+        (polars.row_count, duckdb.row_count)
+    };
+    let quoted = count("SELECT COUNT(*) AS n FROM dataset WHERE codigo > '5'");
+    let unquoted = count("SELECT COUNT(*) AS n FROM dataset WHERE codigo > 5");
+    assert_eq!(quoted, unquoted);
+    let polars = execute_local_query(&frame, "SELECT COUNT(*) AS n FROM dataset WHERE codigo > 5")
+        .expect("Polars responde");
+    assert_eq!(polars.rows[0][0].as_deref(), Some("33"));
+    count("SELECT join_date FROM dataset LIMIT 2");
+    count("SELECT \"Apellido, Nombre\" FROM dataset LIMIT 2");
+    let error = execute_local_query(
+        &frame,
+        "SELECT codigo FROM dataset WHERE codigo = 3 OR codigo = 7",
+    )
+    .expect_err("OR no existe");
+    assert!(error.contains("OR"), "{error}");
+    let _ = fs::remove_file(path);
+}

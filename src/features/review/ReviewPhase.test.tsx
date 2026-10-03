@@ -474,6 +474,7 @@ describe("ReviewPhase", () => {
   it("ejecuta la consulta SQL segura y muestra el resultado accesible", async () => {
     const onSqlHistoryChange = vi.fn();
     vi.spyOn(bridge, "queryDataset").mockResolvedValue({
+      engine: "duckdb",
       columns: [{ name: "id", dataType: "Int64" }],
       rowCount: 2,
       offset: 0,
@@ -514,6 +515,7 @@ describe("ReviewPhase", () => {
 
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("2 filas disponibles"));
     expect(screen.getByRole("status")).toHaveTextContent("resultado truncado por LIMIT");
+    expect(screen.getByRole("status")).toHaveTextContent("calculado con DuckDB");
     expect(screen.getByRole("region", { name: "Resultado de consulta SQL" })).toHaveTextContent("id");
     expect(screen.getByRole("heading", { name: "Actividad reciente" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Historial de consultas SQL" })).toHaveTextContent("Completada");

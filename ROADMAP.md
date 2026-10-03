@@ -82,8 +82,8 @@ medio = 1 día; agregado por suma.
   - [x] `QA-11` (Medio) Pruebas de Entregar que no pueden fallar por lo importante y huecos de la compuerta — hecho el 2026-10-03
 - [ ] **RV30** — **Consulta SQL y DuckDB** — Los dos motores SQL dan resultados distintos para la misma consulta y la interfaz no dice… (y 4 problemas más) · *Esfuerzo: 3,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-05, FUN-13, DAT-08, DAT-11, REN-05.
-  - [ ] `FUN-05` (Medio) Los dos motores SQL dan resultados distintos para la misma consulta y la interfaz no dice cuál respondió
-  - [ ] `FUN-13` (Medio) Consola SQL: `join_date` y columnas con coma hacen fallar consultas válidas
+  - [x] `FUN-05` (Medio) Los dos motores SQL dan resultados distintos para la misma consulta y la interfaz no dice cuál respondió — hecho el 2026-10-03
+  - [x] `FUN-13` (Medio) Consola SQL: `join_date` y columnas con coma hacen fallar consultas válidas — hecho el 2026-10-03
   - [ ] `DAT-08` (Medio) Las celdas vacías salen como cadena vacía en Parquet, SQL, SQLite, JSON y XLSX en archivos pequeños y como NULL en los grandes
   - [ ] `DAT-11` (Medio) El script SQL exportado borra la tabla `dataset` del destino y puede declarar tipos que no caben
   - [ ] `REN-05` (Medio) Cada consulta DuckDB sobre un DataFrame escribe un Parquet completo del dataset (candidato a medir)

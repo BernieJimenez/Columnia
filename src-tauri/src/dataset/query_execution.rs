@@ -1521,6 +1521,7 @@ where
         }
         let end = plan.offset.saturating_add(plan.limit).min(row_count);
         return Ok(DatasetQueryResult {
+            engine: "polars",
             columns,
             row_count,
             offset: plan.offset,
@@ -1603,6 +1604,7 @@ where
     }
     ensure_not_cancelled(is_cancelled())?;
     Ok(DatasetQueryResult {
+        engine: "polars",
         columns,
         row_count: matching_count,
         offset: plan.offset,
@@ -1757,6 +1759,7 @@ where
         )
     };
     Ok(DatasetQueryResult {
+        engine: "polars",
         columns,
         row_count,
         offset,
@@ -2075,6 +2078,7 @@ where
         let end = plan.offset.saturating_add(plan.limit).min(row_count);
         return Ok((
             Some(DatasetQueryResult {
+                engine: "polars",
                 columns: columns.expect("la consulta JOIN agregada debe tener columnas"),
                 row_count,
                 offset: plan.offset,
@@ -2091,6 +2095,7 @@ where
     ensure_not_cancelled(is_cancelled())?;
     Ok((
         Some(DatasetQueryResult {
+            engine: "polars",
             columns: columns.expect("la consulta JOIN paginada debe tener columnas"),
             row_count: matching_count,
             offset: plan.offset,

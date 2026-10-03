@@ -558,6 +558,9 @@ pub struct DatasetPreview {
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DatasetQueryResult {
+    /// The engine that answered: "polars" or "duckdb". The Polars choice
+    /// still sends some queries (JOIN, files on disk) to DuckDB (FUN-05).
+    pub(crate) engine: &'static str,
     pub(crate) columns: Vec<DatasetColumn>,
     pub(crate) row_count: usize,
     pub(crate) offset: usize,

@@ -546,7 +546,11 @@ function formatQueryDuration(durationMs: number): string {
 function LocalQueryResult({ result }: { result: DatasetQueryResult }) {
   return (
     <div className="local-query__result" role="status" aria-live="polite">
-      <p>{result.rowCount.toLocaleString()} filas disponibles · mostrando desde {result.offset + 1}{result.truncated ? " · resultado truncado por LIMIT" : ""}</p>
+      <p>
+        {result.rowCount.toLocaleString()} filas disponibles · mostrando desde {result.offset + 1}
+        {result.truncated ? " · resultado truncado por LIMIT" : ""}
+        {result.engine ? ` · calculado con ${result.engine === "duckdb" ? "DuckDB" : "Polars"}` : ""}
+      </p>
       <div className="profile-region" role="region" tabIndex={0} aria-label="Resultado de consulta SQL">
         <table>
           <thead><tr>{result.columns.map((column) => <th key={column.name} scope="col"><span>{column.name}</span><small>{formatDataType(column.dataType)}</small></th>)}</tr></thead>
