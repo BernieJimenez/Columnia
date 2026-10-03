@@ -20,6 +20,7 @@ Tier 10, cerrado el 2026-09-25) está archivado sin cambios en
 | Licencia y distribución | MIT; hoy solo se publica el código fuente |
 | Red | No se necesita para trabajar con datos locales; la entrega ODBC opcional sale solo por acción explícita y confirmación nativa |
 | Validación | Local con `tools/check.ps1` (perfiles Fast, Full, Release, Package); sin CI por decisión del proyecto |
+| Última revisión completa | 2026-10-01 a 2026-10-03; sus pendientes están en `ROADMAP.md` (RV23–RV119). Los informes de revisión se guardan solo en local, en `docs/auditorias/`, que git ignora porque el repositorio es público |
 
 ## Modelo mental del sistema
 
