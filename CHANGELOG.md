@@ -511,6 +511,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Mejorado
 
+- Las pruebas de recetas comparan de verdad el camino en memoria con el lazy y
+  el de archivos grandes, también con datos partidos en varios bloques.
 - «Abrir en Power BI» revisa el CSV exportado en segundo plano: la ventana sigue
   respondiendo aunque el archivo pese varios GB (REN-04).
 - Explorar calcula el panel sin bloquear el dataset, así que paginar, deshacer o

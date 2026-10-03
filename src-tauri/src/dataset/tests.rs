@@ -2614,7 +2614,7 @@ fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
         keep_columns: Some(vec!["city".to_owned()]),
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&expected_cleanup, &recipe)
+    let expected = expected_recipe_outcome(&expected_cleanup, &recipe)
         .expect("la receta de proyección debe ser válida")
         .0;
 
@@ -2732,7 +2732,7 @@ fn source_backed_regex_replacement_matches_eager_and_counts_cells() {
         &dataset.frame,
         &recipe
     ));
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
         .0;
 
@@ -2790,7 +2790,7 @@ fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
         &dataset.frame,
         &recipe
     ));
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la división eager debe ser válida")
         .0;
 
@@ -2885,7 +2885,7 @@ fn source_backed_date_parts_after_filters_match_eager() {
         &dataset.frame,
         &recipe
     ));
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
         .0;
 
@@ -2956,7 +2956,7 @@ fn source_backed_date_range_filters_match_eager() {
         &dataset.frame,
         &recipe
     ));
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("el filtro de fechas eager debe ser válido")
         .0;
 
@@ -3083,7 +3083,7 @@ fn source_backed_filters_execute_on_disk_and_match_the_eager_recipe() {
         keep_columns: Some(vec!["city".to_owned(), "temperature".to_owned()]),
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
         .0;
 
@@ -3166,7 +3166,7 @@ fn source_backed_group_summary_preserves_stable_groups_nulls_and_counters() {
         }),
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
         .0;
 
@@ -3227,7 +3227,7 @@ fn source_backed_iqr_modes_match_eager_and_keep_separate_counts() {
             }],
             ..TransformRecipe::default()
         };
-        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+        let expected = expected_recipe_outcome(&source_frame, &recipe)
             .expect("la receta eager debe ser válida")
             .0;
 
@@ -3284,7 +3284,7 @@ fn source_backed_iqr_uses_filtered_baseline_and_separates_removed_rows() {
         }],
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
         .0;
 
@@ -3360,7 +3360,7 @@ fn source_backed_cast_dates_and_calculations_match_the_eager_recipe() {
         ]),
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
         .0;
 
@@ -3425,7 +3425,7 @@ fn source_backed_date_parts_match_the_eager_recipe_after_date_parse() {
             }),
             ..TransformRecipe::default()
         };
-        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+        let expected = expected_recipe_outcome(&source_frame, &recipe)
             .expect("la receta eager debe ser válida")
             .0;
 
@@ -3477,7 +3477,7 @@ fn source_backed_iso8601_matches_eager_for_naive_and_utc_values() {
             }],
             ..TransformRecipe::default()
         };
-        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+        let expected = expected_recipe_outcome(&source_frame, &recipe)
             .expect("la receta eager ISO debe ser válida")
             .0;
 
@@ -3533,7 +3533,7 @@ fn source_backed_iso8601_validates_the_current_private_snapshot() {
         }],
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&filtered_frame, &recipe)
+    let expected = expected_recipe_outcome(&filtered_frame, &recipe)
         .expect("la receta eager ISO debe ser válida")
         .0;
 
@@ -3580,7 +3580,7 @@ fn source_backed_iso8601_falls_back_for_non_utc_offsets() {
         }],
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager con offset debe ser válida")
         .0;
 
@@ -3634,7 +3634,7 @@ fn source_backed_literal_replacement_matches_eager_order_and_counts_cells() {
         keep_columns: Some(vec!["name".to_owned(), "note".to_owned()]),
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
         .0;
 
@@ -3714,7 +3714,7 @@ fn source_backed_merge_matches_eager_order_nulls_empty_strings_and_casts() {
         }),
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
         .0;
 
@@ -3819,7 +3819,7 @@ fn source_backed_split_matches_eager_remainder_nulls_empty_segments_and_drop_sou
         }),
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
         .0;
 
@@ -3954,7 +3954,7 @@ fn source_backed_text_extractions_match_eager_unicode_nulls_and_empty_segments()
         ],
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
         .0;
 
@@ -4093,7 +4093,7 @@ fn source_backed_contact_normalizations_match_eager_and_feed_extractions() {
         }],
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
         .0;
 
@@ -4169,7 +4169,7 @@ fn source_backed_text_and_null_filters_keep_eager_semantics() {
         keep_columns: Some(vec!["name".to_owned()]),
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
         .0;
 
@@ -19679,4 +19679,272 @@ fn source_backed_regex_keeps_the_unicode_meaning_of_rust_classes() {
         &schema,
         &replace(r"\bJ")
     ));
+}
+
+/// `frame` split into (up to) three chunks, as Polars leaves a frame built by
+/// appending batches (QA-13).
+fn frame_in_three_chunks(frame: &DataFrame) -> DataFrame {
+    let height = frame.height();
+    if height < 3 {
+        return frame.clone();
+    }
+    let third = height / 3;
+    let mut chunked = frame.slice(0, third);
+    chunked
+        .vstack_mut(&frame.slice(third as i64, third))
+        .expect("el segundo tramo debe apilarse");
+    chunked
+        .vstack_mut(&frame.slice((2 * third) as i64, height - 2 * third))
+        .expect("el tercer tramo debe apilarse");
+    assert!(chunked.first_col_n_chunks() >= 3 || frame.width() == 0);
+    chunked
+}
+
+/// What the in-memory (eager) path gives for `recipe` (QA-13). When the
+/// lazy path also takes the recipe, it must give the same frame and counts,
+/// on the frame as it is and split into three chunks.
+fn expected_recipe_outcome(
+    frame: &DataFrame,
+    recipe: &TransformRecipe,
+) -> Result<RecipeFrameOutcome, String> {
+    let eager = apply_eager_recipe_to_frame(frame, recipe);
+    let chunked = frame_in_three_chunks(frame);
+    for source in [frame, &chunked] {
+        if !lazy_recipe_supported(source, recipe) {
+            continue;
+        }
+        let lazy = apply_recipe_to_frame(source, recipe);
+        match (&eager, &lazy) {
+            (Ok(eager), Ok(lazy)) => {
+                assert!(
+                    eager.0.equals_missing(&lazy.0),
+                    "lazy y eager difieren\neager: {:?}\nlazy: {:?}",
+                    eager.0,
+                    lazy.0
+                );
+                let counts = |outcome: &RecipeFrameOutcome| {
+                    (
+                        (outcome.1, outcome.2, outcome.3, outcome.4, outcome.5),
+                        (outcome.6, outcome.7, outcome.8, outcome.9, outcome.10),
+                        (outcome.11, outcome.12, outcome.13, outcome.14, outcome.15),
+                        (outcome.16, outcome.17, outcome.18, outcome.19, outcome.20),
+                    )
+                };
+                assert_eq!(
+                    counts(eager),
+                    counts(lazy),
+                    "los conteos lazy y eager difieren"
+                );
+            }
+            (Err(eager), Err(lazy)) => assert_eq!(eager, lazy),
+            _ => panic!(
+                "un camino acepta la receta y el otro no: eager {:?} / lazy {:?}",
+                eager.as_ref().map(|outcome| &outcome.0),
+                lazy.as_ref().map(|outcome| &outcome.0)
+            ),
+        }
+    }
+    eager
+}
+
+/// QA-13: each recipe step gives the same frame and counts through the eager
+/// and the lazy paths on a frame split into three chunks.
+#[test]
+fn every_recipe_step_matches_between_eager_and_lazy_on_chunked_frames() {
+    let frame = df!(
+        "nombre" => [Some(" Ana López"), Some("José Pérez"), None, Some("Luis\u{A0}Mora"), Some("Marta Ruiz"), Some("Ñandú Gil"), Some("Pedro Sanz"), Some("Zoë Díaz"), Some("Ana López")],
+        "texto_num" => [Some(" 12"), Some("7"), Some("-3"), None, Some("40 "), Some("5"), Some("6"), Some("8"), Some("9")],
+        "importe" => [Some(10.5_f64), Some(20.0), Some(30.25), None, Some(40.0), Some(1000.0), Some(60.0), Some(70.0), Some(80.0)],
+        "cantidad" => [Some(1_i64), Some(2), Some(3), Some(4), None, Some(6), Some(7), Some(8), Some(900)],
+        "alta" => [Some("2024-01-02"), Some("2024-02-03"), None, Some("2024-03-04"), Some("2024-04-05"), Some("2024-05-06"), Some("2024-06-07"), Some("2024-07-08"), Some("2024-08-09")],
+        "email" => [Some(" ANA@Example.com "), Some("jose@example.com"), None, Some("luis@example.com"), Some("m@example.com"), Some("n@example.com"), Some("p@example.com"), Some("z@example.com"), Some("ana@example.com")],
+        "region" => [Some("Norte"), Some("Sur"), Some("Norte"), Some("Este"), Some("Sur"), Some("Norte"), Some("Este"), Some("Sur"), Some("Norte")],
+    )
+    .unwrap();
+    let base = TransformRecipe::default;
+    let steps: Vec<(&str, TransformRecipe)> = vec![
+        (
+            "renombrar",
+            TransformRecipe {
+                renames: vec![RecipeRename {
+                    from: "nombre".into(),
+                    to: "cliente".into(),
+                }],
+                ..base()
+            },
+        ),
+        (
+            "convertir",
+            TransformRecipe {
+                casts: vec![RecipeCast {
+                    column: "texto_num".into(),
+                    target: RecipeCastTarget::Integer,
+                }],
+                ..base()
+            },
+        ),
+        (
+            "fechas",
+            TransformRecipe {
+                date_parses: vec![RecipeDateParse {
+                    column: "alta".into(),
+                    format: RecipeDateFormat::Ymd,
+                    target: RecipeDateTarget::Date,
+                }],
+                ..base()
+            },
+        ),
+        (
+            "filtrar",
+            TransformRecipe {
+                filters: vec![RecipeFilter {
+                    column: "importe".into(),
+                    operator: RecipeFilterOperator::Gt,
+                    value: Some("25".into()),
+                }],
+                ..base()
+            },
+        ),
+        (
+            "calcular",
+            TransformRecipe {
+                calculated_column: Some(CalculatedColumnRecipe {
+                    name: "total".into(),
+                    source: "importe".into(),
+                    operation: CalculatedOperation::Multiply,
+                    operand: Some(CalculatedOperand {
+                        kind: CalculatedOperandKind::Column,
+                        value: "cantidad".into(),
+                    }),
+                }),
+                ..base()
+            },
+        ),
+        (
+            "buscar y reemplazar",
+            TransformRecipe {
+                find_replace: Some(FindReplaceRecipe {
+                    scope: FindReplaceScope::Column,
+                    column: Some("nombre".into()),
+                    find: "Ana".into(),
+                    replace: "Anabel".into(),
+                    regex: false,
+                }),
+                ..base()
+            },
+        ),
+        (
+            "conservar columnas",
+            TransformRecipe {
+                keep_columns: Some(vec!["region".into(), "nombre".into()]),
+                ..base()
+            },
+        ),
+        (
+            "dividir",
+            TransformRecipe {
+                split_column: Some(SplitColumnRecipe {
+                    source: "nombre".into(),
+                    delimiter: " ".into(),
+                    names: vec!["nombre_1".into(), "nombre_2".into()],
+                    drop_source: false,
+                }),
+                ..base()
+            },
+        ),
+        (
+            "combinar",
+            TransformRecipe {
+                merge_columns: Some(MergeColumnsRecipe {
+                    sources: vec!["nombre".into(), "region".into()],
+                    name: "etiqueta".into(),
+                    separator: " - ".into(),
+                    drop_sources: false,
+                }),
+                ..base()
+            },
+        ),
+        (
+            "limitar atípicos",
+            TransformRecipe {
+                outlier_treatments: vec![OutlierTreatment {
+                    column: "importe".into(),
+                    action: OutlierAction::Cap,
+                }],
+                ..base()
+            },
+        ),
+        (
+            "eliminar atípicos",
+            TransformRecipe {
+                outlier_treatments: vec![OutlierTreatment {
+                    column: "cantidad".into(),
+                    action: OutlierAction::Drop,
+                }],
+                ..base()
+            },
+        ),
+        (
+            "imputar atípicos",
+            TransformRecipe {
+                outlier_treatments: vec![OutlierTreatment {
+                    column: "cantidad".into(),
+                    action: OutlierAction::Impute,
+                }],
+                ..base()
+            },
+        ),
+        (
+            "resumir",
+            TransformRecipe {
+                group_summary: Some(GroupSummaryRecipe {
+                    group_by: vec!["region".into()],
+                    aggregations: vec![
+                        SummaryAggregation {
+                            column: "importe".into(),
+                            operation: SummaryOperation::Sum,
+                        },
+                        SummaryAggregation {
+                            column: "nombre".into(),
+                            operation: SummaryOperation::CountUnique,
+                        },
+                    ],
+                }),
+                ..base()
+            },
+        ),
+        (
+            "contactos",
+            TransformRecipe {
+                contact_normalizations: vec![ContactNormalization {
+                    column: "email".into(),
+                    kind: ContactKind::Email,
+                }],
+                ..base()
+            },
+        ),
+        (
+            "extraer",
+            TransformRecipe {
+                text_extractions: vec![TextExtraction {
+                    source: "nombre".into(),
+                    kind: ExtractionKind::LastToken,
+                    name: "apellido".into(),
+                    delimiter: None,
+                }],
+                ..base()
+            },
+        ),
+    ];
+    let chunked = frame_in_three_chunks(&frame);
+    assert!(chunked.first_col_n_chunks() >= 3);
+    let mut compared = Vec::new();
+    for (name, recipe) in steps {
+        if lazy_recipe_supported(&chunked, &recipe) {
+            compared.push(name);
+        }
+        expected_recipe_outcome(&frame, &recipe).unwrap_or_else(|error| panic!("{name}: {error}"));
+    }
+    // The lazy path takes most steps; the comparison ran for each of them.
+    assert!(compared.len() >= 10, "{compared:?}");
 }
