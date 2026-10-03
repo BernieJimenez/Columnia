@@ -18539,3 +18539,29 @@ fn large_file_exports_match_the_in_memory_path_value_for_value() {
     }
     let _ = fs::remove_file(source);
 }
+
+/// ARQ-01: a 5 KB workbook that declares `A1:XFD1048576` opens with the size
+/// of its real cells, without reserving rows × declared width.
+#[test]
+fn inflated_workbook_dimension_does_not_reserve_the_declared_range() {
+    let path = temporary_xlsx_with_worksheet(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:XFD1048576"/><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>id</t></is></c><c r="B1" t="inlineStr"><is><t>nombre</t></is></c></row><row r="2"><c r="A2"><v>1</v></c><c r="B2" t="inlineStr"><is><t>Ana</t></is></c></row><row r="3"><c r="A3"><v>2</v></c><c r="B3" t="inlineStr"><is><t>Luis</t></is></c></row><row r="4"><c r="C4" s="1"/></row></sheetData></worksheet>"#,
+    );
+    let started = std::time::Instant::now();
+    let (_, preview) = load_dataset_for_automation(
+        &path,
+        Some("dataset"),
+        Some(SpreadsheetHeaderMode::FirstRow),
+    )
+    .expect("el libro debe abrirse");
+    assert_eq!((preview.row_count, preview.column_count), (2, 2));
+    let (_, preview) = load_source_backed_dataset_for_automation(
+        &path,
+        Some("dataset"),
+        Some(SpreadsheetHeaderMode::FirstRow),
+    )
+    .expect("la ruta de archivos grandes también debe abrirlo");
+    assert_eq!((preview.row_count, preview.column_count), (2, 2));
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    fs::remove_file(path).expect("se debe limpiar el libro temporal");
+}

@@ -255,6 +255,11 @@ struct SpreadsheetSnapshotPlanBuilder {
     header_values: Vec<String>,
     kinds: Vec<SpreadsheetColumnKind>,
     saw_cell: bool,
+    /// Last row and column that hold a value. The plan uses this extent and
+    /// not the declared `<dimension>`, which can claim `A1:XFD1048576` in a
+    /// 5 KB workbook (ARQ-01).
+    used_rows: usize,
+    used_columns: usize,
 }
 
 impl SpreadsheetSnapshotPlanBuilder {
@@ -285,6 +290,8 @@ impl SpreadsheetSnapshotPlanBuilder {
             header_values: vec![String::new(); width],
             kinds: vec![SpreadsheetColumnKind::Null; width],
             saw_cell: false,
+            used_rows: 0,
+            used_columns: 0,
         })
     }
 
@@ -305,10 +312,12 @@ impl SpreadsheetSnapshotPlanBuilder {
     }
 
     fn visit_relative(&mut self, (row, column): (usize, usize), value: Data) {
-        if row >= self.height || column >= self.width {
+        if row >= self.height || column >= self.width || matches!(value, Data::Empty) {
             return;
         }
         self.saw_cell = true;
+        self.used_rows = self.used_rows.max(row + 1);
+        self.used_columns = self.used_columns.max(column + 1);
         if row == 0 && self.data_start == 1 {
             self.header_values[column] = value.to_string();
             return;
@@ -325,10 +334,17 @@ impl SpreadsheetSnapshotPlanBuilder {
         }
     }
 
-    fn finish(self, header_mode: SpreadsheetHeaderMode) -> Result<SpreadsheetSnapshotPlan, String> {
+    fn finish(
+        mut self,
+        header_mode: SpreadsheetHeaderMode,
+    ) -> Result<SpreadsheetSnapshotPlan, String> {
         if !self.saw_cell {
             return Err("La hoja seleccionada está vacía.".to_owned());
         }
+        self.width = self.used_columns;
+        self.height = self.used_rows.max(self.data_start);
+        self.header_values.truncate(self.width);
+        self.kinds.truncate(self.width);
         let headers = match header_mode {
             SpreadsheetHeaderMode::FirstRow => unique_spreadsheet_headers(self.header_values),
             SpreadsheetHeaderMode::Generated => (1..=self.width)

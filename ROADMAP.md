@@ -70,9 +70,9 @@ medio = 1 día; agregado por suma.
 - [x] **RV27** — Reconocer los nombres de tipo de Polars 0.55 (`str`, `f64`, …) en la compatibilidad ODBC y probarlo con los nombres reales · *Esfuerzo: 2 h* — hecho el 2026-10-03
   - Criterio de cierre: «Añadir a tabla existente» funciona sobre una tabla creada por la propia Columnia con columnas de texto y decimales; las pruebas usan los nombres que produce Polars y cubren `interval`/`image`.
   - [x] `FUN-03` (Alto) «Añadir a tabla existente» está bloqueado para toda columna de texto o decimal, incluso al reañadir a una tabla que creó Columnia (confirma FUN-R4-13) — hecho el 2026-10-03
-- [ ] **RV28** — Acotar la memoria al abrir libros con un rango declarado enorme (no reservar filas × ancho declarados) · *Esfuerzo: 1 día*
+- [x] **RV28** — Acotar la memoria al abrir libros con un rango declarado enorme (no reservar filas × ancho declarados) · *Esfuerzo: 1 día* — hecho el 2026-10-03
   - Criterio de cierre: un libro de 5 KB con `A1:XFD1048576` se inspecciona con menos de 500 MB o se rechaza con un mensaje; prueba Rust con una dimensión inflada.
-  - [ ] `ARQ-01` (Alto) Un libro XLSX de 5 KB con `<dimension ref="A1:XFD1048576">` agota más de 8 GB de memoria en `inspect`
+  - [x] `ARQ-01` (Alto) Un libro XLSX de 5 KB con `<dimension ref="A1:XFD1048576">` agota más de 8 GB de memoria en `inspect` — hecho el 2026-10-03
 
 ### Tier 2 — Mejoras sustanciales
 

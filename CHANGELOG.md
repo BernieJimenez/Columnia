@@ -170,6 +170,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Abrir un libro Excel cuyo rango declarado es enorme (`A1:XFD1048576`, habitual
+  al dar formato a filas o columnas enteras) ya no agota la memoria: Columnia
+  usa la extensión de las celdas con datos. Un libro de 5 KB que antes superaba
+  8 GB se inspecciona en 0,2 s con 1 MB. Las filas y columnas finales sin ningún
+  valor ya no se cargan como vacías (ARQ-01).
 - Exportar a CSV o SQL un archivo de 512 MiB o más ya da los mismos valores que
   con uno pequeño: `1.50`, `1e5`, `7.2500`, las fechas y el sufijo ` UTC` salen
   como estaban, y el script SQL declara las columnas como `TEXT` igual que en la
