@@ -179,6 +179,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Los diálogos toman el foco aunque se abran justo después del selector de
+  archivos de Windows, y al cerrarse con Esc lo devuelven al botón que los
+  abrió, también si ese botón tarda un instante en volver a estar disponible
+  (ACC-10).
 - «Limitar outliers» conserva las columnas enteras como enteras (límites
   redondeados hacia dentro) en archivos pequeños y grandes, y la imputación de
   una columna de enteros grandes solo rellena las celdas vacías sin redondear

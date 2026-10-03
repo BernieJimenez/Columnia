@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ProjectSummary, ProjectVersionSummary } from "../bridge";
@@ -114,5 +115,37 @@ describe("contratos de accesibilidad de la interfaz", () => {
     expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(dialog).toHaveAttribute("aria-labelledby", "a11y-dialog-title");
     expect(dialog).toHaveAttribute("aria-describedby", "a11y-dialog-description");
+  });
+
+  it("toma el foco cuando la ventana lo recupera y lo devuelve al botón al cerrar (ACC-10)", async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      const [busy, setBusy] = useState(false);
+      return (
+        <>
+          <button type="button" disabled={busy} onClick={() => { setBusy(true); setOpen(true); }}>
+            Seleccionar dataset
+          </button>
+          {open && (
+            <ModalDialog role="dialog" labelledBy="import-title" onDismiss={() => { setOpen(false); setTimeout(() => setBusy(false), 30); }}>
+              <h2 id="import-title">Revisar encabezados</h2>
+              <button type="button">Cargar archivo</button>
+            </ModalDialog>
+          )}
+        </>
+      );
+    }
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "Seleccionar dataset" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    // A native picker held the focus while the dialog opened.
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+    window.dispatchEvent(new Event("focus"));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cargar archivo" }));
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Seleccionar dataset" })));
   });
 });

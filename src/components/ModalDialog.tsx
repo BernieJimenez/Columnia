@@ -25,14 +25,13 @@ function resolveReturnFocusTarget(): HTMLElement | null {
   return lastFocusedOutsideDialog?.isConnected ? lastFocusedOutsideDialog : null;
 }
 
-function restoreFocus(target: HTMLElement | null) {
+function restoreFocus(target: HTMLElement | null, attemptsLeft = 30) {
   if (!target?.isConnected) return;
   target.focus();
-  if (document.activeElement !== target && typeof requestAnimationFrame === "function") {
-    // The trigger may re-enable in the same commit that closes the dialog.
-    requestAnimationFrame(() => {
-      if (target.isConnected) target.focus();
-    });
+  if (document.activeElement !== target && attemptsLeft > 0 && typeof requestAnimationFrame === "function") {
+    // The trigger may stay disabled for a few frames after the dialog closes
+    // (ACC-10): keep trying briefly instead of leaving focus on <body>.
+    requestAnimationFrame(() => restoreFocus(target, attemptsLeft - 1));
   }
 }
 
@@ -110,10 +109,18 @@ export function ModalDialog({
         panel.setAttribute("open", "");
       }
     }
-    const firstFocusable = panel ? getFocusableElements(panel)[0] : undefined;
-    (firstFocusable ?? panel)?.focus();
+    const focusInside = () => {
+      if (!panel || panel.contains(document.activeElement)) return;
+      const firstFocusable = getFocusableElements(panel)[0];
+      (firstFocusable ?? panel).focus();
+    };
+    focusInside();
+    // A native file picker can still own the focus when the dialog opens; the
+    // dialog takes it as soon as the window gets it back (ACC-10).
+    window.addEventListener("focus", focusInside);
 
     return () => {
+      window.removeEventListener("focus", focusInside);
       if (panel?.open) {
         if (typeof panel.close === "function") {
           panel.close();
