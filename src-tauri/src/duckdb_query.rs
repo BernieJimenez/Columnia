@@ -408,11 +408,8 @@ where
             File::create(destination)
                 .map_err(|error| format!("No se pudo crear la exportación SQL: {error}"))?,
         );
-        writeln!(
-            output,
-            "-- Exportado por Columnia como script SQL portable."
-        )
-        .map_err(|error| format!("No se pudo escribir el encabezado SQL: {error}"))?;
+        writeln!(output, "{SQL_SCRIPT_HEADER}")
+            .map_err(|error| format!("No se pudo escribir el encabezado SQL: {error}"))?;
         writeln!(output, "BEGIN TRANSACTION;")
             .map_err(|error| format!("No se pudo escribir el inicio SQL: {error}"))?;
         writeln!(output, "DROP TABLE IF EXISTS \"dataset\";")
@@ -2006,7 +2003,7 @@ fn file_scan_expression(path: &Path, format: DuckDbFileFormat) -> Result<String,
             let delimiter = char::from(delimiter);
             let escaped_delimiter = delimiter.to_string().replace('\'', "''");
             format!(
-                "read_csv_auto('{escaped_path}', header = true, all_varchar = true{names_option}, delim = '{escaped_delimiter}')"
+                "read_csv_auto('{escaped_path}', header = true, all_varchar = true, allow_quoted_nulls = false{names_option}, delim = '{escaped_delimiter}')"
             )
         }
         DuckDbFileFormat::DelimitedWithoutHeader {
@@ -2017,7 +2014,7 @@ fn file_scan_expression(path: &Path, format: DuckDbFileFormat) -> Result<String,
             let escaped_delimiter = delimiter.to_string().replace('\'', "''");
             let names_option = generated_names_option(column_count);
             format!(
-                "read_csv_auto('{escaped_path}', header = false, all_varchar = true{names_option}, delim = '{escaped_delimiter}')"
+                "read_csv_auto('{escaped_path}', header = false, all_varchar = true, allow_quoted_nulls = false{names_option}, delim = '{escaped_delimiter}')"
             )
         }
         DuckDbFileFormat::Json => format!("read_json_auto('{escaped_path}')"),
@@ -2105,17 +2102,35 @@ fn is_sql_text_projection(data_type: &str) -> bool {
         || data_type.contains("[]")
 }
 
-fn duckdb_sql_type(data_type: &str) -> &'static str {
-    let data_type = data_type.to_ascii_uppercase();
-    if data_type.starts_with("BOOL") {
+/// First lines of every SQL script export, in both export paths (DAT-11).
+pub(crate) const SQL_SCRIPT_HEADER: &str = "-- Exportado por Columnia como script SQL portable.\n\
+-- ATENCIÓN: borra y vuelve a crear la tabla \"dataset\" si ya existe en la base donde se ejecute.\n\
+-- Los textos solo duplican la comilla simple: en MySQL, ejecútalo con NO_BACKSLASH_ESCAPES.";
+
+/// SQL type for a DuckDB column. Exact numbers keep their exactness:
+/// DECIMAL(p,s) stays NUMERIC(p,s) and integers wider than BIGINT become
+/// NUMERIC, so no value is rounded or overflows (DAT-11).
+fn duckdb_sql_type(data_type: &str) -> String {
+    let data_type = data_type.trim().to_ascii_uppercase();
+    let sql_type = if data_type.starts_with("BOOL") {
         "BOOLEAN"
-    } else if data_type.contains("INT") {
+    } else if data_type.starts_with("INTERVAL") {
+        "TEXT"
+    } else if data_type.starts_with("DECIMAL") || data_type.starts_with("NUMERIC") {
+        return data_type
+            .split_once('(')
+            .map(|(_, precision)| format!("NUMERIC({precision}"))
+            .unwrap_or_else(|| "NUMERIC(18,3)".to_owned());
+    } else if matches!(data_type.as_str(), "UBIGINT") {
+        "NUMERIC(20,0)"
+    } else if matches!(data_type.as_str(), "HUGEINT" | "UHUGEINT") {
+        "NUMERIC(38,0)"
+    } else if matches!(
+        data_type.as_str(),
+        "TINYINT" | "SMALLINT" | "INTEGER" | "BIGINT" | "UTINYINT" | "USMALLINT" | "UINTEGER"
+    ) {
         "BIGINT"
-    } else if data_type.contains("FLOAT")
-        || data_type.contains("DOUBLE")
-        || data_type.contains("DECIMAL")
-        || data_type == "REAL"
-    {
+    } else if data_type.contains("FLOAT") || data_type.contains("DOUBLE") || data_type == "REAL" {
         "DOUBLE"
     } else if data_type.starts_with("DATE") {
         "DATE"
@@ -2125,7 +2140,8 @@ fn duckdb_sql_type(data_type: &str) -> &'static str {
         "TIME"
     } else {
         "TEXT"
-    }
+    };
+    sql_type.to_owned()
 }
 
 fn duckdb_sql_string_literal(value: &str) -> String {
@@ -2787,6 +2803,38 @@ mod tests {
 
         assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
         assert!(!destination.exists());
+    }
+
+    /// DAT-11: exact numbers stay exact in the SQL script and the script
+    /// warns that it replaces the `dataset` table.
+    #[test]
+    fn sql_script_keeps_decimals_and_wide_integers_exact() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("exactos.parquet");
+        let destination = directory.path().join("exactos.sql");
+        let escaped = source.to_string_lossy().replace('\\', "/");
+        Connection::open_in_memory()
+            .expect("DuckDB en memoria")
+            .execute_batch(&format!(
+                "COPY (SELECT 1234.5678::DECIMAL(18,4) AS importe, 18446744073709551615::UBIGINT AS grande, \
+                 INTERVAL 1 DAY AS lapso) \
+                 TO '{escaped}' (FORMAT PARQUET)"
+            ))
+            .expect("se debe escribir el Parquet de prueba");
+
+        export_file_to_sql_with_cancel(&source, DuckDbFileFormat::Parquet, &destination, || false)
+            .expect("DuckDB debe exportar el Parquet a SQL");
+
+        let script = fs::read_to_string(&destination).expect("la salida SQL debe poder leerse");
+        assert!(
+            script.contains("ATENCIÓN: borra y vuelve a crear la tabla"),
+            "{script}"
+        );
+        assert!(script.contains("\"importe\" NUMERIC(18,4)"), "{script}");
+        assert!(script.contains("\"grande\" NUMERIC(20,0)"), "{script}");
+        assert!(script.contains("\"lapso\" TEXT"), "{script}");
+        assert!(script.contains("1234.5678"), "{script}");
+        assert!(script.contains("18446744073709551615"), "{script}");
     }
 
     #[test]

@@ -18604,3 +18604,44 @@ fn both_query_engines_agree_on_text_and_number_comparisons() {
     assert!(error.contains("OR"), "{error}");
     let _ = fs::remove_file(path);
 }
+
+/// DAT-08: a quoted empty cell (`""`) stays an empty text and an unquoted
+/// one is a null, in the in-memory path and in the large-file path alike.
+#[test]
+fn empty_and_missing_cells_keep_the_same_meaning_in_both_paths() {
+    let source = temporary_csv("id,txt\n1,\"\"\n2,\n3,x\n");
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    let recipe = build_stored_recipe(TransformRecipe::default(), "Identidad".to_owned())
+        .expect("la receta identidad es válida");
+    let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+    let small = directory.path().join("pequeno.parquet");
+    let large = directory.path().join("grande.parquet");
+    export_frame_for_automation(&frame, &small, ExportFormat::Parquet).expect("ruta en memoria");
+    transform_source_backed_for_automation(
+        &source,
+        None,
+        None,
+        &recipe,
+        &large,
+        ExportFormat::Parquet,
+    )
+    .expect("ruta de archivos grandes");
+    let small = read_parquet_frame(&small).expect("salida pequeña");
+    let large = read_parquet_frame(&large).expect("salida grande");
+    let text = |frame: &DataFrame| {
+        frame
+            .column("txt")
+            .unwrap()
+            .str()
+            .unwrap()
+            .iter()
+            .map(|value| value.map(str::to_owned))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(text(&small), text(&large));
+    assert_eq!(
+        text(&small),
+        vec![Some(String::new()), None, Some("x".to_owned())]
+    );
+    let _ = fs::remove_file(source);
+}

@@ -176,8 +176,9 @@ pub(super) fn sql_type(data_type: &DataType) -> &'static str {
         | DataType::Int64
         | DataType::UInt8
         | DataType::UInt16
-        | DataType::UInt32
-        | DataType::UInt64 => "BIGINT",
+        | DataType::UInt32 => "BIGINT",
+        // A u64 can exceed BIGINT (DAT-11).
+        DataType::UInt64 => "NUMERIC(20,0)",
         DataType::Float32 | DataType::Float64 => "DOUBLE",
         DataType::Date => "DATE",
         DataType::Datetime(_, _) => "TIMESTAMP",
@@ -223,11 +224,8 @@ where
         return Err("SQL requiere al menos una columna para crear la tabla.".to_owned());
     }
     let table = sql_identifier(TABLE);
-    writeln!(
-        output,
-        "-- Exportado por Columnia como script SQL portable."
-    )
-    .map_err(|error| format!("No se pudo escribir el encabezado SQL: {error}"))?;
+    writeln!(output, "{}", crate::duckdb_query::SQL_SCRIPT_HEADER)
+        .map_err(|error| format!("No se pudo escribir el encabezado SQL: {error}"))?;
     writeln!(output, "BEGIN TRANSACTION;")
         .map_err(|error| format!("No se pudo escribir el inicio SQL: {error}"))?;
     writeln!(output, "DROP TABLE IF EXISTS {table};")

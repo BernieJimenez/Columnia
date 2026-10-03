@@ -170,6 +170,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Una celda vacía entre comillas (`""`) se exporta como texto vacío y una celda
+  sin nada como nulo, igual con archivos pequeños y grandes; antes los grandes
+  convertían ambas en nulo (DAT-08). El script SQL exportado avisa en su
+  cabecera de que borra y vuelve a crear la tabla `dataset` y de cómo ejecutarlo
+  en MySQL, y conserva exactos los DECIMAL (`NUMERIC(p,s)`) y los enteros sin
+  signo grandes (`NUMERIC(20,0)`); los intervalos van como texto (DAT-11).
 - En la consola SQL de Revisar, los dos motores dan la misma cifra: un valor y
   un literal que parecen números se comparan como números en Polars y en DuckDB
   (`codigo > '5'` y `codigo > 5` daban 31 y 11 o un error), y el resultado dice
