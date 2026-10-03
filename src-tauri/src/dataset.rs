@@ -9931,13 +9931,15 @@ pub async fn get_explore_panel(
     }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
+        // The lock only covers reading the plan and the profile: the panel is
+        // computed without it, so paging, undo or saving do not wait (ARQ-04).
         let current = state.current.lock_recovering();
         let dataset = current.as_ref().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         let profile = dataset
             .profile
-            .as_ref()
+            .clone()
             .ok_or_else(|| "Analiza la calidad del dataset antes de explorarlo.".to_owned())?;
         let plan = if dataset.source_backed {
             let (source_path, _, _) = current_source_backed_context(dataset)
@@ -9954,7 +9956,8 @@ pub async fn get_explore_panel(
         } else {
             dataset.frame.clone().lazy()
         };
-        explore::explore_panel(plan, profile, &filters, &layout)
+        drop(current);
+        explore::explore_panel(plan, &profile, &filters, &layout)
     })
     .await
     .map_err(|error| crate::crash_report::task_interrupted("El panel se interrumpió", &error))?

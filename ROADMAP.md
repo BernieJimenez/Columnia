@@ -87,12 +87,12 @@ medio = 1 día; agregado por suma.
   - [x] `DAT-08` (Medio) Las celdas vacías salen como cadena vacía en Parquet, SQL, SQLite, JSON y XLSX en archivos pequeños y como NULL en los grandes — hecho el 2026-10-03
   - [x] `DAT-11` (Medio) El script SQL exportado borra la tabla `dataset` del destino y puede declarar tipos que no caben — hecho el 2026-10-03
   - [x] `REN-05` (Medio) Cada consulta DuckDB sobre un DataFrame escribe un Parquet completo del dataset (candidato a medir) — hecho el 2026-10-03
-- [ ] **RV31** — **Explorar** — Las barras del histograma de Explorar cuentan `[a,b)` y el filtro filtra `[a,b]`: la cifr… (y 3 problemas más) · *Esfuerzo: 2,5 días*
+- [x] **RV31** — **Explorar** — Las barras del histograma de Explorar cuentan `[a,b)` y el filtro filtra `[a,b]`: la cifr… (y 3 problemas más) · *Esfuerzo: 2,5 días* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-06, ARQ-04, UX-01, ACC-01.
   - [x] `FUN-06` (Medio) Las barras del histograma de Explorar cuentan `[a,b)` y el filtro filtra `[a,b]`: la cifra de la barra no coincide con «Filas» — hecho el 2026-10-03
-  - [ ] `ARQ-04` (Medio) Varias operaciones largas retienen el mutex del dataset durante todo el cálculo (Explorar, consultas, agregación temporal, deshacer, comparación)
+  - [x] `ARQ-04` (Medio) Varias operaciones largas retienen el mutex del dataset durante todo el cálculo (Explorar, consultas, agregación temporal, deshacer, comparación) — hecho el 2026-10-03
   - [x] `UX-01` (Medio) Si el panel de Explorar falla tras un filtro, desaparece todo (chips y botón «Personalizar» incluidos) y no hay forma de quitar el filtro — hecho el 2026-10-03
-  - [ ] `ACC-01` (Medio) Barras de la tendencia de Explorar con 60 periodos miden 10,9 × 160 px (9,7 a 900 px de ancho)
+  - [x] `ACC-01` (Medio) Barras de la tendencia de Explorar con 60 periodos miden 10,9 × 160 px (9,7 a 900 px de ancho) — hecho el 2026-10-03
 - [ ] **RV32** — **Exportación y libros** — La protección contra fórmulas altera datos legítimos (`-5`, `+34…`, `@ana`) y la interfaz… (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-07, FUN-15, FUN-29, FUN-31, SEG-01.
   - [ ] `FUN-07` (Medio) La protección contra fórmulas altera datos legítimos (`-5`, `+34…`, `@ana`) y la interfaz no la anuncia ni deja elegirla

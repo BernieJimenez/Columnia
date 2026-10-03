@@ -42,8 +42,12 @@
 .explore__bar[aria-pressed="true"] .explore__fill,
 .explore__column[aria-pressed="true"] .explore__fill { opacity: 1; }
 .explore__bar[aria-pressed="true"] .explore__label { font-weight: 700; }
+/* The selected bar is marked by more than its intensity. */
+.explore__column[aria-pressed="true"] { box-shadow: inset 0 -4px 0 var(--text-primary); }
+.explore__bar[aria-pressed="true"] { box-shadow: inset 4px 0 0 var(--text-primary); }
 .explore__bars--dim [aria-pressed="false"] .explore__fill { opacity: .25; }
-.explore__columns { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; gap: 3px; height: 160px; }
+/* Each bar is at least 24 px wide (WCAG 2.5.8); with many periods the row scrolls instead of shrinking them (ACC-01). */
+.explore__columns { display: grid; grid-auto-columns: minmax(24px, 1fr); grid-auto-flow: column; gap: 3px; height: 160px; overflow-x: auto; overscroll-behavior-x: contain; }
 .explore__column { display: flex; align-items: stretch; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 4px; background: none; cursor: pointer; }
 .explore__area { display: flex; align-items: flex-end; width: 100%; }
 .explore__area .explore__fill { width: 100%; min-height: 1px; border-radius: 3px 3px 0 0; }
