@@ -170,6 +170,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Exportar ya no puede escribir sobre el archivo de origen: la ventana lo
+  rechaza con un mensaje aunque se elija en el diálogo de Windows, y la CLI
+  (`transform` y `project-export`) también, incluso con `..`, otras mayúsculas o
+  un enlace duro. Reemplazar cualquier otro archivo existente desde la CLI exige
+  ahora `--force` (DAT-01).
 - «Añadir a tabla existente» en Entregar ya acepta columnas de texto y
   decimales: la comprobación previa no reconocía los nombres de tipo de Polars
   (`str`, `f64`) y bloqueaba incluso reañadir a una tabla que había creado

@@ -108,6 +108,7 @@ use file_validation::{
     canonicalize_existing_file, canonicalize_write_destination, dataset_extension,
     is_symbolic_link_or_reparse_point, validate_dataset_file,
 };
+pub(crate) use file_validation::{ensure_destination_is_not_source, DESTINATION_IS_SOURCE_MESSAGE};
 pub(crate) use import_profile_validation::validate_import_exception_policy;
 use import_profile_validation::{
     import_exception_schema_for_frame, validate_import_exception_policy_for_recipe,
@@ -8977,6 +8978,10 @@ pub async fn export_dataset(
                     .map_err(|error| format!("No se pudo resolver el destino: {error}"))?,
                 format,
             );
+            ensure_destination_is_not_source(
+                &destination,
+                &[original_source_path.as_path(), source_path.as_path()],
+            )?;
             let export_state = app.clone();
             let remembered_destination = destination.clone();
             let export_original_source_path = original_source_path.clone();
@@ -9169,29 +9174,33 @@ pub async fn export_dataset(
     let generation = app.state::<DatasetState>().begin_export();
     let preparation_app = app.clone();
     let output_extension = format.extension().to_owned();
-    let (frame, suggested_name) = tauri::async_runtime::spawn_blocking(move || {
-        let state = preparation_app.state::<DatasetState>();
-        let mut current = state.current.lock_recovering();
-        let dataset = current.as_mut().ok_or_else(|| {
-            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-        })?;
-        materialize_loaded_dataset_with_cancel(dataset, || state.export_was_cancelled(generation))?;
-        let stem = Path::new(&dataset.file_name)
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("dataset");
-        Ok::<_, String>((
-            dataset.frame.clone(),
-            format!("{stem}-columnia.{output_extension}"),
-        ))
-    })
-    .await
-    .map_err(|error| {
-        crate::crash_report::task_interrupted(
-            "La preparación previa a la exportación se interrumpió",
-            &error,
-        )
-    })??;
+    let (frame, suggested_name, loaded_source_path) =
+        tauri::async_runtime::spawn_blocking(move || {
+            let state = preparation_app.state::<DatasetState>();
+            let mut current = state.current.lock_recovering();
+            let dataset = current.as_mut().ok_or_else(|| {
+                "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+            })?;
+            materialize_loaded_dataset_with_cancel(dataset, || {
+                state.export_was_cancelled(generation)
+            })?;
+            let stem = Path::new(&dataset.file_name)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("dataset");
+            Ok::<_, String>((
+                dataset.frame.clone(),
+                format!("{stem}-columnia.{output_extension}"),
+                dataset.source_path.clone(),
+            ))
+        })
+        .await
+        .map_err(|error| {
+            crate::crash_report::task_interrupted(
+                "La preparación previa a la exportación se interrumpió",
+                &error,
+            )
+        })??;
 
     // La compuerta se evalúa sobre el mismo snapshot que después será escrito y
     // antes de abrir el selector, para que una exportación bloqueada no solicite destino.
@@ -9240,6 +9249,9 @@ pub async fn export_dataset(
             .map_err(|error| format!("No se pudo resolver el destino: {error}"))?,
         format,
     );
+    if let Some(source) = loaded_source_path.as_deref() {
+        ensure_destination_is_not_source(&destination, &[source])?;
+    }
 
     let export_state = app.clone();
     let remembered_destination = destination.clone();
@@ -11542,6 +11554,9 @@ impl DatasetState {
         let dataset = current
             .as_ref()
             .ok_or_else(|| "El proyecto no contiene un dataset activo.".to_owned())?;
+        if let Some(source) = dataset.source_path.as_deref() {
+            ensure_destination_is_not_source(output, &[source])?;
+        }
         export_source_backed_for_automation(dataset, output, format, quality_validation, recipe)
     }
 

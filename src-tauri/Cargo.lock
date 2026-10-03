@@ -890,6 +890,7 @@ dependencies = [
  "rayon",
  "regex",
  "rusqlite",
+ "same-file",
  "semver",
  "serde",
  "serde_json",

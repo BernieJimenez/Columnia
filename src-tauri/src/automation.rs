@@ -17,14 +17,14 @@ use crate::{
 const WORKBOOK_FLAGS: &str = "Para XLSX, XLS, XLSB u ODS son obligatorios --sheet <nombre-exacto> y --header first-row|generated. En otros formatos están prohibidos.";
 const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli quality-migration-report --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. quality-migration-report, validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2 cuando requieren revisión; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
 const INSPECT_HELP: &str = "USO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n\nInspecciona un dataset y emite esquema y dimensiones como JSON, sin filas ni rutas.\n";
-const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n\nAplica una receta Columnia y publica la salida atómicamente. CSV y Excel escriben valores como texto seguro; SQL produce un script portable, SQLite una base local con tabla dataset y bundle un ZIP con dataset, diccionario, receta validada, calidad opcional y manifest.\n";
+const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--force]\n\nAplica una receta Columnia y publica la salida atómicamente. Nunca escribe sobre --input ni --recipe; reemplazar otro archivo existente exige --force. CSV y Excel escriben valores como texto seguro; SQL produce un script portable, SQLite una base local con tabla dataset y bundle un ZIP con dataset, diccionario, receta validada, calidad opcional y manifest.\n";
 const VALIDATE_HELP: &str = "USO:\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nEvalúa un contrato JSON Columnia con {\"format\":\"columnia-quality-rules\",\"version\":1,\"rules\":[...]}. El documento anterior {\"version\":1,\"rules\":[...]} sigue admitido por compatibilidad. Emite solo conteos; código 0 si pasa y 2 si no pasa.\n";
 const QUALITY_MIGRATION_REPORT_HELP: &str = "USO:\n  columnia-cli quality-migration-report --rules <ruta.json>\n\nHace un preflight sanitizado de un contrato Columnia, Legacy v1–v3 o legacy. Resume por regla la severidad y las políticas on_missing/null_policy, identifica omisiones y devuelve código 2 si hace falta revisión manual. No migra ni evalúa filas.\n";
 const BATCH_HELP: &str = "USO:\n  columnia-cli batch --manifest <ruta.json> [--force]\n\nEjecuta de 1 a 64 transformaciones declaradas en un manifiesto JSON v1 estricto. Las rutas relativas se resuelven desde la carpeta del manifiesto o outputRoot. Por defecto las salidas quedan confinadas a ese root, no pueden usar rutas absolutas, traversal ni reemplazar archivos existentes. --force permite un destino externo o existente, pero no permite colisionar con el manifiesto, inputs o recetas. El preflight valida todos los trabajos antes de escribir. Cada trabajo publica su salida atómicamente, pero el lote no es una transacción global: si un trabajo falla, conserva las salidas anteriores y termina con código 2. Un manifiesto o uso inválido termina con código 1.\n";
 const PROJECT_LIST_HELP: &str = "USO:\n  columnia-cli project-list --store <directorio>\n\nLista resúmenes de proyectos persistidos y emite JSON v1 sin rutas ni muestras.\n";
 const PROJECT_SAVE_HELP: &str = "USO:\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n\nCrea o actualiza un proyecto. La receta, las reglas y el perfil son opcionales. --recipe acepta recetas Columnia y pipelines Legacy v1–v3; las operaciones de limpieza seleccionadas del pipeline se reproducen antes de la transformación estructural.\n";
 const PROJECT_INSPECT_HELP: &str = "USO:\n  columnia-cli project-inspect --store <directorio> --id <id>\n\nEmite metadatos, flags y conteos del proyecto sin abrir una sesión de escritorio.\n";
-const PROJECT_EXPORT_HELP: &str = "USO:\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n\nLas reglas guardadas siempre deben pasar. --allow-unvalidated solo permite exportar proyectos sin reglas. La publicación es atómica; un bundle incluye la receta validada del proyecto cuando existe.\n";
+const PROJECT_EXPORT_HELP: &str = "USO:\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated] [--force]\n\nNunca escribe sobre el archivo de origen del proyecto; reemplazar otro archivo existente exige --force. Las reglas guardadas siempre deben pasar. --allow-unvalidated solo permite exportar proyectos sin reglas. La publicación es atómica; un bundle incluye la receta validada del proyecto cuando existe.\n";
 const PROJECT_DELETE_HELP: &str = "USO:\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nElimina el proyecto solo cuando --confirm coincide exactamente con --id.\n";
 const BATCH_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const BATCH_MAX_JOBS: usize = 64;
@@ -96,6 +96,7 @@ pub enum CliCommand {
         recipe: PathBuf,
         output: PathBuf,
         format: AutomationFormat,
+        force: bool,
     },
     Validate {
         input: PathBuf,
@@ -134,6 +135,7 @@ pub enum CliCommand {
         output: PathBuf,
         format: AutomationFormat,
         allow_unvalidated: bool,
+        force: bool,
     },
     ProjectDelete {
         store: PathBuf,
@@ -868,12 +870,12 @@ where
             {
                 return Ok(CliCommand::Help(TRANSFORM_HELP));
             }
-            let (mut flags, _) = parse_flags(
+            let (mut flags, switches) = parse_flags(
                 rest,
                 &[
                     "--input", "--sheet", "--header", "--recipe", "--output", "--format",
                 ],
-                &[],
+                &["--force"],
             )?;
             let (input, sheet, header) = parse_input_options(&mut flags)?;
             let recipe = PathBuf::from(required_flag(&mut flags, "--recipe")?);
@@ -886,6 +888,7 @@ where
                 recipe,
                 output,
                 format,
+                force: switches.contains("--force"),
             })
         }
         "validate" => {
@@ -985,7 +988,7 @@ where
             let (mut flags, switches) = parse_flags(
                 rest,
                 &["--store", "--id", "--output", "--format"],
-                &["--allow-unvalidated"],
+                &["--allow-unvalidated", "--force"],
             )?;
             Ok(CliCommand::ProjectExport {
                 store: PathBuf::from(required_flag(&mut flags, "--store")?),
@@ -993,6 +996,7 @@ where
                 output: PathBuf::from(required_flag(&mut flags, "--output")?),
                 format: parse_format(required_flag(&mut flags, "--format")?)?,
                 allow_unvalidated: switches.contains("--allow-unvalidated"),
+                force: switches.contains("--force"),
             })
         }
         "project-delete" => {
@@ -1091,7 +1095,22 @@ pub fn transform(
     output: &Path,
     format: AutomationFormat,
 ) -> Result<TransformOutput, AutomationError> {
+    transform_with_options(input, sheet, header, recipe, output, format, false)
+}
+
+/// Never writes over the input or the recipe; `force` only allows replacing
+/// another existing file.
+pub fn transform_with_options(
+    input: &Path,
+    sheet: Option<&str>,
+    header: Option<SpreadsheetHeaderMode>,
+    recipe: &Path,
+    output: &Path,
+    format: AutomationFormat,
+    force: bool,
+) -> Result<TransformOutput, AutomationError> {
     validate_input_options(input, sheet, header)?;
+    ensure_output_can_be_written(output, &[input, recipe], force)?;
     let output_matches_format = output
         .extension()
         .and_then(OsStr::to_str)
@@ -1356,6 +1375,20 @@ pub fn project_export(
     format: AutomationFormat,
     allow_unvalidated: bool,
 ) -> Result<ProjectExportOutput, AutomationError> {
+    project_export_with_options(store, id, output, format, allow_unvalidated, false)
+}
+
+/// The project's own source file is never replaced; `force` only allows
+/// replacing another existing file.
+pub fn project_export_with_options(
+    store: &Path,
+    id: &str,
+    output: &Path,
+    format: AutomationFormat,
+    allow_unvalidated: bool,
+    force: bool,
+) -> Result<ProjectExportOutput, AutomationError> {
+    ensure_output_can_be_written(output, &[], force)?;
     if !output
         .extension()
         .and_then(OsStr::to_str)
@@ -1440,7 +1473,13 @@ pub fn project_export(
             opened.workspace.recipe_draft.as_ref(),
         )
     }
-    .map_err(|_| AutomationError::new("No se pudo publicar la salida de forma atómica."))?;
+    .map_err(|error| {
+        if error == dataset::DESTINATION_IS_SOURCE_MESSAGE {
+            AutomationError::new(error)
+        } else {
+            AutomationError::new("No se pudo publicar la salida de forma atómica.")
+        }
+    })?;
     Ok(ProjectExportOutput {
         schema_version: 1,
         command: "project-export",
@@ -1524,6 +1563,20 @@ fn validate_batch_text_budget(manifest: &BatchManifest) -> Result<(), Automation
                 ));
             }
         }
+    }
+    Ok(())
+}
+
+fn ensure_output_can_be_written(
+    output: &Path,
+    sources: &[&Path],
+    force: bool,
+) -> Result<(), AutomationError> {
+    dataset::ensure_destination_is_not_source(output, sources).map_err(AutomationError::new)?;
+    if !force && fs::symlink_metadata(output).is_ok() {
+        return Err(AutomationError::new(
+            "--output ya existe. Usa --force para reemplazarlo.",
+        ));
     }
     Ok(())
 }
@@ -1671,13 +1724,15 @@ pub fn batch_with_options(
     let mut completed_jobs = 0;
     let mut changed_jobs = 0;
     for (index, job) in jobs.iter().enumerate() {
-        match transform(
+        // `prepare_batch` already enforced the existing-output policy.
+        match transform_with_options(
             &job.input,
             job.sheet.as_deref(),
             job.header,
             &job.recipe,
             &job.output,
             job.format,
+            true,
         ) {
             Ok(result) => {
                 completed_jobs += 1;
@@ -1810,6 +1865,121 @@ mod tests {
         assert!(!json
             .to_string()
             .contains(directory.path().to_str().unwrap()));
+    }
+
+    #[test]
+    fn transform_never_writes_over_its_input_and_needs_force_for_other_files() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir(directory.path().join("sub")).unwrap();
+        let input = directory.path().join("datos.csv");
+        let recipe = directory.path().join("recipe.json");
+        let original = "old,b\n1,2\n";
+        fs::write(&input, original).unwrap();
+        write_recipe(&recipe, "old", "zz");
+        let hard_link = directory.path().join("enlace.csv");
+        fs::hard_link(&input, &hard_link).unwrap();
+
+        for output in [
+            input.clone(),
+            directory.path().join("sub").join("..").join("DATOS.CSV"),
+            hard_link,
+        ] {
+            for force in [false, true] {
+                let error = transform_with_options(
+                    &input,
+                    None,
+                    None,
+                    &recipe,
+                    &output,
+                    AutomationFormat::Csv,
+                    force,
+                )
+                .unwrap_err();
+                assert!(error.to_string().contains("archivo de origen"), "{error}");
+            }
+        }
+        let recipe_as_output = directory.path().join("recipe.json");
+        assert!(transform_with_options(
+            &input,
+            None,
+            None,
+            &recipe,
+            &recipe_as_output.with_extension("json"),
+            AutomationFormat::Json,
+            true,
+        )
+        .is_err());
+        assert_eq!(fs::read_to_string(&input).unwrap(), original);
+
+        let other = directory.path().join("otro.csv");
+        fs::write(&other, "previo\n").unwrap();
+        let error =
+            transform(&input, None, None, &recipe, &other, AutomationFormat::Csv).unwrap_err();
+        assert!(error.to_string().contains("--force"), "{error}");
+        assert_eq!(fs::read_to_string(&other).unwrap(), "previo\n");
+        transform_with_options(
+            &input,
+            None,
+            None,
+            &recipe,
+            &other,
+            AutomationFormat::Csv,
+            true,
+        )
+        .unwrap();
+        assert!(fs::read_to_string(&other).unwrap().starts_with("zz,b"));
+        assert_eq!(fs::read_to_string(&input).unwrap(), original);
+
+        let parsed = parse_cli_args([
+            "transform",
+            "--input",
+            "a.csv",
+            "--recipe",
+            "r.json",
+            "--output",
+            "b.csv",
+            "--format",
+            "csv",
+            "--force",
+        ])
+        .unwrap();
+        assert!(matches!(parsed, CliCommand::Transform { force: true, .. }));
+    }
+
+    #[test]
+    fn project_export_needs_force_to_replace_an_existing_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = directory.path().join("store");
+        let input = directory.path().join("datos.csv");
+        let original = "old,b\n1,2\n";
+        fs::write(&input, original).unwrap();
+        let saved = project_save(
+            &store,
+            "p".to_owned(),
+            &input,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+        let id = saved.project.id;
+        let error = project_export(&store, &id, &input, AutomationFormat::Csv, true).unwrap_err();
+        assert!(error.to_string().contains("--force"), "{error}");
+        assert_eq!(fs::read_to_string(&input).unwrap(), original);
+        let fresh = directory.path().join("salida.csv");
+        project_export(&store, &id, &fresh, AutomationFormat::Csv, true).unwrap();
+        assert!(project_export_with_options(
+            &store,
+            &id,
+            &fresh,
+            AutomationFormat::Csv,
+            true,
+            true
+        )
+        .is_ok());
     }
 
     #[test]
@@ -2353,11 +2523,12 @@ mod tests {
         fs::write(&existing, "previous").unwrap();
 
         for output in [&absent, &existing] {
-            let result = project_export(
+            let result = project_export_with_options(
                 &store,
                 &saved.project.id,
                 output,
                 AutomationFormat::Csv,
+                true,
                 true,
             )
             .unwrap();

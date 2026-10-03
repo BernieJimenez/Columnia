@@ -38,10 +38,19 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             recipe,
             output,
             format,
+            force,
         } => {
             privacy::write_sanitized_json(
                 io::stdout().lock(),
-                &automation::transform(&input, sheet.as_deref(), header, &recipe, &output, format)?,
+                &automation::transform_with_options(
+                    &input,
+                    sheet.as_deref(),
+                    header,
+                    &recipe,
+                    &output,
+                    format,
+                    force,
+                )?,
             )?;
             println!();
         }
@@ -122,9 +131,16 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             output,
             format,
             allow_unvalidated,
+            force,
         } => {
-            let result =
-                automation::project_export(&store, &id, &output, format, allow_unvalidated)?;
+            let result = automation::project_export_with_options(
+                &store,
+                &id,
+                &output,
+                format,
+                allow_unvalidated,
+                force,
+            )?;
             let blocked = result.blocked();
             privacy::write_sanitized_json(io::stdout().lock(), &result)?;
             println!();

@@ -27,13 +27,15 @@ visible, dimensiones y columnas con nombre y tipo.
 ### `transform`
 
 ```text
-transform --input FILE [--sheet NAME --header first-row|generated] --recipe RECIPE --output FILE --format csv|json|parquet|sql|excel|sqlite|bundle
+transform --input FILE [--sheet NAME --header first-row|generated] --recipe RECIPE --output FILE --format csv|json|parquet|sql|excel|sqlite|bundle [--force]
 ```
 
 Aplica una receta JSON v1 o v2 de forma atómica y publica CSV, JSON, Parquet, SQL,
 Excel o SQLite. `bundle`/`zip` publica un paquete con dataset CSV, diccionario,
 reporte de calidad y manifest con hashes. Los destinos no pueden ser el input ni
-la receta; los fallos no dejan outputs parciales.
+la receta, tampoco a través de `..`, otras mayúsculas o un enlace duro, ni
+siquiera con `--force`. Reemplazar cualquier otro archivo existente exige
+`--force`. Los fallos no dejan outputs parciales.
 
 ### `validate`
 
@@ -110,11 +112,13 @@ historial sin abrir el proyecto en una sesión.
 ### `project-export`
 
 ```text
-project-export --store DIR --id ID --output FILE --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]
+project-export --store DIR --id ID --output FILE --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated] [--force]
 ```
 
 Valida reglas guardadas y exporta atómicamente. `--allow-unvalidated` solo
-autoriza proyectos sin reglas; nunca omite una regla reprobada.
+autoriza proyectos sin reglas; nunca omite una regla reprobada. Nunca escribe
+sobre el archivo de origen de un proyecto respaldado en archivo, y reemplazar
+cualquier otro archivo existente exige `--force`.
 
 ### `project-delete`
 

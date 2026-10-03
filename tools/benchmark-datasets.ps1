@@ -419,7 +419,7 @@ try {
     for ($Iteration = 1; $Iteration -le $SustainedRuns; $Iteration++) {
         $CsvResult = Invoke-MeasuredCli -Name "transform-csv" -EvidenceTag "transform-csv-$Iteration" -Arguments @(
             "transform", "--input", $InputRelative, "--recipe", $RecipeRelative,
-            "--output", $CsvOutputRelative, "--format", "csv"
+            "--output", $CsvOutputRelative, "--format", "csv", "--force"
         )
         $CsvResult.iteration = $Iteration
         [void]$CommandResults.Add($CsvResult)
@@ -427,7 +427,7 @@ try {
 
         $ParquetResult = Invoke-MeasuredCli -Name "transform-parquet" -EvidenceTag "transform-parquet-$Iteration" -Arguments @(
             "transform", "--input", $InputRelative, "--recipe", $RecipeRelative,
-            "--output", $ParquetOutputRelative, "--format", "parquet"
+            "--output", $ParquetOutputRelative, "--format", "parquet", "--force"
         )
         $ParquetResult.iteration = $Iteration
         [void]$CommandResults.Add($ParquetResult)

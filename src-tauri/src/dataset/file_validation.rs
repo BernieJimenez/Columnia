@@ -101,6 +101,36 @@ pub(super) fn canonicalize_write_destination(path: &Path, label: &str) -> Result
     Ok(canonical_parent.join(file_name))
 }
 
+/// Message shown when an export would replace the file it was read from.
+pub(crate) const DESTINATION_IS_SOURCE_MESSAGE: &str =
+    "El destino es el archivo de origen. Elige otro nombre: Columnia nunca modifica el archivo original.";
+
+/// Rejects a destination that is the same file as one of `sources`. The
+/// comparison uses file identity, so `..`, letter case and hard links cannot
+/// hide the original.
+pub(crate) fn ensure_destination_is_not_source(
+    destination: &Path,
+    sources: &[&Path],
+) -> Result<(), String> {
+    if fs::symlink_metadata(destination).is_err() {
+        return Ok(());
+    }
+    for source in sources {
+        let same = same_file::is_same_file(destination, source).unwrap_or_else(|_| {
+            match (fs::canonicalize(destination), fs::canonicalize(source)) {
+                (Ok(left), Ok(right)) => {
+                    left.to_string_lossy().to_lowercase() == right.to_string_lossy().to_lowercase()
+                }
+                _ => false,
+            }
+        });
+        if same {
+            return Err(DESTINATION_IS_SOURCE_MESSAGE.to_owned());
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn validate_dataset_file(path: &Path) -> Result<(PathBuf, u64, String), String> {
     let canonical = canonicalize_existing_file(path, "el dataset seleccionado")?;
     let extension = dataset_extension(&canonical)?;
