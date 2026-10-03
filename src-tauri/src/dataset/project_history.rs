@@ -341,5 +341,6 @@ where
         next_id,
         max_entries: history.max_entries,
         disk_budget_bytes: history.disk_budget_bytes,
+        revision: 0,
     })
 }

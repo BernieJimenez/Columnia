@@ -80,13 +80,13 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-04, QA-11.
   - [x] `FUN-04` (Medio) Los textareas de listas del editor de reglas pierden el Intro y los espacios al teclear — hecho el 2026-10-03
   - [x] `QA-11` (Medio) Pruebas de Entregar que no pueden fallar por lo importante y huecos de la compuerta — hecho el 2026-10-03
-- [ ] **RV30** — **Consulta SQL y DuckDB** — Los dos motores SQL dan resultados distintos para la misma consulta y la interfaz no dice… (y 4 problemas más) · *Esfuerzo: 3,5 días*
+- [x] **RV30** — **Consulta SQL y DuckDB** — Los dos motores SQL dan resultados distintos para la misma consulta y la interfaz no dice… (y 4 problemas más) · *Esfuerzo: 3,5 días* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-05, FUN-13, DAT-08, DAT-11, REN-05.
   - [x] `FUN-05` (Medio) Los dos motores SQL dan resultados distintos para la misma consulta y la interfaz no dice cuál respondió — hecho el 2026-10-03
   - [x] `FUN-13` (Medio) Consola SQL: `join_date` y columnas con coma hacen fallar consultas válidas — hecho el 2026-10-03
   - [x] `DAT-08` (Medio) Las celdas vacías salen como cadena vacía en Parquet, SQL, SQLite, JSON y XLSX en archivos pequeños y como NULL en los grandes — hecho el 2026-10-03
   - [x] `DAT-11` (Medio) El script SQL exportado borra la tabla `dataset` del destino y puede declarar tipos que no caben — hecho el 2026-10-03
-  - [ ] `REN-05` (Medio) Cada consulta DuckDB sobre un DataFrame escribe un Parquet completo del dataset (candidato a medir)
+  - [x] `REN-05` (Medio) Cada consulta DuckDB sobre un DataFrame escribe un Parquet completo del dataset (candidato a medir) — hecho el 2026-10-03
 - [ ] **RV31** — **Explorar** — Las barras del histograma de Explorar cuentan `[a,b)` y el filtro filtra `[a,b]`: la cifr… (y 3 problemas más) · *Esfuerzo: 2,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-06, ARQ-04, UX-01, ACC-01.
   - [ ] `FUN-06` (Medio) Las barras del histograma de Explorar cuentan `[a,b)` y el filtro filtra `[a,b]`: la cifra de la barra no coincide con «Filas»

@@ -80,6 +80,9 @@ pub(super) struct HistoryManager {
     pub(super) next_id: u64,
     pub(super) max_entries: usize,
     pub(super) disk_budget_bytes: u64,
+    /// Grows with every change of the active frame, also while snapshots are
+    /// disabled, so a cache can tell two versions apart (REN-05).
+    pub(super) revision: u64,
 }
 
 impl HistoryManager {
@@ -99,6 +102,7 @@ impl HistoryManager {
             next_id: 0,
             max_entries: HISTORY_MAX_ENTRIES,
             disk_budget_bytes: HISTORY_DISK_BUDGET_BYTES,
+            revision: 0,
         })
     }
 
@@ -124,9 +128,14 @@ impl HistoryManager {
             next_id: 0,
             max_entries: max_entries.max(1),
             disk_budget_bytes,
+            revision: 0,
         };
         manager.record(frame, "Dataset original")?;
         Ok(manager)
+    }
+
+    pub(super) fn touch(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
     }
 
     pub(super) fn disk_bytes(&self) -> u64 {
@@ -191,6 +200,7 @@ impl HistoryManager {
     }
 
     pub(super) fn record(&mut self, frame: &DataFrame, label: &str) -> Result<(), String> {
+        self.touch();
         self.current_label = label.to_owned();
         if !self.snapshots_enabled {
             return Ok(());
@@ -440,6 +450,7 @@ impl HistoryManager {
     where
         P: FnMut(PreparedHistorySnapshot, &Path) -> Result<(), String>,
     {
+        self.touch();
         if !self.snapshots_enabled {
             self.current_label = label.to_owned();
             return Ok(Vec::new());
@@ -650,6 +661,7 @@ fn restore_source_backed_history_cursor(
         dataset.history.source_snapshot_path = None;
         dataset.row_count = row_count;
         dataset.frame = schema;
+        dataset.history.touch();
         dataset.profile = None;
         if was_source_backed {
             dataset.source_path = Some(snapshot_path);
@@ -726,6 +738,7 @@ pub(super) fn undo_dataset_with_cancellation(
     let publish = || {
         dataset.row_count = previous.height();
         dataset.frame = previous;
+        dataset.history.touch();
         dataset.source_backed = false;
         dataset.history.cursor = target;
         dataset.profile = None;
@@ -773,6 +786,7 @@ pub(super) fn redo_dataset_with_cancellation(
     let publish = || {
         dataset.row_count = next.height();
         dataset.frame = next;
+        dataset.history.touch();
         dataset.source_backed = false;
         dataset.history.cursor = target;
         dataset.profile = None;

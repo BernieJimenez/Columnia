@@ -417,6 +417,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Mejorado
 
+- Paginar una consulta DuckDB sobre un dataset en memoria sin historial
+  reversible ya no escribe todo el dataset a disco en cada página: la copia de
+  consulta se escribe una vez por versión del dataset (REN-05).
 - Los archivos grandes con columnas de texto libre (descripciones, comentarios)
   se analizan y se limpian mucho más rápido. Un valor de más de 64 bytes no
   puede ser un marcador «sin dato», un número ni una fecha, así que ya no se

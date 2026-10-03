@@ -18645,3 +18645,27 @@ fn empty_and_missing_cells_keep_the_same_meaning_in_both_paths() {
     );
     let _ = fs::remove_file(source);
 }
+
+/// REN-05: paging a DuckDB query over an in-memory dataset writes its Parquet
+/// copy once, and a change of the dataset writes a new one.
+#[test]
+fn query_frame_snapshot_is_written_once_per_dataset_version() {
+    let path = temporary_csv("id,name\n1,A\n2,B\n");
+    let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+    let mut dataset = loaded_dataset(path.clone(), frame.clone());
+    let cache = Mutex::new(None);
+    let first = query_frame_snapshot_path(&cache, &dataset).expect("primera copia");
+    let modified = fs::metadata(&first).unwrap().modified().unwrap();
+    let second = query_frame_snapshot_path(&cache, &dataset).expect("segunda página");
+    assert_eq!(first, second);
+    assert_eq!(fs::metadata(&second).unwrap().modified().unwrap(), modified);
+
+    dataset.frame = frame.head(Some(1));
+    dataset.history.touch();
+    let third = query_frame_snapshot_path(&cache, &dataset).expect("nueva versión");
+    assert_ne!(first, third);
+    assert!(!first.exists());
+    assert_eq!(read_parquet_frame(&third).unwrap().height(), 1);
+    drop(cache);
+    let _ = fs::remove_file(path);
+}

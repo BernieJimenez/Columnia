@@ -1630,6 +1630,7 @@ fn publish_candidate_with_cancellation(
         dataset.history.source_snapshot_path = None;
         dataset.row_count = candidate.height();
         dataset.frame = candidate;
+        dataset.history.touch();
         dataset.source_backed = false;
         dataset.profile = None;
         Ok(())
@@ -1751,9 +1752,54 @@ struct ReviewComparisonSnapshot {
     key_columns: Vec<String>,
 }
 
+/// The active frame written once to Parquet for DuckDB queries, while the
+/// history has no snapshot to read. Paging a query reuses it (REN-05).
+struct QueryFrameSnapshot {
+    key: (PathBuf, u64, usize, usize),
+    path: tempfile::TempPath,
+}
+
+fn query_frame_snapshot_key(dataset: &LoadedDataset) -> (PathBuf, u64, usize, usize) {
+    (
+        dataset.history.directory.path().to_path_buf(),
+        dataset.history.revision,
+        dataset.frame.height(),
+        dataset.frame.width(),
+    )
+}
+
+/// Path of a Parquet copy of the active frame, written only when the frame
+/// changed since the last query.
+fn query_frame_snapshot_path(
+    cache: &Mutex<Option<QueryFrameSnapshot>>,
+    dataset: &LoadedDataset,
+) -> Result<PathBuf, String> {
+    let key = query_frame_snapshot_key(dataset);
+    let mut cache = cache.lock_recovering();
+    if let Some(snapshot) = cache.as_ref().filter(|snapshot| snapshot.key == key) {
+        return Ok(snapshot.path.to_path_buf());
+    }
+    *cache = None;
+    let file = tempfile::Builder::new()
+        .prefix("columnia-query-")
+        .suffix(".parquet")
+        .tempfile_in(dataset.history.directory.path())
+        .map_err(|error| format!("No se pudo preparar la copia de consulta: {error}"))?;
+    let mut frame = dataset.frame.clone();
+    ParquetWriter::new(file.as_file())
+        .with_row_group_size(Some(parquet_row_group_rows(&frame)))
+        .finish(&mut frame)
+        .map_err(|error| format!("No se pudo escribir la copia de consulta: {error}"))?;
+    let path = file.into_temp_path();
+    let location = path.to_path_buf();
+    *cache = Some(QueryFrameSnapshot { key, path });
+    Ok(location)
+}
+
 #[derive(Default)]
 pub struct DatasetState {
     current: Mutex<Option<LoadedDataset>>,
+    query_frame_snapshot: Mutex<Option<QueryFrameSnapshot>>,
     pending_selection: Mutex<Option<PendingSelection>>,
     /// UTF-8 copies of Windows-1252 files the person approved converting
     /// (RV20). Source-backed datasets keep reading them, so a copy lives until
@@ -2765,6 +2811,7 @@ fn publish_source_backed_query(
         dataset.file_size_bytes = current_size;
         dataset.row_count = output_row_count;
         dataset.frame = output_schema;
+        dataset.history.touch();
         dataset.source_backed = true;
         dataset.history.source_snapshot_path = None;
         dataset.history.current_label = label.to_owned();
@@ -2941,6 +2988,7 @@ fn publish_source_backed_result_output(
     dataset.file_size_bytes = current_size;
     dataset.row_count = output.output_row_count;
     dataset.frame = output_schema;
+    dataset.history.touch();
     dataset.source_backed = true;
     dataset.history.source_snapshot_path = None;
     dataset.history.current_label = output.label.to_owned();
@@ -3108,6 +3156,7 @@ fn publish_review_source_backed_result_output(
         dataset.file_size_bytes = current_size;
         dataset.row_count = output.output_row_count;
         dataset.frame = output_schema;
+        dataset.history.touch();
         dataset.source_backed = true;
         dataset.history.source_snapshot_path = None;
         dataset.profile = None;
@@ -3201,6 +3250,7 @@ fn publish_review_eager_candidate(
         dataset.file_size_bytes = file_size_bytes;
         dataset.row_count = candidate.height();
         dataset.frame = candidate;
+        dataset.history.touch();
         dataset.source_backed = false;
         dataset.profile = None;
         *comparison = None;
@@ -8714,28 +8764,31 @@ pub async fn query_dataset(
                         },
                     )
                 }
-            } else if let Some(compared_path) = compared_snapshot {
-                crate::duckdb_query::execute_duckdb_query_from_frame_and_parquet(
-                    &dataset.frame,
-                    compared_path,
-                    &spec,
-                    move || {
-                        fallback_cancellation_app
-                            .state::<DatasetState>()
-                            .query_was_cancelled(generation)
-                    },
-                )
             } else {
-                crate::duckdb_query::execute_duckdb_query(
-                    &dataset.frame,
-                    compared,
-                    &spec,
-                    move || {
-                        fallback_cancellation_app
-                            .state::<DatasetState>()
-                            .query_was_cancelled(generation)
-                    },
-                )
+                let snapshot = query_frame_snapshot_path(&state.query_frame_snapshot, dataset)?;
+                if let Some(compared_path) = compared_snapshot {
+                    crate::duckdb_query::execute_duckdb_query_from_parquet_sources(
+                        &snapshot,
+                        Some(compared_path),
+                        &spec,
+                        move || {
+                            fallback_cancellation_app
+                                .state::<DatasetState>()
+                                .query_was_cancelled(generation)
+                        },
+                    )
+                } else {
+                    crate::duckdb_query::execute_duckdb_query_from_parquet(
+                        &snapshot,
+                        compared,
+                        &spec,
+                        move || {
+                            fallback_cancellation_app
+                                .state::<DatasetState>()
+                                .query_was_cancelled(generation)
+                        },
+                    )
+                }
             }
         }
     })

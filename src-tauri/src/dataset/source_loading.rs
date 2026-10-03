@@ -337,6 +337,7 @@ where
     let frame = materialized_dataset_frame_with_cancel(dataset, &is_cancelled)?;
     ensure_not_cancelled(is_cancelled())?;
     dataset.frame = frame;
+    dataset.history.touch();
     dataset.source_backed = false;
     Ok(())
 }

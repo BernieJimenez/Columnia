@@ -2754,6 +2754,7 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
         dataset.file_size_bytes = active_file_size;
         dataset.row_count = output_row_count;
         dataset.frame = output_schema;
+        dataset.history.touch();
         dataset.source_backed = true;
         dataset.history.source_snapshot_path = None;
         dataset.profile = None;
