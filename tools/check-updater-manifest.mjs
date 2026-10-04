@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { verifyMinisign } from "./updater-crypto.mjs";
+import { configuredUpdaterHosts, localVersion, updaterPolicyProblems } from "./updater-policy.mjs";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -17,7 +18,7 @@ function parseArguments(argv) {
     const key = argv[index];
     const value = argv[index + 1];
     if (!key?.startsWith("--") || value === undefined) {
-      fail("Uso: check-updater-manifest.mjs --manifest <json> --inventory <json> [--public-key <base64>].");
+      fail("Uso: check-updater-manifest.mjs --manifest <json> --inventory <json> [--expected-version <semver>] [--allowed-host <host>].");
     }
     options[key.slice(2)] = value;
   }
@@ -44,7 +45,12 @@ const inventoryPath = resolve(projectRoot, required(options, "inventory"));
 const manifest = readJson(manifestPath);
 const inventory = readJson(inventoryPath);
 const config = readJson(resolve(projectRoot, "src-tauri/tauri.conf.json"));
-const publicKey = options["public-key"] || config.plugins?.updater?.pubkey;
+// SEG-04: another public key is only for the contract test, never a release.
+const testPublicKey = process.env.COLUMNIA_UPDATER_CONTRACT_TEST === "1" ? options["public-key"] : undefined;
+if (options["public-key"] && !testPublicKey) fail("--public-key solo se admite en la prueba de contrato.");
+const publicKey = testPublicKey || config.plugins?.updater?.pubkey;
+const expectedVersion = options["expected-version"]?.trim() || localVersion();
+const allowedHosts = options["allowed-host"] ? [options["allowed-host"].trim()] : configuredUpdaterHosts();
 const target = inventory.target;
 const platform = manifest.platforms?.[target];
 const artifactPath = resolve(projectRoot, inventory.artifact?.path ?? "");
@@ -53,7 +59,14 @@ const signaturePath = resolve(projectRoot, inventory.artifact?.signaturePath ?? 
 if (inventory.schemaVersion !== 1 || inventory.status !== "passed") fail("El inventario updater no está aprobado.");
 if (manifest.version !== inventory.version) fail("La versión del manifiesto updater no coincide con su inventario.");
 if (!platform) fail(`El manifiesto updater no contiene la plataforma ${target}.`);
-if (!/^https:\/\//.test(platform.url)) fail("La URL updater no usa HTTPS.");
+const policyProblems = updaterPolicyProblems({
+  manifestVersion: manifest.version,
+  expectedVersion,
+  artifactUrl: platform.url,
+  allowedHosts,
+  sizeBytes: platform.sizeBytes,
+});
+if (policyProblems.length > 0) fail(policyProblems.join(" "));
 if (!Number.isInteger(platform.sizeBytes) || platform.sizeBytes <= 0) fail("El manifiesto updater no tiene tamaño válido.");
 if (!/^[a-f0-9]{64}$/.test(platform.sha256 ?? "")) fail("El manifiesto updater no tiene SHA-256 válido.");
 if (!existsSync(artifactPath) || !statSync(artifactPath).isFile()) fail("Falta el artefacto updater local.");

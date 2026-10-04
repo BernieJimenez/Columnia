@@ -13,11 +13,12 @@ function fail(message) {
   throw new Error(message);
 }
 
-function runNode(scriptPath, args) {
+function runNode(scriptPath, args, env = { COLUMNIA_UPDATER_CONTRACT_TEST: "1" }) {
   const result = spawnSync(process.execPath, [scriptPath, ...args], {
     cwd: projectRoot,
     encoding: "utf8",
     windowsHide: true,
+    env: { ...process.env, ...env },
   });
   if (result.error) fail(`No se pudo ejecutar ${scriptPath}: ${result.error.message}`);
   return result;
@@ -79,6 +80,13 @@ const signaturePath = `${artifactPath}.sig`;
 const manifestPath = join(fixtureRoot, "latest.json");
 const inventoryPath = join(fixtureRoot, "inventory.json");
 const signingFixture = createEphemeralMinisignKey();
+const checkerArgs = (overrides = {}) => [
+  "--manifest", manifestPath,
+  "--inventory", inventoryPath,
+  "--public-key", signingFixture.encodedPublicKey,
+  "--expected-version", overrides.version ?? "0.57.0",
+  "--allowed-host", overrides.host ?? "updates.example.invalid",
+];
 
 try {
   mkdirSync(dirname(artifactPath), { recursive: true });
@@ -96,14 +104,20 @@ try {
   ];
   expectSuccess(runNode(generatorPath, generatorArgs), "Generación del fixture");
   expectSuccess(
-    runNode(checkerPath, ["--manifest", manifestPath, "--inventory", inventoryPath, "--public-key", signingFixture.encodedPublicKey]),
+    runNode(checkerPath, checkerArgs()),
     "Contrato válido",
   );
+
+  // SEG-04: a manifest for another version (a downgrade), a foreign host or
+  // a substitute public key outside the contract test do not pass.
+  expectFailure(runNode(checkerPath, checkerArgs({ version: "0.58.0" })), "Versión distinta de la publicada");
+  expectFailure(runNode(checkerPath, checkerArgs({ host: "cdn.example.invalid" })), "Host ajeno");
+  expectFailure(runNode(checkerPath, checkerArgs(), {}), "Clave pública sustituida fuera de la prueba");
 
   const originalArtifact = readFileSync(artifactPath);
   writeFileSync(artifactPath, originalArtifact.subarray(0, Math.max(1, originalArtifact.length - 1)));
   expectFailure(
-    runNode(checkerPath, ["--manifest", manifestPath, "--inventory", inventoryPath, "--public-key", signingFixture.encodedPublicKey]),
+    runNode(checkerPath, checkerArgs()),
     "Artefacto truncado",
   );
   writeFileSync(artifactPath, originalArtifact);
@@ -126,7 +140,7 @@ try {
   alteredInventory.manifest.sha256 = sha256(manifestPath);
   writeJson(inventoryPath, alteredInventory);
   expectFailure(
-    runNode(checkerPath, ["--manifest", manifestPath, "--inventory", inventoryPath, "--public-key", signingFixture.encodedPublicKey]),
+    runNode(checkerPath, checkerArgs()),
     "Firma criptográficamente inválida",
   );
   writeFileSync(manifestPath, originalManifest, "utf8");
@@ -137,7 +151,7 @@ try {
     "utf8",
   );
   expectFailure(
-    runNode(checkerPath, ["--manifest", manifestPath, "--inventory", inventoryPath, "--public-key", signingFixture.encodedPublicKey]),
+    runNode(checkerPath, checkerArgs()),
     "Firma alterada",
   );
   writeFileSync(signaturePath, originalSignature, "utf8");
@@ -146,13 +160,13 @@ try {
   delete incompleteManifest.platforms;
   writeJson(manifestPath, incompleteManifest);
   expectFailure(
-    runNode(checkerPath, ["--manifest", manifestPath, "--inventory", inventoryPath, "--public-key", signingFixture.encodedPublicKey]),
+    runNode(checkerPath, checkerArgs()),
     "Manifiesto incompleto",
   );
 
   writeFileSync(manifestPath, "{\n", "utf8");
   expectFailure(
-    runNode(checkerPath, ["--manifest", manifestPath, "--inventory", inventoryPath, "--public-key", signingFixture.encodedPublicKey]),
+    runNode(checkerPath, checkerArgs()),
     "Manifiesto JSON corrupto",
   );
   writeFileSync(manifestPath, originalManifest, "utf8");
@@ -166,7 +180,7 @@ try {
     fail("El fixture generado no conserva el hash del artefacto.");
   }
 
-  console.log("Contrato updater aprobado: válido, truncado, firma alterada, manifiesto incompleto/corrupto y URL insegura.");
+  console.log("Contrato updater aprobado: válido, versión distinta, host ajeno, clave sustituida, truncado, firma alterada, manifiesto incompleto/corrupto y URL insegura.");
 } finally {
   rmSync(fixtureRoot, { recursive: true, force: true });
 }

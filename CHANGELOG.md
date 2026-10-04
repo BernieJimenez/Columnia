@@ -123,6 +123,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Seguridad
 
+- Los gates del actualizador exigen que el manifiesto anuncie la versión que se
+  publica (sin downgrades), que el instalador esté en un host permitido y que la
+  descarga no supere un tamaño máximo; la clave pública alternativa solo se
+  admite en la prueba de contrato.
 - El escaneo de secretos reconoce tokens con guion (Slack, Anthropic, OpenAI),
   la clave privada de firma del actualizador, claves cifradas y archivos .env,
   revisa cualquier archivo de texto (no solo una lista de extensiones) y tiene

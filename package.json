@@ -40,7 +40,7 @@
     "updater:manifest": "node tools/generate-updater-manifest.mjs",
     "updater:check": "node tools/check-updater-manifest.mjs",
     "updater:key:check": "node tools/check-updater-key-policy.mjs",
-    "updater:contract:test": "node tools/test-updater-manifest.mjs",
+    "updater:contract:test": "node tools/test-updater-manifest.mjs && node --test tools/updater-policy.test.mjs",
     "updater:verify-published": "node tools/verify-published-assets.mjs",
     "accessibility:visual": "node tools/capture-accessibility-evidence.mjs",
     "accessibility:check": "node tools/check-accessibility-baseline.mjs",

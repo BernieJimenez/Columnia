@@ -9,6 +9,14 @@ import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { verifyMinisign } from "./updater-crypto.mjs";
+import {
+  MAX_ARTIFACT_BYTES,
+  MAX_MANIFEST_BYTES,
+  configuredUpdaterHosts,
+  localVersion,
+  readLimitedBody,
+  updaterPolicyProblems,
+} from "./updater-policy.mjs";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -74,7 +82,7 @@ function artifactName(url) {
   return name;
 }
 
-async function fetchBytes(url, label) {
+async function fetchBytes(url, label, maximumBytes) {
   let response;
   try {
     response = await fetch(url, {
@@ -85,14 +93,23 @@ async function fetchBytes(url, label) {
     fail(`No se pudo descargar ${label}: ${error.message}`);
   }
   if (!response.ok) fail(`${label} respondió HTTP ${response.status}.`);
-  return Buffer.from(await response.arrayBuffer());
+  // SEG-04: never more than the gate is willing to hold in memory.
+  try {
+    return await readLimitedBody(response, maximumBytes, label);
+  } catch (error) {
+    fail(error.message);
+  }
 }
 
 const options = parseArguments(process.argv.slice(2));
 const manifestUrl = httpsUrl(required(options, "manifest-url"), "--manifest-url").toString();
 const outputDirectory = resolve(projectRoot, required(options, "output-dir"));
 const target = options.target?.trim() || "windows-x86_64";
-const expectedVersion = options["expected-version"]?.trim() || null;
+// SEG-04: the published version must be the one this checkout releases.
+const expectedVersion = options["expected-version"]?.trim() || localVersion();
+const allowedHosts = options["allowed-host"]
+  ? [options["allowed-host"].trim()]
+  : [new URL(manifestUrl).host, ...configuredUpdaterHosts()];
 const config = readJsonFile(resolve(projectRoot, "src-tauri/tauri.conf.json"));
 const publicKey = config.plugins?.updater?.pubkey;
 if (!publicKey) fail("La compilación no declara una clave pública updater.");
@@ -117,20 +134,29 @@ let summary = {
 };
 
 try {
-  const manifestBytes = await fetchBytes(manifestUrl, "el manifiesto updater");
+  const manifestBytes = await fetchBytes(manifestUrl, "el manifiesto updater", MAX_MANIFEST_BYTES);
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
   const platform = manifest.platforms?.[target];
   if (!versionIsValid(manifest.version ?? "")) fail("El manifiesto publicado no tiene una versión SemVer válida.");
-  if (expectedVersion && manifest.version !== expectedVersion) {
-    fail(`El manifiesto publicado declara ${manifest.version}, pero se esperaba ${expectedVersion}.`);
-  }
   if (!platform || typeof platform !== "object") fail(`El manifiesto publicado no contiene la plataforma ${target}.`);
+  const policyProblems = updaterPolicyProblems({
+    manifestVersion: manifest.version,
+    expectedVersion,
+    artifactUrl: platform.url,
+    allowedHosts,
+    sizeBytes: platform.sizeBytes,
+  });
+  if (policyProblems.length > 0) fail(policyProblems.join(" "));
   if (!Number.isInteger(platform.sizeBytes) || platform.sizeBytes <= 0) fail("El manifiesto publicado no tiene tamaño válido.");
   if (!/^[a-f0-9]{64}$/.test(platform.sha256 ?? "")) fail("El manifiesto publicado no tiene SHA-256 válido.");
   if (typeof platform.signature !== "string") fail("El manifiesto publicado no contiene firma.");
   const artifactUrl = httpsUrl(platform.url, "La URL del artefacto publicado");
   const name = artifactName(artifactUrl);
-  const artifact = await fetchBytes(artifactUrl.toString(), "el instalador publicado");
+  const artifact = await fetchBytes(
+    artifactUrl.toString(),
+    "el instalador publicado",
+    Math.min(platform.sizeBytes, MAX_ARTIFACT_BYTES),
+  );
   downloadedPath = resolve(outputDirectory, name);
   if (artifact.length !== platform.sizeBytes) fail("El tamaño descargado no coincide con el manifiesto publicado.");
   const artifactHash = sha256(artifact);

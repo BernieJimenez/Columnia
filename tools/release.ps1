@@ -234,7 +234,8 @@ try {
             }
             & node @ManifestArguments
             $UpdaterInventory = Get-Content -LiteralPath $UpdaterInventoryPath -Raw | ConvertFrom-Json
-            & node tools/check-updater-manifest.mjs --manifest $UpdaterManifestPath --inventory $UpdaterInventoryPath
+            # SEG-04: the release version and the host of the asset base URL.
+            & node tools/check-updater-manifest.mjs --manifest $UpdaterManifestPath --inventory $UpdaterInventoryPath --expected-version $ProjectVersion --allowed-host ([Uri]$UpdaterAssetBaseUrl).Authority
             $UpdaterEvidence.status = $UpdaterInventory.status
             $UpdaterEvidence.artifact = $UpdaterInventory.artifact
         }
