@@ -215,7 +215,7 @@ medio = 1 día; agregado por suma.
   - [x] `QA-10` (Medio) Caminos de `src/features/review/DatasetComparisonSection.tsx` sin test (cobertura 78,8 % de líneas) — hecho el 2026-10-04
 - [ ] **RV52** — **Gates y scripts** — check-secrets: patrones con falsos negativos relevantes para este proyecto (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de SEG-03, SEG-04, QA-21, QA-22, QA-23.
-  - [ ] `SEG-03` (Medio) check-secrets: patrones con falsos negativos relevantes para este proyecto
+  - [x] `SEG-03` (Medio) check-secrets: patrones con falsos negativos relevantes para este proyecto — hecho el 2026-10-04
   - [ ] `SEG-04` (Medio) `verify-published-assets` y `check-updater-manifest` no protegen contra downgrade ni acotan el host
   - [ ] `QA-21` (Medio) check-performance-baseline acepta evidencia de `.local/` de cualquier commit y antigüedad (salvo dos comprobaciones y solo con `-RequireEvidenceAfter`)
   - [ ] `QA-22` (Medio) smoke-tauri: «aprobado» sin ventana visible, «contrato» por subcadenas y sin guardia del almacén real

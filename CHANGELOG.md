@@ -123,6 +123,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Seguridad
 
+- El escaneo de secretos reconoce tokens con guion (Slack, Anthropic, OpenAI),
+  la clave privada de firma del actualizador, claves cifradas y archivos .env,
+  revisa cualquier archivo de texto (no solo una lista de extensiones) y tiene
+  pruebas con un ejemplo de cada formato.
 - La protección «hash» de Entregar usa una sal aleatoria nueva en cada
   exportación: el hash de un teléfono o un correo ya no se puede adivinar
   probando valores. Las dos rutas de exportación dan el mismo resultado con la
