@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -61,6 +62,12 @@ try {
   if (summary.schemaVersion !== baseline.schemaVersion) fail("schemaVersion de la evidencia visual no soportada.");
   if (summary.captureVersion !== baseline.captureVersion) fail("captureVersion de la evidencia visual no soportada.");
   if (summary.status !== "passed") fail(`La evidencia visual no está aprobada: ${summary.status}.`);
+  // QA-27: captures of another commit, or of uncommitted changes, do not count.
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: projectRoot, encoding: "utf8" }).trim();
+  if (summary.git?.commit !== head) {
+    fail(`La evidencia visual es de otro commit (${summary.git?.commit ? String(summary.git.commit).slice(0, 7) : "sin commit registrado"}); vuelve a capturar en ${head.slice(0, 7)}.`);
+  }
+  if (summary.git?.dirty) fail("La evidencia visual se capturó con cambios sin commit.");
 
   const actualCases = Array.isArray(summary.cases) ? summary.cases : [];
   assertEqual(
@@ -82,7 +89,7 @@ try {
       const count = inspection.landmarks?.[landmark];
       if (count !== 1) fail(`${expectedCase.name} no cumple el landmark ${landmark}.`);
     }
-    if (inspection.minimumTargetSize < baseline.contract.minimumTargetSize) {
+    if (typeof inspection.minimumTargetSize !== "number" || inspection.minimumTargetSize < baseline.contract.minimumTargetSize) {
       fail(`${expectedCase.name} tiene targets menores al mínimo.`);
     }
     if (baseline.contract.requireVisibleFocus && (inspection.focus?.outlineStyle === "none" || inspection.focus?.outlineWidth === "0px")) {

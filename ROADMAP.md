@@ -220,12 +220,12 @@ medio = 1 día; agregado por suma.
   - [x] `QA-21` (Medio) check-performance-baseline acepta evidencia de `.local/` de cualquier commit y antigüedad (salvo dos comprobaciones y solo con `-RequireEvidenceAfter`) — hecho el 2026-10-04
   - [x] `QA-22` (Medio) smoke-tauri: «aprobado» sin ventana visible, «contrato» por subcadenas y sin guardia del almacén real — hecho el 2026-10-04
   - [x] `QA-23` (Medio) automate-native-file-dialog: el modo `open` da «passed» al cerrarse el diálogo (también si se canceló) y hay pulsaciones globales de respaldo — hecho el 2026-10-04
-- [ ] **RV53** — **Gates y scripts** — `check-network-policy` solo detecta cuatro APIs de red y no mira dependencias ni `index.h… (y 4 problemas más) · *Esfuerzo: 2 días*
+- [x] **RV53** — **Gates y scripts** — `check-network-policy` solo detecta cuatro APIs de red y no mira dependencias ni `index.h… (y 4 problemas más) · *Esfuerzo: 2 días* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-24, QA-25, QA-26, QA-27, QA-28.
   - [x] `QA-24` (Medio) `check-network-policy` solo detecta cuatro APIs de red y no mira dependencias ni `index.html` — hecho el 2026-10-04
   - [x] `QA-25` (Medio) `check-ipc-inventory` es circular y no cruza con TypeScript — hecho el 2026-10-04
   - [x] `QA-26` (Medio) `check-coverage` puede aprobar con un resumen viejo y cubre pocos archivos — hecho el 2026-10-04
-  - [ ] `QA-27` (Medio) El «baseline» de accesibilidad acepta evidencia de cualquier commit y cubre solo el shell inicial
+  - [x] `QA-27` (Medio) El «baseline» de accesibilidad acepta evidencia de cualquier commit y cubre solo el shell inicial — hecho el 2026-10-04
   - [x] `QA-28` (Medio) Dos suites de `node:test` en `tools/` no las ejecuta nadie — hecho el 2026-10-04
 - [ ] **RV54** — **Gates y scripts** — check-supply-chain: las vulnerabilidades de `npm audit` nunca hacen fallar el gate (y 4 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-01, OPS-02, OPS-03, OPS-04, OPS-05.

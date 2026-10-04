@@ -1,7 +1,7 @@
 import { chromium } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -205,6 +205,11 @@ try {
   await writeFile(summaryPath, `${JSON.stringify({
     schemaVersion: 1,
     captureVersion: 2,
+    // QA-27: the code these captures belong to.
+    git: {
+      commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: projectRoot, encoding: "utf8" }).trim(),
+      dirty: execFileSync("git", ["status", "--porcelain"], { cwd: projectRoot, encoding: "utf8" }).trim() !== "",
+    },
     status,
     generatedAt: new Date().toISOString(),
     baseUrl,
