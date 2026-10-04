@@ -123,6 +123,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Seguridad
 
+- El escaneo de secretos falla si git no puede listar los archivos (en vez de
+  aprobar con cero archivos) y revisa los archivos con tildes en el nombre.
 - La política «sin red oculta» detecta más vías de salida (sendBeacon,
   WebTransport, WebRTC, imágenes, importaciones remotas, accesos calculados y
   sockets de Rust), revisa index.html, build.rs y las dependencias de

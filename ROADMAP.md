@@ -233,7 +233,7 @@ medio = 1 día; agregado por suma.
   - [ ] `OPS-02` (Medio) El desinstalador silencioso deja `HKCU\Software\columnia\Columnia` apuntando a la carpeta ya borrada, y una instalación de prueba comparte claves y accesos con la real
   - [ ] `OPS-03` (Medio) `notices:check` y `supply-chain:check` fallan en un clon con fin de línea CRLF
   - [ ] `OPS-04` (Medio) El baseline de evidencia release fija la versión del proyecto: cada subida de versión rompe el gate y `--update-baseline` no puede repararlo
-  - [ ] `OPS-05` (Medio) check-secrets da «aprobado» si `git` falla o devuelve rutas entrecomilladas
+  - [x] `OPS-05` (Medio) check-secrets da «aprobado» si `git` falla o devuelve rutas entrecomilladas — hecho el 2026-10-04
 - [ ] **RV55** — **Gates y scripts** — app-data-guard: restauración destructiva sin salvaguarda ante fallo parcial (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-06, OPS-07, OPS-08, OPS-09, OPS-10.
   - [ ] `OPS-06` (Medio) app-data-guard: restauración destructiva sin salvaguarda ante fallo parcial

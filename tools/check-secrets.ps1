@@ -2,7 +2,9 @@
 param(
     [string]$OutputPath,
     # Scans every file under this folder instead of the repository (tests).
-    [string]$ScanRoot
+    [string]$ScanRoot,
+    # Git repository to list (tests); the project by default.
+    [string]$RepositoryRoot
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,8 +43,18 @@ function Relative-Path {
 
 $Hits = [System.Collections.Generic.List[object]]::new()
 if ([string]::IsNullOrWhiteSpace($ScanRoot)) {
-    $ScanBase = $ProjectRoot
-    $TrackedFiles = @(git -C $ProjectRoot ls-files --cached --others --exclude-standard)
+    $ScanBase = if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) { $ProjectRoot } else { (Resolve-Path $RepositoryRoot).Path }
+    # OPS-05: NUL-separated, unquoted names (ñ.ts stays ñ.ts), and a failing
+    # or empty listing is an error, never «0 files, no secrets».
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $Listing = git -C $ScanBase -c core.quotepath=off ls-files --cached --others --exclude-standard -z 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "No se pudo listar los archivos del repositorio con git (código $LASTEXITCODE)."
+    }
+    $TrackedFiles = @(([string]($Listing -join "")) -split "`0" | Where-Object { $_ -ne "" })
+    if ($TrackedFiles.Count -eq 0) {
+        throw "git no devolvió ningún archivo que escanear."
+    }
 }
 else {
     $ScanBase = (Resolve-Path $ScanRoot).Path

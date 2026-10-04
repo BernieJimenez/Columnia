@@ -60,3 +60,44 @@ test("aprueba texto normal y código con nombres en mayúsculas", () => {
   assert.equal(status, 0);
   assert.equal(report.status, "passed");
 });
+
+function scanRepository(root) {
+  const output = join(mkdtempSync(join(tmpdir(), "columnia-secrets-out-")), "resultado.json");
+  const run = spawnSync(
+    "powershell",
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-RepositoryRoot", root, "-OutputPath", output],
+    { encoding: "utf8" },
+  );
+  let report = null;
+  try {
+    report = JSON.parse(readFileSync(output, "utf8").replace(/^﻿/, ""));
+  } catch {
+    // No report: the script stopped before scanning.
+  }
+  return { status: run.status, report };
+}
+
+test("falla si git no puede listar el repositorio (OPS-05)", () => {
+  const notARepository = mkdtempSync(join(tmpdir(), "columnia-sin-git-"));
+  try {
+    const { status, report } = scanRepository(notARepository);
+    assert.notEqual(status, 0);
+    assert.notEqual(report?.status, "passed");
+  } finally {
+    rmSync(notARepository, { recursive: true, force: true });
+  }
+});
+
+test("revisa archivos con tildes en el nombre (OPS-05)", () => {
+  const repository = mkdtempSync(join(tmpdir(), "columnia-git-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: repository });
+    writeFileSync(join(repository, "ñ.ts"), `const t = "${"ghp"}_${"d".repeat(36)}";`);
+    const { status, report } = scanRepository(repository);
+    assert.notEqual(status, 0);
+    assert.ok(report.hits.some((hit) => hit.file === "ñ.ts"), JSON.stringify(report.hits));
+  } finally {
+    rmSync(repository, { recursive: true, force: true });
+  }
+});
+
