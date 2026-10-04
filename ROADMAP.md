@@ -209,10 +209,10 @@ medio = 1 día; agregado por suma.
   - [ ] `REN-08` (Medio) Candidatos de coste en la comparación por clave (hipótesis, medir) — sigue abierto (2026-10-04): no medido; necesita comparar archivos de millones de filas en la app y guardar el índice de conflictos para paginar sin recalcular
   - [x] `UX-05` (Medio) Cambiar la clave con una comparación visible deja resultados y decisiones obsoletos — hecho el 2026-10-04
   - [x] `UX-06` (Medio) Error de comparación con tipos de clave distintos se muestra crudo y sin guía — hecho el 2026-10-04
-- [ ] **RV51** — **Comparación** — Los tests de comparación usan copias `#[cfg(test)]` de las funciones de persistencia, no… (y 1 problemas más) · *Esfuerzo: 1,2 días*
+- [x] **RV51** — **Comparación** — Los tests de comparación usan copias `#[cfg(test)]` de las funciones de persistencia, no… (y 1 problemas más) · *Esfuerzo: 1,2 días* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-01, QA-10.
   - [x] `QA-01` (Medio) Los tests de comparación usan copias `#[cfg(test)]` de las funciones de persistencia, no las `_with_cancel` de producción — hecho el 2026-10-04
-  - [ ] `QA-10` (Medio) Caminos de `src/features/review/DatasetComparisonSection.tsx` sin test (cobertura 78,8 % de líneas)
+  - [x] `QA-10` (Medio) Caminos de `src/features/review/DatasetComparisonSection.tsx` sin test (cobertura 78,8 % de líneas) — hecho el 2026-10-04
 - [ ] **RV52** — **Gates y scripts** — check-secrets: patrones con falsos negativos relevantes para este proyecto (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de SEG-03, SEG-04, QA-21, QA-22, QA-23.
   - [ ] `SEG-03` (Medio) check-secrets: patrones con falsos negativos relevantes para este proyecto
