@@ -103,6 +103,9 @@ public static class ColumniaNativeDialogMethods {
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetForegroundWindow(IntPtr window);
 
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern IntPtr SetFocus(IntPtr window);
 
@@ -397,7 +400,17 @@ function Invoke-ActionAutomationButton {
     return $false
 }
 
+# QA-23: keys are global; they are sent only while the dialog has the focus,
+# never to whatever window the person is using.
+function Test-DialogHasFocus {
+    $dialog = Get-NativeFileDialog
+    return $dialog -ne [IntPtr]::Zero -and [ColumniaNativeDialogMethods]::GetForegroundWindow() -eq $dialog
+}
+
 function Close-Dialog {
+    if (-not (Test-DialogHasFocus)) {
+        return
+    }
     try {
         [System.Windows.Forms.SendKeys]::SendWait("{ESC}")
     }
@@ -435,11 +448,20 @@ try {
         throw "destination_directory_missing"
     }
 
+    # QA-23: a save must produce a file written after this point.
+    $SaveStartedUtc = [DateTime]::UtcNow
+    $actionInvoked = $false
+    $dialogSeen = $false
     Focus-ColumniaWindow
     $focusAttempt = 0
     while ([DateTimeOffset]::UtcNow -lt $Deadline) {
         $Stage = "find_window"
         $dialog = Get-NativeFileDialog
+        if ($dialog -eq [IntPtr]::Zero -and $dialogSeen -and -not $actionInvoked) {
+            # Closed before this script chose the file: cancelled by hand.
+            if ($Mode -eq "open") { throw "open_dialog_closed_without_selection" }
+            throw "save_dialog_closed_without_output"
+        }
         if ($dialog -eq [IntPtr]::Zero) {
             if (($focusAttempt % 4) -eq 0) {
                 Focus-ColumniaWindow
@@ -449,6 +471,7 @@ try {
             continue
         }
 
+        $dialogSeen = $true
         $dialogElement = Get-NativeFileDialogElement
 
         $Stage = "find_filename_editor"
@@ -473,7 +496,7 @@ try {
         if (-not $textSet) {
             $textSet = [ColumniaNativeDialogMethods]::SetWindowText($editor, $TargetPath)
         }
-        if (-not $textSet) {
+        if (-not $textSet -and (Test-DialogHasFocus)) {
             [ColumniaNativeDialogMethods]::SendControlA()
             [ColumniaNativeDialogMethods]::SendUnicodeText($TargetPath)
         }
@@ -492,9 +515,11 @@ try {
         if (-not $win32Invoked) {
             $automationInvoked = Invoke-ActionAutomationButton -Window $currentDialogElement
         }
-        if (-not $automationInvoked -and -not $win32Invoked) {
+        if (-not $automationInvoked -and -not $win32Invoked -and (Test-DialogHasFocus)) {
             [ColumniaNativeDialogMethods]::SendEnter()
+            $automationInvoked = $true
         }
+        $actionInvoked = $win32Invoked -or $automationInvoked
         Start-Sleep -Milliseconds 400
         if ((Get-NativeFileDialog) -ne [IntPtr]::Zero) {
             $Stage = "invoke_action_button_fallback"
@@ -505,11 +530,13 @@ try {
             $currentDialogElement = Get-NativeFileDialogElement
             $win32Invoked = Invoke-ActionWin32Button -Window $dialog
             if (-not $win32Invoked) {
-                [void](Invoke-ActionAutomationButton -Window $currentDialogElement)
+                $win32Invoked = Invoke-ActionAutomationButton -Window $currentDialogElement
             }
+            $actionInvoked = $actionInvoked -or $win32Invoked
             Start-Sleep -Milliseconds 250
-            if ((Get-NativeFileDialog) -ne [IntPtr]::Zero) {
+            if ((Get-NativeFileDialog) -ne [IntPtr]::Zero -and (Test-DialogHasFocus)) {
                 [ColumniaNativeDialogMethods]::SendEnter()
+                $actionInvoked = $true
             }
         }
 
@@ -517,20 +544,19 @@ try {
         $waitDeadline = [DateTimeOffset]::UtcNow.AddSeconds(15)
         while ([DateTimeOffset]::UtcNow -lt $waitDeadline) {
             $dialogStillOpen = (Get-NativeFileDialog) -ne [IntPtr]::Zero
-            $targetExists = Test-Path -LiteralPath $TargetPath -PathType Leaf
-            if (-not $dialogStillOpen -and $targetExists) {
-                $successPhase = if ($Mode -eq "open") { "native_dialog_opened" } else { "native_dialog_saved" }
-                Write-Result -Status "passed" -Phase $successPhase
-                exit 0
-            }
             if (-not $dialogStillOpen) {
                 if ($Mode -eq "open") {
-                    throw "open_dialog_closed_without_selection"
+                    # QA-23: closed after this script pressed Open with the
+                    # path; the caller confirms that the app loaded the file.
+                    if (-not $actionInvoked) { throw "open_dialog_closed_without_selection" }
+                    Write-Result -Status "passed" -Phase "native_dialog_submitted"
+                    exit 0
                 }
                 # A large export keeps writing after the dialog closes.
                 $outputDeadline = [DateTimeOffset]::UtcNow.AddSeconds(120)
                 while ([DateTimeOffset]::UtcNow -lt $outputDeadline) {
-                    if (Test-Path -LiteralPath $TargetPath -PathType Leaf) {
+                    $written = Get-Item -LiteralPath $TargetPath -ErrorAction SilentlyContinue
+                    if ($null -ne $written -and $written.Length -gt 0 -and $written.LastWriteTimeUtc -ge $SaveStartedUtc) {
                         Write-Result -Status "passed" -Phase "native_dialog_saved"
                         exit 0
                     }
