@@ -204,7 +204,7 @@ medio = 1 día; agregado por suma.
   - [x] `PROD-01` (Medio) La CLI rechaza Windows-1252, MacRoman, UTF-16, JSON con BOM y finales de línea mezclados con un mensaje que no dice por qué — hecho el 2026-10-04
 - [ ] **RV50** — **Comparación** — La comparación lee siempre el archivo comparado con reglas fijas (primera hoja, primera f… (y 4 problemas más) · *Esfuerzo: 3,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-41, FUN-42, REN-08, UX-05, UX-06.
-  - [ ] `FUN-41` (Medio) La comparación lee siempre el archivo comparado con reglas fijas (primera hoja, primera fila como encabezado, sin convenciones) aunque el activo se importó con otras
+  - [x] `FUN-41` (Medio) La comparación lee siempre el archivo comparado con reglas fijas (primera hoja, primera fila como encabezado, sin convenciones) aunque el activo se importó con otras — hecho el 2026-10-04
   - [x] `FUN-42` (Medio) La clave de comparación exige dtype idéntico en ambos lados y los lados se tipan con motores distintos — hecho el 2026-10-04
   - [ ] `REN-08` (Medio) Candidatos de coste en la comparación por clave (hipótesis, medir)
   - [x] `UX-05` (Medio) Cambiar la clave con una comparación visible deja resultados y decisiones obsoletos — hecho el 2026-10-04

@@ -317,6 +317,9 @@ export function DatasetComparisonSection({
             <span aria-hidden="true"> ↔ </span>
             <strong>{status.comparison.comparedFileName}</strong>
           </p>
+          {status.comparison.comparedSourceNote && (
+            <p className="comparison-key-status">{status.comparison.comparedSourceNote}</p>
+          )}
           <dl className="quality-summary" aria-label="Resumen de comparación">
             <div><dt>Filas compartidas</dt><dd>{status.comparison.commonRowCount.toLocaleString()}</dd></div>
             <div><dt>Solo en el activo</dt><dd>{status.comparison.currentOnlyRowCount.toLocaleString()}</dd></div>

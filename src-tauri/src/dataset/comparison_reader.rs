@@ -93,7 +93,7 @@ pub(super) async fn compare_dataset_impl(
             (Some(directory), snapshot_path, row_count)
         };
 
-        let comparison = match compare_parquet_sources_with_cancel(
+        let mut comparison = match compare_parquet_sources_with_cancel(
             &current_path,
             &current_file_name,
             current_row_count,
@@ -124,6 +124,7 @@ pub(super) async fn compare_dataset_impl(
             }
         };
         let _ = &current_directory;
+        comparison.compared_source_note = compared_source_note(&path, &extension);
         cancellation_for_work.ensure()?;
         cancellation_for_work.commit(|| {
             *state.comparison.lock_recovering() = Some(PendingComparison {
@@ -234,4 +235,24 @@ pub(super) async fn get_dataset_conflict_page_impl(
     .map_err(|error| {
         crate::crash_report::task_interrupted("La página de conflictos se interrumpió", &error)
     })?
+}
+
+/// How the compared file was read (FUN-41): workbooks use their first sheet
+/// and every delimited or workbook file its first row as the header.
+pub(super) fn compared_source_note(path: &Path, extension: &str) -> Option<String> {
+    if spreadsheet_extensions(extension) {
+        let sheets = inspect_workbook(path).ok()?;
+        let first = sheets.first()?;
+        return Some(if sheets.len() > 1 {
+            format!(
+                "Se comparó la hoja «{first}», la primera de {} del libro, con la primera fila como encabezado.",
+                sheets.len()
+            )
+        } else {
+            format!("Se comparó la hoja «{first}» con la primera fila como encabezado.")
+        });
+    }
+    matches!(extension, "csv" | "tsv" | "txt").then(|| {
+        "Se leyó con la primera fila como encabezado y sin convenciones de importación.".to_owned()
+    })
 }

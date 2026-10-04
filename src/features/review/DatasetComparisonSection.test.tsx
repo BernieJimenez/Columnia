@@ -69,6 +69,17 @@ describe("DatasetComparisonSection", () => {
     expect(screen.getByText(/Para cambiar la clave, descarta antes la comparación/)).toBeInTheDocument();
   });
 
+  it("dice qué hoja y encabezado se leyeron del archivo comparado (FUN-41)", () => {
+    renderSection({
+      kind: "ready",
+      comparison: {
+        ...comparison,
+        comparedSourceNote: "Se comparó la hoja «Datos», la primera de 2 del libro, con la primera fila como encabezado.",
+      },
+    });
+    expect(screen.getByText(/Se comparó la hoja «Datos», la primera de 2/)).toBeInTheDocument();
+  });
+
   it("permite elegir la clave antes de comparar", () => {
     const onKeyColumnsChange = renderSection({ kind: "idle" });
     fireEvent.click(screen.getByRole("checkbox", { name: /importe/ }));

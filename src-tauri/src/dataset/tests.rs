@@ -20491,3 +20491,20 @@ fn comparing_a_file_with_its_prepared_copy_has_no_conflicts() {
     );
     assert!(error.contains("Preparar"), "{error}");
 }
+
+/// FUN-41: the result says how the compared file was read.
+#[test]
+fn the_comparison_says_which_sheet_and_header_it_read() {
+    let directory = tempfile::tempdir().unwrap();
+    let workbook = directory.path().join("ventas.xlsx");
+    let frame = df!("id" => [1_i64, 2], "v" => ["a", "b"]).unwrap();
+    export_frame_atomic(&frame, &workbook, ExportFormat::Excel, |_, _| {}, || false).unwrap();
+    let note = comparison_reader::compared_source_note(&workbook, "xlsx").expect("nota del libro");
+    assert!(note.starts_with("Se comparó la hoja «"), "{note}");
+    assert!(note.contains("primera fila como encabezado"), "{note}");
+    let csv = directory.path().join("ventas.csv");
+    fs::write(&csv, "id,v\n1,a\n").unwrap();
+    assert!(comparison_reader::compared_source_note(&csv, "csv")
+        .is_some_and(|note| note.contains("primera fila como encabezado")));
+    assert!(comparison_reader::compared_source_note(&csv, "parquet").is_none());
+}

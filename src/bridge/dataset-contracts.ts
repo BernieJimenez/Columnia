@@ -67,6 +67,8 @@ export interface DatasetComparison {
   conflictOffset: number;
   conflictsTruncated: boolean;
   canConsolidate: boolean;
+  /** How the compared file was read: sheet and header (FUN-41). */
+  comparedSourceNote?: string;
 }
 
 export interface DatasetConflictPage {

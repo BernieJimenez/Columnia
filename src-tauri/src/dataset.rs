@@ -614,6 +614,10 @@ pub struct DatasetComparison {
     pub(crate) conflict_offset: usize,
     pub(crate) conflicts_truncated: bool,
     pub(crate) can_consolidate: bool,
+    /// How the compared file was read, when it matters: the sheet and the
+    /// header row of a workbook, the header row of a delimited file (FUN-41).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) compared_source_note: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

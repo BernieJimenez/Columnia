@@ -2706,6 +2706,7 @@ where
         conflict_offset: 0,
         conflicts_truncated,
         can_consolidate,
+        compared_source_note: None,
     })
 }
 
@@ -2813,6 +2814,7 @@ pub(super) fn compare_parquet_source(
         conflict_offset: 0,
         conflicts_truncated,
         can_consolidate,
+        compared_source_note: None,
     })
 }
 
@@ -2968,5 +2970,6 @@ where
         conflict_offset: 0,
         conflicts_truncated,
         can_consolidate,
+        compared_source_note: None,
     })
 }

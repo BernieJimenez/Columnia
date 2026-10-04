@@ -578,6 +578,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Mejorado
 - El análisis de calidad de Revisar es unas 2,5 veces más rápido en archivos medianos (338 MB: de 12 s a 5 s) y en archivos grandes muestra qué paso está haciendo tras leer las filas (REN-01, en curso).
+- El resultado de una comparación dice cómo se leyó el archivo comparado: qué
+  hoja del libro (y si había más) y que la primera fila es el encabezado.
 
 - Las pruebas del análisis ODBC usan los nombres de tipo que produce Polars y
   recorren el flujo «Añadir» con un dataset real.
