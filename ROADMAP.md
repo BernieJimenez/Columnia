@@ -167,11 +167,11 @@ medio = 1 día; agregado por suma.
   - [x] `UX-03` (Medio) El CSV exportado es UTF-8 sin BOM con coma: Excel (separador de listas `;`) lo abre en una columna y con mojibake — hecho el 2026-10-03
 - [ ] **RV44** — **Entrega ODBC** — El análisis de compatibilidad declara «Preflight completo» con una columna de más de 128… (y 4 problemas más) · *Esfuerzo: 3,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-20, FUN-21, DAT-10, DAT-12, UX-04.
-  - [ ] `FUN-20` (Medio) El análisis de compatibilidad declara «Preflight completo» con una columna de más de 128 caracteres y el CREATE TABLE falla después
-  - [ ] `FUN-21` (Medio) Dos columnas que solo difieren en mayúsculas («Dup»/«dup») hacen que el análisis ODBC de un dataset respaldado en archivo falle con «El esquema source-backed cambió durante el preflight remoto»
-  - [ ] `DAT-10` (Medio) Si la conexión se pierde justo al confirmar, el servidor guarda las filas pero la ventana dice «No se pudo crear la copia»
-  - [ ] `DAT-12` (Medio) En MySQL la política «Crear» no es atómica: el DDL confirma implícitamente y un fallo posterior deja una tabla vacía que bloquea el reintento
-  - [ ] `UX-04` (Medio) Los errores de ODBC llegan al usuario con el volcado `Debug` de Rust («Diagnostics { record: State: 08S01, Native error: 10054, … function: "SQLExecute" }»)
+  - [x] `FUN-20` (Medio) El análisis de compatibilidad declara «Preflight completo» con una columna de más de 128 caracteres y el CREATE TABLE falla después — hecho el 2026-10-03
+  - [x] `FUN-21` (Medio) Dos columnas que solo difieren en mayúsculas («Dup»/«dup») hacen que el análisis ODBC de un dataset respaldado en archivo falle con «El esquema source-backed cambió durante el preflight remoto» — hecho el 2026-10-03
+  - [x] `DAT-10` (Medio) Si la conexión se pierde justo al confirmar, el servidor guarda las filas pero la ventana dice «No se pudo crear la copia» — hecho el 2026-10-03
+  - [ ] `DAT-12` (Medio) En MySQL la política «Crear» no es atómica: el DDL confirma implícitamente y un fallo posterior deja una tabla vacía que bloquea el reintento — implementado el 2026-10-03 (se borra la tabla creada si la entrega falla); falta la prueba externa con MySQL: no hay servidor ni controlador MySQL en este equipo
+  - [x] `UX-04` (Medio) Los errores de ODBC llegan al usuario con el volcado `Debug` de Rust («Diagnostics { record: State: 08S01, Native error: 10054, … function: "SQLExecute" }») — hecho el 2026-10-03
 - [ ] **RV45** — **Entrega ODBC** — Los tests de la comprobación previa usan nombres de tipo que el código real no produce, y las pruebas con servidor solo… · *Esfuerzo: 2 h*
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-20.
   - [ ] `QA-20` (Medio) Los tests de la comprobación previa usan nombres de tipo que el código real no produce, y las pruebas con servidor solo cubren «Crear»

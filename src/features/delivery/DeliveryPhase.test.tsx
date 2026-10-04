@@ -1376,6 +1376,14 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("No se pudo crear la copia");
     expect(screen.getByRole("alert")).toHaveTextContent("disco lleno");
     expect(screen.getByRole("alert")).toHaveTextContent("dataset preparado sigue disponible");
+
+    cleanup();
+    render(<DeliveryHarness onExport={vi.fn()} exportState={{
+      kind: "error",
+      message: "No se pudo confirmar si la entrega se guardó: puede haberse guardado completa.",
+    }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Resultado incierto.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("No se pudo crear la copia");
   });
 
   it("cubre cambios de regla, tolerancias, columnas y eliminación", () => {

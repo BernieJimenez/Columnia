@@ -2322,7 +2322,9 @@ fn parse_performance_profile(value: Option<String>) -> Result<Option<String>, St
 fn validate_export_format(value: Option<&str>) -> Result<Option<&str>, String> {
     match value {
         None => Ok(None),
-        Some("csv" | "csv_excel" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle") => Ok(value),
+        Some("csv" | "csv_excel" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle") => {
+            Ok(value)
+        }
         Some(_) => Err("El formato de exportación guardado no es válido.".to_owned()),
     }
 }

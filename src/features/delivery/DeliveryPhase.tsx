@@ -1112,8 +1112,17 @@ export function DeliveryPhase({
       )}
       {exportState.kind === "error" && (
         <div className="notice notice--error" role="alert">
-          <strong>No se pudo crear la copia.</strong> {exportState.message}
-          <p>El dataset preparado sigue disponible. Revisa el destino e inténtalo de nuevo.</p>
+          {/* DAT-10: when the commit fails the rows may already be saved. */}
+          {exportState.message.includes("puede haberse guardado") ? (
+            <>
+              <strong>Resultado incierto.</strong> {exportState.message}
+            </>
+          ) : (
+            <>
+              <strong>No se pudo crear la copia.</strong> {exportState.message}
+              <p>El dataset preparado sigue disponible. Revisa el destino e inténtalo de nuevo.</p>
+            </>
+          )}
         </div>
       )}
     </>

@@ -222,6 +222,42 @@ impl<'c, 'env> BatchInserter<'c, 'env> {
     }
 }
 
+/// What the person reads when the commit fails (DAT-10): the server may
+/// have saved the rows even though the answer did not arrive.
+pub(crate) const UNCERTAIN_COMMIT_MESSAGE: &str = "No se pudo confirmar si la entrega se guardó: puede haberse guardado completa. Revisa la tabla remota antes de repetir; volver a añadir filas podría duplicarlas.";
+
+/// MySQL commits `CREATE TABLE` at once, so a delivery that fails after it
+/// leaves an empty table that blocks the next «Crear» (DAT-12). The table this
+/// delivery created is dropped; with any other policy the error is returned
+/// as it was.
+fn undo_created_mysql_table(
+    connection: &odbc_api::Connection<'_>,
+    target: &DatabaseTarget,
+    table: &str,
+    error: String,
+) -> String {
+    if target.kind != DatabaseKind::Mysql || target.table_policy != DatabaseTablePolicy::CreateOnly
+    {
+        return error;
+    }
+    let _ = connection.rollback();
+    let dropped = connection
+        .execute(
+            &drop_table_sql(table, target.kind),
+            (),
+            Some(ODBC_STATEMENT_TIMEOUT_SEC),
+        )
+        .is_ok()
+        && connection.commit().is_ok();
+    if dropped {
+        format!(
+            "{error} Se eliminó la tabla {table} que se había creado; puedes volver a intentarlo."
+        )
+    } else {
+        format!("{error} No se pudo eliminar la tabla vacía {table}; bórrala antes de volver a intentarlo.")
+    }
+}
+
 fn commit_delivery(
     connection: &odbc_api::Connection<'_>,
     journal: &mut impl DeliveryJournal,
@@ -230,7 +266,11 @@ fn commit_delivery(
 ) -> Result<(), String> {
     journal.before_commit(rows_written)?;
     connection.commit().map_err(|error| {
-        format_driver_error("No se pudo confirmar la tabla remota", error, target)
+        format!(
+            "{} {}",
+            UNCERTAIN_COMMIT_MESSAGE,
+            format_driver_error("Detalle al confirmar", error, target)
+        )
     })?;
     journal.after_commit(rows_written);
     Ok(())
@@ -707,10 +747,27 @@ where
         .iter()
         .map(|column| column.name.as_str())
         .collect::<Vec<_>>();
-    if actual_names != expected_names {
+    if !same_streamed_names(&expected_names, &actual_names) {
         return Err("El esquema source-backed cambió durante el preflight remoto.".to_owned());
     }
     Ok(columns)
+}
+
+/// Whether the file streamed the expected columns. DuckDB renames a name
+/// that repeats another but for case (`dup` after `Dup` becomes `dup_1`), so
+/// those are compared by position (FUN-21).
+fn same_streamed_names(expected: &[&str], actual: &[&str]) -> bool {
+    expected.len() == actual.len()
+        && expected
+            .iter()
+            .zip(actual)
+            .enumerate()
+            .all(|(index, (wanted, streamed))| {
+                wanted == streamed
+                    || expected.iter().enumerate().any(|(other_index, other)| {
+                        other_index != index && other.to_lowercase() == wanted.to_lowercase()
+                    })
+            })
 }
 
 fn inspect_destination(
@@ -899,6 +956,9 @@ fn assess_remote_export(
             "El dataset no contiene columnas para entregar.".to_owned(),
         );
     }
+    for issue in column_name_issues(target.kind, input_columns) {
+        push_issue(&mut issues, "blocking", "type", Some(issue.0), issue.1);
+    }
     for column in input_columns {
         if column.unrepresentable_integer_count > 0 {
             push_issue(
@@ -1080,6 +1140,49 @@ fn assess_remote_export(
     }
 }
 
+/// Column names the engine cannot create (FUN-20, FUN-21): longer than its
+/// identifier limit, or equal to another name but for case where the engine
+/// does not tell them apart. Returns the column and the message.
+fn column_name_issues(kind: DatabaseKind, columns: &[RemoteInputColumn]) -> Vec<(String, String)> {
+    let mut issues = Vec::new();
+    for column in columns {
+        let (length, limit, unit) = match kind {
+            DatabaseKind::SqlServer => (column.name.chars().count(), 128, "caracteres"),
+            DatabaseKind::Mysql => (column.name.chars().count(), 64, "caracteres"),
+            DatabaseKind::Postgresql => (column.name.len(), 63, "bytes"),
+        };
+        if length > limit {
+            issues.push((
+                column.name.clone(),
+                format!(
+                    "El nombre de la columna '{}' tiene {length} {unit}; {} admite como máximo {limit}. Acórtalo en Preparar antes de entregar.",
+                    column.name,
+                    kind.label()
+                ),
+            ));
+        }
+    }
+    if kind != DatabaseKind::Postgresql {
+        for (index, column) in columns.iter().enumerate() {
+            if let Some(other) = columns[..index]
+                .iter()
+                .find(|other| other.name.to_lowercase() == column.name.to_lowercase())
+            {
+                issues.push((
+                    column.name.clone(),
+                    format!(
+                        "Las columnas '{}' y '{}' solo se diferencian en mayúsculas y {} no las distingue. Renombra una de ellas en Preparar.",
+                        other.name,
+                        column.name,
+                        kind.label()
+                    ),
+                ));
+            }
+        }
+    }
+    issues
+}
+
 fn push_issue(
     issues: &mut Vec<RemotePreflightIssue>,
     severity: &'static str,
@@ -1226,31 +1329,35 @@ where
     }
 
     report("Escribiendo filas remotas", 25);
-    let mut inserter = BatchInserter::new(&connection, &table, columns, target)?;
-    let mut rows_written = 0usize;
-    for row_index in 0..frame.height() {
-        ensure_not_cancelled(&is_cancelled)?;
-        let params = frame
-            .columns()
-            .iter()
-            .map(|column| {
-                let value = column
-                    .get(row_index)
-                    .map_err(|error| format!("No se pudo leer la fila {row_index}: {error}"))?;
-                sql_parameter(value, column.dtype())
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        let sent = inserter.push_row(params)?;
-        if sent > 0 {
-            rows_written += sent;
-            let percent = 25 + (rows_written * 60 / frame.height()).min(60) as u8;
-            report("Escribiendo filas remotas", percent);
+    let written = (|| -> Result<usize, String> {
+        let mut inserter = BatchInserter::new(&connection, &table, columns, target)?;
+        let mut rows_written = 0usize;
+        for row_index in 0..frame.height() {
+            ensure_not_cancelled(&is_cancelled)?;
+            let params = frame
+                .columns()
+                .iter()
+                .map(|column| {
+                    let value = column
+                        .get(row_index)
+                        .map_err(|error| format!("No se pudo leer la fila {row_index}: {error}"))?;
+                    sql_parameter(value, column.dtype())
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let sent = inserter.push_row(params)?;
+            if sent > 0 {
+                rows_written += sent;
+                let percent = 25 + (rows_written * 60 / frame.height()).min(60) as u8;
+                report("Escribiendo filas remotas", percent);
+            }
         }
-    }
-    ensure_not_cancelled(&is_cancelled)?;
-    rows_written += inserter.finish()?;
-
-    ensure_not_cancelled(&is_cancelled)?;
+        ensure_not_cancelled(&is_cancelled)?;
+        rows_written += inserter.finish()?;
+        ensure_not_cancelled(&is_cancelled)?;
+        Ok(rows_written)
+    })();
+    let rows_written =
+        written.map_err(|error| undo_created_mysql_table(&connection, target, &table, error))?;
     commit_delivery(&connection, &mut journal, rows_written, target)?;
     report("Entrega remota lista", 100);
     Ok(RemoteExportResult {
@@ -1333,66 +1440,80 @@ where
     }
 
     report("Escribiendo filas remotas", 25);
-    let mut inserter = BatchInserter::new(&connection, &table, columns, target)?;
-    let mut rows_written = 0usize;
-    let streamed_columns = crate::duckdb_query::stream_file_rows(
-        source_path,
-        source_format,
-        |values| {
-            ensure_not_cancelled(&is_cancelled)?;
-            if values.len() != schema.width() {
-                return Err(
-                    "La transmisión source-backed devolvió un ancho inesperado para ODBC."
-                        .to_owned(),
-                );
-            }
-            let params = schema
-                .columns()
-                .iter()
-                .zip(values.iter())
-                .map(|(column, value)| sql_parameter_text(value.as_deref(), column.dtype()))
-                .collect::<Result<Vec<_>, String>>()?;
-            let sent = inserter.push_row(params)?;
-            if sent == 0 {
-                return Ok(());
-            }
-            rows_written = rows_written.saturating_add(sent);
-            let percent = if row_count == 0 {
-                85
-            } else {
-                25 + (rows_written
-                    .saturating_mul(60)
-                    .checked_div(row_count)
-                    .unwrap_or_default())
-                .min(60) as u8
-            };
-            report("Escribiendo filas remotas", percent);
-            Ok(())
-        },
-        is_cancelled.clone(),
-    )?;
-    ensure_not_cancelled(&is_cancelled)?;
-    rows_written = rows_written.saturating_add(inserter.finish()?);
-    let expected_columns = schema
-        .columns()
-        .iter()
-        .map(|column| column.name().to_string())
-        .collect::<Vec<_>>();
-    let actual_columns = streamed_columns
-        .iter()
-        .map(|column| column.name.clone())
-        .collect::<Vec<_>>();
-    if actual_columns != expected_columns {
-        return Err(
-            "La transmisión source-backed devolvió columnas distintas al esquema ODBC.".to_owned(),
-        );
-    }
-    if rows_written != row_count {
-        return Err(
-            "El conteo del dataset source-backed cambió durante la entrega ODBC.".to_owned(),
-        );
-    }
-    ensure_not_cancelled(&is_cancelled)?;
+    let written = (|| -> Result<usize, String> {
+        let mut inserter = BatchInserter::new(&connection, &table, columns, target)?;
+        let mut rows_written = 0usize;
+        let streamed_columns = crate::duckdb_query::stream_file_rows(
+            source_path,
+            source_format,
+            |values| {
+                ensure_not_cancelled(&is_cancelled)?;
+                if values.len() != schema.width() {
+                    return Err(
+                        "La transmisión source-backed devolvió un ancho inesperado para ODBC."
+                            .to_owned(),
+                    );
+                }
+                let params = schema
+                    .columns()
+                    .iter()
+                    .zip(values.iter())
+                    .map(|(column, value)| sql_parameter_text(value.as_deref(), column.dtype()))
+                    .collect::<Result<Vec<_>, String>>()?;
+                let sent = inserter.push_row(params)?;
+                if sent == 0 {
+                    return Ok(());
+                }
+                rows_written = rows_written.saturating_add(sent);
+                let percent = if row_count == 0 {
+                    85
+                } else {
+                    25 + (rows_written
+                        .saturating_mul(60)
+                        .checked_div(row_count)
+                        .unwrap_or_default())
+                    .min(60) as u8
+                };
+                report("Escribiendo filas remotas", percent);
+                Ok(())
+            },
+            is_cancelled.clone(),
+        )?;
+        ensure_not_cancelled(&is_cancelled)?;
+        rows_written = rows_written.saturating_add(inserter.finish()?);
+        let expected_columns = schema
+            .columns()
+            .iter()
+            .map(|column| column.name().to_string())
+            .collect::<Vec<_>>();
+        let actual_columns = streamed_columns
+            .iter()
+            .map(|column| column.name.clone())
+            .collect::<Vec<_>>();
+        let expected_names = expected_columns
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let actual_names = actual_columns
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        if !same_streamed_names(&expected_names, &actual_names) {
+            return Err(
+                "La transmisión source-backed devolvió columnas distintas al esquema ODBC."
+                    .to_owned(),
+            );
+        }
+        if rows_written != row_count {
+            return Err(
+                "El conteo del dataset source-backed cambió durante la entrega ODBC.".to_owned(),
+            );
+        }
+        ensure_not_cancelled(&is_cancelled)?;
+        Ok(rows_written)
+    })();
+    let rows_written =
+        written.map_err(|error| undo_created_mysql_table(&connection, target, &table, error))?;
     commit_delivery(&connection, &mut journal, rows_written, target)?;
     report("Entrega remota lista", 100);
     Ok(RemoteExportResult {
@@ -1692,13 +1813,60 @@ fn format_driver_error<E: Debug>(context: &str, error: E, target: &DatabaseTarge
             }
         }
     }
+    let readable = readable_driver_detail(&detail);
     if detail.contains("HYT00") || detail.contains("HYT01") {
         return format!(
-            "{context} para {}: la base remota no respondió a tiempo (conexión {ODBC_LOGIN_TIMEOUT_SEC} s, sentencia {ODBC_STATEMENT_TIMEOUT_SEC} s). Comprueba la red o los bloqueos de la tabla y vuelve a intentarlo. Detalle: {detail}",
+            "{context} para {}: la base remota no respondió a tiempo (conexión {ODBC_LOGIN_TIMEOUT_SEC} s, sentencia {ODBC_STATEMENT_TIMEOUT_SEC} s). Comprueba la red o los bloqueos de la tabla y vuelve a intentarlo. {readable}",
             target.kind.label()
         );
     }
-    format!("{context} para {}: {detail}", target.kind.label())
+    format!("{context} para {}: {readable}", target.kind.label())
+}
+
+/// odbc-api's `Debug` dump («Diagnostics { record: State: 08S01, … }») as a
+/// sentence: what happened, then the server's own message and codes (UX-04).
+fn readable_driver_detail(detail: &str) -> String {
+    let capture = |pattern: &str| {
+        regex::Regex::new(pattern)
+            .ok()
+            .and_then(|regex| regex.captures(detail))
+            .and_then(|captures| captures.get(1))
+            .map(|value| value.as_str().trim().to_owned())
+    };
+    let Some(state) = capture(r"State: ([0-9A-Z]{5})") else {
+        let plain = detail
+            .replace("Diagnostics {", "")
+            .replace("record:", "")
+            .replace(['{', '}'], "");
+        return format!("El controlador ODBC informó: {}", plain.trim());
+    };
+    let native = capture(r"Native error: (-?\d+)").unwrap_or_else(|| "?".to_owned());
+    let message = capture(r#"(?s)Message: (.*?)(?:,\s*function:|\s*\}\s*$|$)"#)
+        .map(|message| {
+            let without_vendor = regex::Regex::new(r"^(\[[^\]]*\]\s*)+")
+                .map(|regex| regex.replace(&message, "").into_owned())
+                .unwrap_or(message);
+            without_vendor
+                .trim()
+                .trim_end_matches(['.', ',', ' '])
+                .to_owned()
+        })
+        .unwrap_or_default();
+    let what = match &state[..2] {
+        "08" => "se perdió la conexión con el servidor o no se pudo abrir",
+        "28" => "el servidor rechazó el usuario o la contraseña",
+        "42" => "el servidor rechazó la sentencia (nombre de tabla o columna, permisos o sintaxis)",
+        "23" => "los datos incumplen una restricción de la tabla remota",
+        "22" => "un valor no cabe en el tipo de la columna remota",
+        "40" => "el servidor deshizo la transacción",
+        "HY" if state.starts_with("HYT") => "la base remota no respondió a tiempo",
+        _ => "el controlador ODBC devolvió un error",
+    };
+    if message.is_empty() {
+        format!("{what} (SQLSTATE {state}, código {native}).")
+    } else {
+        format!("{what}. Mensaje del servidor: «{message}» (SQLSTATE {state}, código {native}).")
+    }
 }
 
 #[cfg(test)]
@@ -1715,6 +1883,88 @@ mod tests {
         prelude::{col, DataFrame, DataType, IntoLazy, ParquetWriter},
     };
     use tempfile::tempdir;
+
+    fn named_column(name: &str) -> RemoteInputColumn {
+        RemoteInputColumn {
+            name: name.to_owned(),
+            data_type: "String".to_owned(),
+            null_count: 0,
+            maximum_length: Some(1),
+            contains_nul: false,
+            unrepresentable_integer_count: 0,
+            unrepresentable_decimal_count: 0,
+        }
+    }
+
+    /// FUN-20: names longer than the engine allows block the analysis.
+    #[test]
+    fn preflight_blocks_column_names_longer_than_the_engine_allows() {
+        let long = "x".repeat(129);
+        let input = vec![named_column(&long), named_column(&"y".repeat(128))];
+        let report =
+            assess_remote_export(&target(DatabaseKind::SqlServer), &input, false, false, &[]);
+        assert!(!report.ready);
+        let blocking = report
+            .issues
+            .iter()
+            .filter(|issue| issue.severity == "blocking" && issue.category == "type")
+            .collect::<Vec<_>>();
+        assert_eq!(blocking.len(), 1, "{blocking:?}");
+        assert_eq!(blocking[0].column.as_deref(), Some(long.as_str()));
+        assert!(blocking[0].message.contains("como máximo 128"));
+
+        let postgres =
+            column_name_issues(DatabaseKind::Postgresql, &[named_column(&"á".repeat(32))]);
+        assert_eq!(postgres.len(), 1, "64 bytes en UTF-8");
+        assert!(
+            column_name_issues(DatabaseKind::Mysql, &[named_column(&"m".repeat(64))]).is_empty()
+        );
+        assert_eq!(
+            column_name_issues(DatabaseKind::Mysql, &[named_column(&"m".repeat(65))]).len(),
+            1
+        );
+    }
+
+    /// FUN-21: names that differ only in case are named in the analysis where
+    /// the engine does not tell them apart, and do not look like a changed file.
+    #[test]
+    fn preflight_names_columns_that_differ_only_in_case() {
+        let input = vec![named_column("Dup"), named_column("dup")];
+        let issues = column_name_issues(DatabaseKind::SqlServer, &input);
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].1.contains("'Dup' y 'dup'"), "{}", issues[0].1);
+        assert!(column_name_issues(DatabaseKind::Postgresql, &input).is_empty());
+
+        assert!(same_streamed_names(&["Dup", "dup"], &["Dup", "dup_1"]));
+        assert!(!same_streamed_names(&["a", "b"], &["a", "c"]));
+        assert!(!same_streamed_names(&["a"], &["a", "b"]));
+    }
+
+    /// UX-04 and DAT-10: driver errors read as sentences, and a failed commit
+    /// says the rows may have been saved.
+    #[test]
+    fn driver_errors_read_as_sentences() {
+        let dump = r#"Diagnostics { record: State: 08S01, Native error: 10054, Message: [Microsoft][ODBC Driver 18 for SQL Server]TCP Provider: Se ha forzado la interrupción de una conexión existente por el host remoto.
+ , function: "SQLExecute" }"#;
+        let readable = readable_driver_detail(dump);
+        assert!(!readable.contains("Diagnostics {"), "{readable}");
+        assert!(!readable.contains("record:"), "{readable}");
+        assert!(readable.contains("se perdió la conexión"), "{readable}");
+        assert!(
+            readable.contains("SQLSTATE 08S01, código 10054"),
+            "{readable}"
+        );
+        assert!(readable.contains("TCP Provider"), "{readable}");
+        assert!(!readable.contains("[Microsoft]"), "{readable}");
+
+        let message = format_driver_error(
+            "No se pudo insertar un lote",
+            dump,
+            &target(DatabaseKind::SqlServer),
+        );
+        assert!(!message.contains("Diagnostics {"), "{message}");
+        assert!(UNCERTAIN_COMMIT_MESSAGE.contains("puede haberse guardado"));
+    }
 
     use super::*;
 
@@ -2539,6 +2789,52 @@ mod tests {
             rows as f64 / batched.as_secs_f64(),
         );
         assert!(batched < row_by_row);
+    }
+
+    #[test]
+    #[ignore = "requiere servidor y controlador ODBC SQL Server reales configurados por variables de sesión"]
+    fn external_sql_server_preflight_names_long_and_case_duplicate_columns() {
+        // FUN-20 and FUN-21 against a real server, from a file-backed dataset.
+        let target = external_target(DatabaseKind::SqlServer, "COLUMNIA_ODBC_SQLSERVER");
+        let long = "x".repeat(129);
+        let mut frame = df!(
+            "Dup" => ["a", "b"],
+            "dup" => ["c", "d"],
+            long.as_str() => [1_i64, 2],
+        )
+        .unwrap();
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("hostil.parquet");
+        ParquetWriter::new(fs::File::create(&path).unwrap())
+            .finish(&mut frame)
+            .unwrap();
+        let report = preflight_source_backed(
+            &path,
+            DuckDbFileFormat::Parquet,
+            &frame.clear(),
+            2,
+            &target,
+            || false,
+        )
+        .expect("el análisis no debe confundir los nombres con un archivo cambiado");
+        assert!(!report.ready);
+        let messages = report
+            .issues
+            .iter()
+            .map(|issue| issue.message.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("'Dup' y 'dup'")),
+            "{messages:?}"
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("como máximo 128")),
+            "{messages:?}"
+        );
     }
 
     #[test]

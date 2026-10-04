@@ -185,6 +185,15 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Entrega ODBC: el análisis bloquea nombres de columna más largos de lo que
+  admite el motor (128 en SQL Server, 64 en MySQL, 63 bytes en PostgreSQL) y
+  nombra las columnas que solo difieren en mayúsculas en vez de decir que el
+  archivo cambió; los errores del controlador se leen como frases (qué pasó,
+  mensaje del servidor y SQLSTATE) en lugar del volcado «Diagnostics {…}»; si
+  falla la confirmación final la pantalla dice «Resultado incierto: puede
+  haberse guardado»; y en MySQL, si la entrega falla tras crear la tabla, se
+  elimina la tabla vacía para poder reintentar (pendiente de probar con un
+  servidor MySQL).
 - «Marcadores sin dato» conserva una palabra como «Unknown» o «None» cuando
   aparece una sola vez en la columna (el título de la película «Unknown» ya no
   se borra) y nuevo formato «CSV para Excel» (UTF-8 con BOM y punto y coma) que
