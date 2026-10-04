@@ -20368,3 +20368,28 @@ fn comma_decimal_numbers_are_counted_in_both_profiles() {
     .unwrap();
     assert_eq!(actual.columns[0].comma_decimal_count, Some(4));
 }
+
+/// DAT-06: an edit of the original file that keeps its size is noticed.
+#[test]
+fn a_same_size_edit_of_the_source_is_noticed() {
+    let (path, _, mut dataset) = source_backed_csv_dataset("nombre,valor\nAna,1\nLuis,2\n");
+    assert!(current_source_backed_context(&dataset).is_some());
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    fs::write(&path, "nombre,valor\nEva,1\nLuis,9\n").unwrap();
+    assert_eq!(
+        fs::metadata(&path).unwrap().len(),
+        dataset.file_size_bytes,
+        "mismo tamaño"
+    );
+    assert!(current_source_backed_context(&dataset).is_none());
+    let recipe = TransformRecipe {
+        renames: vec![RecipeRename {
+            from: "nombre".to_owned(),
+            to: "cliente".to_owned(),
+        }],
+        ..TransformRecipe::default()
+    };
+    let error = apply_recipe_to_dataset(&mut dataset, &recipe).unwrap_err();
+    assert!(error.contains("cambió"), "{error}");
+    fs::remove_file(path).ok();
+}

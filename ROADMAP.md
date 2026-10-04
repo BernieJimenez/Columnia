@@ -198,7 +198,7 @@ medio = 1 día; agregado por suma.
 - [ ] **RV49** — **Importación** — Convención decimal convierte códigos con ceros a la izquierda y enteros largos en float s… (y 4 problemas más) · *Esfuerzo: 4,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-40, DAT-06, DAT-09, REN-02, PROD-01.
   - [x] `FUN-40` (Medio) Convención decimal convierte códigos con ceros a la izquierda y enteros largos en float sin aviso — hecho el 2026-10-04
-  - [ ] `DAT-06` (Medio) «El archivo de origen cambió» se detecta solo por tamaño en seis caminos (exportar, validar, recetas, paginar)
+  - [x] `DAT-06` (Medio) «El archivo de origen cambió» se detecta solo por tamaño en seis caminos (exportar, validar, recetas, paginar) — hecho el 2026-10-04
   - [ ] `DAT-09` (Medio) `transform` con receta identidad sobre un CSV de 5,4 GB falla con un mensaje genérico, mientras una receta equivalente sí funciona
   - [ ] `REN-02` (Medio) El proceso Rust retiene cada vez más memoria al recargar el mismo dataset (+450 MB en 10 recargas de un CSV de 144 MB)
   - [ ] `PROD-01` (Medio) La CLI rechaza Windows-1252, MacRoman, UTF-16, JSON con BOM y finales de línea mezclados con un mensaje que no dice por qué

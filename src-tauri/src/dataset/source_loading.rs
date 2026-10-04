@@ -60,6 +60,7 @@ where
     C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
     ensure_not_cancelled(is_cancelled())?;
+    remember_loaded_source(path);
     let has_header = header_mode == SpreadsheetHeaderMode::FirstRow;
     let mut schema_plan = source_scan_with_header(path, extension, has_header)?;
     let schema = schema_plan
@@ -364,7 +365,7 @@ where
         .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
     let (canonical, file_size, extension) = validate_dataset_file(path)?;
     ensure_not_cancelled(is_cancelled())?;
-    if file_size != dataset.file_size_bytes {
+    if file_size != dataset.file_size_bytes || source_modified_since_load(&canonical) {
         return Err("El archivo source-backed cambió después de la carga.".to_owned());
     }
     let materialized_path = dataset

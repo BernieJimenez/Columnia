@@ -2461,7 +2461,7 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
         .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
     let (original_source_path, source_size, original_extension) =
         validate_dataset_file(source_reference)?;
-    if source_size != dataset.file_size_bytes {
+    if source_size != dataset.file_size_bytes || source_modified_since_load(&original_source_path) {
         return Err("El archivo source-backed cambió después de la carga.".to_owned());
     }
     let (source_path, source_format, extension) = if let Some(snapshot_path) =
@@ -2724,7 +2724,9 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
         .transpose()?
         .unwrap_or(0);
     let (_, current_source_size, _) = validate_dataset_file(&original_source_path)?;
-    if current_source_size != dataset.file_size_bytes {
+    if current_source_size != dataset.file_size_bytes
+        || source_modified_since_load(&original_source_path)
+    {
         let _ = fs::remove_file(&output_path);
         return Err("El archivo source-backed cambió durante la receta.".to_owned());
     }

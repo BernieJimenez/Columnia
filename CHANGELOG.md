@@ -188,6 +188,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Si otro programa modifica el archivo de origen de un dataset grande después de
+  cargarlo, aunque conserve el tamaño, Columnia lo detecta y no exporta, valida
+  ni transforma datos mezclados.
 - Al elegir una convención decimal al importar, las columnas de códigos con
   ceros a la izquierda («00123») o enteros muy largos se conservan como texto en
   lugar de convertirse en números.

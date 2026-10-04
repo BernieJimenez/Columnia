@@ -131,6 +131,46 @@ pub(crate) fn ensure_destination_is_not_source(
     Ok(())
 }
 
+/// Modification time of each original file when it was last loaded, so that
+/// a same-size edit by another program is noticed (DAT-06).
+fn loaded_source_versions(
+) -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, std::time::SystemTime>> {
+    static VERSIONS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<PathBuf, std::time::SystemTime>>,
+    > = std::sync::OnceLock::new();
+    VERSIONS.get_or_init(Default::default)
+}
+
+/// Records the version of `path` that a load is about to read (DAT-06).
+pub(super) fn remember_loaded_source(path: &Path) {
+    let Ok(canonical) = fs::canonicalize(path) else {
+        return;
+    };
+    if let Ok(modified) = fs::metadata(&canonical).and_then(|metadata| metadata.modified()) {
+        if let Ok(mut versions) = loaded_source_versions().lock() {
+            versions.insert(canonical, modified);
+        }
+    }
+}
+
+/// Whether the original file was rewritten since it was loaded, even with the
+/// same size (DAT-06). Files Columnia did not load as a source say no.
+pub(super) fn source_modified_since_load(path: &Path) -> bool {
+    let Ok(canonical) = fs::canonicalize(path) else {
+        return false;
+    };
+    let Some(loaded) = loaded_source_versions()
+        .lock()
+        .ok()
+        .and_then(|versions| versions.get(&canonical).copied())
+    else {
+        return false;
+    };
+    fs::metadata(&canonical)
+        .and_then(|metadata| metadata.modified())
+        .is_ok_and(|modified| modified != loaded)
+}
+
 pub(super) fn validate_dataset_file(path: &Path) -> Result<(PathBuf, u64, String), String> {
     let canonical = canonicalize_existing_file(path, "el dataset seleccionado")?;
     let extension = dataset_extension(&canonical)?;

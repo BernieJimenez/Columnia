@@ -1309,7 +1309,7 @@ pub(super) fn current_source_backed_context(
 ) -> Option<(PathBuf, u64, usize)> {
     let source_path = dataset.source_path.as_ref()?;
     let (canonical_source, source_size, _) = validate_dataset_file(source_path).ok()?;
-    if source_size != dataset.file_size_bytes {
+    if source_size != dataset.file_size_bytes || source_modified_since_load(&canonical_source) {
         return None;
     }
     if let Some(snapshot_path) = dataset.history.source_snapshot_path.as_ref() {

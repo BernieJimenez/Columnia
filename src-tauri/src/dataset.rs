@@ -109,7 +109,8 @@ use delimited_header_import::delimited_header_review_with_cancel;
 pub use delimited_header_import::DelimitedHeaderReview;
 use file_validation::{
     canonicalize_existing_file, canonicalize_write_destination, dataset_extension,
-    is_symbolic_link_or_reparse_point, validate_dataset_file,
+    is_symbolic_link_or_reparse_point, remember_loaded_source, source_modified_since_load,
+    validate_dataset_file,
 };
 pub(crate) use file_validation::{ensure_destination_is_not_source, DESTINATION_IS_SOURCE_MESSAGE};
 pub(crate) use import_profile_validation::validate_import_exception_policy;
@@ -2703,7 +2704,9 @@ fn publish_source_backed_query(
         .clone()
         .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
     let (_, source_size_before, _) = validate_dataset_file(&original_source_path)?;
-    if source_size_before != dataset.file_size_bytes {
+    if source_size_before != dataset.file_size_bytes
+        || source_modified_since_load(&original_source_path)
+    {
         return Err("El archivo source-backed cambió antes de aplicar la limpieza.".to_owned());
     }
 
@@ -9235,7 +9238,7 @@ pub async fn validate_quality_rules(
                 cancellation.ensure()?;
                 let (source_path, source_size, extension) = validate_dataset_file(&source_path)?;
                 cancellation.ensure()?;
-                if source_size != expected_file_size {
+                if source_size != expected_file_size || source_modified_since_load(&source_path) {
                     return Err(
                         "El archivo source-backed cambió desde la carga; vuelve a seleccionarlo."
                             .to_owned(),
@@ -9373,7 +9376,9 @@ pub async fn export_dataset(
             let quality_validation = tauri::async_runtime::spawn_blocking(move || {
                 let (_, original_source_size, _) =
                     validate_dataset_file(&validation_original_source_path)?;
-                if original_source_size != expected_original_file_size {
+                if original_source_size != expected_original_file_size
+                    || source_modified_since_load(&validation_original_source_path)
+                {
                     return Err(
                         "El archivo source-backed original cambió desde la carga; vuelve a seleccionarlo."
                             .to_owned(),
@@ -10031,7 +10036,9 @@ pub async fn export_dataset_to_database(
             );
             let result = tauri::async_runtime::spawn_blocking(move || {
                 let (_, original_source_size, _) = validate_dataset_file(&original_source_path)?;
-                if original_source_size != expected_original_file_size {
+                if original_source_size != expected_original_file_size
+                    || source_modified_since_load(&original_source_path)
+                {
                     return Err(
                         "El archivo source-backed original cambió desde la carga; vuelve a seleccionarlo."
                             .to_owned(),
@@ -12336,7 +12343,9 @@ fn source_backed_iso8601_values_are_supported(
         .as_deref()
         .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
     let (_, original_source_size, _) = validate_dataset_file(original_source_path)?;
-    if original_source_size != dataset.file_size_bytes {
+    if original_source_size != dataset.file_size_bytes
+        || source_modified_since_load(original_source_path)
+    {
         return Err("El archivo source-backed cambió después de la carga.".to_owned());
     }
     // Después de una mutación source-backed, `source_path` sigue apuntando al
