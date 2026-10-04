@@ -586,6 +586,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Mejorado
 - El análisis de calidad de Revisar es unas 2,5 veces más rápido en archivos medianos (338 MB: de 12 s a 5 s) y en archivos grandes muestra qué paso está haciendo tras leer las filas (REN-01, en curso).
+- El gate de rendimiento ya no acepta mediciones de otro commit o anteriores al
+  commit actual: pide volver a medir.
 - La sección de comparación de Revisar tiene pruebas para cada aviso de error,
   los bloqueos de consolidación, los estados de los botones y la paginación de
   conflictos (cobertura 95 %).

@@ -51,6 +51,35 @@ function Get-RelativePath {
     return "external"
 }
 
+# QA-21: evidence counts only for the code it measured. A summary that names
+# its commit must name HEAD; one that does not must be newer than HEAD.
+$HeadCommit = (git -C $ProjectRoot rev-parse HEAD 2>$null)
+$HeadCommitTime = (git -C $ProjectRoot log -1 --format=%cI 2>$null)
+function Get-StaleEvidenceReason {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($HeadCommit)) {
+        return $null
+    }
+    $Document = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    $Commit = if ($null -ne $Document.git -and $null -ne $Document.git.commit) { [string]$Document.git.commit } elseif ($null -ne $Document.commit) { [string]$Document.commit } else { $null }
+    if (-not [string]::IsNullOrWhiteSpace($Commit)) {
+        if ($Commit -ne $HeadCommit) {
+            return "Evidencia de otro commit ($($Commit.Substring(0, [Math]::Min(7, $Commit.Length)))); vuelve a medir en $($HeadCommit.Substring(0, 7))."
+        }
+        if ($null -ne $Document.git -and $Document.git.dirty -eq $true) {
+            return "La evidencia se midió con cambios sin commit; vuelve a medir con el árbol limpio."
+        }
+        return $null
+    }
+    $MeasuredAt = (Get-Item -LiteralPath $Path).LastWriteTimeUtc
+    $HeadAt = [DateTimeOffset]::Parse($HeadCommitTime, [System.Globalization.CultureInfo]::InvariantCulture).UtcDateTime
+    if ($MeasuredAt -lt $HeadAt) {
+        return "Evidencia anterior al commit actual $($HeadCommit.Substring(0, 7)); vuelve a medir."
+    }
+    return $null
+}
+
 function Add-Check {
     param(
         [string]$Id,
@@ -220,6 +249,9 @@ try {
     if ($null -eq $LargeDatasetFile -or $null -eq $LargeDatasetBudget) {
         Add-Check -Id "cdp-large-dataset" -State "unavailable" -Observed $null -Budget $LargeDatasetBudget -Source $null -Message "Falta ejecutar perf:webview2 con un dataset grande dentro de WebView2."
     }
+    elseif ($null -ne ($StaleReason = Get-StaleEvidenceReason $LargeDatasetFile.FullName)) {
+        Add-Check -Id "cdp-large-dataset" -State "failed" -Observed $null -Budget $LargeDatasetBudget -Source (Get-RelativePath $LargeDatasetFile.FullName) -Message $StaleReason
+    }
     else {
         $LargeDataset = Read-Json -Path $LargeDatasetFile.FullName
         $LargeEvidence = $LargeDataset.cdp.datasetBenchmark
@@ -276,6 +308,9 @@ try {
     if ($null -eq $DesktopSmokeFile -or $null -eq $DesktopStartupBudget) {
         Add-Check -Id "desktop-startup" -State "unavailable" -Observed $null -Budget $DesktopStartupBudget -Source $null -Message "Falta evidencia de startup desktop con hitos nativos."
     }
+    elseif ($null -ne ($StaleReason = Get-StaleEvidenceReason $DesktopSmokeFile.FullName)) {
+        Add-Check -Id "desktop-startup" -State "failed" -Observed $null -Budget $DesktopStartupBudget -Source (Get-RelativePath $DesktopSmokeFile.FullName) -Message $StaleReason
+    }
     else {
         $DesktopSmoke = Read-Json -Path $DesktopSmokeFile.FullName
         $ViteReadyMs = if ($null -eq $DesktopSmoke.milestones.viteReady.elapsedMs) { $null } else { [int64]$DesktopSmoke.milestones.viteReady.elapsedMs }
@@ -319,6 +354,9 @@ try {
         Select-Object -First 1
     if ($null -eq $BenchmarkFile) {
         Add-Check -Id "dataset-benchmark" -State "unavailable" -Observed $null -Budget $Baseline.budgets.benchmark -Source $null -Message "Falta ejecutar perf:benchmark."
+    }
+    elseif ($null -ne ($StaleReason = Get-StaleEvidenceReason $BenchmarkFile.FullName)) {
+        Add-Check -Id "dataset-benchmark" -State "failed" -Observed $null -Budget $Baseline.budgets.benchmark -Source (Get-RelativePath $BenchmarkFile.FullName) -Message $StaleReason
     }
     else {
         $Benchmark = Read-Json -Path $BenchmarkFile.FullName
@@ -387,6 +425,9 @@ try {
             Select-Object -First 1
         if ($null -eq $PackageFile) {
             Add-Check -Id "frontend-bundle" -State "unavailable" -Observed $null -Budget $Baseline.budgets.frontendBundle -Source $null -Message "Falta ejecutar check.ps1 -Profile Package."
+        }
+        elseif ($null -ne ($StaleReason = Get-StaleEvidenceReason $PackageFile.FullName)) {
+            Add-Check -Id "frontend-bundle" -State "failed" -Observed $null -Budget $Baseline.budgets.frontendBundle -Source (Get-RelativePath $PackageFile.FullName) -Message $StaleReason
         }
         else {
             $Package = Read-Json -Path $PackageFile.FullName
