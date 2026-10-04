@@ -229,7 +229,7 @@ medio = 1 día; agregado por suma.
   - [x] `QA-28` (Medio) Dos suites de `node:test` en `tools/` no las ejecuta nadie — hecho el 2026-10-04
 - [ ] **RV54** — **Gates y scripts** — check-supply-chain: las vulnerabilidades de `npm audit` nunca hacen fallar el gate (y 4 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-01, OPS-02, OPS-03, OPS-04, OPS-05.
-  - [ ] `OPS-01` (Medio) check-supply-chain: las vulnerabilidades de `npm audit` nunca hacen fallar el gate
+  - [x] `OPS-01` (Medio) check-supply-chain: las vulnerabilidades de `npm audit` nunca hacen fallar el gate — hecho el 2026-10-04
   - [ ] `OPS-02` (Medio) El desinstalador silencioso deja `HKCU\Software\columnia\Columnia` apuntando a la carpeta ya borrada, y una instalación de prueba comparte claves y accesos con la real
   - [ ] `OPS-03` (Medio) `notices:check` y `supply-chain:check` fallan en un clon con fin de línea CRLF
   - [ ] `OPS-04` (Medio) El baseline de evidencia release fija la versión del proyecto: cada subida de versión rompe el gate y `--update-baseline` no puede repararlo

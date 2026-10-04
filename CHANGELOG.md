@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- El gate de supply chain falla si `npm audit` reporta vulnerabilidades o no se
+  puede leer, y el estado global sale de los resultados parciales; el resumen se
+  escribe también cuando falla (OPS-01).
 - Comparación: una clave entera ya no falla porque un motor la guarde como Int32
   y el otro como Int64 (comparar un archivo con su copia preparada da 0
   conflictos); si los tipos sí difieren, el mensaje nombra la columna, los dos
