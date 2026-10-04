@@ -185,6 +185,7 @@ export function App() {
   const [activePhase, setActivePhase] = useState<WorkflowPhase>("load");
   const [encodingConversionPending, setEncodingConversionPending] = useState(false);
   const [previousExitUnclean, setPreviousExitUnclean] = useState(false);
+  const [setAsideCatalogs, setSetAsideCatalogs] = useState<string[]>([]);
   const [prepareFocusTarget, setPrepareFocusTarget] = useState<QualityActionTarget | null>(null);
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
   const [workbookInspectionCancellationPending, setWorkbookInspectionCancellationPending] = useState(false);
@@ -426,7 +427,11 @@ export function App() {
     // DAT-01: a failed query only means no notice; it never blocks Cargar.
     Promise.resolve()
       .then(() => getSessionStatus())
-      .then((session) => active && setPreviousExitUnclean(session.previousExitUnclean))
+      .then((session) => {
+        if (!active) return;
+        setPreviousExitUnclean(session.previousExitUnclean);
+        setSetAsideCatalogs(session.setAsideCatalogs ?? []);
+      })
       .catch(() => undefined);
     return () => {
       active = false;
@@ -1407,6 +1412,8 @@ export function App() {
                 previousExitUnclean={previousExitUnclean}
                 lastSavedProject={projects.catalog.kind === "ready" ? projects.catalog.projects[0] ?? null : undefined}
                 onDismissPreviousExit={() => setPreviousExitUnclean(false)}
+                setAsideCatalogs={setAsideCatalogs}
+                onDismissSetAsideCatalogs={() => setSetAsideCatalogs([])}
                 encodingConversionPending={encodingConversionPending}
                 onProfileReviewAction={handleProfileReviewAction}
                 onResourcePreflightAction={handleResourcePreflightAction}

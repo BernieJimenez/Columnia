@@ -1,6 +1,8 @@
 /** DAT-01: whether the previous session ended without a normal exit. */
 export interface SessionStatus {
   previousExitUnclean: boolean;
+  /** ARQ-02: catalogs that could not be opened and were moved to these paths. */
+  setAsideCatalogs: string[];
 }
 
 export interface AppInfo {

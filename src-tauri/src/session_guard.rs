@@ -18,12 +18,16 @@ const MARKER_FILE: &str = "session.active";
 pub struct SessionGuard {
     marker: PathBuf,
     previous_exit_unclean: bool,
+    set_aside_catalogs: Vec<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStatus {
     previous_exit_unclean: bool,
+    /// ARQ-02: catalogs that could not be opened at start-up and were moved
+    /// to these paths; new empty ones replaced them.
+    set_aside_catalogs: Vec<String>,
 }
 
 impl SessionGuard {
@@ -38,7 +42,13 @@ impl SessionGuard {
         Self {
             marker,
             previous_exit_unclean,
+            set_aside_catalogs: Vec::new(),
         }
+    }
+
+    pub fn record_set_aside_catalogs(&mut self, paths: impl IntoIterator<Item = PathBuf>) {
+        self.set_aside_catalogs
+            .extend(paths.into_iter().map(|path| path.display().to_string()));
     }
 
     /// Called on a normal exit.
@@ -49,6 +59,7 @@ impl SessionGuard {
     fn status(&self) -> SessionStatus {
         SessionStatus {
             previous_exit_unclean: self.previous_exit_unclean,
+            set_aside_catalogs: self.set_aside_catalogs.clone(),
         }
     }
 }

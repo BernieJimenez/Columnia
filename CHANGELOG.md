@@ -203,6 +203,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Un catálogo de tareas reutilizables o de presets de entrega que no se puede
+  abrir ya no impide arrancar: se aparta (`.unreadable-<segundos>`), se crea uno
+  vacío y Cargar dice dónde quedó; si el arranque falla igualmente, un diálogo
+  nativo explica el motivo y la carpeta de datos (ARQ-02).
 - `--update-baseline` de la evidencia release exige evidencia del HEAD actual y
   `--reviewed-by=<nombre>`, recalcula los SHA-256 del binario y la fixture y
   deja en el sumario la lista de capturas cambiadas con hash anterior y nuevo

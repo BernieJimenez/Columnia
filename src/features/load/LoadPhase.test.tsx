@@ -452,6 +452,18 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
     expect(onDismissPreviousExit).toHaveBeenCalledOnce();
   });
 
+  it("avisa de un catálogo apartado y dice dónde quedó (ARQ-02)", () => {
+    const onDismissSetAsideCatalogs = vi.fn();
+    render(<LoadPhase
+      {...loadPhaseProps({ onDismissSetAsideCatalogs })}
+      setAsideCatalogs={["C:/datos/delivery-presets.sqlite3.unreadable-1"]}
+    />);
+    expect(screen.getByRole("heading", { name: "Se apartó un catálogo que no se podía abrir" })).toBeInTheDocument();
+    expect(screen.getByText("C:/datos/delivery-presets.sqlite3.unreadable-1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Entendido" }));
+    expect(onDismissSetAsideCatalogs).toHaveBeenCalledOnce();
+  });
+
   it("deja cancelar la inspección de un libro y reintentar una cancelación fallida", () => {
     const onCancelWorkbookInspection = vi.fn();
     const onRetrySelectionCancellation = vi.fn();

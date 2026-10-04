@@ -67,6 +67,9 @@ interface LoadPhaseProps {
   /** The most recently saved project; null when none exists, undefined while unknown (DAT-01). */
   lastSavedProject?: { name: string; updatedAt: string } | null;
   onDismissPreviousExit?: () => void;
+  /** ARQ-02: catalogs set aside at start-up because they could not be opened. */
+  setAsideCatalogs?: string[];
+  onDismissSetAsideCatalogs?: () => void;
   onProfileReviewAction?: (action: ProfileReviewAction) => void;
   onResourcePreflightAction?: (action: ResourcePreflightAction) => void;
   onSchemaMismatchAction?: (action: SchemaMismatchAction) => void;
@@ -99,6 +102,8 @@ export function LoadPhase({
   previousExitUnclean = false,
   lastSavedProject,
   onDismissPreviousExit = () => undefined,
+  setAsideCatalogs = [],
+  onDismissSetAsideCatalogs = () => undefined,
   onProfileReviewAction = () => undefined,
   onResourcePreflightAction = () => undefined,
   onSchemaMismatchAction = () => undefined,
@@ -164,6 +169,20 @@ export function LoadPhase({
             <p>Los cambios que no estaban guardados en un proyecto no se conservaron. Si guardaste uno, puedes recuperarlo en «Continuar un proyecto».</p>
           )}
           <button type="button" className="secondary-action" onClick={onDismissPreviousExit}>Entendido</button>
+        </section>
+      )}
+
+      {setAsideCatalogs.length > 0 && (
+        <section className="notice" aria-labelledby="set-aside-catalogs-title">
+          <h3 id="set-aside-catalogs-title">Se apartó un catálogo que no se podía abrir</h3>
+          <p>
+            Columnia empezó con {setAsideCatalogs.length === 1 ? "un catálogo nuevo y vacío" : "catálogos nuevos y vacíos"} de
+            tareas o presets de entrega. Tus proyectos no se tocaron. El archivo anterior se conserva en:
+          </p>
+          <ul>
+            {setAsideCatalogs.map((path) => <li key={path}><code>{path}</code></li>)}
+          </ul>
+          <button type="button" className="secondary-action" onClick={onDismissSetAsideCatalogs}>Entendido</button>
         </section>
       )}
 

@@ -243,7 +243,7 @@ medio = 1 día; agregado por suma.
   - [x] `OPS-10` (Medio) `check-release-evidence --update-baseline` re-aprueba cualquier captura; hashes de PNG a nivel de byte — hecho el 2026-10-04
 - [ ] **RV56** — **Arranque y servicios** — Un catálogo auxiliar corrupto o de versión futura (tareas reutilizables / presets de entr… (y 1 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de ARQ-02, DOC-05.
-  - [ ] `ARQ-02` (Medio) Un catálogo auxiliar corrupto o de versión futura (tareas reutilizables / presets de entrega) impide arrancar la app, sin mensaje
+  - [x] `ARQ-02` (Medio) Un catálogo auxiliar corrupto o de versión futura (tareas reutilizables / presets de entrega) impide arrancar la app, sin mensaje — hecho el 2026-10-04
   - [ ] `DOC-05` (Medio) network-privacy.md: versión vencida y afirmación «sin crash reporting» frente a `crash-reports/`; ficha legal con fecha y ejemplo viejos
 - [ ] **RV57** — **Estilos y componentes** — Con la ventana mínima (900 × 640) o con zoom 150-200 % la barra lateral ocupa del 63 al 7… (y 4 problemas más) · *Esfuerzo: 4,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de UX-02, ACC-02, ACC-03, ACC-04, ACC-07.

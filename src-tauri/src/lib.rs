@@ -3,6 +3,7 @@ use serde::Serialize;
 use tauri::{DragDropEvent, Emitter, Manager, WindowEvent};
 
 pub mod automation;
+mod catalog_recovery;
 mod crash_report;
 mod dataset;
 mod dataset_fingerprints;
@@ -140,19 +141,27 @@ pub fn run() {
             crash_report::install(&app_data_dir);
             // DAT-04: history folders of earlier sessions hold copies of the data.
             std::thread::spawn(dataset::purge_finished_history_directories);
-            app.manage(session_guard::SessionGuard::begin(&app_data_dir));
+            let mut session = session_guard::SessionGuard::begin(&app_data_dir);
             app.manage(session_guard::UnsavedWork::default());
             dataset::remove_stale_converted_sources(&std::env::temp_dir());
             let projects = projects::ProjectState::initialize(app_data_dir.clone())
                 .map_err(std::io::Error::other)?;
             app.manage(projects);
-            let reusable_tasks =
-                reusable_tasks::ReusableTaskState::initialize(app_data_dir.clone())
-                    .map_err(std::io::Error::other)?;
+            // ARQ-02: a damaged secondary catalog is set aside, not fatal.
+            let (reusable_tasks, tasks_aside) = catalog_recovery::initialize_or_set_aside(
+                &app_data_dir.join("reusable-tasks.sqlite3"),
+                || reusable_tasks::ReusableTaskState::initialize(app_data_dir.clone()),
+            )
+            .map_err(std::io::Error::other)?;
             app.manage(reusable_tasks);
-            let delivery_presets = delivery_presets::DeliveryPresetState::initialize(app_data_dir)
-                .map_err(std::io::Error::other)?;
+            let (delivery_presets, presets_aside) = catalog_recovery::initialize_or_set_aside(
+                &app_data_dir.join("delivery-presets.sqlite3"),
+                || delivery_presets::DeliveryPresetState::initialize(app_data_dir.clone()),
+            )
+            .map_err(std::io::Error::other)?;
             app.manage(delivery_presets);
+            session.record_set_aside_catalogs(tasks_aside.into_iter().chain(presets_aside));
+            app.manage(session);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -308,7 +317,13 @@ pub fn run() {
             delivery_presets::delete_delivery_preset,
         ])
         .build(tauri::generate_context!())
-        .expect("Columnia no pudo iniciar el runtime de escritorio")
+        .unwrap_or_else(|error| {
+            // ARQ-02: the release build has no console; say why it closes.
+            show_startup_error(&format!(
+                "Columnia no pudo iniciarse: {error}\n\nLos datos están en %APPDATA%\\app.columnia.desktop."
+            ));
+            std::process::exit(1)
+        })
         .run(|app, event| {
             // A normal exit clears the session marker (DAT-01).
             if let tauri::RunEvent::Exit = event {
@@ -317,6 +332,30 @@ pub fn run() {
                 }
             }
         });
+}
+
+fn show_startup_error(message: &str) {
+    eprintln!("{message}");
+    #[cfg(windows)]
+    {
+        #[link(name = "user32")]
+        extern "system" {
+            fn MessageBoxW(
+                window: *mut std::ffi::c_void,
+                text: *const u16,
+                caption: *const u16,
+                kind: u32,
+            ) -> i32;
+        }
+        let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
+        let (text, caption) = (wide(message), wide("Columnia"));
+        const MB_ICONERROR: u32 = 0x10;
+        // SAFETY: both buffers are NUL-terminated UTF-16 that outlive the call,
+        // and a null owner window is allowed.
+        unsafe {
+            MessageBoxW(std::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), MB_ICONERROR);
+        }
+    }
 }
 
 #[cfg(test)]
