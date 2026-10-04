@@ -471,11 +471,43 @@ pub(super) fn numeric_statistics(
                 return Ok(None);
             }
         }
-        column
-            .cast(&DataType::Float64)
-            .map_err(|error| format!("No se pudo convertir texto numérico: {error}"))?
+        // FUN-39: the same trimmed reading as the type suggestion and the
+        // large-file path, not Polars' cast of the raw text.
+        let text = column
+            .str()
+            .map_err(|error| format!("No se pudo analizar texto numérico: {error}"))?;
+        Series::new(
+            column.name().clone(),
+            text.iter()
+                .map(|value| value.and_then(semantic_numeric_value))
+                .collect::<Vec<_>>(),
+        )
+        .into_column()
     } else {
         return Ok(None);
+    };
+    // FUN-38: infinities and NaN are not values here, as on the large-file path.
+    let source = if matches!(source.dtype(), DataType::Float32 | DataType::Float64) {
+        let floats = source
+            .cast(&DataType::Float64)
+            .map_err(|error| format!("No se pudo preparar las estadísticas numéricas: {error}"))?;
+        let values = floats
+            .f64()
+            .map_err(|error| format!("No se pudieron leer las estadísticas numéricas: {error}"))?;
+        if values.iter().flatten().all(f64::is_finite) {
+            source
+        } else {
+            Series::new(
+                source.name().clone(),
+                values
+                    .iter()
+                    .map(|value| value.filter(|number| number.is_finite()))
+                    .collect::<Vec<_>>(),
+            )
+            .into_column()
+        }
+    } else {
+        source
     };
 
     let value_count = source.len().saturating_sub(source.null_count());
@@ -543,20 +575,19 @@ pub(super) fn numeric_statistics(
         }
         _ => None,
     };
-    let outlier_count = if value_count < 4 {
-        0
-    } else {
-        let q1 = first_quartile.expect("cuatro valores siempre producen Q1");
-        let q3 = third_quartile.expect("cuatro valores siempre producen Q3");
-        let interquartile_range = q3 - q1;
-        let lower_bound = q1 - 1.5 * interquartile_range;
-        let upper_bound = q3 + 1.5 * interquartile_range;
-        floating_values
-            .iter()
-            .flatten()
-            .filter(|value| *value < lower_bound || *value > upper_bound)
-            .count()
-    };
+    let outlier_count =
+        if let (true, Some(q1), Some(q3)) = (value_count >= 4, first_quartile, third_quartile) {
+            let interquartile_range = q3 - q1;
+            let lower_bound = q1 - 1.5 * interquartile_range;
+            let upper_bound = q3 + 1.5 * interquartile_range;
+            floating_values
+                .iter()
+                .flatten()
+                .filter(|value| *value < lower_bound || *value > upper_bound)
+                .count()
+        } else {
+            0
+        };
 
     Ok(Some(NumericStatistics {
         minimum,

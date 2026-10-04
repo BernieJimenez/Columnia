@@ -185,6 +185,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Perfil: una columna con infinitos o NaN ya no deja Revisar sin análisis, los
+  números de texto con espacios entran en las estadísticas y los mínimos y
+  máximos son iguales en archivos pequeños y grandes (también enteros por encima
+  de 2^53).
 - Si el resultado de un cambio es demasiado grande para guardarlo en el
   historial reversible, las versiones anteriores ya no se borran: el historial
   avisa de que ese paso no se guardó y deshacer vuelve a la última versión

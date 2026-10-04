@@ -20258,3 +20258,67 @@ fn an_oversized_result_keeps_the_earlier_history() {
     assert!(dataset.frame.equals_missing(&original));
     fs::remove_file(path).ok();
 }
+
+/// RV48 (FUN-37, FUN-38, FUN-39): the in-memory profile and the large-file
+/// profile give the same figures for integers above 2^53, floats with
+/// infinities or NaN, and numeric text with surrounding spaces, and neither
+/// fails.
+#[test]
+fn profiles_agree_on_big_integers_non_finite_floats_and_padded_numbers() {
+    let frame = df!(
+        "grande" => [9_007_199_254_740_993_i64, 9_007_199_254_740_995, 9_007_199_254_740_997, 9_007_199_254_740_999],
+        "infinito" => [1.0_f64, 2.0, 3.0, f64::INFINITY],
+        "nan" => [1.0_f64, f64::NAN, 3.0, 4.0],
+        "solo_nan" => [f64::NAN, f64::NAN, f64::NAN, f64::NAN],
+        "texto" => [" 1", "2", "3 ", "4"],
+    )
+    .unwrap();
+    let expected = profile_dataset(&frame).expect("el perfil en memoria no debe fallar");
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("perfil.parquet");
+    let mut written = frame.clone();
+    ParquetWriter::new(File::create(&path).unwrap())
+        .finish(&mut written)
+        .unwrap();
+    let actual = profile_source_backed_with_progress(
+        &path,
+        "parquet",
+        fs::metadata(&path).unwrap().len(),
+        frame.height(),
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("el perfil del archivo grande no debe fallar");
+    let grande = &expected.columns[0];
+    assert_eq!(grande.minimum.as_deref(), Some("9007199254740993"));
+    assert_eq!(grande.maximum.as_deref(), Some("9007199254740999"));
+    let texto = &expected.columns[4];
+    assert!(
+        texto.mean.is_some_and(|mean| (mean - 2.5).abs() < 1e-9),
+        "{:?}",
+        texto.mean
+    );
+    for (actual, expected) in actual.columns.iter().zip(&expected.columns) {
+        assert_eq!(
+            (
+                &actual.minimum,
+                &actual.maximum,
+                actual.mean,
+                actual.first_quartile,
+                actual.third_quartile,
+                actual.outlier_count
+            ),
+            (
+                &expected.minimum,
+                &expected.maximum,
+                expected.mean,
+                expected.first_quartile,
+                expected.third_quartile,
+                expected.outlier_count
+            ),
+            "{}",
+            expected.name
+        );
+    }
+}

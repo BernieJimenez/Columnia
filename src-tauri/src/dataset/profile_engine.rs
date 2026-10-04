@@ -664,7 +664,22 @@ where
             .filter(|statistics| statistics.suggested_type == Some("date"))
             .map(|statistics| statistics.temporal_bounds.clone())
     };
-    let (minimum, maximum, mean) = if column.dtype().is_primitive_numeric() {
+    let (minimum, maximum, mean) = if column.dtype().is_float() {
+        // FUN-37/38: finite values only, written as the large-file path does.
+        (
+            numeric_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.minimum)
+                .map(float_bound_text),
+            numeric_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.maximum)
+                .map(float_bound_text),
+            numeric_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.mean),
+        )
+    } else if column.dtype().is_primitive_numeric() {
         let minimum = column
             .min_reduce()
             .map_err(|error| format!("No se pudo calcular el mínimo: {error}"))?
@@ -934,6 +949,27 @@ impl SourceTextAccumulator {
     }
 }
 
+/// An integer cell as `i128`, so that the bounds above 2^53 stay exact (FUN-37).
+pub(super) fn exact_integer_value(value: &AnyValue<'_>) -> Option<i128> {
+    Some(match *value {
+        AnyValue::Int8(value) => value.into(),
+        AnyValue::Int16(value) => value.into(),
+        AnyValue::Int32(value) => value.into(),
+        AnyValue::Int64(value) => value.into(),
+        AnyValue::Int128(value) => value,
+        AnyValue::UInt8(value) => value.into(),
+        AnyValue::UInt16(value) => value.into(),
+        AnyValue::UInt32(value) => value.into(),
+        AnyValue::UInt64(value) => value.into(),
+        _ => return None,
+    })
+}
+
+/// A float bound written as the in-memory preview writes a Float64 (FUN-37).
+pub(super) fn float_bound_text(value: f64) -> String {
+    AnyValue::Float64(value).to_string()
+}
+
 pub(super) struct SourceNumericAccumulator {
     value_count: usize,
     minimum: Option<f64>,
@@ -985,6 +1021,8 @@ pub(super) struct SourceColumnAccumulator {
     text: Option<SourceTextAccumulator>,
     numeric: SourceNumericAccumulator,
     temporal_bounds: TemporalBounds,
+    /// Exact integer minimum and maximum (FUN-37).
+    integer_bounds: Option<(i128, i128)>,
 }
 
 impl SourceColumnAccumulator {
@@ -999,6 +1037,7 @@ impl SourceColumnAccumulator {
             text: (column.dtype() == &DataType::String).then(SourceTextAccumulator::new),
             numeric: SourceNumericAccumulator::new(),
             temporal_bounds: TemporalBounds::default(),
+            integer_bounds: None,
         }
     }
 
@@ -1011,6 +1050,13 @@ impl SourceColumnAccumulator {
                 let value = column.get(row_index).map_err(|error| {
                     format!("No se pudo analizar la columna numérica source-backed: {error}")
                 })?;
+                // FUN-37: integers keep their exact bounds, not an f64 copy.
+                if let Some(integer) = exact_integer_value(&value) {
+                    self.integer_bounds = Some(match self.integer_bounds {
+                        Some((minimum, maximum)) => (minimum.min(integer), maximum.max(integer)),
+                        None => (integer, integer),
+                    });
+                }
                 self.numeric.push(numeric_value(value))?;
             }
         } else if self.is_temporal {
@@ -1078,9 +1124,20 @@ impl SourceColumnAccumulator {
                 .map(|statistics| &statistics.temporal_bounds)
         };
         let (minimum, maximum, mean) = if self.is_primitive_numeric {
+            let bound = |integer: Option<i128>, float: Option<f64>| {
+                integer
+                    .map(|value| value.to_string())
+                    .or_else(|| float.map(float_bound_text))
+            };
             (
-                self.numeric.minimum.map(|value| value.to_string()),
-                self.numeric.maximum.map(|value| value.to_string()),
+                bound(
+                    self.integer_bounds.map(|bounds| bounds.0),
+                    self.numeric.minimum,
+                ),
+                bound(
+                    self.integer_bounds.map(|bounds| bounds.1),
+                    self.numeric.maximum,
+                ),
                 numeric_statistics
                     .as_ref()
                     .and_then(|statistics| statistics.mean),
