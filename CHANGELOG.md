@@ -591,6 +591,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Mejorado
 - El análisis de calidad de Revisar es unas 2,5 veces más rápido en archivos medianos (338 MB: de 12 s a 5 s) y en archivos grandes muestra qué paso está haciendo tras leer las filas (REN-01, en curso).
+- El gate de cobertura rechaza un resumen anterior a los fuentes, exige un
+  mínimo global y cubre también Cargar, Explorar y la comparación.
 - El gate de inventario IPC cruza los comandos registrados en Rust con las
   llamadas invoke del puente TypeScript (falla con un comando huérfano en
   cualquier sentido), ignora comentarios y ya no exige un número fijo de

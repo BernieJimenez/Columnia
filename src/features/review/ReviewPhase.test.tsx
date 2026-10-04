@@ -370,6 +370,18 @@ describe("ReviewPhase", () => {
     expect(onContinueToPrepare).toHaveBeenCalledWith();
   });
 
+  it("sugiere la convención de coma decimal para varias columnas (PROD-04)", () => {
+    const commaProfile = {
+      ...profile,
+      columns: profile.columns.map((column, index) =>
+        index < 2 ? { ...column, nullCount: 0, emptyCount: 0, commaDecimalCount: profile.rowCount } : column,
+      ),
+    };
+    render(temporalTrendElement(commaProfile, 17, vi.fn()));
+    const note = screen.getByText(/usar coma decimal/);
+    expect(note).toHaveTextContent(`«${profile.columns[0].name}», «${profile.columns[1].name}» parecen`);
+  });
+
   it("conserva tabpanel ARIA y perfil bajo demanda", () => {
     const onAnalysisSampleRowsChange = vi.fn();
     render(
@@ -592,6 +604,39 @@ describe("ReviewPhase", () => {
     rerender(view("diagnosis", beginProfileAnalysis()));
     expect(screen.getByRole("textbox", { name: "Consulta SQL de solo lectura" })).toHaveValue("SELECT id FROM dataset LIMIT 1");
     expect(screen.getByRole("region", { name: "Resultado de consulta SQL" })).toHaveTextContent("id");
+  });
+
+  it("cancela la consulta en curso si el panel se cierra (FUN-27)", () => {
+    vi.spyOn(bridge, "queryDataset").mockReturnValue(new Promise(() => undefined));
+    // A failed cancellation on the way out is not an error the person sees.
+    const cancel = vi.spyOn(bridge, "cancelOperation").mockRejectedValue(new Error("terminada"));
+    const { unmount } = render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "idle" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        comparison={{
+          status: { kind: "idle" },
+          keyColumns: [],
+          onKeyColumnsChange: () => undefined,
+          onCompare: () => undefined,
+          onClear: () => undefined,
+          onConsolidate: () => undefined,
+          onResolveConflicts: () => undefined,
+          onConflictPageChange: () => undefined,
+          joinStatus: { kind: "idle" },
+          joinType: "inner",
+          onJoinTypeChange: () => undefined,
+          onJoin: () => undefined,
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
+    unmount();
+    expect(cancel).toHaveBeenCalledWith("query");
   });
 
   it("permite cancelar una consulta y no pinta una respuesta tardía", async () => {
