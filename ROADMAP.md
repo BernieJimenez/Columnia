@@ -181,13 +181,13 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-28` (Medio) `formatStatistic` redondea a 3 decimales y muestra 0 para magnitudes pequeñas — hecho el 2026-10-03
   - [x] `ACC-06` (Medio) La celda más intensa del calendario de Revisar tiene texto ilegible en todos los temas (1,0:1 claro, 1,08:1 oscuro) — hecho el 2026-10-03
   - [x] `ACC-09` (Medio) Tablas «Ver datos» de Revisar con scroll pero sin foco por teclado (axe `scrollable-region-focusable`, serious) — hecho el 2026-10-03
-- [ ] **RV47** — **Proyectos e historial (motor)** — `project-save --id` sobre un proyecto existente construye un espacio de trabajo vacío (po… (y 4 problemas más) · *Esfuerzo: 4,2 días*
+- [x] **RV47** — **Proyectos e historial (motor)** — `project-save --id` sobre un proyecto existente construye un espacio de trabajo vacío (po… (y 4 problemas más) · *Esfuerzo: 4,2 días* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-30, DAT-03, DAT-04, DAT-05, DAT-07.
   - [x] `FUN-30` (Medio) `project-save --id` sobre un proyecto existente construye un espacio de trabajo vacío (posible pérdida de reglas, receta e historial SQL) — hecho el 2026-10-03
   - [x] `DAT-03` (Medio) Un cierre abrupto durante guardar proyecto o exportar deja temporales de cientos de MB que nada limpia — hecho el 2026-10-04
   - [x] `DAT-04` (Medio) Los snapshots del historial de Preparar viven en `%TEMP%` y nadie los purga (ni al cerrar con normalidad) — hecho el 2026-10-04
   - [x] `DAT-05` (Medio) Un proyecto cuya carpeta de generación falta no se puede abrir ni eliminar desde la app — hecho el 2026-10-04
-  - [ ] `DAT-07` (Medio) Un solo snapshot por encima de 1 GiB destruye todo el historial reversible ya acumulado y no se recupera
+  - [x] `DAT-07` (Medio) Un solo snapshot por encima de 1 GiB destruye todo el historial reversible ya acumulado y no se recupera — hecho el 2026-10-04
 - [ ] **RV48** — **Perfil** — Perfil source-backed: mínimo/máximo de enteros se pasan por f64 y no coinciden con la rut… (y 4 problemas más) · *Esfuerzo: 3,8 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-37, FUN-38, FUN-39, REN-01, PROD-04.
   - [ ] `FUN-37` (Medio) Perfil source-backed: mínimo/máximo de enteros se pasan por f64 y no coinciden con la ruta en memoria

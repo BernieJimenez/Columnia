@@ -20215,3 +20215,46 @@ fn finished_history_folders_are_purged_and_live_ones_kept() {
         "la sesión en curso se conserva"
     );
 }
+
+/// DAT-07: a change whose result is over the history budget keeps the
+/// earlier versions, says so before anything is lost, and undo returns to
+/// the last saved version.
+#[test]
+fn an_oversized_result_keeps_the_earlier_history() {
+    let path = temporary_csv("value\n1\n");
+    let (original, _) = load_csv(&path).unwrap();
+    let mut dataset = loaded_dataset(path.clone(), original.clone());
+    let step = DataFrame::new(1, vec![Series::new("value".into(), [2_i64]).into()]).unwrap();
+    publish_candidate(&mut dataset, step.clone(), "Paso pequeño").unwrap();
+    // A budget that fits the versions so far but not the next result.
+    dataset.history.disk_budget_bytes = dataset.history.disk_bytes() + 4096;
+    let big = DataFrame::new(
+        200_000,
+        vec![Series::new("value".into(), (0..200_000_i64).collect::<Vec<_>>()).into()],
+    )
+    .unwrap();
+    publish_candidate(&mut dataset, big, "Paso grande").unwrap();
+
+    let state = dataset.history.state();
+    assert!(state.snapshots_enabled);
+    assert_eq!(
+        state
+            .entries
+            .iter()
+            .map(|entry| entry.label.as_str())
+            .collect::<Vec<_>>(),
+        ["Dataset original", "Paso pequeño", "Paso grande"]
+    );
+    assert!(state
+        .degraded_reason
+        .as_deref()
+        .is_some_and(|reason| reason.contains("vuelve a «Paso pequeño»")));
+    assert!(state.can_undo && !state.can_redo);
+
+    undo_dataset(&mut dataset).expect("deshacer vuelve a la última versión guardada");
+    assert!(dataset.frame.equals_missing(&step));
+    assert!(dataset.history.state().degraded_reason.is_none());
+    undo_dataset(&mut dataset).unwrap();
+    assert!(dataset.frame.equals_missing(&original));
+    fs::remove_file(path).ok();
+}

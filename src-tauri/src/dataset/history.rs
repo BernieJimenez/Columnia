@@ -199,6 +199,10 @@ pub(super) struct HistoryManager {
     /// Grows with every change of the active frame, also while snapshots are
     /// disabled, so a cache can tell two versions apart (REN-05).
     pub(super) revision: u64,
+    /// The label of the active version when it was too large to keep a
+    /// snapshot: the earlier versions stay and undo returns to the last one
+    /// that was saved (DAT-07).
+    pub(super) unsaved_current: Option<String>,
 }
 
 impl HistoryManager {
@@ -219,6 +223,7 @@ impl HistoryManager {
             max_entries: HISTORY_MAX_ENTRIES,
             disk_budget_bytes: HISTORY_DISK_BUDGET_BYTES,
             revision: 0,
+            unsaved_current: None,
         })
     }
 
@@ -245,6 +250,7 @@ impl HistoryManager {
             max_entries: max_entries.max(1),
             disk_budget_bytes,
             revision: 0,
+            unsaved_current: None,
         };
         manager.record(frame, "Dataset original")?;
         Ok(manager)
@@ -259,6 +265,37 @@ impl HistoryManager {
     }
 
     pub(super) fn state(&self) -> HistoryState {
+        if let (true, Some(label)) = (self.snapshots_enabled, self.unsaved_current.as_ref()) {
+            let mut entries = self
+                .entries
+                .iter()
+                .enumerate()
+                .map(|(index, entry)| HistoryEntryState {
+                    id: Some(entry.id.clone()),
+                    index,
+                    label: entry.label.clone(),
+                    is_current: false,
+                })
+                .collect::<Vec<_>>();
+            entries.push(HistoryEntryState {
+                id: None,
+                index: entries.len(),
+                label: label.clone(),
+                is_current: true,
+            });
+            return HistoryState {
+                can_undo: !self.entries.is_empty(),
+                can_redo: false,
+                current_index: entries.len() - 1,
+                entry_count: entries.len(),
+                entries,
+                snapshots_enabled: true,
+                degraded_reason: self.degraded_reason.clone(),
+                max_entries: self.max_entries,
+                disk_bytes: self.disk_bytes(),
+                disk_budget_bytes: self.disk_budget_bytes,
+            };
+        }
         let entries = if self.snapshots_enabled {
             self.entries
                 .iter()
@@ -304,6 +341,25 @@ impl HistoryManager {
     }
 
     pub(super) fn disable_for_size_deferred(&mut self, label: &str, bytes: u64) -> Vec<PathBuf> {
+        if self.snapshots_enabled && !self.entries.is_empty() {
+            // DAT-07: the earlier versions stay; only the redo branch, which
+            // the new version replaces, goes.
+            let branch_start = self.cursor.saturating_add(1).min(self.entries.len());
+            let retired = self
+                .entries
+                .split_off(branch_start)
+                .into_iter()
+                .map(|entry| entry.path)
+                .collect();
+            let previous = self.entries[self.cursor].label.clone();
+            self.current_label = label.to_owned();
+            self.unsaved_current = Some(label.to_owned());
+            self.degraded_reason = Some(format!(
+                "El resultado de «{label}» ocupa {bytes} bytes y supera el límite local de {} bytes del historial, así que no se guardó como versión: deshacer vuelve a «{previous}» y este paso no se podrá rehacer. Las versiones anteriores se conservan.",
+                self.disk_budget_bytes
+            ));
+            return retired;
+        }
         let retired_paths = self.entries.drain(..).map(|entry| entry.path).collect();
         self.cursor = 0;
         self.snapshots_enabled = false;
@@ -367,6 +423,8 @@ impl HistoryManager {
             bytes,
         });
         self.cursor = self.entries.len() - 1;
+        self.unsaved_current = None;
+        self.degraded_reason = None;
         self.next_id = self.next_id.wrapping_add(1);
 
         while self.entries.len() > self.max_entries || self.disk_bytes() > self.disk_budget_bytes {
@@ -428,6 +486,8 @@ impl HistoryManager {
             bytes,
         });
         self.cursor = self.entries.len() - 1;
+        self.unsaved_current = None;
+        self.degraded_reason = None;
         self.next_id = self.next_id.wrapping_add(1);
 
         while self.entries.len() > self.max_entries || self.disk_bytes() > self.disk_budget_bytes {
@@ -595,6 +655,8 @@ impl HistoryManager {
             bytes,
         });
         self.cursor = self.entries.len() - 1;
+        self.unsaved_current = None;
+        self.degraded_reason = None;
         self.next_id = id.wrapping_add(1);
 
         while self.entries.len() > self.max_entries || self.disk_bytes() > self.disk_budget_bytes {
@@ -773,6 +835,8 @@ fn restore_source_backed_history_cursor(
 
     let publish = || {
         dataset.history.cursor = target;
+        dataset.history.unsaved_current = None;
+        dataset.history.degraded_reason = None;
         dataset.history.current_label = label;
         dataset.history.source_snapshot_path = None;
         dataset.row_count = row_count;
@@ -838,7 +902,12 @@ pub(super) fn undo_dataset_with_cancellation(
     if !dataset.history.state().can_undo {
         return Err("No hay un cambio disponible para deshacer.".to_owned());
     }
-    let target = dataset.history.cursor - 1;
+    // DAT-07: an unsaved current version goes back to the last saved one.
+    let target = if dataset.history.unsaved_current.is_some() {
+        dataset.history.cursor
+    } else {
+        dataset.history.cursor - 1
+    };
     if dataset.source_backed {
         return restore_source_backed_history_cursor(
             dataset,
@@ -857,6 +926,8 @@ pub(super) fn undo_dataset_with_cancellation(
         dataset.history.touch();
         dataset.source_backed = false;
         dataset.history.cursor = target;
+        dataset.history.unsaved_current = None;
+        dataset.history.degraded_reason = None;
         dataset.profile = None;
         Ok(HistoryResult {
             dataset: preview,

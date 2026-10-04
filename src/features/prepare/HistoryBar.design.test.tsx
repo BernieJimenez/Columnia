@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { HistoryState } from "../../bridge";
 import { HistoryBar } from "./HistoryBar";
@@ -21,7 +21,26 @@ const history: HistoryState = {
   diskBudgetBytes: 1024,
 };
 
+afterEach(cleanup);
+
 describe("HistoryBar design", () => {
+  it("avisa de una versión que no se guardó sin ocultar el historial (DAT-07)", () => {
+    render(
+      <HistoryBar
+        status={{
+          ...history,
+          entries: [...history.entries.slice(0, 2), { id: null, index: 2, label: "Paso grande", isCurrent: true }],
+          degradedReason: "El resultado de «Paso grande» no se guardó como versión: deshacer vuelve a «Normalizar nombres».",
+        }}
+        busy={false}
+        onUndo={() => undefined}
+        onRedo={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("note")).toHaveTextContent("deshacer vuelve a «Normalizar nombres»");
+    expect(screen.getByText(/Versión actual: Paso grande/)).toBeInTheDocument();
+  });
+
   it("mantiene compacto el historial y permite desplegar cambios reversibles", () => {
     const onUndo = vi.fn();
     render(

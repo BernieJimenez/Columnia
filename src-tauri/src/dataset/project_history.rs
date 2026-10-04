@@ -134,6 +134,22 @@ where
         return Err("El historial activo supera los límites del proyecto.".to_owned());
     }
     validate_history_label(&history.current_label)?;
+    if history.unsaved_current.is_some() {
+        // DAT-07: the active version has no snapshot, so the project keeps it
+        // without reversible history, as before this change.
+        let directory = tempfile::tempdir()
+            .map_err(|_| "No se pudo preparar el historial del proyecto.".to_owned())?;
+        return Ok(ProjectHistoryCapture {
+            _directory: directory,
+            entries: Vec::new(),
+            cursor: 0,
+            snapshots_enabled: false,
+            degraded_reason: history.degraded_reason.clone(),
+            current_label: history.current_label.clone(),
+            max_entries: history.max_entries,
+            disk_budget_bytes: history.disk_budget_bytes,
+        });
+    }
     if history.snapshots_enabled {
         if history.entries.is_empty()
             || history.cursor >= history.entries.len()
@@ -342,5 +358,6 @@ where
         max_entries: history.max_entries,
         disk_budget_bytes: history.disk_budget_bytes,
         revision: 0,
+        unsaved_current: None,
     })
 }

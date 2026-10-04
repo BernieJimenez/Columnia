@@ -28,6 +28,10 @@ export function HistoryBar({
               : "Todavía no hay versiones guardadas."
             : status.degradedReason ?? "El historial reversible no está disponible."}
         </small>
+        {/* DAT-07: a version too large to keep is announced while the history stays. */}
+        {status.snapshotsEnabled && status.degradedReason && (
+          <p role="note">{status.degradedReason}</p>
+        )}
         {status.snapshotsEnabled && (
           <div className="history-retention" aria-label="Uso y retención del historial">
             <p>

@@ -157,8 +157,12 @@ fn disabled_or_degraded_history_exposes_no_revision_ids() {
     let mut history = HistoryManager::new(&frame).unwrap();
     history.disable_for_size("Cambio", 2);
     let state = history.state();
-    assert!(!state.snapshots_enabled);
-    assert_eq!(state.entries.len(), 1);
-    assert!(state.entries[0].id.is_none());
+    // DAT-07: the original version stays; the unsaved one has no revision id.
+    assert!(state.snapshots_enabled);
+    assert_eq!(state.entries.len(), 2);
+    assert!(state.entries[0].id.is_some());
+    assert!(state.entries[1].id.is_none());
+    assert!(state.entries[1].is_current);
+    assert!(state.can_undo && !state.can_redo);
     assert!(history.restore_by_id("rev-obsolete-1").is_err());
 }

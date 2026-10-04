@@ -185,6 +185,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Si el resultado de un cambio es demasiado grande para guardarlo en el
+  historial reversible, las versiones anteriores ya no se borran: el historial
+  avisa de que ese paso no se guardó y deshacer vuelve a la última versión
+  guardada.
 - Un proyecto cuya carpeta de datos falta se puede eliminar desde la app en
   lugar de quedar como entrada fantasma.
 - Al arrancar, Columnia borra los temporales que dejó un guardado de proyecto
