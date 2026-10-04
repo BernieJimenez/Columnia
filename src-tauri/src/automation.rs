@@ -1295,12 +1295,21 @@ pub fn project_save(
             preview,
         )
     };
+    // FUN-30: an update keeps the rules, recipe, SQL history and settings it
+    // is not given, and applies the saved recipe to the new data; only a new project starts from an empty workspace.
+    let previous = match (existed, id.as_deref()) {
+        (true, Some(id)) => projects::automation_project_workspace(store, id).map_err(|_| {
+            AutomationError::new("No se pudo leer el proyecto existente para actualizarlo.")
+        })?,
+        _ => ProjectWorkspace::default(),
+    };
     let recipe_draft = recipe
         .map(|path| {
             dataset::load_stored_recipe_for_automation(path)
                 .map_err(|_| AutomationError::new("No se pudo cargar una receta Columnia válida."))
         })
-        .transpose()?;
+        .transpose()?
+        .or_else(|| previous.recipe_draft.clone());
     if let Some(recipe) = recipe_draft.as_ref() {
         dataset
             .apply_project_import_recipe(&recipe.recipe)
@@ -1314,8 +1323,7 @@ pub fn project_save(
                 AutomationError::new("No se pudo cargar un contrato de calidad v1 válido.")
             })
         })
-        .transpose()?
-        .unwrap_or_default();
+        .transpose()?;
     if profile {
         dataset
             .cache_project_import_profile()
@@ -1327,20 +1335,9 @@ pub fn project_save(
         id,
         name,
         ProjectWorkspace {
-            quality_rules,
+            quality_rules: quality_rules.unwrap_or(previous.quality_rules),
             recipe_draft,
-            sql_history: Vec::new(),
-            review_tab: Default::default(),
-            preview_offset: Default::default(),
-            active_phase: Default::default(),
-            query_engine: Default::default(),
-            analysis_sample_rows: Default::default(),
-            performance_profile: Default::default(),
-            export_format: Default::default(),
-            privacy_mode: Default::default(),
-            comparison_key_columns: Default::default(),
-            join_type: Default::default(),
-            import_profile: None,
+            ..previous
         },
     )
     .map_err(|_| AutomationError::new("No se pudo guardar el proyecto."))?;
@@ -1952,6 +1949,70 @@ mod tests {
         ])
         .unwrap();
         assert!(matches!(parsed, CliCommand::Transform { force: true, .. }));
+    }
+
+    /// FUN-30: refreshing a project's data with `--id` keeps the rules and the
+    /// recipe it is not given.
+    #[test]
+    fn project_save_with_id_keeps_what_it_is_not_given() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = directory.path().join("store");
+        let input = directory.path().join("datos.csv");
+        let recipe = directory.path().join("recipe.json");
+        let rules = directory.path().join("rules.json");
+        fs::write(
+            &input,
+            "old,amount
+A,1
+B,2
+",
+        )
+        .unwrap();
+        write_recipe(&recipe, "old", "name");
+        fs::write(
+            &rules,
+            br#"{"version":1,"rules":[{"column":"name","kind":"non_empty","maxInvalid":0}]}"#,
+        )
+        .unwrap();
+        let saved = project_save(
+            &store,
+            "Ventas".to_owned(),
+            &input,
+            None,
+            None,
+            None,
+            Some(&recipe),
+            Some(&rules),
+            false,
+        )
+        .unwrap();
+        let id = saved.project.id;
+
+        fs::write(
+            &input,
+            "old,amount
+A,1
+B,2
+C,3
+",
+        )
+        .unwrap();
+        let updated = project_save(
+            &store,
+            "Ventas".to_owned(),
+            &input,
+            Some(id.clone()),
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+        assert!(!updated.created);
+        let inspection = project_inspect(&store, &id).unwrap();
+        assert_eq!(inspection.quality_rule_count, 1);
+        assert!(inspection.recipe_draft_present);
     }
 
     #[test]

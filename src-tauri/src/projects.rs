@@ -2083,6 +2083,16 @@ pub(crate) fn automation_import_project(
     ProjectStore::initialize(root.to_path_buf())?.save(dataset, project_id, name, workspace)
 }
 
+/// The workspace saved with a project, for a CLI update that must keep
+/// what it does not replace (FUN-30).
+pub(crate) fn automation_project_workspace(
+    root: &Path,
+    project_id: &str,
+) -> Result<ProjectWorkspace, String> {
+    let store = ProjectStore::initialize(root.to_path_buf())?;
+    Ok(store.load_validated(project_id)?.workspace)
+}
+
 pub(crate) fn automation_inspect_project(
     root: &Path,
     project_id: &str,

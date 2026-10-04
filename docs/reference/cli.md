@@ -85,6 +85,10 @@ project-save --store DIR --name NAME --input FILE [--id ID] [--sheet NAME --head
 Crea o actualiza un snapshot durable SQLite/Parquet. `--profile`, receta y
 reglas son opcionales.
 
+Con `--id` de un proyecto existente solo sustituye el dataset y lo que se
+indique: conserva las reglas, la receta, el historial SQL y los ajustes guardados,
+y vuelve a aplicar la receta guardada a los datos nuevos si no se pasa `--recipe`.
+
 ### `project-list`
 
 ```text

@@ -183,7 +183,7 @@ medio = 1 día; agregado por suma.
   - [x] `ACC-09` (Medio) Tablas «Ver datos» de Revisar con scroll pero sin foco por teclado (axe `scrollable-region-focusable`, serious) — hecho el 2026-10-03
 - [ ] **RV47** — **Proyectos e historial (motor)** — `project-save --id` sobre un proyecto existente construye un espacio de trabajo vacío (po… (y 4 problemas más) · *Esfuerzo: 4,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-30, DAT-03, DAT-04, DAT-05, DAT-07.
-  - [ ] `FUN-30` (Medio) `project-save --id` sobre un proyecto existente construye un espacio de trabajo vacío (posible pérdida de reglas, receta e historial SQL)
+  - [x] `FUN-30` (Medio) `project-save --id` sobre un proyecto existente construye un espacio de trabajo vacío (posible pérdida de reglas, receta e historial SQL) — hecho el 2026-10-03
   - [ ] `DAT-03` (Medio) Un cierre abrupto durante guardar proyecto o exportar deja temporales de cientos de MB que nada limpia
   - [ ] `DAT-04` (Medio) Los snapshots del historial de Preparar viven en `%TEMP%` y nadie los purga (ni al cerrar con normalidad)
   - [ ] `DAT-05` (Medio) Un proyecto cuya carpeta de generación falta no se puede abrir ni eliminar desde la app
