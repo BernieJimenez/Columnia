@@ -1,6 +1,6 @@
-import { access, readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { access, readdir, readFile, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const inventoryPath = resolve(projectRoot, "docs/reference/ipc-inventory.json");
@@ -141,7 +141,44 @@ const sharedStructures = [
   ["ExplorePoint", "ExplorePoint"],
 ];
 
-function handlerEntries(source) {
+/** Commands the TypeScript bridge invokes: `invoke("name")` or `invoke<T>("name")`. */
+export function invokedCommands(sources) {
+  const names = new Set();
+  for (const contents of sources) {
+    for (const match of contents.matchAll(/\binvoke(?:<[^>]*>)?\(\s*["'`]([a-z0-9_]+)["'`]/g)) {
+      names.add(match[1]);
+    }
+  }
+  return names;
+}
+
+/** QA-25: a command registered in Rust without a TS caller, or the reverse. */
+export function commandParityProblems(productionNames, invoked) {
+  const production = new Set(productionNames);
+  const problems = [];
+  for (const name of production) {
+    if (!invoked.has(name)) problems.push(`El comando ${name} está registrado en Rust pero ningún invoke de TypeScript lo usa.`);
+  }
+  for (const name of invoked) {
+    if (!production.has(name)) problems.push(`TypeScript invoca ${name}, que no es un comando de producción registrado.`);
+  }
+  return problems;
+}
+
+async function bridgeSources(directory) {
+  const sources = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      sources.push(...await bridgeSources(path));
+    } else if (/\.(ts|tsx)$/.test(entry.name) && !/\.test\.(ts|tsx)$/.test(entry.name)) {
+      sources.push(await readFile(path, "utf8"));
+    }
+  }
+  return sources;
+}
+
+export function handlerEntries(source) {
   const marker = source.indexOf("tauri::generate_handler!");
   const opening = source.indexOf("[", marker);
   if (marker < 0 || opening < 0) throw new Error("No se encontró generate_handler en lib.rs.");
@@ -156,7 +193,9 @@ function handlerEntries(source) {
     }
   }
   if (closing < 0) throw new Error("La lista generate_handler está incompleta.");
-  return source.slice(opening + 1, closing).split(",").map((raw) => {
+  // Comments inside the list (`// …`) are not commands.
+  const list = source.slice(opening + 1, closing).replace(/\/\/[^\n]*/g, "");
+  return list.split(",").map((raw) => {
     const debug = raw.includes("cfg(debug_assertions)");
     const entry = raw.replace(/#\[[^\]]+\]\s*/g, "").trim();
     const parts = entry.split("::");
@@ -179,7 +218,7 @@ function comparable(value) {
   return JSON.stringify(value);
 }
 
-try {
+async function main() {
   const expected = expectedInventory(await readFile(rustPath, "utf8"));
   if (process.argv.includes("--write")) {
     await writeFile(inventoryPath, `${JSON.stringify(expected, null, 2)}\n`, "utf8");
@@ -204,11 +243,19 @@ try {
   if (comparable(current.sharedStructures) !== comparable(expected.sharedStructures)) {
     throw new Error("La lista de estructuras compartidas IPC cambió; actualiza el inventario y sus contratos.");
   }
-  if (current.productionCommands.length !== 92 || current.debugCommands.length !== 4) {
-    throw new Error(`Conteo IPC inesperado: ${current.productionCommands.length} producción, ${current.debugCommands.length} debug.`);
+  const parity = commandParityProblems(
+    current.productionCommands.map(({ name }) => name),
+    invokedCommands(await bridgeSources(resolve(projectRoot, "src"))),
+  );
+  if (parity.length > 0) throw new Error(parity.join(" "));
+  console.log(`Inventario IPC aprobado: ${current.productionCommands.length} comandos producción con su invoke de TypeScript, ${current.debugCommands.length} debug, ${current.sharedStructures.length} estructuras.`);
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  try {
+    await main();
+  } catch (error) {
+    console.error(`Gate de inventario IPC falló: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
   }
-  console.log(`Inventario IPC aprobado: ${current.productionCommands.length} comandos producción, ${current.debugCommands.length} debug, ${current.sharedStructures.length} estructuras.`);
-} catch (error) {
-  console.error(`Gate de inventario IPC falló: ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
 }
