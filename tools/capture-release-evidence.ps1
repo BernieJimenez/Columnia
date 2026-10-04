@@ -8,6 +8,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "app-data-guard.ps1")
+$AppDataGuard = $null
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $EvidenceStamp = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssZ")
 $EvidenceRelativePath = ".local/validation/release-evidence/$EvidenceStamp"
@@ -165,6 +167,8 @@ try {
 
     if ($HadWebViewArguments) { $PreviousWebViewArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS }
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$Port"
+    # QA-22: the release binary opens the real catalog; it is restored afterwards.
+    $AppDataGuard = Backup-ColumniaAppData
     $RootProcess = Start-Process -FilePath $ReleaseExecutable -WorkingDirectory $ProjectRoot -WindowStyle Hidden -RedirectStandardOutput $StdoutPath -RedirectStandardError $StderrPath -PassThru
     if (-not [ColumniaReleaseEvidence.NativeMethods]::AssignProcessToJobObject($JobHandle, $RootProcess.Handle)) {
         throw "No se pudo aislar el binario release en su Job Object."
@@ -209,6 +213,7 @@ catch {
 }
 finally {
     $CleanupConfirmed = Stop-CreatedProcesses
+    if ($CleanupConfirmed -and $null -ne $AppDataGuard) { [void](Restore-ColumniaAppData -Guard $AppDataGuard) }
     if ($JobHandle -ne [IntPtr]::Zero) {
         [void][ColumniaReleaseEvidence.NativeMethods]::CloseHandle($JobHandle)
         $JobHandle = [IntPtr]::Zero

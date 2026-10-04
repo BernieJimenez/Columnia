@@ -586,6 +586,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Mejorado
 - El análisis de calidad de Revisar es unas 2,5 veces más rápido en archivos medianos (338 MB: de 12 s a 5 s) y en archivos grandes muestra qué paso está haciendo tras leer las filas (REN-01, en curso).
+- El smoke de escritorio solo aprueba si la ventana llega a verse, comprueba el
+  panel de proyectos con sus pruebas reales en vez de buscar texto en el código
+  y, como la captura de evidencia de release, restaura los datos reales de la
+  app al terminar.
 - El gate de rendimiento ya no acepta mediciones de otro commit o anteriores al
   commit actual: pide volver a medir.
 - La sección de comparación de Revisar tiene pruebas para cada aviso de error,

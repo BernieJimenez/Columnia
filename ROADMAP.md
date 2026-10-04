@@ -218,7 +218,7 @@ medio = 1 día; agregado por suma.
   - [x] `SEG-03` (Medio) check-secrets: patrones con falsos negativos relevantes para este proyecto — hecho el 2026-10-04
   - [x] `SEG-04` (Medio) `verify-published-assets` y `check-updater-manifest` no protegen contra downgrade ni acotan el host — hecho el 2026-10-04
   - [x] `QA-21` (Medio) check-performance-baseline acepta evidencia de `.local/` de cualquier commit y antigüedad (salvo dos comprobaciones y solo con `-RequireEvidenceAfter`) — hecho el 2026-10-04
-  - [ ] `QA-22` (Medio) smoke-tauri: «aprobado» sin ventana visible, «contrato» por subcadenas y sin guardia del almacén real
+  - [x] `QA-22` (Medio) smoke-tauri: «aprobado» sin ventana visible, «contrato» por subcadenas y sin guardia del almacén real — hecho el 2026-10-04
   - [ ] `QA-23` (Medio) automate-native-file-dialog: el modo `open` da «passed» al cerrarse el diálogo (también si se canceló) y hay pulsaciones globales de respaldo
 - [ ] **RV53** — **Gates y scripts** — `check-network-policy` solo detecta cuatro APIs de red y no mira dependencias ni `index.h… (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-24, QA-25, QA-26, QA-27, QA-28.

@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "app-data-guard.ps1")
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -111,52 +112,13 @@ function Test-VisibleDesktopProcess {
     return [ColumniaDesktopSmoke.NativeMethods]::IsWindowVisible($Candidate.MainWindowHandle)
 }
 
+# QA-22: the projects flow is checked by its real tests, not by looking for
+# strings in the source.
 function Test-ProjectsPanelContract {
-    $checks = [ordered]@{
-        "ProjectsPanel.tsx" = @(
-            'export function ProjectsPanel',
-            'id="projects-title"',
-            'id="project-name"',
-            'onSave',
-            'onDeleteRequest',
-            'onDeleteConfirm'
-        )
-        "App.tsx" = @(
-            '<ProjectsPanel',
-            'onSave={(name)',
-            'onOpen={(projectId)',
-            'onDeleteConfirm={() => void projects.confirmDelete()}'
-        )
-        "useProjectsController.ts" = @(
-            'listProjects()',
-            'saveProject(',
-            'openProject(projectId)',
-            'deleteProject(target.id)',
-            'kind: "ready" as const',
-            'setCatalog(ready)'
-        )
-    }
-
-    $missing = [System.Collections.Generic.List[string]]::new()
-    foreach ($entry in $checks.GetEnumerator()) {
-        $sourcePath = Join-Path $ProjectRoot (Join-Path "src\features\projects" $entry.Key)
-        if ($entry.Key -eq "App.tsx") {
-            $sourcePath = Join-Path $ProjectRoot "src\App.tsx"
-        }
-        if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
-            [void]$missing.Add($entry.Key)
-            continue
-        }
-        $source = Get-Content -LiteralPath $sourcePath -Raw
-        foreach ($needle in $entry.Value) {
-            if (-not $source.Contains($needle)) {
-                [void]$missing.Add("$($entry.Key):$needle")
-            }
-        }
-    }
-
-    if ($missing.Count -gt 0) {
-        throw "Preflight de ProjectsPanel falló: faltan contratos esperados ($($missing -join ', '))."
+    $Npx = (Get-Command npx.cmd -ErrorAction Stop).Source
+    & $Npx vitest run src/features/projects --reporter=dot | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Preflight de ProjectsPanel falló: las pruebas de src/features/projects no pasan."
     }
 }
 
@@ -305,6 +267,7 @@ function Stop-CreatedProcesses {
     }
 }
 
+$AppDataGuard = $null
 New-Item -ItemType Directory -Path $EvidenceDirectory -Force | Out-Null
 
 try {
@@ -325,6 +288,8 @@ try {
     if (@(Get-DebugAppProcesses).Count -gt 0) {
         throw "Preflight falló: la aplicación debug de Columnia ya está activa."
     }
+    # QA-22: the debug app opens the real catalog; it is restored afterwards.
+    $AppDataGuard = Backup-ColumniaAppData
 
     $NpmCommand = (Get-Command npm.cmd -ErrorAction Stop).Source
     $NodeCommand = (Get-Command node.exe -ErrorAction Stop).Source
@@ -417,7 +382,7 @@ try {
             }
         }
 
-        if ($ViteReady -and $DesktopReady) {
+        if ($ViteReady -and $DesktopReady -and $Milestones["windowVisible"]["reached"]) {
             $SmokeStatus = "passed"
             break
         }
@@ -438,6 +403,10 @@ catch {
 }
 finally {
     $CleanupConfirmed = Stop-CreatedProcesses
+    $AppDataRestored = $false
+    if ($CleanupConfirmed -and $null -ne $AppDataGuard) {
+        $AppDataRestored = Restore-ColumniaAppData -Guard $AppDataGuard
+    }
     $Timer.Stop()
     if (-not $CleanupConfirmed) {
         $SmokeStatus = "failed"
@@ -463,6 +432,7 @@ finally {
             note = $ProjectsPanelWindowNote
         }
         cleanupConfirmed = $CleanupConfirmed
+        appDataRestored = $AppDataRestored
         cleanup = [ordered]@{
             confirmed = $CleanupConfirmed
             attempts = $CleanupAttempts
@@ -482,6 +452,6 @@ if ($SmokeStatus -ne "passed") {
     exit 1
 }
 
-Write-Host "Smoke desktop aprobado; Vite y Columnia debug iniciaron, el preflight de ProjectsPanel pasó y el cleanup fue confirmado."
+Write-Host "Smoke desktop aprobado; Vite y Columnia debug iniciaron con la ventana visible, los datos reales se restauraron, el preflight de ProjectsPanel pasó y el cleanup fue confirmado."
 Write-Host "ProjectsPanel UI: no se simularon clics porque WebView2 no expone el DOM de React de forma estable mediante UI Automation."
 Write-Host "Evidencia: $EvidenceRelativePath"
