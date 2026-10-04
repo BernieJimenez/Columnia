@@ -17,6 +17,8 @@ pub(super) struct TextStatistics {
     pub(super) date_inference: Option<DateInference>,
     /// Values with spaces the proposal's trim would remove (UX-01).
     pub(super) untrimmed_count: usize,
+    /// Values written with a decimal comma (PROD-04).
+    pub(super) comma_decimal_count: usize,
 }
 
 #[derive(Clone, Default)]
@@ -231,6 +233,29 @@ pub(super) fn lone_word_sentinels<'a>(
 pub(super) fn is_column_missing_sentinel(value: &str, lone: &HashSet<String>) -> bool {
     is_missing_sentinel(value)
         && (lone.is_empty() || !lone.contains(&normalize_text_value(value, true)))
+}
+
+/// Whether `value` is a number written with a decimal comma: «1,5»,
+/// «-2,75», «1.234,56» or «1 234,5» (PROD-04).
+pub(super) fn is_comma_decimal_number(value: &str) -> bool {
+    let unsigned = value.strip_prefix(['-', '+']).unwrap_or(value);
+    let Some((integer, fraction)) = unsigned.rsplit_once(',') else {
+        return false;
+    };
+    if fraction.is_empty() || !fraction.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    if !integer.is_empty() && integer.bytes().all(|byte| byte.is_ascii_digit()) {
+        return true;
+    }
+    // Thousands grouped by dots or spaces: 1.234.567 or 1 234 567.
+    let separator = if integer.contains('.') { '.' } else { ' ' };
+    let mut groups = integer.split(separator);
+    let first = groups.next().unwrap_or_default();
+    (1..=3).contains(&first.len())
+        && first.bytes().all(|byte| byte.is_ascii_digit())
+        && integer.contains(separator)
+        && groups.all(|group| group.len() == 3 && group.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 pub(super) fn is_missing_sentinel(value: &str) -> bool {
@@ -488,6 +513,7 @@ struct TextTally {
     maximum_length: Option<usize>,
     date_tally: DateTally,
     untrimmed_count: usize,
+    comma_decimal_count: usize,
     /// How many cells hold each word marker; lone ones are data (FUN-19).
     word_markers: HashMap<String, usize>,
 }
@@ -514,6 +540,7 @@ impl TextTally {
         self.marker_count += count * usize::from(is_sentinel && !trimmed.is_empty());
         self.encoding_issue_count += count * usize::from(repair_mojibake(value).is_some());
         self.untrimmed_count += count * usize::from(trimmed.len() != value.len());
+        self.comma_decimal_count += count * usize::from(short && is_comma_decimal_number(trimmed));
         if !trimmed.is_empty() && !is_sentinel {
             self.date_tally.observe(trimmed);
         }
@@ -584,6 +611,7 @@ impl TextTally {
             ),
             date_inference,
             untrimmed_count: self.untrimmed_count,
+            comma_decimal_count: self.comma_decimal_count,
         }
     }
 }
@@ -774,6 +802,9 @@ where
         untrimmed_count: text_statistics
             .as_ref()
             .map(|statistics| statistics.untrimmed_count),
+        comma_decimal_count: text_statistics
+            .as_ref()
+            .map(|statistics| statistics.comma_decimal_count),
     })
 }
 
@@ -796,6 +827,7 @@ pub(super) struct SourceTextAccumulator {
     categorical_candidates: HashMap<GroupKey, usize>,
     date_tally: DateTally,
     untrimmed_count: usize,
+    comma_decimal_count: usize,
     /// How many cells hold each word marker; lone ones are data (FUN-19).
     word_markers: HashMap<String, usize>,
 }
@@ -820,6 +852,7 @@ impl SourceTextAccumulator {
             categorical_candidates: HashMap::with_capacity(MAX_GROUP_CANDIDATES),
             date_tally: DateTally::default(),
             untrimmed_count: 0,
+            comma_decimal_count: 0,
             word_markers: HashMap::new(),
         }
     }
@@ -862,6 +895,9 @@ impl SourceTextAccumulator {
             self.untrimmed_count = self
                 .untrimmed_count
                 .saturating_add(usize::from(trimmed.len() != value.len()));
+            self.comma_decimal_count = self
+                .comma_decimal_count
+                .saturating_add(usize::from(short && is_comma_decimal_number(trimmed)));
             self.value_count = self.value_count.saturating_add(1);
             self.total_length = self.total_length.saturating_add(length);
             self.minimum_length = Some(
@@ -943,6 +979,7 @@ impl SourceTextAccumulator {
                 ),
                 date_inference,
                 untrimmed_count: self.untrimmed_count,
+                comma_decimal_count: self.comma_decimal_count,
             },
             categorical_candidates,
         )
@@ -1219,6 +1256,9 @@ impl SourceColumnAccumulator {
                     .and_then(|statistics| statistics.date_inference)
                     .map(DateInference::has_time),
                 untrimmed_count: text.as_ref().map(|statistics| statistics.untrimmed_count),
+                comma_decimal_count: text
+                    .as_ref()
+                    .map(|statistics| statistics.comma_decimal_count),
             },
             categorical_candidates,
         ))

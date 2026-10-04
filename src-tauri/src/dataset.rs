@@ -1008,6 +1008,10 @@ pub struct ColumnProfile {
     /// Text values with leading or trailing spaces (UX-01).
     #[serde(default)]
     untrimmed_count: Option<usize>,
+    /// Text values written as numbers with a decimal comma («1,5», «1.234,56»),
+    /// which the profile does not read as numbers (PROD-04).
+    #[serde(default)]
+    comma_decimal_count: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]

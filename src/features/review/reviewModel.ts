@@ -87,6 +87,21 @@ export type ProfileStatus =
   | { kind: "ready"; profile: DatasetProfile }
   | { kind: "error"; message: string };
 
+/**
+ * Text columns whose values are, at least 90 %, numbers with a decimal comma:
+ * the profile does not read them as numbers, so Review suggests the import
+ * convention (PROD-04).
+ */
+export function commaDecimalColumns(profile: DatasetProfile): string[] {
+  return profile.columns
+    .filter((column) => {
+      const count = column.commaDecimalCount ?? 0;
+      const filled = profile.rowCount - column.nullCount - (column.emptyCount ?? 0);
+      return count > 0 && filled > 0 && count * 100 >= filled * 90;
+    })
+    .map((column) => column.name);
+}
+
 export function beginProfileAnalysis(): ProfileStatus {
   return {
     kind: "loading",

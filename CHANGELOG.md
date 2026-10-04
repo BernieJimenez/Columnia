@@ -10,6 +10,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Añadido
 
+- Revisar avisa cuando una columna usa coma decimal (1,5 o 1.234,56) y explica
+  cómo volver a cargarla como número con la convención «Decimal coma · miles
+  punto».
 - En el diálogo de importación de un CSV o TXT, «¿Columnas o acentos mal
   leídos?» deja elegir el separador (coma, punto y coma, tabulador o barra
   vertical) y la codificación (UTF-8, Windows-1252, ISO-8859-15, UTF-16) y

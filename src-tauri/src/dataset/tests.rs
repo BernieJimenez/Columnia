@@ -20322,3 +20322,47 @@ fn profiles_agree_on_big_integers_non_finite_floats_and_padded_numbers() {
         );
     }
 }
+
+/// PROD-04: numbers written with a decimal comma are counted, the same in
+/// memory and on a large file, so Review can suggest the import convention.
+#[test]
+fn comma_decimal_numbers_are_counted_in_both_profiles() {
+    for (value, expected) in [
+        ("1,5", true),
+        ("-2,75", true),
+        ("1.234,56", true),
+        ("1 234,5", true),
+        ("1,234", true),
+        ("abc,5", false),
+        ("1.5", false),
+        ("12.34,5", false),
+        ("1,", false),
+    ] {
+        assert_eq!(is_comma_decimal_number(value), expected, "{value}");
+    }
+    let frame = df!(
+        "importe" => ["1,5", "2,75", "1.234,56", "1.000,00", "3"],
+        "nombre" => ["Ana", "Luis", "Eva", "Juan", "Rosa"],
+    )
+    .unwrap();
+    let expected = profile_dataset(&frame).unwrap();
+    assert_eq!(expected.columns[0].comma_decimal_count, Some(4));
+    assert_eq!(expected.columns[1].comma_decimal_count, Some(0));
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("coma.parquet");
+    let mut written = frame.clone();
+    ParquetWriter::new(File::create(&path).unwrap())
+        .finish(&mut written)
+        .unwrap();
+    let actual = profile_source_backed_with_progress(
+        &path,
+        "parquet",
+        fs::metadata(&path).unwrap().len(),
+        frame.height(),
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .unwrap();
+    assert_eq!(actual.columns[0].comma_decimal_count, Some(4));
+}

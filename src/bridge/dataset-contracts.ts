@@ -266,6 +266,8 @@ export interface ColumnProfile {
   dateHasTime: boolean | null;
   /** Text values with leading or trailing spaces (UX-01). */
   untrimmedCount: number | null;
+  /** Text values written with a decimal comma, «1,5» or «1.234,56» (PROD-04). */
+  commaDecimalCount?: number;
 }
 
 export interface DatasetProfile {

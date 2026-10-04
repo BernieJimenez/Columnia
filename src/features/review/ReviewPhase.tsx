@@ -15,6 +15,7 @@ import type { ReadyDatasetStatus } from "../load/loadModel";
 import {
   ANALYSIS_SAMPLE_ROW_OPTIONS,
   isAnalysisSampleRows,
+  commaDecimalColumns,
   nextPageOffset,
   pageRange,
   readAnalysisSampleRowsPreference,
@@ -735,6 +736,7 @@ function QualityProfile({
   const proposal = buildPrepareProposal(profile, dataset);
   const proposalSelection = defaultProposalSelection(proposal);
   const priorityCount = proposal.length;
+  const commaColumns = commaDecimalColumns(profile);
   return (
     <>
       <section className="quality-overview quality-overview--plain" aria-labelledby="quality-overview-title">
@@ -758,6 +760,13 @@ function QualityProfile({
         >
           {proposal.length > 0 ? "Ver cambios propuestos" : "Continuar a Preparar"}
         </button>
+        {commaColumns.length > 0 && (
+          <p className="quality-overview__note" role="note">
+            {commaColumns.length === 1 ? `«${commaColumns[0]}» parece` : `${commaColumns.map((name) => `«${name}»`).join(", ")} parecen`}{" "}
+            usar coma decimal (1,5 o 1.234,56) y por eso no se analiza como número. Vuelve a cargar el archivo eligiendo
+            «Decimal coma · miles punto» en Números.
+          </p>
+        )}
       </section>
       <ReviewMoreTools>
         <QualitySnapshot

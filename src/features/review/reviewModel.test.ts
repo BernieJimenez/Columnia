@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { DatasetPreview } from "../../bridge";
+import type { ColumnProfile, DatasetPreview, DatasetProfile } from "../../bridge";
 import { createReadyDatasetStatus } from "../load/loadModel";
 import {
   ANALYSIS_SAMPLE_ROW_OPTIONS,
@@ -10,6 +10,7 @@ import {
   QUERY_ENGINE_STORAGE_KEY,
   beginPageLoad,
   beginProfileAnalysis,
+  commaDecimalColumns,
   completePageLoad,
   failPageLoad,
   isAnalysisSampleRows,
@@ -132,5 +133,17 @@ describe("reviewModel", () => {
       cancelRequested: true,
     });
     expect(requestProfileCancellation({ kind: "idle" })).toEqual({ kind: "idle" });
+  });
+});
+
+describe("commaDecimalColumns (PROD-04)", () => {
+  it("sugiere la convención cuando al menos el 90 % usa coma decimal", () => {
+    const column = (name: string, commaDecimalCount: number, nullCount = 0) =>
+      ({ name, nullCount, emptyCount: 0, commaDecimalCount }) as unknown as ColumnProfile;
+    const profile = {
+      rowCount: 10,
+      columns: [column("importe", 9), column("mixto", 8), column("vacio", 0), column("con_nulos", 5, 5)],
+    } as unknown as DatasetProfile;
+    expect(commaDecimalColumns(profile)).toEqual(["importe", "con_nulos"]);
   });
 });
