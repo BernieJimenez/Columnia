@@ -188,6 +188,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- CLI: los archivos que no se pueden leer explican por qué (UTF-16, no UTF-8
+  como el Windows-1252 de Excel, finales de línea mezclados, título antes de la
+  cabecera o una fila con columnas de más) y el JSON guardado con BOM por el
+  Bloc de notas se carga.
 - Una receta sin pasos sobre un archivo muy grande (por ejemplo, para convertir
   un CSV de 5,6 GB a Parquet) ya no intenta cargarlo entero en memoria: se
   exporta directamente (42 millones de filas en 39 s).

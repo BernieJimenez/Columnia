@@ -1043,31 +1043,117 @@ fn validate_input_options(
     }
 }
 
+/// Why `input` could not be read, when a look at its first bytes tells
+/// (PROD-01): encoding, mixed line endings or rows of different widths. The
+/// message names the cause and never shows the file's content.
+fn input_problem(input: &Path) -> Option<String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    fs::File::open(input)
+        .ok()?
+        .take(1024 * 1024)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
+        return Some("El archivo está en UTF-16; guárdalo como UTF-8 (en Columnia, Cargar ofrece convertirlo).".to_owned());
+    }
+    let zero_bytes = bytes.iter().filter(|byte| **byte == 0).count();
+    if bytes.len() >= 4 && zero_bytes * 4 >= bytes.len() {
+        return Some(
+            "El archivo parece estar en UTF-16 sin marca; guárdalo como UTF-8.".to_owned(),
+        );
+    }
+    let text = match std::str::from_utf8(&bytes) {
+        Ok(text) => text,
+        // A cut in the middle of a character at the 1 MiB limit is not an error.
+        Err(error) if error.error_len().is_none() => {
+            std::str::from_utf8(&bytes[..error.valid_up_to()]).ok()?
+        }
+        Err(_) => {
+            return Some("El archivo no está en UTF-8 (parece Windows-1252 o MacRoman, habitual en Excel en español); guárdalo como UTF-8 o conviértelo en Columnia desde Cargar.".to_owned());
+        }
+    };
+    let extension = input
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    if !matches!(extension.as_str(), "csv" | "tsv" | "txt") {
+        return None;
+    }
+    let has_crlf = text.contains("\r\n");
+    let has_lone_cr = text
+        .as_bytes()
+        .windows(2)
+        .any(|pair| pair[0] == b'\r' && pair[1] != b'\n');
+    let has_lone_lf = text.replace("\r\n", "").contains('\n');
+    if [has_crlf, has_lone_cr, has_lone_lf]
+        .iter()
+        .filter(|kind| **kind)
+        .count()
+        > 1
+    {
+        return Some("El archivo mezcla finales de línea (CRLF, LF y CR); guárdalo con un solo tipo de salto de línea.".to_owned());
+    }
+    let delimiter = [',', ';', '\t', '|'].into_iter().max_by_key(|delimiter| {
+        text.lines()
+            .take(50)
+            .map(|line| line.matches(*delimiter).count())
+            .sum::<usize>()
+    })?;
+    let width = |line: &str| {
+        let mut fields = 1;
+        let mut quoted = false;
+        for character in line.chars() {
+            match character {
+                '"' => quoted = !quoted,
+                character if character == delimiter && !quoted => fields += 1,
+                _ => {}
+            }
+        }
+        fields
+    };
+    let mut lines = text
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty());
+    let (_, first) = lines.next()?;
+    let header = width(first);
+    for (index, line) in lines.take(10_000) {
+        let fields = width(line);
+        if fields != header {
+            return Some(format!(
+                "La línea {} tiene {fields} columnas y la primera línea {header}; revisa si hay un título antes de la cabecera o un separador de más.",
+                index + 1
+            ));
+        }
+    }
+    None
+}
+
+fn input_error(input: &Path, summary: &str) -> AutomationError {
+    match input_problem(input) {
+        Some(cause) => AutomationError::new(format!("{summary} {cause}")),
+        None => AutomationError::new(format!(
+            "{summary} Verifica que sea un archivo regular y válido."
+        )),
+    }
+}
+
 pub fn inspect(
     input: &Path,
     sheet: Option<&str>,
     header: Option<SpreadsheetHeaderMode>,
 ) -> Result<InspectOutput, AutomationError> {
     validate_input_options(input, sheet, header)?;
-    let preview = if dataset::should_use_source_backed_automation(input, sheet, header).map_err(
-        |_| {
-            AutomationError::new(
-                "No se pudo inspeccionar el dataset. Verifica que sea un archivo regular y válido.",
-            )
-        },
-    )? {
-        dataset::inspect_source_backed_for_automation(input, sheet, header).map_err(|_| {
-            AutomationError::new(
-                "No se pudo inspeccionar el dataset. Verifica que sea un archivo regular y válido.",
-            )
-        })?
+    let preview = if dataset::should_use_source_backed_automation(input, sheet, header)
+        .map_err(|_| input_error(input, "No se pudo inspeccionar el dataset."))?
+    {
+        dataset::inspect_source_backed_for_automation(input, sheet, header)
+            .map_err(|_| input_error(input, "No se pudo inspeccionar el dataset."))?
     } else {
         dataset::load_dataset_for_automation(input, sheet, header)
-            .map_err(|_| {
-                AutomationError::new(
-                    "No se pudo inspeccionar el dataset. Verifica que sea un archivo regular y válido.",
-                )
-            })?
+            .map_err(|_| input_error(input, "No se pudo inspeccionar el dataset."))?
             .1
     };
     Ok(InspectOutput {
@@ -1123,11 +1209,9 @@ pub fn transform_with_options(
 
     let stored_recipe = dataset::load_stored_recipe_for_automation(recipe)
         .map_err(|_| AutomationError::new("No se pudo cargar una receta Columnia válida."))?;
-    if dataset::should_use_source_backed_automation(input, sheet, header).map_err(|_| {
-        AutomationError::new(
-            "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
-        )
-    })? {
+    if dataset::should_use_source_backed_automation(input, sheet, header)
+        .map_err(|_| input_error(input, "No se pudo cargar el dataset."))?
+    {
         let result = dataset::transform_source_backed_for_automation(
             input,
             sheet,
@@ -1137,9 +1221,9 @@ pub fn transform_with_options(
             format.dataset_format(),
         )
         .map_err(|error| match error {
-            dataset::AutomationTransformError::Load => AutomationError::new(
-                "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
-            ),
+            dataset::AutomationTransformError::Load => {
+                input_error(input, "No se pudo cargar el dataset.")
+            }
             dataset::AutomationTransformError::Recipe => {
                 AutomationError::new("La receta no es válida para el dataset de entrada.")
             }
@@ -1163,11 +1247,8 @@ pub fn transform_with_options(
         });
     }
 
-    let (source, _) = dataset::load_dataset_for_automation(input, sheet, header).map_err(|_| {
-        AutomationError::new(
-            "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
-        )
-    })?;
+    let (source, _) = dataset::load_dataset_for_automation(input, sheet, header)
+        .map_err(|_| input_error(input, "No se pudo cargar el dataset."))?;
     let summary_before = (source.height(), source.width());
     let (candidate, changed) = dataset::apply_recipe_for_automation(&source, &stored_recipe.recipe)
         .map_err(|_| AutomationError::new("La receta no es válida para el dataset de entrada."))?;
@@ -1207,30 +1288,21 @@ pub fn validate(
     validate_input_options(input, sheet, header)?;
     let quality_rules = dataset::load_quality_rules_for_automation(rules)
         .map_err(|_| AutomationError::new("No se pudo cargar un contrato de calidad v1 válido."))?;
-    let result =
-        if dataset::should_use_source_backed_automation(input, sheet, header).map_err(|_| {
-            AutomationError::new(
-                "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
-            )
-        })? {
-            dataset::evaluate_source_backed_quality_rules_for_automation(
-                input,
-                sheet,
-                header,
-                &quality_rules,
-            )
-        } else {
-            let (source, _) =
-                dataset::load_dataset_for_automation(input, sheet, header).map_err(|_| {
-                    AutomationError::new(
-                "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
-            )
-                })?;
-            dataset::evaluate_quality_rules_for_automation(&source, &quality_rules)
-        }
-        .map_err(|_| {
-            AutomationError::new("El contrato de calidad no es válido para el dataset.")
-        })?;
+    let result = if dataset::should_use_source_backed_automation(input, sheet, header)
+        .map_err(|_| input_error(input, "No se pudo cargar el dataset."))?
+    {
+        dataset::evaluate_source_backed_quality_rules_for_automation(
+            input,
+            sheet,
+            header,
+            &quality_rules,
+        )
+    } else {
+        let (source, _) = dataset::load_dataset_for_automation(input, sheet, header)
+            .map_err(|_| input_error(input, "No se pudo cargar el dataset."))?;
+        dataset::evaluate_quality_rules_for_automation(&source, &quality_rules)
+    }
+    .map_err(|_| AutomationError::new("El contrato de calidad no es válido para el dataset."))?;
     Ok(ValidateOutput {
         schema_version: 1,
         command: "validate",
@@ -1274,21 +1346,13 @@ pub fn project_save(
         None => false,
     };
     let source_backed = dataset::should_use_source_backed_automation(input, sheet, header)
-        .map_err(|_| {
-            AutomationError::new(
-                "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
-            )
-        })?;
+        .map_err(|_| input_error(input, "No se pudo cargar el dataset."))?;
     let (dataset, _preview) = if source_backed {
         DatasetState::for_source_backed_project_import(input, sheet, header)
             .map_err(|_| AutomationError::new("No se pudo preparar el proyecto."))?
     } else {
-        let (frame, preview) =
-            dataset::load_dataset_for_automation(input, sheet, header).map_err(|_| {
-                AutomationError::new(
-                    "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
-                )
-            })?;
+        let (frame, preview) = dataset::load_dataset_for_automation(input, sheet, header)
+            .map_err(|_| input_error(input, "No se pudo cargar el dataset."))?;
         (
             DatasetState::for_project_import(frame, preview.file_name.clone())
                 .map_err(|_| AutomationError::new("No se pudo preparar el proyecto."))?,
@@ -1949,6 +2013,43 @@ mod tests {
         ])
         .unwrap();
         assert!(matches!(parsed, CliCommand::Transform { force: true, .. }));
+    }
+
+    /// PROD-01: an unreadable input names its cause, and JSON with a UTF-8 BOM loads.
+    #[test]
+    fn unreadable_inputs_name_their_cause() {
+        let directory = tempfile::tempdir().unwrap();
+        let cases: [(&str, &[u8], &str); 5] = [
+            ("utf16.csv", b"\xFF\xFEi\x00d\x00", "UTF-16"),
+            ("ansi.csv", b"nombre\nJos\xE9\n", "no está en UTF-8"),
+            (
+                "mixto.csv",
+                b"id,n\r\n1,a\n2,b\r3,c\r\n",
+                "finales de línea",
+            ),
+            (
+                "titulo.csv",
+                b"Informe 2024\n\nid,n\n1,a\n",
+                "La línea 3 tiene 2 columnas",
+            ),
+            (
+                "extra.csv",
+                b"id,n\n1,a\n2,b,c\n",
+                "La línea 3 tiene 3 columnas",
+            ),
+        ];
+        for (name, bytes, cause) in cases {
+            let path = directory.path().join(name);
+            fs::write(&path, bytes).unwrap();
+            let error = inspect(&path, None, None).unwrap_err().to_string();
+            assert!(error.contains(cause), "{name}: {error}");
+        }
+        let json = directory.path().join("bom.json");
+        fs::write(&json, b"\xEF\xBB\xBF[{\"id\": 1}, {\"id\": 2}]").unwrap();
+        assert_eq!(
+            inspect(&json, None, None).expect("JSON con BOM").row_count,
+            2
+        );
     }
 
     /// FUN-30: refreshing a project's data with `--id` keeps the rules and the

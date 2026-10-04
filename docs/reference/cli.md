@@ -154,6 +154,10 @@ Borra únicamente cuando `--confirm` coincide exactamente con `--id`.
   llegar a stdout. Las rutas, nombres de archivo, valores, emails y secretos
   se mantienen en Rust y no aparecen en stdout ni en errores de contrato.
 - La exportación es atómica y un fallo conserva un destino anterior.
+- Si un archivo no se puede leer, el error nombra la causa cuando se reconoce
+  (UTF-16, codificación distinta de UTF-8, finales de línea mezclados o una
+  línea con distinto número de columnas) sin mostrar su contenido. El JSON con
+  marca de orden de bytes UTF-8 se acepta.
 
 ## Relacionado
 

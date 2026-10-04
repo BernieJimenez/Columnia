@@ -196,6 +196,10 @@ fn first_non_whitespace_json_byte<R>(reader: &mut R) -> std::io::Result<Option<u
 where
     R: BufRead,
 {
+    // PROD-01: Notepad saves JSON with a UTF-8 byte order mark.
+    if reader.fill_buf()?.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        reader.consume(3);
+    }
     loop {
         let (whitespace, first, at_eof) = {
             let buffer = reader.fill_buf()?;
