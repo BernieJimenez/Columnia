@@ -4,55 +4,41 @@ pub(super) fn source_backed_projection_recipe_supported(
     schema: &DataFrame,
     recipe: &TransformRecipe,
 ) -> bool {
-    (!recipe.renames.is_empty()
-        || recipe.keep_columns.is_some()
-        || !recipe.filters.is_empty()
-        || !recipe.casts.is_empty()
-        || !recipe.date_parses.is_empty()
-        || recipe.calculated_column.is_some()
-        || recipe.find_replace.is_some()
-        || recipe.split_column.is_some()
-        || recipe.merge_columns.is_some()
-        || !recipe.contact_normalizations.is_empty()
-        || !recipe.text_extractions.is_empty()
-        || recipe.group_summary.is_some()
-        || !recipe.outlier_treatments.is_empty())
-        && recipe.date_parses.iter().all(|parse| {
-            matches!(
-                parse.format,
-                RecipeDateFormat::Ymd
-                    | RecipeDateFormat::Dmy
-                    | RecipeDateFormat::Mdy
-                    | RecipeDateFormat::Iso8601
-            )
+    // DAT-09: an empty recipe is a no-op the projection handles without
+    // loading the file into memory.
+    recipe.date_parses.iter().all(|parse| {
+        matches!(
+            parse.format,
+            RecipeDateFormat::Ymd
+                | RecipeDateFormat::Dmy
+                | RecipeDateFormat::Mdy
+                | RecipeDateFormat::Iso8601
+        )
+    }) && recipe
+        .calculated_column
+        .as_ref()
+        .is_none_or(|calculation| match calculation.operation {
+            CalculatedOperation::Add
+            | CalculatedOperation::Subtract
+            | CalculatedOperation::Multiply
+            | CalculatedOperation::Concat => true,
+            CalculatedOperation::Year | CalculatedOperation::Month | CalculatedOperation::Day => {
+                recipe
+                    .casts
+                    .iter()
+                    .all(|cast| cast.column != calculation.source)
+                    && (recipe_column(schema, &calculation.source).is_ok_and(|column| {
+                        matches!(column.dtype(), DataType::Date | DataType::Datetime(_, None))
+                    }) || recipe.date_parses.iter().any(|parse| {
+                        parse.column == calculation.source
+                            && matches!(
+                                parse.target,
+                                RecipeDateTarget::Date | RecipeDateTarget::Datetime
+                            )
+                    }))
+            }
+            CalculatedOperation::Divide => calculation.operand.is_some(),
         })
-        && recipe
-            .calculated_column
-            .as_ref()
-            .is_none_or(|calculation| match calculation.operation {
-                CalculatedOperation::Add
-                | CalculatedOperation::Subtract
-                | CalculatedOperation::Multiply
-                | CalculatedOperation::Concat => true,
-                CalculatedOperation::Year
-                | CalculatedOperation::Month
-                | CalculatedOperation::Day => {
-                    recipe
-                        .casts
-                        .iter()
-                        .all(|cast| cast.column != calculation.source)
-                        && (recipe_column(schema, &calculation.source).is_ok_and(|column| {
-                            matches!(column.dtype(), DataType::Date | DataType::Datetime(_, None))
-                        }) || recipe.date_parses.iter().any(|parse| {
-                            parse.column == calculation.source
-                                && matches!(
-                                    parse.target,
-                                    RecipeDateTarget::Date | RecipeDateTarget::Datetime
-                                )
-                        }))
-                }
-                CalculatedOperation::Divide => calculation.operand.is_some(),
-            })
         && recipe.find_replace.as_ref().is_none_or(|replacement| {
             !replacement.find.contains('\0')
                 && !replacement.replace.contains('\0')

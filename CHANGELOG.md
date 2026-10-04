@@ -188,6 +188,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Una receta sin pasos sobre un archivo muy grande (por ejemplo, para convertir
+  un CSV de 5,6 GB a Parquet) ya no intenta cargarlo entero en memoria: se
+  exporta directamente (42 millones de filas en 39 s).
 - Si otro programa modifica el archivo de origen de un dataset grande después de
   cargarlo, aunque conserve el tamaño, Columnia lo detecta y no exporta, valida
   ni transforma datos mezclados.

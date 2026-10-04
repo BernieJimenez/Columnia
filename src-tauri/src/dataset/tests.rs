@@ -20393,3 +20393,19 @@ fn a_same_size_edit_of_the_source_is_noticed() {
     assert!(error.contains("cambió"), "{error}");
     fs::remove_file(path).ok();
 }
+
+/// DAT-09: a recipe without steps leaves a large file untouched and does not
+/// load it into memory.
+#[test]
+fn an_empty_recipe_keeps_a_large_file_on_disk() {
+    let (path, _, mut dataset) = source_backed_csv_dataset("nombre,valor\nAna,1\nLuis,2\n");
+    assert!(source_backed_projection_recipe_supported(
+        &dataset.frame,
+        &TransformRecipe::default()
+    ));
+    let result = apply_recipe_to_dataset(&mut dataset, &TransformRecipe::default())
+        .expect("la receta vacía no cambia nada");
+    assert!(!result.changed);
+    assert!(dataset.source_backed, "el dataset sigue en disco");
+    fs::remove_file(path).ok();
+}
