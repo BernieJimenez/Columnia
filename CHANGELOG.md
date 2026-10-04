@@ -123,6 +123,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Seguridad
 
+- La política «sin red oculta» detecta más vías de salida (sendBeacon,
+  WebTransport, WebRTC, imágenes, importaciones remotas, accesos calculados y
+  sockets de Rust), revisa index.html, build.rs y las dependencias de
+  Cargo.toml, solo admite 'unsafe-inline' en estilos y limita la excepción del
+  actualizador a su módulo.
 - Los gates del actualizador exigen que el manifiesto anuncie la versión que se
   publica (sin downgrades), que el instalador esté en un host permitido y que la
   descarga no supere un tamaño máximo; la clave pública alternativa solo se

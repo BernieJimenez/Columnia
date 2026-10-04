@@ -8,26 +8,60 @@ try {
 } catch {
   projectRoot = resolve(process.cwd());
 }
-const sourceRoots = ["src", "src-tauri/src"];
-const sourceExtensions = new Set([".ts", ".tsx", ".rs"]);
+const sourceRoots = ["src", "src-tauri/src", "public"];
+// QA-24: files outside the source roots that can open the network too.
+const extraSourceFiles = ["index.html", "src-tauri/build.rs"];
+const sourceExtensions = new Set([".ts", ".tsx", ".rs", ".js", ".mjs", ".html"]);
 const frontendForbiddenPatterns = [
   /\bfetch\s*\(/,
   /\bXMLHttpRequest\b/,
   /\bWebSocket\b/,
   /\bEventSource\b/,
-  /\b(?:sentry|posthog|plausible|amplitude|analytics|telemetry)\b/i,
+  /\bsendBeacon\b/,
+  /\bWebTransport\b/,
+  /\bRTCPeerConnection\b/,
+  /\bnew\s+Image\s*\(/,
+  /\bimport\s*\(\s*["'`]https?:/,
+  /<script[^>]+\bsrc\s*=\s*["']https?:/i,
+  // Computed access hides a name: globalThis["fe" + "tch"], window["…"].
+  /\b(?:globalThis|window|self)\s*\[\s*["'`]/,
+  // SDK packages, not every word that mentions analytics.
+  /(?:from\s+|require\(\s*|import\(\s*)["'](?:@sentry\/|posthog|plausible|@amplitude\/|amplitude-js|@vercel\/analytics|@segment\/)/,
 ];
 const rustForbiddenPatterns = [
-  /\b(?:reqwest|ureq|surf|hyper)::/,
-  /\b(?:sentry|posthog|plausible|amplitude|analytics|telemetry)\b/i,
+  /\b(?:reqwest|ureq|surf|hyper|isahc|attohttpc|tungstenite|native_tls|curl)\b(?:::|\s*;)/,
+  /\b(?:std|tokio|async_std)::net\b/,
+  /\b(?:TcpStream|UdpSocket|TcpListener)\b/,
+  /\b(?:sentry|opentelemetry|posthog)::/,
 ];
+// Crates that open the network; a direct dependency must be declared below.
+const networkCrates = ["reqwest", "ureq", "surf", "hyper", "isahc", "attohttpc", "tungstenite", "tokio-tungstenite", "native-tls", "curl", "sentry", "opentelemetry", "posthog-rs"];
 
 // Declared, user-initiated network exits. Any other file using these crates is
 // a new outbound channel and must be reviewed before it is added here.
 export const declaredEgress = [
   { crate: "odbc_api", files: ["src-tauri/src/remote_databases.rs"], reason: "entrega ODBC por acción explícita" },
-  { crate: "tauri_plugin_updater", files: ["src-tauri/src/updater.rs", "src-tauri/src/lib.rs"], reason: "updater firmado, solo con endpoint de distribución" },
+  // QA-24: in lib.rs only the line that registers the plugin.
+  { crate: "tauri_plugin_updater", files: ["src-tauri/src/updater.rs"], lines: { "src-tauri/src/lib.rs": /\.plugin\(\s*tauri_plugin_updater::Builder::new\(\)\.build\(\)\s*\)/ }, reason: "updater firmado, solo con endpoint de distribución" },
 ];
+
+/** Direct dependencies of Cargo.toml that open the network (QA-24). */
+export function findCargoNetworkDependencies(cargoToml) {
+  const violations = [];
+  let inDependencies = false;
+  for (const line of cargoToml.split(/\r?\n/)) {
+    const section = line.match(/^\s*\[(.+)\]\s*$/);
+    if (section) {
+      inDependencies = /(^|\.)(dependencies|build-dependencies)$/.test(section[1].trim());
+      continue;
+    }
+    const name = inDependencies ? line.match(/^\s*([A-Za-z0-9_-]+)\s*=/)?.[1] : undefined;
+    if (name && networkCrates.includes(name)) {
+      violations.push({ file: "src-tauri/Cargo.toml", pattern: `dependencia de red ${name}` });
+    }
+  }
+  return violations;
+}
 
 export function findPolicyViolations(contents, file) {
   const extension = file.slice(file.lastIndexOf(".")).toLowerCase();
@@ -37,9 +71,13 @@ export function findPolicyViolations(contents, file) {
     .map((pattern) => ({ file, pattern: pattern.source }));
   if (extension === ".rs") {
     for (const egress of declaredEgress) {
-      if (new RegExp(`\\b${egress.crate}::`).test(contents) && !egress.files.includes(file)) {
-        violations.push({ file, pattern: `${egress.crate} fuera de ${egress.files.join(", ")}` });
-      }
+      const usage = new RegExp(`\\b${egress.crate}::`);
+      if (!usage.test(contents) || egress.files.includes(file)) continue;
+      const allowedLine = egress.lines?.[file];
+      const stray = allowedLine
+        ? contents.split(/\r?\n/).some((line) => usage.test(line) && !allowedLine.test(line))
+        : true;
+      if (stray) violations.push({ file, pattern: `${egress.crate} fuera de ${egress.files.join(", ")}` });
     }
   }
   return violations;
@@ -74,6 +112,11 @@ export function findCspViolations(tauriConfig) {
     }
     for (const [directive, value] of Object.entries(cspDirectives(csp))) {
       for (const source of String(value).split(/\s+/).filter(Boolean)) {
+        // QA-24: inline code only for styles, never for scripts.
+        if (source === "'unsafe-inline'" && directive !== "style-src") {
+          violations.push({ file: "src-tauri/tauri.conf.json", pattern: `app.security.${key} ${directive} 'unsafe-inline'` });
+          continue;
+        }
         if (!cspAllowedSources[kind].has(source)) {
           violations.push({ file: "src-tauri/tauri.conf.json", pattern: `app.security.${key} ${directive} ${source}` });
         }
@@ -98,11 +141,25 @@ export async function runNetworkPolicyCheck() {
   const evidencePath = join(evidenceDirectory, "summary.json");
   const violations = [];
   for (const root of sourceRoots) {
-    for (const path of await collectSources(join(projectRoot, root))) {
+    let paths = [];
+    try {
+      paths = await collectSources(join(projectRoot, root));
+    } catch {
+      continue;
+    }
+    for (const path of paths) {
       const contents = await readFile(path, "utf8");
       violations.push(...findPolicyViolations(contents, relative(projectRoot, path).replaceAll("\\", "/")));
     }
   }
+  for (const file of extraSourceFiles) {
+    try {
+      violations.push(...findPolicyViolations(await readFile(join(projectRoot, file), "utf8"), file));
+    } catch {
+      // A missing optional file has nothing to scan.
+    }
+  }
+  violations.push(...findCargoNetworkDependencies(await readFile(join(projectRoot, "src-tauri", "Cargo.toml"), "utf8")));
 
   const tauriConfig = JSON.parse(await readFile(join(projectRoot, "src-tauri", "tauri.conf.json"), "utf8"));
   const cspViolations = findCspViolations(tauriConfig);
