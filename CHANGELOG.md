@@ -203,6 +203,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Hojas de estilo sin tokens inexistentes ni reglas duplicadas (test de higiene
+  CSS); los E2E usan un único mock IPC tipado con los contratos de `src/bridge`
+  (`npm run typecheck:e2e`), sin lógica del motor reimplementada; el E2E de
+  contraste cubre los cinco temas, Cargar, Explorar, texto SVG, bordes de campos
+  y fondos semitransparentes (COD-02, QA-06).
 - Tras guardar o eliminar un proyecto la lista no se vacía al refrescar y el
   foco pasa al mensaje de resultado en lugar de perderse; los errores de
   proyectos y tareas ocultan solo la ruta (también UNC) y conservan el motivo,

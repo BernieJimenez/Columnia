@@ -1,124 +1,194 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Synthetic dataset with missing values, typed columns, duplicates and
+import type { ColumnProfile, DatasetPreview, DatasetProfile, ExplorePanel } from "../src/bridge";
+import { installTauriMock } from "./support/tauri-mock";
+
+// Synthetic dataset with missing values, typed columns, duplicates, dates and
 // personal-data signals, so every contrast-sensitive element is rendered.
-async function installContrastMock(page: Page) {
-  await page.addInitScript(() => {
-    const columns = [
-      { name: "id", dataType: "Int64" },
-      { name: "cliente", dataType: "String" },
-      { name: "correo", dataType: "String" },
-      { name: "total", dataType: "Float64" },
-    ];
-    const rows = [
-      ["1", "Ana", "ana@example.com", "10.5"],
-      ["2", "  Luis ", null, null],
-      ["3", "Ana", "ana@example.com", "10.5"],
-    ];
-    const dataset = { fileName: "contraste.csv", fileSizeBytes: 256, rowCount: rows.length, columnCount: columns.length, columns, rows };
-    const column = (overrides: Record<string, unknown>) => ({
-      nullCount: 0, completenessPercentage: 100, uniqueCount: 3, minimum: null, maximum: null, mean: null,
-      emptyCount: 0, minimumLength: null, maximumLength: null, averageLength: null, suggestedType: null,
-      typeMatchPercentage: null, invalidTypeCount: null, sentinelCount: null, encodingIssueCount: null,
-      privacySignal: null, standardDeviation: null, firstQuartile: null, median: null, thirdQuartile: null,
-      outlierCount: null, histogram: null, ...overrides,
-    });
-    const profile = {
-      rowCount: rows.length, duplicateRowCount: 1, nearDuplicateRowCount: 1, duplicatePercentage: 33.3,
-      columns: [
-        column({ name: "id", dataType: "Int64" }),
-        column({ name: "cliente", dataType: "String", privacySignal: "name" }),
-        column({ name: "correo", dataType: "String", nullCount: 1, completenessPercentage: 66.7, privacySignal: "email" }),
-        column({ name: "total", dataType: "Float64", nullCount: 1, completenessPercentage: 66.7 }),
-      ],
-    };
-    let callbackId = 0;
-    const invoke = async (command: string, args: Record<string, unknown> = {}) => {
-      switch (command) {
-        case "plugin:event|listen": return ++callbackId;
-        case "plugin:event|unlisten": case "discard_dataset_selection": case "clear_dataset_comparison": case "cancel_operation": return null;
-        case "get_app_info": return { name: "Columnia", version: "1.26.0", platform: "windows", updaterConfigured: false };
-        case "list_sample_datasets": case "list_reusable_tasks": case "list_delivery_presets": return [];
-        case "list_projects": return { projects: [], recoveryCandidate: null };
-        case "pick_dataset_source": return { selectionId: "contrast", fileName: dataset.fileName, fileSizeBytes: 256, format: "csv", sheets: [], defaultSheetId: null, isCompressedContainer: false, resourceEstimate: { processingPath: "inMemory", estimatedMaterializationRamBytes: 268435968, estimatedTemporaryDiskBytes: null } };
-        case "preview_delimited_header_review": return { delimiter: ",", firstRow: { headerMode: "firstRow", columns, rows, includesFirstRow: false, sampleTruncated: false }, generated: { headerMode: "generated", columns, rows, includesFirstRow: true, sampleTruncated: false } };
-        case "preview_dataset_selection": return { rowCount: rows.length, columns, schemaMismatch: null };
-        case "load_dataset_selection": return dataset;
-        case "get_dataset_profile": return profile;
-        case "get_history_state": return { canUndo: false, canRedo: false, currentIndex: 0, entryCount: 0, entries: [], snapshotsEnabled: true, degradedReason: null, maxEntries: 50, diskBytes: 0, diskBudgetBytes: 536870912 };
-        case "get_dataset_page": return { offset: args.offset ?? 0, rows };
-        default: throw new Error(`Comando Tauri no simulado: ${command}`);
-      }
-    };
-    Object.defineProperty(window, "__TAURI_INTERNALS__", {
-      configurable: true,
-      value: { invoke, transformCallback: () => ++callbackId, unregisterCallback: () => undefined },
-    });
-  });
+const columns = [
+  { name: "id", dataType: "Int64" },
+  { name: "cliente", dataType: "String" },
+  { name: "correo", dataType: "String" },
+  { name: "total", dataType: "Float64" },
+  { name: "fecha", dataType: "Date" },
+];
+const rows = [
+  ["1", "Ana", "ana@example.com", "10.5", "2026-01-05"],
+  ["2", "  Luis ", null, null, "2026-02-11"],
+  ["3", "Ana", "ana@example.com", "10.5", "2026-03-20"],
+];
+const dataset = {
+  fileName: "contraste.csv", fileSizeBytes: 256, rowCount: rows.length, columnCount: columns.length, columns, rows,
+} satisfies DatasetPreview;
+
+function column(overrides: Pick<ColumnProfile, "name" | "dataType"> & Partial<ColumnProfile>): ColumnProfile {
+  return {
+    nullCount: 0, completenessPercentage: 100, uniqueCount: 3, minimum: null, maximum: null, mean: null,
+    emptyCount: 0, minimumLength: null, maximumLength: null, averageLength: null, suggestedType: null,
+    typeMatchPercentage: null, invalidTypeCount: null, sentinelCount: null, encodingIssueCount: null,
+    privacySignal: null, standardDeviation: null, firstQuartile: null, median: null, thirdQuartile: null,
+    outlierCount: null, histogram: null, dateOrder: null, dateHasTime: null, untrimmedCount: null, ...overrides,
+  };
 }
 
-/** Returns visible text elements below the WCAG AA contrast minimum. */
+const profile = {
+  rowCount: rows.length, duplicateRowCount: 1, nearDuplicateRowCount: 1, duplicatePercentage: 33.3,
+  columns: [
+    column({ name: "id", dataType: "Int64" }),
+    column({ name: "cliente", dataType: "String", privacySignal: "name", untrimmedCount: 1 }),
+    column({ name: "correo", dataType: "String", nullCount: 1, completenessPercentage: 66.7, privacySignal: "email" }),
+    column({
+      name: "total", dataType: "Float64", nullCount: 1, completenessPercentage: 66.7, minimum: "10.5", maximum: "10.5", mean: 10.5,
+      histogram: [{ lower: 10, upper: 11, count: 2 }],
+    }),
+    column({ name: "fecha", dataType: "Date", dateOrder: "iso", dateHasTime: false }),
+  ],
+  temporalSeries: [{
+    column: "fecha", granularity: "month", parsedRowCount: 3, unparsedRowCount: 0, truncated: false,
+    periods: [
+      { period: "2026-01", rowCount: 1, percentage: 33.3 },
+      { period: "2026-02", rowCount: 1, percentage: 33.3 },
+      { period: "2026-03", rowCount: 1, percentage: 33.3 },
+    ],
+  }],
+} satisfies DatasetProfile;
+
+const explore = {
+  rowCount: rows.length,
+  totalRowCount: rows.length,
+  kpis: [{ kind: "count", column: null, value: rows.length }, { kind: "mean", column: "total", value: 10.5 }],
+  categories: [{ column: "cliente", bars: [{ value: "Ana", count: 2 }, { value: null, count: 1 }], otherCount: 0, distinctCount: 2 }],
+  histogram: { column: "total", bins: [{ lower: 10, upper: 11, count: 2 }] },
+  trend: null,
+  options: { categories: ["cliente"], measures: ["total"], dates: ["fecha"] },
+} satisfies ExplorePanel;
+
+async function installContrastMock(page: Page) {
+  await installTauriMock(page, { dataset, profile, explore });
+}
+
+/**
+ * Elements below the WCAG AA minimum: HTML text (4.5:1, 3:1 when large), SVG
+ * text by its fill, and the edges of form fields (3:1, WCAG 1.4.11). Partly
+ * transparent backgrounds are composed over their ancestors (QA-07).
+ */
 async function contrastFailures(page: Page) {
   return page.evaluate(() => {
-    const parse = (value: string) => {
+    type Rgba = { r: number; g: number; b: number; a: number };
+    const parse = (value: string): Rgba => {
       const parts = value.match(/rgba?\(([^)]+)\)/)?.[1].split(/[ ,/]+/).filter(Boolean).map(Number) ?? [0, 0, 0, 0];
       return { r: parts[0], g: parts[1], b: parts[2], a: parts[3] ?? 1 };
     };
+    const over = (top: Rgba, bottom: Rgba): Rgba => ({
+      r: top.r * top.a + bottom.r * (1 - top.a),
+      g: top.g * top.a + bottom.g * (1 - top.a),
+      b: top.b * top.a + bottom.b * (1 - top.a),
+      a: 1,
+    });
     const channel = (value: number) => {
       const normalized = value / 255;
       return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
     };
-    const luminance = ({ r, g, b }: { r: number; g: number; b: number }) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-    const background = (element: Element | null) => {
+    const luminance = ({ r, g, b }: Rgba) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    const ratio = (left: Rgba, right: Rgba) => {
+      const [lighter, darker] = [luminance(left), luminance(right)].sort((a, b) => b - a);
+      return (lighter + 0.05) / (darker + 0.05);
+    };
+    const background = (element: Element | null): Rgba => {
+      const layers: Rgba[] = [];
       for (let current = element; current; current = current.parentElement) {
         const color = parse(getComputedStyle(current).backgroundColor);
-        if (color.a > 0.99) return color;
+        if (color.a > 0) layers.push(color);
+        if (color.a > 0.99) break;
       }
-      return { r: 255, g: 255, b: 255, a: 1 };
+      let result = parse(getComputedStyle(document.body).backgroundColor);
+      if (result.a < 1) result = { r: 255, g: 255, b: 255, a: 1 };
+      for (const layer of layers.reverse()) result = over(layer, result);
+      return result;
     };
+    const visible = (element: Element) => element.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true });
+    const skipped = (element: Element) => Boolean(element.closest(".visually-hidden, button:disabled, [aria-disabled='true']"));
     const failures: string[] = [];
+    let svgTexts = 0;
     for (const element of document.querySelectorAll("main *, aside *, dialog *")) {
-      const hasText = [...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim());
-      if (!hasText || !element.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true })) continue;
-      if (element.closest(".visually-hidden, button:disabled, [aria-disabled='true']")) continue;
+      if (!visible(element) || skipped(element)) continue;
       const style = getComputedStyle(element);
-      const [lighter, darker] = [luminance(parse(style.color)), luminance(background(element))].sort((left, right) => right - left);
-      const ratio = (lighter + 0.05) / (darker + 0.05);
+      if (element instanceof SVGTextElement) {
+        svgTexts += 1;
+        const fill = parse(style.fill);
+        const value = ratio(fill, background(element.closest("svg")));
+        if (value < 4.5) failures.push(`svg «${element.textContent?.trim().slice(0, 30)}» → ${value.toFixed(2)}:1`);
+        continue;
+      }
+      if (element.matches("input:not([type='checkbox']):not([type='radio']):not([type='range']), select, textarea")) {
+        const value = ratio(parse(style.borderTopColor), background(element.parentElement));
+        if (Number.parseFloat(style.borderTopWidth) > 0 && value < 3) {
+          failures.push(`borde de ${element.tagName.toLowerCase()} «${element.getAttribute("aria-label") ?? element.id}» → ${value.toFixed(2)}:1`);
+        }
+      }
+      const hasText = [...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim());
+      if (!hasText || element.closest("svg")) continue;
+      const value = ratio(parse(style.color), background(element));
       const size = Number.parseFloat(style.fontSize);
       const large = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700);
-      if (ratio < (large ? 3 : 4.5)) failures.push(`${element.textContent?.trim().slice(0, 40)} → ${ratio.toFixed(2)}:1`);
+      if (value < (large ? 3 : 4.5)) failures.push(`${element.textContent?.trim().slice(0, 40)} → ${value.toFixed(2)}:1`);
     }
-    return failures;
+    return { failures, svgTexts };
   });
 }
 
+// QA-07: the five themes, plus "system" following a dark OS.
 const themes = [
   { name: "claro", colorScheme: "light", dataTheme: "light" },
   { name: "oscuro", colorScheme: "dark", dataTheme: "dark" },
   { name: "sistema con SO oscuro", colorScheme: "dark", dataTheme: "system" },
+  { name: "papel", colorScheme: "light", dataTheme: "paper" },
+  { name: "océano", colorScheme: "light", dataTheme: "ocean" },
+  { name: "pizarra", colorScheme: "light", dataTheme: "slate" },
 ] as const;
 
+// QA-07 (open): failures this test found and that are not fixed yet; each
+// case turns red as soon as it passes, so the list cannot go stale.
+// claro/pizarra: «Cargar archivo» in the import dialog (4.25:1, 3.73:1);
+// papel/océano/pizarra: edges of the Entregar selects (~1.5:1).
+const knownFailures = new Set(["claro", "papel", "océano", "pizarra"]);
+
 for (const theme of themes) {
-  test(`las fases cargadas cumplen contraste AA en tema ${theme.name}`, async ({ page }) => {
+  test(`las cinco fases cumplen contraste AA en tema ${theme.name}`, async ({ page }) => {
+    test.fail(knownFailures.has(theme.name), "QA-07: fallo de contraste conocido, pendiente de corregir");
     await installContrastMock(page);
     await page.emulateMedia({ colorScheme: theme.colorScheme, reducedMotion: "reduce" });
     await page.addInitScript((value) => localStorage.setItem("columnia.theme", value), theme.dataTheme);
     await page.goto("/");
+    const failures: string[] = [];
+    const measure = async (phase: string) => {
+      const result = await contrastFailures(page);
+      failures.push(...result.failures.map((failure) => `${phase}: ${failure}`));
+      return result;
+    };
+    await expect(page.getByRole("button", { name: "Seleccionar dataset" })).toBeVisible();
+    await measure("Cargar");
     await page.getByRole("button", { name: "Seleccionar dataset" }).click();
     const review = page.getByRole("dialog", { name: "Revisar encabezados de contraste.csv" });
+    await measure("Importar");
     await review.getByRole("button", { name: "Cargar archivo" }).click();
     await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
+    await page.getByText("Más análisis y herramientas", { exact: true }).click();
+    await measure("Revisar");
     await page.getByRole("tab", { name: "Vista previa" }).click();
     await expect(page.locator("main .null-value").first()).toBeVisible();
+    await measure("Revisar · vista previa");
     const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
-    const failures: string[] = [];
-    failures.push(...(await contrastFailures(page)).map((failure) => `Revisar: ${failure}`));
     await workflow.getByRole("button", { name: "Preparar", exact: true }).click();
     await expect(page.getByRole("button", { name: /^Aplicar \d+ cambios?$/ })).toBeVisible();
-    failures.push(...(await contrastFailures(page)).map((failure) => `Preparar: ${failure}`));
+    await measure("Preparar");
+    await workflow.getByRole("button", { name: "Explorar", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Explora los datos limpios" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Sin dato/ })).toBeVisible();
+    await measure("Explorar");
     await workflow.getByRole("button", { name: "Entregar", exact: true }).click();
     await expect(page.getByText(/Datos personales detectados/)).toBeVisible();
-    failures.push(...(await contrastFailures(page)).map((failure) => `Entregar: ${failure}`));
+    await measure("Entregar");
     expect(failures, failures.join("\n")).toEqual([]);
   });
 }

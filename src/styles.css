@@ -309,7 +309,7 @@ summary:focus-visible,
 .recipe-row > button,
 .recipe-add { border: 0; background: transparent; color: var(--accent); font-weight: 800; cursor: pointer; }
 .recipe-row > button { min-width: 44px; min-height: 44px; font-size: 1.25rem; }
-.recipe-add { justify-self: start; min-height: 24px; min-block-size: 44px; padding: 7px 9px; font-size: .78rem; }
+.recipe-add { justify-self: start; min-height: 44px; padding: 7px 9px; font-size: .78rem; }
 .transform-recipe__footer { margin-top: 14px; }
 .transform-recipe__footer p { font-size: .78rem; }
 .transform-advisor {
@@ -1156,12 +1156,6 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 :root[data-resolved-theme="dark"] .workspace .quality-temporal-calendar__day--level-3 { border-color: var(--accent); background: #347d78; }
 :root[data-resolved-theme="dark"] .workspace .quality-temporal-calendar__day--level-4 { border-color: var(--accent); background: var(--accent); color: var(--canvas); }
 :root[data-resolved-theme="dark"] .workspace .quality-temporal-calendar__day--level-4 :is(strong, small) { color: var(--canvas); }
-/* Dark rules keyed on the resolved theme (T10-11). */
-  :root[data-resolved-theme="dark"] .workspace .quality-temporal-calendar__day--level-1 { border-color: #527e76; background: var(--surface-subtle); }
-  :root[data-resolved-theme="dark"] .workspace .quality-temporal-calendar__day--level-2 { border-color: var(--accent); background: #285d5c; }
-  :root[data-resolved-theme="dark"] .workspace .quality-temporal-calendar__day--level-3 { border-color: var(--accent); background: #347d78; }
-  :root[data-resolved-theme="dark"] .workspace .quality-temporal-calendar__day--level-4 { border-color: var(--accent); background: var(--accent); color: var(--canvas); }
-  :root[data-resolved-theme="dark"] .workspace .quality-temporal-calendar__day--level-4 :is(strong, small) { color: var(--canvas); }
 
 :root[data-resolved-theme="dark"] .workspace :is(.notice--error, .change-feedback--error, .quality-gate) { background: #492c2b; color: #ffd7d2; }
 :root[data-resolved-theme="dark"] .load-brief { border-color: var(--border-subtle); }
@@ -1207,31 +1201,6 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 :root[data-resolved-theme="light"] .operation-progress__footer { border-color: var(--border-subtle); }
 
 /* Consolidated application surfaces and responsive workflow. */
-/* Dark rules keyed on the resolved theme (T10-11). */
-  :root[data-resolved-theme="dark"] {
-    --canvas: #141c1f;
-    --sidebar-surface: #101a1d;
-    --surface: #1b262a;
-    --surface-subtle: #233136;
-    --surface-raised: #28383d;
-    --text-primary: #e5edeb;
-    --text-secondary: #b3c3c1;
-    --border-subtle: #41545a;
-    --control-border: #718385;
-    --accent: #84d7bd;
-    --accent-hover: #ace8d5;
-    --focus-ring: #efba70;
-    --disabled-surface: #2b393e;
-    --disabled-text: #acb9b6;
-    --eyebrow: #c4cfbd;
-    --action-fill: #287f70;
-    --action-hover: #329481;
-    --success: #84d7bd;
-    --warning: #efba70;
-    --danger: #f08a82;
-    --info: #75b9d0;
-    --on-accent: #102326;
-  }
 
 :root[data-resolved-theme="dark"] {
   --canvas: #141c1f;
@@ -1505,7 +1474,7 @@ body { color: var(--text-primary); background: var(--canvas); }
 .sidebar__legal-content p { margin: 0 0 9px; }
 .sidebar__legal-content h2 { margin: 12px 0 4px; color: var(--text-primary); font-size: .75rem; }
 .sidebar__legal-content code { overflow-wrap: anywhere; }
-.sidebar__legal-note { color: var(--text-muted); }
+.sidebar__legal-note { color: var(--text-secondary); }
 
 @media (min-width: 901px) {
   html:has(.sidebar__tools > details[open]),
@@ -1960,7 +1929,7 @@ body { color: var(--text-primary); background: var(--canvas); }
 }
 
 .revision-comparison__metrics dt {
-  color: var(--muted, #596579);
+  color: var(--text-secondary);
 }
 
 .revision-comparison__metrics dd {

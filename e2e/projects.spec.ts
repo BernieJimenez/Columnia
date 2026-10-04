@@ -1,144 +1,34 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import type { DatasetPreview, ProjectSummary } from "../src/bridge";
+import { installTauriMock, recordedCalls } from "./support/tauri-mock";
+
+const dataset = {
+  fileName: "ventas.csv",
+  fileSizeBytes: 128,
+  rowCount: 2,
+  columnCount: 2,
+  columns: [
+    { name: "cliente", dataType: "String" },
+    { name: "total", dataType: "Float64" },
+  ],
+  rows: [["Ana", "10"], ["Luis", "20"]],
+} satisfies DatasetPreview;
+const project = {
+  id: "project-e2e",
+  name: "Ventas E2E",
+  datasetFileName: dataset.fileName,
+  rowCount: dataset.rowCount,
+  columnCount: dataset.columnCount,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+} satisfies ProjectSummary;
+
 async function installTauriProjectMock(page: Page, seedRecoveryCandidate = false) {
-  await page.addInitScript((hasRecoveryCandidate) => {
-    const dataset = {
-      fileName: "ventas.csv",
-      fileSizeBytes: 128,
-      rowCount: 2,
-      columnCount: 2,
-      columns: [
-        { name: "cliente", dataType: "String" },
-        { name: "total", dataType: "Float64" },
-      ],
-      rows: [["Ana", "10"], ["Luis", "20"]],
-    };
-    const project = {
-      id: "project-e2e",
-      name: "Ventas E2E",
-      datasetFileName: dataset.fileName,
-      rowCount: dataset.rowCount,
-      columnCount: dataset.columnCount,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    };
-    let projects: typeof project[] = hasRecoveryCandidate ? [project] : [];
-    let latestProject = project;
-    let recoveryCandidate: typeof project | null = hasRecoveryCandidate ? project : null;
-    let callbackId = 0;
-
-    const invoke = async (command: string, args: Record<string, unknown> = {}) => {
-      switch (command) {
-        case "get_app_info":
-          return { name: "Columnia", version: "0.49.0", platform: "windows" };
-        case "list_sample_datasets":
-        case "list_reusable_tasks":
-          return [];
-        case "list_projects":
-          return { projects, recoveryCandidate };
-        case "pick_dataset_source":
-          return {
-            selectionId: "selection-e2e",
-            fileName: dataset.fileName,
-            fileSizeBytes: dataset.fileSizeBytes,
-            format: "csv",
-            sheets: [],
-            defaultSheetId: null,
-            isCompressedContainer: false,
-            resourceEstimate: {
-              processingPath: "inMemory",
-              estimatedMaterializationRamBytes: 268435968,
-              estimatedTemporaryDiskBytes: null,
-            },
-          };
-        case "preview_delimited_header_review":
-          return {
-            delimiter: ",",
-            firstRow: {
-              headerMode: "firstRow",
-              columns: dataset.columns,
-              rows: dataset.rows,
-              includesFirstRow: false,
-              sampleTruncated: false,
-            },
-            generated: {
-              headerMode: "generated",
-              columns: dataset.columns.map((column, index) => ({ ...column, name: `column_${index + 1}` })),
-              rows: dataset.rows,
-              includesFirstRow: true,
-              sampleTruncated: false,
-            },
-          };
-        case "preview_dataset_selection":
-          return { rowCount: dataset.rowCount, columns: dataset.columns, schemaMismatch: null };
-        case "load_dataset_selection":
-          return dataset;
-        case "get_dataset_profile":
-          return { rowCount: dataset.rowCount, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] };
-        case "get_history_state":
-          return {
-            canUndo: false,
-            canRedo: false,
-            currentIndex: 0,
-            entryCount: 0,
-            entries: [],
-            snapshotsEnabled: true,
-            degradedReason: null,
-            maxEntries: 50,
-            diskBytes: 0,
-            diskBudgetBytes: 536870912,
-          };
-        case "get_dataset_page":
-          return { offset: args.offset ?? 0, rows: dataset.rows };
-        case "save_project": {
-          if (hasRecoveryCandidate && args.projectId !== latestProject.id) {
-            throw new Error("La actualización debe conservar el ID del proyecto recuperado.");
-          }
-          latestProject = {
-            ...latestProject,
-            id: typeof args.projectId === "string" ? args.projectId : latestProject.id,
-            name: typeof args.name === "string" ? args.name : latestProject.name,
-            updatedAt: "2026-01-02T00:00:00.000Z",
-          };
-          projects = [latestProject];
-          recoveryCandidate = null;
-          return latestProject;
-        }
-        case "open_project": {
-          const openedProject = projects.find((item) => item.id === args.projectId) ?? latestProject;
-          recoveryCandidate = null;
-          return {
-            project: openedProject,
-            dataset,
-            workspace: {
-              qualityRules: [],
-              recipeDraft: null,
-              ...(hasRecoveryCandidate ? { activePhase: "prepare" } : {}),
-            },
-            profile: null,
-          };
-        }
-        case "delete_project":
-          projects = [];
-          recoveryCandidate = null;
-          return null;
-        default:
-          throw new Error(`Comando Tauri no simulado: ${command}`);
-      }
-    };
-
-    Object.defineProperty(window, "__TAURI_INTERNALS__", {
-      configurable: true,
-      value: {
-        invoke,
-        transformCallback: () => {
-          callbackId += 1;
-          return callbackId;
-        },
-        unregisterCallback: () => undefined,
-      },
-    });
-  }, seedRecoveryCandidate);
+  await installTauriMock(page, {
+    dataset,
+    project: { summary: project, recover: seedRecoveryCandidate, workspace: seedRecoveryCandidate ? { activePhase: "prepare" } : {} },
+  });
 }
 
 async function selectAndConfirmDataset(page: Page) {
@@ -215,4 +105,6 @@ test("recupera la última sesión, restaura su etapa y actualiza el mismo proyec
   await expect(page.locator("p.notice--success"))
     .toContainText("Proyecto “Ventas recuperadas” actualizado.");
   await expect(projects).toContainText("Ventas recuperadas · activo");
+  const saves = (await recordedCalls(page)).filter((call) => call.command === "save_project");
+  expect(saves.at(-1)?.args).toMatchObject({ projectId: project.id, name: "Ventas recuperadas" });
 });

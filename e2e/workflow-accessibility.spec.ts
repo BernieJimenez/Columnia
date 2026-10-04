@@ -1,135 +1,46 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-async function installSyntheticTauriMock(page: Page) {
-  await page.addInitScript(() => {
-    const dataset = {
-      fileName: "ventas-e2e.csv",
-      fileSizeBytes: 128,
-      rowCount: 2,
-      columnCount: 2,
-      columns: [
-        { name: "cliente", dataType: "String" },
-        { name: "total", dataType: "Float64" },
-      ],
-      rows: [["Ana", "10"], ["Luis", "20"]],
-    };
-    let callbackId = 0;
-    const invokeCalls: string[] = [];
-    const invoke = async (command: string, args: Record<string, unknown> = {}) => {
-      invokeCalls.push(command);
-      switch (command) {
-        case "get_app_info":
-          return { name: "Columnia", version: "1.25.0", platform: "windows" };
-        case "list_sample_datasets":
-        case "list_reusable_tasks":
-          return [];
-        case "list_projects":
-          return { projects: [], recoveryCandidate: null };
-        case "pick_dataset_source":
-          return {
-            selectionId: "selection-a11y-flow",
-            fileName: dataset.fileName,
-            fileSizeBytes: dataset.fileSizeBytes,
-            format: "csv",
-            sheets: [],
-            defaultSheetId: null,
-            isCompressedContainer: false,
-            resourceEstimate: {
-              processingPath: "inMemory",
-              estimatedMaterializationRamBytes: 268435968,
-              estimatedTemporaryDiskBytes: null,
-            },
-          };
-        case "preview_delimited_header_review":
-          return {
-            delimiter: ",",
-            firstRow: {
-              headerMode: "firstRow",
-              columns: dataset.columns,
-              rows: dataset.rows,
-              includesFirstRow: false,
-              sampleTruncated: false,
-            },
-            generated: {
-              headerMode: "generated",
-              columns: dataset.columns.map((column, index) => ({ ...column, name: `column_${index + 1}` })),
-              rows: dataset.rows,
-              includesFirstRow: true,
-              sampleTruncated: false,
-            },
-          };
-        case "preview_dataset_selection":
-          return { rowCount: dataset.rowCount, columns: dataset.columns, schemaMismatch: null };
-        case "load_dataset_selection":
-          return dataset;
-        case "get_dataset_profile":
-          return {
-            rowCount: dataset.rowCount,
-            duplicateRowCount: 0,
-            nearDuplicateRowCount: 0,
-            duplicatePercentage: 0,
-            columns: [],
-          };
-        case "get_explore_panel":
-          return {
-            rowCount: dataset.rowCount,
-            totalRowCount: dataset.rowCount,
-            kpis: [{ kind: "count", column: null, value: dataset.rowCount }],
-            categories: [{
-              column: dataset.columns[0]?.name ?? "columna",
-              bars: [{ value: "A", count: 2 }, { value: null, count: 1 }],
-              otherCount: 0,
-              distinctCount: 2,
-            }],
-            histogram: { column: "importe", bins: [{ lower: 0, upper: 10, count: 2 }, { lower: 10, upper: 20, count: 1 }] },
-            trend: null,
-            options: { categories: [], measures: [], dates: [] },
-          };
-        case "get_history_state":
-          return {
-            canUndo: false,
-            canRedo: false,
-            currentIndex: 0,
-            entryCount: 0,
-            entries: [],
-            snapshotsEnabled: true,
-            degradedReason: null,
-            maxEntries: 50,
-            diskBytes: 0,
-            diskBudgetBytes: 536870912,
-          };
-        case "get_dataset_page":
-          return { offset: args.offset ?? 0, rows: dataset.rows };
-        case "clear_dataset_comparison":
-        case "cancel_operation":
-        case "discard_dataset_selection":
-          return null;
-        case "export_dataset":
-          return {
-            fileName: "ventas-e2e-export.csv",
-            fileSizeBytes: 128,
-            format: "CSV",
-            protectedColumnCount: 0,
-            protectedColumns: [],
-          };
-        default:
-          throw new Error(`Comando Tauri no simulado: ${command}`);
-      }
-    };
+import type { DatasetPreview, ExplorePanel, ExportResult } from "../src/bridge";
+import { installTauriMock, recordedCalls } from "./support/tauri-mock";
 
-    Object.defineProperty(window, "__TAURI_INTERNALS__", {
-      configurable: true,
-      value: {
-        invoke,
-        transformCallback: () => ++callbackId,
-        unregisterCallback: () => undefined,
-      },
-    });
-    Object.defineProperty(window, "__COLUMNIA_ACCESSIBILITY_E2E__", {
-      configurable: true,
-      value: { invokeCalls },
-    });
-  });
+const dataset = {
+  fileName: "ventas-e2e.csv",
+  fileSizeBytes: 128,
+  rowCount: 2,
+  columnCount: 2,
+  columns: [
+    { name: "cliente", dataType: "String" },
+    { name: "total", dataType: "Float64" },
+  ],
+  rows: [["Ana", "10"], ["Luis", "20"]],
+} satisfies DatasetPreview;
+
+const explore = {
+  rowCount: dataset.rowCount,
+  totalRowCount: dataset.rowCount,
+  kpis: [{ kind: "count", column: null, value: dataset.rowCount }],
+  categories: [{
+    column: "cliente",
+    bars: [{ value: "A", count: 2 }, { value: null, count: 1 }],
+    otherCount: 0,
+    distinctCount: 2,
+  }],
+  histogram: { column: "importe", bins: [{ lower: 0, upper: 10, count: 2 }, { lower: 10, upper: 20, count: 1 }] },
+  trend: null,
+  options: { categories: [], measures: [], dates: [] },
+} satisfies ExplorePanel;
+
+const exportResult = {
+  fileName: "ventas-e2e-export.csv",
+  fileSizeBytes: 128,
+  format: "CSV",
+  protectedColumnCount: 0,
+  protectedColumns: [],
+  replacedControlCellCount: 0,
+} satisfies ExportResult;
+
+async function installSyntheticTauriMock(page: Page) {
+  await installTauriMock(page, { dataset, explore, exportResult });
 }
 
 async function tabTo(page: Page, target: Locator, description: string) {
@@ -289,11 +200,7 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await activateWithKeyboard(page, exportButton, "Exportar CSV");
     await expect(page.getByRole("heading", { name: "Copia lista" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Etapa Entregar" })).toContainText("ventas-e2e-export.csv");
-    const invokedExport = await page.evaluate(() =>
-      (window as Window & { __COLUMNIA_ACCESSIBILITY_E2E__?: { invokeCalls: string[] } })
-        .__COLUMNIA_ACCESSIBILITY_E2E__?.invokeCalls.includes("export_dataset") ?? false,
-    );
-    expect(invokedExport).toBe(true);
+    expect((await recordedCalls(page)).some((call) => call.command === "export_dataset")).toBe(true);
   });
 
   test("conserva el layout de Entregar al 200 % y a 320 píxeles CSS", async ({ page }) => {

@@ -24,7 +24,9 @@ test.describe("shell informativo de espacios de trabajo", () => {
     await expect(page.getByRole("navigation", { name: "Espacios de trabajo" })).toHaveCount(0);
   });
 
-  test("mantiene el orden de marca, dataset, espacios y flujo en la vista compacta", async ({ page }) => {
+  // UX-02: in the compact view brand, dataset and workspace share the first
+  // band and the flow sits below, so the work keeps most of the height.
+  test("mantiene marca y espacio antes del flujo en la vista compacta", async ({ page }) => {
     await page.setViewportSize({ width: 800, height: 900 });
     await page.goto("/", { waitUntil: "commit" });
     await expect(page.getByRole("region", { name: "Espacio actual" })).toBeVisible();
@@ -43,8 +45,18 @@ test.describe("shell informativo de espacios de trabajo", () => {
       };
     });
 
-    expect(layout.workspaces.top).toBeGreaterThan(layout.brand.bottom);
-    expect(layout.flow.top).toBeGreaterThan(layout.workspaces.bottom);
+    expect(layout.flow.top).toBeGreaterThanOrEqual(layout.brand.bottom);
+    expect(layout.flow.top).toBeGreaterThanOrEqual(layout.workspaces.bottom);
+  });
+
+  test("la barra lateral deja al menos el 60 % de la altura en la ventana mínima (UX-02)", async ({ page }) => {
+    for (const [width, height] of [[900, 640], [640, 400]]) {
+      await page.setViewportSize({ width, height });
+      await page.goto("/", { waitUntil: "commit" });
+      await expect(page.getByRole("region", { name: "Espacio actual" })).toBeVisible();
+      const sidebarHeight = await page.locator(".sidebar").evaluate((element) => element.getBoundingClientRect().height);
+      expect(sidebarHeight / height, `${width}x${height}`).toBeLessThanOrEqual(0.4);
+    }
   });
 
   test("refluye a 320 CSS px y conserva los estados accesibles al 200 %", async ({ page }) => {
