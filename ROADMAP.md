@@ -241,10 +241,10 @@ medio = 1 día; agregado por suma.
   - [x] `OPS-08` (Medio) `check-toolchains` convierte un rango `engines` en versión exacta — hecho el 2026-10-04
   - [x] `OPS-09` (Medio) `docs:check` valida enlaces con regex sobre texto crudo y recorre `docs/auditorias/**` — hecho el 2026-10-04
   - [x] `OPS-10` (Medio) `check-release-evidence --update-baseline` re-aprueba cualquier captura; hashes de PNG a nivel de byte — hecho el 2026-10-04
-- [ ] **RV56** — **Arranque y servicios** — Un catálogo auxiliar corrupto o de versión futura (tareas reutilizables / presets de entr… (y 1 problemas más) · *Esfuerzo: 1,2 días*
+- [x] **RV56** — **Arranque y servicios** — Un catálogo auxiliar corrupto o de versión futura (tareas reutilizables / presets de entr… (y 1 problemas más) · *Esfuerzo: 1,2 días* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de ARQ-02, DOC-05.
   - [x] `ARQ-02` (Medio) Un catálogo auxiliar corrupto o de versión futura (tareas reutilizables / presets de entrega) impide arrancar la app, sin mensaje — hecho el 2026-10-04
-  - [ ] `DOC-05` (Medio) network-privacy.md: versión vencida y afirmación «sin crash reporting» frente a `crash-reports/`; ficha legal con fecha y ejemplo viejos
+  - [x] `DOC-05` (Medio) network-privacy.md: versión vencida y afirmación «sin crash reporting» frente a `crash-reports/`; ficha legal con fecha y ejemplo viejos — hecho el 2026-10-04
 - [ ] **RV57** — **Estilos y componentes** — Con la ventana mínima (900 × 640) o con zoom 150-200 % la barra lateral ocupa del 63 al 7… (y 4 problemas más) · *Esfuerzo: 4,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de UX-02, ACC-02, ACC-03, ACC-04, ACC-07.
   - [ ] `UX-02` (Medio) Con la ventana mínima (900 × 640) o con zoom 150-200 % la barra lateral ocupa del 63 al 78 % de la altura útil

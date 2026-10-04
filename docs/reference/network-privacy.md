@@ -1,8 +1,9 @@
 # Red, privacidad y telemetría
 
-Columnia es local-first. En la versión `1.25.0` el flujo local de la aplicación
-no inicia conexiones de red, no envía datasets y no incorpora telemetría, analytics ni
-crash reporting. La entrega ODBC es una acción explícita del usuario hacia el
+Columnia es local-first. En esta versión el flujo local de la aplicación no
+inicia conexiones de red, no envía datasets y no incorpora telemetría, analytics
+ni envío de informes de fallo: el único informe de fallo es un archivo local
+que nunca sale del equipo (ver abajo). La entrega ODBC es una acción explícita del usuario hacia el
 motor remoto que elija; no es un servicio obligatorio ni se ejecuta durante la
 carga, revisión o preparación local.
 
@@ -20,6 +21,34 @@ carga, revisión o preparación local.
   compilación tiene `COLUMNIA_UPDATER_ENDPOINT`; requiere una acción explícita,
   muestra versión/notas/tamaño y valida firma y tamaño antes de instalar. Una
   compilación sin endpoint mantiene esa capacidad desactivada.
+
+## Archivos que Columnia escribe fuera de tus exportaciones
+
+Todo se guarda en el equipo; nada se envía. En la carpeta de datos de la app
+(`%APPDATA%pp.columnia.desktop`):
+
+- `projects.sqlite3` y `project-snapshots/`: el catálogo de proyectos y las
+  copias de los datos de cada proyecto guardado.
+- `reusable-tasks.sqlite3` y `delivery-presets.sqlite3`: tareas reutilizables y
+  presets de entrega. Si uno no se puede abrir al arrancar, se aparta como
+  `<nombre>.unreadable-<segundos>` (no se borra) y Cargar avisa.
+- `remote-deliveries.json`: registro de entregas «añadir filas» a bases de datos
+  (destino y huella del contenido, sin filas), para avisar antes de repetir una.
+- `session.active`: marca de sesión abierta; si sigue ahí al arrancar, Cargar
+  avisa de que la sesión anterior se cerró de forma inesperada.
+- `crash-reports/`: hasta 20 informes mínimos de fallo, solo locales, con
+  versión, hora y archivo/línea del código; nunca el mensaje del fallo ni datos.
+
+En la carpeta temporal del sistema (`%TEMP%`), borrados al terminar o en el
+siguiente arranque:
+
+- `columnia-history-*`: historial de deshacer de la sesión (copias de los datos).
+- `columnia-utf8-*`: copia UTF-8 de un archivo Windows-1252 que aceptaste leer.
+- `columnia-query-*` y `duckdb-spill/`: archivos de trabajo de consultas grandes.
+
+Junto a una exportación, solo si lo pides, un archivo `.pbids` para abrirla en
+Power BI. Las preferencias de la interfaz (tema, archivos recientes,
+autoguardado) viven en el almacenamiento local del WebView.
 
 ## Controles
 

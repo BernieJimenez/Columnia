@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La página de red y privacidad ya no cita una versión vencida, aclara que el
+  informe de fallo es solo local y lista cada archivo que Columnia escribe fuera
+  de las exportaciones; el ejemplo de la ficha legal no fija una versión (DOC-05).
 - Un catálogo de tareas reutilizables o de presets de entrega que no se puede
   abrir ya no impide arrancar: se aparta (`.unreadable-<segundos>`), se crea uno
   vacío y Cargar dice dónde quedó; si el arranque falla igualmente, un diálogo
