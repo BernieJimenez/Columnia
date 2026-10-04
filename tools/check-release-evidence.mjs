@@ -89,8 +89,10 @@ try {
     fail("La versión del contrato de evidencia release no coincide.");
   }
   if (summary.source !== baseline.source) fail("La evidencia no proviene del binario release.");
-  if (summary.projectVersion !== packageManifest.version || summary.projectVersion !== baseline.projectVersion) {
-    fail("La versión de evidencia no coincide con el baseline y package.json.");
+  // OPS-04: the baseline does not pin the project version; a version bump
+  // without visual changes keeps the approved screenshots.
+  if (summary.projectVersion !== packageManifest.version) {
+    fail("La versión de evidencia no coincide con package.json.");
   }
   if (summary.fixture?.path !== baseline.fixturePath) fail("La fixture de evidencia no coincide con el baseline.");
   if (!/^[a-f0-9]{64}$/.test(summary.binary?.sha256 ?? "")) fail("El binario no tiene SHA-256 válido.");
@@ -133,7 +135,7 @@ try {
   }
   if (updateBaseline) {
     baseline.approvedAt = new Date().toISOString();
-    baseline.projectVersion = summary.projectVersion;
+    delete baseline.projectVersion;
     baseline.fixturePath = summary.fixture.path;
     baseline.git = summary.git;
     baseline.lockfiles = summary.lockfiles;

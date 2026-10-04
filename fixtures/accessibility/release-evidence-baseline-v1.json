@@ -2,7 +2,6 @@
   "schemaVersion": 1,
   "captureVersion": 1,
   "source": "tauri-release-binary",
-  "projectVersion": "0.57.0",
   "fixturePath": "fixtures/automation/input.csv",
   "owner": "Columnia maintainers",
   "purpose": "Canonical release-shell screenshots for visual regression detection",

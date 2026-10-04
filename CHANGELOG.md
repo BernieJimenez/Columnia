@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- El baseline de evidencia release ya no fija la versión del proyecto: solo se
+  exige que la evidencia coincida con `package.json`, y `--update-baseline` ya
+  no queda bloqueado por la versión (OPS-04).
 - `.gitattributes` fija LF en el checkout y `notices:check` compara sin tener en
   cuenta CRLF, así que los gates aprueban con cualquier `core.autocrlf`
   (OPS-03).
