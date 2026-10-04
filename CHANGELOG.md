@@ -188,6 +188,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Comparación: una clave entera ya no falla porque un motor la guarde como Int32
+  y el otro como Int64 (comparar un archivo con su copia preparada da 0
+  conflictos); si los tipos sí difieren, el mensaje nombra la columna, los dos
+  tipos y cómo convertirla en Preparar; y con un resultado visible la clave no
+  se puede cambiar sin descartar antes la comparación.
 - CLI: los archivos que no se pueden leer explican por qué (UTF-16, no UTF-8
   como el Windows-1252 de Excel, finales de línea mezclados, título antes de la
   cabecera o una fila con columnas de más) y el JSON guardado con BOM por el

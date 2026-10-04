@@ -190,7 +190,7 @@ export function DatasetComparisonSection({
               <input
                 type="checkbox"
                 checked={keyColumns.includes(column.name)}
-                disabled={reviewMutationBusy || status.kind === "loading"}
+                disabled={reviewMutationBusy || status.kind === "loading" || status.kind === "ready"}
                 onChange={() => {
                   onKeyColumnsChange(
                     keyColumns.includes(column.name)
@@ -206,6 +206,12 @@ export function DatasetComparisonSection({
             </label>
           ))}
         </div>
+        {/* UX-05: the key of a visible result cannot change under it. */}
+        {status.kind === "ready" && (
+          <p className="comparison-key-status">
+            Para cambiar la clave, descarta antes la comparación: el resultado y las decisiones de conflictos son de la clave actual.
+          </p>
+        )}
         {keyColumns.length > 0 && (
           <p className="comparison-key-status" role="status">
             Se comparará por: <strong>{keyColumns.join(", ")}</strong>

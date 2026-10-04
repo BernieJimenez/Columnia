@@ -205,10 +205,10 @@ medio = 1 día; agregado por suma.
 - [ ] **RV50** — **Comparación** — La comparación lee siempre el archivo comparado con reglas fijas (primera hoja, primera f… (y 4 problemas más) · *Esfuerzo: 3,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-41, FUN-42, REN-08, UX-05, UX-06.
   - [ ] `FUN-41` (Medio) La comparación lee siempre el archivo comparado con reglas fijas (primera hoja, primera fila como encabezado, sin convenciones) aunque el activo se importó con otras
-  - [ ] `FUN-42` (Medio) La clave de comparación exige dtype idéntico en ambos lados y los lados se tipan con motores distintos
+  - [x] `FUN-42` (Medio) La clave de comparación exige dtype idéntico en ambos lados y los lados se tipan con motores distintos — hecho el 2026-10-04
   - [ ] `REN-08` (Medio) Candidatos de coste en la comparación por clave (hipótesis, medir)
-  - [ ] `UX-05` (Medio) Cambiar la clave con una comparación visible deja resultados y decisiones obsoletos
-  - [ ] `UX-06` (Medio) Error de comparación con tipos de clave distintos se muestra crudo y sin guía
+  - [x] `UX-05` (Medio) Cambiar la clave con una comparación visible deja resultados y decisiones obsoletos — hecho el 2026-10-04
+  - [x] `UX-06` (Medio) Error de comparación con tipos de clave distintos se muestra crudo y sin guía — hecho el 2026-10-04
 - [ ] **RV51** — **Comparación** — Los tests de comparación usan copias `#[cfg(test)]` de las funciones de persistencia, no… (y 1 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-01, QA-10.
   - [ ] `QA-01` (Medio) Los tests de comparación usan copias `#[cfg(test)]` de las funciones de persistencia, no las `_with_cancel` de producción

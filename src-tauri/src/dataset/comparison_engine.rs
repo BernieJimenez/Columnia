@@ -922,13 +922,39 @@ pub(super) fn validate_key_columns(
         let compared_column = compared
             .column(key)
             .map_err(|_| format!("La columna clave '{key}' no existe en el dataset comparado."))?;
-        if current_column.dtype() != compared_column.dtype() {
+        // FUN-42: keys are compared by their text, so integer widths (Polars
+        // Int64, DuckDB Int32) or float widths do not make them different.
+        let (current_type, compared_type) = (current_column.dtype(), compared_column.dtype());
+        let same_family = current_type == compared_type
+            || (current_type.is_integer() && compared_type.is_integer())
+            || (current_type.is_float() && compared_type.is_float());
+        if !same_family {
+            // UX-06: name the column, both types and the way out.
             return Err(format!(
-                "La columna clave '{key}' tiene tipos incompatibles entre los datasets."
+                "La columna clave '{key}' es {} en el dataset activo y {} en el comparado. Conviértela al mismo tipo en Preparar (por ejemplo, a texto) y vuelve a comparar.",
+                key_type_name(current_type),
+                key_type_name(compared_type)
             ));
         }
     }
     Ok(())
+}
+
+/// A data type as the person reads it in a key error (UX-06).
+fn key_type_name(dtype: &DataType) -> &'static str {
+    if dtype.is_integer() {
+        "un número entero"
+    } else if dtype.is_float() {
+        "un número decimal"
+    } else if dtype == &DataType::Boolean {
+        "un booleano"
+    } else if matches!(dtype, DataType::Date | DataType::Datetime(_, _)) {
+        "una fecha"
+    } else if dtype == &DataType::String {
+        "texto"
+    } else {
+        "otro tipo"
+    }
 }
 
 pub(super) fn compare_keyed_frames_with_cancel<C>(

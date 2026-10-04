@@ -20409,3 +20409,85 @@ fn an_empty_recipe_keeps_a_large_file_on_disk() {
     assert!(dataset.source_backed, "el dataset sigue en disco");
     fs::remove_file(path).ok();
 }
+
+/// FUN-42 / UX-06: a file compared with its own prepared copy has no
+/// conflicts, even when one engine typed the key as Int32 and the other as
+/// Int64; a key that is text on one side names both types and the way out.
+#[test]
+fn comparing_a_file_with_its_prepared_copy_has_no_conflicts() {
+    let directory = tempfile::tempdir().unwrap();
+    let csv = directory.path().join("ventas.csv");
+    fs::write(
+        &csv,
+        "id,importe,ciudad\n1,1.50,Santiago\n2,2,Moca\n3,10.25,La Vega\n",
+    )
+    .unwrap();
+    let (frame, _) = load_csv(&csv).unwrap();
+    let prepared = directory.path().join("preparado.parquet");
+    let mut written = frame.clone();
+    ParquetWriter::new(File::create(&prepared).unwrap())
+        .finish(&mut written)
+        .unwrap();
+    let (_compared_directory, compared) =
+        persist_delimited_comparison_source_file(&csv, "csv").unwrap();
+    let keys = vec!["id".to_owned()];
+    let comparison = compare_parquet_sources_with_cancel(
+        &prepared,
+        "preparado.parquet",
+        3,
+        &compared,
+        "ventas.csv",
+        3,
+        &keys,
+        &|| false,
+    )
+    .expect("la comparación debe completarse");
+    assert_eq!(comparison.matched_key_count, 3);
+    assert_eq!(comparison.conflicting_key_count, 0);
+
+    // Int64 on one side, Int32 on the other: the same keys.
+    let wide = df!("id" => [1_i64, 2, 3], "v" => ["a", "b", "c"]).unwrap();
+    let narrow = df!("id" => [1_i32, 2, 3], "v" => ["a", "b", "c"]).unwrap();
+    let write = |name: &str, frame: &DataFrame| {
+        let path = directory.path().join(name);
+        let mut frame = frame.clone();
+        ParquetWriter::new(File::create(&path).unwrap())
+            .finish(&mut frame)
+            .unwrap();
+        path
+    };
+    let wide_path = write("ancho.parquet", &wide);
+    let narrow_path = write("estrecho.parquet", &narrow);
+    let comparison = compare_parquet_sources_with_cancel(
+        &wide_path,
+        "ancho.parquet",
+        3,
+        &narrow_path,
+        "estrecho.parquet",
+        3,
+        &keys,
+        &|| false,
+    )
+    .expect("Int32 e Int64 son la misma clave");
+    assert_eq!(comparison.conflicting_key_count, 0);
+    assert_eq!(comparison.matched_key_count, 3);
+
+    let text = df!("id" => ["1", "2", "3"], "v" => ["a", "b", "c"]).unwrap();
+    let text_path = write("texto.parquet", &text);
+    let error = compare_parquet_sources_with_cancel(
+        &wide_path,
+        "ancho.parquet",
+        3,
+        &text_path,
+        "texto.parquet",
+        3,
+        &keys,
+        &|| false,
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("'id' es un número entero en el dataset activo y texto en el comparado"),
+        "{error}"
+    );
+    assert!(error.contains("Preparar"), "{error}");
+}
