@@ -236,7 +236,7 @@ medio = 1 día; agregado por suma.
   - [x] `OPS-05` (Medio) check-secrets da «aprobado» si `git` falla o devuelve rutas entrecomilladas — hecho el 2026-10-04
 - [ ] **RV55** — **Gates y scripts** — app-data-guard: restauración destructiva sin salvaguarda ante fallo parcial (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-06, OPS-07, OPS-08, OPS-09, OPS-10.
-  - [ ] `OPS-06` (Medio) app-data-guard: restauración destructiva sin salvaguarda ante fallo parcial
+  - [x] `OPS-06` (Medio) app-data-guard: restauración destructiva sin salvaguarda ante fallo parcial — hecho el 2026-10-04
   - [ ] `OPS-07` (Medio) release.ps1: no comprueba que las variables de tests destructivos estén desactivadas ni que las versiones coincidan
   - [ ] `OPS-08` (Medio) `check-toolchains` convierte un rango `engines` en versión exacta
   - [ ] `OPS-09` (Medio) `docs:check` valida enlaces con regex sobre texto crudo y recorre `docs/auditorias/**`

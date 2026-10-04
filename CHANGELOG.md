@@ -203,6 +203,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La salvaguarda de datos de los smokes ya no borra el almacén antes de tener la
+  copia restaurada: un fallo deja el original intacto y nombra la copia; un
+  puntero detecta una ejecución anterior sin restaurar, la copia se verifica y
+  se aborta si Columnia está abierta (OPS-06).
 - El smoke del instalador aborta si la cuenta ya tiene una instalación
   registrada de Columnia, retira las claves de HKCU y los accesos que deja su
   instalación de prueba y comprueba que el registro queda idéntico (OPS-02).
