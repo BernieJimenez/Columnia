@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- El smoke del instalador aborta si la cuenta ya tiene una instalación
+  registrada de Columnia, retira las claves de HKCU y los accesos que deja su
+  instalación de prueba y comprueba que el registro queda idéntico (OPS-02).
 - El baseline de evidencia release ya no fija la versión del proyecto: solo se
   exige que la evidencia coincida con `package.json`, y `--update-baseline` ya
   no queda bloqueado por la versión (OPS-04).

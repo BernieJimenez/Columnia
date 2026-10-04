@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$InstallerPath,
 
@@ -56,6 +56,8 @@ $SentinelPath = $null
 $StartedProcessIds = [System.Collections.Generic.HashSet[int]]::new()
 $SmokeStatus = "failed"
 $FailureMessage = $null
+$RegistryCaptured = $false
+$RegistryDifferences = @()
 $CleanupConfirmed = $false
 $IsAdministrator = $false
 $IdentityName = [Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -206,6 +208,58 @@ function Wait-PathState {
     return (Test-Path -LiteralPath $Path) -eq $ExpectedPresent
 }
 
+# OPS-02: the NSIS installer writes per-user keys and shortcuts that every
+# Columnia install shares; the smoke must leave them as it found them.
+$ColumniaRegistryKeys = @(
+    "HKCU:\Software\columnia",
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Columnia"
+)
+$ColumniaShortcuts = @(
+    (Join-Path ([Environment]::GetFolderPath("Programs")) "Columnia.lnk"),
+    (Join-Path ([Environment]::GetFolderPath("Desktop")) "Columnia.lnk")
+)
+
+function Get-ColumniaRegistrySnapshot {
+    $lines = [System.Collections.Generic.List[string]]::new()
+    foreach ($root in $ColumniaRegistryKeys) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        foreach ($key in @(Get-Item -LiteralPath $root) + @(Get-ChildItem -LiteralPath $root -Recurse)) {
+            $lines.Add($key.Name)
+            foreach ($valueName in $key.GetValueNames()) {
+                $lines.Add("$($key.Name)\[$valueName]=$($key.GetValue($valueName))")
+            }
+        }
+    }
+    foreach ($shortcut in $ColumniaShortcuts) {
+        if (Test-Path -LiteralPath $shortcut) { $lines.Add("shortcut:$shortcut") }
+    }
+    return $lines.ToArray()
+}
+
+# Removes what this scenario's install left behind: keys whose values point
+# inside the scenario folder, and shortcuts that did not exist before.
+function Remove-ScenarioRegistration {
+    param([string[]]$Before, [string]$ScenarioRoot)
+    foreach ($root in $ColumniaRegistryKeys) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        foreach ($key in @(Get-ChildItem -LiteralPath $root -Recurse) + @(Get-Item -LiteralPath $root) | Sort-Object { $_.Name.Length } -Descending) {
+            if ($Before -contains $key.Name) {
+                continue
+            }
+            $pointsInside = @($key.GetValueNames() | Where-Object { "$($key.GetValue($_))".Contains($ScenarioRoot) }).Count -gt 0
+            $empty = $key.ValueCount -eq 0 -and $key.SubKeyCount -eq 0
+            if ($pointsInside -or $empty) {
+                Remove-Item -LiteralPath $key.PSPath -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    foreach ($shortcut in $ColumniaShortcuts) {
+        if ((Test-Path -LiteralPath $shortcut) -and -not ($Before -contains "shortcut:$shortcut")) {
+            Remove-Item -LiteralPath $shortcut -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Get-InstalledFileVersion {
     param([string]$Path)
 
@@ -242,6 +296,11 @@ try {
         }
     }
 
+    $RegistryBefore = @(Get-ColumniaRegistrySnapshot)
+    $RegistryCaptured = $true
+    if (Test-Path -LiteralPath $ColumniaRegistryKeys[1]) {
+        throw "Esta cuenta ya tiene una instalación de Columnia registrada; el smoke pisaría sus claves y accesos. Ejecútalo en una cuenta o VM de pruebas."
+    }
     $ScenarioRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("Columnia Installer Smoke é " + $ScenarioId)
     $InstallRoot = Join-Path $ScenarioRoot "Instalación con espacios ñ"
     $DataRoot = Join-Path $ScenarioRoot "AppData aislada á"
@@ -358,6 +417,20 @@ finally {
     if ($SentinelPath -and (Test-Path -LiteralPath $SentinelPath)) {
         Remove-Item -LiteralPath $SentinelPath -Force -ErrorAction SilentlyContinue
     }
+    $registryRestored = $true
+    if ($RegistryCaptured -and $ScenarioRoot) {
+        # The NSIS uninstaller copies itself to %TEMP% and keeps running
+        # after the process the script waited for has exited.
+        $registryDeadline = [DateTimeOffset]::UtcNow.AddSeconds(30)
+        do {
+            Remove-ScenarioRegistration -Before $RegistryBefore -ScenarioRoot $ScenarioRoot
+            $registryAfter = @(Get-ColumniaRegistrySnapshot)
+            $RegistryDifferences = @($registryAfter | Where-Object { $RegistryBefore -notcontains $_ } | ForEach-Object { "+ $_" }) +
+                @($RegistryBefore | Where-Object { $registryAfter -notcontains $_ } | ForEach-Object { "- $_" })
+            $registryRestored = $RegistryDifferences.Count -eq 0
+            if (-not $registryRestored) { Start-Sleep -Milliseconds 500 }
+        } while (-not $registryRestored -and [DateTimeOffset]::UtcNow -lt $registryDeadline)
+    }
     $scenarioStillExists = $false
     if ($ScenarioRoot -and (Test-Path -LiteralPath $ScenarioRoot)) {
         try {
@@ -370,6 +443,10 @@ finally {
     if (-not $CleanupConfirmed) {
         $SmokeStatus = "failed"
         $FailureMessage = if ($FailureMessage) { "$FailureMessage Cleanup incompleto de procesos." } else { "Cleanup incompleto de procesos." }
+    }
+    if (-not $registryRestored) {
+        $SmokeStatus = "failed"
+        $FailureMessage = if ($FailureMessage) { "$FailureMessage El registro o los accesos de Columnia quedaron distintos." } else { "El registro o los accesos de Columnia quedaron distintos." }
     }
     if ($scenarioStillExists) {
         $SmokeStatus = "failed"
@@ -402,6 +479,8 @@ finally {
         cleanup = [ordered]@{
             processesConfirmed = $CleanupConfirmed
             scenarioDirectoryRemoved = -not $scenarioStillExists
+            registryRestored = $registryRestored
+            registryDifferences = @($RegistryDifferences)
             sentinelRemoved = -not ($SentinelPath -and (Test-Path -LiteralPath $SentinelPath))
         }
         evidenceDirectory = $EvidenceRelativePath

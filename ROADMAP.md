@@ -227,10 +227,10 @@ medio = 1 día; agregado por suma.
   - [x] `QA-26` (Medio) `check-coverage` puede aprobar con un resumen viejo y cubre pocos archivos — hecho el 2026-10-04
   - [x] `QA-27` (Medio) El «baseline» de accesibilidad acepta evidencia de cualquier commit y cubre solo el shell inicial — hecho el 2026-10-04
   - [x] `QA-28` (Medio) Dos suites de `node:test` en `tools/` no las ejecuta nadie — hecho el 2026-10-04
-- [ ] **RV54** — **Gates y scripts** — check-supply-chain: las vulnerabilidades de `npm audit` nunca hacen fallar el gate (y 4 problemas más) · *Esfuerzo: 1,2 días*
+- [x] **RV54** — **Gates y scripts** — check-supply-chain: las vulnerabilidades de `npm audit` nunca hacen fallar el gate (y 4 problemas más) · *Esfuerzo: 1,2 días* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-01, OPS-02, OPS-03, OPS-04, OPS-05.
   - [x] `OPS-01` (Medio) check-supply-chain: las vulnerabilidades de `npm audit` nunca hacen fallar el gate — hecho el 2026-10-04
-  - [ ] `OPS-02` (Medio) El desinstalador silencioso deja `HKCU\Software\columnia\Columnia` apuntando a la carpeta ya borrada, y una instalación de prueba comparte claves y accesos con la real
+  - [x] `OPS-02` (Medio) El desinstalador silencioso deja `HKCU\Software\columnia\Columnia` apuntando a la carpeta ya borrada, y una instalación de prueba comparte claves y accesos con la real — hecho el 2026-10-04
   - [x] `OPS-03` (Medio) `notices:check` y `supply-chain:check` fallan en un clon con fin de línea CRLF — hecho el 2026-10-04
   - [x] `OPS-04` (Medio) El baseline de evidencia release fija la versión del proyecto: cada subida de versión rompe el gate y `--update-baseline` no puede repararlo — hecho el 2026-10-04
   - [x] `OPS-05` (Medio) check-secrets da «aprobado» si `git` falla o devuelve rutas entrecomilladas — hecho el 2026-10-04
