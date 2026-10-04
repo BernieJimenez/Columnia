@@ -10,8 +10,10 @@ import type {
 } from "../../bridge";
 import * as bridge from "../../bridge";
 import { DatasetPreviewPanel, ReviewPhase } from "./ReviewPhase";
+import { formatStatistic } from "./ReviewCharts";
 import { createReadyDatasetStatus } from "../load/loadModel";
 import type { QualityActionTarget } from "./qualityActionPlan";
+import { beginProfileAnalysis, type ProfileStatus } from "./reviewModel";
 
 afterEach(() => {
   cleanup();
@@ -342,6 +344,17 @@ function renderTemporalTrend(
   return render(temporalTrendElement(profileForTest, datasetRevision));
 }
 
+describe("formatStatistic", () => {
+  it("no muestra 0 para magnitudes pequeñas (FUN-28)", () => {
+    expect(formatStatistic(0.0001)).not.toBe("0");
+    expect(formatStatistic(0.0001)).toBe((0.0001).toLocaleString(undefined, { maximumSignificantDigits: 3 }));
+    expect(formatStatistic(-0.00025)).toBe((-0.00025).toLocaleString(undefined, { maximumSignificantDigits: 3 }));
+    expect(formatStatistic(0)).toBe("0");
+    expect(formatStatistic(12.34567)).toBe((12.346).toLocaleString());
+    expect(formatStatistic(null)).toBe("—");
+  });
+});
+
 describe("ReviewPhase", () => {
   it("explica señales prioritarias con una sola acción para empezar", () => {
     const onContinueToPrepare = vi.fn();
@@ -533,6 +546,54 @@ describe("ReviewPhase", () => {
     expect(bridge.queryDataset).toHaveBeenCalledWith("SELECT id FROM dataset LIMIT 1", "polars");
   });
 
+  it("conserva la consulta y su resultado al cambiar de pestaña y al re-perfilar (FUN-27)", async () => {
+    vi.spyOn(bridge, "queryDataset").mockResolvedValue({
+      engine: "polars",
+      columns: [{ name: "id", dataType: "Int64" }],
+      rowCount: 1,
+      offset: 0,
+      rows: [["1"]],
+      truncated: false,
+    });
+    const comparison = {
+      status: { kind: "idle" as const },
+      keyColumns: [],
+      onKeyColumnsChange: () => undefined,
+      onCompare: () => undefined,
+      onClear: () => undefined,
+      onConsolidate: () => undefined,
+      onResolveConflicts: () => undefined,
+      onConflictPageChange: () => undefined,
+      joinStatus: { kind: "idle" as const },
+      joinType: "inner" as const,
+      onJoinTypeChange: () => undefined,
+      onJoin: () => undefined,
+    };
+    const view = (reviewTab: "diagnosis" | "preview", profileStatus: ProfileStatus) => (
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={profileStatus}
+        reviewTab={reviewTab}
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        comparison={comparison}
+      />
+    );
+    const { rerender } = render(view("diagnosis", { kind: "idle" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Consulta SQL de solo lectura" }), {
+      target: { value: "SELECT id FROM dataset LIMIT 1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
+    await screen.findByRole("region", { name: "Resultado de consulta SQL" });
+
+    rerender(view("preview", { kind: "idle" }));
+    expect(screen.queryByRole("textbox", { name: "Consulta SQL de solo lectura" })).not.toBeInTheDocument();
+    rerender(view("diagnosis", beginProfileAnalysis()));
+    expect(screen.getByRole("textbox", { name: "Consulta SQL de solo lectura" })).toHaveValue("SELECT id FROM dataset LIMIT 1");
+    expect(screen.getByRole("region", { name: "Resultado de consulta SQL" })).toHaveTextContent("id");
+  });
+
   it("permite cancelar una consulta y no pinta una respuesta tardía", async () => {
     let resolveQuery: (result: DatasetQueryResult) => void = () => undefined;
     const pendingQuery = new Promise<DatasetQueryResult>((resolve) => {
@@ -715,6 +776,10 @@ describe("ReviewPhase", () => {
       "Q1 30 · Mediana 60 · Q3 90",
     );
     expect(screen.getByRole("heading", { name: "Histograma numérico" })).toBeInTheDocument();
+    // ACC-09: every scrollable «Ver datos exactos» table is reachable by keyboard.
+    const dataRegions = screen.getAllByRole("region", { name: "Ver datos exactos" });
+    expect(dataRegions.length).toBeGreaterThan(0);
+    for (const region of dataRegions) expect(region).toHaveAttribute("tabindex", "0");
     expect(screen.getByRole("table", { name: "Tabla de frecuencias para id" })).toHaveTextContent(
       "20",
     );

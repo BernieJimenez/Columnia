@@ -355,7 +355,8 @@ function QualityDataDetails({
   return (
     <details className="quality-data-details">
       <summary>{label}</summary>
-      <div className={className}>{children}</div>
+      {/* ACC-09: the table scrolls, so the keyboard must be able to reach it. */}
+      <div className={className} tabIndex={0} role="region" aria-label={label}>{children}</div>
     </details>
   );
 }
@@ -1330,7 +1331,12 @@ export function profileColumnTypeLabel(column: ColumnProfile): string {
 }
 
 export function formatStatistic(value: number | null): string {
-  return value?.toLocaleString(undefined, { maximumFractionDigits: 3 }) ?? "—";
+  if (value === null) return "—";
+  // FUN-28: small magnitudes keep their significant digits instead of «0».
+  if (value !== 0 && Math.abs(value) < 0.001) {
+    return value.toLocaleString(undefined, { maximumSignificantDigits: 3 });
+  }
+  return value.toLocaleString(undefined, { maximumFractionDigits: 3 });
 }
 
 function histogramIntervalLabel(lower: number, upper: number, includesMaximum: boolean): string {

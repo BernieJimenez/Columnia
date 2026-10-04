@@ -175,12 +175,12 @@ medio = 1 día; agregado por suma.
 - [x] **RV45** — **Entrega ODBC** — Los tests de la comprobación previa usan nombres de tipo que el código real no produce, y las pruebas con servidor solo… · *Esfuerzo: 2 h* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-20.
   - [x] `QA-20` (Medio) Los tests de la comprobación previa usan nombres de tipo que el código real no produce, y las pruebas con servidor solo cubren «Crear» — hecho el 2026-10-03
-- [ ] **RV46** — **Revisar** — El SQL escrito y su resultado se pierden al cambiar de pestaña o al re-perfilar (y 3 problemas más) · *Esfuerzo: 1 día*
+- [x] **RV46** — **Revisar** — El SQL escrito y su resultado se pierden al cambiar de pestaña o al re-perfilar (y 3 problemas más) · *Esfuerzo: 1 día* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-27, FUN-28, ACC-06, ACC-09.
-  - [ ] `FUN-27` (Medio) El SQL escrito y su resultado se pierden al cambiar de pestaña o al re-perfilar
-  - [ ] `FUN-28` (Medio) `formatStatistic` redondea a 3 decimales y muestra 0 para magnitudes pequeñas
-  - [ ] `ACC-06` (Medio) La celda más intensa del calendario de Revisar tiene texto ilegible en todos los temas (1,0:1 claro, 1,08:1 oscuro)
-  - [ ] `ACC-09` (Medio) Tablas «Ver datos» de Revisar con scroll pero sin foco por teclado (axe `scrollable-region-focusable`, serious)
+  - [x] `FUN-27` (Medio) El SQL escrito y su resultado se pierden al cambiar de pestaña o al re-perfilar — hecho el 2026-10-03
+  - [x] `FUN-28` (Medio) `formatStatistic` redondea a 3 decimales y muestra 0 para magnitudes pequeñas — hecho el 2026-10-03
+  - [x] `ACC-06` (Medio) La celda más intensa del calendario de Revisar tiene texto ilegible en todos los temas (1,0:1 claro, 1,08:1 oscuro) — hecho el 2026-10-03
+  - [x] `ACC-09` (Medio) Tablas «Ver datos» de Revisar con scroll pero sin foco por teclado (axe `scrollable-region-focusable`, serious) — hecho el 2026-10-03
 - [ ] **RV47** — **Proyectos e historial (motor)** — `project-save --id` sobre un proyecto existente construye un espacio de trabajo vacío (po… (y 4 problemas más) · *Esfuerzo: 4,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-30, DAT-03, DAT-04, DAT-05, DAT-07.
   - [ ] `FUN-30` (Medio) `project-save --id` sobre un proyecto existente construye un espacio de trabajo vacío (posible pérdida de reglas, receta e historial SQL)

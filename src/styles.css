@@ -688,6 +688,9 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 .quality-temporal-calendar__day--level-4 { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
 .quality-temporal-calendar__day--level-4 strong,
 .quality-temporal-calendar__day--level-4 small { color: #fff; }
+/* ACC-06: the peak day reads in every theme; beats the generic .workspace text colours. */
+:root:root .workspace .quality-temporal-calendar .quality-temporal-calendar__day.quality-temporal-calendar__day--level-4,
+:root:root .workspace .quality-temporal-calendar .quality-temporal-calendar__day.quality-temporal-calendar__day--level-4 :is(time, strong, small) { color: var(--on-accent); }
 .quality-temporal-calendar--empty { min-height: 0; }
 .quality-temporal-empty { margin: 14px 0 0; padding: 12px; border: 1px dashed var(--border-subtle); color: var(--text-secondary); font-size: .8125rem; }
 .quality-groups .quality-chart__note strong { color: var(--text-primary); }

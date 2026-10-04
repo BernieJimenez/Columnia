@@ -75,7 +75,7 @@ export function ReviewPhase({
   onContinueToPrepare = () => undefined,
   comparison,
   datasetRevision = 0,
-  sqlHistory = [],
+  sqlHistory = NO_SQL_HISTORY,
   onSqlHistoryChange = () => undefined,
   queryEngine,
   onQueryEngineChange = () => undefined,
@@ -86,6 +86,7 @@ export function ReviewPhase({
   const comparisonActive = comparisonStatus.kind !== "idle" || comparison.joinStatus.kind !== "idle";
   const [comparisonOpen, setComparisonOpen] = useState(comparisonActive);
   const [localAnalysisSampleRows, setLocalAnalysisSampleRows] = useState(readAnalysisSampleRowsPreference);
+  const [sqlDraft, setSqlDraft] = useState<SqlQueryDraft | null>(null);
   const selectedAnalysisSampleRows = analysisSampleRows ?? localAnalysisSampleRows;
 
   useEffect(() => {
@@ -115,6 +116,8 @@ export function ReviewPhase({
             comparisonAvailable={comparisonStatus.kind === "ready"}
             sqlHistory={sqlHistory}
             onSqlHistoryChange={onSqlHistoryChange}
+            sqlDraft={sqlDraft}
+            onSqlDraftChange={setSqlDraft}
             queryEngine={queryEngine}
             onQueryEngineChange={onQueryEngineChange}
             analysisSampleRows={selectedAnalysisSampleRows}
@@ -181,6 +184,8 @@ function QualitySection({
   comparisonAvailable,
   sqlHistory,
   onSqlHistoryChange,
+  sqlDraft,
+  onSqlDraftChange,
   queryEngine,
   onQueryEngineChange,
   analysisSampleRows,
@@ -195,6 +200,8 @@ function QualitySection({
   comparisonAvailable: boolean;
   sqlHistory: SqlQueryHistoryEntry[];
   onSqlHistoryChange: (entries: SqlQueryHistoryEntry[]) => void;
+  sqlDraft: SqlQueryDraft | null;
+  onSqlDraftChange: (draft: SqlQueryDraft) => void;
   queryEngine?: DatasetQueryEngine;
   onQueryEngineChange: (engine: DatasetQueryEngine) => void;
   analysisSampleRows: AnalysisSampleRows;
@@ -233,6 +240,8 @@ function QualitySection({
         comparisonAvailable={comparisonAvailable}
         queryHistory={sqlHistory}
         onQueryHistoryChange={onSqlHistoryChange}
+        draft={sqlDraft}
+        onDraftChange={onSqlDraftChange}
         queryEngine={queryEngine}
         onQueryEngineChange={onQueryEngineChange}
         datasetRevision={datasetRevision}
@@ -280,10 +289,23 @@ function QualitySection({
   );
 }
 
+/** A stable default, so that a re-render does not look like a new history. */
+const NO_SQL_HISTORY: SqlQueryHistoryEntry[] = [];
+
+/** The SQL being written and its last result, kept while Review stays open (FUN-27). */
+export type SqlQueryDraft = {
+  text: string;
+  open: boolean;
+  result: DatasetQueryResult | null;
+  revision: number;
+};
+
 function LocalQueryPanel({
   comparisonAvailable,
   queryHistory: persistedQueryHistory,
   onQueryHistoryChange,
+  draft,
+  onDraftChange,
   queryEngine,
   onQueryEngineChange,
   datasetRevision,
@@ -291,12 +313,15 @@ function LocalQueryPanel({
   comparisonAvailable: boolean;
   queryHistory: SqlQueryHistoryEntry[];
   onQueryHistoryChange: (entries: SqlQueryHistoryEntry[]) => void;
+  draft: SqlQueryDraft | null;
+  onDraftChange: (draft: SqlQueryDraft) => void;
   queryEngine?: DatasetQueryEngine;
   onQueryEngineChange: (engine: DatasetQueryEngine) => void;
   datasetRevision: number;
 }) {
-
-  const [query, setQuery] = useState("SELECT * FROM dataset LIMIT 50");
+  // A result belongs to its revision; the text survives a new revision.
+  const restoredResult = draft?.revision === datasetRevision ? draft.result : null;
+  const [query, setQuery] = useState(draft?.text ?? "SELECT * FROM dataset LIMIT 50");
   const [localQueryEngine, setLocalQueryEngine] = useState<DatasetQueryEngine>(readQueryEnginePreference);
   const selectedQueryEngine = queryEngine ?? localQueryEngine;
   const [state, setState] = useState<
@@ -305,8 +330,8 @@ function LocalQueryPanel({
     | { kind: "ready"; result: DatasetQueryResult }
     | { kind: "cancelled" }
     | { kind: "error"; message: string }
-  >({ kind: "idle" });
-  const [queryOpen, setQueryOpen] = useState(false);
+  >(restoredResult ? { kind: "ready", result: restoredResult } : { kind: "idle" });
+  const [queryOpen, setQueryOpen] = useState(draft?.open ?? false);
   const [queryHistory, setQueryHistory] = useState<SqlQueryHistoryEntry[]>(persistedQueryHistory);
   const activeQueryRef = useRef(0);
   const cancelledQueryRef = useRef<number | null>(null);
@@ -349,6 +374,22 @@ function LocalQueryPanel({
   useEffect(() => {
     if (state.kind !== "idle") setQueryOpen(true);
   }, [state.kind]);
+
+  useEffect(() => {
+    onDraftChange({
+      text: query,
+      open: queryOpen,
+      result: state.kind === "ready" ? state.result : null,
+      revision: datasetRevision,
+    });
+  }, [query, queryOpen, state, datasetRevision, onDraftChange]);
+
+  // A query still running when the panel goes away is cancelled (FUN-27).
+  const runningRef = useRef(false);
+  runningRef.current = state.kind === "loading";
+  useEffect(() => () => {
+    if (runningRef.current) void cancelOperation("query").catch(() => undefined);
+  }, []);
 
   function recordQueryHistory(
     requestId: number,

@@ -185,6 +185,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Revisar: la consulta SQL escrita y su resultado se conservan al cambiar de
+  pestaña o al volver a analizar (y una consulta en curso se cancela si el panel
+  se cierra), las estadísticas muy pequeñas ya no se muestran como «0», el día
+  con más filas del calendario se lee en todos los temas y las tablas «Ver datos
+  exactos» se pueden recorrer con el teclado.
 - Entrega ODBC: el análisis bloquea nombres de columna más largos de lo que
   admite el motor (128 en SQL Server, 64 en MySQL, 63 bytes en PostgreSQL) y
   nombra las columnas que solo difieren en mayúsculas en vez de decir que el
