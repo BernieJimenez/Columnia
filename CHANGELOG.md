@@ -188,6 +188,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Al elegir una convención decimal al importar, las columnas de códigos con
+  ceros a la izquierda («00123») o enteros muy largos se conservan como texto en
+  lugar de convertirse en números.
 - Perfil: una columna con infinitos o NaN ya no deja Revisar sin análisis, los
   números de texto con espacios entran en las estadísticas y los mínimos y
   máximos son iguales en archivos pequeños y grandes (también enteros por encima

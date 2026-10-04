@@ -196,6 +196,20 @@ where
         else {
             return Ok(None);
         };
+        // FUN-40: codes with leading zeros («00123») and integers past 2^53
+        // stay text, as with the integer convention.
+        let unsigned = canonical.trim_start_matches('-');
+        let integer_digits = unsigned.split('.').next().unwrap_or_default();
+        if integer_digits.len() > 1 && integer_digits.starts_with('0') {
+            return Ok(None);
+        }
+        if !unsigned.contains('.')
+            && unsigned
+                .parse::<u128>()
+                .is_ok_and(|integer| integer > (1_u128 << 53))
+        {
+            return Ok(None);
+        }
         let Ok(number) = canonical.parse::<f64>() else {
             return Ok(None);
         };
@@ -533,6 +547,43 @@ mod tests {
         assert_eq!(
             strings(&unchanged, "importe"),
             vec![Some("12,34.56".into()), Some("1,234.56".into())]
+        );
+    }
+
+    #[test]
+    fn decimal_conventions_preserve_leading_zeroes_and_overflow() {
+        // FUN-40: a code column stays text whatever decimal convention is chosen.
+        for convention in [
+            ImportNumberConvention::CommaDecimalDotGrouping,
+            ImportNumberConvention::DotDecimalCommaGrouping,
+            ImportNumberConvention::CommaDecimalSpaceGrouping,
+            ImportNumberConvention::DotDecimalSpaceGrouping,
+        ] {
+            for values in [
+                vec![Some("00123"), Some("00456")],
+                vec![Some("9007199254740993"), Some("1")],
+            ] {
+                let frame = text_frame("codigo", &values);
+                let unchanged = apply_import_conventions(&frame, None, Some(convention), || false)
+                    .expect("la conversión no debe fallar");
+                assert_eq!(
+                    unchanged.column("codigo").unwrap().dtype(),
+                    &DataType::String,
+                    "{convention:?} {values:?}"
+                );
+            }
+        }
+        let amounts = text_frame("importe", &[Some("1.234,56"), Some("0,5")]);
+        let parsed = apply_import_conventions(
+            &amounts,
+            None,
+            Some(ImportNumberConvention::CommaDecimalDotGrouping),
+            || false,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.column("importe").unwrap().dtype(),
+            &DataType::Float64
         );
     }
 
