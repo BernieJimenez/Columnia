@@ -1,5 +1,6 @@
 import { isCancellationError } from "../../bridge/cancellation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { userErrorMessage as errorMessage } from "../../errorText";
 
 import {
   autosaveProject,
@@ -57,15 +58,6 @@ interface ProjectsControllerOptions {
   onActiveProjectUnlinked?: () => void;
 }
 
-function errorMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  const sanitized = raw
-    .replace(/[A-Za-z]:[\\/][^\r\n"'`<>]*/g, "archivo seleccionado")
-    .replace(/(?:^|\s)(?:\/[^\s"'`<>]+)+/g, " archivo seleccionado")
-    .trim();
-  return (sanitized || "No se pudo completar la operación.").slice(0, 240);
-}
-
 
 export function useProjectsController({
   connected,
@@ -121,7 +113,8 @@ export function useProjectsController({
       return;
     }
     catalogRequestInProgress.current = true;
-    setCatalog({ kind: "loading" });
+    // ACC-05: a refresh keeps the last list on screen instead of unmounting it.
+    setCatalog(lastReadyCatalog.current ?? { kind: "loading" });
     try {
       const snapshot = await listProjects();
       if (catalogRequestGeneration.current !== requestId) return;

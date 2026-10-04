@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { userErrorMessage as errorMessage } from "../../errorText";
 
 import {
   cancelOperation,
@@ -49,15 +50,6 @@ export interface ReusableTasksController {
     schema: ReusableTaskSchema,
   ) => Promise<ReusableTaskSchemaCompatibility | null>;
   clearError: () => void;
-}
-
-function errorMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  const sanitized = raw
-    .replace(/[A-Za-z]:[\\/][^\r\n"'`<>]*/g, "archivo seleccionado")
-    .replace(/(?:^|\s)(?:\/[^\s"'\x60<>]+)+/g, " archivo seleccionado")
-    .trim();
-  return (sanitized || "No se pudo completar la operación.").slice(0, 240);
 }
 
 function newestFirst(tasks: ReusableTaskSummary[]): ReusableTaskSummary[] {

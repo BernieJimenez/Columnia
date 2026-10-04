@@ -45,6 +45,15 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ProjectsPanel>> = 
 }
 
 describe("ProjectsPanel", () => {
+  it("lleva el foco al resultado si el botón usado desapareció (ACC-05)", () => {
+    const props = renderPanel();
+    cleanup();
+    const view = render(<ProjectsPanel {...props} />);
+    (document.activeElement as HTMLElement | null)?.blur();
+    view.rerender(<ProjectsPanel {...props} operation={{ kind: "success", message: "Proyecto eliminado." }} />);
+    expect(document.activeElement).toBe(screen.getByText("Proyecto eliminado."));
+  });
+
   it("prioriza la recuperación y oculta guardar y administrar hasta abrir sus opciones", () => {
     const props = renderPanel();
     expect(screen.getByRole("button", { name: "Recuperar proyecto" })).toBeInTheDocument();

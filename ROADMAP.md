@@ -255,10 +255,10 @@ medio = 1 día; agregado por suma.
 - [x] **RV58** — **Estilos y componentes** — Botones «Eliminar» de proyectos y acciones peligrosas con color fijo: 2,05:1 en oscuro · *Esfuerzo: 2 h* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de ACC-08.
   - [x] `ACC-08` (Medio) Botones «Eliminar» de proyectos y acciones peligrosas con color fijo: 2,05:1 en oscuro — hecho el 2026-10-04
-- [ ] **RV59** — **Proyectos** — Tras actualizar o eliminar un proyecto el foco cae en `<body>` y la lista se vacía un ins… (y 1 problemas más) · *Esfuerzo: 4 h*
+- [x] **RV59** — **Proyectos** — Tras actualizar o eliminar un proyecto el foco cae en `<body>` y la lista se vacía un ins… (y 1 problemas más) · *Esfuerzo: 4 h* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de ACC-05, TXT-02.
-  - [ ] `ACC-05` (Medio) Tras actualizar o eliminar un proyecto el foco cae en `<body>` y la lista se vacía un instante
-  - [ ] `TXT-02` (Medio) El saneado de errores recorta el motivo real tras una ruta (p. ej. eliminar con carpeta ausente)
+  - [x] `ACC-05` (Medio) Tras actualizar o eliminar un proyecto el foco cae en `<body>` y la lista se vacía un instante — hecho el 2026-10-04
+  - [x] `TXT-02` (Medio) El saneado de errores recorta el motivo real tras una ruta (p. ej. eliminar con carpeta ausente) — hecho el 2026-10-04
 - [ ] **RV60** — **E2E** — CSS: cascada por acumulación de parches (bloques duplicados, tokens definidos dos veces,… (y 2 problemas más) · *Esfuerzo: 3 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de COD-02, QA-06, QA-07.
   - [ ] `COD-02` (Medio) CSS: cascada por acumulación de parches (bloques duplicados, tokens definidos dos veces, `!important`, token inexistente, arnés de pruebas en producción)

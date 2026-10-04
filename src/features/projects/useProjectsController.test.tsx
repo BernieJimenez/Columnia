@@ -119,6 +119,39 @@ describe("useProjectsController", () => {
     expect(result.current.operation).toMatchObject({ kind: "success", message: expect.stringContaining("se conserva") });
   });
 
+  it("al refrescar conserva la lista anterior en pantalla (ACC-05)", async () => {
+    const { result } = renderHook(() => useProjectsController({
+      connected: true,
+      blocked: false,
+      hasDataset: true,
+      workspace,
+      onProjectOpened: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
+    let resolveList: (value: { projects: ProjectSummary[]; recoveryCandidate: null }) => void = () => undefined;
+    bridge.listProjects.mockReturnValueOnce(new Promise((resolve) => { resolveList = resolve; }));
+    let refreshing: Promise<void> = Promise.resolve();
+    act(() => { refreshing = result.current.refresh(); });
+    expect(result.current.catalog).toMatchObject({ kind: "ready", projects: [summary] });
+    await act(async () => { resolveList({ projects: [], recoveryCandidate: null }); await refreshing; });
+    expect(result.current.catalog).toMatchObject({ kind: "ready", projects: [] });
+  });
+
+  it("el error de borrado conserva el motivo tras la ruta (TXT-02)", async () => {
+    bridge.deleteProject.mockRejectedValueOnce(new Error("Error: no se pudo eliminar C:\\a\\b: acceso denegado"));
+    const { result } = renderHook(() => useProjectsController({
+      connected: true,
+      blocked: false,
+      hasDataset: true,
+      workspace,
+      onProjectOpened: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
+    act(() => result.current.requestDelete(summary));
+    await act(async () => result.current.confirmDelete());
+    expect(result.current.operation).toMatchObject({ kind: "error", message: "Error: no se pudo eliminar una ruta local: acceso denegado" });
+  });
+
   it("restaura una versión y activa su snapshot en un solo flujo del controlador", async () => {
     const onProjectOpened = vi.fn();
     const { result } = renderHook(() => useProjectsController({

@@ -203,6 +203,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Tras guardar o eliminar un proyecto la lista no se vacía al refrescar y el
+  foco pasa al mensaje de resultado en lugar de perderse; los errores de
+  proyectos y tareas ocultan solo la ruta (también UNC) y conservan el motivo,
+  p. ej. «acceso denegado» (ACC-05, TXT-02).
 - Los botones «Eliminar» y las acciones destructivas usan el color de peligro de
   cada tema y alcanzan 4,5:1 en los cinco (ACC-08).
 - Accesibilidad visual: entre 421 y 900 px la barra lateral se compacta (a 900 ×

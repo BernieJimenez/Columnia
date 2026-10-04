@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ModalDialog } from "../../components/ModalDialog";
 import type { ProjectSummary, ProjectVersionSummary } from "../../bridge";
@@ -93,6 +93,16 @@ export function ProjectsPanel({
   useEffect(() => {
     setName(activeProject?.name ?? suggestedProjectName(datasetFileName));
   }, [activeProject?.id, activeProject?.name, datasetFileName]);
+
+  // ACC-05: after saving or deleting, the button that had the focus may be
+  // gone; the result message takes it so keyboard users keep their place.
+  const resultRef = useRef<HTMLParagraphElement>(null);
+  const operationResult = operation.kind === "success" || operation.kind === "error" ? operation.message : null;
+  useEffect(() => {
+    if (operationResult === null) return;
+    const active = document.activeElement;
+    if (active === null || active === document.body) resultRef.current?.focus();
+  }, [operationResult]);
 
   if (catalog.kind === "unavailable") return null;
 
@@ -370,8 +380,8 @@ export function ProjectsPanel({
           )}
         </div>
       )}
-      {operation.kind === "success" && <p className="notice notice--success" role="status">{operation.message}</p>}
-      {operation.kind === "error" && <p className="notice notice--error" role="alert">{operation.message}</p>}
+      {operation.kind === "success" && <p ref={resultRef} tabIndex={-1} className="notice notice--success" role="status">{operation.message}</p>}
+      {operation.kind === "error" && <p ref={resultRef} tabIndex={-1} className="notice notice--error" role="alert">{operation.message}</p>}
 
       {deletion.kind === "confirming" && (
         <ModalDialog
