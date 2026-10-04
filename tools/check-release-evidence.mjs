@@ -12,6 +12,8 @@ const checkDirectory = join(projectRoot, ".local", "validation", "release-eviden
 const checkOutput = join(checkDirectory, "summary.json");
 const updateBaseline = process.argv.includes("--update-baseline");
 const requestedSummary = process.argv.find((argument) => argument.startsWith("--summary="))?.slice("--summary=".length);
+// OPS-10: re-approving names who reviewed the images.
+const reviewedBy = process.argv.find((argument) => argument.startsWith("--reviewed-by="))?.slice("--reviewed-by=".length).trim();
 
 function fail(message) {
   throw new Error(message);
@@ -57,6 +59,7 @@ async function latestSummary() {
 }
 
 const checks = [];
+const baselineChanges = [];
 let status = "failed";
 let error = null;
 let summaryPath = null;
@@ -72,6 +75,12 @@ try {
     dirty: gitOutput(["status", "--porcelain"]).length > 0,
   };
   if (currentGit.dirty) fail("El árbol Git debe estar limpio para validar evidencia release.");
+  if (updateBaseline && !reviewedBy) {
+    fail("--update-baseline requiere --reviewed-by=<nombre> de quien revisó las capturas.");
+  }
+  if (updateBaseline && summary.git?.commit !== currentGit.commit) {
+    fail("--update-baseline requiere evidencia capturada en el HEAD actual.");
+  }
   const currentCommitMatchesEvidence = summary.git?.commit === currentGit.commit
     || (summary.git?.commit && isBaselineCommit(currentGit.commit, summary.git.commit));
   if (!currentCommitMatchesEvidence || summary.git?.branch !== currentGit.branch || summary.git?.dirty !== false) {
@@ -96,6 +105,16 @@ try {
   }
   if (summary.fixture?.path !== baseline.fixturePath) fail("La fixture de evidencia no coincide con el baseline.");
   if (!/^[a-f0-9]{64}$/.test(summary.binary?.sha256 ?? "")) fail("El binario no tiene SHA-256 válido.");
+  // OPS-10: the hashes come from release.ps1 arguments; recompute them.
+  for (const [label, file] of [["binario", summary.binary], ["fixture", summary.fixture]]) {
+    const filePath = file?.path ? resolve(projectRoot, file.path) : null;
+    const bytes = filePath ? await readFile(filePath).catch(() => null) : null;
+    if (!bytes) {
+      if (updateBaseline) fail(`No se encuentra el ${label} de la evidencia para recalcular su SHA-256.`);
+      continue;
+    }
+    if (createHash("sha256").update(bytes).digest("hex") !== file.sha256) fail(`El SHA-256 del ${label} no coincide con la evidencia.`);
+  }
   if (!/^[a-f0-9]{64}$/.test(summary.fixture?.sha256 ?? "")) fail("La fixture no tiene SHA-256 válido.");
   if (!Number.isInteger(summary.binary?.sizeBytes) || summary.binary.sizeBytes <= 0) fail("El tamaño del binario no es válido.");
   if (!Number.isInteger(summary.fixture?.sizeBytes) || summary.fixture.sizeBytes <= 0) fail("El tamaño de la fixture no es válido.");
@@ -129,12 +148,16 @@ try {
     if (!expectedHash) {
       if (!updateBaseline) fail(`El baseline no tiene hash para ${expectedCase.name}; ejecuta --update-baseline tras revisar las imágenes.`);
     } else if (expectedHash !== actualCase.screenshotSha256 && !updateBaseline) {
-      fail(`${expectedCase.name}: diferencia visual detectada (${expectedHash} -> ${actualCase.screenshotSha256}).`);
+      fail(`${expectedCase.name}: diferencia visual detectada (${expectedHash} -> ${actualCase.screenshotSha256}). Revisa ${relativePath(screenshotPath)} y vuelve a aprobar con --update-baseline --reviewed-by=<nombre>.`);
+    }
+    if (expectedHash !== actualCase.screenshotSha256) {
+      baselineChanges.push({ name: expectedCase.name, previous: expectedHash ?? null, current: actualCase.screenshotSha256, screenshot: relativePath(screenshotPath) });
     }
     checks.push({ name: expectedCase.name, status: "passed", screenshot: relativePath(screenshotPath), screenshotSha256: actualCase.screenshotSha256 });
   }
   if (updateBaseline) {
     baseline.approvedAt = new Date().toISOString();
+    baseline.reviewedBy = reviewedBy;
     delete baseline.projectVersion;
     baseline.fixturePath = summary.fixture.path;
     baseline.git = summary.git;
@@ -154,7 +177,9 @@ await writeFile(checkOutput, `${JSON.stringify({
   generatedAt: new Date().toISOString(),
   baseline: relativePath(baselinePath),
   sourceSummary: summaryPath ? relativePath(summaryPath) : null,
-  baselineUpdated: updateBaseline,
+  baselineUpdated: updateBaseline && status === "passed",
+  reviewedBy: updateBaseline ? reviewedBy ?? null : null,
+  baselineChanges,
   checks,
   error,
 }, null, 2)}\n`, "utf8");
@@ -163,5 +188,8 @@ if (status !== "passed") {
   console.error(`Baseline release falló: ${error ?? "error desconocido"}. Evidencia: ${relativePath(checkOutput)}`);
   process.exitCode = 1;
 } else {
+  for (const change of baselineChanges) {
+    console.log(`${updateBaseline ? "Re-aprobado" : "Cambio"} ${change.name}: ${change.previous ?? "(sin hash)"} -> ${change.current} (${change.screenshot})`);
+  }
   console.log(`Baseline release aprobado: ${relativePath(checkOutput)}`);
 }

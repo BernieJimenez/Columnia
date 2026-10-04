@@ -234,13 +234,13 @@ medio = 1 día; agregado por suma.
   - [x] `OPS-03` (Medio) `notices:check` y `supply-chain:check` fallan en un clon con fin de línea CRLF — hecho el 2026-10-04
   - [x] `OPS-04` (Medio) El baseline de evidencia release fija la versión del proyecto: cada subida de versión rompe el gate y `--update-baseline` no puede repararlo — hecho el 2026-10-04
   - [x] `OPS-05` (Medio) check-secrets da «aprobado» si `git` falla o devuelve rutas entrecomilladas — hecho el 2026-10-04
-- [ ] **RV55** — **Gates y scripts** — app-data-guard: restauración destructiva sin salvaguarda ante fallo parcial (y 4 problemas más) · *Esfuerzo: 2 días*
+- [x] **RV55** — **Gates y scripts** — app-data-guard: restauración destructiva sin salvaguarda ante fallo parcial (y 4 problemas más) · *Esfuerzo: 2 días* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-06, OPS-07, OPS-08, OPS-09, OPS-10.
   - [x] `OPS-06` (Medio) app-data-guard: restauración destructiva sin salvaguarda ante fallo parcial — hecho el 2026-10-04
   - [x] `OPS-07` (Medio) release.ps1: no comprueba que las variables de tests destructivos estén desactivadas ni que las versiones coincidan — hecho el 2026-10-04
   - [x] `OPS-08` (Medio) `check-toolchains` convierte un rango `engines` en versión exacta — hecho el 2026-10-04
   - [x] `OPS-09` (Medio) `docs:check` valida enlaces con regex sobre texto crudo y recorre `docs/auditorias/**` — hecho el 2026-10-04
-  - [ ] `OPS-10` (Medio) `check-release-evidence --update-baseline` re-aprueba cualquier captura; hashes de PNG a nivel de byte
+  - [x] `OPS-10` (Medio) `check-release-evidence --update-baseline` re-aprueba cualquier captura; hashes de PNG a nivel de byte — hecho el 2026-10-04
 - [ ] **RV56** — **Arranque y servicios** — Un catálogo auxiliar corrupto o de versión futura (tareas reutilizables / presets de entr… (y 1 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de ARQ-02, DOC-05.
   - [ ] `ARQ-02` (Medio) Un catálogo auxiliar corrupto o de versión futura (tareas reutilizables / presets de entrega) impide arrancar la app, sin mensaje

@@ -203,6 +203,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- `--update-baseline` de la evidencia release exige evidencia del HEAD actual y
+  `--reviewed-by=<nombre>`, recalcula los SHA-256 del binario y la fixture y
+  deja en el sumario la lista de capturas cambiadas con hash anterior y nuevo
+  (OPS-10).
 - `docs:check` ignora los enlaces dentro de bloques y código en línea, entiende
   títulos y `%20`, distingue mayúsculas, no trata errores de permisos como
   enlaces rotos y no revisa los parciales de auditoría (OPS-09).
