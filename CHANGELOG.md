@@ -203,6 +203,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- `check-toolchains` compara Node y npm contra el rango de `engines` en lugar de
+  exigir la versión mínima exacta (OPS-08).
 - `tools/release.ps1` aborta antes de compilar si hay variables de pruebas
   `COLUMNIA_*` activas o si las versiones de `Cargo.toml` y `tauri.conf.json` no
   coinciden con `package.json` (OPS-07).
