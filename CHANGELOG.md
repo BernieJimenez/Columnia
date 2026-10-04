@@ -185,6 +185,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Un proyecto cuya carpeta de datos falta se puede eliminar desde la app en
+  lugar de quedar como entrada fantasma.
 - Al arrancar, Columnia borra los temporales que dejó un guardado de proyecto
   interrumpido y las copias del historial de Preparar de sesiones ya cerradas
   (también las de versiones anteriores en la carpeta temporal de Windows); el

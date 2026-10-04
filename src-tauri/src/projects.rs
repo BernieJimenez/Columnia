@@ -1760,6 +1760,9 @@ impl ProjectStore {
             // Once the catalog commit wins, finish cleanup under the same gate
             // so a late cancel cannot be acknowledged while deletion continues.
             for name in generations {
+                if fs::symlink_metadata(self.snapshots.join(&name)).is_err() {
+                    continue;
+                }
                 let path = self.generation_path(&project_id, &name)?;
                 match fs::remove_dir_all(path) {
                     Ok(()) => {}
@@ -2208,7 +2211,16 @@ where
     ensure_project_operation_not_cancelled(is_cancelled())?;
     if let Some(name) = stored.generation_name.as_deref() {
         // Resolve now to reject unsafe names or reparse points before deleting the catalog row.
-        store.generation_path(&stored.summary.id, name)?;
+        // A generation folder that is gone has nothing to clean: the project must
+        // still be removable (DAT-05).
+        if fs::symlink_metadata(store.snapshots.join(name)).is_ok() {
+            store.generation_path(&stored.summary.id, name)?;
+        } else {
+            let generation = name
+                .strip_prefix(&format!("{}-", stored.summary.id))
+                .ok_or_else(storage_error)?;
+            validate_id(generation)?;
+        }
         generations.insert(name.to_owned());
     } else {
         let path = store.managed_snapshot_path(&stored.summary.id, &stored.snapshot_name)?;
@@ -3724,6 +3736,36 @@ mod tests {
         assert!(active.history.degraded_reason.is_some());
         assert!(active.frame.equals_missing(&frame(&[5, 6])));
         assert!(restored.project_test_undo().is_err());
+    }
+
+    /// DAT-05: a project whose current generation folder is gone can still be
+    /// deleted from the app.
+    #[test]
+    fn a_project_without_its_generation_folder_can_be_deleted() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[1, 2, 3], "datos.csv");
+        let created = store
+            .save(
+                &state,
+                None,
+                "Huérfano".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let stored = store
+            .stored_project(&store.connection().unwrap(), &created.id)
+            .unwrap()
+            .unwrap();
+        let generation = store
+            .generation_path(&created.id, stored.generation_name.as_deref().unwrap())
+            .unwrap();
+        fs::remove_dir_all(generation).unwrap();
+
+        store
+            .delete(created.id)
+            .expect("el proyecto se elimina aunque falte su carpeta");
+        assert!(store.list().unwrap().is_empty());
     }
 
     #[test]

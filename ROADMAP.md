@@ -186,7 +186,7 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-30` (Medio) `project-save --id` sobre un proyecto existente construye un espacio de trabajo vacío (posible pérdida de reglas, receta e historial SQL) — hecho el 2026-10-03
   - [x] `DAT-03` (Medio) Un cierre abrupto durante guardar proyecto o exportar deja temporales de cientos de MB que nada limpia — hecho el 2026-10-04
   - [x] `DAT-04` (Medio) Los snapshots del historial de Preparar viven en `%TEMP%` y nadie los purga (ni al cerrar con normalidad) — hecho el 2026-10-04
-  - [ ] `DAT-05` (Medio) Un proyecto cuya carpeta de generación falta no se puede abrir ni eliminar desde la app
+  - [x] `DAT-05` (Medio) Un proyecto cuya carpeta de generación falta no se puede abrir ni eliminar desde la app — hecho el 2026-10-04
   - [ ] `DAT-07` (Medio) Un solo snapshot por encima de 1 GiB destruye todo el historial reversible ya acumulado y no se recupera
 - [ ] **RV48** — **Perfil** — Perfil source-backed: mínimo/máximo de enteros se pasan por f64 y no coinciden con la rut… (y 4 problemas más) · *Esfuerzo: 3,8 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-37, FUN-38, FUN-39, REN-01, PROD-04.
