@@ -136,7 +136,8 @@ if ($Check) {
     if (-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) {
         throw "Falta el inventario $($ProjectRootUri.MakeRelativeUri([Uri]$OutputPath).ToString()). Ejecuta generate-third-party-notices.ps1."
     }
-    $Actual = [System.IO.File]::ReadAllText($OutputPath)
+    # OPS-03: a CRLF checkout has the same content.
+    $Actual = [System.IO.File]::ReadAllText($OutputPath).Replace("`r`n", "`n")
     if ($Actual -cne $Expected) {
         throw "THIRD_PARTY_NOTICES.md no coincide con los lockfiles actuales."
     }

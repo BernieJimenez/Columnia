@@ -1,0 +1,5 @@
+# OPS-03: the repository stores LF; a checkout keeps LF whatever core.autocrlf
+# says, so gates that compare generated text do not fail on line endings.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf

@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- `.gitattributes` fija LF en el checkout y `notices:check` compara sin tener en
+  cuenta CRLF, así que los gates aprueban con cualquier `core.autocrlf`
+  (OPS-03).
 - El gate de supply chain falla si `npm audit` reporta vulnerabilidades o no se
   puede leer, y el estado global sale de los resultados parciales; el resumen se
   escribe también cuando falla (OPS-01).
