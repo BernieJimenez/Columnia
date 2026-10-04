@@ -52,8 +52,9 @@ reserva para selección actual, foco y acción principal. El color nunca es la
   fallbacks Aptos Display y Segoe UI.
 - Cuerpo, formularios y tablas: `--font-body`, actualmente Aptos con fallbacks
   Segoe UI Variable Text y Segoe UI.
-- El texto de cuerpo no baja de 16 CSS px cuando contiene instrucciones o
-  explicaciones esenciales.
+- El texto base es de 16 CSS px. Las notas, tablas, rótulos y metadatos usan
+  una escala secundaria de 12 a 15 CSS px; ningún texto baja de 12 CSS px
+  (ACC-04).
 - Los eyebrow labels son secundarios; nunca sustituyen un encabezado claro.
 
 ## Componentes y superficies
@@ -108,7 +109,12 @@ navegación.
 - A 320 CSS px y zoom 200 %, el contenido puede envolver texto pero nunca crear
   scroll horizontal global.
 - No escondas acciones esenciales detrás de hover ni reduzcas objetivos táctiles
-  por debajo de 44 × 44 CSS px.
+  por debajo de 44 CSS px de alto. Excepción: filas de gráficos y opciones de
+  listas densas (barras de Explorar, casillas de columnas), que miden al menos
+  24 CSS px (WCAG 2.5.8) y tienen alternativa por teclado.
+- Entre 421 y 900 CSS px de ancho (ventana mínima o zoom alto) la barra lateral
+  se compacta en dos o tres franjas para que el trabajo conserve al menos el
+  60 % de la altura (UX-02).
 - Un panel que crece debe poder desplazarse sin volver inaccesibles dataset,
   preferencias o contenido principal.
 

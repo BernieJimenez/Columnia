@@ -45,4 +45,30 @@ describe("contratos CSS de accesibilidad", () => {
     expect(styles).toContain("forced-color-adjust: none");
     expect(styles).toMatch(/outline:\s*3px solid Highlight/);
   });
+
+  // ACC-03/ACC-07/ACC-02: each theme's control edge reaches 3:1 on its
+  // surfaces, and text tokens used on the skip link and chart labels 4.5:1.
+  it("los bordes de controles y el skip link tienen contraste suficiente en cada tema", () => {
+    const luminance = (hex: string) => {
+      const channels = [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255)
+        .map((value) => (value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+    };
+    const ratio = (left: string, right: string) => {
+      const [high, low] = [luminance(left), luminance(right)].sort((a, b) => b - a);
+      return (high + 0.05) / (low + 0.05);
+    };
+    const blocks = [...baseStyles.matchAll(/(?:^|\n)\s*(:root(?:\[data-[a-z-]+="[a-z]+"\])?(?: \.sidebar)?)\s*\{([^}]*)\}/g)]
+      .map(([, selector, body]) => ({ selector, tokens: Object.fromEntries([...body.matchAll(/--([a-z-]+):\s*(#[0-9a-f]{6})/g)].map(([, name, value]) => [name, value])) }))
+      .filter(({ tokens }) => tokens["control-border"]);
+    expect(blocks.length).toBeGreaterThanOrEqual(8);
+    for (const { selector, tokens } of blocks) {
+      for (const surface of ["canvas", "surface", "surface-subtle"]) {
+        if (tokens[surface]) expect(ratio(tokens["control-border"], tokens[surface]), `${selector} ${surface}`).toBeGreaterThanOrEqual(3);
+      }
+      if (tokens.canvas && tokens["text-primary"]) expect(ratio(tokens.canvas, tokens["text-primary"])).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(styles).toMatch(/\.skip-link \{[^}]*background: var\(--text-primary\); color: var\(--canvas\)/);
+    expect(styles).not.toMatch(/quality-temporal-line__label \{[^}]*fill: var\(--border-subtle\)/);
+  });
 });

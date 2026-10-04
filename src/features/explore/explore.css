@@ -2,7 +2,7 @@
 .explore { display: grid; gap: 18px; margin-top: 18px; }
 .explore[aria-busy="true"] .explore__grid,
 .explore[aria-busy="true"] .explore__kpis { opacity: .7; transition: opacity .15s ease; }
-.explore__clear { min-height: 32px; padding: 0 6px; border: 0; background: none; color: var(--accent); font: inherit; font-size: .85rem; text-decoration: underline; cursor: pointer; }
+.explore__clear { min-height: 44px; padding: 0 6px; border: 0; background: none; color: var(--accent); font: inherit; font-size: .85rem; text-decoration: underline; cursor: pointer; }
 .explore__clear:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .explore__filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 36px; }
 .explore__hint { color: var(--text-secondary); font-size: .85rem; }
@@ -14,7 +14,7 @@
 .explore__choices { display: flex; flex-wrap: wrap; gap: 4px 16px; max-height: 132px; margin-top: 6px; overflow-y: auto; }
 .explore__choices label { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; color: var(--text-primary); }
 .explore__chip {
-  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 12px;
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 4px 12px;
   border: 1px solid var(--accent); border-radius: 999px; background: var(--surface-subtle);
   color: var(--text-primary); font: inherit; font-size: .82rem; cursor: pointer;
 }

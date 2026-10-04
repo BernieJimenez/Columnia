@@ -434,7 +434,7 @@ input[type="radio"] { width: 20px; height: 20px; }
   .stage-tabs button { padding-inline: 2px; font-size: .8125rem; }
   .quality-temporal-calendar { padding: 8px; }
   .quality-temporal-calendar__day { min-height: 56px; padding: 5px; }
-  .quality-temporal-calendar__day time { font-size: .63rem; }
+  .quality-temporal-calendar__day time { font-size: .75rem; }
   .quality-temporal-calendar__day strong { font-size: .8rem; }
   .quality-temporal-calendar__day small { display: none; }
   .quality-temporal-calendar__empty-day { min-height: 56px; }
@@ -1085,7 +1085,7 @@ a:visited { color: #80548b; }
     flex-basis: 20px;
     width: 20px;
     min-height: 20px;
-    font-size: .6875rem;
+    font-size: .75rem;
   }
   .side-nav__label-row strong { font-size: .75rem; }
   .sidebar__tools { gap: 4px; }
@@ -1396,7 +1396,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .quality-suggestions { margin: 4px 0 16px; padding: 14px 16px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-raised); }
 .quality-suggestions h4 { margin: 0 0 8px; font-size: 1rem; }
 .quality-suggestions ul { margin: 0 0 12px; padding: 0; list-style: none; }
-.quality-suggestions label { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.quality-suggestions label { display: flex; align-items: center; gap: 10px; min-height: 44px; }
 .quality-suggestions input { width: 18px; height: 18px; accent-color: var(--accent); }
 
 /* Preparar: one before/after table for the checked changes. */
@@ -1409,3 +1409,37 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .source-reading-options summary { color: var(--accent); cursor: pointer; min-height: 24px; }
 .source-reading-options__fields { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 16px; margin-top: 8px; }
 .source-reading-options__fields label { display: grid; gap: 4px; color: var(--text-secondary); }
+
+/* UX-02: at the minimum window (900 x 640) or with high system zoom the
+   sidebar becomes two rows (identity and tools, then the five stages), so
+   the work keeps at least 60 % of the height. */
+@media (max-width: 900px) and (min-width: 421px) {
+ .sidebar {
+   grid-template-columns: auto minmax(0, 1fr) auto auto;
+   grid-template-areas: "brand dataset workspaces tools" "nav nav nav nav";
+   align-items: center;
+   row-gap: 10px;
+   padding: 12px 16px;
+ }
+ .brand .eyebrow,
+ .workspace-list h2 { display: none; }
+ .brand h1 { margin: 0; font-size: 1.5rem; }
+ .sidebar__dataset { display: block; margin: 0; padding: 0; border: 0; }
+ .sidebar__dataset span { display: none; }
+ .sidebar__dataset strong { margin: 0; }
+ .side-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+ .side-nav button { min-height: 44px; padding: 6px 8px; }
+ .sidebar__tools { grid-template-columns: repeat(2, auto); }
+ .sidebar__tools details[open] { grid-column: auto; }
+}
+@media (max-width: 700px) and (min-width: 421px) {
+ .sidebar {
+   grid-template-columns: auto minmax(0, 1fr) auto;
+   grid-template-areas: "brand dataset tools" "workspaces workspaces workspaces" "nav nav nav";
+   row-gap: 6px;
+   padding: 8px 12px;
+ }
+ .side-nav button { min-height: 44px; padding: 4px; }
+ .side-nav__copy strong { font-size: .75rem; }
+ .sidebar__utilities > summary { padding: 6px 8px; }
+}

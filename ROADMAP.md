@@ -245,13 +245,13 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Se cumplen los criterios de aceptación de ARQ-02, DOC-05.
   - [x] `ARQ-02` (Medio) Un catálogo auxiliar corrupto o de versión futura (tareas reutilizables / presets de entrega) impide arrancar la app, sin mensaje — hecho el 2026-10-04
   - [x] `DOC-05` (Medio) network-privacy.md: versión vencida y afirmación «sin crash reporting» frente a `crash-reports/`; ficha legal con fecha y ejemplo viejos — hecho el 2026-10-04
-- [ ] **RV57** — **Estilos y componentes** — Con la ventana mínima (900 × 640) o con zoom 150-200 % la barra lateral ocupa del 63 al 7… (y 4 problemas más) · *Esfuerzo: 4,5 días*
+- [x] **RV57** — **Estilos y componentes** — Con la ventana mínima (900 × 640) o con zoom 150-200 % la barra lateral ocupa del 63 al 7… (y 4 problemas más) · *Esfuerzo: 4,5 días* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de UX-02, ACC-02, ACC-03, ACC-04, ACC-07.
-  - [ ] `UX-02` (Medio) Con la ventana mínima (900 × 640) o con zoom 150-200 % la barra lateral ocupa del 63 al 78 % de la altura útil
-  - [ ] `ACC-02` (Medio) En tema oscuro, el texto de los gráficos y la barra de progreso usan el token equivocado y quedan entre 1,08:1 y 1,53:1
-  - [ ] `ACC-03` (Medio) Bordes de controles de formulario a 1,2-2,0:1 en todos los temas (exigible ≥ 3:1)
-  - [ ] `ACC-04` (Medio) Objetivos táctiles y tamaños de texto por debajo de lo que promete `DESIGN.md` (candidato D)
-  - [ ] `ACC-07` (Medio) El enlace «Saltar al contenido principal» es ilegible con el foco en el tema oscuro (1,19:1)
+  - [x] `UX-02` (Medio) Con la ventana mínima (900 × 640) o con zoom 150-200 % la barra lateral ocupa del 63 al 78 % de la altura útil — hecho el 2026-10-04
+  - [x] `ACC-02` (Medio) En tema oscuro, el texto de los gráficos y la barra de progreso usan el token equivocado y quedan entre 1,08:1 y 1,53:1 — hecho el 2026-10-04
+  - [x] `ACC-03` (Medio) Bordes de controles de formulario a 1,2-2,0:1 en todos los temas (exigible ≥ 3:1) — hecho el 2026-10-04
+  - [x] `ACC-04` (Medio) Objetivos táctiles y tamaños de texto por debajo de lo que promete `DESIGN.md` (candidato D) — hecho el 2026-10-04
+  - [x] `ACC-07` (Medio) El enlace «Saltar al contenido principal» es ilegible con el foco en el tema oscuro (1,19:1) — hecho el 2026-10-04
 - [ ] **RV58** — **Estilos y componentes** — Botones «Eliminar» de proyectos y acciones peligrosas con color fijo: 2,05:1 en oscuro · *Esfuerzo: 2 h*
   - Criterio de cierre: Se cumplen los criterios de aceptación de ACC-08.
   - [ ] `ACC-08` (Medio) Botones «Eliminar» de proyectos y acciones peligrosas con color fijo: 2,05:1 en oscuro

@@ -203,6 +203,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Accesibilidad visual: entre 421 y 900 px la barra lateral se compacta (a 900 ×
+  640 el trabajo ocupa ~80 % de la altura); nuevo token `--control-border` ≥ 3:1
+  en los cinco temas para campos y botones; el enlace «Saltar al contenido» y
+  las etiquetas del gráfico temporal se leen en oscuro; la pista de progreso en
+  oscuro contrasta con su relleno; objetivos de 44 px y ningún texto por debajo
+  de 12 px, con `DESIGN.md` alineado (UX-02, ACC-02, ACC-03, ACC-04, ACC-07).
 - La página de red y privacidad ya no cita una versión vencida, aclara que el
   informe de fallo es solo local y lista cada archivo que Columnia escribe fuera
   de las exportaciones; el ejemplo de la ficha legal no fija una versión (DOC-05).
