@@ -187,6 +187,52 @@ pub(super) fn is_supported_date_candidate(value: &str) -> bool {
         .any(|byte| matches!(byte, b'/' | b'-' | b':' | b',' | b' '))
 }
 
+/// Markers that are also ordinary words. Unlike `n/a`, `-` or «sin datos»,
+/// one alone in a column can be real data (the film «Unknown»), so they mean
+/// «sin dato» only when the column repeats them (FUN-19).
+const WORD_SENTINELS: &[&str] = &[
+    "unknown",
+    "unk",
+    "missing",
+    "none",
+    "nil",
+    "desconocido",
+    "desconocida",
+];
+
+pub(super) fn is_word_sentinel(normalized: &str) -> bool {
+    WORD_SENTINELS.contains(&normalized)
+}
+
+/// The word markers that appear in a single cell of `values`, which are kept
+/// as data (FUN-19). Normalized as `is_missing_sentinel` normalizes them.
+pub(super) fn lone_word_sentinels<'a>(
+    values: impl IntoIterator<Item = Option<&'a str>>,
+) -> HashSet<String> {
+    let mut counts = HashMap::<String, usize>::new();
+    for value in values.into_iter().flatten() {
+        if value.trim().len() > SHORT_VALUE_BYTES {
+            continue;
+        }
+        let normalized = normalize_text_value(value, true);
+        if is_word_sentinel(&normalized) {
+            *counts.entry(normalized).or_insert(0) += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .filter(|(_, count)| *count == 1)
+        .map(|(marker, _)| marker)
+        .collect()
+}
+
+/// Whether `value` is a «sin dato» marker of a column whose lone word
+/// markers are `lone` (FUN-19).
+pub(super) fn is_column_missing_sentinel(value: &str, lone: &HashSet<String>) -> bool {
+    is_missing_sentinel(value)
+        && (lone.is_empty() || !lone.contains(&normalize_text_value(value, true)))
+}
+
 pub(super) fn is_missing_sentinel(value: &str) -> bool {
     // Same bound the profile uses, so both count the same markers.
     if value.trim().len() > SHORT_VALUE_BYTES {
@@ -442,6 +488,8 @@ struct TextTally {
     maximum_length: Option<usize>,
     date_tally: DateTally,
     untrimmed_count: usize,
+    /// How many cells hold each word marker; lone ones are data (FUN-19).
+    word_markers: HashMap<String, usize>,
 }
 
 impl TextTally {
@@ -458,6 +506,9 @@ impl TextTally {
             String::new()
         };
         let is_sentinel = short && SENTINEL_VALUES.contains(&normalized.as_str());
+        if is_sentinel && is_word_sentinel(&normalized) {
+            *self.word_markers.entry(normalized.clone()).or_insert(0) += count;
+        }
         self.empty_count += count * usize::from(trimmed.is_empty());
         self.sentinel_count += count * usize::from(is_sentinel);
         self.marker_count += count * usize::from(is_sentinel && !trimmed.is_empty());
@@ -496,7 +547,14 @@ impl TextTally {
         );
     }
 
-    fn finish(self) -> TextStatistics {
+    fn finish(mut self) -> TextStatistics {
+        let lone_markers = self
+            .word_markers
+            .values()
+            .filter(|count| **count == 1)
+            .count();
+        self.sentinel_count -= lone_markers;
+        self.marker_count -= lone_markers;
         let average_length =
             (self.value_count > 0).then(|| self.total_length as f64 / self.value_count as f64);
         let non_empty_count = self.value_count.saturating_sub(self.empty_count);
@@ -723,6 +781,8 @@ pub(super) struct SourceTextAccumulator {
     categorical_candidates: HashMap<GroupKey, usize>,
     date_tally: DateTally,
     untrimmed_count: usize,
+    /// How many cells hold each word marker; lone ones are data (FUN-19).
+    word_markers: HashMap<String, usize>,
 }
 
 impl SourceTextAccumulator {
@@ -745,6 +805,7 @@ impl SourceTextAccumulator {
             categorical_candidates: HashMap::with_capacity(MAX_GROUP_CANDIDATES),
             date_tally: DateTally::default(),
             untrimmed_count: 0,
+            word_markers: HashMap::new(),
         }
     }
 
@@ -773,6 +834,9 @@ impl SourceTextAccumulator {
                 .empty_count
                 .saturating_add(usize::from(trimmed.is_empty()));
             let is_sentinel = short && SENTINEL_VALUES.contains(&normalized.as_str());
+            if is_sentinel && is_word_sentinel(&normalized) {
+                *self.word_markers.entry(normalized.clone()).or_insert(0) += 1;
+            }
             self.sentinel_count = self.sentinel_count.saturating_add(usize::from(is_sentinel));
             self.marker_count = self
                 .marker_count
@@ -826,7 +890,14 @@ impl SourceTextAccumulator {
         Ok(())
     }
 
-    fn finish(self) -> (TextStatistics, HashMap<GroupKey, usize>) {
+    fn finish(mut self) -> (TextStatistics, HashMap<GroupKey, usize>) {
+        let lone_markers = self
+            .word_markers
+            .values()
+            .filter(|count| **count == 1)
+            .count();
+        self.sentinel_count -= lone_markers;
+        self.marker_count -= lone_markers;
         let categorical_candidates = self.categorical_candidates;
         let non_empty_count = self.value_count.saturating_sub(self.empty_count);
         let (suggested_type, type_match_percentage, invalid_type_count) = suggest_text_type(

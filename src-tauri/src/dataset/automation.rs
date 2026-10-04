@@ -109,10 +109,11 @@ pub(super) fn export_source_backed_for_automation(
         .len();
     let row_count = dataset.row_count;
     match format {
-        ExportFormat::Csv => export_source_backed_csv_atomic(
+        ExportFormat::Csv | ExportFormat::CsvExcel => export_source_backed_delimited_atomic(
             &source_path,
             expected_file_size,
             output,
+            format == ExportFormat::CsvExcel,
             |_, _| {},
             || false,
         ),

@@ -161,10 +161,10 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-36` (Medio) Reglas agregadas: textos no numéricos se omiten sin contarlos, y la tolerancia por defecto es 0 sobre sumas f64 — hecho el 2026-10-03
   - [x] `REN-07` (Medio) `conditional` con `then: regex` compila la expresión regular en cada fila — hecho el 2026-10-03
   - [x] `PROD-03` (Medio) `distribution_drift` solo compara la media y trata la columna vacía como media 0 — hecho el 2026-10-03
-- [ ] **RV43** — **Varios** — «Marcadores sin dato» convierte en nulo un título legítimo («Unknown») y rompe el contrat… (y 1 problemas más) · *Esfuerzo: 1,2 días*
+- [x] **RV43** — **Varios** — «Marcadores sin dato» convierte en nulo un título legítimo («Unknown») y rompe el contrat… (y 1 problemas más) · *Esfuerzo: 1,2 días* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-19, UX-03.
-  - [ ] `FUN-19` (Medio) «Marcadores sin dato» convierte en nulo un título legítimo («Unknown») y rompe el contrato propuesto
-  - [ ] `UX-03` (Medio) El CSV exportado es UTF-8 sin BOM con coma: Excel (separador de listas `;`) lo abre en una columna y con mojibake
+  - [x] `FUN-19` (Medio) «Marcadores sin dato» convierte en nulo un título legítimo («Unknown») y rompe el contrato propuesto — hecho el 2026-10-03
+  - [x] `UX-03` (Medio) El CSV exportado es UTF-8 sin BOM con coma: Excel (separador de listas `;`) lo abre en una columna y con mojibake — hecho el 2026-10-03
 - [ ] **RV44** — **Entrega ODBC** — El análisis de compatibilidad declara «Preflight completo» con una columna de más de 128… (y 4 problemas más) · *Esfuerzo: 3,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-20, FUN-21, DAT-10, DAT-12, UX-04.
   - [ ] `FUN-20` (Medio) El análisis de compatibilidad declara «Preflight completo» con una columna de más de 128 caracteres y el CREATE TABLE falla después

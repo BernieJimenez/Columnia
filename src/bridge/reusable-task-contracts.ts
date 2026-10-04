@@ -7,7 +7,7 @@ import type {
 } from "./recipe-contracts";
 import type { QualityRule } from "./delivery-contracts";
 
-export type ReusableTaskOutputFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
+export type ReusableTaskOutputFormat = "csv" | "csv_excel" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
 export type ReusableTaskPrivacyMode = "none" | "mask" | "hash";
 export type ReusableTaskInvalidConversionAction = "review" | "nullify" | "excludeRow";
 

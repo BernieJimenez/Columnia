@@ -199,9 +199,11 @@ use comparison_io::{
     persist_comparison_snapshot_with_cancel, persist_delimited_comparison_source_file_with_cancel,
 };
 pub(crate) use export_io::copy_file_with_cancel;
+#[cfg(test)]
+use export_io::export_source_backed_csv_atomic;
 use export_io::{
     export_frame_atomic, export_frame_atomic_with_privacy_and_quality_and_recipe,
-    export_source_backed_bundle_atomic, export_source_backed_csv_atomic,
+    export_source_backed_bundle_atomic, export_source_backed_delimited_atomic,
     export_source_backed_json_atomic, export_source_backed_parquet_atomic,
     export_source_backed_sql_atomic, export_source_backed_sqlite_atomic,
     export_source_backed_xlsx_atomic, path_with_extension, privacy_safe_frame,
@@ -397,6 +399,10 @@ pub struct OperationProgress {
 #[serde(rename_all = "lowercase")]
 pub enum ExportFormat {
     Csv,
+    /// CSV that Excel opens by double click where the list separator is `;`
+    /// (es-DO, es-ES): UTF-8 with BOM and semicolons (UX-03).
+    #[serde(rename = "csv_excel")]
+    CsvExcel,
     Json,
     Parquet,
     Sql,
@@ -408,7 +414,7 @@ pub enum ExportFormat {
 impl ExportFormat {
     fn extension(self) -> &'static str {
         match self {
-            Self::Csv => "csv",
+            Self::Csv | Self::CsvExcel => "csv",
             Self::Json => "json",
             Self::Parquet => "parquet",
             Self::Sql => "sql",
@@ -421,6 +427,7 @@ impl ExportFormat {
     fn label(self) -> &'static str {
         match self {
             Self::Csv => "CSV",
+            Self::CsvExcel => "CSV para Excel",
             Self::Json => "JSON",
             Self::Parquet => "Parquet",
             Self::Sql => "SQL",
@@ -4274,6 +4281,7 @@ fn source_backed_text_expression(
     identifier: &str,
     mode: TextCleaningMode,
     suggested_type: Option<&str>,
+    lone_markers: &[String],
 ) -> Option<String> {
     match mode {
         TextCleaningMode::Trim => Some(format!(
@@ -4287,6 +4295,7 @@ fn source_backed_text_expression(
             let normalized = source_backed_normalized_text_expression(identifier, true);
             let values = SENTINEL_VALUES
                 .iter()
+                .filter(|value| !lone_markers.iter().any(|lone| lone == *value))
                 .map(|value| duckdb_string_literal(value))
                 .collect::<Vec<_>>()
                 .join(", ");
@@ -4395,12 +4404,40 @@ fn source_backed_text_audit_expression(identifier: &str, audit_label: &str) -> S
     )
 }
 
+/// The word markers that appear in a single cell of each of `columns` in the
+/// file, which the marker cleaning keeps as data (FUN-19).
+fn source_backed_lone_word_sentinels(
+    source_path: &Path,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
+    columns: &[String],
+) -> Result<HashMap<String, Vec<String>>, String> {
+    let words = SENTINEL_VALUES
+        .iter()
+        .filter(|value| is_word_sentinel(value))
+        .map(|value| duckdb_string_literal(value))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut lone = HashMap::new();
+    for column in columns {
+        let normalized = source_backed_normalized_text_expression(&duckdb_identifier(column), true);
+        let query = format!(
+            "SELECT v FROM (SELECT {normalized} AS v FROM dataset) WHERE v IN ({words}) GROUP BY v HAVING count(*) = 1"
+        );
+        let markers = crate::duckdb_query::query_file_strings(source_path, source_format, &query)?;
+        if !markers.is_empty() {
+            lone.insert(column.clone(), markers);
+        }
+    }
+    Ok(lone)
+}
+
 fn source_backed_text_cleaning_projection(
     schema: &DataFrame,
     selected_columns: &[String],
     mode: TextCleaningMode,
     audit_label: &str,
     suggested_types: &HashMap<String, &'static str>,
+    lone_markers: &HashMap<String, Vec<String>>,
 ) -> Result<(String, Vec<(String, String)>), String> {
     let mut expressions = Vec::with_capacity(selected_columns.len());
     let mut projection = Vec::with_capacity(schema.width());
@@ -4414,7 +4451,11 @@ fn source_backed_text_cleaning_projection(
             continue;
         }
         let suggested_type = suggested_types.get(name.as_str()).copied();
-        let Some(expression) = source_backed_text_expression(&identifier, mode, suggested_type)
+        let lone = lone_markers
+            .get(name.as_str())
+            .map_or(&[][..], Vec::as_slice);
+        let Some(expression) =
+            source_backed_text_expression(&identifier, mode, suggested_type, lone)
         else {
             return Err(
                 "La limpieza de texto source-backed no es compatible con este modo.".to_owned(),
@@ -4432,7 +4473,10 @@ fn source_backed_text_cleaning_projection(
     for name in selected_columns {
         let identifier = duckdb_identifier(name);
         let suggested_type = suggested_types.get(name.as_str()).copied();
-        let expression = source_backed_text_expression(&identifier, mode, suggested_type)
+        let lone = lone_markers
+            .get(name.as_str())
+            .map_or(&[][..], Vec::as_slice);
+        let expression = source_backed_text_expression(&identifier, mode, suggested_type, lone)
             .ok_or_else(|| {
                 "La limpieza de texto source-backed no es compatible con este modo.".to_owned()
             })?;
@@ -4531,12 +4575,18 @@ fn source_backed_text_cleaning_with_cancellation(
             changed_columns: Vec::new(),
         }));
     }
+    let lone_markers = if matches!(mode, TextCleaningMode::Sentinels) {
+        source_backed_lone_word_sentinels(&source_path, source_format, &selected_columns)?
+    } else {
+        HashMap::new()
+    };
     let (projection, expressions) = source_backed_text_cleaning_projection(
         &dataset.frame,
         &selected_columns,
         mode,
         label,
         &suggested_types,
+        &lone_markers,
     )?;
     let (affected_row_count, changed_counts) =
         match crate::duckdb_query::count_file_expression_changes(
@@ -5464,6 +5514,18 @@ fn source_backed_safe_corrections_with_cancellation(
             Vec::new(),
         )
     };
+    let lone_markers = if normalize_sentinels {
+        let text_columns = dataset
+            .frame
+            .columns()
+            .iter()
+            .filter(|column| column.dtype() == &DataType::String && column.name() != "_cambios")
+            .map(|column| column.name().to_string())
+            .collect::<Vec<_>>();
+        source_backed_lone_word_sentinels(&source_path, source_format, &text_columns)?
+    } else {
+        HashMap::new()
+    };
     let text_expressions = if trim_text || normalize_sentinels {
         dataset
             .frame
@@ -5474,15 +5536,21 @@ fn source_backed_safe_corrections_with_cancellation(
                 let name = column.name().to_string();
                 let mut expression = duckdb_identifier(&name);
                 if trim_text {
-                    expression =
-                        source_backed_text_expression(&expression, TextCleaningMode::Trim, None)
-                            .expect("el modo Trim tiene expresión source-backed");
+                    expression = source_backed_text_expression(
+                        &expression,
+                        TextCleaningMode::Trim,
+                        None,
+                        &[],
+                    )
+                    .expect("el modo Trim tiene expresión source-backed");
                 }
                 if normalize_sentinels {
+                    let lone = lone_markers.get(&name).map_or(&[][..], Vec::as_slice);
                     expression = source_backed_text_expression(
                         &expression,
                         TextCleaningMode::Sentinels,
                         None,
+                        lone,
                     )
                     .expect("el modo Sentinels tiene expresión source-backed");
                 }
@@ -5999,6 +6067,11 @@ fn clean_text_column(
     } else {
         None
     };
+    let lone_markers = if matches!(mode, TextCleaningMode::Sentinels) {
+        lone_word_sentinels(values.iter())
+    } else {
+        HashSet::new()
+    };
     let mut changed_row_indexes = Vec::new();
     let transformed: Vec<Option<std::borrow::Cow<'_, str>>> = values
         .iter()
@@ -6013,7 +6086,9 @@ fn clean_text_column(
                     changed_row_indexes.push(row_index);
                     return None;
                 }
-                if matches!(mode, TextCleaningMode::Sentinels) && is_missing_sentinel(original) {
+                if matches!(mode, TextCleaningMode::Sentinels)
+                    && is_column_missing_sentinel(original, &lone_markers)
+                {
                     changed_row_indexes.push(row_index);
                     return None;
                 }
@@ -9265,6 +9340,7 @@ pub async fn export_dataset(
     if matches!(
         format,
         ExportFormat::Csv
+            | ExportFormat::CsvExcel
             | ExportFormat::Json
             | ExportFormat::Parquet
             | ExportFormat::Sql
@@ -9388,12 +9464,13 @@ pub async fn export_dataset(
                     Some(scratch)
                 };
                 let result = match format {
-                    ExportFormat::Csv => {
+                    ExportFormat::Csv | ExportFormat::CsvExcel => {
                         let cancellation_app = app.clone();
-                        export_source_backed_csv_atomic(
+                        export_source_backed_delimited_atomic(
                             &effective_source_path,
                             effective_source_size,
                             &destination,
+                            format == ExportFormat::CsvExcel,
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
                             move || {
                                 cancellation_app

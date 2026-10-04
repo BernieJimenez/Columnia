@@ -185,6 +185,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- «Marcadores sin dato» conserva una palabra como «Unknown» o «None» cuando
+  aparece una sola vez en la columna (el título de la película «Unknown» ya no
+  se borra) y nuevo formato «CSV para Excel» (UTF-8 con BOM y punto y coma) que
+  Excel abre en columnas y con tildes correctas; al elegir CSV la pantalla lo
+  sugiere.
 - Revisar y Explorar leen las fechas de texto en formato mes/día
   (estadounidense) como mes/día cuando el perfil detecta ese orden: el rango de
   fechas y los meses de las tendencias ya no salen cambiados.

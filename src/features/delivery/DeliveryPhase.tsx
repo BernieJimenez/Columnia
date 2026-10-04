@@ -321,6 +321,7 @@ export function DeliveryPhase({
     || databasePreflightState.kind === "working";
   const exportFormatLabel = {
     csv: "CSV",
+    csv_excel: "CSV para Excel",
     json: "JSON",
     parquet: "Parquet",
     sql: "SQL",
@@ -824,6 +825,7 @@ export function DeliveryPhase({
               disabled={busy}
             >
               <option value="csv">CSV</option>
+              <option value="csv_excel">CSV para Excel (punto y coma, tildes correctas)</option>
               <option value="json">JSON</option>
               <option value="parquet">Parquet</option>
               <option value="sql">SQL</option>
@@ -836,6 +838,11 @@ export function DeliveryPhase({
                 <option value="sqlserver">SQL Server</option>
               </optgroup>
             </select>
+            {selectedExportFormat === "csv" && (
+              <small className="privacy-mode__note">
+                ¿Lo abrirás con doble clic en Excel? Elige «CSV para Excel» para verlo en columnas y con las tildes bien.
+              </small>
+            )}
           </label>
           <label className="privacy-mode">
             Protección de datos personales

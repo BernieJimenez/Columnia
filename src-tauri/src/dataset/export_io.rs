@@ -21,7 +21,7 @@ pub(super) fn frame_for_export(
     match format {
         // CSV suele abrirse en hojas de cálculo: una comilla inicial fuerza texto y evita
         // ejecutar celdas controladas por datos. Parquet conserva los valores originales.
-        ExportFormat::Csv => csv_formula_safe_frame(frame),
+        ExportFormat::Csv | ExportFormat::CsvExcel => csv_formula_safe_frame(frame),
         ExportFormat::Json => Ok(frame.clone()),
         ExportFormat::Parquet => Ok(frame.clone()),
         ExportFormat::Sql => Ok(frame.clone()),
@@ -55,6 +55,9 @@ where
     Ok(())
 }
 
+/// The byte order mark that tells Excel the CSV is UTF-8 (UX-03).
+pub(super) const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
+
 pub(super) fn write_csv_frame_with_cancel<C>(
     frame: &DataFrame,
     output: &mut File,
@@ -63,11 +66,32 @@ pub(super) fn write_csv_frame_with_cancel<C>(
 where
     C: Fn() -> bool + ?Sized,
 {
+    write_delimited_frame_with_cancel(frame, output, false, is_cancelled)
+}
+
+/// CSV, or with `excel` the «CSV para Excel» variant: UTF-8 with BOM and
+/// semicolons, which Excel opens in columns where the list separator is `;`
+/// (UX-03).
+pub(super) fn write_delimited_frame_with_cancel<C>(
+    frame: &DataFrame,
+    output: &mut File,
+    excel: bool,
+    is_cancelled: &C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + ?Sized,
+{
     ensure_not_cancelled(is_cancelled())?;
     let frame = &csv_formula_safe_column_names(frame)?;
+    if excel {
+        output
+            .write_all(UTF8_BOM)
+            .map_err(|error| format!("No se pudo escribir el CSV: {error}"))?;
+    }
     let batch_size = std::num::NonZeroUsize::new(EAGER_EXPORT_BATCH_ROWS)
         .expect("el tamaño de lote CSV debe ser mayor que cero");
     let mut writer = CsvWriter::new(&mut *output)
+        .with_separator(if excel { b';' } else { b',' })
         .with_batch_size(batch_size)
         .batched(frame.schema().as_ref())
         .map_err(|error| format!("No se pudo preparar el escritor CSV: {error}"))?;
@@ -1581,6 +1605,7 @@ where
     )
 }
 
+#[cfg(test)]
 pub(super) fn export_source_backed_csv_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
@@ -1592,19 +1617,53 @@ where
     F: FnMut(&'static str, u8),
     C: Fn() -> bool + Clone + Send + 'static,
 {
+    export_source_backed_delimited_atomic(
+        source_path,
+        expected_file_size,
+        destination,
+        false,
+        report,
+        is_cancelled,
+    )
+}
+
+/// CSV of a large file, or with `excel` the «CSV para Excel» variant (UX-03).
+pub(super) fn export_source_backed_delimited_atomic<F, C>(
+    source_path: &Path,
+    expected_file_size: u64,
+    destination: &Path,
+    excel: bool,
+    report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Clone + Send + 'static,
+{
     publish_source_backed_export(
         source_path,
         expected_file_size,
         destination,
-        ExportFormat::Csv,
+        if excel {
+            ExportFormat::CsvExcel
+        } else {
+            ExportFormat::Csv
+        },
         report,
         is_cancelled,
-        |source, temporary, _, cancel| {
+        move |source, temporary, _, cancel| {
+            if excel {
+                temporary
+                    .as_file_mut()
+                    .write_all(UTF8_BOM)
+                    .map_err(|error| format!("No se pudo escribir el CSV: {error}"))?;
+            }
             write_through_scratch(temporary, "csv", cancel, |partial, cancel| {
-                crate::duckdb_query::export_file_to_csv_with_cancel(
+                crate::duckdb_query::export_file_to_delimited_with_cancel(
                     source.path,
                     source.format,
                     partial,
+                    if excel { ';' } else { ',' },
                     cancel,
                 )
             })
@@ -1851,9 +1910,12 @@ where
     report("Escribiendo dataset", 25);
     let mut replaced_control_cell_count = 0;
     match format {
-        ExportFormat::Csv => {
-            write_csv_frame_with_cancel(&protected_frame, temporary.as_file_mut(), &is_cancelled)?
-        }
+        ExportFormat::Csv | ExportFormat::CsvExcel => write_delimited_frame_with_cancel(
+            &protected_frame,
+            temporary.as_file_mut(),
+            format == ExportFormat::CsvExcel,
+            &is_cancelled,
+        )?,
         ExportFormat::Json => {
             write_json_frame_with_cancel(&protected_frame, temporary.as_file_mut(), &is_cancelled)?
         }

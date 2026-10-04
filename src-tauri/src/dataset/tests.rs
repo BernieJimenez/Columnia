@@ -20110,3 +20110,79 @@ fn month_first_text_dates_give_the_right_bounds_and_periods() {
     assert_eq!(labels.first().copied(), Some("2024-01"), "{labels:?}");
     assert!(labels.contains(&"2024-02"), "02/01 es febrero: {labels:?}");
 }
+
+/// FUN-19: a word marker alone in a column is data (the film «Unknown»);
+/// repeated, or as a symbol, it still means «sin dato». In memory, in the
+/// profile and on a large file alike.
+#[test]
+fn a_lone_word_marker_is_kept_as_data_in_every_path() {
+    let frame = df![
+        "title" => &[Some("Unknown"), Some("Inception"), Some("Up"), Some("N/A")],
+        "director" => &[Some("Unknown"), Some("Nolan"), Some("unknown"), Some("Docter")],
+    ]
+    .unwrap();
+    let profile = profile_dataset(&frame).expect("perfil");
+    assert_eq!(profile.columns[0].sentinel_count, Some(1), "solo «N/A»");
+    assert_eq!(profile.columns[1].sentinel_count, Some(2));
+
+    let (cleaned, _, changed_cells, _) =
+        clean_text_columns(&frame, None, TextCleaningMode::Sentinels).expect("limpieza");
+    assert_eq!(changed_cells, 3);
+    let titles = cleaned.column("title").unwrap().str().unwrap();
+    assert_eq!(titles.get(0), Some("Unknown"));
+    assert_eq!(titles.get(3), None);
+
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    let mut dataset = source_backed_parquet_dataset(directory.path(), &frame);
+    let result = source_backed_text_cleaning(&mut dataset, None, TextCleaningMode::Sentinels)
+        .expect("limpieza en archivo grande")
+        .expect("el archivo grande admite la limpieza");
+    assert_eq!(result.changed_cell_count, 3);
+    let large = read_parquet_frame(dataset.source_path.as_deref().unwrap()).unwrap();
+    assert!(large.equals_missing(&cleaned));
+}
+
+/// UX-03: «CSV para Excel» starts with the UTF-8 BOM and separates with `;`,
+/// in memory and from a large file, so Excel opens it in columns with the
+/// accents right; the plain CSV keeps commas and no BOM.
+#[test]
+fn excel_csv_has_bom_and_semicolons_in_both_paths() {
+    let frame = df!(
+        "título" => [Some("Canción"), Some("Año, nuevo")],
+        "importe" => [Some("1.5"), Some("2")],
+    )
+    .unwrap();
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    let excel = directory.path().join("excel.csv");
+    export_frame_atomic(&frame, &excel, ExportFormat::CsvExcel, |_, _| {}, || false)
+        .expect("CSV para Excel en memoria");
+    let bytes = fs::read(&excel).unwrap();
+    assert!(bytes.starts_with(b"\xEF\xBB\xBF"));
+    let text = String::from_utf8(bytes[3..].to_vec()).unwrap();
+    assert!(text.starts_with("título;importe"), "{text}");
+    assert!(text.contains("Canción;1.5"), "{text}");
+    assert!(
+        text.contains("\"Año, nuevo\";2") || text.contains("Año, nuevo;2"),
+        "{text}"
+    );
+
+    let plain = directory.path().join("plano.csv");
+    export_frame_atomic(&frame, &plain, ExportFormat::Csv, |_, _| {}, || false).unwrap();
+    let plain_text = fs::read_to_string(&plain).unwrap();
+    assert!(plain_text.starts_with("título,importe"), "{plain_text}");
+
+    let source = directory.path().join("fuente.parquet");
+    let mut written = frame.clone();
+    ParquetWriter::new(File::create(&source).unwrap())
+        .finish(&mut written)
+        .unwrap();
+    let size = fs::metadata(&source).unwrap().len();
+    let large = directory.path().join("grande.csv");
+    export_source_backed_delimited_atomic(&source, size, &large, true, |_, _| {}, || false)
+        .expect("CSV para Excel desde archivo grande");
+    let large_bytes = fs::read(&large).unwrap();
+    assert!(large_bytes.starts_with(b"\xEF\xBB\xBF"));
+    let large_text = String::from_utf8(large_bytes[3..].to_vec()).unwrap();
+    assert!(large_text.starts_with("título;importe"), "{large_text}");
+    assert!(large_text.contains("Canción;1.5"), "{large_text}");
+}

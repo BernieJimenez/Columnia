@@ -24,7 +24,7 @@ export type CancellableOperation =
   | "projectOpen"
   | "reusableTaskCatalog"
   | "deliveryPresetCatalog";
-export type LocalExportFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
+export type LocalExportFormat = "csv" | "csv_excel" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
 export type ExportFormat = LocalExportFormat | "postgresql" | "mysql" | "sqlserver";
 export type PrivacyMode = "none" | "mask" | "hash";
 export type ConflictSource = "current" | "compared";

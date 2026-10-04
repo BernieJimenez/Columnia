@@ -45,7 +45,7 @@ function isRecipeExportOptions(value: unknown): value is RecipeExportOptions {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<RecipeExportOptions>;
   return Array.isArray(candidate.formats) && candidate.formats.every((format) =>
-    ["csv", "json", "parquet", "sql", "excel", "sqlite", "bundle"].includes(format),
+    ["csv", "csv_excel", "json", "parquet", "sql", "excel", "sqlite", "bundle"].includes(format),
   ) && Array.isArray(candidate.selectedColumns) && candidate.selectedColumns.every((column) => typeof column === "string") &&
     ["none", "mask", "hash"].includes(candidate.privacyMode ?? "");
 }

@@ -1302,7 +1302,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Eliminar filas vacías" }));
     await waitFor(() => expect(removeRowsSpy).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(3));
-    const currentDuplicatePlan = screen.getByRole("checkbox", { name: "Quitar 1 fila duplicada" });
+    const currentDuplicatePlan = await screen.findByRole("checkbox", { name: "Quitar 1 fila duplicada" });
     await waitFor(() => expect(currentDuplicatePlan).toBeChecked());
 
     await act(async () => {

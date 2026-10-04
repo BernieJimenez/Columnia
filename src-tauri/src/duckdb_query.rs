@@ -330,6 +330,20 @@ pub(crate) fn export_file_to_csv_with_cancel<C>(
 where
     C: Fn() -> bool + Send + 'static,
 {
+    export_file_to_delimited_with_cancel(source_path, source_format, destination, ',', is_cancelled)
+}
+
+/// The file as CSV with `delimiter` between fields (`;` for Excel, UX-03).
+pub(crate) fn export_file_to_delimited_with_cancel<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    destination: &Path,
+    delimiter: char,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
     execute_duckdb_operation(is_cancelled, |connection| {
         let resource_directory = tempfile::tempdir().map_err(|error| {
             format!("No se pudo preparar el espacio temporal para la exportación CSV: {error}")
@@ -351,7 +365,7 @@ where
             .replace('\'', "''");
         let projection = csv_export_projection(connection, &source)?;
         let query = format!(
-            "SET preserve_insertion_order = true; COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT CSV, HEADER, DELIMITER ',')"
+            "SET preserve_insertion_order = true; COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT CSV, HEADER, DELIMITER '{delimiter}')"
         );
         connection
             .execute_batch(&query)
@@ -664,6 +678,36 @@ where
                 format!("DuckDB no pudo validar la consolidación source-backed: {error}")
             })
     })
+}
+
+/// The first column of every row of `query` over the file, as text.
+pub(crate) fn query_file_strings(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    query: &str,
+) -> Result<Vec<String>, String> {
+    execute_duckdb_operation(
+        || false,
+        |connection| {
+            let resource_directory = tempfile::tempdir().map_err(|error| {
+                format!(
+                    "No se pudo preparar el espacio temporal de la consulta source-backed: {error}"
+                )
+            })?;
+            configure_duckdb_resources(connection, resource_directory.path())?;
+            register_file_view(connection, "dataset", source_path, source_format, None)?;
+            let mut statement = connection.prepare(query).map_err(|error| {
+                format!("DuckDB no pudo preparar la consulta source-backed: {error}")
+            })?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|error| {
+                    format!("DuckDB no pudo consultar la fuente source-backed: {error}")
+                })?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|error| format!("DuckDB no pudo leer la consulta source-backed: {error}"))
+        },
+    )
 }
 
 /// The first row of `query` over the file as a row number and a text, or
