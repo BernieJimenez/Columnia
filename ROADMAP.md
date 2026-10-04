@@ -193,7 +193,7 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-37` (Medio) Perfil source-backed: mínimo/máximo de enteros se pasan por f64 y no coinciden con la ruta en memoria — hecho el 2026-10-04
   - [x] `FUN-38` (Medio) Perfil en memoria: `expect` de Q1/Q3 entra en pánico si algún cuartil es infinito o NaN — hecho el 2026-10-04
   - [x] `FUN-39` (Medio) Texto numérico con espacios: el tipo sugerido lo cuenta, pero las estadísticas lo descartan (hipótesis) — hecho el 2026-10-04
-  - [ ] `REN-01` (Medio) El perfil de calidad tarda 4,5 min en un CSV de 5,3 GiB y 12,8 s en uno de 338 MB (30× más que duckdb), y se repite tras cada cambio
+  - [ ] `REN-01` (Medio) El perfil de calidad tarda 4,5 min en un CSV de 5,3 GiB y 12,8 s en uno de 338 MB (30× más que duckdb), y se repite tras cada cambio — avance el 2026-10-04: vmCloud 11,9 s → 4,8 s (categorías en una pasada, fechas que se dejan de intentar, tendencia en paralelo, duplicados a la vez que las columnas) y etapas visibles tras el recorrido de archivos grandes; sigue abierto: no llega a ≤ 3 s, falta medir 2019-Oct y reutilizar el perfil tras cada cambio
   - [x] `PROD-04` (Medio) Los números con coma decimal o separador de miles no se reconocen como numéricos — hecho el 2026-10-04
 - [ ] **RV49** — **Importación** — Convención decimal convierte códigos con ceros a la izquierda y enteros largos en float s… (y 4 problemas más) · *Esfuerzo: 4,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-40, DAT-06, DAT-09, REN-02, PROD-01.

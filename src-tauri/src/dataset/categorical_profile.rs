@@ -6,33 +6,6 @@ pub(super) enum GroupKey {
     Value(String),
 }
 
-pub(super) fn categorical_group_key(value: AnyValue<'_>) -> Option<GroupKey> {
-    match value {
-        AnyValue::Null => Some(GroupKey::Missing),
-        AnyValue::String(value) => {
-            let value = value.trim();
-            if value.is_empty() {
-                Some(GroupKey::Missing)
-            } else if value.chars().count() <= MAX_GROUP_LABEL_CHARS {
-                Some(GroupKey::Value(value.to_owned()))
-            } else {
-                None
-            }
-        }
-        AnyValue::StringOwned(value) => {
-            let value = value.as_str().trim();
-            if value.is_empty() {
-                Some(GroupKey::Missing)
-            } else if value.chars().count() <= MAX_GROUP_LABEL_CHARS {
-                Some(GroupKey::Value(value.to_owned()))
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
-}
-
 pub(super) fn categorical_group_label(key: &GroupKey) -> String {
     match key {
         GroupKey::Missing => "Sin valor".to_owned(),
@@ -40,25 +13,45 @@ pub(super) fn categorical_group_label(key: &GroupKey) -> String {
     }
 }
 
-pub(super) fn retain_group_candidate(counts: &mut HashMap<GroupKey, usize>, key: GroupKey) {
-    if let Some(count) = counts.get_mut(&key) {
-        *count = (*count).saturating_add(1);
-        return;
-    }
-    if counts.len() < MAX_GROUP_CANDIDATES {
-        counts.insert(key, 1);
-        return;
+/// Exact group counts of a text column in one pass (REN-01). Values are
+/// looked up by `&str`, so only a new distinct value allocates; after
+/// `MAX_GROUP_CANDIDATES` distinct values, new ones are left out, so every
+/// count kept is exact and the same in memory and on a large file.
+#[derive(Default)]
+pub(super) struct GroupTally {
+    missing: usize,
+    values: HashMap<String, usize>,
+}
+
+impl GroupTally {
+    pub(super) fn observe(&mut self, value: Option<&str>) {
+        let trimmed = value.map(str::trim).unwrap_or_default();
+        if trimmed.is_empty() {
+            self.missing = self.missing.saturating_add(1);
+            return;
+        }
+        if trimmed.len() > MAX_GROUP_LABEL_CHARS && trimmed.chars().count() > MAX_GROUP_LABEL_CHARS
+        {
+            return;
+        }
+        if let Some(count) = self.values.get_mut(trimmed) {
+            *count = count.saturating_add(1);
+        } else if self.values.len() < MAX_GROUP_CANDIDATES {
+            self.values.insert(trimmed.to_owned(), 1);
+        }
     }
 
-    let Some((least_key, least_count)) = counts
-        .iter()
-        .min_by_key(|(_, count)| **count)
-        .map(|(key, count)| (key.clone(), *count))
-    else {
-        return;
-    };
-    counts.remove(&least_key);
-    counts.insert(key, least_count.saturating_add(1));
+    pub(super) fn into_counts(self) -> HashMap<GroupKey, usize> {
+        let mut counts = self
+            .values
+            .into_iter()
+            .map(|(value, count)| (GroupKey::Value(value), count))
+            .collect::<HashMap<_, _>>();
+        if self.missing > 0 {
+            counts.insert(GroupKey::Missing, self.missing);
+        }
+        counts
+    }
 }
 
 fn finish_categorical_group_summary(
@@ -124,42 +117,22 @@ fn categorical_group_summary<C>(
 where
     C: Fn() -> bool + Sync,
 {
-    let mut candidates = HashMap::with_capacity(MAX_GROUP_CANDIDATES);
-    for row_index in 0..frame.height() {
-        if row_index % 4096 == 0 {
+    let values = column
+        .str()
+        .map_err(|error| format!("No se pudo resumir la columna {}: {error}", profile.name))?;
+    let mut tally = GroupTally::default();
+    for (row_index, value) in values.iter().enumerate() {
+        if row_index % 65_536 == 0 {
             ensure_not_cancelled(is_cancelled())?;
         }
-        let value = column
-            .get(row_index)
-            .map_err(|error| format!("No se pudo resumir la columna {}: {error}", profile.name))?;
-        if let Some(key) = categorical_group_key(value) {
-            retain_group_candidate(&mut candidates, key);
-        }
+        tally.observe(value);
     }
     ensure_not_cancelled(is_cancelled())?;
-
-    let mut selected_counts = HashMap::with_capacity(candidates.len());
-    for row_index in 0..frame.height() {
-        if row_index % 4096 == 0 {
-            ensure_not_cancelled(is_cancelled())?;
-        }
-        let value = column
-            .get(row_index)
-            .map_err(|error| format!("No se pudo resumir la columna {}: {error}", profile.name))?;
-        let Some(key) = categorical_group_key(value) else {
-            continue;
-        };
-        if candidates.contains_key(&key) {
-            let count = selected_counts.entry(key).or_insert(0usize);
-            *count = (*count).saturating_add(1);
-        }
-    }
-
     Ok(finish_categorical_group_summary(
         &profile.name,
         frame.height(),
         profile.unique_count,
-        selected_counts,
+        tally.into_counts(),
     ))
 }
 
@@ -194,7 +167,6 @@ where
 }
 
 pub(super) fn source_categorical_group_summary<C>(
-    path: &Path,
     row_count: usize,
     profile: &ColumnProfile,
     candidates: &HashMap<GroupKey, usize>,
@@ -208,31 +180,8 @@ where
     }
     ensure_not_cancelled(is_cancelled())?;
 
-    let mut selected_counts = HashMap::with_capacity(candidates.len());
-    for_each_parquet_column_block_with_size(
-        path,
-        row_count,
-        &profile.name,
-        SOURCE_PROFILE_BLOCK_ROWS,
-        |_, column| {
-            for row_index in 0..column.len() {
-                if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-                    ensure_not_cancelled(is_cancelled())?;
-                }
-                let value = column.get(row_index).map_err(|error| {
-                    format!("No se pudo resumir la columna {}: {error}", profile.name)
-                })?;
-                let Some(key) = categorical_group_key(value) else {
-                    continue;
-                };
-                if candidates.contains_key(&key) {
-                    let count = selected_counts.entry(key).or_insert(0usize);
-                    *count = (*count).saturating_add(1);
-                }
-            }
-            Ok(())
-        },
-    )?;
+    // The candidates are exact counts (REN-01): no second pass over the file.
+    let selected_counts = candidates.clone();
 
     Ok(finish_categorical_group_summary(
         &profile.name,

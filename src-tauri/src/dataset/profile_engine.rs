@@ -467,7 +467,12 @@ pub(super) fn text_statistics_with_unique_count(
         .str()
         .map_err(|error| format!("No se pudo analizar la columna de texto: {error}"))?;
     let non_null_count = values.len().saturating_sub(values.null_count());
-    let mut tally = TextTally::default();
+    let mut tally = TextTally {
+        // REN-01: past a tenth of non-dates the column cannot be a date
+        // column, so reading more values as dates would change nothing.
+        date_failure_budget: Some(non_null_count / 10),
+        ..TextTally::default()
+    };
     let repeats = unique_count.is_some_and(|unique| unique.saturating_mul(2) <= non_null_count);
     if repeats {
         let mut positions = HashMap::<&str, usize>::with_capacity(unique_count.unwrap_or(0));
@@ -516,6 +521,9 @@ struct TextTally {
     comma_decimal_count: usize,
     /// How many cells hold each word marker; lone ones are data (FUN-19).
     word_markers: HashMap<String, usize>,
+    /// Non-dates allowed before date parsing stops (REN-01).
+    date_failure_budget: Option<usize>,
+    date_failures: usize,
 }
 
 impl TextTally {
@@ -553,12 +561,23 @@ impl TextTally {
             let numeric = short.then(|| semantic_numeric_value(trimmed)).flatten();
             self.integer_count += count * usize::from(numeric.and_then(exact_integer).is_some());
             self.decimal_count += count * usize::from(numeric.is_some());
-            if short && is_supported_date_candidate(trimmed) {
-                if let Some(datetime) = quality_datetime_value(AnyValue::String(trimmed)) {
-                    self.date_count += count;
-                    self.temporal_bounds.observe_str(datetime, trimmed);
-                    self.month_first_bounds
-                        .observe_str(month_first_datetime(trimmed).unwrap_or(datetime), trimmed);
+            let dates_possible = self
+                .date_failure_budget
+                .is_none_or(|budget| self.date_failures <= budget);
+            if dates_possible && !is_sentinel {
+                let date = (short && is_supported_date_candidate(trimmed))
+                    .then(|| quality_datetime_value(AnyValue::String(trimmed)))
+                    .flatten();
+                match date {
+                    Some(datetime) => {
+                        self.date_count += count;
+                        self.temporal_bounds.observe_str(datetime, trimmed);
+                        self.month_first_bounds.observe_str(
+                            month_first_datetime(trimmed).unwrap_or(datetime),
+                            trimmed,
+                        );
+                    }
+                    None => self.date_failures += count,
                 }
             }
         }
@@ -824,7 +843,7 @@ pub(super) struct SourceTextAccumulator {
     total_length: usize,
     minimum_length: Option<usize>,
     maximum_length: Option<usize>,
-    categorical_candidates: HashMap<GroupKey, usize>,
+    categorical_candidates: GroupTally,
     date_tally: DateTally,
     untrimmed_count: usize,
     comma_decimal_count: usize,
@@ -849,7 +868,7 @@ impl SourceTextAccumulator {
             total_length: 0,
             minimum_length: None,
             maximum_length: None,
-            categorical_candidates: HashMap::with_capacity(MAX_GROUP_CANDIDATES),
+            categorical_candidates: GroupTally::default(),
             date_tally: DateTally::default(),
             untrimmed_count: 0,
             comma_decimal_count: 0,
@@ -867,7 +886,7 @@ impl SourceTextAccumulator {
             .map_err(|error| format!("No se pudo analizar la columna source-backed: {error}"))?;
         for value in values.iter() {
             let Some(value) = value else {
-                retain_group_candidate(&mut self.categorical_candidates, GroupKey::Missing);
+                self.categorical_candidates.observe(None);
                 continue;
             };
             let length = text_length(value);
@@ -908,9 +927,7 @@ impl SourceTextAccumulator {
                 self.maximum_length
                     .map_or(length, |current| current.max(length)),
             );
-            if let Some(key) = categorical_group_key(AnyValue::String(value)) {
-                retain_group_candidate(&mut self.categorical_candidates, key);
-            }
+            self.categorical_candidates.observe(Some(value));
             if trimmed.is_empty() {
                 continue;
             }
@@ -949,7 +966,7 @@ impl SourceTextAccumulator {
             .count();
         self.sentinel_count -= lone_markers;
         self.marker_count -= lone_markers;
-        let categorical_candidates = self.categorical_candidates;
+        let categorical_candidates = std::mem::take(&mut self.categorical_candidates).into_counts();
         let non_empty_count = self.value_count.saturating_sub(self.empty_count);
         let (suggested_type, type_match_percentage, invalid_type_count) = suggest_text_type(
             non_empty_count.saturating_sub(self.marker_count),
@@ -1312,30 +1329,18 @@ pub(super) fn quote_temporal_sql_identifier(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
 
-pub(super) fn profile_dataset_with_progress<F, C>(
+/// The profile of every column, a few columns at a time (REN-01 extracted it
+/// so that duplicate rows can be counted alongside).
+fn profile_columns_in_parallel<F, C>(
     frame: &DataFrame,
-    mut report: F,
-    is_cancelled: C,
-    correlation_sample_rows: usize,
-) -> Result<DatasetProfile, String>
+    row_count: usize,
+    report: &mut F,
+    is_cancelled: &C,
+) -> Result<Vec<ColumnProfile>, String>
 where
     F: FnMut(&'static str, u8),
     C: Fn() -> bool + Sync,
 {
-    ensure_not_cancelled(is_cancelled())?;
-    let row_count = frame.height();
-    report("Detectando filas duplicadas", 10);
-    let distinct_row_count = count_distinct_rows(frame)?;
-    let duplicate_row_count = row_count.saturating_sub(distinct_row_count);
-    let duplicate_percentage = if row_count == 0 {
-        0.0
-    } else {
-        (duplicate_row_count as f64 / row_count as f64) * 100.0
-    };
-    report("Normalizando filas parecidas", 15);
-    let near_duplicate_row_count =
-        count_normalized_duplicate_rows(frame, duplicate_row_count, &is_cancelled, &mut report)?;
-    ensure_not_cancelled(is_cancelled())?;
     let source_columns = frame.columns();
     let mut columns = Vec::with_capacity(source_columns.len());
     if source_columns.is_empty() {
@@ -1344,7 +1349,7 @@ where
         report("Analizando columnas", 40);
         let column_count = source_columns.len();
         let worker_count = std::thread::available_parallelism()
-            .map(|parallelism| parallelism.get().min(4))
+            .map(|parallelism| parallelism.get().min(6))
             .unwrap_or(2)
             .min(column_count)
             .max(1);
@@ -1363,7 +1368,7 @@ where
             for _ in 0..worker_count {
                 let work_queue = std::sync::Arc::clone(&work_queue);
                 let sender = sender.clone();
-                let cancellation = &is_cancelled;
+                let cancellation = is_cancelled;
                 scope.spawn(move || {
                     while let Some(index) = work_queue
                         .lock()
@@ -1437,6 +1442,51 @@ where
             .map(|profile| profile.expect("cada columna debe producir un perfil"))
             .collect();
     }
+    Ok(columns)
+}
+
+pub(super) fn profile_dataset_with_progress<F, C>(
+    frame: &DataFrame,
+    mut report: F,
+    is_cancelled: C,
+    correlation_sample_rows: usize,
+) -> Result<DatasetProfile, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let row_count = frame.height();
+    report("Detectando filas duplicadas", 10);
+    // REN-01: duplicate rows are counted in their own thread while the
+    // columns are analysed; neither depends on the other.
+    let (duplicates, columns) = std::thread::scope(|scope| {
+        let duplicates = scope.spawn(|| -> Result<(usize, usize), String> {
+            let distinct_row_count = count_distinct_rows(frame)?;
+            let duplicate_row_count = row_count.saturating_sub(distinct_row_count);
+            let near_duplicate_row_count = count_normalized_duplicate_rows(
+                frame,
+                duplicate_row_count,
+                &is_cancelled,
+                &mut |_, _| {},
+            )?;
+            Ok((duplicate_row_count, near_duplicate_row_count))
+        });
+        let columns = profile_columns_in_parallel(frame, row_count, &mut report, &is_cancelled);
+        let duplicates = duplicates
+            .join()
+            .map_err(|_| "El análisis de filas duplicadas se interrumpió.".to_owned())
+            .and_then(|result| result);
+        (duplicates, columns)
+    });
+    let columns = columns?;
+    let (duplicate_row_count, near_duplicate_row_count) = duplicates?;
+    let duplicate_percentage = if row_count == 0 {
+        0.0
+    } else {
+        (duplicate_row_count as f64 / row_count as f64) * 100.0
+    };
+    ensure_not_cancelled(is_cancelled())?;
 
     let categorical_group_summaries = if columns.is_empty() {
         None
@@ -1728,6 +1778,9 @@ where
             )
         })?;
     }
+    // REN-01: the steps after the row pass say what they do, so the label
+    // does not stay on «Analizando filas y columnas» for minutes.
+    report("Contando filas y valores distintos", 90);
     let (distinct_row_count, distinct_counts) =
         crate::duckdb_query::count_file_distinct_rows_and_non_null_columns(
             path,
@@ -1735,6 +1788,7 @@ where
             &column_names,
             || false,
         )?;
+    report("Comparando filas parecidas", 90);
     let normalized_duplicate_row_count =
         count_normalized_duplicate_fingerprints(&normalized_bucket_paths, is_cancelled)?;
     let exact_duplicate_row_count = row_count.saturating_sub(distinct_row_count);
@@ -2165,13 +2219,9 @@ where
         let Some(candidates) = categorical_candidates.get(index).and_then(Option::as_ref) else {
             continue;
         };
-        if let Some(summary) = source_categorical_group_summary(
-            &snapshot_path,
-            row_count,
-            profile,
-            candidates,
-            &is_cancelled,
-        )? {
+        if let Some(summary) =
+            source_categorical_group_summary(row_count, profile, candidates, &is_cancelled)?
+        {
             categorical.push(summary);
         }
     }

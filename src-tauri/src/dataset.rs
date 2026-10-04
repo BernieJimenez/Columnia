@@ -184,8 +184,7 @@ mod source_loading;
 #[path = "dataset/spreadsheet_io.rs"]
 mod spreadsheet_io;
 use categorical_profile::{
-    categorical_group_key, categorical_group_summaries, retain_group_candidate,
-    source_categorical_group_summary, GroupKey,
+    categorical_group_summaries, source_categorical_group_summary, GroupKey, GroupTally,
 };
 #[allow(unused_imports)]
 use comparison_engine::*;
@@ -354,7 +353,9 @@ const MIN_NUMERIC_CORRELATION_SAMPLE_ROWS: usize = 1_000;
 const MAX_NUMERIC_CORRELATION_SAMPLE_ROWS: usize = 100_000;
 const MAX_CATEGORICAL_GROUP_COLUMNS: usize = 4;
 const MAX_CATEGORICAL_GROUPS: usize = 8;
-const MAX_GROUP_CANDIDATES: usize = 2_048;
+/// Distinct values a category summary counts exactly; later new values
+/// are left out (REN-01).
+const MAX_GROUP_CANDIDATES: usize = 50_000;
 const MAX_GROUP_LABEL_CHARS: usize = 120;
 const MIN_GROUP_COUNT: usize = 3;
 const MAX_TEMPORAL_COLUMNS: usize = 4;

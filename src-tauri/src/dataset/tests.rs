@@ -9007,7 +9007,9 @@ fn stops_profile_at_a_cooperative_cancellation_point() {
     .expect_err("el perfil debe detenerse al cancelar");
 
     assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
-    assert_eq!(checks.load(Ordering::SeqCst), 2);
+    // Duplicate rows and columns run side by side (REN-01): the other thread
+    // may pass a check point before it sees the cancellation.
+    assert!(checks.load(Ordering::SeqCst) >= 2);
     fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 

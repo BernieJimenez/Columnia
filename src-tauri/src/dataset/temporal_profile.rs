@@ -185,31 +185,70 @@ fn temporal_series_summary<C>(
 where
     C: Fn() -> bool + Sync,
 {
+    let month_first = profile.date_order.as_deref() == Some("mdy");
+    // REN-01: reading dates is the slow part, so row ranges run in parallel
+    // and their counts are added up; the result does not depend on the split.
+    let height = frame.height();
+    let workers = std::thread::available_parallelism()
+        .map_or(1, |parallelism| parallelism.get().min(8))
+        .min(height / 65_536 + 1);
+    let chunk = height.div_ceil(workers.max(1)).max(1);
+    let partials = std::thread::scope(|scope| {
+        let handles = (0..height)
+            .step_by(chunk)
+            .map(|start| {
+                let end = (start + chunk).min(height);
+                scope.spawn(move || {
+                    let mut counts = HashMap::<TemporalPeriodKey, usize>::new();
+                    let mut first: Option<TemporalPeriodKey> = None;
+                    let mut last: Option<TemporalPeriodKey> = None;
+                    let mut parsed = 0usize;
+                    for row_index in start..end {
+                        if row_index % 4096 == 0 {
+                            ensure_not_cancelled(is_cancelled())?;
+                        }
+                        let value = column.get(row_index).map_err(|error| {
+                            format!(
+                                "No se pudo resumir la tendencia temporal de {}: {error}",
+                                profile.name
+                            )
+                        })?;
+                        let Some(datetime) = ordered_datetime_value(value, month_first) else {
+                            continue;
+                        };
+                        let key = temporal_period_key(datetime);
+                        first = Some(first.map_or(key, |current| current.min(key)));
+                        last = Some(last.map_or(key, |current| current.max(key)));
+                        *counts.entry(key).or_insert(0) += 1;
+                        parsed += 1;
+                    }
+                    Ok::<_, String>((counts, first, last, parsed))
+                })
+            })
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .map_err(|_| "El resumen temporal se interrumpió.".to_owned())?
+            })
+            .collect::<Result<Vec<_>, String>>()
+    })?;
     let mut counts = HashMap::<TemporalPeriodKey, usize>::new();
-    let mut first = None;
-    let mut last = None;
+    let mut first: Option<TemporalPeriodKey> = None;
+    let mut last: Option<TemporalPeriodKey> = None;
     let mut parsed_row_count = 0usize;
-
-    for row_index in 0..frame.height() {
-        if row_index % 4096 == 0 {
-            ensure_not_cancelled(is_cancelled())?;
+    for (partial_counts, partial_first, partial_last, parsed) in partials {
+        for (key, count) in partial_counts {
+            *counts.entry(key).or_insert(0) += count;
         }
-        let value = column.get(row_index).map_err(|error| {
-            format!(
-                "No se pudo resumir la tendencia temporal de {}: {error}",
-                profile.name
-            )
-        })?;
-        let Some(datetime) =
-            ordered_datetime_value(value, profile.date_order.as_deref() == Some("mdy"))
-        else {
-            continue;
+        first = match (first, partial_first) {
+            (Some(current), Some(partial)) => Some(current.min(partial)),
+            (current, partial) => current.or(partial),
         };
-        let key = temporal_period_key(datetime);
-        first = Some(first.map_or(key, |current: TemporalPeriodKey| current.min(key)));
-        last = Some(last.map_or(key, |current: TemporalPeriodKey| current.max(key)));
-        *counts.entry(key).or_insert(0) += 1;
-        parsed_row_count = parsed_row_count.saturating_add(1);
+        last = last.max(partial_last);
+        parsed_row_count += parsed;
     }
     ensure_not_cancelled(is_cancelled())?;
 

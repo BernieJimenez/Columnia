@@ -559,6 +559,7 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 - RV04: si falla cancelar una importación pendiente o liberar su selección temporal, Columnia conserva el `selectionId`, identifica el paso pendiente y permite reintentarlo sin repetir el paso completado. Las nuevas inspecciones permanecen bloqueadas hasta completar la limpieza.
 
 ### Mejorado
+- El análisis de calidad de Revisar es unas 2,5 veces más rápido en archivos medianos (338 MB: de 12 s a 5 s) y en archivos grandes muestra qué paso está haciendo tras leer las filas (REN-01, en curso).
 
 - Las pruebas del análisis ODBC usan los nombres de tipo que produce Polars y
   recorren el flujo «Añadir» con un dataset real.
