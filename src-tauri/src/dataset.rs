@@ -192,8 +192,10 @@ use comparison_engine::*;
 #[cfg(test)]
 use comparison_io::{
     load_compare_frame, persist_comparison_snapshot, persist_comparison_source_file,
-    persist_delimited_comparison_source_file, persist_json_comparison_source_file,
+    persist_comparison_source_file_with_cancel, persist_delimited_comparison_source_file,
+    persist_json_comparison_source_file, persist_json_comparison_source_file_with_cancel,
     persist_spreadsheet_comparison_source_file,
+    persist_spreadsheet_comparison_source_file_with_cancel,
 };
 use comparison_io::{
     load_compare_frame_with_cancel, persist_comparison_file_with_cancel,
@@ -228,9 +230,7 @@ use spreadsheet_io::{
     write_spreadsheet_range_snapshot_with_cancel, write_streamed_spreadsheet_snapshot,
 };
 #[cfg(test)]
-use spreadsheet_io::{
-    load_spreadsheet_sheet, spreadsheet_range_to_frame, write_spreadsheet_range_snapshot,
-};
+use spreadsheet_io::{load_spreadsheet_sheet, spreadsheet_range_to_frame};
 use temporal_profile::{
     source_temporal_series_summary, temporal_period_key, temporal_period_label,
     temporal_periods_between, temporal_series_summaries, TemporalPeriodKey,
@@ -7024,7 +7024,7 @@ fn count_changed_text_cells(
 }
 
 #[cfg(test)]
-use json_reader::{json_record_column_names, load_json_records};
+use json_reader::load_json_records;
 use json_reader::{json_record_column_names_with_cancel, load_json_records_with_cancel};
 
 fn read_utf8_delimited_sample_with_cancel<C>(

@@ -206,12 +206,12 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-41, FUN-42, REN-08, UX-05, UX-06.
   - [x] `FUN-41` (Medio) La comparación lee siempre el archivo comparado con reglas fijas (primera hoja, primera fila como encabezado, sin convenciones) aunque el activo se importó con otras — hecho el 2026-10-04
   - [x] `FUN-42` (Medio) La clave de comparación exige dtype idéntico en ambos lados y los lados se tipan con motores distintos — hecho el 2026-10-04
-  - [ ] `REN-08` (Medio) Candidatos de coste en la comparación por clave (hipótesis, medir)
+  - [ ] `REN-08` (Medio) Candidatos de coste en la comparación por clave (hipótesis, medir) — sigue abierto (2026-10-04): no medido; necesita comparar archivos de millones de filas en la app y guardar el índice de conflictos para paginar sin recalcular
   - [x] `UX-05` (Medio) Cambiar la clave con una comparación visible deja resultados y decisiones obsoletos — hecho el 2026-10-04
   - [x] `UX-06` (Medio) Error de comparación con tipos de clave distintos se muestra crudo y sin guía — hecho el 2026-10-04
 - [ ] **RV51** — **Comparación** — Los tests de comparación usan copias `#[cfg(test)]` de las funciones de persistencia, no… (y 1 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-01, QA-10.
-  - [ ] `QA-01` (Medio) Los tests de comparación usan copias `#[cfg(test)]` de las funciones de persistencia, no las `_with_cancel` de producción
+  - [x] `QA-01` (Medio) Los tests de comparación usan copias `#[cfg(test)]` de las funciones de persistencia, no las `_with_cancel` de producción — hecho el 2026-10-04
   - [ ] `QA-10` (Medio) Caminos de `src/features/review/DatasetComparisonSection.tsx` sin test (cobertura 78,8 % de líneas)
 - [ ] **RV52** — **Gates y scripts** — check-secrets: patrones con falsos negativos relevantes para este proyecto (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de SEG-03, SEG-04, QA-21, QA-22, QA-23.

@@ -371,11 +371,6 @@ where
     }
 }
 
-#[cfg(test)]
-pub(super) fn json_record_column_names(path: &Path) -> Result<Vec<String>, String> {
-    json_record_column_names_with_cancel(path, || false)
-}
-
 pub(super) fn json_record_column_names_with_cancel<C>(
     path: &Path,
     is_cancelled: C,

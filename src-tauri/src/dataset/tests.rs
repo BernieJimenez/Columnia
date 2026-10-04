@@ -20508,3 +20508,34 @@ fn the_comparison_says_which_sheet_and_header_it_read() {
         .is_some_and(|note| note.contains("primera fila como encabezado")));
     assert!(comparison_reader::compared_source_note(&csv, "parquet").is_none());
 }
+
+/// QA-01: every way of reading a compared file stops when the person cancels.
+#[test]
+fn compared_file_persistence_stops_on_cancellation() {
+    let directory = tempfile::tempdir().unwrap();
+    let csv = directory.path().join("c.csv");
+    fs::write(&csv, "id,v\n1,a\n").unwrap();
+    let json = directory.path().join("c.json");
+    fs::write(&json, "[{\"id\": 1}]").unwrap();
+    let workbook = directory.path().join("c.xlsx");
+    let frame = df!("id" => [1_i64]).unwrap();
+    export_frame_atomic(&frame, &workbook, ExportFormat::Excel, |_, _| {}, || false).unwrap();
+    let cancelled = || true;
+    assert_eq!(
+        persist_delimited_comparison_source_file_with_cancel(&csv, "csv", cancelled).unwrap_err(),
+        OPERATION_CANCELLED_MESSAGE
+    );
+    assert_eq!(
+        persist_json_comparison_source_file_with_cancel(&json, cancelled).unwrap_err(),
+        OPERATION_CANCELLED_MESSAGE
+    );
+    assert_eq!(
+        persist_spreadsheet_comparison_source_file_with_cancel(&workbook, "xlsx", cancelled)
+            .unwrap_err(),
+        OPERATION_CANCELLED_MESSAGE
+    );
+    assert_eq!(
+        persist_comparison_source_file_with_cancel(&csv, &cancelled).unwrap_err(),
+        OPERATION_CANCELLED_MESSAGE
+    );
+}

@@ -37,33 +37,13 @@ pub(super) fn persist_comparison_snapshot(
     persist_comparison_snapshot_with_cancel(frame, &|| false)
 }
 
+// QA-01: the test entry points are one-line wrappers over the production
+// functions, so a test exercises the code the app runs.
 #[cfg(test)]
 pub(super) fn persist_comparison_source_file(
     path: &Path,
 ) -> Result<(tempfile::TempDir, PathBuf), String> {
-    let source_size = fs::metadata(path)
-        .map_err(|error| format!("No se pudo inspeccionar la fuente comparada: {error}"))?
-        .len();
-    let directory = tempfile::tempdir()
-        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
-    let mut temporary = tempfile::NamedTempFile::new_in(directory.path())
-        .map_err(|error| format!("No se pudo crear el snapshot comparado: {error}"))?;
-    let mut source = File::open(path)
-        .map_err(|error| format!("No se pudo abrir la fuente comparada: {error}"))?;
-    let copied = std::io::copy(&mut source, temporary.as_file_mut())
-        .map_err(|error| format!("No se pudo copiar la fuente comparada: {error}"))?;
-    if copied != source_size {
-        return Err("La fuente comparada cambió durante la copia al snapshot.".to_owned());
-    }
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|error| format!("No se pudo sincronizar el snapshot comparado: {error}"))?;
-    let destination = directory.path().join("compared.parquet");
-    temporary
-        .persist(&destination)
-        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {}", error.error))?;
-    Ok((directory, destination))
+    persist_comparison_source_file_with_cancel(path, &|| false)
 }
 
 #[cfg(test)]
@@ -71,41 +51,14 @@ pub(super) fn persist_delimited_comparison_source_file(
     path: &Path,
     extension: &str,
 ) -> Result<(tempfile::TempDir, PathBuf), String> {
-    let delimiter = detect_delimiter(path, extension)?;
-    let directory = tempfile::tempdir()
-        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
-    let temporary = directory.path().join("compared.partial.parquet");
-    crate::duckdb_query::materialize_file_to_parquet_with_cancel(
-        path,
-        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter },
-        &temporary,
-        None,
-        || false,
-    )?;
-    let destination = directory.path().join("compared.parquet");
-    fs::rename(&temporary, &destination)
-        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {error}"))?;
-    Ok((directory, destination))
+    persist_delimited_comparison_source_file_with_cancel(path, extension, || false)
 }
 
 #[cfg(test)]
 pub(super) fn persist_json_comparison_source_file(
     path: &Path,
 ) -> Result<(tempfile::TempDir, PathBuf), String> {
-    let directory = tempfile::tempdir()
-        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
-    let temporary = directory.path().join("compared.partial.parquet");
-    crate::duckdb_query::materialize_file_to_parquet_with_cancel(
-        path,
-        crate::duckdb_query::DuckDbFileFormat::Json,
-        &temporary,
-        Some(&json_record_column_names(path)?),
-        || false,
-    )?;
-    let destination = directory.path().join("compared.parquet");
-    fs::rename(&temporary, &destination)
-        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {error}"))?;
-    Ok((directory, destination))
+    persist_json_comparison_source_file_with_cancel(path, || false)
 }
 
 #[cfg(test)]
@@ -113,43 +66,7 @@ pub(super) fn persist_spreadsheet_comparison_source_file(
     path: &Path,
     extension: &str,
 ) -> Result<(tempfile::TempDir, PathBuf, usize), String> {
-    let source_size = fs::metadata(path)
-        .map_err(|error| format!("No se pudo inspeccionar la fuente comparada: {error}"))?
-        .len();
-    let sheets = inspect_workbook(path)?;
-    let sheet = sheets
-        .first()
-        .ok_or_else(|| "El libro no contiene hojas que se puedan comparar.".to_owned())?;
-    let directory = tempfile::tempdir()
-        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
-    let temporary = directory.path().join("compared.partial.parquet");
-    let row_count = if matches!(extension, "xlsx" | "xlsb") {
-        let plan = spreadsheet_snapshot_plan_from_stream(
-            path,
-            sheet,
-            SpreadsheetHeaderMode::FirstRow,
-            || false,
-        )?;
-        write_streamed_spreadsheet_snapshot(path, sheet, &plan, &temporary, || false)?;
-        plan.data_rows
-    } else {
-        let mut workbook = open_workbook_auto(path)
-            .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
-        let range = workbook
-            .worksheet_range(sheet)
-            .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
-        write_spreadsheet_range_snapshot(&range, SpreadsheetHeaderMode::FirstRow, &temporary)?
-    };
-    let final_size = fs::metadata(path)
-        .map_err(|error| format!("No se pudo verificar la fuente comparada: {error}"))?
-        .len();
-    if final_size != source_size {
-        return Err("La fuente comparada cambió durante la creación del snapshot.".to_owned());
-    }
-    let destination = directory.path().join("compared.parquet");
-    fs::rename(&temporary, &destination)
-        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {error}"))?;
-    Ok((directory, destination, row_count))
+    persist_spreadsheet_comparison_source_file_with_cancel(path, extension, || false)
 }
 
 pub(super) fn persist_comparison_source_file_with_cancel<C>(

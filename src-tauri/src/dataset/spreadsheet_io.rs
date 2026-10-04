@@ -508,15 +508,6 @@ where
         .map_err(|error| format!("No se pudo sincronizar el snapshot Excel: {error}"))
 }
 
-#[cfg(test)]
-pub(super) fn write_spreadsheet_range_snapshot(
-    range: &Range<Data>,
-    header_mode: SpreadsheetHeaderMode,
-    destination: &Path,
-) -> Result<usize, String> {
-    write_spreadsheet_range_snapshot_with_cancel(range, header_mode, destination, &|| false)
-}
-
 pub(super) fn write_spreadsheet_range_snapshot_with_cancel<C>(
     range: &Range<Data>,
     header_mode: SpreadsheetHeaderMode,
