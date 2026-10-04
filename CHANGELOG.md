@@ -203,6 +203,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Los botones «Eliminar» y las acciones destructivas usan el color de peligro de
+  cada tema y alcanzan 4,5:1 en los cinco (ACC-08).
 - Accesibilidad visual: entre 421 y 900 px la barra lateral se compacta (a 900 ×
   640 el trabajo ocupa ~80 % de la altura); nuevo token `--control-border` ≥ 3:1
   en los cinco temas para campos y botones; el enlace «Saltar al contenido» y

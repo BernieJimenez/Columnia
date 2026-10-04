@@ -65,10 +65,13 @@ describe("contratos CSS de accesibilidad", () => {
     for (const { selector, tokens } of blocks) {
       for (const surface of ["canvas", "surface", "surface-subtle"]) {
         if (tokens[surface]) expect(ratio(tokens["control-border"], tokens[surface]), `${selector} ${surface}`).toBeGreaterThanOrEqual(3);
+        // ACC-08: destructive actions use the theme's danger colour as text.
+        if (tokens[surface] && tokens.danger) expect(ratio(tokens.danger, tokens[surface]), `${selector} danger`).toBeGreaterThanOrEqual(4.5);
       }
       if (tokens.canvas && tokens["text-primary"]) expect(ratio(tokens.canvas, tokens["text-primary"])).toBeGreaterThanOrEqual(4.5);
     }
     expect(styles).toMatch(/\.skip-link \{[^}]*background: var\(--text-primary\); color: var\(--canvas\)/);
+    expect(styles).not.toMatch(/#93473f/);
     expect(styles).not.toMatch(/quality-temporal-line__label \{[^}]*fill: var\(--border-subtle\)/);
   });
 });

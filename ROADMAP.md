@@ -252,9 +252,9 @@ medio = 1 día; agregado por suma.
   - [x] `ACC-03` (Medio) Bordes de controles de formulario a 1,2-2,0:1 en todos los temas (exigible ≥ 3:1) — hecho el 2026-10-04
   - [x] `ACC-04` (Medio) Objetivos táctiles y tamaños de texto por debajo de lo que promete `DESIGN.md` (candidato D) — hecho el 2026-10-04
   - [x] `ACC-07` (Medio) El enlace «Saltar al contenido principal» es ilegible con el foco en el tema oscuro (1,19:1) — hecho el 2026-10-04
-- [ ] **RV58** — **Estilos y componentes** — Botones «Eliminar» de proyectos y acciones peligrosas con color fijo: 2,05:1 en oscuro · *Esfuerzo: 2 h*
+- [x] **RV58** — **Estilos y componentes** — Botones «Eliminar» de proyectos y acciones peligrosas con color fijo: 2,05:1 en oscuro · *Esfuerzo: 2 h* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de ACC-08.
-  - [ ] `ACC-08` (Medio) Botones «Eliminar» de proyectos y acciones peligrosas con color fijo: 2,05:1 en oscuro
+  - [x] `ACC-08` (Medio) Botones «Eliminar» de proyectos y acciones peligrosas con color fijo: 2,05:1 en oscuro — hecho el 2026-10-04
 - [ ] **RV59** — **Proyectos** — Tras actualizar o eliminar un proyecto el foco cae en `<body>` y la lista se vacía un ins… (y 1 problemas más) · *Esfuerzo: 4 h*
   - Criterio de cierre: Se cumplen los criterios de aceptación de ACC-05, TXT-02.
   - [ ] `ACC-05` (Medio) Tras actualizar o eliminar un proyecto el foco cae en `<body>` y la lista se vacía un instante

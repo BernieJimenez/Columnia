@@ -424,7 +424,7 @@ summary:focus-visible,
 .secondary-action,
 .danger-action { min-height: 44px; padding: 7px 11px; border: 1px solid var(--accent); border-radius: 4px; background: transparent; color: var(--accent); font-weight: 750; cursor: pointer; }
 .project-list__actions .project-list__delete,
-.danger-action { border-color: #a6574f; color: #93473f; }
+.danger-action { border-color: var(--danger); color: var(--danger); }
 .project-list__actions button:disabled,
 .secondary-action:disabled,
 .danger-action:disabled { cursor: wait; opacity: .48; }
@@ -522,7 +522,7 @@ summary:focus-visible,
 .quality-rule__check input { width: 16px; height: 16px; }
 .quality-rule__remove,
 .quality-contract__actions button { min-height: 44px; padding: 7px 10px; border: 1px solid var(--accent); border-radius: 4px; background: transparent; color: var(--accent); font-weight: 750; cursor: pointer; }
-.quality-rule__remove { border-color: #a6574f; color: #93473f; }
+.quality-rule__remove { border-color: var(--danger); color: var(--danger); }
 .quality-contract__actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .quality-contract__actions span { margin-left: auto; color: var(--text-secondary); font-size: .75rem; }
 .quality-contract__validation-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
