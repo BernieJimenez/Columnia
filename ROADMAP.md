@@ -226,7 +226,7 @@ medio = 1 día; agregado por suma.
   - [ ] `QA-25` (Medio) `check-ipc-inventory` es circular y no cruza con TypeScript
   - [ ] `QA-26` (Medio) `check-coverage` puede aprobar con un resumen viejo y cubre pocos archivos
   - [ ] `QA-27` (Medio) El «baseline» de accesibilidad acepta evidencia de cualquier commit y cubre solo el shell inicial
-  - [ ] `QA-28` (Medio) Dos suites de `node:test` en `tools/` no las ejecuta nadie
+  - [x] `QA-28` (Medio) Dos suites de `node:test` en `tools/` no las ejecuta nadie — hecho el 2026-10-04
 - [ ] **RV54** — **Gates y scripts** — check-supply-chain: las vulnerabilidades de `npm audit` nunca hacen fallar el gate (y 4 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-01, OPS-02, OPS-03, OPS-04, OPS-05.
   - [ ] `OPS-01` (Medio) check-supply-chain: las vulnerabilidades de `npm audit` nunca hacen fallar el gate

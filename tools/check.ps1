@@ -175,6 +175,10 @@ try {
     Invoke-Checked "Documentation" $ProjectRoot {
         & node tools/check-documentation.mjs
     }
+    # QA-28: every node:test suite of tools/ runs, not only the ones listed.
+    Invoke-Checked "Tool test suites" $ProjectRoot {
+        npm run test:tools
+    }
     Invoke-Checked "Beta gate evidence validator contract" $ProjectRoot {
         npm run beta:check-gate1:test
     }

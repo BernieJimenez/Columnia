@@ -586,6 +586,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Mejorado
 - El análisis de calidad de Revisar es unas 2,5 veces más rápido en archivos medianos (338 MB: de 12 s a 5 s) y en archivos grandes muestra qué paso está haciendo tras leer las filas (REN-01, en curso).
+- Todas las suites de pruebas de las herramientas (tools/*.test.mjs) se ejecutan
+  con «npm run test:tools» y forman parte de la comprobación completa.
 - La automatización del diálogo nativo de archivos falla si el diálogo se cierra
   sin que el script elija el archivo (cancelación), exige que un guardado
   escriba un archivo nuevo y nunca envía teclas a otra ventana que tenga el

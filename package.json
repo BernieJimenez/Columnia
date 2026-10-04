@@ -16,6 +16,7 @@
     "test": "vitest run",
     "lint": "oxlint -c .oxlintrc.json src e2e tools",
     "test:network-policy": "node --test tools/check-network-policy.test.mjs",
+    "test:tools": "node --test \"tools/*.test.mjs\"",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage --maxWorkers=1 && node tools/check-coverage.mjs",
     "test:e2e": "playwright test",
