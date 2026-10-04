@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [switch]$DryRun,
     [switch]$SkipPackage,
@@ -122,8 +122,46 @@ function Write-ReleaseSummary {
     } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
 }
 
+# OPS-07: test-harness variables change what the build and the gates do; a
+# release never inherits them from the console.
+$ForbiddenReleaseVariables = @(
+    "COLUMNIA_TEST_HARNESS_MANIFEST",
+    "COLUMNIA_TEST_LOCALE",
+    "COLUMNIA_UPDATER_CONTRACT_TEST",
+    "COLUMNIA_BENCHMARK_CANCELLATION_INPUT",
+    "COLUMNIA_BENCHMARK_CANCELLATION_OUTPUT",
+    "COLUMNIA_CANCELLATION_BENCHMARK_JSON",
+    "COLUMNIA_DUCKDB_JOIN_TARGET_MIB",
+    "COLUMNIA_ODBC_SQLSERVER",
+    "COLUMNIA_ODBC_POSTGRESQL",
+    "COLUMNIA_ODBC_MYSQL",
+    "COLUMNIA_PROBE_ODBC",
+    "COLUMNIA_PROBE_ROWS",
+    "COLUMNIA_PROBE_SCREENSHOT_DIR"
+)
+
+function Get-ReleaseVersionProblems {
+    $problems = @()
+    $cargoVersion = (Select-String -LiteralPath (Join-Path $ProjectRoot "src-tauri\Cargo.toml") -Pattern '^version\s*=\s*"([^"]+)"' |
+        Select-Object -First 1).Matches[0].Groups[1].Value
+    $tauriVersion = (Get-Content -LiteralPath (Join-Path $ProjectRoot "src-tauri	auri.conf.json") -Raw | ConvertFrom-Json).version
+    if ($cargoVersion -ne $ProjectVersion) { $problems += "src-tauri/Cargo.toml tiene $cargoVersion" }
+    if ($tauriVersion -and $tauriVersion -ne $ProjectVersion) { $problems += "src-tauri/tauri.conf.json tiene $tauriVersion" }
+    return $problems
+}
+
 $Git = $null
 try {
+    $ActiveTestVariables = @($ForbiddenReleaseVariables | Where-Object {
+        -not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($_, "Process"))
+    })
+    if ($ActiveTestVariables.Count -gt 0) {
+        throw "El release no se ejecuta con variables de pruebas activas: $($ActiveTestVariables -join ', '). Bórralas de la consola."
+    }
+    $VersionProblems = @(Get-ReleaseVersionProblems)
+    if ($VersionProblems.Count -gt 0) {
+        throw "Las versiones no coinciden con package.json ($ProjectVersion): $($VersionProblems -join '; ')."
+    }
     $Git = Get-GitState
     if ([string]::IsNullOrWhiteSpace($Git.branch)) {
         throw "El release requiere una rama Git explícita; no se acepta HEAD separado."

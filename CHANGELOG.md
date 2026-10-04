@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- `tools/release.ps1` aborta antes de compilar si hay variables de pruebas
+  `COLUMNIA_*` activas o si las versiones de `Cargo.toml` y `tauri.conf.json` no
+  coinciden con `package.json` (OPS-07).
 - La salvaguarda de datos de los smokes ya no borra el almacén antes de tener la
   copia restaurada: un fallo deja el original intacto y nombra la copia; un
   puntero detecta una ejecución anterior sin restaurar, la copia se verifica y
