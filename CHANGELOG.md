@@ -185,6 +185,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Al arrancar, Columnia borra los temporales que dejó un guardado de proyecto
+  interrumpido y las copias del historial de Preparar de sesiones ya cerradas
+  (también las de versiones anteriores en la carpeta temporal de Windows); el
+  historial de la sesión en curso queda protegido mientras se usa.
 - CLI: «project-save --id» sobre un proyecto existente conserva sus reglas,
   receta, historial SQL y ajustes, y vuelve a aplicar la receta guardada a los
   datos nuevos.

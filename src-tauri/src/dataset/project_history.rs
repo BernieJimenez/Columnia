@@ -257,8 +257,7 @@ where
         return Err("El historial degradado guardado no es válido.".to_owned());
     }
 
-    let directory = tempfile::tempdir()
-        .map_err(|_| "No se pudo preparar el historial restaurado.".to_owned())?;
+    let (lock, directory) = super::history::history_directory()?;
     let mut entries = Vec::with_capacity(history.entries.len());
     let mut cursor_matches = !history.snapshots_enabled;
     let mut total_bytes = 0_u64;
@@ -331,6 +330,7 @@ where
     ensure_not_cancelled(is_cancelled())?;
     let next_id = entries.len() as u64;
     Ok(HistoryManager {
+        _lock: lock,
         directory,
         source_snapshot_path: None,
         entries,

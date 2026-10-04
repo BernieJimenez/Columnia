@@ -68,8 +68,124 @@ pub(super) struct HistoryCommitResult {
     pub(super) retired_paths: Vec<PathBuf>,
 }
 
+/// Folders of the reversible history in the system temp directory start
+/// with this, so that a later start can find the ones left behind (DAT-04).
+const HISTORY_DIRECTORY_PREFIX: &str = "columnia-history-";
+/// Held open while a session uses its folder; a folder whose lock can be
+/// deleted belongs to a session that is over.
+const HISTORY_LOCK_FILE: &str = "en-uso.lock";
+
+/// A new history folder and its open lock (DAT-04).
+pub(super) fn history_directory() -> Result<(std::fs::File, tempfile::TempDir), String> {
+    let directory = tempfile::Builder::new()
+        .prefix(HISTORY_DIRECTORY_PREFIX)
+        .tempdir()
+        .map_err(|error| format!("No se pudo crear el historial temporal: {error}"))?;
+    let lock = open_history_lock(&directory.path().join(HISTORY_LOCK_FILE))
+        .map_err(|error| format!("No se pudo crear el historial temporal: {error}"))?;
+    Ok((lock, directory))
+}
+
+#[cfg(windows)]
+fn open_history_lock(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    // FILE_SHARE_READ only: while it is open nobody can delete it.
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .share_mode(0x1)
+        .open(path)
+}
+
+#[cfg(not(windows))]
+fn open_history_lock(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+}
+
+/// Removes the history folders of sessions that are over: closed normally
+/// or killed (DAT-04). A folder in use keeps its lock and is skipped. Off
+/// Windows, where an open file can be deleted, only folders untouched for a
+/// day are removed. Returns how many folders were removed.
+pub(crate) fn purge_finished_history_directories() -> usize {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with(".tmp") && is_legacy_history_directory(&entry.path()) {
+            if std::fs::remove_dir_all(entry.path()).is_ok() {
+                removed += 1;
+            }
+            continue;
+        }
+        if !name.starts_with(HISTORY_DIRECTORY_PREFIX) {
+            continue;
+        }
+        let Ok(metadata) = std::fs::symlink_metadata(entry.path()) else {
+            continue;
+        };
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            continue;
+        }
+        let lock = entry.path().join(HISTORY_LOCK_FILE);
+        let finished = if cfg!(windows) {
+            !lock.exists() || std::fs::remove_file(&lock).is_ok()
+        } else {
+            metadata
+                .modified()
+                .ok()
+                .and_then(|modified| modified.elapsed().ok())
+                .is_some_and(|age| age.as_secs() >= 24 * 60 * 60)
+        };
+        if finished && std::fs::remove_dir_all(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+/// A history folder of a version before DAT-04: a plain `.tmp*` folder,
+/// untouched for a day, holding only `snapshot-<20 digits>.parquet` files.
+fn is_legacy_history_directory(path: &std::path::Path) -> bool {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    let old = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_some_and(|age| age.as_secs() >= 24 * 60 * 60);
+    if !metadata.is_dir() || metadata.file_type().is_symlink() || !old {
+        return false;
+    }
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return false;
+    };
+    let mut snapshots = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let is_snapshot = name
+            .strip_prefix("snapshot-")
+            .and_then(|rest| rest.strip_suffix(".parquet"))
+            .is_some_and(|digits| {
+                digits.len() == 20 && digits.bytes().all(|byte| byte.is_ascii_digit())
+            });
+        if !is_snapshot || !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            return false;
+        }
+        snapshots += 1;
+    }
+    snapshots > 0
+}
+
 #[derive(Debug)]
 pub(super) struct HistoryManager {
+    /// Dropped before `directory`, so the folder can be deleted (DAT-04).
+    pub(super) _lock: std::fs::File,
     pub(super) directory: tempfile::TempDir,
     pub(super) source_snapshot_path: Option<PathBuf>,
     pub(super) entries: Vec<HistoryEntry>,
@@ -87,9 +203,9 @@ pub(super) struct HistoryManager {
 
 impl HistoryManager {
     pub(super) fn deferred() -> Result<Self, String> {
-        let directory = tempfile::tempdir()
-            .map_err(|error| format!("No se pudo crear el historial temporal: {error}"))?;
+        let (lock, directory) = history_directory()?;
         Ok(Self {
+            _lock: lock,
             directory,
             source_snapshot_path: None,
             entries: Vec::new(),
@@ -115,9 +231,9 @@ impl HistoryManager {
         max_entries: usize,
         disk_budget_bytes: u64,
     ) -> Result<Self, String> {
-        let directory = tempfile::tempdir()
-            .map_err(|error| format!("No se pudo crear el historial temporal: {error}"))?;
+        let (lock, directory) = history_directory()?;
         let mut manager = Self {
+            _lock: lock,
             directory,
             source_snapshot_path: None,
             entries: Vec::new(),

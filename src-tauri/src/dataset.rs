@@ -51,6 +51,7 @@ mod date_inference;
 mod delimited_header_import;
 mod file_validation;
 mod history;
+pub(crate) use history::purge_finished_history_directories;
 #[allow(unused_imports)] // Mantiene la ruta pública del contrato serializado.
 pub use history::HistoryEntryState;
 use history::{

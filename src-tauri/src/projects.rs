@@ -165,8 +165,16 @@ pub struct ProjectState {
 
 impl ProjectState {
     pub fn initialize(app_data_dir: PathBuf) -> Result<Self, String> {
+        let store = ProjectStore::initialize_deferred(app_data_dir)?;
+        // DAT-03: the app runs once at a time, so at start-up every `.tmp*`
+        // in the store is the leftover of a save that was interrupted.
+        crate::project_recovery::remove_stale_temporaries(
+            &store.snapshots,
+            SystemTime::now(),
+            Duration::ZERO,
+        );
         Ok(Self {
-            store: ProjectStore::initialize_deferred(app_data_dir)?,
+            store,
             operation: Mutex::new(()),
         })
     }
@@ -359,7 +367,7 @@ impl ProjectStore {
                 return Ok(());
             }
         };
-        crate::project_recovery::reconcile_orphan_generations_with_cancel(
+        let reconciled = crate::project_recovery::reconcile_orphan_generations_with_cancel(
             &self.snapshots,
             &active,
             SystemTime::now(),
@@ -367,7 +375,14 @@ impl ProjectStore {
             is_cancelled,
         )
         .map(|_| ())
-        .map_err(|_| OPERATION_CANCELLED_MESSAGE.to_owned())
+        .map_err(|_| OPERATION_CANCELLED_MESSAGE.to_owned());
+        // The CLI may share the store with a running app: only old leftovers.
+        crate::project_recovery::remove_stale_temporaries(
+            &self.snapshots,
+            SystemTime::now(),
+            Duration::from_secs(60 * 60),
+        );
+        reconciled
     }
 
     fn connection(&self) -> Result<Connection, String> {

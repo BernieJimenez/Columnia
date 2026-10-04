@@ -11771,6 +11771,8 @@ fn corrupt_restore_and_snapshot_io_failure_leave_dataset_and_cursor_unchanged() 
     let fresh_path = temporary_csv("value\n1\n");
     let (fresh, _) = load_csv(&fresh_path).unwrap();
     let mut io_failure = loaded_dataset(fresh_path.clone(), fresh.clone());
+    // Release the session lock (DAT-04) so the folder can disappear.
+    io_failure.history._lock = tempfile::tempfile().unwrap();
     fs::remove_dir_all(io_failure.history.directory.path()).unwrap();
     let candidate = DataFrame::new(1, vec![Series::new("value".into(), [9_i64]).into()]).unwrap();
     assert!(publish_candidate(&mut io_failure, candidate, "No publicable").is_err());
@@ -20185,4 +20187,31 @@ fn excel_csv_has_bom_and_semicolons_in_both_paths() {
     let large_text = String::from_utf8(large_bytes[3..].to_vec()).unwrap();
     assert!(large_text.starts_with("título;importe"), "{large_text}");
     assert!(large_text.contains("Canción;1.5"), "{large_text}");
+}
+
+/// DAT-04: at start-up the history folders of sessions that are over are
+/// removed, and the one a running session uses is kept.
+#[cfg(windows)]
+#[test]
+fn finished_history_folders_are_purged_and_live_ones_kept() {
+    let live = HistoryManager::deferred().expect("historial en uso");
+    let finished = tempfile::Builder::new()
+        .prefix("columnia-history-")
+        .tempdir()
+        .expect("carpeta terminada")
+        .keep();
+    fs::write(finished.join("en-uso.lock"), b"").unwrap();
+    fs::write(
+        finished.join("snapshot-00000000000000000001.parquet"),
+        b"datos",
+    )
+    .unwrap();
+
+    purge_finished_history_directories();
+
+    assert!(!finished.exists(), "la sesión terminada se elimina");
+    assert!(
+        live.directory.path().exists(),
+        "la sesión en curso se conserva"
+    );
 }

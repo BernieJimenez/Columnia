@@ -138,6 +138,8 @@ pub fn run() {
                 .app_data_dir()
                 .map_err(Box::<dyn std::error::Error>::from)?;
             crash_report::install(&app_data_dir);
+            // DAT-04: history folders of earlier sessions hold copies of the data.
+            std::thread::spawn(dataset::purge_finished_history_directories);
             app.manage(session_guard::SessionGuard::begin(&app_data_dir));
             app.manage(session_guard::UnsavedWork::default());
             dataset::remove_stale_converted_sources(&std::env::temp_dir());
