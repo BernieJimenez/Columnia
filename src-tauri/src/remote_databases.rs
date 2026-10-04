@@ -1887,7 +1887,7 @@ mod tests {
     fn named_column(name: &str) -> RemoteInputColumn {
         RemoteInputColumn {
             name: name.to_owned(),
-            data_type: "String".to_owned(),
+            data_type: "str".to_owned(),
             null_count: 0,
             maximum_length: Some(1),
             contains_nul: false,
@@ -2361,7 +2361,7 @@ mod tests {
     fn preflight_explains_safe_new_table_and_blocks_conflicting_policies() {
         let input = vec![RemoteInputColumn {
             name: "name".to_owned(),
-            data_type: "String".to_owned(),
+            data_type: "str".to_owned(),
             null_count: 0,
             maximum_length: Some(12),
             contains_nul: false,
@@ -2385,6 +2385,41 @@ mod tests {
         assert!(!missing_append.ready);
     }
 
+    /// QA-20: the append analysis reads the dtype names Polars really gives
+    /// (`str`, `i64`, `f64`, `bool`), from a real frame, not hand-written ones.
+    #[test]
+    fn append_preflight_accepts_a_real_frame_into_matching_columns() {
+        let frame = df!(
+            "nombre" => ["Ana", "Luis"],
+            "unidades" => [1_i64, 2],
+            "importe" => [1.5_f64, 2.0],
+            "activo" => [true, false],
+        )
+        .unwrap();
+        let input = input_shape_from_frame(&frame).expect("forma del dataset");
+        assert_eq!(
+            input[0].data_type,
+            frame.column("nombre").unwrap().dtype().to_string()
+        );
+        let mut destination = target(DatabaseKind::SqlServer);
+        destination.table_policy = DatabaseTablePolicy::Append;
+        let existing = [
+            ("nombre", "NVARCHAR(50)", Some(50)),
+            ("unidades", "BIGINT", None),
+            ("importe", "FLOAT", None),
+            ("activo", "BIT", None),
+        ]
+        .map(|(name, data_type, maximum_length)| ExistingColumn {
+            name: name.to_owned(),
+            data_type: data_type.to_owned(),
+            maximum_length,
+            nullable: true,
+            has_default: false,
+        });
+        let report = assess_remote_export(&destination, &input, true, true, &existing);
+        assert!(report.ready, "{:?}", report.issues);
+    }
+
     #[test]
     fn append_preflight_checks_types_nulls_lengths_nul_and_required_extra_columns() {
         let mut destination = target(DatabaseKind::SqlServer);
@@ -2392,7 +2427,7 @@ mod tests {
         let input = vec![
             RemoteInputColumn {
                 name: "name".to_owned(),
-                data_type: "String".to_owned(),
+                data_type: "str".to_owned(),
                 null_count: 2,
                 maximum_length: Some(14),
                 contains_nul: true,
@@ -2401,7 +2436,7 @@ mod tests {
             },
             RemoteInputColumn {
                 name: "amount".to_owned(),
-                data_type: "Boolean".to_owned(),
+                data_type: "bool".to_owned(),
                 null_count: 0,
                 maximum_length: None,
                 contains_nul: false,

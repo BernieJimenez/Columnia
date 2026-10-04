@@ -172,9 +172,9 @@ medio = 1 día; agregado por suma.
   - [x] `DAT-10` (Medio) Si la conexión se pierde justo al confirmar, el servidor guarda las filas pero la ventana dice «No se pudo crear la copia» — hecho el 2026-10-03
   - [ ] `DAT-12` (Medio) En MySQL la política «Crear» no es atómica: el DDL confirma implícitamente y un fallo posterior deja una tabla vacía que bloquea el reintento — implementado el 2026-10-03 (se borra la tabla creada si la entrega falla); falta la prueba externa con MySQL: no hay servidor ni controlador MySQL en este equipo
   - [x] `UX-04` (Medio) Los errores de ODBC llegan al usuario con el volcado `Debug` de Rust («Diagnostics { record: State: 08S01, Native error: 10054, … function: "SQLExecute" }») — hecho el 2026-10-03
-- [ ] **RV45** — **Entrega ODBC** — Los tests de la comprobación previa usan nombres de tipo que el código real no produce, y las pruebas con servidor solo… · *Esfuerzo: 2 h*
+- [x] **RV45** — **Entrega ODBC** — Los tests de la comprobación previa usan nombres de tipo que el código real no produce, y las pruebas con servidor solo… · *Esfuerzo: 2 h* — hecho el 2026-10-03
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-20.
-  - [ ] `QA-20` (Medio) Los tests de la comprobación previa usan nombres de tipo que el código real no produce, y las pruebas con servidor solo cubren «Crear»
+  - [x] `QA-20` (Medio) Los tests de la comprobación previa usan nombres de tipo que el código real no produce, y las pruebas con servidor solo cubren «Crear» — hecho el 2026-10-03
 - [ ] **RV46** — **Revisar** — El SQL escrito y su resultado se pierden al cambiar de pestaña o al re-perfilar (y 3 problemas más) · *Esfuerzo: 1 día*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-27, FUN-28, ACC-06, ACC-09.
   - [ ] `FUN-27` (Medio) El SQL escrito y su resultado se pierden al cambiar de pestaña o al re-perfilar

@@ -535,6 +535,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Mejorado
 
+- Las pruebas del análisis ODBC usan los nombres de tipo que produce Polars y
+  recorren el flujo «Añadir» con un dataset real.
 - Los tres motores de recetas validan renombrados, filtros y el nombre de la
   columna calculada con las mismas funciones y mensajes, y una prueba ejecuta
   cada paso de receta en los tres y exige el mismo resultado.
