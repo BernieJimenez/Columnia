@@ -71,3 +71,23 @@ test("rechaza npm run sin nombre de script", () => {
   const invalidReadme = validReadme.replace("npm run build", "npm run");
   assert.throws(() => validateReadmeSetupContract(invalidReadme, packageManifest), /npm run.*sin nombre/);
 });
+
+test("los enlaces dentro de bloques o código en línea no se validan (OPS-09)", async () => {
+  const { localLinkTargets } = await import("./check-documentation.mjs");
+  const markdown = [
+    "Ver [guía](docs/guia.md#inicio) y [con espacios](docs/mi%20archivo.md \"título\").",
+    "Código `arr[0](x)` en línea.",
+    "```js",
+    "const link = \"[a](no-existe.md)\";",
+    "```",
+    "[externo](https://example.com)",
+  ].join("\n");
+  assert.deepEqual(localLinkTargets(markdown), ["docs/guia.md", "docs/mi archivo.md"]);
+});
+
+test("los parciales de auditoría y el archivo no se revisan por enlaces (OPS-09)", async () => {
+  const { skipsLinkCheck } = await import("./check-documentation.mjs");
+  assert.equal(skipsLinkCheck("docs/auditorias/2026-10-01/parciales/a.md"), true);
+  assert.equal(skipsLinkCheck("docs/archive/v0.md"), true);
+  assert.equal(skipsLinkCheck("docs/auditorias/2026-10-01/AUDITORIA.md"), false);
+});

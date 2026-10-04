@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -171,6 +171,45 @@ async function readUtf8(relativePath) {
   return decoder.decode(bytes);
 }
 
+/**
+ * OPS-09: local link targets of a Markdown text, ignoring fenced blocks and
+ * inline code, titles (`](path "title")`) and URL escapes such as `%20`.
+ */
+export function localLinkTargets(contents) {
+  const prose = contents
+    .replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, "")
+    .replace(/(`+)[^`\n]*?\1/g, "");
+  const targets = [];
+  for (const match of prose.matchAll(/\]\(\s*<?([^)\s#>]+)>?(?:\s+"[^"]*")?\s*(?:#[^)]*)?\)/g)) {
+    const target = match[1];
+    if (/^(https?|mailto):/i.test(target)) continue;
+    try {
+      targets.push(decodeURIComponent(target));
+    } catch {
+      targets.push(target);
+    }
+  }
+  return targets;
+}
+
+/** Documents whose links are not maintained: frozen snapshots and audit drafts. */
+export function skipsLinkCheck(relativePath) {
+  return relativePath.startsWith("docs/archive/") || /^docs\/auditorias\/[^/]+\/parciales\//.test(relativePath);
+}
+
+/** Whether a path exists with exactly this spelling (Windows ignores case). */
+async function existsWithExactCase(path) {
+  try {
+    await stat(path);
+  } catch (error) {
+    if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return false;
+    throw error;
+  }
+  const parent = dirname(path);
+  if (parent === path) return true;
+  return (await readdir(parent)).includes(basename(path));
+}
+
 async function markdownFiles(root) {
   const path = absolute(root);
   const details = await stat(path);
@@ -323,13 +362,10 @@ try {
   const brokenLinks = [];
   for (const relativePath of files) {
     const contents = await readUtf8(relativePath);
-    // Archived documents are frozen snapshots: their relative links are not maintained.
-    if (relativePath.startsWith("docs/archive/")) continue;
-    for (const match of contents.matchAll(/\]\(([^)#]+)(?:#[^)]+)?\)/g)) {
-      const target = match[1];
-      if (/^(https?|mailto):/i.test(target)) continue;
-      const targetPath = resolve(absolute(relativePath).replace(/[\\/][^\\/]+$/, ""), target);
-      try { await stat(targetPath); } catch { brokenLinks.push(`${relativePath} -> ${target}`); }
+    if (skipsLinkCheck(relativePath)) continue;
+    for (const target of localLinkTargets(contents)) {
+      const targetPath = resolve(dirname(absolute(relativePath)), target);
+      if (!await existsWithExactCase(targetPath)) brokenLinks.push(`${relativePath} -> ${target}`);
     }
   }
   if (brokenLinks.length > 0) fail(`Enlaces locales rotos: ${brokenLinks.join(", ")}`);

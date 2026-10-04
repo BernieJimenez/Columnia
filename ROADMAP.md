@@ -239,7 +239,7 @@ medio = 1 día; agregado por suma.
   - [x] `OPS-06` (Medio) app-data-guard: restauración destructiva sin salvaguarda ante fallo parcial — hecho el 2026-10-04
   - [x] `OPS-07` (Medio) release.ps1: no comprueba que las variables de tests destructivos estén desactivadas ni que las versiones coincidan — hecho el 2026-10-04
   - [x] `OPS-08` (Medio) `check-toolchains` convierte un rango `engines` en versión exacta — hecho el 2026-10-04
-  - [ ] `OPS-09` (Medio) `docs:check` valida enlaces con regex sobre texto crudo y recorre `docs/auditorias/**`
+  - [x] `OPS-09` (Medio) `docs:check` valida enlaces con regex sobre texto crudo y recorre `docs/auditorias/**` — hecho el 2026-10-04
   - [ ] `OPS-10` (Medio) `check-release-evidence --update-baseline` re-aprueba cualquier captura; hashes de PNG a nivel de byte
 - [ ] **RV56** — **Arranque y servicios** — Un catálogo auxiliar corrupto o de versión futura (tareas reutilizables / presets de entr… (y 1 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de ARQ-02, DOC-05.

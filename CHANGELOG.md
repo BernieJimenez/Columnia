@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- `docs:check` ignora los enlaces dentro de bloques y código en línea, entiende
+  títulos y `%20`, distingue mayúsculas, no trata errores de permisos como
+  enlaces rotos y no revisa los parciales de auditoría (OPS-09).
 - `check-toolchains` compara Node y npm contra el rango de `engines` en lugar de
   exigir la versión mínima exacta (OPS-08).
 - `tools/release.ps1` aborta antes de compilar si hay variables de pruebas
