@@ -5607,10 +5607,9 @@ fn cast_fully_numeric_columns(
                     })
                     .collect::<Vec<_>>(),
             )
-        } else if present
-            .iter()
-            .all(|value| value.parse::<f64>().is_ok_and(f64::is_finite))
-        {
+        } else if present.iter().all(|value| {
+            value.parse::<f64>().is_ok_and(f64::is_finite) && decimal_fits_in_f64(value)
+        }) {
             Column::new(
                 name.as_str().into(),
                 values
@@ -5626,6 +5625,32 @@ fn cast_fully_numeric_columns(
         typed_column_count += 1;
     }
     Ok((cast, typed_column_count))
+}
+
+/// FUN-57: a decimal written with more than 15 significant digits (a
+/// 20-digit code, a long fraction) does not survive the trip through f64;
+/// such a column stays text. Scientific notation is already approximate.
+fn decimal_fits_in_f64(value: &str) -> bool {
+    let value = value.trim().trim_start_matches(['+', '-']);
+    if value.contains(['e', 'E']) {
+        return true;
+    }
+    let digits = value
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect::<String>();
+    let integer_digits = value.split('.').next().unwrap_or_default();
+    let significant = if integer_digits.trim_start_matches('0').is_empty() {
+        // 0.000123: leading zeros of the fraction do not count.
+        digits.trim_start_matches('0').trim_end_matches('0').len()
+    } else {
+        digits
+            .trim_start_matches('0')
+            .trim_end_matches('0')
+            .len()
+            .max(integer_digits.trim_start_matches('0').len())
+    };
+    significant <= 15
 }
 
 /// The integer a finite float holds exactly, if any. Limited to ±2^53 so

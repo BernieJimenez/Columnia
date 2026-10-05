@@ -20943,3 +20943,25 @@ fn quality_reference_bench() {
         result.rules[1].invalid_count
     );
 }
+
+/// FUN-57: «convertir a número» never rounds a long code or a long fraction.
+#[test]
+fn numeric_cast_keeps_values_that_f64_cannot_hold_as_text() {
+    let frame = df![
+        "referencia" => &["12345678901234567890", "12345678901234567891"],
+        "precio" => &["1.5", "2.25"],
+        "minimo" => &["0.000123", "0.5"],
+        "largo" => &["3.14159265358979323", "1.0"]
+    ]
+    .unwrap();
+    let names = ["referencia", "precio", "minimo", "largo"].map(str::to_owned);
+    let (cast, typed) = cast_fully_numeric_columns(&frame, &names).unwrap();
+    assert_eq!(
+        cast.column("referencia").unwrap().dtype(),
+        &DataType::String
+    );
+    assert_eq!(cast.column("largo").unwrap().dtype(), &DataType::String);
+    assert_eq!(cast.column("precio").unwrap().dtype(), &DataType::Float64);
+    assert_eq!(cast.column("minimo").unwrap().dtype(), &DataType::Float64);
+    assert_eq!(typed, 2);
+}

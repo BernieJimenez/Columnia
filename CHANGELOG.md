@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- «Convertir a número» deja como texto las columnas con códigos o decimales de
+  más de 15 cifras significativas, que un número decimal no puede guardar sin
+  redondear (FUN-57).
 - Entregar: con un preset seleccionado el botón dice «Actualizar preset» y hay
   «Guardar como nuevo»; el texto de presets ya no promete guardar columnas; los
   campos de tolerancia se pueden vaciar sin volver a 0 y una comprobación
