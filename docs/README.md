@@ -55,6 +55,8 @@ agregada y sanitizada que se versiona al cerrar los gates.
 - [Inventario IPC](reference/ipc-inventory.json) y [revisión legal de distribución](reference/legal-distribution-review.md).
 - [Política de fixtures](reference/fixtures-policy.md).
 - [Red, privacidad y telemetría](reference/network-privacy.md).
+- [Variables de entorno](reference/environment-variables.md): las que se leen
+  al compilar, al medir y en las pruebas, en una sola tabla.
 
 ### Explicación
 

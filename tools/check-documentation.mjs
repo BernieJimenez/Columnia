@@ -22,6 +22,7 @@ const requiredFiles = [
   "docs/reference/cli.md",
   "docs/reference/v1-scope.md",
   "docs/reference/release-evidence.md",
+  "docs/reference/environment-variables.md",
   "ROADMAP.md",
   "CONTEXTO.md",
   "AUDITORIA.md",
@@ -202,6 +203,18 @@ export function handWrittenInventoryFigures(contents) {
   return [...contents.matchAll(pattern)].map((match) => match[0]);
 }
 
+/**
+ * DOC-10: `COLUMNIA_*` variables the code names but the single table in
+ * docs/reference/environment-variables.md does not list.
+ */
+export function undocumentedEnvironmentVariables(sources, table) {
+  const names = new Set();
+  for (const source of sources) {
+    for (const match of source.matchAll(/(?<![A-Za-z0-9_])COLUMNIA_[A-Z0-9_]*[A-Z0-9](?![A-Za-z0-9_])/g)) names.add(match[0]);
+  }
+  return [...names].filter((name) => !table.includes(`\`${name}\``)).sort();
+}
+
 /** Documents whose links are not maintained: frozen snapshots and audit drafts. */
 export function skipsLinkCheck(relativePath) {
   return relativePath.startsWith("docs/archive/") || /^docs\/auditorias\/[^/]+\/parciales\//.test(relativePath);
@@ -230,6 +243,19 @@ async function markdownFiles(root) {
     const child = `${root}/${entry.name}`;
     if (entry.isDirectory()) files.push(...await markdownFiles(child));
     else if (entry.name.endsWith(".md")) files.push(child);
+  }
+  return files;
+}
+
+async function codeFiles(root) {
+  const path = absolute(root);
+  const details = await stat(path);
+  if (details.isFile()) return [root];
+  const files = [];
+  for (const entry of await readdir(path, { withFileTypes: true })) {
+    const child = `${root}/${entry.name}`;
+    if (entry.isDirectory()) files.push(...await codeFiles(child));
+    else if (/\.(?:rs|ts|tsx|mjs|ps1)$/.test(entry.name)) files.push(child);
   }
   return files;
 }
@@ -379,6 +405,12 @@ try {
     }
   }
   if (brokenLinks.length > 0) fail(`Enlaces locales rotos: ${brokenLinks.join(", ")}`);
+  const environmentSources = [];
+  for (const root of ["src", "src-tauri/src", "src-tauri/build.rs", "tools", "e2e"]) {
+    for (const file of await codeFiles(root)) environmentSources.push((await readFile(absolute(file), "utf8")).replace(/^\uFEFF/, ""));
+  }
+  const undocumented = undocumentedEnvironmentVariables(environmentSources, await readUtf8("docs/reference/environment-variables.md"));
+  if (undocumented.length > 0) fail(`Variables de entorno sin documentar en docs/reference/environment-variables.md: ${undocumented.join(", ")}`);
   // AUDITORIA.md keeps its counts because the checks above verify them.
   for (const living of ["CONTEXTO.md", "THREAT_MODEL.md", "README.md"]) {
     const figures = handWrittenInventoryFigures(await readUtf8(living));

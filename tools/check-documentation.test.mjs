@@ -97,3 +97,11 @@ test("rechaza cifras de inventario escritas a mano (DOC-01)", async () => {
   assert.deepEqual(handWrittenInventoryFigures("Registra 92 comandos de producción y 84 estructuras compartidas."), ["92 comandos de producción", "84 estructuras compartidas"]);
   assert.deepEqual(handWrittenInventoryFigures("Las cifras vigentes están en el inventario."), []);
 });
+
+test("cada variable COLUMNIA_* del código está en la tabla única (DOC-10)", async () => {
+  const { undocumentedEnvironmentVariables } = await import("./check-documentation.mjs");
+  // Built at run time so this file does not name an undocumented variable.
+  const unlisted = ["COLUMNIA", "NUEVA"].join("_");
+  const sources = ['option_env!("COLUMNIA_UPDATER_ENDPOINT")', `process.env.${unlisted}; window.__COLUMNIA_E2E_CALLS__`];
+  assert.deepEqual(undocumentedEnvironmentVariables(sources, "| `COLUMNIA_UPDATER_ENDPOINT` | ..."), [unlisted]);
+});

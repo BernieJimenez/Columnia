@@ -386,12 +386,12 @@ medio = 1 día; agregado por suma.
   - [x] `COD-13` (Bajo) Regex compiladas en cada llamada y `expect` sobre patrones — hecho el 2026-10-05
   - [x] `COD-14` (Bajo) Dos detectores de «JOIN» distintos para enrutar una misma consulta — hecho el 2026-10-05
   - [x] `LIM-08` (Bajo) Duplicación de bloques de materialización a Parquet y año fijo 1900-2100 — hecho el 2026-10-05
-- [ ] **RV81** — **Entrega ODBC** — Mapeo de tipos a DDL: `time` → TIMESTAMP/DATETIME2 y DECIMAL → DOUBLE (y 3 problemas más) · *Esfuerzo: 1 día*
+- [x] **RV81** — **Entrega ODBC** — Mapeo de tipos a DDL: `time` → TIMESTAMP/DATETIME2 y DECIMAL → DOUBLE (y 3 problemas más) · *Esfuerzo: 1 día* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-66, DAT-18, SEG-09, DOC-10.
-  - [ ] `FUN-66` (Bajo) Mapeo de tipos a DDL: `time` → TIMESTAMP/DATETIME2 y DECIMAL → DOUBLE
-  - [ ] `DAT-18` (Bajo) El libro de entregas remotas se reinicia en silencio si el archivo está dañado o cambia de versión, y no tiene bloqueo entre instancias
-  - [ ] `SEG-09` (Bajo) El aviso de cifrado trata como «local» cualquier servidor cuyo nombre contenga «localhost» o «127.0.0.1»
-  - [ ] `DOC-10` (Bajo) Variables de entorno de construcción/ejecución sin documentar
+  - [x] `FUN-66` (Bajo) Mapeo de tipos a DDL: `time` → TIMESTAMP/DATETIME2 y DECIMAL → DOUBLE — hecho el 2026-10-05
+  - [x] `DAT-18` (Bajo) El libro de entregas remotas se reinicia en silencio si el archivo está dañado o cambia de versión, y no tiene bloqueo entre instancias — hecho el 2026-10-05
+  - [x] `SEG-09` (Bajo) El aviso de cifrado trata como «local» cualquier servidor cuyo nombre contenga «localhost» o «127.0.0.1» — hecho el 2026-10-05
+  - [x] `DOC-10` (Bajo) Variables de entorno de construcción/ejecución sin documentar — hecho el 2026-10-05
 - [ ] **RV82** — **Arranque y servicios** — El evento final de progreso de la descarga de actualización siempre informa 0 bytes (y 3 problemas más) · *Esfuerzo: 1 día*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-67, DAT-19, SEG-08, COD-11.
   - [ ] `FUN-67` (Bajo) El evento final de progreso de la descarga de actualización siempre informa 0 bytes

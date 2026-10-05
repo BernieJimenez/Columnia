@@ -203,6 +203,13 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Entrega a bases de datos: una columna de hora se crea como TIME y una fecha
+  con zona viaja en UTC (probado contra SQL Server); el libro de entregas dañado
+  o de otra versión se guarda como `remote-deliveries.json.bak` y se escribe con
+  bloqueo entre instancias; `localhost.example.com` ya no cuenta como servidor
+  local y un `;Encrypt=yes` entre llaves no activa el cifrado; nueva tabla única
+  de variables de entorno, comprobada por el gate de documentación (FUN-66,
+  DAT-18, SEG-09, DOC-10).
 - Consultas: `'AB--12'` o `"Precio;USD"` ya no se rechazan como separadores; los
   JOIN aceptan claves con punto (`dataset."Precio.USD"`); las columnas JSON
   anidadas se ven como texto JSON en vez de fallar; un solo detector de JOIN y

@@ -66,7 +66,14 @@ impl DeliveryLedger {
         status: DeliveryStatus,
         rows: usize,
     ) -> Result<(), String> {
-        let mut document = self.read();
+        // DAT-18: read, change and write under one lock, so two open
+        // Columnias never drop each other's record.
+        let _lock = self
+            .lock()
+            .map_err(|error| format!("No se pudo bloquear el registro de entregas: {error}"))?;
+        let mut document = self
+            .read_for_update()
+            .map_err(|error| format!("No se pudo leer el registro de entregas: {error}"))?;
         document.version = LEDGER_VERSION;
         document.deliveries.retain(|record| record.key != key);
         document.deliveries.push(DeliveryRecord {
@@ -81,7 +88,43 @@ impl DeliveryLedger {
             .map_err(|error| format!("No se pudo registrar la entrega remota: {error}"))
     }
 
-    /// An unreadable ledger is treated as empty: the next record replaces it.
+    fn lock(&self) -> std::io::Result<fs::File> {
+        let directory = self
+            .path
+            .parent()
+            .ok_or_else(|| std::io::Error::other("ruta del registro sin carpeta"))?;
+        fs::create_dir_all(directory)?;
+        let lock = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(self.path.with_extension("json.lock"))?;
+        lock.lock()?;
+        Ok(lock)
+    }
+
+    /// The ledger to update. One that cannot be understood (damaged, or from
+    /// another version) is kept as `remote-deliveries.json.bak` before the
+    /// new record replaces it (DAT-18); one that cannot be read at all stops
+    /// the record instead of being overwritten.
+    fn read_for_update(&self) -> std::io::Result<LedgerDocument> {
+        let bytes = match fs::read(&self.path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(LedgerDocument::default())
+            }
+            Err(error) => return Err(error),
+        };
+        match serde_json::from_slice::<LedgerDocument>(&bytes) {
+            Ok(document) if document.version == LEDGER_VERSION => Ok(document),
+            _ => {
+                fs::rename(&self.path, self.path.with_extension("json.bak"))?;
+                Ok(LedgerDocument::default())
+            }
+        }
+    }
+
+    /// An unreadable ledger reads as empty; `record` keeps a copy of it.
     fn read(&self) -> LedgerDocument {
         fs::read(&self.path)
             .ok()
@@ -234,6 +277,48 @@ mod tests {
             .find(&format!("k{}", MAX_LEDGER_ENTRIES + 4))
             .is_some());
         assert_eq!(ledger.read().deliveries.len(), MAX_LEDGER_ENTRIES);
+    }
+
+    #[test]
+    fn a_damaged_or_foreign_ledger_is_kept_as_a_backup() {
+        for (content, label) in [
+            (&b"{no es json"[..], "corrupto"),
+            (&br#"{"version":99,"deliveries":[]}"#[..], "otra version"),
+        ] {
+            let directory = tempdir().expect("carpeta temporal");
+            fs::write(directory.path().join(LEDGER_FILE_NAME), content).unwrap();
+            let ledger = DeliveryLedger::in_directory(directory.path());
+            ledger
+                .record("a", DeliveryStatus::Committed, 1)
+                .expect("registro");
+            let backup = directory.path().join("remote-deliveries.json.bak");
+            assert_eq!(fs::read(&backup).unwrap(), content, "{label}");
+            assert!(ledger.find("a").is_some(), "{label}");
+        }
+    }
+
+    #[test]
+    fn concurrent_records_from_two_ledgers_keep_every_entry() {
+        let directory = tempdir().expect("carpeta temporal");
+        let path = directory.path().to_path_buf();
+        let writers = (0..4)
+            .map(|writer| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let ledger = DeliveryLedger::in_directory(&path);
+                    for index in 0..10 {
+                        ledger
+                            .record(&format!("w{writer}-{index}"), DeliveryStatus::Committed, 1)
+                            .expect("registro concurrente");
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        let ledger = DeliveryLedger::in_directory(&path);
+        assert_eq!(ledger.read().deliveries.len(), 40);
     }
 
     #[test]

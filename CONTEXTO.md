@@ -510,6 +510,9 @@ $env:COLUMNIA_PROBE_ROWS = "300000"
 cargo test --release --lib perf_probe -- --ignored --nocapture
 ```
 
+Todas las variables de entorno que leen el código y las herramientas están en
+[docs/reference/environment-variables.md](docs/reference/environment-variables.md).
+
 El perfil `dev` compila optimizado (`opt-level = 2` para las dependencias de
 terceros y `1` para Columnia): Polars, DuckDB y el perfilado propio sin optimizar
 hacían que `npm run tauri dev` y las pruebas Rust no representaran el uso real.

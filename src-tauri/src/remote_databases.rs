@@ -863,21 +863,42 @@ fn inspect_destination(
     Ok((table_exists, is_base_table, columns))
 }
 
+/// SEG-09: same split as the driver (`;` inside braces is part of a value),
+/// so `Pwd={a;Encrypt=yes}` does not read as an encrypted channel.
 fn connection_string_pairs(connection_string: &str) -> Vec<(String, String)> {
-    connection_string
-        .split(';')
-        .filter_map(|part| part.split_once('='))
+    odbc_attributes(connection_string)
+        .into_iter()
         .map(|(key, value)| {
             (
-                key.trim().to_ascii_lowercase(),
+                key,
                 value
-                    .trim()
                     .trim_start_matches('{')
                     .trim_end_matches('}')
                     .to_ascii_lowercase(),
             )
         })
         .collect()
+}
+
+/// SEG-09: whether the server is this machine. The host is compared whole,
+/// after removing the protocol (`tcp:`), the port (`,1433` or `:5432`) and the
+/// instance (`\SQLEXPRESS`), so `localhost.example.com` is a remote host.
+fn is_local_server(server: &str) -> bool {
+    let server = server.trim();
+    let server = server
+        .split_once(':')
+        .filter(|(protocol, _)| matches!(*protocol, "tcp" | "np" | "lpc" | "admin"))
+        .map_or(server, |(_, rest)| rest);
+    let host = server.split([',', '\\']).next().unwrap_or_default().trim();
+    let host = match host.strip_prefix('[') {
+        Some(bracketed) => bracketed.split(']').next().unwrap_or_default(),
+        None if host.matches(':').count() == 1 => host.split(':').next().unwrap_or_default(),
+        None => host,
+    };
+    matches!(
+        host,
+        "localhost" | "127.0.0.1" | "::1" | "(local)" | "(localdb)" | "."
+    )
 }
 
 /// Personal data may travel to the remote server; the delivery must state
@@ -910,10 +931,7 @@ fn transport_encryption_issue(target: &DatabaseTarget) -> Option<(&'static str, 
     let trusts_any_certificate =
         value_of(&["trustservercertificate"]).is_some_and(|value| matches!(value, "yes" | "true"));
     let server = value_of(&["server", "host", "servername", "data source"]).unwrap_or_default();
-    let is_local = ["localhost", "127.0.0.1", "(local)", "::1"]
-        .iter()
-        .any(|local| server.contains(local))
-        || server == ".";
+    let is_local = is_local_server(server);
     let label = target.kind.label();
     if enabled {
         return trusts_any_certificate.then(|| ("warning", format!(
@@ -1641,6 +1659,11 @@ fn create_table_sql(frame: &DataFrame, table: &str, kind: DatabaseKind) -> Strin
 }
 
 fn database_type(dtype: &polars::prelude::DataType, kind: DatabaseKind) -> &'static str {
+    // FUN-66: a time of day is a TIME, not a DATETIME2/TIMESTAMP. (This
+    // Polars build has no Decimal type: decimals arrive as f64, see FUN-57.)
+    if matches!(dtype, polars::prelude::DataType::Time) {
+        return "TIME";
+    }
     let dtype = dtype.to_string().to_ascii_lowercase();
     if dtype.contains("bool") {
         return match kind {
@@ -1680,9 +1703,44 @@ fn sql_parameter(
     let text = match value {
         AnyValue::String(value) => value.to_owned(),
         AnyValue::StringOwned(value) => value.to_string(),
+        // FUN-66: a zoned datetime travels as its UTC wall time, without the
+        // zone suffix no TIMESTAMP/DATETIME2 column reads; a time of day keeps
+        // at most microseconds, which every server accepts.
+        AnyValue::Datetime(value, unit, Some(_)) => utc_datetime_text(value, unit),
+        AnyValue::DatetimeOwned(value, unit, Some(_)) => utc_datetime_text(value, unit),
+        AnyValue::Time(nanoseconds) => time_of_day_text(nanoseconds),
         value => value.to_string(),
     };
     sql_parameter_text(Some(&text), dtype)
+}
+
+fn utc_datetime_text(value: i64, unit: polars::prelude::TimeUnit) -> String {
+    use polars::prelude::TimeUnit;
+    let nanoseconds = match unit {
+        TimeUnit::Nanoseconds => Some(value),
+        TimeUnit::Microseconds => value.checked_mul(1_000),
+        TimeUnit::Milliseconds => value.checked_mul(1_000_000),
+    };
+    nanoseconds
+        .map(chrono::DateTime::from_timestamp_nanos)
+        .map(|datetime| {
+            datetime
+                .naive_utc()
+                .format("%Y-%m-%d %H:%M:%S%.6f")
+                .to_string()
+        })
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn time_of_day_text(nanoseconds: i64) -> String {
+    let seconds = nanoseconds.div_euclid(1_000_000_000);
+    let micros = nanoseconds.rem_euclid(1_000_000_000) / 1_000;
+    chrono::NaiveTime::from_num_seconds_from_midnight_opt(
+        u32::try_from(seconds).unwrap_or_default(),
+        u32::try_from(micros * 1_000).unwrap_or_default(),
+    )
+    .map(|time| time.format("%H:%M:%S%.f").to_string())
+    .unwrap_or_else(|| nanoseconds.to_string())
 }
 
 fn sql_parameter_text(
@@ -2143,6 +2201,55 @@ mod tests {
         assert_eq!(
             with(DatabaseKind::Postgresql, "Driver={x};Server=localhost"),
             Some("info")
+        );
+        // SEG-09: the host is compared whole, and a value in braces is one value.
+        for remote in [
+            "Driver={x};Server=localhost.example.com;Uid=a;Pwd=b",
+            "Driver={x};Server=mi-localhost.red",
+            "Driver={x};Server=127.0.0.1.nip.io",
+            "Driver={x};Server=db.example.com;Pwd={a;Encrypt=yes}",
+        ] {
+            assert_eq!(
+                with(DatabaseKind::SqlServer, remote),
+                Some("blocking"),
+                "{remote}"
+            );
+        }
+        for local in [
+            "Driver={x};Server=tcp:localhost,1433",
+            "Driver={x};Server=.\\SQLEXPRESS",
+            "Driver={x};Server=(localdb)\\MSSQLLocalDB",
+            "Driver={x};Server=[::1]:5432",
+            "Driver={x};Host=127.0.0.1:3306",
+        ] {
+            assert_eq!(
+                with(DatabaseKind::SqlServer, local),
+                Some("info"),
+                "{local}"
+            );
+        }
+    }
+
+    #[test]
+    fn time_and_zoned_datetime_columns_reach_the_server_readable() {
+        // FUN-66
+        assert_eq!(
+            database_type(&DataType::Time, DatabaseKind::SqlServer),
+            "TIME"
+        );
+        assert_eq!(
+            database_type(&DataType::Time, DatabaseKind::Postgresql),
+            "TIME"
+        );
+        use polars::prelude::TimeUnit;
+        assert_eq!(
+            time_of_day_text(((8 * 60 + 26) * 60) * 1_000_000_000),
+            "08:26:00"
+        );
+        assert_eq!(time_of_day_text(1_000_123_456), "00:00:01.000123");
+        assert_eq!(
+            utc_datetime_text(1_291_191_960_000_000, TimeUnit::Microseconds),
+            "2010-12-01 08:26:00.000000"
         );
     }
 
@@ -2870,6 +2977,56 @@ mod tests {
                 .any(|message| message.contains("como máximo 128")),
             "{messages:?}"
         );
+    }
+
+    #[test]
+    #[ignore = "requiere servidor y controlador ODBC SQL Server reales configurados por variables de sesión"]
+    fn external_sql_server_reads_time_and_zoned_datetime_columns() {
+        // FUN-66 against a real server: a TIME column and a UTC datetime.
+        use polars::prelude::{NamedFrom, Series, TimeUnit, TimeZone};
+        let mut target = external_target(DatabaseKind::SqlServer, "COLUMNIA_ODBC_SQLSERVER");
+        target.table = unique_suffix("columnia_fun66");
+        let hora = Series::new("hora".into(), &[((8 * 60 + 26) * 60) * 1_000_000_000_i64])
+            .cast(&DataType::Time)
+            .expect("hora");
+        let momento = Series::new("momento".into(), &[1_291_191_960_000_000_i64])
+            .cast(&DataType::Datetime(
+                TimeUnit::Microseconds,
+                Some(TimeZone::UTC),
+            ))
+            .expect("momento");
+        let frame = DataFrame::new(1, vec![hora.into(), momento.into()]).expect("frame");
+        let result = export_frame(&frame, &target, |_, _| {}, || false, ());
+        let table = qualified_table(&target);
+        let count = result.and_then(|_| {
+            let environment = Environment::new().map_err(|error| format!("ODBC: {error:?}"))?;
+            let connection = environment
+                .connect_with_connection_string(
+                    &target.connection_string,
+                    ConnectionOptions::default(),
+                )
+                .map_err(|error| format!("conexión ODBC: {error:?}"))?;
+            let mut cursor = connection
+                .execute(
+                    &format!(
+                        "SELECT COUNT(*) FROM {table} WHERE [hora] = '08:26:00' AND [momento] = '2010-12-01 08:26:00' AND SQL_VARIANT_PROPERTY([hora], 'BaseType') = 'time'"
+                    ),
+                    (),
+                    None,
+                )
+                .map_err(|error| format!("consulta ODBC: {error:?}"))?
+                .ok_or_else(|| "sin filas".to_owned())?;
+            let mut row = cursor
+                .next_row()
+                .map_err(|error| format!("fila ODBC: {error:?}"))?
+                .ok_or_else(|| "sin filas".to_owned())?;
+            let mut count = 0_i64;
+            row.get_data(1, &mut count)
+                .map_err(|error| format!("dato ODBC: {error:?}"))?;
+            Ok(count)
+        });
+        let _ = execute_external_sql(&target, &drop_table_sql(&table, target.kind));
+        assert_eq!(count.expect("entrega y lectura"), 1);
     }
 
     #[test]
