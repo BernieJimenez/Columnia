@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, OpenOptions},
+    fs,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -82,22 +82,27 @@ pub(super) fn ensure_sample_dataset(
     }
 
     let path = examples_dir.join(sample.file_name);
-    match OpenOptions::new().write(true).create_new(true).open(&path) {
-        Ok(mut file) => {
-            if let Err(error) = file
-                .write_all(sample.content.as_bytes())
-                .and_then(|_| file.sync_all())
-            {
-                let _ = fs::remove_file(&path);
-                return Err(format!(
-                    "No se pudo preparar el dataset de ejemplo: {error}"
-                ));
-            }
+    // DAT-20: an existing copy is reused only if it is exactly the embedded
+    // sample; a truncated or edited one is replaced through a temporary file,
+    // so a crash while writing never leaves a partial sample behind.
+    let intact = match fs::symlink_metadata(&path) {
+        Ok(metadata) if is_symbolic_link_or_reparse_point(&metadata) || !metadata.is_file() => {
+            return Err("El dataset de ejemplo no es un archivo regular.".to_owned());
         }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(_) => {
-            return Err("No se pudo preparar el dataset de ejemplo.".to_owned());
-        }
+        Ok(_) => fs::read(&path).is_ok_and(|bytes| bytes == sample.content.as_bytes()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(_) => return Err("No se pudo verificar el dataset de ejemplo.".to_owned()),
+    };
+    if !intact {
+        let mut temporary = tempfile::NamedTempFile::new_in(&examples_dir)
+            .map_err(|_| "No se pudo preparar el dataset de ejemplo.".to_owned())?;
+        temporary
+            .write_all(sample.content.as_bytes())
+            .and_then(|_| temporary.as_file().sync_all())
+            .map_err(|error| format!("No se pudo preparar el dataset de ejemplo: {error}"))?;
+        temporary
+            .persist(&path)
+            .map_err(|error| format!("No se pudo preparar el dataset de ejemplo: {}", error.error))?;
     }
 
     canonicalize_existing_file(&path, "el dataset de ejemplo")

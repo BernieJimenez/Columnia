@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Un dataset de ejemplo truncado o editado se restaura: solo se reutiliza si
+  coincide con el original, y se escribe por un temporal para que un cierre a
+  medias no deje una copia parcial (DAT-20).
 - Revisar indica cuántos valores NaN o infinitos de cada columna decimal quedan
   fuera del mínimo, el máximo, la media y los gráficos; el recuento coincide en
   memoria y en archivos grandes (FUN-43).

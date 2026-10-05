@@ -336,6 +336,21 @@ fn sample_dataset_creation_is_allowlisted_and_reuses_a_regular_file() {
 }
 
 #[test]
+fn a_truncated_or_edited_sample_dataset_is_restored() {
+    // DAT-20: a sample cut short by a crash, or edited by hand, is rewritten.
+    let directory = tempfile::tempdir().unwrap();
+    let app_data_dir = directory.path().join("app-data");
+    let path = ensure_sample_dataset(&app_data_dir, "quality").unwrap();
+    let original = fs::read(&path).unwrap();
+    fs::write(&path, &original[..original.len() / 3]).unwrap();
+    assert_eq!(ensure_sample_dataset(&app_data_dir, "quality").unwrap(), path);
+    assert_eq!(fs::read(&path).unwrap(), original);
+    fs::write(&path, b"").unwrap();
+    ensure_sample_dataset(&app_data_dir, "quality").unwrap();
+    assert_eq!(fs::read(&path).unwrap(), original);
+}
+
+#[test]
 fn resource_preflight_uses_the_native_load_route_and_guard_estimate() {
     let file_size = 512 * 1024 * 1024;
     let csv = dataset_resource_estimate("csv", file_size);

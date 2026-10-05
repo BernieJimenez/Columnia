@@ -290,7 +290,7 @@ medio = 1 día; agregado por suma.
 - [ ] **RV65** — **Perfil** — Perfil con `inf`/NaN: se degrada sin avisar (no cae) (y 5 problemas más) · *Esfuerzo: 3 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-43, DAT-20, REN-12, REN-13, COD-17, LIM-10.
   - [x] `FUN-43` (Bajo) Perfil con `inf`/NaN: se degrada sin avisar (no cae) — hecho el 2026-10-04
-  - [ ] `DAT-20` (Bajo) Los ejemplos se crean una sola vez y nunca se verifican: un archivo truncado o editado se reutiliza para siempre
+  - [x] `DAT-20` (Bajo) Los ejemplos se crean una sola vez y nunca se verifican: un archivo truncado o editado se reutiliza para siempre — hecho el 2026-10-04
   - [ ] `REN-12` (Bajo) Duplicados parecidos: con muchas filas casi idénticas un solo cubo concentra todas las huellas y se carga entero en memoria
   - [ ] `REN-13` (Bajo) Perfil de origen grande: una corrida ordenada por cada 262.144 valores y por columna numérica, todas vivas hasta el final
   - [ ] `COD-17` (Bajo) Perfilado en paralelo: `expect` sobre perfiles que pueden faltar si el candado de la cola se envenena
