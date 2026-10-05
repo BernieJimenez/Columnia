@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Si el dataset cambia mientras se exporta, Entregar explica que la exportación
+  anterior sigue terminando al intentar otra y, al acabar, que ese archivo ya no
+  corresponde a los datos actuales, en lugar de no responder (FUN-56).
 - Las fechas de una regla de periodo se leen en la interfaz con los mismos
   formatos que el motor (ISO, dd/mm/aaaa y aaaa/mm/dd); «1/2/2024» ya no se
   interpreta como 2 de enero y los formatos ajenos se rechazan (FUN-55).

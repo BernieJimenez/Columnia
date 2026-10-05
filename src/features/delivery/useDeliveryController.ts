@@ -124,7 +124,11 @@ export function useDeliveryController({
 
   async function exportActiveDataset(request: DeliveryExportRequest) {
     if (!datasetReady) return;
-    if (exportInFlightRef.current) return;
+    if (exportInFlightRef.current) {
+      // FUN-56: an export made stale by a change of data is still writing.
+      setExportStatus({ kind: "error", message: "La exportación anterior todavía está terminando; espera unos segundos y vuelve a exportar." });
+      return;
+    }
     exportInFlightRef.current = true;
     const requestId = ++exportRequestRef.current;
     const requestedRevision = datasetRevisionRef.current;
@@ -160,7 +164,15 @@ export function useDeliveryController({
           ? await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode, recipeDraft)
           : await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode);
       }
-      if (!isCurrentRequest()) return;
+      if (!isCurrentRequest()) {
+        // The file exists, but it holds the data from before the change.
+        if (result) {
+          setExportStatus((current) => current.kind === "idle" || current.kind === "error"
+            ? { kind: "error", message: `La exportación anterior terminó (${result.fileName}), pero ya no corresponde a los datos actuales. Vuelve a exportar.` }
+            : current);
+        }
+        return;
+      }
       setExportStatus(result ? { kind: "success", result } : { kind: "idle" });
     } catch (error: unknown) {
       if (!isCurrentRequest()) return;

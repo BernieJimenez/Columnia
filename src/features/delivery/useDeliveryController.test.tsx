@@ -100,7 +100,8 @@ describe("useDeliveryController", () => {
     expect(hook.current.exportStatus.kind).toBe("loading");
     act(() => hook.current.invalidateRequests());
     await act(async () => pending.resolve(result));
-    expect(hook.current.exportStatus).toEqual({ kind: "idle" });
+    // FUN-56: the stale file is announced, never shown as this data's export.
+    expect(hook.current.exportStatus).toMatchObject({ kind: "error", message: expect.stringContaining("ya no corresponde") });
   });
 
   it("requests cancellation, recovers a failed request and reports the cancelled export", async () => {
@@ -174,5 +175,18 @@ describe("validation by default (UX-01)", () => {
     act(() => hook.result.current.updateContract({ kind: "rules_changed", rules: [other] }));
     act(() => hook.result.current.proposeValidation([rule]));
     expect(hook.result.current.contract).toMatchObject({ kind: "with_contract", rules: [other] });
+  });
+
+  it("explica una exportación que quedó obsoleta y el intento que llega mientras termina (FUN-56)", async () => {
+    const pending = deferred<ExportResult>();
+    vi.spyOn(bridge, "exportDataset").mockReturnValueOnce(pending.promise);
+    const { result: hook, datasetRevisionRef } = setup();
+    act(() => void hook.current.exportActiveDataset(unvalidatedCsv as never));
+    datasetRevisionRef.current = 2;
+    act(() => hook.current.invalidateRequests());
+    await act(async () => hook.current.exportActiveDataset(unvalidatedCsv as never));
+    expect(hook.current.exportStatus).toMatchObject({ kind: "error", message: expect.stringContaining("todavía está terminando") });
+    await act(async () => pending.resolve(result));
+    expect(hook.current.exportStatus).toMatchObject({ kind: "error", message: expect.stringContaining("ya no corresponde a los datos actuales") });
   });
 });
