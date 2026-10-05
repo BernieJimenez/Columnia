@@ -20876,7 +20876,10 @@ fn row_rules_have_one_semantics_for_gaps_signed_zero_and_nan() {
     equal.columns = Some(vec!["a".to_owned(), "b".to_owned()]);
     equal.operator = Some(QualityComparison::Eq);
     let result = evaluate_quality_rules(&frame, &[equal]).unwrap();
-    assert_eq!(result.rules[0].invalid_count, 1, "solo la fila NaN no es igual");
+    assert_eq!(
+        result.rules[0].invalid_count, 1,
+        "solo la fila NaN no es igual"
+    );
 
     let gaps = df!["v" => &[Some(5_i64), None, Some(3)]].unwrap();
     let mut increasing = quality_rule("v", QualityRuleKind::Monotonic);
@@ -20889,4 +20892,27 @@ fn row_rules_have_one_semantics_for_gaps_signed_zero_and_nan() {
     together.columns = Some(vec!["x".to_owned(), "y".to_owned()]);
     let result = evaluate_quality_rules(&keys, &[together]).unwrap();
     assert_eq!(result.rules[0].invalid_count, 1);
+}
+
+/// COD-16: free-text fields that the budget used to skip are counted too.
+#[test]
+fn quality_payload_budget_counts_baseline_dates_and_nested_rules() {
+    let huge = "x".repeat(1024 * 1024);
+    let mut drift = quality_rule("monto", QualityRuleKind::DistributionDrift);
+    drift.baseline = Some(vec![huge.clone()]);
+    assert!(validate_quality_rules_payload(&[drift]).is_err());
+
+    let mut dates = quality_rule("fecha", QualityRuleKind::DateRange);
+    dates.min_date = Some(huge.clone());
+    assert!(validate_quality_rules_payload(&[dates]).is_err());
+
+    let mut nested = quality_rule("estado", QualityRuleKind::Conditional);
+    let mut then = quality_rule("monto", QualityRuleKind::DistributionDrift);
+    then.baseline = Some(vec![huge]);
+    nested.then = Some(Box::new(then));
+    assert!(validate_quality_rules_payload(&[nested]).is_err());
+
+    assert!(
+        validate_quality_rules_payload(&[quality_rule("monto", QualityRuleKind::NotNull)]).is_ok()
+    );
 }

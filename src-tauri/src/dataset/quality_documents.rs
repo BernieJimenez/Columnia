@@ -1250,6 +1250,53 @@ pub(super) fn load_quality_migration_file(path: &Path) -> Result<QualityMigratio
     Ok(result)
 }
 
+/// COD-16: every free-text field of a rule, its `then` sub-rule included,
+/// counts towards the text budget (baseline, dtype and dates were missing).
+fn push_rule_text_fields<'a>(
+    rule: &'a QualityRule,
+    nested: bool,
+    fields: &mut Vec<(&'static str, &'a str)>,
+) {
+    let name = |plain: &'static str, inner: &'static str| if nested { inner } else { plain };
+    fields.push((name("column", "then.column"), rule.column.as_str()));
+    for (label, value) in [
+        (name("pattern", "then.pattern"), rule.pattern.as_deref()),
+        (name("dtype", "then.dtype"), rule.dtype.as_deref()),
+        (name("minDate", "then.minDate"), rule.min_date.as_deref()),
+        (name("maxDate", "then.maxDate"), rule.max_date.as_deref()),
+    ] {
+        if let Some(value) = value {
+            fields.push((label, value));
+        }
+    }
+    for (label, values) in [
+        (name("value", "then.value"), rule.values.as_deref()),
+        (
+            name("referenceValue", "then.referenceValue"),
+            rule.reference_values.as_deref(),
+        ),
+        (name("baseline", "then.baseline"), rule.baseline.as_deref()),
+        (name("columns", "then.columns"), rule.columns.as_deref()),
+        (
+            name("requiredOrder", "then.requiredOrder"),
+            rule.required_order.as_deref(),
+        ),
+    ] {
+        for value in values.unwrap_or_default() {
+            fields.push((label, value.as_str()));
+        }
+    }
+    if let Some(condition) = rule.when.as_ref() {
+        fields.push(("when.column", condition.column.as_str()));
+        if let Some(value) = condition.value.as_deref() {
+            fields.push(("when.value", value));
+        }
+    }
+    if let Some(then) = rule.then.as_deref() {
+        push_rule_text_fields(then, true, fields);
+    }
+}
+
 pub(super) fn validate_quality_rules_payload(quality_rules: &[QualityRule]) -> Result<(), String> {
     if quality_rules.len() > MAX_QUALITY_RULES {
         return Err(format!(
@@ -1258,47 +1305,7 @@ pub(super) fn validate_quality_rules_payload(quality_rules: &[QualityRule]) -> R
     }
     let mut text_fields = Vec::new();
     for rule in quality_rules {
-        text_fields.push(("column", rule.column.as_str()));
-        if let Some(pattern) = rule.pattern.as_deref() {
-            text_fields.push(("pattern", pattern));
-        }
-        if let Some(values) = rule.values.as_deref() {
-            for value in values {
-                text_fields.push(("value", value.as_str()));
-            }
-        }
-        if let Some(reference_values) = rule.reference_values.as_deref() {
-            for value in reference_values {
-                text_fields.push(("referenceValue", value.as_str()));
-            }
-        }
-        if let Some(columns) = rule.columns.as_deref() {
-            for column in columns {
-                text_fields.push(("columns", column.as_str()));
-            }
-        }
-        if let Some(condition) = rule.when.as_ref() {
-            text_fields.push(("when.column", condition.column.as_str()));
-            if let Some(value) = condition.value.as_deref() {
-                text_fields.push(("when.value", value));
-            }
-        }
-        if let Some(then) = rule.then.as_deref() {
-            text_fields.push(("then.column", then.column.as_str()));
-            if let Some(pattern) = then.pattern.as_deref() {
-                text_fields.push(("then.pattern", pattern));
-            }
-            if let Some(values) = then.values.as_deref() {
-                for value in values {
-                    text_fields.push(("then.value", value.as_str()));
-                }
-            }
-        }
-        if let Some(required_order) = rule.required_order.as_deref() {
-            for column in required_order {
-                text_fields.push(("requiredOrder", column.as_str()));
-            }
-        }
+        push_rule_text_fields(rule, false, &mut text_fields);
     }
     validate_semantic_text_budget(
         "payload de reglas de calidad",

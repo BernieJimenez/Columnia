@@ -203,6 +203,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- El límite de texto de un contrato de calidad cuenta también `baseline`,
+  `dtype`, las fechas y todos los campos de la subregla `then` (COD-16).
 - Reglas de calidad entre filas con una semántica única y documentada:
   `monotonic` ya no reinicia el orden tras un nulo, `column_compare` trata −0,0
   y 0,0 como iguales y NaN como distinto de todo; tests de borde con nulos, −0,0
