@@ -1410,18 +1410,26 @@ where
         let mut completed_columns = 0usize;
         let mut first_error = None;
         let mut last_percent = 40_u8;
+        // COD-17: the first error stops the remaining columns.
+        let failed = std::sync::atomic::AtomicBool::new(false);
 
         std::thread::scope(|scope| {
             for _ in 0..worker_count {
                 let work_queue = std::sync::Arc::clone(&work_queue);
                 let sender = sender.clone();
                 let cancellation = is_cancelled;
+                let failed = &failed;
                 scope.spawn(move || {
-                    while let Some(index) = work_queue
-                        .lock()
-                        .ok()
-                        .and_then(|mut queue| queue.pop_front())
-                    {
+                    while !failed.load(std::sync::atomic::Ordering::Relaxed) {
+                        // A worker that panicked must not hide the queue from
+                        // the others: a poisoned lock still holds the indexes.
+                        let Some(index) = work_queue
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .pop_front()
+                        else {
+                            break;
+                        };
                         let column = &source_columns[index];
                         let progress_sender = sender.clone();
                         let result =
@@ -1463,6 +1471,7 @@ where
                         match *result {
                             Ok(profile) => profiles[index] = Some(profile),
                             Err(error) => {
+                                failed.store(true, std::sync::atomic::Ordering::Relaxed);
                                 first_error.get_or_insert(error);
                             }
                         }
@@ -1486,8 +1495,16 @@ where
         }
         columns = profiles
             .into_iter()
-            .map(|profile| profile.expect("cada columna debe producir un perfil"))
-            .collect();
+            .enumerate()
+            .map(|(index, profile)| {
+                profile.ok_or_else(|| {
+                    format!(
+                        "No se pudo analizar la columna «{}».",
+                        source_columns[index].name()
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
     }
     Ok(columns)
 }

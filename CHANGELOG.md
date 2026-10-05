@@ -203,6 +203,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- El perfilado en paralelo corta la cola al primer error, devuelve ese mensaje y
+  ya no puede entrar en pánico si falta el perfil de una columna (COD-17).
 - La señal de datos personales de una columna ya no salta por fragmentos:
   «hotel», «filename» o «sheet_name» no se marcan; las palabras cortas (tel,
   mail, name) cuentan solo como palabras completas y se entienden nombres en

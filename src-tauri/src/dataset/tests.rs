@@ -20727,3 +20727,27 @@ fn source_backed_exports_keep_leading_zeros_and_long_codes() {
         }
     }
 }
+
+/// COD-17: an error in one column comes back with its own message and the
+/// remaining columns are not profiled.
+#[test]
+fn parallel_profile_returns_the_first_error_and_stops_the_queue() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let columns = (0..40)
+        .map(|index| {
+            Series::new(format!("c{index}").into(), vec![index as i64; 1_000]).into_column()
+        })
+        .collect::<Vec<_>>();
+    let frame = DataFrame::new(1_000, columns).unwrap();
+    let checks = AtomicUsize::new(0);
+    // The first cancellation check succeeds; every later one fails.
+    let is_cancelled = || checks.fetch_add(1, Ordering::SeqCst) > 0;
+    let error = profile_dataset_with_progress(
+        &frame,
+        |_, _| {},
+        is_cancelled,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect_err("el fallo inyectado debe devolverse");
+    assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+}
