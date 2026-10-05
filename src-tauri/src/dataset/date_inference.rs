@@ -253,6 +253,40 @@ mod tests {
     }
 
     #[test]
+    fn edge_cases_cargo_mutants_left_untested() {
+        // QA-55: one assertion per mutant that survived the suite.
+        // `from_label` must read back every label it writes, `iso` included.
+        for order in ORDERS {
+            assert_eq!(DateOrder::from_label(order.label()), Some(order));
+        }
+        // Each part must be digits: `+1` parses as a number on its own.
+        assert_eq!(
+            parse_calendar_date("+1/02/2024", DateOrder::Dmy, DATE_SEPARATORS, true),
+            None
+        );
+        // A day or a month of three digits is not a date, even with a valid other part.
+        assert_eq!(
+            parse_calendar_date("001/02/2024", DateOrder::Dmy, DATE_SEPARATORS, true),
+            None
+        );
+        assert_eq!(
+            parse_calendar_date("01/002/2024", DateOrder::Dmy, DATE_SEPARATORS, true),
+            None
+        );
+        // Excel's pivot: 29 is 2029 and 30 is already 1930.
+        assert_eq!(
+            parse_calendar_date("01/02/29", DateOrder::Dmy, DATE_SEPARATORS, true)
+                .map(|date| date.year()),
+            Some(2029)
+        );
+        assert_eq!(
+            parse_calendar_date("01/02/30", DateOrder::Dmy, DATE_SEPARATORS, true)
+                .map(|date| date.year()),
+            Some(1930)
+        );
+    }
+
+    #[test]
     fn two_digit_years_follow_the_excel_rule() {
         // OnlineRetail, exported by Excel in English: m/d/yy h:mm.
         assert_eq!(

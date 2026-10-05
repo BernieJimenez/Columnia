@@ -403,7 +403,7 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-68` (Bajo) Un destino XLSX con más de 16.384 columnas produce un libro que Excel no abre — hecho el 2026-10-05
   - [x] `TXT-07` (Bajo) El paquete ZIP promete receta y el resumen dice «no incluida» aunque se aplicaron cambios; el mensaje de la UI lista un contenido distinto del real — hecho el 2026-10-05
   - [ ] `COD-15` (Bajo) Candidatos de rendimiento sin medir en exportación y updater — Hechas (a) SQL con búfer, 104 s → 2,8 s; (b) sin copia intermedia salvo el CSV de Excel, que necesita el BOM delante; (d) instalador sin clonar. **Requiere tu decisión** para (c): el lote carga cada archivo en el preflight y otra vez al ejecutarlo; validar solo la estructura evitaría la doble lectura, pero un archivo dañado en el trabajo N pasaría de «manifiesto inválido, código 1, sin salidas» a «fallo tardío, código 2, con las salidas anteriores» (cambia el contrato de cli.md).
-  - [ ] `QA-55` (Bajo) Mutantes no detectados en la detección de números con signo y en el analizador de fechas
+  - [x] `QA-55` (Bajo) Mutantes no detectados en la detección de números con signo y en el analizador de fechas — hecho el 2026-10-05
 - [x] **RV84** — **CLI** — Parser CLI: valores que empiezan por `--` rechazados y sin separador `--` (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-69, DAT-13, SEG-10, UX-07, DOC-14, DOC-18.
   - [x] `FUN-69` (Bajo) Parser CLI: valores que empiezan por `--` rechazados y sin separador `--` — hecho el 2026-10-05

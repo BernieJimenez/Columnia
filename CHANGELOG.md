@@ -203,6 +203,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Pruebas: `cargo mutants` sobre la protección de fórmulas CSV y el analizador
+  de fechas ya no deja mutantes sin detectar (62 probados: 60 detectados, 2
+  inviables); se añadieron casos para la etiqueta `iso`, partes con signo, días
+  o meses de tres cifras y el pivote del año 30 (QA-55).
 - Importación: la vista previa de encabezados acepta CSV con fin de línea `\r`;
   con una convención de fecha o número, la vista previa lista las columnas que
   se quedan como texto, cuántos valores no la siguen y un ejemplo (`N/A`, `-`),
