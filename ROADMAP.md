@@ -378,14 +378,14 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Se cumplen los criterios de aceptación de DAT-14, LIM-07.
   - [x] `DAT-14` (Bajo) `.pbids` escrito sin atomicidad ni aviso de sobrescritura — hecho el 2026-10-05
   - [x] `LIM-07` (Bajo) Variable muerta `eager_frame` en `join_dataset` — hecho el 2026-10-05
-- [ ] **RV80** — **Consulta SQL y DuckDB** — El rechazo de `;`, `--`, `/*` se aplica al texto completo, también dentro de literales y… (y 5 problemas más) · *Esfuerzo: 2,2 días*
+- [x] **RV80** — **Consulta SQL y DuckDB** — El rechazo de `;`, `--`, `/*` se aplica al texto completo, también dentro de literales y… (y 5 problemas más) · *Esfuerzo: 2,2 días* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-63, FUN-64, FUN-65, COD-13, COD-14, LIM-08.
-  - [ ] `FUN-63` (Bajo) El rechazo de `;`, `--`, `/*` se aplica al texto completo, también dentro de literales y nombres de columna
-  - [ ] `FUN-64` (Bajo) Las claves de JOIN con punto en el nombre no se pueden usar
-  - [ ] `FUN-65` (Bajo) Consultas y transmisión sobre fuentes JSON con columnas anidadas devuelven error de tipo no compatible
-  - [ ] `COD-13` (Bajo) Regex compiladas en cada llamada y `expect` sobre patrones
-  - [ ] `COD-14` (Bajo) Dos detectores de «JOIN» distintos para enrutar una misma consulta
-  - [ ] `LIM-08` (Bajo) Duplicación de bloques de materialización a Parquet y año fijo 1900-2100
+  - [x] `FUN-63` (Bajo) El rechazo de `;`, `--`, `/*` se aplica al texto completo, también dentro de literales y nombres de columna — hecho el 2026-10-05
+  - [x] `FUN-64` (Bajo) Las claves de JOIN con punto en el nombre no se pueden usar — hecho el 2026-10-05
+  - [x] `FUN-65` (Bajo) Consultas y transmisión sobre fuentes JSON con columnas anidadas devuelven error de tipo no compatible — hecho el 2026-10-05
+  - [x] `COD-13` (Bajo) Regex compiladas en cada llamada y `expect` sobre patrones — hecho el 2026-10-05
+  - [x] `COD-14` (Bajo) Dos detectores de «JOIN» distintos para enrutar una misma consulta — hecho el 2026-10-05
+  - [x] `LIM-08` (Bajo) Duplicación de bloques de materialización a Parquet y año fijo 1900-2100 — hecho el 2026-10-05
 - [ ] **RV81** — **Entrega ODBC** — Mapeo de tipos a DDL: `time` → TIMESTAMP/DATETIME2 y DECIMAL → DOUBLE (y 3 problemas más) · *Esfuerzo: 1 día*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-66, DAT-18, SEG-09, DOC-10.
   - [ ] `FUN-66` (Bajo) Mapeo de tipos a DDL: `time` → TIMESTAMP/DATETIME2 y DECIMAL → DOUBLE

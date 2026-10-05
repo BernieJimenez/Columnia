@@ -1,3 +1,18 @@
+/// COD-13: each SQL pattern is compiled once for the whole session.
+macro_rules! cached_regex {
+    ($pattern:expr) => {{
+        static REGEX: std::sync::LazyLock<Regex> =
+            std::sync::LazyLock::new(|| Regex::new($pattern).expect("patrón SQL local válido"));
+        &*REGEX
+    }};
+}
+
+/// COD-14: one JOIN detection for routing and for parsing: the word JOIN
+/// outside quotes, so `joined`, `'join'` or `"join_date"` are not a JOIN.
+pub(super) fn query_has_join_keyword(query: &str) -> bool {
+    cached_regex!(r"(?i)\bjoin\b").is_match(&without_quoted_text(query))
+}
+
 use std::collections::HashSet;
 
 use polars::prelude::DataFrame;
@@ -178,13 +193,11 @@ fn split_local_predicates(value: &str) -> Result<Vec<String>, String> {
 /// literal must be a single token: interior quotes are only accepted doubled.
 fn parse_local_literal(value: &str) -> Result<(String, bool), String> {
     let value = value.trim();
-    let quoted =
-        Regex::new(r"^'(?:[^']|'')*'$").expect("el patrón de literal local debe ser válido");
+    let quoted = cached_regex!(r"^'(?:[^']|'')*'$");
     if quoted.is_match(value) {
         return Ok((value[1..value.len() - 1].replace("''", "'"), true));
     }
-    let numeric = Regex::new(r"^-?(?:\d+(?:\.\d*)?|\.\d+)$")
-        .expect("el patrón numérico local debe ser válido");
+    let numeric = cached_regex!(r"^-?(?:\d+(?:\.\d*)?|\.\d+)$");
     if numeric.is_match(value) || matches!(value.to_ascii_lowercase().as_str(), "true" | "false") {
         return Ok((value.to_owned(), false));
     }
@@ -210,12 +223,10 @@ fn parse_local_projection(
         ));
     }
 
-    let aggregate_pattern = Regex::new(
-        r#"(?is)^\s*(count|sum|avg|average|min|max)\s*\(\s*(\*|(?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))\s*\)(?:\s+as\s+((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+)))?\s*$"#,
-    )
-    .expect("el patrón de agregaciones locales debe ser válido");
-    let column_pattern = Regex::new(r#"(?is)^\s*((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))\s*$"#)
-        .expect("el patrón de columnas locales debe ser válido");
+    let aggregate_pattern = cached_regex!(
+        r#"(?is)^\s*(count|sum|avg|average|min|max)\s*\(\s*(\*|(?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))\s*\)(?:\s+as\s+((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+)))?\s*$"#
+    );
+    let column_pattern = cached_regex!(r#"(?is)^\s*((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))\s*$"#);
     let mut projections = Vec::new();
     let mut aggregate = false;
     let mut column_projection = false;
@@ -314,37 +325,35 @@ struct LocalJoinOperand {
     column: String,
 }
 
+/// FUN-64: the qualifier is split before unquoting, so `"precio.usd"`,
+/// `dataset."precio.usd"` and `"compared"."precio.usd"` keep the dot in the
+/// column name.
 fn parse_local_join_operand(value: &str) -> Result<LocalJoinOperand, String> {
-    let identifier = local_identifier(value)?;
-    let mut parts = identifier.split('.');
-    let first = parts.next().unwrap_or_default();
-    let second = parts.next();
-    if parts.next().is_some() {
+    let captures = cached_regex!(
+        r#"^\s*(?:("(?:""|[^"])+"|[[:alnum:]_]+)\.)?("(?:""|[^"])+"|[[:alnum:]_]+)\s*$"#
+    )
+    .captures(value)
+    .ok_or_else(|| "El JOIN solo permite columnas de dataset o compared.".to_owned())?;
+    let column = local_identifier(captures.get(2).map_or("", |column| column.as_str()))?;
+    let table = captures
+        .get(1)
+        .map(|table| local_identifier(table.as_str()))
+        .transpose()?;
+    if table
+        .as_deref()
+        .is_some_and(|table| !matches!(table, "dataset" | "compared"))
+    {
         return Err("El JOIN solo permite columnas de dataset o compared.".to_owned());
     }
-    if let Some(column) = second {
-        if !matches!(first, "dataset" | "compared") || column.is_empty() {
-            return Err("El JOIN solo permite columnas de dataset o compared.".to_owned());
-        }
-        Ok(LocalJoinOperand {
-            table: Some(first.to_owned()),
-            column: column.to_owned(),
-        })
-    } else {
-        Ok(LocalJoinOperand {
-            table: None,
-            column: first.to_owned(),
-        })
-    }
+    Ok(LocalJoinOperand { table, column })
 }
 
 fn parse_local_join_condition(
     condition: &str,
 ) -> Result<(LocalJoinOperand, LocalJoinOperand), String> {
-    let pattern = Regex::new(
-        r#"(?is)^\s*((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))\s*=\s*((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))\s*$"#,
-    )
-    .expect("el patrón de condición JOIN local debe ser válido");
+    let pattern = cached_regex!(
+        r#"(?is)^\s*((?:(?:"(?:""|[^"])+"|[[:alnum:]_]+)\.)?(?:"(?:""|[^"])+"|[[:alnum:]_.]+))\s*=\s*((?:(?:"(?:""|[^"])+"|[[:alnum:]_]+)\.)?(?:"(?:""|[^"])+"|[[:alnum:]_.]+))\s*$"#
+    );
     let captures = pattern.captures(condition).ok_or_else(|| {
         "Cada condición del JOIN debe comparar una columna de dataset con una de compared."
             .to_owned()
@@ -472,14 +481,12 @@ fn parse_local_join_query_spec_with_input_limit(
     compared: Option<&DataFrame>,
     enforce_input_limit: bool,
 ) -> Result<Option<LocalJoinQuerySpec>, String> {
-    let pattern = Regex::new(
-        r#"(?is)^\s*select\s+(.+?)\s+from\s+dataset\s+(?:(inner|left|full)\s+)?join\s+compared\s+on\s+(.+)$"#,
-    )
-    .expect("el patrón de JOIN local debe ser válido");
+    let pattern = cached_regex!(
+        r#"(?is)^\s*select\s+(.+?)\s+from\s+dataset\s+(?:(inner|left|full)\s+)?join\s+compared\s+on\s+(.+)$"#
+    );
     let Some(captures) = pattern.captures(query) else {
         // A JOIN keyword, not a column such as `join_date`.
-        let join_keyword = Regex::new(r"(?i)\bjoin\b").expect("el patrón de JOIN debe ser válido");
-        if join_keyword.is_match(&without_quoted_text(query)) {
+        if query_has_join_keyword(query) {
             return Err(
                 "El JOIN local debe usar FROM dataset JOIN compared ON columna = columna [AND columna = columna]."
                     .to_owned(),
@@ -589,11 +596,9 @@ fn parse_local_predicates(
     let Some(where_clause) = where_clause else {
         return Ok(Vec::new());
     };
-    let null_pattern = Regex::new(r"(?is)^\s*(.+?)\s+is\s+(not\s+)?null\s*$")
-        .expect("el patrón de nulos local debe ser válido");
-    let comparison_pattern = Regex::new(r"(?is)^\s*(.+?)\s*(<>|!=|>=|<=|=|>|<)\s*(.+?)\s*$")
-        .expect("el patrón de comparación local debe ser válido");
-    let or_keyword = Regex::new(r"(?i)\bor\b").expect("el patrón de OR debe ser válido");
+    let null_pattern = cached_regex!(r"(?is)^\s*(.+?)\s+is\s+(not\s+)?null\s*$");
+    let comparison_pattern = cached_regex!(r"(?is)^\s*(.+?)\s*(<>|!=|>=|<=|=|>|<)\s*(.+?)\s*$");
+    let or_keyword = cached_regex!(r"(?i)\bor\b");
     if or_keyword.is_match(&without_quoted_text(where_clause)) {
         return Err(
             "Los filtros solo pueden combinarse con AND; OR no está disponible en la consulta local."
@@ -655,16 +660,21 @@ pub(super) fn parse_local_query(query: &str, frame: &DataFrame) -> Result<LocalQ
             "La consulta supera el límite local de {MAX_QUERY_CHARS} caracteres."
         ));
     }
-    if query.contains(';') || query.contains("--") || query.contains("/*") || query.contains("*/") {
+    // FUN-63: only outside quotes; 'AB--12' or "Precio;USD" are values and names.
+    let unquoted = without_quoted_text(query);
+    if unquoted.contains(';')
+        || unquoted.contains("--")
+        || unquoted.contains("/*")
+        || unquoted.contains("*/")
+    {
         return Err(
             "La consulta solo permite una sentencia SELECT sin comentarios ni separadores."
                 .to_owned(),
         );
     }
-    let pattern = Regex::new(
-        r"(?is)^\s*select\s+(.+?)\s+from\s+dataset(?:\s+where\s+(.+?))?(?:\s+group\s+by\s+(.+?))?(?:\s+limit\s+(\d+))?(?:\s+offset\s+(\d+))?\s*$",
-    )
-    .map_err(|_| "No se pudo preparar el analizador SQL local.".to_owned())?;
+    let pattern = cached_regex!(
+        r"(?is)^\s*select\s+(.+?)\s+from\s+dataset(?:\s+where\s+(.+?))?(?:\s+group\s+by\s+(.+?))?(?:\s+limit\s+(\d+))?(?:\s+offset\s+(\d+))?\s*$"
+    );
     let captures = pattern.captures(query).ok_or_else(|| {
         "Usa SELECT columnas FROM dataset con LIMIT y OFFSET opcionales.".to_owned()
     })?;
@@ -733,8 +743,7 @@ pub(super) fn parse_local_query(query: &str, frame: &DataFrame) -> Result<LocalQ
 }
 
 fn local_query_without_window(query: &str) -> String {
-    let limit_pattern = Regex::new(r"(?is)^\s*(.+)\s+limit\s+\d+(?:\s+offset\s+\d+)?\s*$")
-        .expect("el patrón LIMIT local debe ser válido");
+    let limit_pattern = cached_regex!(r"(?is)^\s*(.+)\s+limit\s+\d+(?:\s+offset\s+\d+)?\s*$");
     if let Some(captures) = limit_pattern.captures(query) {
         return captures
             .get(1)
@@ -743,8 +752,7 @@ fn local_query_without_window(query: &str) -> String {
             .trim()
             .to_owned();
     }
-    let offset_pattern = Regex::new(r"(?is)^\s*(.+)\s+offset\s+\d+\s*$")
-        .expect("el patrón OFFSET local debe ser válido");
+    let offset_pattern = cached_regex!(r"(?is)^\s*(.+)\s+offset\s+\d+\s*$");
     offset_pattern
         .captures(query)
         .and_then(|captures| captures.get(1))
@@ -884,8 +892,7 @@ pub(super) fn unique_duckdb_internal_name(used_names: &mut HashSet<String>, base
 }
 
 fn canonicalize_duckdb_query(query: &str, plan: &LocalQueryPlan) -> Result<String, String> {
-    let pattern = Regex::new(r"(?is)^\s*select\s+.+?\s+from\s+dataset\b")
-        .expect("el patrón de canonicalización DuckDB debe ser válido");
+    let pattern = cached_regex!(r"(?is)^\s*select\s+.+?\s+from\s+dataset\b");
     if !pattern.is_match(query) {
         return Err(
             "La consulta local no contiene una sentencia SELECT válida para DuckDB.".to_owned(),
@@ -974,8 +981,7 @@ fn duckdb_predicate(predicate: &LocalPredicate) -> Result<String, String> {
         .ok_or_else(|| "La comparación local no tiene un literal válido.".to_owned())?;
     if !predicate.quoted_value {
         // Unquoted literals were already restricted to numbers and booleans.
-        let numeric = Regex::new(r"^-?(?:\d+(?:\.\d*)?|\.\d+)$")
-            .expect("el patrón numérico local debe ser válido");
+        let numeric = cached_regex!(r"^-?(?:\d+(?:\.\d*)?|\.\d+)$");
         if !numeric.is_match(value)
             && !matches!(value.to_ascii_lowercase().as_str(), "true" | "false")
         {

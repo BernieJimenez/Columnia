@@ -47,6 +47,10 @@ mod comparison_reader;
 #[path = "dataset/csv_formula_safety.rs"]
 mod csv_formula_safety;
 mod date_inference;
+
+/// LIM-08: the years a parsed date must fall in to count as a plausible date,
+/// shared by the in-memory inference and the source-backed (DuckDB) one.
+pub(crate) const PLAUSIBLE_DATE_YEARS: std::ops::RangeInclusive<i32> = 1900..=2100;
 #[path = "dataset/delimited_header_import.rs"]
 mod delimited_header_import;
 mod file_validation;
@@ -4776,7 +4780,7 @@ fn source_backed_date_parsing_with_cancellation(
             parsed.len().saturating_mul(100) > sample.len().saturating_mul(80)
                 && parsed
                     .iter()
-                    .all(|value| (1900..=2100).contains(&value.year()))
+                    .all(|value| PLAUSIBLE_DATE_YEARS.contains(&value.year()))
         }) else {
             continue;
         };
@@ -6107,7 +6111,7 @@ fn parse_inferred_date_columns(
             parsed.len() * 100 > sample.len() * INFERENCE_THRESHOLD_PERCENTAGE
                 && parsed
                     .iter()
-                    .all(|value| (1900..=2100).contains(&value.year()))
+                    .all(|value| PLAUSIBLE_DATE_YEARS.contains(&value.year()))
         });
         let Some(inferred_format) = inferred_format else {
             continue;
@@ -6125,7 +6129,7 @@ fn parse_inferred_date_columns(
             || parsed
                 .iter()
                 .flatten()
-                .any(|value| !(1900..=2100).contains(&value.year()))
+                .any(|value| !PLAUSIBLE_DATE_YEARS.contains(&value.year()))
         {
             continue;
         }
@@ -6895,6 +6899,7 @@ pub(super) fn safe_corrected_plan_frame(
     })
 }
 
+#[cfg(test)]
 fn safe_corrected_frame(
     frame: &DataFrame,
     trim_text: bool,

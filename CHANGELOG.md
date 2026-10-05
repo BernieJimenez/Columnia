@@ -203,6 +203,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Consultas: `'AB--12'` o `"Precio;USD"` ya no se rechazan como separadores; los
+  JOIN aceptan claves con punto (`dataset."Precio.USD"`); las columnas JSON
+  anidadas se ven como texto JSON en vez de fallar; un solo detector de JOIN y
+  patrones SQL compilados una vez; el rango de años plausibles (1900–2100) es
+  una constante compartida (FUN-63, FUN-64, FUN-65, COD-13, COD-14, LIM-08).
 - «Abrir en Power BI» ya no reemplaza un `.pbids` propio con el mismo nombre
   (escribe `<nombre>-columnia.pbids`) y lo escribe por un temporal; se eliminó
   código muerto del JOIN (DAT-14, LIM-07).

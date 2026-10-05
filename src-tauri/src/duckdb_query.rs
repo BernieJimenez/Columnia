@@ -12,12 +12,14 @@ use std::{
 };
 
 use duckdb::{
-    types::{TimeUnit, ValueRef},
+    types::{TimeUnit, Value, ValueRef},
     Connection,
 };
 use polars::prelude::{DataFrame, ParquetWriter};
 
-use crate::dataset::{DatasetColumn, DatasetQueryResult, OPERATION_CANCELLED_MESSAGE};
+use crate::dataset::{
+    DatasetColumn, DatasetQueryResult, OPERATION_CANCELLED_MESSAGE, PLAUSIBLE_DATE_YEARS,
+};
 
 const QUERY_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const DUCKDB_MEMORY_LIMIT: &str = "512MB";
@@ -171,42 +173,13 @@ pub(crate) fn materialize_file_to_parquet(
 ) -> Result<(), String> {
     let connection = Connection::open_in_memory()
         .map_err(|error| format!("No se pudo iniciar DuckDB para el snapshot: {error}"))?;
-    let resource_directory = tempfile::tempdir().map_err(|error| {
-        format!("No se pudo preparar el espacio temporal para el snapshot DuckDB: {error}")
-    })?;
-    configure_duckdb_resources(&connection, resource_directory.path())?;
-    let source = file_scan_expression(source_path, source_format)?;
-    let destination = destination
-        .to_string_lossy()
-        .replace('\\', "/")
-        .replace('\'', "''");
-    let projection = if matches!(source_format, DuckDbFileFormat::Json) {
-        match column_order {
-            Some(columns) => json_projection(&connection, &source, columns)?,
-            None => "*".to_owned(),
-        }
-    } else {
-        column_order
-            .map(|columns| {
-                if columns.is_empty() {
-                    return Err("El JSON no contiene columnas utilizables.".to_owned());
-                }
-                Ok(columns
-                    .iter()
-                    .map(|column| quote_identifier(column))
-                    .collect::<Vec<_>>()
-                    .join(", "))
-            })
-            .transpose()?
-            .unwrap_or_else(|| "*".to_owned())
-    };
-    let query = format!(
-        "SET preserve_insertion_order = true; COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT PARQUET)"
-    );
-    connection
-        .execute_batch(&query)
-        .map_err(|error| format!("DuckDB no pudo crear el snapshot: {error}"))?;
-    Ok(())
+    copy_file_to_parquet(
+        &connection,
+        source_path,
+        source_format,
+        destination,
+        column_order,
+    )
 }
 
 pub(crate) fn materialize_file_to_parquet_with_cancel<C>(
@@ -220,43 +193,53 @@ where
     C: Fn() -> bool + Send + 'static,
 {
     execute_duckdb_operation(is_cancelled, |connection| {
-        let resource_directory = tempfile::tempdir().map_err(|error| {
-            format!("No se pudo preparar el espacio temporal para el snapshot protegido: {error}")
-        })?;
-        configure_duckdb_resources(connection, resource_directory.path())?;
-        let source = file_scan_expression(source_path, source_format)?;
-        let destination = destination
-            .to_string_lossy()
-            .replace('\\', "/")
-            .replace('\'', "''");
-        let projection = if matches!(source_format, DuckDbFileFormat::Json) {
-            match column_order {
-                Some(columns) => json_projection(connection, &source, columns)?,
-                None => "*".to_owned(),
-            }
-        } else {
-            column_order
-                .map(|columns| {
-                    if columns.is_empty() {
-                        return Err("El JSON no contiene columnas utilizables.".to_owned());
-                    }
-                    Ok(columns
-                        .iter()
-                        .map(|column| quote_identifier(column))
-                        .collect::<Vec<_>>()
-                        .join(", "))
-                })
-                .transpose()?
-                .unwrap_or_else(|| "*".to_owned())
-        };
-        let query = format!(
-            "SET preserve_insertion_order = true; COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT PARQUET)"
-        );
-        connection
-            .execute_batch(&query)
-            .map_err(|error| format!("DuckDB no pudo crear el snapshot protegido: {error}"))?;
-        Ok(())
+        copy_file_to_parquet(
+            connection,
+            source_path,
+            source_format,
+            destination,
+            column_order,
+        )
     })
+}
+
+/// LIM-08: the one snapshot copy behind the cancellable and the test entry
+/// points: same projection (nested JSON as text), same COPY.
+fn copy_file_to_parquet(
+    connection: &Connection,
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    destination: &Path,
+    column_order: Option<&[String]>,
+) -> Result<(), String> {
+    let resource_directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el espacio temporal para el snapshot protegido: {error}")
+    })?;
+    configure_duckdb_resources(connection, resource_directory.path())?;
+    let source = file_scan_expression(source_path, source_format)?;
+    let destination = destination
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('\'', "''");
+    let projection = match column_order {
+        None => "*".to_owned(),
+        Some(columns) if matches!(source_format, DuckDbFileFormat::Json) => {
+            json_projection(connection, &source, columns)?
+        }
+        Some([]) => return Err("El JSON no contiene columnas utilizables.".to_owned()),
+        Some(columns) => columns
+            .iter()
+            .map(|column| quote_identifier(column))
+            .collect::<Vec<_>>()
+            .join(", "),
+    };
+    let query = format!(
+        "SET preserve_insertion_order = true; COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT PARQUET)"
+    );
+    connection
+        .execute_batch(&query)
+        .map_err(|error| format!("DuckDB no pudo crear el snapshot protegido: {error}"))?;
+    Ok(())
 }
 
 pub(crate) fn materialize_file_to_parquet_with_projection<C>(
@@ -1314,7 +1297,9 @@ where
                     format!("COUNT(*) FILTER (WHERE {identifier} IS NOT NULL)"),
                     format!("COUNT(*) FILTER (WHERE ({parsed}) IS NOT NULL)"),
                     format!(
-                        "COUNT(*) FILTER (WHERE ({parsed}) IS NOT NULL AND EXTRACT(YEAR FROM ({parsed})) BETWEEN 1900 AND 2100)"
+                        "COUNT(*) FILTER (WHERE ({parsed}) IS NOT NULL AND EXTRACT(YEAR FROM ({parsed})) BETWEEN {} AND {})",
+                        PLAUSIBLE_DATE_YEARS.start(),
+                        PLAUSIBLE_DATE_YEARS.end()
                     ),
                 ]
             })
@@ -2364,19 +2349,80 @@ fn value_to_preview(value: ValueRef<'_>) -> Result<Option<String>, String> {
         } => {
             format!("{months} months {days} days {nanos} nanos")
         }
+        // FUN-65: nested JSON objects and arrays reach the table as JSON
+        // text, the same cell the export writes with `to_json`.
         ValueRef::Enum(..)
         | ValueRef::List(..)
         | ValueRef::Struct(..)
         | ValueRef::Array(..)
         | ValueRef::Map(..)
-        | ValueRef::Union(..) => {
-            return Err(
-                "DuckDB devolvió un tipo anidado no compatible con la vista tabular.".to_owned(),
-            )
-        }
+        | ValueRef::Union(..) => match nested_value_to_json(value.to_owned()) {
+            serde_json::Value::Null => return Ok(None),
+            serde_json::Value::String(text) => text,
+            json => json.to_string(),
+        },
         _ => return Err("DuckDB devolvió un tipo no compatible con la vista tabular.".to_owned()),
     };
     Ok(Some(preview))
+}
+
+fn nested_value_to_json(value: Value) -> serde_json::Value {
+    use serde_json::Value as Json;
+    let number = |text: String| {
+        text.parse::<serde_json::Number>()
+            .map(Json::Number)
+            .unwrap_or(Json::String(text))
+    };
+    match value {
+        Value::Null => Json::Null,
+        Value::Boolean(value) => Json::Bool(value),
+        Value::TinyInt(value) => number(value.to_string()),
+        Value::SmallInt(value) => number(value.to_string()),
+        Value::Int(value) => number(value.to_string()),
+        Value::BigInt(value) => number(value.to_string()),
+        Value::HugeInt(value) => number(value.to_string()),
+        Value::UHugeInt(value) => number(value.to_string()),
+        Value::UTinyInt(value) => number(value.to_string()),
+        Value::USmallInt(value) => number(value.to_string()),
+        Value::UInt(value) => number(value.to_string()),
+        Value::UBigInt(value) => number(value.to_string()),
+        Value::Float(value) => number(value.to_string()),
+        Value::Double(value) => number(value.to_string()),
+        Value::Decimal(value) => number(value.to_string()),
+        Value::Timestamp(unit, value) => Json::String(format_timestamp(unit, value)),
+        Value::Text(value) | Value::Enum(value) => Json::String(value),
+        Value::Blob(value) | Value::Geometry(value) => Json::String(format_blob(&value)),
+        Value::Date32(value) => Json::String(format_date(value)),
+        Value::Time64(unit, value) => Json::String(format_time_of_day(unit, value)),
+        Value::Interval {
+            months,
+            days,
+            nanos,
+        } => Json::String(format!("{months} months {days} days {nanos} nanos")),
+        Value::List(values) | Value::Array(values) => {
+            Json::Array(values.into_iter().map(nested_value_to_json).collect())
+        }
+        Value::Struct(fields) => Json::Object(
+            fields
+                .iter()
+                .map(|(key, value)| (key.clone(), nested_value_to_json(value.clone())))
+                .collect(),
+        ),
+        Value::Map(entries) => Json::Object(
+            entries
+                .iter()
+                .map(|(key, value)| {
+                    let key = match nested_value_to_json(key.clone()) {
+                        Json::String(text) => text,
+                        other => other.to_string(),
+                    };
+                    (key, nested_value_to_json(value.clone()))
+                })
+                .collect(),
+        ),
+        Value::Union(value) => nested_value_to_json(*value),
+        other => Json::String(format!("{other:?}")),
+    }
 }
 
 fn nanoseconds(unit: TimeUnit, value: i64) -> Option<i64> {
@@ -2801,6 +2847,43 @@ mod tests {
         );
         assert!(path.is_file());
         assert!(!directory.path().join("dataset.parquet").exists());
+    }
+
+    #[test]
+    fn queries_nested_json_values_as_json_text_cells() {
+        // FUN-65: objects and arrays used to fail the whole query.
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let path = directory.path().join("nested.json");
+        fs::write(
+            &path,
+            r#"[{"id":1,"cliente":{"nombre":"Ana","tags":["vip","norte"]},"items":[1,2]},{"id":2,"cliente":null,"items":[]}]"#,
+        )
+        .expect("se debe escribir el JSON");
+        let spec = DuckDbQuerySpec {
+            bounded_query: "SELECT id, cliente, items FROM dataset ORDER BY id".to_owned(),
+            count_query: "SELECT COUNT(*) FROM dataset".to_owned(),
+            offset: 0,
+            limit: 10,
+            dataset_view_query: None,
+            current_order_column: None,
+            compared_order_column: None,
+        };
+
+        let result =
+            execute_duckdb_query_from_file(&path, DuckDbFileFormat::Json, None, &spec, || false)
+                .expect("DuckDB debe devolver las columnas anidadas como texto");
+
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![
+                    Some("1".to_owned()),
+                    Some(r#"{"nombre":"Ana","tags":["vip","norte"]}"#.to_owned()),
+                    Some("[1,2]".to_owned()),
+                ],
+                vec![Some("2".to_owned()), None, Some("[]".to_owned())],
+            ]
+        );
     }
 
     #[test]

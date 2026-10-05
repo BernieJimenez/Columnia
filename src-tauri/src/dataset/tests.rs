@@ -7971,6 +7971,93 @@ fn local_query_join_requires_comparison_and_matching_key_types() {
 }
 
 #[test]
+fn local_query_reads_separators_inside_quotes_but_rejects_them_outside() {
+    // FUN-63: 'AB--12' is a value and "Precio;USD" a column name, not SQL.
+    let current = df![
+        "codigo" => &["AB--12", "CD-34", "AB--12"],
+        "Precio;USD" => &[10_i64, 20, 30]
+    ]
+    .unwrap();
+
+    let filtered = execute_local_query_with_comparison(
+        &current,
+        None,
+        "SELECT \"Precio;USD\" FROM dataset WHERE codigo = 'AB--12' LIMIT 10",
+    )
+    .expect("los separadores dentro de comillas son datos");
+    assert_eq!(filtered.row_count, 2);
+    assert_eq!(
+        filtered.rows,
+        vec![vec![Some("10".to_owned())], vec![Some("30".to_owned())]]
+    );
+
+    for query in [
+        "SELECT codigo FROM dataset; DROP TABLE dataset",
+        "SELECT codigo FROM dataset -- comentario",
+        "SELECT codigo /* oculto */ FROM dataset",
+    ] {
+        let error = execute_local_query_with_comparison(&current, None, query)
+            .expect_err("los separadores fuera de comillas se rechazan");
+        assert!(
+            error.contains("sin comentarios ni separadores"),
+            "{query}: {error}"
+        );
+    }
+}
+
+#[test]
+fn local_query_joins_by_a_key_whose_name_has_a_dot() {
+    // FUN-64: the qualifier is split before unquoting.
+    let current = df!["Precio.USD" => &[1_i64, 2], "city" => &["Santiago", "La Vega"]].unwrap();
+    let compared = df!["Precio.USD" => &[2_i64], "segment" => &["B"]].unwrap();
+
+    for condition in [
+        "dataset.\"Precio.USD\" = compared.\"Precio.USD\"",
+        "\"dataset\".\"Precio.USD\" = \"compared\".\"Precio.USD\"",
+        "\"Precio.USD\" = \"Precio.USD\"",
+    ] {
+        let result = execute_local_query_with_comparison(
+            &current,
+            Some(&compared),
+            &format!("SELECT city, segment FROM dataset JOIN compared ON {condition} LIMIT 10"),
+        )
+        .unwrap_or_else(|error| panic!("{condition}: {error}"));
+        assert_eq!(
+            result.rows,
+            vec![vec![Some("La Vega".to_owned()), Some("B".to_owned())]],
+            "{condition}"
+        );
+    }
+
+    let error = execute_local_query_with_comparison(
+        &current,
+        Some(&compared),
+        "SELECT city FROM dataset JOIN compared ON otra.\"Precio.USD\" = compared.\"Precio.USD\" LIMIT 1",
+    )
+    .expect_err("solo dataset o compared califican la clave");
+    assert!(error.contains("dataset o compared"), "{error}");
+}
+
+#[test]
+fn routing_and_parsing_agree_on_what_is_a_join() {
+    // COD-14: one detector; the word inside quotes or names is not a JOIN.
+    use super::query_execution::local_query_has_join;
+    assert!(local_query_has_join(
+        "SELECT a FROM dataset\nJOIN compared ON a = a"
+    ));
+    assert!(local_query_has_join(
+        "SELECT a FROM dataset left join compared ON a = a"
+    ));
+    assert!(!local_query_has_join(
+        "SELECT a FROM dataset WHERE nota = 'a join b'"
+    ));
+    assert!(!local_query_has_join("SELECT \"join\" FROM dataset"));
+    assert!(!local_query_has_join(
+        "SELECT joined, join_date FROM dataset"
+    ));
+}
+
+#[test]
 fn local_query_join_rejects_many_to_many_cardinality_before_materializing() {
     let row_count = LOCAL_QUERY_BLOCK_ROWS + 1_501;
     let current = DataFrame::new(

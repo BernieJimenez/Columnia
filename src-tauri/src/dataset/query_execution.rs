@@ -1295,9 +1295,7 @@ pub(super) fn parquet_row_count(path: &Path) -> Result<usize, String> {
 }
 
 pub(super) fn local_query_has_join(query: &str) -> bool {
-    query
-        .split_whitespace()
-        .any(|token| token.eq_ignore_ascii_case("join"))
+    super::local_query::query_has_join_keyword(query)
 }
 
 pub(super) fn should_route_join_to_duckdb(query: &str, has_compared_disk_source: bool) -> bool {

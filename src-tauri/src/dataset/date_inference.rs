@@ -99,7 +99,7 @@ pub(super) fn parse_ordered_date(value: &str, order: DateOrder) -> Option<NaiveD
     // Two-digit years follow Excel's rule: it is how Excel wrote them, and
     // the proposal shows the result first.
     let date = parse_calendar_date(date_text, order, DATE_SEPARATORS, true)?;
-    if !(1900..=2100).contains(&date.year()) {
+    if !super::PLAUSIBLE_DATE_YEARS.contains(&date.year()) {
         return None;
     }
     let time = match time_text {
