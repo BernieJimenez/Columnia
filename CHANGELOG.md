@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La protección contra enlaces y puntos de reanálisis se prueba con una unión de
+  directorio, que no requiere privilegios: el test ejecuta siempre sus
+  aserciones y detecta si la comprobación desaparece (QA-04).
 - «Apartar tipos incompatibles» informa de cuántas celdas vació por columna
   (antes las contaba como un cambio más); tests fijan el umbral de sugerencia de
   tipo en 89/90/91/100 % (QA-03).

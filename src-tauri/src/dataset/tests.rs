@@ -4951,6 +4951,34 @@ fn rejects_windows_reparse_points_including_dangling_links() {
     assert!(dangling_write_error.contains("punto de reanálisis"));
 }
 
+// QA-04: a directory junction needs no privilege, so this test always runs
+// its assertions on Windows (the symlink test above returns early without
+// developer mode).
+#[cfg(windows)]
+#[test]
+fn rejects_a_directory_junction_as_source_and_destination() {
+    let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+    let target = directory.path().join("real");
+    let junction = directory.path().join("union.csv");
+    fs::create_dir(&target).expect("se debe crear la carpeta real");
+    let status = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(&junction)
+        .arg(&target)
+        .stdout(std::process::Stdio::null())
+        .status()
+        .expect("mklink debe ejecutarse");
+    assert!(status.success(), "mklink /J debe crear la unión sin privilegios");
+
+    let read_error = canonicalize_existing_file(&junction, "el dataset seleccionado")
+        .expect_err("una lectura no debe seguir una unión");
+    let write_error = canonicalize_write_destination(&junction, "la exportación")
+        .expect_err("una escritura no debe seguir una unión");
+
+    assert!(read_error.contains("punto de reanálisis"), "{read_error}");
+    assert!(write_error.contains("punto de reanálisis"), "{write_error}");
+}
+
 #[test]
 fn accepts_a_dataset_above_the_previous_500_mebibyte_threshold() {
     let path = temporary_csv("value\n");

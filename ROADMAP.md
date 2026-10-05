@@ -268,7 +268,7 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-02, QA-03, QA-04, QA-15, QA-16.
   - [x] `QA-02` (Medio) Tres tests de publicación source-backed ejercen una copia `#[cfg(test)]`, no la función de producción — hecho el 2026-10-04
   - [x] `QA-03` (Medio) Dos tests fijan como correcto el umbral del 90 % de coincidencia y la anulación silenciosa de lo no coincidente — hecho el 2026-10-04
-  - [ ] `QA-04` (Medio) La protección contra enlaces y puntos de reanálisis en los destinos no tiene ninguna prueba efectiva
+  - [x] `QA-04` (Medio) La protección contra enlaces y puntos de reanálisis en los destinos no tiene ninguna prueba efectiva — hecho el 2026-10-04
   - [ ] `QA-15` (Medio) Recetas: ningún test de equivalencia lazy↔eager ni con datos en varios chunks; los tests lazy usan 2-6 filas
   - [ ] `QA-16` (Medio) La suite fija como esperado que un entero de Excel vuelva como `1.0` (ida y vuelta xlsx cambia i64→f64)
 - [ ] **RV62** — **Pruebas del motor** — El test de ida y vuelta solo cubre el camino eager de exportación; el source-backed (`all… (y 2 problemas más) · *Esfuerzo: 1,5 días*
