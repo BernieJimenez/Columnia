@@ -263,7 +263,7 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Se cumplen los criterios de aceptación de COD-02, QA-06, QA-07.
   - [x] `COD-02` (Medio) CSS: cascada por acumulación de parches (bloques duplicados, tokens definidos dos veces, `!important`, token inexistente, arnés de pruebas en producción) — hecho el 2026-10-04
   - [x] `QA-06` (Medio) Los E2E duplican el mock IPC en 5 archivos, reimplementan lógica de Rust en el mock y por tanto no detectan fallos de contrato ni de motor — hecho el 2026-10-04
-  - [x] `QA-07` (Medio) El E2E de contraste cubre 3 de los 5 temas y no mide SVG, `progress`, bordes ni Cargar/Explorar — E2E ampliado a 5 temas, Cargar/Explorar, SVG, bordes y alfa; quedan fallos reales marcados con test.fail: «Cargar archivo» del diálogo de importación (claro 4,25:1, pizarra 3,73:1) y bordes de los select de Entregar en papel/océano/pizarra (~1,5:1); el texto SVG de la tendencia no se llega a dibujar en el recorrido — hecho el 2026-10-04
+  - [x] `QA-07` (Medio) El E2E de contraste cubre 3 de los 5 temas y no mide SVG, `progress`, bordes ni Cargar/Explorar — hecho el 2026-10-04
 - [ ] **RV61** — **Pruebas del motor** — Tres tests de publicación source-backed ejercen una copia `#[cfg(test)]`, no la función d… (y 4 problemas más) · *Esfuerzo: 2,8 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-02, QA-03, QA-04, QA-15, QA-16.
   - [ ] `QA-02` (Medio) Tres tests de publicación source-backed ejercen una copia `#[cfg(test)]`, no la función de producción
