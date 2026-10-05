@@ -16334,7 +16334,7 @@ fn quality_rules_apply_non_strict_increasing_and_decreasing_sequences() {
     .unwrap();
     let mut increasing = quality_rule("value", QualityRuleKind::Monotonic);
     increasing.direction = Some(QualityMonotonicDirection::Increasing);
-    increasing.max_invalid = Some(1);
+    increasing.max_invalid = Some(2);
 
     let mut decreasing = quality_rule("value", QualityRuleKind::Monotonic);
     decreasing.direction = Some(QualityMonotonicDirection::Decreasing);
@@ -16344,7 +16344,8 @@ fn quality_rules_apply_non_strict_increasing_and_decreasing_sequences() {
 
     assert!(result.passed);
     assert_eq!(result.rules[0].checked_count, 7);
-    assert_eq!(result.rules[0].invalid_count, 1);
+    // FUN-76: the gap does not restart the order: 3, null, 2 is a decrease.
+    assert_eq!(result.rules[0].invalid_count, 2);
     assert_eq!(result.rules[1].invalid_count, 2);
     assert_eq!(
         result.rules[0].direction,
@@ -20858,4 +20859,34 @@ fn categorical_fill_leaves_personal_and_identifier_columns_alone() {
             "{untouched}"
         );
     }
+}
+
+/// FUN-76: edge cases of rules that compare values. `column_compare` treats
+/// -0.0 and 0.0 as equal and NaN as equal to nothing; `monotonic` skips gaps
+/// without restarting; `unique_together` counts two empty keys as the same
+/// combination, as in both evaluation paths.
+#[test]
+fn row_rules_have_one_semantics_for_gaps_signed_zero_and_nan() {
+    let frame = df![
+        "a" => &[0.0_f64, f64::NAN, 1.0],
+        "b" => &[-0.0_f64, f64::NAN, 1.0]
+    ]
+    .unwrap();
+    let mut equal = quality_rule("a", QualityRuleKind::ColumnCompare);
+    equal.columns = Some(vec!["a".to_owned(), "b".to_owned()]);
+    equal.operator = Some(QualityComparison::Eq);
+    let result = evaluate_quality_rules(&frame, &[equal]).unwrap();
+    assert_eq!(result.rules[0].invalid_count, 1, "solo la fila NaN no es igual");
+
+    let gaps = df!["v" => &[Some(5_i64), None, Some(3)]].unwrap();
+    let mut increasing = quality_rule("v", QualityRuleKind::Monotonic);
+    increasing.direction = Some(QualityMonotonicDirection::Increasing);
+    let result = evaluate_quality_rules(&gaps, &[increasing]).unwrap();
+    assert_eq!(result.rules[0].invalid_count, 1);
+
+    let keys = df!["x" => &[None::<&str>, None], "y" => &[Some("a"), Some("a")]].unwrap();
+    let mut together = quality_rule("x", QualityRuleKind::UniqueTogether);
+    together.columns = Some(vec!["x".to_owned(), "y".to_owned()]);
+    let result = evaluate_quality_rules(&keys, &[together]).unwrap();
+    assert_eq!(result.rules[0].invalid_count, 1);
 }

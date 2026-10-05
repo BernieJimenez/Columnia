@@ -156,6 +156,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 - Durante una carga de reemplazo se conserva el dataset anterior para recuperarlo si la nueva selección se cancela o falla.
 - Un perfil se invalida después de cualquier mutación.
 - La compuerta de entrega se invalida cuando cambian el dataset o sus reglas de calidad.
+- Reglas que comparan filas o columnas (FUN-76), igual en memoria y en archivos grandes: `monotonic` salta los nulos sin reiniciar el orden (`5, nulo, 3` es una bajada); `column_compare` compara números por valor (−0,0 = 0,0 y NaN no es igual a nada); `unique_together` cuenta dos claves vacías como la misma combinación (para exigir valores usa `not_null`).
 
 ### Estado de Rust
 

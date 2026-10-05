@@ -1347,8 +1347,10 @@ fn quality_comparison_matches(
     operator: QualityComparison,
 ) -> bool {
     match operator {
-        QualityComparison::Eq => format!("{left:?}") == format!("{right:?}"),
-        QualityComparison::Ne => format!("{left:?}") != format!("{right:?}"),
+        // FUN-76: numbers compare by value (-0.0 equals 0.0, NaN equals
+        // nothing); other values by their text form.
+        QualityComparison::Eq => quality_values_equal(&left, &right),
+        QualityComparison::Ne => !quality_values_equal(&left, &right),
         QualityComparison::Lt => quality_value_ordering(left, right)
             .is_some_and(|ordering| ordering == std::cmp::Ordering::Less),
         QualityComparison::Lte => quality_value_ordering(left, right).is_some_and(|ordering| {
@@ -1365,6 +1367,20 @@ fn quality_comparison_matches(
                 std::cmp::Ordering::Greater | std::cmp::Ordering::Equal
             )
         }),
+    }
+}
+
+fn quality_values_equal(left: &AnyValue<'_>, right: &AnyValue<'_>) -> bool {
+    match quality_value_ordering(left.clone(), right.clone()) {
+        Some(ordering) => ordering == std::cmp::Ordering::Equal,
+        None => {
+            let is_nan = |value: &AnyValue<'_>| match value {
+                AnyValue::Float32(number) => number.is_nan(),
+                AnyValue::Float64(number) => number.is_nan(),
+                _ => false,
+            };
+            !is_nan(left) && !is_nan(right) && format!("{left:?}") == format!("{right:?}")
+        }
     }
 }
 
@@ -2302,8 +2318,9 @@ where
                 for row_index in 0..row_count {
                     ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
                     let value = column.get(row_index).map_err(|error| error.to_string())?;
+                    // FUN-76: a gap does not restart the order; [5, null, 3]
+                    // is compared as 5 then 3.
                     if matches!(&value, AnyValue::Null) {
-                        previous = None;
                         continue;
                     }
                     if let Some(previous_value) = previous.as_ref() {

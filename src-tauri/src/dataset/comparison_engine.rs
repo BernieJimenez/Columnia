@@ -783,8 +783,8 @@ where
             let value = column
                 .get(row_index)
                 .map_err(|error| format!("No se pudo leer monotonic source-backed: {error}"))?;
+            // FUN-76: same rule as the in-memory path: gaps are skipped.
             if matches!(value, AnyValue::Null) {
-                previous = None;
                 continue;
             }
             if let Some(previous_value) = previous.as_ref() {

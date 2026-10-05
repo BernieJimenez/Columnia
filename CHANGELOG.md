@@ -203,6 +203,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Reglas de calidad entre filas con una semántica única y documentada:
+  `monotonic` ya no reinicia el orden tras un nulo, `column_compare` trata −0,0
+  y 0,0 como iguales y NaN como distinto de todo; tests de borde con nulos, −0,0
+  y NaN (FUN-76).
 - El editor de reglas marca en la propia regla los patrones regex que el motor
   no admite (búsquedas hacia delante o atrás, referencias a grupos, grupos
   atómicos) en lugar de fallar al exportar (FUN-54).
