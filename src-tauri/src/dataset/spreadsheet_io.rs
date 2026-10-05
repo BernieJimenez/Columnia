@@ -39,11 +39,21 @@ pub(super) enum SpreadsheetColumnKind {
     String,
 }
 
+/// QA-16: XLSX stores every number as a double, so an integer written by
+/// Columnia (or typed in Excel) comes back as `1.0`. A whole number that a
+/// double holds exactly counts as an integer; one fraction makes the column
+/// decimal.
+fn integral_float(value: f64) -> Option<i64> {
+    (value.is_finite() && value.fract() == 0.0 && value.abs() <= (1_u64 << 53) as f64)
+        .then_some(value as i64)
+}
+
 pub(super) fn spreadsheet_cell_kind(cell: &Data) -> SpreadsheetColumnKind {
     match cell {
         Data::Empty => SpreadsheetColumnKind::Null,
         Data::Bool(_) => SpreadsheetColumnKind::Boolean,
         Data::Int(_) => SpreadsheetColumnKind::Int64,
+        Data::Float(value) if integral_float(*value).is_some() => SpreadsheetColumnKind::Int64,
         Data::Float(_) => SpreadsheetColumnKind::Float64,
         Data::DateTime(value) if value.is_duration() => SpreadsheetColumnKind::Duration,
         Data::DateTime(_) => SpreadsheetColumnKind::Datetime,
@@ -175,6 +185,9 @@ where
                 map_spreadsheet_cells_with_cancel(cells, is_cancelled, |cell| match cell {
                     Data::Empty => Ok(None),
                     Data::Int(value) => Ok(Some(*value)),
+                    Data::Float(value) => integral_float(*value)
+                        .map(Some)
+                        .ok_or_else(|| incompatible(cell)),
                     other => Err(incompatible(other)),
                 })?;
             Ok(Series::new(column_name, values).into_column())

@@ -12330,7 +12330,8 @@ fn reads_cached_xlsx_formula_result_from_the_selected_dataset() {
     assert_eq!(frame.height(), 1);
     assert_eq!(
         page.rows,
-        vec![vec![Some("1.0".to_owned()), Some("3.0".to_owned())]]
+        // QA-16: a whole number stays an integer, as Excel shows it.
+        vec![vec![Some("1".to_owned()), Some("3".to_owned())]]
     );
     fs::remove_file(path).expect("se debe limpiar el libro temporal");
 }
@@ -12366,8 +12367,11 @@ fn snapshots_xlsx_in_streaming_blocks_without_changing_typed_values() {
         .expect("se debe sincronizar el libro Excel");
 
     let expected = load_compare_frame(&source, "xlsx").expect("Excel debe cargar");
+    // QA-16: exporting and reading back an XLSX keeps integer columns integer.
+    assert_eq!(expected.column("id").unwrap().dtype(), &DataType::Int64);
+    assert_eq!(expected.column("amount").unwrap().dtype(), &DataType::Float64);
     let current = df![
-        "id" => &[1.0_f64, 2.0, 3.0],
+        "id" => &[1_i64, 2, 3],
         "name" => &["Ana", "Luis", "María"],
         "amount" => &[10.5_f64, 19.0, 30.25],
         "active" => &[true, false, true]

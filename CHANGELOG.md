@@ -203,6 +203,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Un número entero de un libro XLSX (que Excel guarda como decimal) se lee como
+  entero: exportar e importar un xlsx conserva `1` y no `1.0`, y comparar un
+  xlsx exportado con su original ya no falla por tipo de clave; la equivalencia
+  eager↔lazy de cada paso de receta sobre marcos en varios chunks queda cubierta
+  por el test de QA-13 (QA-15, QA-16).
 - La protección contra enlaces y puntos de reanálisis se prueba con una unión de
   directorio, que no requiere privilegios: el test ejecuta siempre sus
   aserciones y detecta si la comprobación desaparece (QA-04).
