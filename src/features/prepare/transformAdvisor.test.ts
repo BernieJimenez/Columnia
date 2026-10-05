@@ -23,6 +23,20 @@ const emptyRecipe: TransformRecipe = {
 };
 
 describe("buildTransformPreview", () => {
+  it("con resumen agrupado muestra solo claves y agregaciones (FUN-45)", () => {
+    const preview = buildTransformPreview(dataset, {
+      ...emptyRecipe,
+      renames: [{ from: "ciudad", to: "localidad" }],
+      groupSummary: {
+        groupBy: ["ciudad"],
+        aggregations: [{ column: "total", operation: "sum" }, { column: "nombre", operation: "count_unique" }],
+      },
+    });
+    expect(preview.afterColumnNames).toEqual(["localidad", "total_sum", "nombre_count_unique"]);
+    expect(preview.afterColumns).toBe(3);
+    expect(preview.columnsDelta).toBe(0);
+  });
+
   it("estima filtros sobre la muestra visible y marca la confianza", () => {
     const preview = buildTransformPreview(dataset, {
       ...emptyRecipe,

@@ -313,8 +313,8 @@ medio = 1 día; agregado por suma.
   - [x] `QA-32` (Bajo) Varios tests de estilos son regex sobre el texto del CSS y uno fija una declaración muerta — hecho el 2026-10-04
 - [ ] **RV69** — **Preparar** — La vista previa de columnas ignora el resumen agrupado, que reescribe todo el esquema (y 5 problemas más) · *Esfuerzo: 2,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-45, FUN-46, FUN-47, UX-10, UX-12, UX-13.
-  - [ ] `FUN-45` (Bajo) La vista previa de columnas ignora el resumen agrupado, que reescribe todo el esquema
-  - [ ] `FUN-46` (Bajo) `pendingPlanComparison` no se limpia al cancelar: la siguiente operación ajena aparece como «Listo: cambios aplicados» de la propuesta
+  - [x] `FUN-45` (Bajo) La vista previa de columnas ignora el resumen agrupado, que reescribe todo el esquema — hecho el 2026-10-04
+  - [x] `FUN-46` (Bajo) `pendingPlanComparison` no se limpia al cancelar: la siguiente operación ajena aparece como «Listo: cambios aplicados» de la propuesta — hecho el 2026-10-04
   - [ ] `FUN-47` (Bajo) «Completar categorías desconocidas» y la imputación avanzada se ofrecen para cualquier columna de texto con nulos, sin las guardas de la propuesta (identificadores, datos personales, fechas)
   - [ ] `UX-10` (Bajo) «Listo: cambios aplicados» solo aparece cuando termina el reperfilado, 10–13 s después de que los cambios ya estaban aplicados
   - [ ] `UX-12` (Bajo) `RevisionComparison`: una comparación cancelada se muestra como error; cancelar sin éxito deja el botón bloqueado; textos con jerga interna

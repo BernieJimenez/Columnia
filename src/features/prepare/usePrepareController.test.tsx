@@ -97,6 +97,7 @@ function ControllerHarness({
     <button type="button" onClick={controller.redoChange}>Rehacer controlador</button>
     <button type="button" onClick={controller.cancelCurrent}>Cancelar preparación</button>
     <button type="button" onClick={controller.resetChangeStatus}>Limpiar estado</button>
+    <span data-testid="change-unchanged">{controller.changeStatus.kind === "applied" ? String(controller.changeStatus.unchanged ?? false) : ""}</span>
     <output data-testid="change-status">{controller.changeStatus.kind === "applied" || controller.changeStatus.kind === "cancelled" ? controller.changeStatus.message : controller.changeStatus.kind}</output>
     <span data-testid="cancel-requested">
       {controller.changeStatus.kind === "working" && controller.changeStatus.cancelRequested ? "sí" : "no"}
@@ -780,6 +781,15 @@ describe("usePrepareController", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Receta" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("no produjo cambios"));
+  });
+
+  it("marca un plan sin efecto con un campo, no por el texto del mensaje (FUN-46)", async () => {
+    vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({
+      dataset, changedCellCount: 0, affectedRowCount: 0, removedRowCount: 0, renamedColumnCount: 0, renames: [], typedColumnCount: 0, datedColumnCount: 0, imputedCellCount: 0,
+    });
+    render(<ControllerHarness onDatasetChanged={vi.fn()} onProfileInvalidated={vi.fn()} onDeliveryInvalidated={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Solo tipos" }));
+    await waitFor(() => expect(screen.getByTestId("change-unchanged")).toHaveTextContent("true"));
   });
 
   it("aplica un plan que solo convierte columnas a número (RV18)", async () => {

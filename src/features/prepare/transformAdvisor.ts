@@ -128,6 +128,18 @@ function previewColumnNames(dataset: DatasetPreview, recipe: TransformRecipe): {
   if (recipe.mergeColumns) append(recipe.mergeColumns.name);
   if (recipe.calculatedColumn) append(recipe.calculatedColumn.name);
   recipe.textExtractions.forEach((extraction) => append(extraction.name));
+  if (recipe.groupSummary) {
+    // FUN-45: a grouped summary replaces the whole schema with the group keys
+    // and one «column_operation» per aggregation, as the engine names them.
+    const renamed = (name: string) => renameMap.get(name) ?? name;
+    return {
+      before,
+      after: [
+        ...recipe.groupSummary.groupBy.map(renamed),
+        ...recipe.groupSummary.aggregations.map((aggregation) => `${renamed(aggregation.column)}_${aggregation.operation}`),
+      ],
+    };
+  }
   return { before, after };
 }
 

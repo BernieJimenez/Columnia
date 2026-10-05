@@ -615,6 +615,7 @@ export function usePrepareController({
           ? "Plan aplicado: " + changes.join(" y ") + "."
           : "El dataset ya cumplía las correcciones seleccionadas.",
         changes: appliedPlanChanges(options, result),
+        unchanged: !changed,
       });
       await refreshHistory();
       if (changed) onDeliveryInvalidated();

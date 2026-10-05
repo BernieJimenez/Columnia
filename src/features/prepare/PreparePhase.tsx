@@ -173,7 +173,7 @@ export function PreparePhase({
     const pending = pendingPlanComparison.current;
     if (!pending) return;
     if (changeStatus.kind === "error" || changeStatus.kind === "cancelled"
-      || (changeStatus.kind === "applied" && changeStatus.message.startsWith("El dataset ya cumplía"))) {
+      || (changeStatus.kind === "applied" && changeStatus.unchanged === true)) {
       pendingPlanComparison.current = null;
       return;
     }

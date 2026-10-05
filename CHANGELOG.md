@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La vista previa de una receta con resumen agrupado muestra exactamente las
+  columnas de agrupación y las agregaciones; que un plan no cambiara nada se
+  indica con un campo y ya no se deduce del texto del mensaje (FUN-45, FUN-46).
 - En tema oscuro los avisos de advertencia son ámbar y ya no comparten el verde
   de éxito; «1 espacio» en singular; una descarga de actualización cancelada se
   reconoce por la acción y no por el texto del error, el lector de pantalla oye

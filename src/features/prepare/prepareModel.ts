@@ -18,7 +18,8 @@ export type ChangeStatus =
       cancelRequested?: boolean;
     }
   /** `changes` lists what a proposal applied, one line each, for its result screen. */
-  | { kind: "applied"; message: string; changes?: string[] }
+  /** `unchanged`: the dataset already met the plan, nothing was written (FUN-46). */
+  | { kind: "applied"; message: string; changes?: string[]; unchanged?: boolean }
   | { kind: "cancelled"; message: string }
   | { kind: "error"; message: string };
 
