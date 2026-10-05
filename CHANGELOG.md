@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La detección del separador elige el más coherente cuando una fila es irregular
+  y usa «;» en un archivo que solo tiene encabezado separado por «;» (antes caía
+  en «,» y se abría como una sola columna) (FUN-60).
 - Un CSV en UTF-16 (el «texto Unicode» de Excel) o un archivo binario recibe un
   mensaje claro con cómo guardarlo en UTF-8, en lugar de ofrecer una conversión
   desde Windows-1252 que saldría ilegible (FUN-59).

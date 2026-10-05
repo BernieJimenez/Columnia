@@ -21001,3 +21001,23 @@ fn utf16_and_binary_files_are_not_offered_as_windows_1252() {
     let error = read_utf8_delimited_sample_with_cancel(&latin, || false).unwrap_err();
     assert!(error.starts_with(LEGACY_ENCODING_PREFIX), "{error}");
 }
+
+/// FUN-60: a «;» file with one irregular row, and a header-only «;» file,
+/// are detected with «;».
+#[test]
+fn delimiter_detection_tolerates_one_irregular_row_and_header_only_files() {
+    let directory = tempfile::tempdir().unwrap();
+    let irregular = directory.path().join("irregular.csv");
+    fs::write(
+        &irregular,
+        "a;b;c\n1;2;3\n4;5;6;7\n8;9;10\n11;12;13\n14;15;16\n",
+    )
+    .unwrap();
+    assert_eq!(detect_delimiter(&irregular, "csv").unwrap(), b';');
+    let header = directory.path().join("cabecera.csv");
+    fs::write(&header, "a;b;c\n").unwrap();
+    assert_eq!(detect_delimiter(&header, "csv").unwrap(), b';');
+    let comma = directory.path().join("coma.csv");
+    fs::write(&comma, "a,b\n1,2\n").unwrap();
+    assert_eq!(detect_delimiter(&comma, "csv").unwrap(), b',');
+}

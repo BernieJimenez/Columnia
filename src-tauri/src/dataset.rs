@@ -7377,6 +7377,11 @@ where
     let (sample, complete) = read_utf8_delimited_sample_with_cancel(path, &is_cancelled)?;
     let candidates = [(b',', ','), (b';', ';'), (b'\t', '\t'), (b'|', '|')];
     let mut valid = Vec::new();
+    // FUN-60: when no separator is perfectly regular, the most consistent
+    // one wins (most lines with its usual field count), and a header-only
+    // file uses the only separator that splits it.
+    let mut consistent = Vec::new();
+    let mut header_only = Vec::new();
     for (byte, delimiter) in candidates {
         ensure_not_cancelled(is_cancelled())?;
         let counts = delimited_field_counts(&sample, delimiter, complete);
@@ -7386,6 +7391,13 @@ where
         if counts.len() >= 2 && first > 1 && counts.iter().all(|count| *count == first) {
             valid.push((byte, first));
         }
+        if counts.len() == 1 && first > 1 {
+            header_only.push(byte);
+        }
+        if counts.len() >= 2 && first > 1 {
+            let matching = counts.iter().filter(|count| **count == first).count();
+            consistent.push((byte, matching * 1000 / counts.len(), first));
+        }
     }
     ensure_not_cancelled(is_cancelled())?;
     valid.sort_unstable_by_key(|(_, field_count)| std::cmp::Reverse(*field_count));
@@ -7393,6 +7405,17 @@ where
     match valid.as_slice() {
         [(delimiter, _)] => Ok(*delimiter),
         [(delimiter, best), (_, second), ..] if best > second => Ok(*delimiter),
+        [] => {
+            if let [only] = header_only.as_slice() {
+                return Ok(*only);
+            }
+            consistent
+                .sort_unstable_by_key(|(_, share, fields)| std::cmp::Reverse((*share, *fields)));
+            Ok(match consistent.as_slice() {
+                [(delimiter, share, _), ..] if *share >= 800 => *delimiter,
+                _ => b',',
+            })
+        }
         _ => Ok(b','),
     }
 }
