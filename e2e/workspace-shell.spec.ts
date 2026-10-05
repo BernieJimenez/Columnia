@@ -83,6 +83,40 @@ test.describe("shell informativo de espacios de trabajo", () => {
     expect(await page.evaluate(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
   });
 
+  // QA-32: the size comes from the cascade the browser applies, not from a
+  // pattern in the stylesheet text.
+  test("los botones de añadir de la receta miden al menos 44 px de alto", async ({ page }) => {
+    await page.goto("/", { waitUntil: "commit" });
+    await expect(page.locator(".workspace")).toBeVisible();
+    const height = await page.evaluate(() => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "recipe-add";
+      button.textContent = "+ Añadir renombre";
+      document.querySelector(".workspace")?.append(button);
+      const measured = button.getBoundingClientRect().height;
+      button.remove();
+      return measured;
+    });
+    expect(height).toBeGreaterThanOrEqual(44);
+  });
+
+  test("en tema oscuro un aviso no se pinta con el verde de éxito (UI-01)", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("columnia.theme", "dark"));
+    await page.goto("/", { waitUntil: "commit" });
+    await expect(page.locator(".workspace")).toBeVisible();
+    const [warning, success] = await page.evaluate(() => ["notice", "notice notice--success"].map((className) => {
+      const notice = document.createElement("p");
+      notice.className = className;
+      notice.textContent = "Aviso";
+      document.querySelector(".workspace")?.append(notice);
+      const background = getComputedStyle(notice).backgroundColor;
+      notice.remove();
+      return background;
+    }));
+    expect(warning).not.toBe(success);
+  });
+
   test("mantiene las preferencias alcanzables en una ventana de poca altura", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/", { waitUntil: "commit" });

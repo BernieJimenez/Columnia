@@ -306,11 +306,11 @@ medio = 1 día; agregado por suma.
   - [x] `ACC-14` (Bajo) La lista de etapas del informe de diagnóstico omite Explorar — hecho el 2026-10-04
   - [x] `ACC-15` (Bajo) Mensaje de error del actualizador con color fijo `#a33e35`: 1,78:1 sobre el panel de la barra lateral — hecho el 2026-10-04
   - [x] `ACC-16` (Bajo) Texto de acento sobre superficie sutil por debajo de 4,5:1 en el tema Ocean — hecho el 2026-10-04
-- [ ] **RV68** — **Estilos y componentes** — En tema oscuro los avisos ámbar (`.notice`) se pintan de verde «éxito» (y 2 problemas más) · *Esfuerzo: 6 h*
+- [x] **RV68** — **Estilos y componentes** — En tema oscuro los avisos ámbar (`.notice`) se pintan de verde «éxito» (y 2 problemas más) · *Esfuerzo: 6 h* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de UI-01, TXT-10, QA-32.
-  - [ ] `UI-01` (Bajo) En tema oscuro los avisos ámbar (`.notice`) se pintan de verde «éxito»
-  - [ ] `TXT-10` (Bajo) Textos y detección por texto en CellText y UpdatePanel
-  - [ ] `QA-32` (Bajo) Varios tests de estilos son regex sobre el texto del CSS y uno fija una declaración muerta
+  - [x] `UI-01` (Bajo) En tema oscuro los avisos ámbar (`.notice`) se pintan de verde «éxito» — hecho el 2026-10-04
+  - [x] `TXT-10` (Bajo) Textos y detección por texto en CellText y UpdatePanel — hecho el 2026-10-04
+  - [x] `QA-32` (Bajo) Varios tests de estilos son regex sobre el texto del CSS y uno fija una declaración muerta — hecho el 2026-10-04
 - [ ] **RV69** — **Preparar** — La vista previa de columnas ignora el resumen agrupado, que reescribe todo el esquema (y 5 problemas más) · *Esfuerzo: 2,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-45, FUN-46, FUN-47, UX-10, UX-12, UX-13.
   - [ ] `FUN-45` (Bajo) La vista previa de columnas ignora el resumen agrupado, que reescribe todo el esquema

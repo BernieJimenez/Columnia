@@ -1131,7 +1131,9 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 :root[data-resolved-theme="dark"] .workspace :is(th, td) { border-color: var(--border-subtle); }
 :root[data-resolved-theme="dark"] .workspace :is(tbody tr:nth-child(even)) { background: var(--surface-subtle); }
 :root[data-resolved-theme="dark"] .workspace :is(.primary-action, .inline-action) { background: var(--action-fill, #176d62); color: #f0fffb; }
-:root[data-resolved-theme="dark"] .workspace :is(.notice, .notice--success, .change-feedback, .project-recovery, .quality-migration-result, .quality-gate--passed) { background: #21463f; color: #c6e8df; }
+:root[data-resolved-theme="dark"] .workspace :is(.notice--success, .change-feedback, .project-recovery, .quality-migration-result, .quality-gate--passed) { background: #21463f; color: #c6e8df; }
+/* UI-01: a plain notice is a warning, amber in dark too, never the success green. */
+:root[data-resolved-theme="dark"] .workspace .notice:not(.notice--success):not(.notice--error) { border-left-color: #c98a2f; background: #3f331d; color: #f6deb0; }
 :root[data-resolved-theme="dark"] .history-details li[aria-current="step"] { background: var(--surface-raised); color: var(--accent); }
 :root[data-resolved-theme="dark"] .workspace .quality-temporal__table { border-color: var(--border-subtle); background: var(--surface-raised); }
 :root[data-resolved-theme="dark"] .workspace .quality-temporal__table :is(th:first-child, thead th) { background: var(--surface-raised); }

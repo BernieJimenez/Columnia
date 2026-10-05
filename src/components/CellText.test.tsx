@@ -6,6 +6,11 @@ import { CellText } from "./CellText";
 afterEach(cleanup);
 
 describe("CellText", () => {
+  it("usa el singular con un solo espacio (TXT-10)", () => {
+    const { container } = render(<CellText value=" " />);
+    expect(container.querySelector(".visually-hidden")?.textContent).toBe("1 espacio");
+  });
+
   it("deja intacto el texto sin espacios exteriores", () => {
     const { container } = render(<CellText value="Ana Pérez" />);
     expect(container.textContent).toBe("Ana Pérez");

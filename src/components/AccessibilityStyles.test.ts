@@ -31,7 +31,6 @@ describe("contratos CSS de accesibilidad", () => {
   });
 
   it("mantiene targets táctiles mínimos y respeta reduced motion", () => {
-    expect(styles).toMatch(/\.recipe-add\s*\{[^}]*min-height:\s*44px/);
     expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
     expect(styles).toMatch(/animation-duration:\s*0\.01ms\s*!important/);
     expect(styles).toMatch(/transition-duration:\s*0\.01ms\s*!important/);

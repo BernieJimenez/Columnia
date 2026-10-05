@@ -48,6 +48,9 @@ function updateProgress(current: UpdateState, progress: UpdaterProgress): Update
 export function UpdatePanel({ enabled, currentVersion }: UpdatePanelProps) {
   const [state, setState] = useState<UpdateState>({ kind: "idle" });
   const updateRef = useRef<UpdateInfo | null>(null);
+  // TXT-10: a download that fails after «Cancelar descarga» was cancelled,
+  // whatever the wording of the error.
+  const downloadCancelRequested = useRef(false);
   const busy = state.kind === "checking" || state.kind === "downloading" || state.kind === "installing";
 
   const handleCheck = async () => {
@@ -85,6 +88,7 @@ export function UpdatePanel({ enabled, currentVersion }: UpdatePanelProps) {
     const info = updateRef.current;
     if (!enabled || !info || busy) return;
     let lastProgress: UpdaterProgress | null = null;
+    downloadCancelRequested.current = false;
     setState({
       kind: "downloading",
       info,
@@ -106,7 +110,7 @@ export function UpdatePanel({ enabled, currentVersion }: UpdatePanelProps) {
       });
     } catch (error) {
       const message = errorMessage(error);
-      setState(message.toLowerCase().includes("cancel")
+      setState(downloadCancelRequested.current
         ? { kind: "idle" }
         : { kind: "error", message });
     }
@@ -114,6 +118,7 @@ export function UpdatePanel({ enabled, currentVersion }: UpdatePanelProps) {
 
   const handleCancel = () => {
     if (state.kind !== "downloading" || state.cancelRequested) return;
+    downloadCancelRequested.current = true;
     setState({ ...state, cancelRequested: true });
     void cancelUpdateDownload().catch((error) => {
       setState({ kind: "error", message: errorMessage(error) });
@@ -140,7 +145,7 @@ export function UpdatePanel({ enabled, currentVersion }: UpdatePanelProps) {
     <section className="update-panel" aria-labelledby="update-panel-heading">
       <div className="update-panel__heading">
         <h2 id="update-panel-heading">Actualizaciones</h2>
-        <p>Solo se comprueban después de una acción explícita y se validan con firma.</p>
+        {enabled && <p>Solo se comprueban después de una acción explícita y se validan con firma.</p>}
       </div>
       {!enabled && (
         <p className="update-panel__status" role="status">
@@ -186,7 +191,11 @@ export function UpdatePanel({ enabled, currentVersion }: UpdatePanelProps) {
         </div>
       )}
       {(state.kind === "downloading" || state.kind === "ready") && (
-        <div className="update-panel__progress" aria-live="polite">
+        <div className="update-panel__progress">
+          {/* TXT-10: a screen reader hears every quarter, not every chunk. */}
+          <p className="visually-hidden" role="status" aria-live="polite">
+            {downloadPercent === null ? "Descargando la actualización" : `Descarga al ${Math.floor(downloadPercent / 25) * 25}%`}
+          </p>
           {downloadPercent === null ? (
             <p>Descargados: {formatUpdateBytes(state.downloadedBytes)}</p>
           ) : (

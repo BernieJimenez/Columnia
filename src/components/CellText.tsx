@@ -1,3 +1,4 @@
+import { plural } from "../plural";
 import { MissingValue } from "./MissingValue";
 
 const MARKER = "·";
@@ -11,9 +12,9 @@ export function CellText({ value }: { value: string }) {
   if (core === value) return <>{value}</>;
   if (core === "") {
     return (
-      <span className="cell-text--padded" title={`${value.length} espacios`}>
+      <span className="cell-text--padded" title={plural(value.length, "espacio", "espacios")}>
         <span className="whitespace-marker" aria-hidden="true">{MARKER.repeat(value.length)}</span>
-        <span className="visually-hidden">{`${value.length} espacios`}</span>
+        <span className="visually-hidden">{plural(value.length, "espacio", "espacios")}</span>
       </span>
     );
   }

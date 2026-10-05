@@ -173,7 +173,8 @@ describe("UpdatePanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar descarga" }));
     await waitFor(() => expect(cancel).toHaveBeenCalledOnce());
 
-    rejectDownload?.(new Error("La descarga fue cancelada."));
+    // TXT-10: any wording counts once cancelling was requested.
+    rejectDownload?.(new Error("Download aborted by user"));
     const checkButton = screen.getByRole("button", { name: "Buscar actualizaciones" });
     await waitFor(() => expect(checkButton).not.toBeDisabled());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();

@@ -203,6 +203,13 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- En tema oscuro los avisos de advertencia son ámbar y ya no comparten el verde
+  de éxito; «1 espacio» en singular; una descarga de actualización cancelada se
+  reconoce por la acción y no por el texto del error, el lector de pantalla oye
+  el progreso por cuartos y la frase de firma solo aparece si el updater está
+  configurado; el tamaño de los botones de receta y el color de los avisos se
+  comprueban en el navegador, no con patrones sobre el CSS (UI-01, TXT-10,
+  QA-32).
 - El cronómetro de una operación sigue contando al pedir la cancelación y el
   porcentaje se redondea; el monitor de recursos nunca acumula lecturas, no
   sondea con la ventana oculta y conserva las cifras ante un fallo; el informe
