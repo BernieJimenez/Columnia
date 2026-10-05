@@ -241,6 +241,35 @@ const cleaningSignalsProfile: DatasetProfile = {
     dateOrder: null,
     dateHasTime: null,
     untrimmedCount: null,
+  }, {
+    // FUN-71: constant means the same value in every row, no empty cell.
+    name: "estado",
+    dataType: "String",
+    nullCount: 0,
+    completenessPercentage: 100,
+    uniqueCount: 1,
+    minimum: "activo",
+    maximum: "activo",
+    mean: null,
+    emptyCount: 0,
+    minimumLength: 6,
+    maximumLength: 6,
+    averageLength: 6,
+    suggestedType: null,
+    typeMatchPercentage: null,
+    invalidTypeCount: null,
+    sentinelCount: null,
+    encodingIssueCount: null,
+    privacySignal: null,
+    standardDeviation: null,
+    firstQuartile: null,
+    median: null,
+    thirdQuartile: null,
+    outlierCount: null,
+    histogram: null,
+    dateOrder: null,
+    dateHasTime: null,
+    untrimmedCount: null,
   }],
 };
 
@@ -456,7 +485,7 @@ describe("PreparePhase", () => {
     expect(screen.getByRole("heading", { name: "Valores nulos y datos faltantes" })).toBeInTheDocument();
     expect(screen.getByLabelText("Resumen de valores nulos")).toHaveTextContent("10 nulos");
     expect(screen.getByLabelText("Resumen de valores nulos")).toHaveTextContent("3 columnas afectadas");
-    expect(screen.getByLabelText("Resumen de valores nulos")).toHaveTextContent(localeText("71.4% completitud total"));
+    expect(screen.getByLabelText("Resumen de valores nulos")).toHaveTextContent(localeText("75.0% completitud total"));
     expect(screen.getByText(/Columnia conserva los nulos por defecto/)).toBeInTheDocument();
     expect(screen.getByText(/Los espacios en blanco no son nulos/)).toBeInTheDocument();
     const signals = screen.getByRole("list", { name: "Señales de limpieza detectadas" });

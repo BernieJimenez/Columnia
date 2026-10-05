@@ -1046,16 +1046,23 @@ pub(super) fn apply_lazy_recipe_to_frame(
         if targets.is_empty() {
             0
         } else {
-            let count_aliases = targets
+            // FUN-74: cells of a column `keepColumns` drops are not counted.
+            let counted_targets = targets
+                .iter()
+                .filter(|name| {
+                    replacement_is_kept(name, recipe.keep_columns.as_deref(), &rename_map)
+                })
+                .collect::<Vec<_>>();
+            let count_aliases = counted_targets
                 .iter()
                 .enumerate()
                 .map(|(index, _)| format!("__columnia_replaced_{index}"))
                 .collect::<Vec<_>>();
-            let count_expressions = targets
+            let count_expressions = counted_targets
                 .iter()
                 .zip(&count_aliases)
                 .map(|(name, alias)| {
-                    let original = col(name);
+                    let original = col(name.as_str());
                     let replaced = original.clone().str().replace_all(
                         lit(find_replace.find.clone()),
                         lit(find_replace.replace.clone()),

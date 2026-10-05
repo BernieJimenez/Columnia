@@ -1023,12 +1023,12 @@ fn source_backed_cleanups_remove_duplicates_and_columns_with_reversible_history(
     fs::write(
         &source,
         r#"[
-            {"id":1,"name":"Ana","constant":"same","empty":null,"sparse":"keep","_cambios":"base-1"},
-            {"id":1,"name":"Ana","constant":"same","empty":null,"sparse":"keep","_cambios":"base-1"},
-            {"id":2,"name":"Luis","constant":"same","empty":null,"sparse":null,"_cambios":"base-2"},
-            {"id":3,"name":"Marta","constant":"same","empty":null,"sparse":null,"_cambios":"base-3"},
-            {"id":4,"name":"Pablo","constant":"same","empty":null,"sparse":null,"_cambios":"base-4"},
-            {"id":5,"name":"Rosa","constant":"same","empty":null,"sparse":null,"_cambios":"base-5"}
+            {"id":1,"name":"Ana","constant":"same","gappy":"x","empty":null,"sparse":"keep","_cambios":"base-1"},
+            {"id":1,"name":"Ana","constant":"same","gappy":"x","empty":null,"sparse":"keep","_cambios":"base-1"},
+            {"id":2,"name":"Luis","constant":"same","gappy":null,"empty":null,"sparse":null,"_cambios":"base-2"},
+            {"id":3,"name":"Marta","constant":"same","gappy":"x","empty":null,"sparse":null,"_cambios":"base-3"},
+            {"id":4,"name":"Pablo","constant":"same","gappy":"x","empty":null,"sparse":null,"_cambios":"base-4"},
+            {"id":5,"name":"Rosa","constant":"same","gappy":"x","empty":null,"sparse":null,"_cambios":"base-5"}
         ]"#,
     )
     .expect("se debe escribir el JSON de limpieza");
@@ -1090,7 +1090,11 @@ fn source_backed_cleanups_remove_duplicates_and_columns_with_reversible_history(
         .expect("la limpieza debe conservar el snapshot actual")
         .to_owned();
     let current = read_parquet_frame(&current_path).expect("el snapshot final debe ser legible");
-    assert_eq!(current.get_column_names(), &["id", "name", "_cambios"]);
+    // FUN-71: `gappy` has one value and a gap, so it is not constant.
+    assert_eq!(
+        current.get_column_names(),
+        &["id", "name", "gappy", "_cambios"]
+    );
     assert_eq!(current.height(), 5);
     assert_eq!(
         current.column("_cambios").unwrap().str().unwrap().get(0),
@@ -2715,6 +2719,159 @@ fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
         .all(|entry| entry.path.exists()));
 
     fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn replaced_cells_count_only_the_columns_kept_in_every_path() {
+    // FUN-74: "a" is replaced in both columns, but only `city` is kept.
+    let csv = "text,city\nAna,Santa Ana\nLuis,Moca\nMaria,La Vega\n";
+    let path = temporary_csv(csv);
+    let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+    let recipe = TransformRecipe {
+        find_replace: Some(FindReplaceRecipe {
+            scope: FindReplaceScope::AllTextColumns,
+            column: None,
+            find: "a".to_owned(),
+            replace: "@".to_owned(),
+            regex: false,
+        }),
+        keep_columns: Some(vec!["city".to_owned()]),
+        ..TransformRecipe::default()
+    };
+    // Visible change: Santa Ana, Moca and La Vega each change.
+    assert_eq!(
+        apply_eager_recipe_to_frame(&source_frame, &recipe)
+            .unwrap()
+            .6,
+        3
+    );
+    assert_eq!(apply_recipe_to_frame(&source_frame, &recipe).unwrap().6, 3);
+
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
+    let mut dataset = LoadedDataset {
+        source_path: Some(path.clone()),
+        file_name: "dataset.csv".to_owned(),
+        file_size_bytes: fs::metadata(&path).unwrap().len(),
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().unwrap(),
+    };
+    assert!(source_backed_projection_recipe_supported(
+        &dataset.frame,
+        &recipe
+    ));
+    let result = apply_recipe_to_dataset(&mut dataset, &recipe).unwrap();
+    assert!(dataset.source_backed);
+    assert_eq!(result.replaced_cell_count, 3);
+}
+
+fn source_backed_dataset_at(path: &Path) -> LoadedDataset {
+    let (schema, _, row_count) =
+        source_backed_load(path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
+    LoadedDataset {
+        source_path: Some(path.to_path_buf()),
+        file_name: "dataset.csv".to_owned(),
+        file_size_bytes: fs::metadata(path).unwrap().len(),
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().unwrap(),
+    }
+}
+
+#[test]
+fn a_date_cell_of_only_spaces_is_invalid_in_every_path() {
+    // FUN-75 (b): source-backed turned "  " into an empty date.
+    for (format, valid) in [
+        (RecipeDateFormat::Dmy, "01/02/2024"),
+        (RecipeDateFormat::Iso8601, "2024-02-01"),
+    ] {
+        let path = temporary_csv(&format!("fecha,n\n{valid},1\n\"  \",2\n"));
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let recipe = TransformRecipe {
+            date_parses: vec![RecipeDateParse {
+                column: "fecha".to_owned(),
+                format,
+                target: RecipeDateTarget::Date,
+            }],
+            ..TransformRecipe::default()
+        };
+        assert!(
+            apply_eager_recipe_to_frame(&source_frame, &recipe).is_err(),
+            "{format:?}"
+        );
+        assert!(
+            apply_recipe_to_frame(&source_frame, &recipe).is_err(),
+            "{format:?}"
+        );
+        let mut dataset = source_backed_dataset_at(&path);
+        assert!(source_backed_projection_recipe_supported(
+            &dataset.frame,
+            &recipe
+        ));
+        assert!(
+            apply_recipe_to_dataset(&mut dataset, &recipe).is_err(),
+            "{format:?}"
+        );
+    }
+}
+
+#[test]
+fn source_backed_group_summary_keeps_first_appearance_order_on_a_large_file() {
+    // FUN-75 (a): DuckDB reads a large CSV in parallel; groups must still
+    // come out in the order they first appear, as in memory.
+    let mut csv = String::from("clave,valor\n");
+    for row in 0..400_000_u32 {
+        let key = match row {
+            0 => "k7".to_owned(),
+            1 => "k3".to_owned(),
+            2 => "k9".to_owned(),
+            _ => format!("k{}", (row * 7919) % 10),
+        };
+        csv.push_str(&format!("{key},{}\n", row % 13));
+    }
+    let path = temporary_csv(&csv);
+    let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+    let recipe = TransformRecipe {
+        casts: vec![RecipeCast {
+            column: "valor".to_owned(),
+            target: RecipeCastTarget::Integer,
+        }],
+        group_summary: Some(GroupSummaryRecipe {
+            group_by: vec!["clave".to_owned()],
+            aggregations: vec![SummaryAggregation {
+                column: "valor".to_owned(),
+                operation: SummaryOperation::Sum,
+            }],
+        }),
+        ..TransformRecipe::default()
+    };
+    let expected = dataset_page(
+        &apply_eager_recipe_to_frame(&source_frame, &recipe)
+            .unwrap()
+            .0,
+        0,
+        20,
+    )
+    .unwrap()
+    .rows;
+    let mut dataset = source_backed_dataset_at(&path);
+    assert!(source_backed_projection_recipe_supported(
+        &dataset.frame,
+        &recipe
+    ));
+    apply_recipe_to_dataset(&mut dataset, &recipe).unwrap();
+    assert!(dataset.source_backed);
+    let output = read_parquet_frame(dataset.source_path.as_deref().unwrap()).unwrap();
+    let actual = dataset_page(&output, 0, 20).unwrap().rows;
+    assert_eq!(actual, expected);
+    assert_eq!(expected[0][0].as_deref(), Some("k7"));
 }
 
 #[test]
@@ -7971,6 +8128,333 @@ fn local_query_join_requires_comparison_and_matching_key_types() {
 }
 
 #[test]
+fn every_recipe_text_field_has_a_length_limit() {
+    // FUN-72: one over-long value in each text field of each operation.
+    let long = "x".repeat(MAX_RECIPE_TEXT_FIELD_CHARS + 1);
+    let ok = "a".to_owned();
+    type RecipeWithText = Box<dyn Fn(&str) -> TransformRecipe>;
+    let cases: Vec<(&str, RecipeWithText)> = vec![
+        (
+            "renombre from",
+            Box::new(|text| TransformRecipe {
+                renames: vec![RecipeRename {
+                    from: text.to_owned(),
+                    to: "b".to_owned(),
+                }],
+                ..Default::default()
+            }),
+        ),
+        (
+            "renombre to",
+            Box::new(|text| TransformRecipe {
+                renames: vec![RecipeRename {
+                    from: "a".to_owned(),
+                    to: text.to_owned(),
+                }],
+                ..Default::default()
+            }),
+        ),
+        (
+            "conversión",
+            Box::new(|text| TransformRecipe {
+                casts: vec![RecipeCast {
+                    column: text.to_owned(),
+                    target: RecipeCastTarget::String,
+                }],
+                ..Default::default()
+            }),
+        ),
+        (
+            "fecha",
+            Box::new(|text| TransformRecipe {
+                date_parses: vec![RecipeDateParse {
+                    column: text.to_owned(),
+                    format: RecipeDateFormat::Ymd,
+                    target: RecipeDateTarget::Date,
+                }],
+                ..Default::default()
+            }),
+        ),
+        (
+            "filtro column",
+            Box::new(|text| TransformRecipe {
+                filters: vec![RecipeFilter {
+                    column: text.to_owned(),
+                    operator: RecipeFilterOperator::Eq,
+                    value: Some("a".to_owned()),
+                }],
+                ..Default::default()
+            }),
+        ),
+        (
+            "filtro value",
+            Box::new(|text| TransformRecipe {
+                filters: vec![RecipeFilter {
+                    column: "a".to_owned(),
+                    operator: RecipeFilterOperator::Eq,
+                    value: Some(text.to_owned()),
+                }],
+                ..Default::default()
+            }),
+        ),
+        (
+            "cálculo name",
+            Box::new(|text| TransformRecipe {
+                calculated_column: Some(CalculatedColumnRecipe {
+                    name: text.to_owned(),
+                    source: "a".to_owned(),
+                    operation: CalculatedOperation::Add,
+                    operand: Some(CalculatedOperand {
+                        kind: CalculatedOperandKind::Literal,
+                        value: "1".to_owned(),
+                    }),
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "cálculo source",
+            Box::new(|text| TransformRecipe {
+                calculated_column: Some(CalculatedColumnRecipe {
+                    name: "b".to_owned(),
+                    source: text.to_owned(),
+                    operation: CalculatedOperation::Add,
+                    operand: Some(CalculatedOperand {
+                        kind: CalculatedOperandKind::Literal,
+                        value: "1".to_owned(),
+                    }),
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "cálculo operando",
+            Box::new(|text| TransformRecipe {
+                calculated_column: Some(CalculatedColumnRecipe {
+                    name: "b".to_owned(),
+                    source: "a".to_owned(),
+                    operation: CalculatedOperation::Add,
+                    operand: Some(CalculatedOperand {
+                        kind: CalculatedOperandKind::Column,
+                        value: text.to_owned(),
+                    }),
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "reemplazo column",
+            Box::new(|text| TransformRecipe {
+                find_replace: Some(FindReplaceRecipe {
+                    scope: FindReplaceScope::Column,
+                    column: Some(text.to_owned()),
+                    find: "a".to_owned(),
+                    replace: "b".to_owned(),
+                    regex: false,
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "reemplazo find",
+            Box::new(|text| TransformRecipe {
+                find_replace: Some(FindReplaceRecipe {
+                    scope: FindReplaceScope::AllTextColumns,
+                    column: None,
+                    find: text.to_owned(),
+                    replace: "b".to_owned(),
+                    regex: false,
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "reemplazo replace",
+            Box::new(|text| TransformRecipe {
+                find_replace: Some(FindReplaceRecipe {
+                    scope: FindReplaceScope::AllTextColumns,
+                    column: None,
+                    find: "a".to_owned(),
+                    replace: text.to_owned(),
+                    regex: false,
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "keepColumns",
+            Box::new(|text| TransformRecipe {
+                keep_columns: Some(vec![text.to_owned()]),
+                ..Default::default()
+            }),
+        ),
+        (
+            "división source",
+            Box::new(|text| TransformRecipe {
+                split_column: Some(SplitColumnRecipe {
+                    source: text.to_owned(),
+                    delimiter: ",".to_owned(),
+                    names: vec!["b".to_owned(), "c".to_owned()],
+                    drop_source: false,
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "división delimiter",
+            Box::new(|text| TransformRecipe {
+                split_column: Some(SplitColumnRecipe {
+                    source: "a".to_owned(),
+                    delimiter: text.to_owned(),
+                    names: vec!["b".to_owned(), "c".to_owned()],
+                    drop_source: false,
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "división names",
+            Box::new(|text| TransformRecipe {
+                split_column: Some(SplitColumnRecipe {
+                    source: "a".to_owned(),
+                    delimiter: ",".to_owned(),
+                    names: vec![text.to_owned(), "c".to_owned()],
+                    drop_source: false,
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "combinación sources",
+            Box::new(|text| TransformRecipe {
+                merge_columns: Some(MergeColumnsRecipe {
+                    sources: vec![text.to_owned(), "b".to_owned()],
+                    name: "c".to_owned(),
+                    separator: " ".to_owned(),
+                    drop_sources: false,
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "combinación name",
+            Box::new(|text| TransformRecipe {
+                merge_columns: Some(MergeColumnsRecipe {
+                    sources: vec!["a".to_owned(), "b".to_owned()],
+                    name: text.to_owned(),
+                    separator: " ".to_owned(),
+                    drop_sources: false,
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "combinación separator",
+            Box::new(|text| TransformRecipe {
+                merge_columns: Some(MergeColumnsRecipe {
+                    sources: vec!["a".to_owned(), "b".to_owned()],
+                    name: "c".to_owned(),
+                    separator: text.to_owned(),
+                    drop_sources: false,
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "atípicos",
+            Box::new(|text| TransformRecipe {
+                outlier_treatments: vec![OutlierTreatment {
+                    column: text.to_owned(),
+                    action: OutlierAction::Cap,
+                }],
+                ..Default::default()
+            }),
+        ),
+        (
+            "groupBy",
+            Box::new(|text| TransformRecipe {
+                group_summary: Some(GroupSummaryRecipe {
+                    group_by: vec![text.to_owned()],
+                    aggregations: vec![SummaryAggregation {
+                        column: "b".to_owned(),
+                        operation: SummaryOperation::Sum,
+                    }],
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "agregación",
+            Box::new(|text| TransformRecipe {
+                group_summary: Some(GroupSummaryRecipe {
+                    group_by: vec!["a".to_owned()],
+                    aggregations: vec![SummaryAggregation {
+                        column: text.to_owned(),
+                        operation: SummaryOperation::Sum,
+                    }],
+                }),
+                ..Default::default()
+            }),
+        ),
+        (
+            "contacto",
+            Box::new(|text| TransformRecipe {
+                contact_normalizations: vec![ContactNormalization {
+                    column: text.to_owned(),
+                    kind: ContactKind::Email,
+                }],
+                ..Default::default()
+            }),
+        ),
+        (
+            "extracción source",
+            Box::new(|text| TransformRecipe {
+                text_extractions: vec![TextExtraction {
+                    source: text.to_owned(),
+                    kind: ExtractionKind::FirstToken,
+                    name: "b".to_owned(),
+                    delimiter: Some(" ".to_owned()),
+                }],
+                ..Default::default()
+            }),
+        ),
+        (
+            "extracción name",
+            Box::new(|text| TransformRecipe {
+                text_extractions: vec![TextExtraction {
+                    source: "a".to_owned(),
+                    kind: ExtractionKind::FirstToken,
+                    name: text.to_owned(),
+                    delimiter: Some(" ".to_owned()),
+                }],
+                ..Default::default()
+            }),
+        ),
+        (
+            "extracción delimiter",
+            Box::new(|text| TransformRecipe {
+                text_extractions: vec![TextExtraction {
+                    source: "a".to_owned(),
+                    kind: ExtractionKind::FirstToken,
+                    name: "b".to_owned(),
+                    delimiter: Some(text.to_owned()),
+                }],
+                ..Default::default()
+            }),
+        ),
+    ];
+    for (field, recipe) in &cases {
+        let error = validate_recipe_structure(&recipe(&long)).expect_err(&format!(
+            "{field}: un texto fuera de límite debe rechazarse"
+        ));
+        assert!(error.contains("payload de receta"), "{field}: {error}");
+        if let Err(error) = validate_recipe_structure(&recipe(&ok)) {
+            assert!(!error.contains("payload de receta"), "{field}: {error}");
+        }
+    }
+}
+
+#[test]
 fn local_query_reads_separators_inside_quotes_but_rejects_them_outside() {
     // FUN-63: 'AB--12' is a value and "Precio;USD" a column name, not SQL.
     let current = df![
@@ -11291,7 +11775,9 @@ fn removes_only_rows_that_are_completely_empty() {
 fn removes_constant_columns_but_preserves_a_usable_dataset() {
     let frame = df![
         "id" => &[1_i64, 2, 3],
-        "constant" => &[Some("activo"), None, Some("activo")],
+        "constant" => &["activo", "activo", "activo"],
+        // FUN-71: one value with gaps still says which rows had it.
+        "with_gaps" => &[Some("activo"), None, Some("activo")],
         "all_null" => &[None::<String>, None, None]
     ]
     .unwrap();
@@ -11299,8 +11785,17 @@ fn removes_constant_columns_but_preserves_a_usable_dataset() {
     let (cleaned, removed_columns) = remove_constant_columns_from_frame(&frame)
         .expect("las columnas constantes deben poder eliminarse");
     assert_eq!(removed_columns, vec!["constant"]);
-    assert_eq!(cleaned.get_column_names(), vec!["id", "all_null"]);
+    assert_eq!(
+        cleaned.get_column_names(),
+        vec!["id", "with_gaps", "all_null"]
+    );
     assert_eq!(cleaned.height(), 3);
+
+    // FUN-71: `_cambios` does not count as the column that must remain.
+    let with_audit = df!["only" => &["x", "x"], "_cambios" => &["a", "b"]].unwrap();
+    let (kept, removed) = remove_constant_columns_from_frame(&with_audit).unwrap();
+    assert!(removed.is_empty());
+    assert_eq!(kept.width(), 2);
 
     let all_constant = df![
         "first" => &["same", "same"],
@@ -13893,6 +14388,48 @@ fn lazy_group_summary_preserves_stable_groups_nulls_and_counts() {
     assert_eq!(rows[1][3].as_deref(), Some("2"));
     assert_eq!(rows[1][4].as_deref(), Some("1"));
     assert_eq!(rows[2][5], None);
+}
+
+#[test]
+fn text_minimum_and_maximum_match_between_eager_and_lazy() {
+    // FUN-73: "a" < "a b" < "a!" as text; quoted they reorder.
+    let frame = df![
+        "group" => &["g", "g", "g", "h", "h"],
+        "label" => &["a b", "a", "a!", "z z", "z"]
+    ]
+    .unwrap();
+    let recipe = TransformRecipe {
+        group_summary: Some(GroupSummaryRecipe {
+            group_by: vec!["group".into()],
+            aggregations: vec![
+                SummaryAggregation {
+                    column: "label".into(),
+                    operation: SummaryOperation::Min,
+                },
+                SummaryAggregation {
+                    column: "label".into(),
+                    operation: SummaryOperation::Max,
+                },
+            ],
+        }),
+        ..Default::default()
+    };
+    let eager = dataset_page(
+        &apply_eager_recipe_to_frame(&frame, &recipe).unwrap().0,
+        0,
+        10,
+    )
+    .unwrap()
+    .rows;
+    let lazy = dataset_page(&apply_recipe_to_frame(&frame, &recipe).unwrap().0, 0, 10)
+        .unwrap()
+        .rows;
+    assert_eq!(eager, lazy);
+    let min_max = eager
+        .iter()
+        .map(|row| (row[1].as_deref(), row[2].as_deref()))
+        .collect::<Vec<_>>();
+    assert_eq!(min_max, [(Some("a"), Some("a!")), (Some("z"), Some("z z"))]);
 }
 
 #[test]

@@ -412,14 +412,14 @@ medio = 1 día; agregado por suma.
   - [x] `UX-07` (Bajo) Mensajes de error de la CLI que no explican la causa — hecho el 2026-10-05
   - [x] `DOC-14` (Bajo) cli.md, v1-scope.md y feature-parity.md: omisiones, subcomando mal ubicado y celda ilegible — hecho el 2026-10-05
   - [x] `DOC-18` (Bajo) `inspect` devuelve `str` para todas las columnas de un CSV y tipos reales en libros — hecho el 2026-10-05
-- [ ] **RV85** — **Motor de recetas** — Huellas normalizadas: el camino ASCII y el Unicode no coinciden en el espacio vertical (U… (y 5 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV85** — **Motor de recetas** — Huellas normalizadas: el camino ASCII y el Unicode no coinciden en el espacio vertical (U… (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-70, FUN-71, FUN-72, FUN-73, FUN-74, FUN-75.
-  - [ ] `FUN-70` (Bajo) Huellas normalizadas: el camino ASCII y el Unicode no coinciden en el espacio vertical (U+000B)
-  - [ ] `FUN-71` (Bajo) «Quitar columnas constantes» elimina columnas que mezclan un valor único con nulos
-  - [ ] `FUN-72` (Bajo) Validación de receta v1 no rechaza `export_options` y la validación de presupuesto de texto omite campos
-  - [ ] `FUN-73` (Bajo) Mínimo/máximo de texto en el camino eager compara `AnyValue::to_string()` (posiblemente con comillas) y no el texto
-  - [ ] `FUN-74` (Bajo) El recuento de «celdas reemplazadas» incluye columnas que `keepColumns` descarta después
-  - [ ] `FUN-75` (Bajo) Orden de salida de grupos y fechas en blanco en el camino «source-backed» dependen de DuckDB
+  - [x] `FUN-70` (Bajo) Huellas normalizadas: el camino ASCII y el Unicode no coinciden en el espacio vertical (U+000B) — hecho el 2026-10-05
+  - [x] `FUN-71` (Bajo) «Quitar columnas constantes» elimina columnas que mezclan un valor único con nulos — hecho el 2026-10-05
+  - [x] `FUN-72` (Bajo) Validación de receta v1 no rechaza `export_options` y la validación de presupuesto de texto omite campos — hecho el 2026-10-05
+  - [x] `FUN-73` (Bajo) Mínimo/máximo de texto en el camino eager compara `AnyValue::to_string()` (posiblemente con comillas) y no el texto — hecho el 2026-10-05
+  - [x] `FUN-74` (Bajo) El recuento de «celdas reemplazadas» incluye columnas que `keepColumns` descarta después — hecho el 2026-10-05
+  - [x] `FUN-75` (Bajo) Orden de salida de grupos y fechas en blanco en el camino «source-backed» dependen de DuckDB — hecho el 2026-10-05
 - [ ] **RV86** — **Motor de recetas** — Mensajes de error con jerga interna y mezcla de inglés (y 1 problemas más) · *Esfuerzo: 4 h*
   - Criterio de cierre: Se cumplen los criterios de aceptación de TXT-14, LIM-09.
   - [ ] `TXT-14` (Bajo) Mensajes de error con jerga interna y mezcla de inglés

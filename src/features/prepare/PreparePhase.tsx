@@ -853,8 +853,9 @@ function CleaningSignals({
       // FUN-47: the engine leaves personal data and identifiers unfilled.
       && !column.privacySignal && !looksLikeIdentifier(column.name),
   );
+  // FUN-71: the same rule as the engine: one value in every row, no empty cell.
   const constant = profile.columns.filter(
-    (column) => profile.rowCount > 1 && column.uniqueCount <= 1 && column.nullCount < profile.rowCount,
+    (column) => profile.rowCount > 1 && column.uniqueCount <= 1 && column.nullCount === 0 && !isRowAuditColumn(column.name),
   );
   const empty = profile.columns.filter(
     (column) => profile.rowCount > 0 && column.nullCount === profile.rowCount,

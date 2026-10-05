@@ -1370,7 +1370,9 @@ fn duckdb_date_expression(
     if format == RecipeDateFormat::Iso8601 {
         return Ok(duckdb_iso8601_expression(column, target));
     }
-    let value = format!("NULLIF(TRIM(CAST({column} AS VARCHAR)), '')");
+    // FUN-75: a cell of only spaces is an invalid date, as in eager and lazy;
+    // `NULLIF(..., '')` turned it into an empty cell here.
+    let value = format!("TRIM(CAST({column} AS VARCHAR))");
     let pattern = recipe_date_pattern(format).unwrap_or_default();
     let parsed = format!(
         "strptime(CASE WHEN {value} IS NULL OR regexp_full_match({value}, {}) THEN {value} ELSE {} END, {})",
@@ -2268,15 +2270,20 @@ fn source_backed_projection_query(
         "{final_ctes} SELECT {} FROM {final_source} AS t{order_clause}",
         selected.join(", ")
     );
-    let replacement_count = if plan.replacement_columns.is_empty() {
+    // FUN-74: cells of a column `keepColumns` drops are not counted.
+    let counted_replacement_columns = plan
+        .replacement_columns
+        .iter()
+        .filter(|column| recipe.keep_columns.is_none() || plan.selected_columns.contains(*column))
+        .collect::<Vec<_>>();
+    let replacement_count = if counted_replacement_columns.is_empty() {
         None
     } else {
         let replacement = recipe
             .find_replace
             .as_ref()
             .expect("las columnas de reemplazo requieren una receta de reemplazo");
-        let changed_terms = plan
-            .replacement_columns
+        let changed_terms = counted_replacement_columns
             .iter()
             .map(|column| -> Result<String, String> {
                 let identifier = duckdb_identifier(column);

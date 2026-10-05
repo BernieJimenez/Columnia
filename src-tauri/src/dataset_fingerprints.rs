@@ -158,7 +158,8 @@ fn push_normalized_text(output: &mut Vec<u8>, value: &str) {
         let mut emitted = false;
         let mut pending_space = false;
         for byte in value.bytes() {
-            if byte.is_ascii_whitespace() {
+            // FUN-70: the same predicate as the Unicode branch (`\x0b` included).
+            if char::from(byte).is_whitespace() {
                 if emitted {
                     pending_space = true;
                 }
@@ -205,7 +206,8 @@ fn write_normalized_text_fingerprint(hasher: &mut Xxh3, value: &str) {
         let mut emitted = false;
         let mut pending_space = false;
         for byte in value.bytes() {
-            if byte.is_ascii_whitespace() {
+            // FUN-70: the same predicate as the Unicode branch (`\x0b` included).
+            if char::from(byte).is_whitespace() {
                 if emitted {
                     pending_space = true;
                 }
@@ -304,6 +306,22 @@ pub(crate) fn row_fingerprint(
 mod tests {
     use super::*;
     use polars::prelude::*;
+
+    #[test]
+    fn a_vertical_tab_is_a_space_with_or_without_accents() {
+        // FUN-70: the ASCII branch did not treat `\x0b` as a space.
+        let frame = df!("texto" => ["a\u{b}b", "a b", "á\u{b}b", "á b"]).unwrap();
+        let columns = normalized_fingerprint_columns(frame.columns()).unwrap();
+        let fingerprints = (0..frame.height())
+            .map(|row| normalized_row_fingerprint(&columns, row).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(fingerprints[0], fingerprints[1]);
+        assert_eq!(fingerprints[2], fingerprints[3]);
+        assert_eq!(
+            normalized_row_fingerprints_range(frame.columns(), 0, 4, &|| false).unwrap(),
+            fingerprints
+        );
+    }
 
     #[test]
     fn range_fingerprints_match_row_fingerprints_across_chunks() {

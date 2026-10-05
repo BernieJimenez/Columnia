@@ -3606,9 +3606,11 @@ fn source_backed_removable_columns(
                 .copied()
                 .unwrap_or_default();
             let removable = match cleanup {
+                // FUN-71: one value in every row, no empty cell.
                 SourceBackedColumnCleanup::Constant => {
-                    distinct_counts.as_ref()?.get(index).copied()? <= 1
-                        && null_count < dataset.row_count
+                    dataset.row_count > 1
+                        && distinct_counts.as_ref()?.get(index).copied()? <= 1
+                        && null_count == 0
                 }
                 SourceBackedColumnCleanup::Empty => null_count == dataset.row_count,
                 SourceBackedColumnCleanup::HighNull => {
@@ -3627,7 +3629,11 @@ fn source_backed_removable_columns(
             removable.then(|| column.clone())
         })
         .collect::<Vec<_>>();
-    candidates.truncate(dataset.frame.width().saturating_sub(1));
+    let data_columns = columns
+        .iter()
+        .filter(|column| *column != "_cambios")
+        .count();
+    candidates.truncate(data_columns.saturating_sub(1));
     Ok(candidates)
 }
 

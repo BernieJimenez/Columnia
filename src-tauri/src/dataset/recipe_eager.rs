@@ -1138,10 +1138,23 @@ pub(super) fn add_calculated_column(
     Ok(())
 }
 
+/// FUN-74: whether a replaced column reaches the output, so its cells count.
+pub(super) fn replacement_is_kept(
+    name: &str,
+    keep_columns: Option<&[String]>,
+    renames: &HashMap<&str, &str>,
+) -> bool {
+    keep_columns.is_none_or(|kept| {
+        kept.iter()
+            .any(|column| remapped_name(column, renames) == name)
+    })
+}
+
 pub(super) fn apply_find_replace(
     frame: &mut DataFrame,
     recipe: &FindReplaceRecipe,
     renames: &HashMap<&str, &str>,
+    keep_columns: Option<&[String]>,
 ) -> Result<usize, String> {
     let regex = compile_find_replace_pattern(recipe)?;
     let targets = match recipe.scope {
@@ -1175,6 +1188,7 @@ pub(super) fn apply_find_replace(
             ));
         }
         let values = strict_column_text(column)?;
+        let counted = replacement_is_kept(&name, keep_columns, renames);
         let replaced = values
             .into_iter()
             .map(|value| {
@@ -1188,7 +1202,7 @@ pub(super) fn apply_find_replace(
                         })
                         .unwrap_or_else(|| value.replace(&recipe.find, &recipe.replace));
                     if updated != value {
-                        count += 1;
+                        count += usize::from(counted);
                         updated
                     } else {
                         value
@@ -1856,6 +1870,15 @@ pub(super) fn apply_group_summary(
                                                 a < b
                                             }
                                         }
+                                        // FUN-73: text compares as text; `Display`
+                                        // may quote it, which reorders "a b" and "a".
+                                        (AnyValue::String(a), AnyValue::String(b)) => {
+                                            if take_max {
+                                                a > b
+                                            } else {
+                                                a < b
+                                            }
+                                        }
                                         _ => {
                                             if take_max {
                                                 value.to_string() > current.to_string()
@@ -2386,7 +2409,12 @@ pub(super) fn apply_eager_recipe_to_frame_with_exception_policy(
         apply_recipe_filters(candidate, &recipe.filters, &rename_map)?;
     let removed_row_count = exception_removed_row_count + recipe_removed_row_count;
     let replaced_cell_count = if let Some(find_replace) = &recipe.find_replace {
-        apply_find_replace(&mut candidate, find_replace, &rename_map)?
+        apply_find_replace(
+            &mut candidate,
+            find_replace,
+            &rename_map,
+            recipe.keep_columns.as_deref(),
+        )?
     } else {
         0
     };

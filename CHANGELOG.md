@@ -203,6 +203,16 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Motor de recetas: el tabulador vertical cuenta como espacio también en textos
+  ASCII al comparar filas parecidas; «Quitar columnas constantes» ya no elimina
+  una columna con un valor y huecos, ni cuenta `_cambios` como la columna que
+  debe quedar; una prueba fija que cada campo de texto de cada operación tiene
+  límite (`export_options` se sigue admitiendo en v1 porque ya existía
+  entonces); el mínimo y el máximo de texto coinciden entre caminos; «celdas
+  reemplazadas» solo cuenta las columnas que se conservan; una celda de fecha
+  con solo espacios es inválida también en el camino source-backed, y una prueba
+  con 400 000 filas fija el orden de los grupos (FUN-70, FUN-71, FUN-72, FUN-73,
+  FUN-74, FUN-75).
 - CLI: `--opción=valor` permite valores que empiezan por `--` (`--sheet=--x`);
   `project-list`, `project-inspect`, `project-export` y `project-delete` ya no
   crean un almacén inexistente y el listado marca con `snapshotAvailable` los

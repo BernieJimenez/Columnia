@@ -5,24 +5,29 @@ use super::{privacy_signal, HIGH_NULL_COLUMN_THRESHOLD_PERCENTAGE, REDACTED_VALU
 pub(super) fn remove_constant_columns_from_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, Vec<String>), String> {
-    if frame.height() <= 1 || frame.width() <= 1 {
+    // FUN-71: `_cambios` is not a data column, so it does not count as the
+    // one column that must remain.
+    let data_columns = frame
+        .columns()
+        .iter()
+        .filter(|column| column.name() != "_cambios")
+        .count();
+    if frame.height() <= 1 || data_columns <= 1 {
         return Ok((frame.clone(), Vec::new()));
     }
 
+    // FUN-71: constant means one value in every row; a value with some empty
+    // cells still tells which rows had it, so it is kept.
     let candidates = frame
         .columns()
         .iter()
         .filter(|column| column.name() != "_cambios")
-        .filter_map(|column| {
-            let null_count = column.null_count();
-            let unique_count = column
-                .n_unique()
-                .ok()?
-                .saturating_sub(usize::from(null_count > 0));
-            (unique_count <= 1 && null_count < frame.height()).then(|| column.name().to_string())
+        .filter(|column| {
+            column.null_count() == 0 && column.n_unique().is_ok_and(|unique| unique <= 1)
         })
+        .map(|column| column.name().to_string())
         .collect::<Vec<_>>();
-    let removable_count = candidates.len().min(frame.width().saturating_sub(1));
+    let removable_count = candidates.len().min(data_columns.saturating_sub(1));
     let removed_columns = candidates
         .into_iter()
         .take(removable_count)
