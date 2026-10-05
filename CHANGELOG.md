@@ -203,6 +203,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Nuevo test de exportación sin cargar en memoria (CSV, CSV para Excel y SQL)
+  que falla si se pierden ceros a la izquierda, códigos largos o decimales como
+  `1.50`; el perfil con NaN e infinitos queda cubierto por el test de RV48
+  (QA-17, QA-19).
 - Un número entero de un libro XLSX (que Excel guarda como decimal) se lee como
   entero: exportar e importar un xlsx conserva `1` y no `1.0`, y comparar un
   xlsx exportado con su original ya no falla por tipo de clave; la equivalencia

@@ -271,11 +271,11 @@ medio = 1 día; agregado por suma.
   - [x] `QA-04` (Medio) La protección contra enlaces y puntos de reanálisis en los destinos no tiene ninguna prueba efectiva — hecho el 2026-10-04
   - [x] `QA-15` (Medio) Recetas: ningún test de equivalencia lazy↔eager ni con datos en varios chunks; los tests lazy usan 2-6 filas — hecho el 2026-10-04
   - [x] `QA-16` (Medio) La suite fija como esperado que un entero de Excel vuelva como `1.0` (ida y vuelta xlsx cambia i64→f64) — hecho el 2026-10-04
-- [ ] **RV62** — **Pruebas del motor** — El test de ida y vuelta solo cubre el camino eager de exportación; el source-backed (`all… (y 2 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV62** — **Pruebas del motor** — El test de ida y vuelta solo cubre el camino eager de exportación; el source-backed (`all… (y 2 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-17, QA-18, QA-19.
-  - [ ] `QA-17` (Medio) El test de ida y vuelta solo cubre el camino eager de exportación; el source-backed (`all_varchar`) no tiene equivalente
+  - [x] `QA-17` (Medio) El test de ida y vuelta solo cubre el camino eager de exportación; el source-backed (`all_varchar`) no tiene equivalente — hecho el 2026-10-04
   - [x] `QA-18` (Medio) Explorar: ningún test cruza el filtro de rango con los intervalos del histograma (rango cerrado frente a bins semiabiertos) — hecho el 2026-10-03
-  - [ ] `QA-19` (Medio) No hay ningún test de perfil numérico con NaN o infinito (el `expect` de Q1/Q3 en `src-tauri/src/dataset/numeric_profile.rs:549-550` queda sin cubrir)
+  - [x] `QA-19` (Medio) No hay ningún test de perfil numérico con NaN o infinito (el `expect` de Q1/Q3 en `src-tauri/src/dataset/numeric_profile.rs:549-550` queda sin cubrir) — hecho el 2026-10-04
 - [ ] **RV63** — **Documentación** — CONTEXTO.md: cifras e inventario de IPC desactualizados y contradictorios entre sí (y 2 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de DOC-01, DOC-03, DOC-04.
   - [ ] `DOC-01` (Medio) CONTEXTO.md: cifras e inventario de IPC desactualizados y contradictorios entre sí

@@ -20614,3 +20614,28 @@ fn compared_file_persistence_stops_on_cancellation() {
         OPERATION_CANCELLED_MESSAGE
     );
 }
+
+/// QA-17: exporting a large file without loading it (DuckDB, `all_varchar`)
+/// keeps leading zeros and long codes exactly as written, in CSV, CSV for
+/// Excel and SQL.
+#[test]
+fn source_backed_exports_keep_leading_zeros_and_long_codes() {
+    let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+    let source = directory.path().join("codigos.csv");
+    fs::write(&source, "codigo,cuenta,importe\n00123,0012345678901234567890,1.50\n007,0000000000000000001,2\n").unwrap();
+    let size = fs::metadata(&source).unwrap().len();
+
+    let csv = directory.path().join("salida.csv");
+    export_source_backed_csv_atomic(&source, size, &csv, |_, _| {}, || false).expect("CSV source-backed");
+    let excel = directory.path().join("salida-excel.csv");
+    export_source_backed_delimited_atomic(&source, size, &excel, true, |_, _| {}, || false).expect("CSV para Excel source-backed");
+    let sql = directory.path().join("salida.sql");
+    export_source_backed_sql_atomic(&source, size, &sql, |_, _| {}, || false).expect("SQL source-backed");
+
+    for path in [&csv, &excel, &sql] {
+        let text = fs::read_to_string(path).unwrap();
+        for code in ["00123", "007", "0012345678901234567890", "0000000000000000001", "1.50"] {
+            assert!(text.contains(code), "{} perdió {code}:\n{text}", path.display());
+        }
+    }
+}
