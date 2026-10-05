@@ -203,6 +203,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Revisar: el calendario diario rellena los días sin filas para que cada día
+  caiga en su día de la semana; cambiar las filas de muestra vuelve a analizar
+  con ellas; la suite de frontend se ejecuta también con coma decimal (`npm run
+  test:locale`, incluido en check.ps1) y hay pruebas de concurrencia del
+  controlador de Revisar (FUN-52, UX-15, QA-34, QA-36).
 - Revisar: un porcentaje con nulos ya no se redondea a «100,0 %» (se muestra
   «>99,9 %»), una página sin filas no muestra un rango invertido, las medias
   usan el formato común y la columna de auditoría «_cambios» se trata igual en

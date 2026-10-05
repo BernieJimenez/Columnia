@@ -105,6 +105,18 @@ describe("useReviewController", () => {
     expect(result.current.profileStatus).toEqual({ kind: "error", message: "disco lleno" });
   });
 
+  it("choosing another sample size analyses again with it (UX-15)", async () => {
+    const getProfile = vi.spyOn(bridge, "getDatasetProfile").mockResolvedValue(profile);
+    const { result } = setup();
+    await act(async () => result.current.analyzeQuality());
+    expect(result.current.profileStatus.kind).toBe("ready");
+    const firstSample = getProfile.mock.calls[0][1];
+    const otherSample = firstSample === 10_000 ? 50_000 : 10_000;
+    await act(async () => result.current.setAnalysisSampleRows(otherSample));
+    await waitFor(() => expect(getProfile).toHaveBeenCalledTimes(2));
+    expect(getProfile.mock.calls[1][1]).toBe(otherSample);
+  });
+
   it("compares, pages conflicts, keeps the previous result on cancel and clears", async () => {
     const compare = vi.spyOn(bridge, "compareDataset").mockResolvedValueOnce(comparison);
     vi.spyOn(bridge, "getDatasetConflictPage").mockResolvedValueOnce({
@@ -218,6 +230,43 @@ describe("useReviewController", () => {
     expect(cancel).toHaveBeenCalledWith("reviewMutation");
     await act(async () => pending.reject(new Error("Operación cancelada por el usuario.")));
     expect(result.current.comparison.mutationStatus).toEqual({ kind: "idle" });
+    expect(result.current.busy).toBe(false);
+  });
+
+  it("a cancellation that arrives as the mutation finishes leaves the phase usable (QA-36)", async () => {
+    vi.spyOn(bridge, "compareDataset").mockResolvedValue(comparison);
+    const { result, onDatasetReplaced } = setup();
+    await act(async () => result.current.comparison.onCompare());
+    await waitFor(() => expect(result.current.comparison.status.kind).toBe("ready"));
+
+    const pending = deferred<DatasetPreview>();
+    vi.spyOn(bridge, "resolveDatasetConflicts").mockReturnValueOnce(pending.promise);
+    const cancelRequest = deferred<void>();
+    vi.spyOn(bridge, "cancelOperation").mockReturnValueOnce(cancelRequest.promise);
+    act(() => result.current.comparison.onResolveConflicts([]));
+    await waitFor(() => expect(result.current.busy).toBe(true));
+    // Cancel is requested, but the mutation completes before the request returns.
+    act(() => void result.current.comparison.onCancelMutation?.());
+    await act(async () => pending.resolve(dataset));
+    await act(async () => cancelRequest.resolve());
+    expect(result.current.busy).toBe(false);
+    expect(onDatasetReplaced).toHaveBeenCalledWith(dataset, "resolveConflicts");
+
+    // Another operation can start right away.
+    const compareAgain = vi.spyOn(bridge, "compareDataset").mockResolvedValueOnce(comparison);
+    await act(async () => result.current.comparison.onCompare());
+    expect(compareAgain).toHaveBeenCalled();
+  });
+
+  it("a second comparison while one is in flight is not started (QA-36)", async () => {
+    const first = deferred<DatasetComparison>();
+    const compare = vi.spyOn(bridge, "compareDataset").mockReturnValueOnce(first.promise);
+    const { result } = setup();
+    act(() => void result.current.comparison.onCompare());
+    await waitFor(() => expect(result.current.busy).toBe(true));
+    act(() => void result.current.comparison.onCompare());
+    expect(compare).toHaveBeenCalledTimes(1);
+    await act(async () => first.resolve(comparison));
     expect(result.current.busy).toBe(false);
   });
 

@@ -8,6 +8,7 @@ import type {
   NumericCorrelationMatrix,
   TemporalAggregationKind,
   TemporalAggregationSeries,
+  TemporalPeriod,
   TemporalSeriesSummary,
 } from "../../bridge";
 import { formatDecimal, formatPercent } from "../../format";
@@ -1003,7 +1004,33 @@ function TemporalLineChart({
   );
 }
 
-function DailyTemporalCalendar({ summary }: { summary: TemporalSeriesSummary }) {
+/** Calendar days never filled beyond about thirteen months. */
+const MAX_CALENDAR_DAYS = 400;
+
+/**
+ * FUN-52: the calendar grid assumes one cell per day. Days the engine did not
+ * return between the first and the last are added with zero rows, so each
+ * day lands under its weekday; a period that is not a day goes at the end.
+ */
+export function contiguousCalendarDays(periods: TemporalPeriod[]): TemporalPeriod[] {
+  const days = periods.filter((period) => parseTemporalDay(period.period) !== null);
+  const others = periods.filter((period) => parseTemporalDay(period.period) === null);
+  if (days.length < 2) return [...days, ...others];
+  const byDay = new Map(days.map((period) => [period.period, period]));
+  const first = parseTemporalDay(days[0].period)!;
+  const last = parseTemporalDay(days[days.length - 1].period)!;
+  const span = Math.round((last.getTime() - first.getTime()) / 86_400_000) + 1;
+  if (span <= days.length || span > MAX_CALENDAR_DAYS) return [...days, ...others];
+  const filled: TemporalPeriod[] = [];
+  for (let offset = 0; offset < span; offset += 1) {
+    const key = new Date(first.getTime() + offset * 86_400_000).toISOString().slice(0, 10);
+    filled.push(byDay.get(key) ?? { period: key, rowCount: 0, percentage: 0 });
+  }
+  return [...filled, ...others];
+}
+
+function DailyTemporalCalendar({ summary: rawSummary }: { summary: TemporalSeriesSummary }) {
+  const summary = { ...rawSummary, periods: contiguousCalendarDays(rawSummary.periods) };
   const calendarLabel = `Calendario diario para ${summary.column}`;
   const firstWeekday = temporalDayWeekday(summary.periods[0]?.period);
   const leadingEmptyDays = firstWeekday === null ? 0 : firstWeekday;

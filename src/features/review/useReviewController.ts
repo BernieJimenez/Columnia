@@ -104,6 +104,9 @@ export function useReviewController({
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>({ kind: "idle" });
   const [analysisSampleRows, setAnalysisSampleRows] = useState<AnalysisSampleRows>(readAnalysisSampleRowsPreference);
   const [queryEngine, setQueryEngine] = useState<DatasetQueryEngine>(readQueryEnginePreference);
+  // UX-15: the sample the current profile was computed with; choosing
+  // another one runs the analysis again instead of waiting for a change.
+  const profiledSampleRows = useRef<AnalysisSampleRows | null>(null);
   const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
   const [sqlHistory, setSqlHistory] = useState<SqlQueryHistoryEntry[]>([]);
   const [comparisonStatus, setComparisonStatus] = useState<ComparisonStatus>({ kind: "idle" });
@@ -170,7 +173,9 @@ export function useReviewController({
     // FUN-48: a project brings its own engine and sample; the person's global
     // preference only changes when they use the selector.
     setQueryEngine(workspace.queryEngine ?? readQueryEnginePreference());
-    setAnalysisSampleRows(workspace.analysisSampleRows ?? readAnalysisSampleRowsPreference());
+    const restoredSampleRows = workspace.analysisSampleRows ?? readAnalysisSampleRowsPreference();
+    profiledSampleRows.current = restoredSampleRows;
+    setAnalysisSampleRows(restoredSampleRows);
   }
 
   function invalidateProfile() {
@@ -185,6 +190,7 @@ export function useReviewController({
     const isCurrentRequest = () =>
       datasetRevisionRef.current === requestedRevision &&
       activeProfileRequestRef.current?.sequence === sequence;
+    profiledSampleRows.current = analysisSampleRows;
     setProfileStatus(beginProfileAnalysis());
     try {
       const profile = await getDatasetProfile((progress) => {
@@ -471,6 +477,15 @@ export function useReviewController({
     joinStatus.kind === "loading" ||
     mutationStatus.kind === "running" ||
     mutationStatus.kind === "finalizing";
+
+  const reanalyzeForSample = useEffectEvent(() => {
+    if (profileStatus.kind !== "ready") return;
+    if (profiledSampleRows.current === null || profiledSampleRows.current === analysisSampleRows) return;
+    void analyzeQuality();
+  });
+  useEffect(() => {
+    reanalyzeForSample();
+  }, [analysisSampleRows]);
 
   return {
     profileStatus,

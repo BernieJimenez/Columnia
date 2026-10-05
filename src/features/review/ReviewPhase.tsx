@@ -236,7 +236,7 @@ function QualitySection({
               ))}
             </select>
           </label>
-          <p>Se aplica al próximo análisis y solo limita las correlaciones; el resto del perfil conserva su cobertura.</p>
+          <p>Al cambiarla, el análisis se repite con esta muestra; solo limita las correlaciones y el resto del perfil conserva su cobertura.</p>
         </div>
       </details>
       <LocalQueryPanel

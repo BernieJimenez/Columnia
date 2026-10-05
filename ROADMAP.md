@@ -331,18 +331,18 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Se cumplen los criterios de aceptación de LIM-06, QA-33.
   - [x] `LIM-06` (Bajo) Props declaradas y no usadas; manejadores opcionales con no-op silencioso — hecho el 2026-10-04
   - [x] `QA-33` (Bajo) `src/features/prepare/proposalModel.test.ts` / `src/features/prepare/PrepareProposal.test.tsx`: los casos de identificadores son solo en inglés y el botón puede decir «Aplicar 0 cambios» — hecho el 2026-10-04
-- [ ] **RV72** — **Revisar** — La preferencia global de motor/muestra se sobrescribe al abrir un proyecto (y 5 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV72** — **Revisar** — La preferencia global de motor/muestra se sobrescribe al abrir un proyecto (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-48, FUN-49, FUN-50, FUN-51, FUN-52, UX-15.
   - [x] `FUN-48` (Bajo) La preferencia global de motor/muestra se sobrescribe al abrir un proyecto — hecho el 2026-10-04
   - [x] `FUN-49` (Bajo) Formato numérico mezclado: `toLocaleString()` frente a `formatDecimal`, y «_cambios» codificado — hecho el 2026-10-05
   - [x] `FUN-50` (Bajo) Página vacía muestra «Filas 101–100» — hecho el 2026-10-05
   - [x] `FUN-51` (Bajo) Porcentajes redondeados a «100,0 %» con nulos reales — hecho el 2026-10-05
-  - [ ] `FUN-52` (Bajo) Calendario diario supone días contiguos y resumidos
-  - [ ] `UX-15` (Bajo) El ajuste «filas de muestra» dice aplicarse «al próximo análisis» pero no hay forma de lanzarlo
-- [ ] **RV73** — **Revisar** — Tests de cifras dependen de la configuración regional del sistema (y 1 problemas más) · *Esfuerzo: 1,2 días*
+  - [x] `FUN-52` (Bajo) Calendario diario supone días contiguos y resumidos — hecho el 2026-10-05
+  - [x] `UX-15` (Bajo) El ajuste «filas de muestra» dice aplicarse «al próximo análisis» pero no hay forma de lanzarlo — hecho el 2026-10-05
+- [x] **RV73** — **Revisar** — Tests de cifras dependen de la configuración regional del sistema (y 1 problemas más) · *Esfuerzo: 1,2 días* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-34, QA-36.
-  - [ ] `QA-34` (Bajo) Tests de cifras dependen de la configuración regional del sistema
-  - [ ] `QA-36` (Bajo) Cobertura del controlador de Revisar: sin pruebas de carreras ni de exclusión mutua
+  - [x] `QA-34` (Bajo) Tests de cifras dependen de la configuración regional del sistema — hecho el 2026-10-05
+  - [x] `QA-36` (Bajo) Cobertura del controlador de Revisar: sin pruebas de carreras ni de exclusión mutua — hecho el 2026-10-05
 - [ ] **RV74** — **Proyectos** — `runExclusive` y `save` abandonan en silencio si hay una operación activa o `blocked` (y 2 problemas más) · *Esfuerzo: 6 h*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-53, UX-17, QA-35.
   - [ ] `FUN-53` (Bajo) `runExclusive` y `save` abandonan en silencio si hay una operación activa o `blocked`

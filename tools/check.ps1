@@ -212,6 +212,8 @@ try {
     # that can leave orphaned Vitest processes after a cancelled run.
     Invoke-Checked "Frontend lint" $ProjectRoot { npm run lint }
     Invoke-Checked "Frontend tests" $ProjectRoot { npm test -- --run --maxWorkers=1 }
+    # QA-34: the same suite with a decimal-comma regional setting.
+    Invoke-Checked "Frontend tests (es-ES)" $ProjectRoot { npm run test:locale }
     if ($Profile -in @("Full", "Release", "Package")) {
         Invoke-Checked "Frontend coverage" $ProjectRoot { npm run test:coverage }
     }
