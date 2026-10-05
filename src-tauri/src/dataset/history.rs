@@ -205,8 +205,18 @@ pub(super) struct HistoryManager {
     pub(super) unsaved_current: Option<String>,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// COD-18: history folders this thread created, for tests that must not
+    /// see the ones of other tests running in parallel.
+    pub(super) static DEFERRED_HISTORIES_CREATED: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
 impl HistoryManager {
     pub(super) fn deferred() -> Result<Self, String> {
+        #[cfg(test)]
+        DEFERRED_HISTORIES_CREATED.with(|count| count.set(count.get() + 1));
         let (lock, directory) = history_directory()?;
         Ok(Self {
             _lock: lock,

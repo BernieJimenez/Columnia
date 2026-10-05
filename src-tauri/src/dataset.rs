@@ -66,6 +66,7 @@ use history::{
 use history::{redo_dataset, undo_dataset};
 pub use history::{HistoryResult, HistoryState};
 mod import_conventions;
+use import_conventions::UnconvertedColumn;
 mod import_loading;
 #[path = "dataset/import_profile_validation.rs"]
 mod import_profile_validation;
@@ -8876,6 +8877,9 @@ pub struct DatasetImportSchemaPreview {
     row_count: usize,
     columns: Vec<DatasetColumn>,
     schema_mismatch: Option<ImportProfileMismatch>,
+    /// FUN-80: columns the chosen conventions left as text, and why.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    unconverted_columns: Vec<UnconvertedColumn>,
 }
 
 #[tauri::command]

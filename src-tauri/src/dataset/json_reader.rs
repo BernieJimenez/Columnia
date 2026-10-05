@@ -293,6 +293,26 @@ where
                 }
                 record_number = record_number.saturating_add(1);
             }
+            // FUN-81: an API response (`{"total":2,"items":[...]}`) is one
+            // object whose records sit in a field; read as is it becomes one
+            // row with that field as JSON text, without warning.
+            if let [record] = records.as_slice() {
+                let nested = record
+                    .iter()
+                    .filter(|(_, value)| {
+                        value.as_array().is_some_and(|items| {
+                            !items.is_empty() && items.iter().all(JsonValue::is_object)
+                        })
+                    })
+                    .map(|(name, _)| format!("«{name}»"))
+                    .collect::<Vec<_>>();
+                if !nested.is_empty() {
+                    return Err(format!(
+                        "El JSON es un solo objeto que guarda sus registros en {}. Columnia lo cargaría como una única fila: guarda solo ese arreglo de objetos en un archivo y cárgalo.",
+                        nested.join(" y ")
+                    ));
+                }
+            }
             records
         }
         None => return Err("El archivo JSON está vacío.".to_owned()),

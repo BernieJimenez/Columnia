@@ -152,14 +152,112 @@ where
     ensure_not_cancelled(is_cancelled())?;
     let expected_rows = row_count.saturating_sub(offset).min(limit);
     if page_frame.height() != expected_rows {
-        return Err(
-            "La fuente cambió durante la lectura y ya no coincide con el dataset activo."
-                .to_owned(),
-        );
+        return Err(SOURCE_CHANGED_DURING_PAGE.to_owned());
     }
     let mut page = dataset_page_with_cancel(&page_frame, 0, limit, is_cancelled)?;
     page.offset = offset;
     Ok(page)
+}
+
+/// ARQ-07: a source that no longer matches the dataset is said, not hidden
+/// behind a full materialization.
+pub(super) const SOURCE_CHANGED_DURING_PAGE: &str =
+    "La fuente cambió durante la lectura y ya no coincide con el dataset activo.";
+
+/// Where a page can be read from without materializing the dataset.
+enum PageSource {
+    Snapshot {
+        path: PathBuf,
+        row_count: usize,
+    },
+    File {
+        path: PathBuf,
+        extension: String,
+        row_count: usize,
+        header_mode: SpreadsheetHeaderMode,
+    },
+}
+
+/// One page of the active dataset. ARQ-07: the dataset lock covers only
+/// choosing where to read from; the disk read runs without it, so a slow page
+/// does not block undo, saving or a query.
+pub(super) fn dataset_page_from_state<C>(
+    state: &DatasetState,
+    offset: usize,
+    limit: usize,
+    is_cancelled: C,
+) -> Result<DatasetPage, String>
+where
+    C: Fn() -> bool + Copy + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let source = {
+        let current = state.current.lock_recovering();
+        let dataset = current.as_ref().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        if let Some((path, _, row_count)) = current_history_parquet_snapshot(dataset) {
+            Some(PageSource::Snapshot { path, row_count })
+        } else {
+            // A degraded history still has a safe, immutable source reference
+            // while the dataset has not been mutated: read only the page.
+            current_duckdb_file_source(dataset).and_then(|(path, _)| {
+                let extension = dataset_extension(&path).ok()?;
+                Some(PageSource::File {
+                    path,
+                    extension,
+                    row_count: dataset.row_count,
+                    header_mode: dataset
+                        .delimited_header_mode
+                        .unwrap_or(SpreadsheetHeaderMode::FirstRow),
+                })
+            })
+        }
+    };
+    match source {
+        Some(PageSource::Snapshot { path, row_count }) => {
+            return dataset_page_from_parquet_with_cancel(
+                &path,
+                row_count,
+                offset,
+                limit,
+                is_cancelled,
+            );
+        }
+        Some(PageSource::File {
+            path,
+            extension,
+            row_count,
+            header_mode,
+        }) => match dataset_page_from_source_with_header_and_cancel(
+            &path,
+            &extension,
+            row_count,
+            offset,
+            limit,
+            header_mode,
+            is_cancelled,
+        ) {
+            Ok(page) => return Ok(page),
+            Err(error)
+                if error == OPERATION_CANCELLED_MESSAGE || error == SOURCE_CHANGED_DURING_PAGE =>
+            {
+                return Err(error)
+            }
+            // A page the direct reader cannot cut (an unusual file) still
+            // comes from the materialized dataset below.
+            Err(_) => {}
+        },
+        None => {}
+    }
+
+    let mut current = state.current.lock_recovering();
+    let dataset = current.as_mut().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    materialize_loaded_dataset_with_cancel(dataset, is_cancelled)?;
+    ensure_not_cancelled(is_cancelled())?;
+    dataset_page_with_cancel(&dataset.frame, offset, limit, is_cancelled)
 }
 
 pub(super) async fn get_dataset_page_impl(
@@ -175,50 +273,7 @@ pub(super) async fn get_dataset_page_impl(
                 .state::<DatasetState>()
                 .dataset_page_was_cancelled(generation)
         };
-        ensure_not_cancelled(is_cancelled())?;
-
-        let state = app.state::<DatasetState>();
-        let mut current = state.current.lock_recovering();
-        let dataset = current.as_mut().ok_or_else(|| {
-            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-        })?;
-
-        if let Some((path, _, row_count)) = current_history_parquet_snapshot(dataset) {
-            return dataset_page_from_parquet_with_cancel(
-                &path,
-                row_count,
-                offset,
-                limit,
-                is_cancelled,
-            );
-        }
-
-        // A degraded history still has a safe, immutable source reference while
-        // the dataset has not been mutated. Read only the requested page from
-        // disk instead of duplicating the whole active frame for the preview.
-        if let Some((path, _)) = current_duckdb_file_source(dataset) {
-            if let Ok(extension) = dataset_extension(&path) {
-                match dataset_page_from_source_with_header_and_cancel(
-                    &path,
-                    &extension,
-                    dataset.row_count,
-                    offset,
-                    limit,
-                    dataset
-                        .delimited_header_mode
-                        .unwrap_or(SpreadsheetHeaderMode::FirstRow),
-                    is_cancelled,
-                ) {
-                    Ok(page) => return Ok(page),
-                    Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
-                    Err(_) => {}
-                }
-            }
-        }
-
-        materialize_loaded_dataset_with_cancel(dataset, is_cancelled)?;
-        ensure_not_cancelled(is_cancelled())?;
-        dataset_page_with_cancel(&dataset.frame, offset, limit, is_cancelled)
+        dataset_page_from_state(&app.state::<DatasetState>(), offset, limit, is_cancelled)
     })
     .await
     .map_err(|error| {

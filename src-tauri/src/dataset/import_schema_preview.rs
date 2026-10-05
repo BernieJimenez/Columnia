@@ -181,6 +181,7 @@ pub(super) async fn preview_dataset_selection_impl(
             .is_some_and(|value| value != ImportDateConvention::Unresolved)
             || number_convention
                 .is_some_and(|value| value != ImportNumberConvention::Unresolved);
+        let mut unconverted_columns = Vec::new();
         if is_delimited && conventions_selected {
             if source_backed {
                 return Err(
@@ -189,7 +190,7 @@ pub(super) async fn preview_dataset_selection_impl(
                 );
             }
             let conventions_app = app.clone();
-            frame = import_conventions::apply_import_conventions(
+            (frame, unconverted_columns) = import_conventions::apply_import_conventions_with_report(
                 &frame,
                 date_convention,
                 number_convention,
@@ -222,6 +223,7 @@ pub(super) async fn preview_dataset_selection_impl(
             row_count,
             columns,
             schema_mismatch,
+            unconverted_columns,
         })
     })
     .await

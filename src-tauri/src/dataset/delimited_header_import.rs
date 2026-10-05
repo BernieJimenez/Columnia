@@ -41,6 +41,10 @@ fn complete_delimited_sample_prefix(sample: &str, complete: bool) -> Result<&str
             b'"' if in_quotes && bytes.get(index + 1) == Some(&b'"') => index += 1,
             b'"' => in_quotes = !in_quotes,
             b'\n' if !in_quotes => complete_record_end = index + 1,
+            // FUN-79: a lone `\r` (classic Mac) also ends a record.
+            b'\r' if !in_quotes && bytes.get(index + 1) != Some(&b'\n') => {
+                complete_record_end = index + 1
+            }
             _ => {}
         }
         index += 1;
@@ -140,4 +144,30 @@ where
         first_row,
         generated,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_lone_carriage_return_ends_a_record_in_a_truncated_sample() {
+        // FUN-79: only `\n` used to end a record.
+        let carriage = ["a,b", "c,d", "e,f"].join("\r");
+        assert_eq!(
+            complete_delimited_sample_prefix(&carriage, false).unwrap(),
+            ["a,b", "c,d", ""].join("\r")
+        );
+        let windows = ["a,b", "c,d", "e"].join("\r\n");
+        assert_eq!(
+            complete_delimited_sample_prefix(&windows, false).unwrap(),
+            ["a,b", "c,d", ""].join("\r\n")
+        );
+        let quoted = format!("\"x{}y\",1{}2", '\r', '\r');
+        assert_eq!(
+            complete_delimited_sample_prefix(&quoted, false).unwrap(),
+            format!("\"x{}y\",1{}", '\r', '\r')
+        );
+        assert!(complete_delimited_sample_prefix("sin fin de fila", false).is_err());
+    }
 }

@@ -23,6 +23,20 @@ pub(super) fn validate_profile_conventions(
     Ok(())
 }
 
+/// FUN-80: a text column the chosen convention could not convert, and why:
+/// one invalid value keeps the whole column as text, so the person is told.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UnconvertedColumn {
+    pub(crate) column: String,
+    /// "date" or "number".
+    pub(crate) convention: &'static str,
+    /// Non-empty values that do not follow the convention.
+    pub(crate) invalid_count: usize,
+    /// The first of them, as written (`N/A`, `-`…).
+    pub(crate) example: String,
+}
+
 /// Applies only explicitly selected conventions to delimited text columns.
 /// Each column is converted atomically: one invalid non-null value leaves the
 /// entire original column untouched, avoiding silent nulls or partial casts.
@@ -35,94 +49,197 @@ pub(super) fn apply_import_conventions<C>(
 where
     C: Fn() -> bool,
 {
+    apply_import_conventions_with_report(frame, date_convention, number_convention, is_cancelled)
+        .map(|(converted, _)| converted)
+}
+
+/// [`apply_import_conventions`] plus the columns that looked like the
+/// convention (most values follow it) but kept their text (FUN-80).
+pub(super) fn apply_import_conventions_with_report<C>(
+    frame: &DataFrame,
+    date_convention: Option<ImportDateConvention>,
+    number_convention: Option<ImportNumberConvention>,
+    is_cancelled: C,
+) -> Result<(DataFrame, Vec<UnconvertedColumn>), String>
+where
+    C: Fn() -> bool,
+{
     let date_convention =
         date_convention.filter(|value| *value != ImportDateConvention::Unresolved);
     let number_convention =
         number_convention.filter(|value| *value != ImportNumberConvention::Unresolved);
     if date_convention.is_none() && number_convention.is_none() {
-        return Ok(frame.clone());
+        return Ok((frame.clone(), Vec::new()));
     }
     super::ensure_not_cancelled(is_cancelled())?;
 
     let mut converted = frame.clone();
+    let mut unconverted = Vec::new();
     for column in frame.columns() {
         super::ensure_not_cancelled(is_cancelled())?;
         let Ok(values) = column.str() else {
             continue;
         };
         let lexical = values.iter().collect::<Vec<_>>();
+        // The closest miss: the convention most values of the column follow.
+        let mut closest: Option<(&'static str, Rejection)> = None;
+        let mut keep_closest = |convention: &'static str, rejection: Rejection| {
+            if rejection.looks_like_the_convention()
+                && closest
+                    .as_ref()
+                    .is_none_or(|(_, current)| rejection.parsed > current.parsed)
+            {
+                closest = Some((convention, rejection));
+            }
+        };
 
         if let Some(convention) = date_convention {
-            if let Some(days) = parse_date_column(&lexical, convention, &is_cancelled)? {
-                let series = Series::new(column.name().clone(), days)
-                    .cast(&DataType::Date)
-                    .map_err(|error| {
-                        format!("No se pudo convertir una columna de fecha: {error}")
+            match parse_date_column(&lexical, convention, &is_cancelled)? {
+                ColumnParse::Converted(days) => {
+                    let series = Series::new(column.name().clone(), days)
+                        .cast(&DataType::Date)
+                        .map_err(|error| {
+                            format!("No se pudo convertir una columna de fecha: {error}")
+                        })?;
+                    converted.with_column(series.into()).map_err(|error| {
+                        format!("No se pudo actualizar una columna de fecha: {error}")
                     })?;
-                converted.with_column(series.into()).map_err(|error| {
-                    format!("No se pudo actualizar una columna de fecha: {error}")
-                })?;
-                continue;
+                    continue;
+                }
+                ColumnParse::Rejected(rejection) => keep_closest("date", rejection),
+                ColumnParse::Empty => {}
             }
         }
 
         if let Some(convention) = number_convention {
-            match convention {
+            let outcome = match convention {
                 ImportNumberConvention::Integer => {
-                    if let Some(parsed) = parse_integer_column(&lexical, &is_cancelled)? {
-                        converted
-                            .with_column(Series::new(column.name().clone(), parsed).into())
-                            .map_err(|error| {
-                                format!("No se pudo actualizar una columna entera: {error}")
-                            })?;
+                    match parse_integer_column(&lexical, &is_cancelled)? {
+                        ColumnParse::Converted(parsed) => Some(
+                            converted
+                                .with_column(Series::new(column.name().clone(), parsed).into())
+                                .map(|_| ())
+                                .map_err(|error| {
+                                    format!("No se pudo actualizar una columna entera: {error}")
+                                }),
+                        ),
+                        ColumnParse::Rejected(rejection) => {
+                            keep_closest("number", rejection);
+                            None
+                        }
+                        ColumnParse::Empty => None,
                     }
                 }
-                _ => {
-                    if let Some(parsed) = parse_decimal_column(&lexical, convention, &is_cancelled)?
-                    {
+                _ => match parse_decimal_column(&lexical, convention, &is_cancelled)? {
+                    ColumnParse::Converted(parsed) => Some(
                         converted
                             .with_column(Series::new(column.name().clone(), parsed).into())
+                            .map(|_| ())
                             .map_err(|error| {
                                 format!("No se pudo actualizar una columna decimal: {error}")
-                            })?;
+                            }),
+                    ),
+                    ColumnParse::Rejected(rejection) => {
+                        keep_closest("number", rejection);
+                        None
                     }
-                }
+                    ColumnParse::Empty => None,
+                },
+            };
+            if let Some(result) = outcome {
+                result?;
+                continue;
             }
         }
+        if let Some((convention, rejection)) = closest {
+            unconverted.push(UnconvertedColumn {
+                column: column.name().to_string(),
+                convention,
+                invalid_count: rejection.invalid,
+                example: rejection.example,
+            });
+        }
     }
-    Ok(converted)
+    Ok((converted, unconverted))
 }
 
-fn parse_date_column<C>(
+/// Values that did not follow a convention in a column that was not converted.
+struct Rejection {
+    parsed: usize,
+    invalid: usize,
+    example: String,
+}
+
+impl Rejection {
+    /// Most values follow the convention: the person likely expected it here.
+    fn looks_like_the_convention(&self) -> bool {
+        self.parsed > 0 && self.parsed >= self.invalid
+    }
+}
+
+enum ColumnParse<T> {
+    Converted(Vec<Option<T>>),
+    Rejected(Rejection),
+    /// Only empty cells: nothing to convert.
+    Empty,
+}
+
+/// Parses every value; the column converts only if all non-empty values do.
+fn parse_column<T, C>(
     values: &[Option<&str>],
-    convention: ImportDateConvention,
     is_cancelled: &C,
-) -> Result<Option<Vec<Option<i32>>>, String>
+    parse: impl Fn(&str) -> Option<T>,
+) -> Result<ColumnParse<T>, String>
 where
     C: Fn() -> bool,
 {
     let mut parsed = Vec::with_capacity(values.len());
-    let mut found_value = false;
+    let mut parsed_count = 0_usize;
+    let mut invalid = 0_usize;
+    let mut example = None;
     for (index, value) in values.iter().enumerate() {
         check_cancellation(index, is_cancelled)?;
         let Some(value) = value else {
             parsed.push(None);
             continue;
         };
-        found_value = true;
-        let Some(date) = parse_date(value.trim(), convention) else {
-            return Ok(None);
-        };
-        let Some(epoch) = NaiveDate::from_ymd_opt(1970, 1, 1) else {
-            return Ok(None);
-        };
-        let days = date.signed_duration_since(epoch).num_days();
-        let Ok(days) = i32::try_from(days) else {
-            return Ok(None);
-        };
-        parsed.push(Some(days));
+        match parse(value) {
+            Some(number) => {
+                parsed_count += 1;
+                if invalid == 0 {
+                    parsed.push(Some(number));
+                }
+            }
+            None => {
+                invalid += 1;
+                example.get_or_insert_with(|| value.chars().take(40).collect::<String>());
+            }
+        }
     }
-    Ok(found_value.then_some(parsed))
+    Ok(match (parsed_count, invalid) {
+        (0, 0) => ColumnParse::Empty,
+        (_, 0) => ColumnParse::Converted(parsed),
+        _ => ColumnParse::Rejected(Rejection {
+            parsed: parsed_count,
+            invalid,
+            example: example.unwrap_or_default(),
+        }),
+    })
+}
+
+fn parse_date_column<C>(
+    values: &[Option<&str>],
+    convention: ImportDateConvention,
+    is_cancelled: &C,
+) -> Result<ColumnParse<i32>, String>
+where
+    C: Fn() -> bool,
+{
+    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("la época Unix es válida");
+    parse_column(values, is_cancelled, |value| {
+        let date = parse_date(value.trim(), convention)?;
+        i32::try_from(date.signed_duration_since(epoch).num_days()).ok()
+    })
 }
 
 /// Two-digit years follow Excel's rule, as in Preparar: with «día-mes-año»,
@@ -141,36 +258,24 @@ fn parse_date(value: &str, convention: ImportDateConvention) -> Option<NaiveDate
 fn parse_integer_column<C>(
     values: &[Option<&str>],
     is_cancelled: &C,
-) -> Result<Option<Vec<Option<i64>>>, String>
+) -> Result<ColumnParse<i64>, String>
 where
     C: Fn() -> bool,
 {
-    let mut parsed = Vec::with_capacity(values.len());
-    let mut found_value = false;
-    for (index, value) in values.iter().enumerate() {
-        check_cancellation(index, is_cancelled)?;
-        let Some(value) = value else {
-            parsed.push(None);
-            continue;
-        };
-        found_value = true;
+    parse_column(values, is_cancelled, |value| {
         let value = value.trim();
         if !is_plain_integer(value) {
-            return Ok(None);
+            return None;
         }
-        let Ok(value) = value.parse::<i64>() else {
-            return Ok(None);
-        };
-        parsed.push(Some(value));
-    }
-    Ok(found_value.then_some(parsed))
+        value.parse::<i64>().ok()
+    })
 }
 
 fn parse_decimal_column<C>(
     values: &[Option<&str>],
     convention: ImportNumberConvention,
     is_cancelled: &C,
-) -> Result<Option<Vec<Option<f64>>>, String>
+) -> Result<ColumnParse<f64>, String>
 where
     C: Fn() -> bool,
 {
@@ -179,46 +284,37 @@ where
         ImportNumberConvention::CommaDecimalDotGrouping => (',', Some('.')),
         ImportNumberConvention::DotDecimalSpaceGrouping => ('.', Some(' ')),
         ImportNumberConvention::CommaDecimalSpaceGrouping => (',', Some(' ')),
-        ImportNumberConvention::Unresolved | ImportNumberConvention::Integer => return Ok(None),
+        ImportNumberConvention::Unresolved | ImportNumberConvention::Integer => {
+            return Ok(ColumnParse::Empty)
+        }
     };
-
-    let mut parsed = Vec::with_capacity(values.len());
-    let mut found_value = false;
-    for (index, value) in values.iter().enumerate() {
-        check_cancellation(index, is_cancelled)?;
-        let Some(value) = value else {
-            parsed.push(None);
-            continue;
+    parse_column(values, is_cancelled, |value| {
+        // FUN-80: spreadsheets group thousands with a no-break space too.
+        let value = if grouping_separator == Some(' ') {
+            value.trim().replace(['\u{a0}', '\u{202f}'], " ")
+        } else {
+            value.trim().to_owned()
         };
-        found_value = true;
-        let Some(canonical) =
-            normalize_decimal(value.trim(), decimal_separator, grouping_separator)
-        else {
-            return Ok(None);
-        };
+        let canonical = normalize_decimal(&value, decimal_separator, grouping_separator)?;
         // FUN-40: codes with leading zeros («00123») and integers past 2^53
         // stay text, as with the integer convention.
         let unsigned = canonical.trim_start_matches('-');
         let integer_digits = unsigned.split('.').next().unwrap_or_default();
         if integer_digits.len() > 1 && integer_digits.starts_with('0') {
-            return Ok(None);
+            return None;
         }
         if !unsigned.contains('.')
             && unsigned
                 .parse::<u128>()
                 .is_ok_and(|integer| integer > (1_u128 << 53))
         {
-            return Ok(None);
+            return None;
         }
-        let Ok(number) = canonical.parse::<f64>() else {
-            return Ok(None);
-        };
-        if !number.is_finite() {
-            return Ok(None);
-        }
-        parsed.push(Some(number));
-    }
-    Ok(found_value.then_some(parsed))
+        canonical
+            .parse::<f64>()
+            .ok()
+            .filter(|number| number.is_finite())
+    })
 }
 
 fn check_cancellation<C>(index: usize, is_cancelled: &C) -> Result<(), String>
@@ -330,6 +426,67 @@ mod tests {
             vec![Series::new(name.into(), values).into_column()],
         )
         .expect("el frame de prueba debe ser válido")
+    }
+
+    #[test]
+    fn the_report_names_columns_a_marker_kept_as_text() {
+        // FUN-80: one `N/A` kept the whole column as text without a word.
+        let frame = DataFrame::new(
+            3,
+            vec![
+                Series::new("precio".into(), [Some("1.234,5"), Some("N/A"), Some("2,5")])
+                    .into_column(),
+                Series::new(
+                    "alta".into(),
+                    [Some("01/02/2024"), Some("-"), Some("03/02/2024")],
+                )
+                .into_column(),
+                Series::new("nombre".into(), [Some("Ana"), Some("Luis"), None]).into_column(),
+            ],
+        )
+        .unwrap();
+        let (converted, report) = apply_import_conventions_with_report(
+            &frame,
+            Some(ImportDateConvention::Dmy),
+            Some(ImportNumberConvention::CommaDecimalDotGrouping),
+            || false,
+        )
+        .unwrap();
+        assert_eq!(
+            converted.column("precio").unwrap().dtype(),
+            &DataType::String
+        );
+        assert_eq!(
+            report,
+            vec![
+                UnconvertedColumn {
+                    column: "precio".to_owned(),
+                    convention: "number",
+                    invalid_count: 1,
+                    example: "N/A".to_owned(),
+                },
+                UnconvertedColumn {
+                    column: "alta".to_owned(),
+                    convention: "date",
+                    invalid_count: 1,
+                    example: "-".to_owned(),
+                },
+            ]
+        );
+
+        // A no-break space groups thousands like a space.
+        let (converted, report) = apply_import_conventions_with_report(
+            &text_frame("miles", &[Some("1\u{a0}234,5"), Some("2,5")]),
+            None,
+            Some(ImportNumberConvention::CommaDecimalSpaceGrouping),
+            || false,
+        )
+        .unwrap();
+        assert!(report.is_empty());
+        assert_eq!(
+            converted.column("miles").unwrap().f64().unwrap().get(0),
+            Some(1234.5)
+        );
     }
 
     #[test]

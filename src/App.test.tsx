@@ -606,6 +606,8 @@ describe("App", () => {
         addedColumns: ["identificador", "importe"],
         changedTypes: [{ column: "id", expected: "Int64", actual: "String" }],
       },
+      // FUN-80: a marker kept a column as text.
+      unconvertedColumns: [{ column: "importe", convention: "number", invalidCount: 1, example: "N/A" }],
     });
 
     await prepareReusableTaskBeforeImport(task, summary);
@@ -615,6 +617,7 @@ describe("App", () => {
     expect(within(importDialog).getByText("Columnas faltantes: id")).toBeInTheDocument();
     expect(within(importDialog).getByText("Columnas nuevas: identificador, importe")).toBeInTheDocument();
     expect(within(importDialog).getByText("Tipos distintos: id (Int64 → String)")).toBeInTheDocument();
+    expect(within(importDialog).getByText(/importe: 1 valor no es un número \(por ejemplo, «N\/A»\)/)).toBeInTheDocument();
     expect(loadSpy).not.toHaveBeenCalled();
 
     fireEvent.click(within(importDialog).getByRole("button", { name: "Importar con esquema nuevo" }));

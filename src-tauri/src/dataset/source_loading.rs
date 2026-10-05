@@ -300,7 +300,11 @@ pub(super) fn load_source_backed_dataset_for_automation(
             source_backed_load(&canonical, &extension, || false)?
         }
     };
-    let history = deferred_history.unwrap_or(HistoryManager::deferred()?);
+    // COD-18: only create a history when none was prepared.
+    let history = match deferred_history {
+        Some(history) => history,
+        None => HistoryManager::deferred()?,
+    };
     let file_name = canonical
         .file_name()
         .and_then(|name| name.to_str())

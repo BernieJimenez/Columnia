@@ -597,6 +597,19 @@ export function LoadPhase({
                 ) : sheetSelection.useSavedProfile ? (
                   <p role="status">El esquema coincide con el perfil guardado; se aplicará al importar.</p>
                 ) : null}
+                {/* FUN-80: a convention that did not apply to a column says so. */}
+                {(sheetSelection.schemaPreview.unconvertedColumns ?? []).length > 0 && (
+                  <div className="notice" role="note">
+                    <strong>Algunas columnas se quedan como texto.</strong> Una columna solo se convierte si todos sus valores siguen la convención elegida:
+                    <ul>
+                      {(sheetSelection.schemaPreview.unconvertedColumns ?? []).map((item) => (
+                        <li key={item.column}>
+                          {item.column}: {item.invalidCount === 1 ? "1 valor no es" : `${item.invalidCount.toLocaleString()} valores no son`} {item.convention === "date" ? "una fecha" : "un número"} (por ejemplo, «{item.example}»). Conviértela después en Preparar o deja ese valor vacío en el archivo.
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {sheetSelection.schemaPreview.columns.length === 0 ? (
                   <p role="note">No se detectaron columnas.</p>
                 ) : (

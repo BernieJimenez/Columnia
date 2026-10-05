@@ -13201,6 +13201,24 @@ fn loads_xlsx_through_a_source_backed_parquet_snapshot() {
 }
 
 #[test]
+fn a_json_wrapper_object_names_the_field_with_the_records() {
+    // FUN-81: `{"total":2,"items":[...]}` loaded as a single row.
+    let wrapper = temporary_delimited(
+        "json",
+        r#"{"total": 2, "items": [{"id": 1}, {"id": 2}], "tags": ["a"]}"#,
+    );
+    let error = load_dataset_with_progress(&wrapper, |_, _| {}, || false)
+        .expect_err("un objeto envolvente no es un dataset de una fila");
+    assert!(error.contains("«items»"), "{error}");
+    assert!(!error.contains("«tags»"), "{error}");
+
+    // One object whose fields are plain values is still one record.
+    let single = temporary_delimited("json", r#"{"id": 1, "tags": ["a", "b"]}"#);
+    let (frame, _) = load_dataset_with_progress(&single, |_, _| {}, || false).unwrap();
+    assert_eq!(frame.height(), 1);
+}
+
+#[test]
 fn loads_json_record_array_with_union_of_fields_and_nested_values() {
     let path = temporary_delimited(
         "json",
@@ -19022,6 +19040,52 @@ fn explore_panel_chooses_charts_from_the_profile_and_counts_every_row() {
         value["trend"]["points"][0],
         serde_json::json!({ "period": "2025-01", "count": 2 })
     );
+}
+
+#[test]
+fn a_page_from_a_changed_source_says_so_instead_of_materializing() {
+    // ARQ-07: the error was dropped and the whole file was loaded instead.
+    let path = temporary_csv("id\n1\n2\n3\n");
+    let state = DatasetState::default();
+    *state.current.lock_recovering() = Some(source_backed_dataset_at(&path));
+    let page = page_reader::dataset_page_from_state(&state, 0, 10, || false).unwrap();
+    assert_eq!(page.rows.len(), 3);
+
+    // Same size and date, one row instead of three: only the page read can
+    // notice, and it used to fall back to loading the whole file.
+    let modified = fs::metadata(&path).unwrap().modified().unwrap();
+    fs::write(&path, "id\n123456").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    let error = page_reader::dataset_page_from_state(&state, 0, 10, || false).unwrap_err();
+    assert_eq!(error, page_reader::SOURCE_CHANGED_DURING_PAGE);
+    let current = state.current.lock_recovering();
+    assert!(
+        current.as_ref().unwrap().source_backed,
+        "no se materializó la fuente"
+    );
+}
+
+#[test]
+fn a_source_backed_json_load_creates_one_history_folder() {
+    // COD-18: `unwrap_or(HistoryManager::deferred()?)` created a second one.
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("datos.json");
+    fs::write(
+        &path,
+        r#"[{"id":1,"nombre":"Ana"},{"id":2,"nombre":"Luis"}]"#,
+    )
+    .unwrap();
+    let before = history::DEFERRED_HISTORIES_CREATED.with(std::cell::Cell::get);
+    let (dataset, _) = load_source_backed_dataset_for_automation(&path, None, None)
+        .expect("el JSON debe cargarse en disco");
+    let created = history::DEFERRED_HISTORIES_CREATED.with(std::cell::Cell::get) - before;
+    assert!(dataset.source_backed);
+    assert_eq!(created, 1);
 }
 
 #[test]

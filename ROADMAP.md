@@ -431,13 +431,13 @@ medio = 1 día; agregado por suma.
   - [x] `UX-09` (Bajo) Observaciones menores — hecho el 2026-10-05
   - [x] `UX-11` (Bajo) Primera carga de Explorar sin indicador: pantalla vacía hasta que llega el panel — hecho el 2026-10-05
   - [x] `TXT-06` (Bajo) Años e identificadores con separador de millares («release_year de 1,925 a 1,929.8», «Mín. 1,001») — hecho el 2026-10-05
-- [ ] **RV88** — **Importación** — Muestra de encabezados CSV con fin de línea CR solo falla en archivos grandes (y 4 problemas más) · *Esfuerzo: 2,8 días*
+- [x] **RV88** — **Importación** — Muestra de encabezados CSV con fin de línea CR solo falla en archivos grandes (y 4 problemas más) · *Esfuerzo: 2,8 días* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-79, FUN-80, FUN-81, ARQ-07, COD-18.
-  - [ ] `FUN-79` (Bajo) Muestra de encabezados CSV con fin de línea CR solo falla en archivos grandes
-  - [ ] `FUN-80` (Bajo) Una columna con marcadores de nulo (`NA`, `-`, `N/A`) queda entera como texto bajo convención numérica/fecha, sin informar
-  - [ ] `FUN-81` (Bajo) Un JSON cuyo raíz es un objeto envolvente (`{"data":[...]}`) se carga como una sola fila
-  - [ ] `ARQ-07` (Bajo) La paginación directa traga cualquier error de la fuente y cae a materializar el dataset entero, con el mutex del dataset tomado durante toda la E/S
-  - [ ] `COD-18` (Bajo) `unwrap_or(HistoryManager::deferred()?)` crea un directorio temporal aunque no se use
+  - [x] `FUN-79` (Bajo) Muestra de encabezados CSV con fin de línea CR solo falla en archivos grandes — hecho el 2026-10-05
+  - [x] `FUN-80` (Bajo) Una columna con marcadores de nulo (`NA`, `-`, `N/A`) queda entera como texto bajo convención numérica/fecha, sin informar — hecho el 2026-10-05
+  - [x] `FUN-81` (Bajo) Un JSON cuyo raíz es un objeto envolvente (`{"data":[...]}`) se carga como una sola fila — hecho el 2026-10-05
+  - [x] `ARQ-07` (Bajo) La paginación directa traga cualquier error de la fuente y cae a materializar el dataset entero, con el mutex del dataset tomado durante toda la E/S — hecho el 2026-10-05
+  - [x] `COD-18` (Bajo) `unwrap_or(HistoryManager::deferred()?)` crea un directorio temporal aunque no se use — hecho el 2026-10-05
 - [ ] **RV89** — **Comparación** — Claves duplicadas y nulas: filas excluidas de conflictos y sin recuento de filas afectadas (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-82, ARQ-08, UX-16, TXT-12, LIM-11, QA-45.
   - [ ] `FUN-82` (Bajo) Claves duplicadas y nulas: filas excluidas de conflictos y sin recuento de filas afectadas

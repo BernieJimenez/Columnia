@@ -264,7 +264,11 @@ pub(super) async fn load_dataset_selection_impl(
             }
         }
         let history = if source_backed {
-            deferred_history.unwrap_or(HistoryManager::deferred()?)
+            // COD-18: only create a history when none was prepared.
+            match deferred_history {
+                Some(history) => history,
+                None => HistoryManager::deferred()?,
+            }
         } else {
             HistoryManager::new(&frame)?
         };

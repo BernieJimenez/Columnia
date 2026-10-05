@@ -203,6 +203,15 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Importación: la vista previa de encabezados acepta CSV con fin de línea `\r`;
+  con una convención de fecha o número, la vista previa lista las columnas que
+  se quedan como texto, cuántos valores no la siguen y un ejemplo (`N/A`, `-`),
+  y el espacio duro cuenta como separador de miles; un JSON que guarda sus
+  registros en un campo (`{"items":[...]}`) se explica en vez de cargarse como
+  una fila; una página de una fuente que cambió da el error en vez de cargar el
+  archivo entero, y la lectura de la página ya no bloquea el resto de la app;
+  una carga JSON en disco crea un solo directorio temporal (FUN-79, FUN-80,
+  FUN-81, ARQ-07, COD-18).
 - Explorar: un filtro con lista vacía o con más de 61 valores se rechaza en vez
   de ignorarse; la mediana, la media y el histograma dicen cuántas filas sin
   número dejaron fuera; los años y los números enteros tienen tramos enteros

@@ -43,6 +43,17 @@ export interface DatasetImportSchemaPreview {
   rowCount: number;
   columns: DatasetColumn[];
   schemaMismatch: ImportProfileMismatch | null;
+  /** FUN-80: columns the chosen conventions left as text, and why. */
+  unconvertedColumns?: UnconvertedColumn[];
+}
+
+export interface UnconvertedColumn {
+  column: string;
+  convention: "date" | "number";
+  /** Non-empty values that do not follow the convention. */
+  invalidCount: number;
+  /** The first of them, as written. */
+  example: string;
 }
 
 export interface DatasetComparison {
