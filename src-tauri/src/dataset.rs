@@ -6987,6 +6987,11 @@ where
     }
     let complete = file_size <= bytes.len() as u64;
 
+    // FUN-59: UTF-16 (Excel's «Unicode text») and binary files are not
+    // Windows-1252; offering that conversion would produce garbage.
+    if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) || bytes.contains(&0) {
+        return Err(UNSUPPORTED_TEXT_ENCODING_MESSAGE.to_owned());
+    }
     let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
     // Every consumer of the sample splits records on \n: a file that ends its
     // lines with \r only (RV20 / FUN-01) is normalized here, in memory.
@@ -7020,6 +7025,8 @@ where
 /// decoded example that follows it, and proposes a converted copy (RV20 /
 /// FUN-02). Columnia never converts without that approval.
 pub(crate) const LEGACY_ENCODING_PREFIX: &str = "__columnia_legacy_encoding__:windows-1252:";
+
+const UNSUPPORTED_TEXT_ENCODING_MESSAGE: &str = "El archivo está en UTF-16 o no es de texto, y Columnia no puede leerlo. En Excel, guárdalo como «CSV UTF-8 (delimitado por comas)» y vuelve a cargarlo.";
 
 /// Windows-1252 bytes 0x80-0x9F; the rest of the range matches Latin-1.
 const WINDOWS_1252_HIGH: [char; 32] = [

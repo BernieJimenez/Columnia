@@ -20980,3 +20980,24 @@ fn removing_accents_only_touches_latin_greek_and_cyrillic_text() {
     );
     assert!(normalize_column_name("がっこう").contains('が'));
 }
+
+/// FUN-59: a UTF-16 CSV (Excel «Unicode text») or a binary file gets a clear
+/// message instead of an offer to read it as Windows-1252.
+#[test]
+fn utf16_and_binary_files_are_not_offered_as_windows_1252() {
+    let directory = tempfile::tempdir().unwrap();
+    let utf16 = directory.path().join("unicode.csv");
+    let mut bytes = vec![0xFF, 0xFE];
+    for unit in "nombre,ciudad\nJosé,Moca\n".encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    fs::write(&utf16, &bytes).unwrap();
+    let error = read_utf8_delimited_sample_with_cancel(&utf16, || false).unwrap_err();
+    assert!(!error.starts_with(LEGACY_ENCODING_PREFIX), "{error}");
+    assert!(error.contains("UTF-16"), "{error}");
+
+    let latin = directory.path().join("latin.csv");
+    fs::write(&latin, b"nombre\nJos\xe9\n").unwrap();
+    let error = read_utf8_delimited_sample_with_cancel(&latin, || false).unwrap_err();
+    assert!(error.starts_with(LEGACY_ENCODING_PREFIX), "{error}");
+}

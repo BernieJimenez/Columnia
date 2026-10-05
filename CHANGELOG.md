@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Un CSV en UTF-16 (el «texto Unicode» de Excel) o un archivo binario recibe un
+  mensaje claro con cómo guardarlo en UTF-8, en lugar de ofrecer una conversión
+  desde Windows-1252 que saldría ilegible (FUN-59).
 - «Quitar acentos» ya no altera texto japonés, coreano, devanagari u otras
   escrituras no latinas (antes が pasaba a か) y recompone lo que conserva; la
   ruta de archivos grandes aplica la misma regla (FUN-58).
