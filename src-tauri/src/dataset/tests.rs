@@ -19155,7 +19155,7 @@ fn conflict_decision_check_is_linear_in_the_number_of_conflicts() {
 #[test]
 fn every_prepare_operation_matches_between_both_paths() {
     let frame = df!(
-        "nombre" => [Some(" Ana "), Some("Ana"), Some("N/A"), Some("José"), Some("Jose "), None, Some("Luis"), Some("Marta"), Some("Ã©xito"), Some("Pedro"), Some(" Ana "), None],
+        "nombre" => [Some(" Ana "), Some("Ana"), Some("N/A"), Some("José"), Some("Jose "), None, Some("Luis"), Some("Marta"), Some("Ã©xito"), Some("がっこう"), Some(" Ana "), None],
         "importe" => [Some("10"), Some("20"), Some("30"), Some("n/d"), Some("40"), Some("50"), Some("60"), Some("70"), Some("80"), Some("9999"), Some("10"), None],
         "fecha" => [Some("2024-01-01"), Some("2024-01-02"), Some("2024-01-03"), Some("2024-01-04"), None, Some("2024-01-06"), Some("2024-01-07"), Some("2024-01-08"), Some("2024-01-09"), Some("2024-01-10"), Some("2024-01-01"), None],
         "activo" => [Some("sí"), Some("no"), Some("yes"), Some("no"), Some("true"), Some("false"), Some("sí"), Some("no"), Some("sí"), Some("no"), Some("sí"), None],
@@ -20964,4 +20964,19 @@ fn numeric_cast_keeps_values_that_f64_cannot_hold_as_text() {
     assert_eq!(cast.column("precio").unwrap().dtype(), &DataType::Float64);
     assert_eq!(cast.column("minimo").unwrap().dtype(), &DataType::Float64);
     assert_eq!(typed, 2);
+}
+
+/// FUN-58: removing accents keeps Japanese, Korean or Devanagari text intact
+/// and recomposes what it keeps; the large-file path follows the same rule.
+#[test]
+fn removing_accents_only_touches_latin_greek_and_cyrillic_text() {
+    assert_eq!(normalize_text_value("Canción Ñandú", true), "cancion nandu");
+    assert_eq!(normalize_text_value("がっこう", true), "がっこう");
+    assert_eq!(normalize_text_value("한국어", true), "한국어");
+    assert_eq!(normalize_text_value("हिन्दी", true), "हिन्दी");
+    assert_eq!(
+        normalize_column_name("がっこう"),
+        normalize_column_name("がっこう")
+    );
+    assert!(normalize_column_name("がっこう").contains('が'));
 }

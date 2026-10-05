@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- «Quitar acentos» ya no altera texto japonés, coreano, devanagari u otras
+  escrituras no latinas (antes が pasaba a か) y recompone lo que conserva; la
+  ruta de archivos grandes aplica la misma regla (FUN-58).
 - «Convertir a número» deja como texto las columnas con códigos o decimales de
   más de 15 cifras significativas, que un número decimal no puede guardar sin
   redondear (FUN-57).

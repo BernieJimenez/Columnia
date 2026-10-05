@@ -3995,7 +3995,11 @@ fn source_backed_normalized_text_expression(identifier: &str, remove_accents: bo
     );
     let lowered = format!("lower({collapsed})");
     if remove_accents {
-        format!("strip_accents({lowered})")
+        // FUN-58: the same rule as `strip_latin_accents` in memory.
+        format!(
+            "CASE WHEN regexp_matches({lowered}, {}) THEN {lowered} ELSE strip_accents({lowered}) END",
+            duckdb_string_literal(r"[^\x{0000}-\x{052F}\x{1E00}-\x{1FFF}\x{2000}-\x{2BFF}]"),
+        )
     } else {
         lowered
     }
@@ -5785,13 +5789,12 @@ fn mask_personal_values_from_frame(frame: &DataFrame) -> Result<(DataFrame, usiz
 }
 
 fn normalize_column_name(name: &str) -> String {
-    let decomposed = name
-        .nfd()
-        .filter(|character| !is_combining_mark(*character));
+    // FUN-58: only Latin, Greek and Cyrillic names lose their accents.
+    let decomposed = strip_latin_accents(name);
     let mut normalized = String::new();
     let mut pending_separator = false;
 
-    for character in decomposed.flat_map(char::to_lowercase) {
+    for character in decomposed.chars().flat_map(char::to_lowercase) {
         if character.is_whitespace() || character == '-' {
             pending_separator = true;
             continue;
@@ -5878,14 +5881,32 @@ pub(crate) fn normalize_text_value(value: &str, remove_accents: bool) -> String 
     let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
     let lowered = collapsed.chars().flat_map(char::to_lowercase);
     if remove_accents {
-        lowered
-            .collect::<String>()
-            .nfd()
-            .filter(|character| !is_combining_mark(*character))
-            .collect()
+        strip_latin_accents(&lowered.collect::<String>())
     } else {
         lowered.collect()
     }
+}
+
+/// FUN-58: whether every character of `value` belongs to the Latin, Greek or
+/// Cyrillic blocks (marks included) or to common punctuation and symbols.
+/// Only such text loses its accents; Japanese, Korean, Devanagari or Thai
+/// would lose meaning (が → か), so it is kept as written. The DuckDB path
+/// applies the same rule.
+fn accents_are_removable(value: &str) -> bool {
+    value.chars().all(
+        |character| matches!(character as u32, 0x0000..=0x052F | 0x1E00..=0x1FFF | 0x2000..=0x2BFF),
+    )
+}
+
+fn strip_latin_accents(value: &str) -> String {
+    if !accents_are_removable(value) {
+        return value.to_owned();
+    }
+    value
+        .nfd()
+        .filter(|character| !is_combining_mark(*character))
+        .nfc()
+        .collect()
 }
 
 fn clean_text_columns(
