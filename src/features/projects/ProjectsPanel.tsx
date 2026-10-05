@@ -323,6 +323,7 @@ export function ProjectsPanel({
                                       className="secondary-action"
                                       disabled={disabled}
                                       onClick={() => setVersionToRestore(version)}
+                                      aria-label={`Restaurar versión del ${projectDate(version.createdAt)}`}
                                     >
                                       Restaurar
                                     </button>
@@ -335,8 +336,9 @@ export function ProjectsPanel({
                       )}
                     </div>
                     <div className="project-list__actions">
-                      <button type="button" onClick={() => onOpen(project.id)} disabled={disabled}>Abrir</button>
-                      <button type="button" className="project-list__delete" onClick={() => onDeleteRequest(project)} disabled={disabled}>Eliminar</button>
+                      {/* ACC-12: each row's buttons name their project. */}
+                      <button type="button" aria-label={`Abrir ${project.name}`} onClick={() => onOpen(project.id)} disabled={disabled}>Abrir</button>
+                      <button type="button" aria-label={`Eliminar ${project.name}`} className="project-list__delete" onClick={() => onDeleteRequest(project)} disabled={disabled}>Eliminar</button>
                     </div>
                   </li>
                 );

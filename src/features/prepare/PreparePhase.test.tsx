@@ -1088,7 +1088,7 @@ describe("PreparePhase", () => {
     />);
     const early = screen.getByRole("region", { name: "Listo: cambios aplicados" });
     expect(early).toHaveTextContent("Calculando las cifras de antes y después");
-    expect(within(early).getByRole("button", { name: "Deshacer" })).toBeEnabled();
+    expect(within(early).getByRole("button", { name: "Deshacer estos cambios" })).toBeEnabled();
 
     rerender(<PreparePhase
       {...props}
@@ -1127,7 +1127,7 @@ describe("PreparePhase", () => {
       profileStatus={{ kind: "ready", profile: afterProfile }}
       historyStatus={{ ...props.historyStatus, canUndo: true }}
     />);
-    fireEvent.click(within(screen.getByRole("region", { name: "Listo: cambios aplicados" })).getByRole("button", { name: "Deshacer" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Listo: cambios aplicados" })).getByRole("button", { name: "Deshacer estos cambios" }));
     expect(props.onUndo).toHaveBeenCalledOnce();
     expect(screen.queryByRole("region", { name: "Listo: cambios aplicados" })).not.toBeInTheDocument();
   });

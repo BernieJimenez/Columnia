@@ -88,7 +88,9 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
     }
   }
 
-  async function saveCurrentDeliveryPreset() {
+  // UX-18: with a preset selected, saving updates it; «Guardar como nuevo»
+  // keeps it and creates another.
+  async function saveCurrentDeliveryPreset(asNew = false) {
     const trimmedName = presetName.trim();
     if (!trimmedName || presetWorking) return;
     const preset = currentPreset(trimmedName);
@@ -96,7 +98,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
     setPresetNotice(null);
     setPresetsError(null);
     try {
-      const summary = await saveDeliveryPreset(selectedPresetId || null, preset);
+      const summary = await saveDeliveryPreset(asNew ? null : selectedPresetId || null, preset);
       setPresets((current) => [summary, ...current.filter((item) => item.id !== summary.id)]);
       setPresetsLoaded(true);
       setPresetsCancelled(false);
@@ -176,7 +178,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
             }}
           >
             <summary>Presets de entrega guardados</summary>
-            <p>Guarda formatos, protección y columnas para repetirlos. Las credenciales quedan fuera del preset.</p>
+            <p>Guarda el formato y la protección para repetirlos; las columnas solo se usan para avisar si el esquema cambió. Las credenciales quedan fuera del preset.</p>
             <label>
               Preset de entrega local
               <select
@@ -194,7 +196,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
                 <option value="">Selecciona un preset</option>
                 {presets.map((preset) => (
                   <option key={preset.id} value={preset.id}>
-                    {preset.name} · {preset.format} · {preset.selectedColumnCount} columnas
+                    {preset.name} · {preset.format} · guardado con {preset.selectedColumnCount} columnas
                   </option>
                 ))}
               </select>
@@ -214,8 +216,13 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
                 {presetWorking ? "Procesando preset…" : "Abrir y verificar"}
               </button>
               <button type="button" className="secondary-action" onClick={() => void saveCurrentDeliveryPreset()} disabled={!presetName.trim() || presetWorking || presetsLoading || presetsCancellationPending}>
-                Guardar preset
+                {selectedPresetId ? "Actualizar preset" : "Guardar preset"}
               </button>
+              {selectedPresetId && (
+                <button type="button" className="secondary-action" onClick={() => void saveCurrentDeliveryPreset(true)} disabled={!presetName.trim() || presetWorking || presetsLoading || presetsCancellationPending}>
+                  Guardar como nuevo
+                </button>
+              )}
               {selectedPresetId && (
                 <button type="button" className="secondary-action" onClick={() => void deleteSelectedDeliveryPreset()} disabled={presetWorking || presetsLoading || presetsCancellationPending}>
                   Eliminar preset

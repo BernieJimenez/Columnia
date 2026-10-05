@@ -47,8 +47,8 @@ describe("contratos de accesibilidad de la interfaz", () => {
     expect(panel).toHaveAttribute("aria-busy", "true");
     expect(screen.getByRole("textbox", { name: "Nombre del proyecto" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Abrir" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Eliminar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Abrir\b/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Eliminar(?! proyecto)/ })).toBeDisabled();
   });
 
   it("expone el estado de autoguardado y la acción accesible para versiones", () => {
@@ -91,7 +91,7 @@ describe("contratos de accesibilidad de la interfaz", () => {
     expect(screen.getByText(/Hasta 5 versiones anteriores y 512 MiB/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Versiones anteriores (1)", { selector: "summary" }));
-    expect(screen.getByRole("button", { name: "Restaurar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Restaurar versión del/ })).toBeDisabled();
   });
 
   it("expone un alertdialog modal con nombre y descripción asociados", () => {

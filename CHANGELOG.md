@@ -203,6 +203,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Entregar: con un preset seleccionado el botón dice «Actualizar preset» y hay
+  «Guardar como nuevo»; el texto de presets ya no promete guardar columnas; los
+  campos de tolerancia se pueden vaciar sin volver a 0 y una comprobación
+  agregada nueva pide su valor esperado; los botones Abrir, Eliminar y Restaurar
+  de proyectos y el «Deshacer» de la propuesta nombran su objeto (UX-18, UX-19,
+  ACC-12, PROD-06).
 - Si el dataset cambia mientras se exporta, Entregar explica que la exportación
   anterior sigue terminando al intentar otra y, al acabar, que ese archivo ya no
   corresponde a los datos actuales, en lugar de no responder (FUN-56).

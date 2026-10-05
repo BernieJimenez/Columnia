@@ -62,8 +62,8 @@ describe("ProjectsPanel", () => {
     const options = summary.closest("details");
     expect(options).not.toHaveAttribute("open");
     expect(screen.getByRole("textbox", { name: "Nombre del proyecto" }).closest("details")).toBe(options);
-    expect(screen.getByRole("button", { name: "Abrir" }).closest("details")).toBe(options);
-    expect(screen.getByRole("button", { name: "Eliminar" }).closest("details")).toBe(options);
+    expect(screen.getByRole("button", { name: /^Abrir\b/ }).closest("details")).toBe(options);
+    expect(screen.getByRole("button", { name: /^Eliminar(?! proyecto)/ }).closest("details")).toBe(options);
 
     fireEvent.click(summary);
     expect(options).toHaveAttribute("open");
@@ -80,7 +80,7 @@ describe("ProjectsPanel", () => {
     expect(screen.getByRole("textbox", { name: "Nombre del proyecto" })).toHaveValue("actual");
     fireEvent.click(screen.getByRole("button", { name: "Guardar proyecto nuevo" }));
     expect(props.onSave).toHaveBeenCalledWith("actual");
-    fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Eliminar(?! proyecto)/ }));
     expect(props.onDeleteRequest).toHaveBeenCalledWith(recovery);
   });
 
@@ -92,11 +92,11 @@ describe("ProjectsPanel", () => {
     const summary = screen.getByText("Abrir o administrar proyectos guardados", { selector: "summary" });
     const options = summary.closest("details");
     expect(options).not.toHaveAttribute("open");
-    expect(screen.getByRole("button", { name: "Abrir" }).closest("details")).toBe(options);
+    expect(screen.getByRole("button", { name: /^Abrir\b/ }).closest("details")).toBe(options);
 
     fireEvent.click(summary);
     expect(options).toHaveAttribute("open");
-    fireEvent.click(screen.getByRole("button", { name: "Abrir" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Abrir\b/ }));
     expect(props.onOpen).toHaveBeenCalledWith("recovery-id");
   });
 
@@ -130,7 +130,7 @@ describe("ProjectsPanel", () => {
     expect(screen.getByText(/Hasta 5 versiones anteriores y 512 MiB/)).toBeInTheDocument();
     expect(screen.getByText(/Guardado automáticamente ·/)).toBeInTheDocument();
     fireEvent.click(screen.getByText("Versiones anteriores (1)", { selector: "summary" }));
-    fireEvent.click(screen.getByRole("button", { name: "Restaurar" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Restaurar versión del/ }));
     expect(screen.getByRole("alertdialog", { name: "Restaurar versión anterior" })).toHaveTextContent(
       "La versión actual quedará guardada como una versión anterior",
     );

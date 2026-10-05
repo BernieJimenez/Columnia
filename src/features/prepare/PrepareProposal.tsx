@@ -174,7 +174,7 @@ export function PrepareProposal({
           <button type="button" className="prepare-proposal__primary" onClick={onDismissResult}>
             Ver qué más se puede mejorar
           </button>
-          <button type="button" className="secondary-action" onClick={onUndo} disabled={busy || !canUndo}>
+          <button type="button" className="secondary-action" aria-label="Deshacer estos cambios" onClick={onUndo} disabled={busy || !canUndo}>
             Deshacer
           </button>
         </div>

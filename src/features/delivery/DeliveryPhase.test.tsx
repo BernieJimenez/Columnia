@@ -979,7 +979,17 @@ describe("DeliveryPhase", () => {
     fireEvent.change(kind, { target: { value: "aggregate_check" } });
 
     expect(screen.getByRole("combobox", { name: "Agregación regla 1" })).toHaveValue("sum");
-    expect(screen.getByRole("spinbutton", { name: "Valor esperado agregado regla 1" })).toHaveValue(0);
+    const maxInvalid = screen.queryByRole("spinbutton", { name: "Inválidos máximos regla 1" });
+    if (maxInvalid) {
+      // UX-19: emptying the field keeps it empty, then «5» is 5, not «05».
+      fireEvent.change(maxInvalid, { target: { value: "" } });
+      expect(maxInvalid).toHaveValue(null);
+      fireEvent.change(maxInvalid, { target: { value: "5" } });
+      expect(maxInvalid).toHaveValue(5);
+    }
+    // UX-19: a new aggregate check starts empty and asks for the value.
+    expect(screen.getByRole("spinbutton", { name: "Valor esperado agregado regla 1" })).toHaveValue(null);
+    expect(screen.getByText(/indica un valor esperado/)).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Referencias numéricas opcionales regla 1" })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "Agregación regla 1" }), {
       target: { value: "max" },
@@ -1531,6 +1541,13 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("button", { name: "Aplicar preset verificado" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Aplicar preset verificado" }));
     expect(screen.getByText("Preset verificado contra el esquema actual.")).toBeInTheDocument();
+
+    // UX-18: with a preset selected, «Guardar como nuevo» creates another one
+    // and the plain button says it updates the selected one.
+    expect(screen.getByRole("button", { name: "Actualizar preset" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Nombre del preset de entrega" }), { target: { value: "Cierre trimestral" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar como nuevo" }));
+    await waitFor(() => expect(save).toHaveBeenLastCalledWith(null, expect.objectContaining({ name: "Cierre trimestral" })));
 
     fireEvent.click(screen.getByRole("button", { name: "Eliminar preset" }));
     await waitFor(() => expect(remove).toHaveBeenCalledWith(summary.id));

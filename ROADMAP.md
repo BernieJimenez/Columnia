@@ -355,17 +355,17 @@ medio = 1 día; agregado por suma.
   - [ ] `SEG-05` (Bajo) La compuerta de calidad la decide quien llama: Rust valida las reglas que recibe por IPC, sin atarlas a un contrato guardado y aprobado — Requiere tu decisión: para que Rust imponga el contrato hay que decidir qué es el contrato aprobado de un dataset sin proyecto (hoy solo existe en el proyecto guardado y en la interfaz); con uso personal y la casilla explícita el riesgo es bajo
   - [x] `REN-11` (Bajo) `allowed_values`, `referential_integrity` y claves `unique_together`: coste O(filas × referencias) y asignaciones por celda — hecho el 2026-10-05
   - [x] `COD-16` (Bajo) El presupuesto de texto del contrato omite campos (`baseline`, `dtype`, `minDate`, `maxDate`, `then.referenceValues`) — hecho el 2026-10-05
-- [ ] **RV76** — **Entregar** — Fechas de `date_range` con formato ambiguo se interpretan con `Date.parse` del motor JS (y 5 problemas más) · *Esfuerzo: 2,2 días*
+- [x] **RV76** — **Entregar** — Fechas de `date_range` con formato ambiguo se interpretan con `Date.parse` del motor JS (y 5 problemas más) · *Esfuerzo: 2,2 días* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-55, FUN-56, UX-18, UX-19, ACC-12, PROD-05.
   - [x] `FUN-55` (Bajo) Fechas de `date_range` con formato ambiguo se interpretan con `Date.parse` del motor JS — hecho el 2026-10-05
   - [x] `FUN-56` (Bajo) Una exportación en curso que queda obsoleta bloquea en silencio la siguiente y su resultado se descarta — hecho el 2026-10-05
-  - [ ] `UX-18` (Bajo) «Guardar preset» sobrescribe el preset seleccionado sin avisar
-  - [ ] `UX-19` (Bajo) Campos numéricos de tolerancia vuelven a 0 al vaciarlos y la tolerancia por defecto de «Comprobación agregada» es 0
-  - [ ] `ACC-12` (Bajo) Nombres accesibles repetidos: varios «Eliminar» y dos «Deshacer» sin contexto
+  - [x] `UX-18` (Bajo) «Guardar preset» sobrescribe el preset seleccionado sin avisar — hecho el 2026-10-05
+  - [x] `UX-19` (Bajo) Campos numéricos de tolerancia vuelven a 0 al vaciarlos y la tolerancia por defecto de «Comprobación agregada» es 0 — hecho el 2026-10-05
+  - [x] `ACC-12` (Bajo) Nombres accesibles repetidos: varios «Eliminar» y dos «Deshacer» sin contexto — hecho el 2026-10-05
   - [x] `PROD-05` (Bajo) «Exportar y abrir en Power BI» con Parquet exporta y no abre nada, sin decirlo — hecho el 2026-10-03
-- [ ] **RV77** — **Entregar** — Los presets prometen guardar «columnas», pero siempre guardan todas y al aplicar se ignoran · *Esfuerzo: 2 h*
+- [x] **RV77** — **Entregar** — Los presets prometen guardar «columnas», pero siempre guardan todas y al aplicar se ignoran · *Esfuerzo: 2 h* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de PROD-06.
-  - [ ] `PROD-06` (Bajo) Los presets prometen guardar «columnas», pero siempre guardan todas y al aplicar se ignoran
+  - [x] `PROD-06` (Bajo) Los presets prometen guardar «columnas», pero siempre guardan todas y al aplicar se ignoran — hecho el 2026-10-05
 - [ ] **RV78** — **Motor (dataset.rs)** — `cast_fully_numeric_columns` promete «sin pérdida» pero convierte enteros > i64 y decimal… (y 5 problemas más) · *Esfuerzo: 2,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-57, FUN-58, FUN-59, FUN-60, FUN-61, FUN-62.
   - [ ] `FUN-57` (Bajo) `cast_fully_numeric_columns` promete «sin pérdida» pero convierte enteros > i64 y decimales largos a `f64` sin comprobar la precisión

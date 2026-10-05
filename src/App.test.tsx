@@ -1029,7 +1029,7 @@ describe("App", () => {
     });
 
     renderAppWithHeaderConfirmation();
-    fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Abrir\b/ }));
     expect(await screen.findByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-current", "step");
     expect(screen.getByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
@@ -1104,14 +1104,14 @@ describe("App", () => {
     expect(await screen.findByText(`Proyecto “${project.name}” guardado.`)).toBeInTheDocument();
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
 
-    const deleteButton = await screen.findByRole("button", { name: "Eliminar" });
+    const deleteButton = await screen.findByRole("button", { name: /^Eliminar(?! proyecto)/ });
     fireEvent.click(deleteButton);
     const dialog = screen.getByRole("alertdialog", { name: `Eliminar “${project.name}”` });
     expect(dialog).toHaveTextContent("El dataset abierto en memoria no se descartará.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
     expect(deleteSpy).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Eliminar(?! proyecto)/ }));
     fireEvent.click(screen.getByRole("button", { name: "Eliminar proyecto" }));
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith(project.id));
     expect(await screen.findByText(`Proyecto “${project.name}” eliminado. El dataset abierto se conserva.`)).toBeInTheDocument();
@@ -1167,7 +1167,7 @@ describe("App", () => {
     ));
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
 
-    fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Abrir\b/ }));
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith(project.id));
     expect(await screen.findByRole("heading", { name: "clientes.csv" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
@@ -1222,7 +1222,7 @@ describe("App", () => {
     });
 
     renderAppWithHeaderConfirmation();
-    fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Abrir\b/ }));
 
     expect(await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
     expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
@@ -2136,7 +2136,7 @@ describe("App", () => {
     await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(2));
 
     const result = await screen.findByRole("region", { name: "Listo: cambios aplicados" });
-    fireEvent.click(within(result).getByRole("button", { name: "Deshacer" }));
+    fireEvent.click(within(result).getByRole("button", { name: "Deshacer estos cambios" }));
     await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(3));
     expect(undoSpy).toHaveBeenCalledOnce();
 

@@ -118,7 +118,8 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
       referenceValues: isReferentialRule ? rule.referenceValues ?? [] : undefined,
       baseline: isDistributionDriftRule ? rule.baseline ?? [] : undefined,
       direction: isMonotonicRule ? rule.direction ?? "increasing" : undefined,
-      expected: isAggregateCheckRule ? rule.expected ?? 0 : undefined,
+      // UX-19: no silent «exactly 0»; the editor asks for the expected value.
+      expected: isAggregateCheckRule ? rule.expected : undefined,
       aggregate: isAggregateCheckRule ? rule.aggregate ?? "sum" : undefined,
       toleranceAbs: isAggregateRule ? rule.toleranceAbs : undefined,
       toleranceRel: isAggregateRule ? rule.toleranceRel : undefined,
@@ -260,14 +261,14 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
                     {(toleranceMode === "count" || toleranceMode === "both") && <label>Inválidos máximos
                       <input type="number" min="0" step="1"
                         aria-label={`Inválidos máximos regla ${index + 1}`}
-                        value={rule.maxInvalid ?? 0}
-                        onChange={(event) => updateRule(index, { maxInvalid: Number(event.target.value) })} />
+                        value={numberFieldValue(rule.maxInvalid)}
+                        onChange={(event) => updateRule(index, { maxInvalid: numberFieldInput(event.target.value) })} />
                     </label>}
                     {(toleranceMode === "percentage" || toleranceMode === "both") && <label>Porcentaje máximo
                       <input type="number" min="0" max="100" step="0.1"
                         aria-label={`Porcentaje máximo regla ${index + 1}`}
-                        value={rule.maxInvalidPct ?? 0}
-                        onChange={(event) => updateRule(index, { maxInvalidPct: Number(event.target.value) })} />
+                        value={numberFieldValue(rule.maxInvalidPct)}
+                        onChange={(event) => updateRule(index, { maxInvalidPct: numberFieldInput(event.target.value) })} />
                     </label>}
                     {(rule.kind === "numeric_range" || rule.kind === "row_count") && (
                       <>
@@ -782,4 +783,16 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
               </div>
     </>
   );
+}
+
+/**
+ * UX-19: an emptied tolerance field stays empty (NaN, which the draft
+ * validation reports) instead of jumping back to 0 and becoming «05».
+ */
+function numberFieldValue(value: number | undefined): number | string {
+  return value === undefined || Number.isNaN(value) ? "" : value;
+}
+
+function numberFieldInput(text: string): number {
+  return text.trim() === "" ? Number.NaN : Number(text);
 }
