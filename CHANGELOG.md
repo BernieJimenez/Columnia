@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- «Listo: cambios aplicados» y «Deshacer» aparecen en cuanto termina de
+  aplicarse la propuesta; las cifras de antes y después se completan cuando
+  acaba el nuevo análisis, en lugar de esperar 10 s en archivos grandes (UX-10).
 - «Completar categorías desconocidas» e «Intentar imputación conservadora» ya no
   rellenan correos, nombres, teléfonos, direcciones ni identificadores: el motor
   los salta en memoria y en archivos grandes, y Preparar no ofrece esas columnas

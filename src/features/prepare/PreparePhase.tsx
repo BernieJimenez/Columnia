@@ -181,15 +181,24 @@ export function PreparePhase({
       pendingPlanComparison.current = null;
       return;
     }
-    if (datasetRevision !== pending.sourceRevision + 1 || profileStatus.kind !== "ready") return;
+    if (datasetRevision !== pending.sourceRevision + 1 || changeStatus.kind !== "applied") return;
+    // UX-10: the result and «Deshacer» appear as soon as the change is
+    // applied; the figures after it arrive with the new profile.
     setPlanComparison({
       before: pending.profile,
-      after: profileStatus.profile,
-      changes: changeStatus.kind === "applied" ? changeStatus.changes ?? [] : [],
+      after: profileStatus.kind === "ready" && profileStatus.profile !== pending.profile ? profileStatus.profile : null,
+      changes: changeStatus.changes ?? [],
       revision: datasetRevision,
     });
     pendingPlanComparison.current = null;
   }, [changeStatus, datasetRevision, profileStatus]);
+
+  useEffect(() => {
+    if (profileStatus.kind !== "ready") return;
+    setPlanComparison((current) => current && current.after === null && current.revision === datasetRevision
+      ? { ...current, after: profileStatus.profile }
+      : current);
+  }, [profileStatus, datasetRevision]);
 
   function applyProposal(options: SafeCorrectionOptions) {
     if (profileStatus.kind !== "ready" || changing) return;
@@ -264,9 +273,9 @@ export function PreparePhase({
           reintentarlo desde el pie de la aplicación.
         </p>
       )}
-      {profileStatus.kind === "ready" && hasColumns && (
+      {(profileStatus.kind === "ready" || currentPlanComparison !== null) && hasColumns && (
         <PrepareProposal
-          items={buildPrepareProposal(profileStatus.profile, dataset)}
+          items={profileStatus.kind === "ready" ? buildPrepareProposal(profileStatus.profile, dataset) : []}
           columnCount={dataset.columns.length}
           busy={changing}
           canUndo={historyStatus.canUndo}

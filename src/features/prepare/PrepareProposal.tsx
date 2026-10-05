@@ -23,7 +23,8 @@ import {
 
 export interface ProposalResult {
   before: DatasetProfile;
-  after: DatasetProfile;
+  /** `null` while the profile of the new dataset is still being computed (UX-10). */
+  after: DatasetProfile | null;
   /** What the proposal applied, one line per kind of change. */
   changes: string[];
 }
@@ -128,11 +129,12 @@ export function PrepareProposal({
 
   if (result) {
     // Only the figures that moved: the list above already says what changed.
-    const rows = [
-      { label: "Filas", before: result.before.rowCount, after: result.after.rowCount },
-      { label: "Valores sin dato", before: missingTotal(result.before), after: missingTotal(result.after) },
-      { label: "Filas duplicadas", before: result.before.duplicateRowCount, after: result.after.duplicateRowCount },
-      { label: "Columnas", before: result.before.columns.length, after: result.after.columns.length },
+    const after = result.after;
+    const rows = after === null ? [] : [
+      { label: "Filas", before: result.before.rowCount, after: after.rowCount },
+      { label: "Valores sin dato", before: missingTotal(result.before), after: missingTotal(after) },
+      { label: "Filas duplicadas", before: result.before.duplicateRowCount, after: after.duplicateRowCount },
+      { label: "Columnas", before: result.before.columns.length, after: after.columns.length },
     ].filter((row) => row.before !== row.after);
     return (
       <section className="prepare-proposal" aria-labelledby="prepare-result-title">
@@ -143,6 +145,9 @@ export function PrepareProposal({
           <ul className="prepare-proposal__changes" aria-label="Cambios aplicados">
             {result.changes.map((change) => <li key={change}>{change}</li>)}
           </ul>
+        )}
+        {after === null && (
+          <p className="prepare-proposal__pending" role="status">Calculando las cifras de antes y después…</p>
         )}
         {rows.length > 0 && (
           <dl className="prepare-proposal__result">

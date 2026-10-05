@@ -316,7 +316,7 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-45` (Bajo) La vista previa de columnas ignora el resumen agrupado, que reescribe todo el esquema — hecho el 2026-10-04
   - [x] `FUN-46` (Bajo) `pendingPlanComparison` no se limpia al cancelar: la siguiente operación ajena aparece como «Listo: cambios aplicados» de la propuesta — hecho el 2026-10-04
   - [x] `FUN-47` (Bajo) «Completar categorías desconocidas» y la imputación avanzada se ofrecen para cualquier columna de texto con nulos, sin las guardas de la propuesta (identificadores, datos personales, fechas) — hecho el 2026-10-04
-  - [ ] `UX-10` (Bajo) «Listo: cambios aplicados» solo aparece cuando termina el reperfilado, 10–13 s después de que los cambios ya estaban aplicados
+  - [x] `UX-10` (Bajo) «Listo: cambios aplicados» solo aparece cuando termina el reperfilado, 10–13 s después de que los cambios ya estaban aplicados — hecho el 2026-10-04
   - [ ] `UX-12` (Bajo) `RevisionComparison`: una comparación cancelada se muestra como error; cancelar sin éxito deja el botón bloqueado; textos con jerga interna
   - [ ] `UX-13` (Bajo) Un borrador inválido no se conserva al salir de la pestaña
 - [ ] **RV70** — **Preparar** — «Imputar outliers con mediana» se aplica sin confirmación mientras «Limitar» y «Eliminar»… (y 5 problemas más) · *Esfuerzo: 1,5 días*

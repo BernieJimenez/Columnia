@@ -1099,6 +1099,24 @@ describe("PreparePhase", () => {
         invalidTypeCount: 0,
       })),
     };
+    // UX-10: while the new profile is computed, the result and «Deshacer»
+    // are already there; the figures follow.
+    const applied = {
+      kind: "applied" as const,
+      message: "Plan aplicado: se retiraron 1 filas duplicadas exactas y 1 columna convertida a número.",
+      changes: ["1 fila duplicada quitada", "1 columna convertida a número"],
+    };
+    rerender(<PreparePhase
+      {...props}
+      datasetRevision={9}
+      profileStatus={{ kind: "loading", progress: { operation: "profile", stage: "Analizando columnas", percent: 40 }, cancelRequested: false }}
+      changeStatus={applied}
+      historyStatus={{ ...props.historyStatus, canUndo: true }}
+    />);
+    const early = screen.getByRole("region", { name: "Listo: cambios aplicados" });
+    expect(early).toHaveTextContent("Calculando las cifras de antes y después");
+    expect(within(early).getByRole("button", { name: "Deshacer" })).toBeEnabled();
+
     rerender(<PreparePhase
       {...props}
       datasetRevision={9}
