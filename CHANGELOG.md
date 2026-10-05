@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- «Abrir en Power BI» ya no reemplaza un `.pbids` propio con el mismo nombre
+  (escribe `<nombre>-columnia.pbids`) y lo escribe por un temporal; se eliminó
+  código muerto del JOIN (DAT-14, LIM-07).
 - La cifra de filas afectadas de la propuesta de Preparar suma las filas
   recortadas y las rellenadas (contando una vez las que están en ambos grupos),
   en lugar de quedarse con el mayor de los dos conjuntos (FUN-62).

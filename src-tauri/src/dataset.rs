@@ -7867,7 +7867,6 @@ pub async fn join_dataset(
     cancellation.ensure()?;
     let (
         source_join_context,
-        initial_eager_frame,
         expected_stamp,
         current_file_name,
         current_file_size,
@@ -7880,7 +7879,6 @@ pub async fn join_dataset(
         })?;
         let context =
             source_backed_join_context(dataset).or_else(|| snapshot_backed_join_context(dataset));
-        let eager_frame: Option<DataFrame> = None;
         let stamp = DatasetMutationStamp::capture(dataset);
         let file_name = dataset.file_name.clone();
         let file_size = dataset.file_size_bytes;
@@ -7890,14 +7888,7 @@ pub async fn join_dataset(
             .lock_recovering()
             .as_ref()
             .map(|pending| pending.snapshot_path.clone());
-        (
-            context,
-            eager_frame,
-            stamp,
-            file_name,
-            file_size,
-            comparison_path,
-        )
+        (context, stamp, file_name, file_size, comparison_path)
     };
     cancellation.ensure()?;
     let selection = app
@@ -7969,23 +7960,19 @@ pub async fn join_dataset(
     let cancellation_for_eager = cancellation.clone();
     tauri::async_runtime::spawn_blocking(move || {
         cancellation_for_eager.ensure()?;
-        let current_frame = match initial_eager_frame {
-            Some(frame) => frame,
-            None => {
-                let state = app.state::<DatasetState>();
-                let current = state.current.lock_recovering();
-                let dataset = current.as_ref().ok_or_else(|| {
-                    "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-                })?;
-                if !expected_stamp.matches(dataset) {
-                    return Err(
-                        "El dataset activo cambió durante la operación de Review.".to_owned()
-                    );
-                }
-                materialized_dataset_frame_with_cancel(dataset, || {
-                    cancellation_for_eager.is_cancelled()
-                })?
+        // LIM-07: the eager JOIN always materializes the active dataset here.
+        let current_frame = {
+            let state = app.state::<DatasetState>();
+            let current = state.current.lock_recovering();
+            let dataset = current.as_ref().ok_or_else(|| {
+                "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+            })?;
+            if !expected_stamp.matches(dataset) {
+                return Err("El dataset activo cambió durante la operación de Review.".to_owned());
             }
+            materialized_dataset_frame_with_cancel(dataset, || {
+                cancellation_for_eager.is_cancelled()
+            })?
         };
         cancellation_for_eager.ensure()?;
         let compared_frame =
@@ -10415,6 +10402,36 @@ pub async fn open_last_export_in_power_bi(app: AppHandle) -> Result<bool, String
         })?
 }
 
+/// DAT-14: the `.pbids` next to an export. A file of that name the person
+/// already had (another content) is left alone and Columnia writes
+/// `<nombre>-columnia.pbids` instead; the write goes through a temporary file.
+fn write_power_bi_data_source(export: &Path, data_source: &str) -> Result<PathBuf, String> {
+    let preferred = export.with_extension("pbids");
+    let target = match fs::read(&preferred) {
+        Ok(existing) if existing != data_source.as_bytes() => {
+            let stem = export
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "exportacion".to_owned());
+            export.with_file_name(format!("{stem}-columnia.pbids"))
+        }
+        _ => preferred,
+    };
+    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("No se pudo preparar el archivo para Power BI: {error}"))?;
+    std::io::Write::write_all(&mut temporary, data_source.as_bytes())
+        .and_then(|_| temporary.as_file().sync_all())
+        .map_err(|error| format!("No se pudo preparar el archivo para Power BI: {error}"))?;
+    temporary.persist(&target).map_err(|error| {
+        format!(
+            "No se pudo preparar el archivo para Power BI: {}",
+            error.error
+        )
+    })?;
+    Ok(target)
+}
+
 fn open_in_power_bi(path: &Path) -> Result<bool, String> {
     let path = canonicalize_existing_file(path, "la última exportación")
         .map_err(|_| "La última exportación ya no está disponible.".to_owned())?;
@@ -10423,9 +10440,7 @@ fn open_in_power_bi(path: &Path) -> Result<bool, String> {
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("csv"))
         && csv_has_quoted_line_breaks(&path)?;
-    let pbids = path.with_extension("pbids");
-    fs::write(&pbids, data_source)
-        .map_err(|error| format!("No se pudo preparar el archivo para Power BI: {error}"))?;
+    let pbids = write_power_bi_data_source(&path, &data_source)?;
 
     #[cfg(windows)]
     {

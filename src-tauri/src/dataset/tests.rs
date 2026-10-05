@@ -21049,3 +21049,21 @@ fn safe_plan_counts_the_union_of_trimmed_and_filled_rows() {
     // Trimmed: rows 0, 1 and 4; filled: rows 2, 3 and 4.
     assert_eq!(plan.affected_row_count, 5);
 }
+
+/// DAT-14: a `.pbids` the person already had is never replaced.
+#[test]
+fn power_bi_data_source_does_not_replace_a_foreign_pbids() {
+    let directory = tempfile::tempdir().unwrap();
+    let export = directory.path().join("ventas.csv");
+    fs::write(&export, "a\n1\n").unwrap();
+    let own = directory.path().join("ventas.pbids");
+    fs::write(&own, "mío").unwrap();
+    let written = write_power_bi_data_source(&export, "{\"version\":\"0.1\"}").unwrap();
+    assert_eq!(written, directory.path().join("ventas-columnia.pbids"));
+    assert_eq!(fs::read_to_string(&own).unwrap(), "mío");
+    // Its own earlier file (same content) is reused under the plain name.
+    fs::remove_file(&own).unwrap();
+    let first = write_power_bi_data_source(&export, "x").unwrap();
+    assert_eq!(first, own);
+    assert_eq!(write_power_bi_data_source(&export, "x").unwrap(), own);
+}

@@ -374,10 +374,10 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-60` (Bajo) Delimitador por defecto con encabezado de una sola línea — hecho el 2026-10-05
   - [x] `FUN-61` (Bajo) `query_dataset` (motor Polars) traga errores de DuckDB y cae a otro motor sin avisar — hecho el 2026-10-05
   - [x] `FUN-62` (Bajo) `apply_safe_corrections` anuncia `affected_row_count` como el máximo de dos conjuntos de filas, no su unión — hecho el 2026-10-05
-- [ ] **RV79** — **Motor (dataset.rs)** — `.pbids` escrito sin atomicidad ni aviso de sobrescritura (y 1 problemas más) · *Esfuerzo: 4 h*
+- [x] **RV79** — **Motor (dataset.rs)** — `.pbids` escrito sin atomicidad ni aviso de sobrescritura (y 1 problemas más) · *Esfuerzo: 4 h* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de DAT-14, LIM-07.
-  - [ ] `DAT-14` (Bajo) `.pbids` escrito sin atomicidad ni aviso de sobrescritura
-  - [ ] `LIM-07` (Bajo) Variable muerta `eager_frame` en `join_dataset`
+  - [x] `DAT-14` (Bajo) `.pbids` escrito sin atomicidad ni aviso de sobrescritura — hecho el 2026-10-05
+  - [x] `LIM-07` (Bajo) Variable muerta `eager_frame` en `join_dataset` — hecho el 2026-10-05
 - [ ] **RV80** — **Consulta SQL y DuckDB** — El rechazo de `;`, `--`, `/*` se aplica al texto completo, también dentro de literales y… (y 5 problemas más) · *Esfuerzo: 2,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-63, FUN-64, FUN-65, COD-13, COD-14, LIM-08.
   - [ ] `FUN-63` (Bajo) El rechazo de `;`, `--`, `/*` se aplica al texto completo, también dentro de literales y nombres de columna
