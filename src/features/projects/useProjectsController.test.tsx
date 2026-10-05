@@ -102,6 +102,19 @@ describe("useProjectsController", () => {
     await act(async () => { resolveSave(summary); await first; });
   });
 
+  it("guardar como copia crea un proyecto nuevo y no actualiza el abierto (UX-17)", async () => {
+    const { result } = renderHook(() => useProjectsController({
+      connected: true, blocked: false, hasDataset: true, workspace, onProjectOpened: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
+    await act(async () => result.current.open(summary.id));
+    bridge.saveProject.mockResolvedValueOnce({ ...summary, id: "project-2", name: "Copia" });
+    await act(async () => result.current.save("Copia", { asCopy: true }));
+    expect(bridge.saveProject).toHaveBeenLastCalledWith(null, "Copia", workspace);
+    expect(result.current.activeProject?.id).toBe("project-2");
+    expect(result.current.operation).toMatchObject({ kind: "success", message: expect.stringContaining("Copia “Copia” guardada") });
+  });
+
   it("al borrar el activo solo desvincula el proyecto", async () => {
     const { result } = renderHook(() => useProjectsController({
       connected: true,
@@ -207,7 +220,7 @@ describe("useProjectsController", () => {
     expect(bridge.saveProject).not.toHaveBeenCalled();
   });
 
-  it("respeta el bloqueo externo de operaciones", async () => {
+  it("respeta el bloqueo externo de operaciones y lo avisa (FUN-53)", async () => {
     const { result } = renderHook(() => useProjectsController({
       connected: true,
       blocked: true,
@@ -218,7 +231,7 @@ describe("useProjectsController", () => {
     await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
     await act(async () => result.current.save("No debe guardar"));
     expect(bridge.saveProject).not.toHaveBeenCalled();
-    expect(result.current.operation).toEqual({ kind: "idle" });
+    expect(result.current.operation).toEqual({ kind: "error", message: expect.stringContaining("Hay otra operación en curso") });
   });
 
   it("autoguarda por defecto cada cambio de un proyecto guardado y publica estado guardado (DAT-01)", async () => {

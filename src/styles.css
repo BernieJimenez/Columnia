@@ -400,6 +400,7 @@ summary:focus-visible,
 .project-list span,
 .project-list small,
 .project-save small { color: var(--text-secondary); font-size: .76rem; }
+.project-save .project-save__error { color: var(--danger); }
 .project-save { display: grid; gap: 6px; margin-top: 18px; }
 .project-save > label { color: var(--text-secondary); font-size: .78rem; font-weight: 800; text-transform: uppercase; }
 .project-save > div { display: flex; flex-wrap: wrap; gap: 8px; }

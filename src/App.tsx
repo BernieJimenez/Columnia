@@ -1444,6 +1444,7 @@ export function App() {
                   openCancellationPending={projects.openCancellationPending}
                   restoreCancellationPending={projects.restoreCancellationPending}
                   onSave={(name) => void projects.save(name)}
+                  onSaveCopy={(name) => void projects.save(name, { asCopy: true })}
                   onCancelSave={() => void projects.cancelSave()}
                   onOpen={(projectId) => whenWorkCanBeReplaced(() => void projects.open(projectId))}
                   onCancelOpen={() => void projects.cancelOpen()}

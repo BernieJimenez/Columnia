@@ -343,11 +343,11 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-34, QA-36.
   - [x] `QA-34` (Bajo) Tests de cifras dependen de la configuración regional del sistema — hecho el 2026-10-05
   - [x] `QA-36` (Bajo) Cobertura del controlador de Revisar: sin pruebas de carreras ni de exclusión mutua — hecho el 2026-10-05
-- [ ] **RV74** — **Proyectos** — `runExclusive` y `save` abandonan en silencio si hay una operación activa o `blocked` (y 2 problemas más) · *Esfuerzo: 6 h*
+- [x] **RV74** — **Proyectos** — `runExclusive` y `save` abandonan en silencio si hay una operación activa o `blocked` (y 2 problemas más) · *Esfuerzo: 6 h* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-53, UX-17, QA-35.
-  - [ ] `FUN-53` (Bajo) `runExclusive` y `save` abandonan en silencio si hay una operación activa o `blocked`
-  - [ ] `UX-17` (Bajo) El botón «Guardar proyecto nuevo/Actualizar» no explica por qué está desactivado y no permite «Guardar como»
-  - [ ] `QA-35` (Bajo) Tests de proyectos: errores solo con mensajes que son una ruta y paneles sin cubrir
+  - [x] `FUN-53` (Bajo) `runExclusive` y `save` abandonan en silencio si hay una operación activa o `blocked` — hecho el 2026-10-05
+  - [x] `UX-17` (Bajo) El botón «Guardar proyecto nuevo/Actualizar» no explica por qué está desactivado y no permite «Guardar como» — hecho el 2026-10-05
+  - [x] `QA-35` (Bajo) Tests de proyectos: errores solo con mensajes que son una ruta y paneles sin cubrir — hecho el 2026-10-05
 - [ ] **RV75** — **Reglas de calidad** — La validación de regex del editor usa el motor de JavaScript, no el de Rust (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-54, FUN-76, SEG-05, REN-11, COD-16.
   - [ ] `FUN-54` (Bajo) La validación de regex del editor usa el motor de JavaScript, no el de Rust

@@ -30,6 +30,7 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ProjectsPanel>> = 
     datasetFileName: "actual.csv",
     disabled: false,
     onSave: vi.fn(),
+    onSaveCopy: vi.fn(),
     onOpen: vi.fn(),
     onRestore: vi.fn(),
     onAutoSaveChange: vi.fn(),
@@ -137,5 +138,43 @@ describe("ProjectsPanel", () => {
     expect(props.onRestore).toHaveBeenCalledWith(recovery.id, version.id);
     fireEvent.click(checkbox);
     expect(props.onAutoSaveChange).toHaveBeenCalledWith(false);
+  });
+});
+
+describe("ProjectsPanel: estados y guardado (UX-17, QA-35)", () => {
+  function openOptions() {
+    fireEvent.click(screen.getByText("Guardar y administrar proyectos", { selector: "summary" }));
+  }
+
+  it("explica por qué no se puede guardar con el nombre vacío", () => {
+    renderPanel();
+    openOptions();
+    fireEvent.change(screen.getByRole("textbox", { name: "Nombre del proyecto" }), { target: { value: "  " } });
+    expect(screen.getByRole("alert")).toHaveTextContent("Escribe un nombre para el proyecto.");
+    expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toBeDisabled();
+  });
+
+  it("guarda una copia con otro nombre sin renombrar el proyecto abierto", () => {
+    const props = renderPanel({ activeProject: recovery });
+    openOptions();
+    const name = screen.getByRole("textbox", { name: "Nombre del proyecto" });
+    expect(screen.getByRole("button", { name: "Guardar como copia" })).toBeDisabled();
+    fireEvent.change(name, { target: { value: "Ventas 2027" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar como copia" }));
+    expect(props.onSaveCopy).toHaveBeenCalledWith("Ventas 2027");
+    expect(props.onSave).not.toHaveBeenCalled();
+  });
+
+  it("muestra los estados de carga, cancelación y error del catálogo", () => {
+    renderPanel({ catalog: { kind: "loading" } });
+    expect(screen.getByRole("status")).toHaveTextContent("Cargando proyectos locales…");
+    cleanup();
+    const cancelled = renderPanel({ catalog: { kind: "cancelled" } });
+    expect(screen.getByText("Se canceló la carga de proyectos locales.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+    expect(cancelled.onRetry).toHaveBeenCalledOnce();
+    cleanup();
+    renderPanel({ catalog: { kind: "error", message: "No se pudo leer una ruta local: acceso denegado" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("No se pudieron cargar los proyectos: No se pudo leer una ruta local: acceso denegado");
   });
 });

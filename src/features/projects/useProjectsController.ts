@@ -59,6 +59,8 @@ interface ProjectsControllerOptions {
 }
 
 
+const BUSY_MESSAGE = "Hay otra operación en curso. Espera a que termine y vuelve a intentarlo.";
+
 export function useProjectsController({
   connected,
   blocked,
@@ -231,7 +233,11 @@ export function useProjectsController({
     next: Extract<ProjectOperationState, { kind: "working" }>,
     task: () => Promise<void>,
   ) => {
-    if (operationLock.current || blocked) return;
+    if (operationLock.current || blocked) {
+      // FUN-53: the click is not lost in silence.
+      setOperation({ kind: "error", message: BUSY_MESSAGE });
+      return;
+    }
     operationLock.current = true;
     setOperation(next);
     try {
@@ -243,7 +249,9 @@ export function useProjectsController({
     }
   }, [blocked]);
 
-  const save = useCallback(async (rawName: string) => {
+  // UX-17: `asCopy` saves a new project with this name and leaves the open
+  // one unchanged, instead of renaming it.
+  const save = useCallback(async (rawName: string, { asCopy = false }: { asCopy?: boolean } = {}) => {
     const validation = validateProjectName(rawName);
     if (!validation.valid) {
       setOperation({ kind: "error", message: validation.message });
@@ -255,17 +263,19 @@ export function useProjectsController({
     }
     setSaveCancellationPending(false);
     await runExclusive(
-      { kind: "working", operation: "save", projectId: activeProject?.id ?? null },
+      { kind: "working", operation: "save", projectId: asCopy ? null : activeProject?.id ?? null },
       async () => {
         try {
-          const saved = await saveProject(activeProject?.id ?? null, validation.name, workspace);
+          const saved = await saveProject(asCopy ? null : activeProject?.id ?? null, validation.name, workspace);
           setActiveProject(saved);
           lastReadyCatalog.current = null;
           lastAutoSaveSignature.current = `${saved.id}:${datasetRevision}:${JSON.stringify(workspace)}`;
           failedAutoSaveSignature.current = null;
-          setOperation({ kind: "success", message: activeProject
-            ? `Proyecto “${saved.name}” actualizado.`
-            : `Proyecto “${saved.name}” guardado.` });
+          setOperation({ kind: "success", message: asCopy
+            ? `Copia “${saved.name}” guardada; es ahora el proyecto abierto.`
+            : activeProject
+              ? `Proyecto “${saved.name}” actualizado.`
+              : `Proyecto “${saved.name}” guardado.` });
           await refresh();
         } catch (error: unknown) {
           if (isCancellationError(error)) {
@@ -467,7 +477,11 @@ export function useProjectsController({
   }, [autoSave.kind, autoSaveCancellationPending]);
 
   const confirmDelete = useCallback(async () => {
-    if (deletion.kind !== "confirming" || operationLock.current || blocked) return;
+    if (deletion.kind !== "confirming") return;
+    if (operationLock.current || blocked) {
+      setOperation({ kind: "error", message: BUSY_MESSAGE });
+      return;
+    }
     const target = deletion.project;
     setDeleteCancellationPending(false);
     await runExclusive(

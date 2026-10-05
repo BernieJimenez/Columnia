@@ -203,6 +203,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Proyectos: pulsar guardar, abrir, restaurar o eliminar mientras hay otra
+  operación muestra «Hay otra operación en curso» en lugar de no hacer nada; el
+  formulario explica por qué no se puede guardar y ofrece «Guardar como copia»
+  sin renombrar el proyecto abierto; más pruebas de estados del panel y de
+  errores con motivo (FUN-53, UX-17, QA-35).
 - Revisar: el calendario diario rellena los días sin filas para que cada día
   caiga en su día de la semana; cambiar las filas de muestra vuelve a analizar
   con ellas; la suite de frontend se ejecuta también con coma decimal (`npm run

@@ -33,6 +33,8 @@ interface ProjectsPanelProps {
   deleteCancellationPending?: boolean;
   versionsCancellationPending?: boolean;
   onSave: (name: string) => void;
+  /** UX-17: save the open project's data under a new name, as a new project. */
+  onSaveCopy?: (name: string) => void;
   onCancelCatalogLoad?: () => void;
   onCancelSave?: () => void;
   onOpen: (projectId: string) => void;
@@ -69,6 +71,7 @@ export function ProjectsPanel({
   deleteCancellationPending = false,
   versionsCancellationPending = false,
   onSave,
+  onSaveCopy,
   onCancelCatalogLoad,
   onCancelSave,
   onOpen,
@@ -205,8 +208,20 @@ export function ProjectsPanel({
                 <button type="submit" className="primary-action" disabled={disabled || !validation.valid}>
                   {activeProject ? "Actualizar proyecto" : "Guardar proyecto nuevo"}
                 </button>
+                {activeProject && onSaveCopy && (
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    disabled={disabled || !validation.valid || validation.name === activeProject.name}
+                    onClick={() => onSaveCopy(name)}
+                  >
+                    Guardar como copia
+                  </button>
+                )}
               </div>
               <small id="project-name-help">Entre 1 y {MAX_PROJECT_NAME_LENGTH} caracteres; se recortan espacios al guardar.</small>
+              {/* UX-17: say why the button is disabled. */}
+              {!validation.valid && <small className="project-save__error" role="alert">{validation.message}</small>}
             </form>
           )}
 
