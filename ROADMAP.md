@@ -295,9 +295,9 @@ medio = 1 día; agregado por suma.
   - [ ] `REN-13` (Bajo) Perfil de origen grande: una corrida ordenada por cada 262.144 valores y por columna numérica, todas vivas hasta el final — Abierto: acotar el disco temporal del perfil numérico de archivos grandes exige leer el archivo una vez por columna (o por lotes) en lugar de una sola pasada; hace falta medir con un CSV de ~100 M filas antes de elegir ese intercambio de tiempo por disco
   - [x] `COD-17` (Bajo) Perfilado en paralelo: `expect` sobre perfiles que pueden faltar si el candado de la cola se envenena — hecho el 2026-10-04
   - [x] `LIM-10` (Bajo) `privacy_signal` clasifica por subcadena y produce falsos positivos — hecho el 2026-10-04
-- [ ] **RV66** — **Perfil** — Suites pequeñas: perfil de importación con coma decimal solo se serializa (nunca se aplica) y la migración solo se prue… · *Esfuerzo: 1 día*
+- [x] **RV66** — **Perfil** — Suites pequeñas: perfil de importación con coma decimal solo se serializa (nunca se aplica) y la migración solo se prue… · *Esfuerzo: 1 día* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-44.
-  - [ ] `QA-44` (Bajo) Suites pequeñas: perfil de importación con coma decimal solo se serializa (nunca se aplica) y la migración solo se prueba desde v12
+  - [x] `QA-44` (Bajo) Suites pequeñas: perfil de importación con coma decimal solo se serializa (nunca se aplica) y la migración solo se prueba desde v12 — hecho el 2026-10-04
 - [ ] **RV67** — **Estilos y componentes** — El cronómetro de la operación se pone a 00:00 al pulsar «Cancelar» (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-44, REN-09, ACC-13, ACC-14, ACC-15, ACC-16.
   - [ ] `FUN-44` (Bajo) El cronómetro de la operación se pone a 00:00 al pulsar «Cancelar»

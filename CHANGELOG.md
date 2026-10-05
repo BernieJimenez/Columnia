@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Nuevo test que carga un CSV con coma decimal y fechas día/mes, aplica las
+  convenciones de un perfil de importación guardado y comprueba valores y
+  esquema (QA-44).
 - Contar filas casi duplicadas lee cada cubo en trozos ordenados y sin
   repetidos, así que la memoria depende de los valores distintos y no de las
   filas: un archivo con millones de filas iguales ya no carga un cubo entero; el

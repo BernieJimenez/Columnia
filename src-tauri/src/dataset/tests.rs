@@ -20773,3 +20773,59 @@ fn duplicate_fingerprint_buckets_count_identical_rows_across_chunks() {
     // 5,000,003 rows with three distinct values.
     assert_eq!(duplicates, 5_000_000);
 }
+
+/// QA-44: a CSV written with a decimal comma and day/month dates, loaded and
+/// read with the conventions of a saved import profile, gives the numbers and
+/// dates and matches the profile's schema.
+#[test]
+fn a_saved_import_profile_applies_comma_decimals_and_day_month_dates_to_a_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ventas-es.csv");
+    fs::write(
+        &path,
+        "importe,fecha\n\"1.234,56\",01/02/2025\n\"2,5\",31/12/2024\n\"-10,00\",15/06/2025\n",
+    )
+    .unwrap();
+    let profile = ImportProfile {
+        version: 1,
+        format: "csv".to_owned(),
+        sheet_name: None,
+        header_mode: Some(SpreadsheetHeaderMode::FirstRow),
+        date_convention: Some(ImportDateConvention::Dmy),
+        number_convention: Some(ImportNumberConvention::CommaDecimalDotGrouping),
+        schema: vec![
+            ImportProfileColumn {
+                name: "importe".to_owned(),
+                data_type: "f64".to_owned(),
+            },
+            ImportProfileColumn {
+                name: "fecha".to_owned(),
+                data_type: "date".to_owned(),
+            },
+        ],
+    };
+
+    let (frame, _) =
+        load_dataset_with_progress(&path, |_, _| {}, || false).expect("el CSV debe cargarse");
+    let converted = import_conventions::apply_import_conventions(
+        &frame,
+        profile.date_convention,
+        profile.number_convention,
+        || false,
+    )
+    .expect("las convenciones del perfil deben aplicarse");
+
+    let amounts = converted.column("importe").unwrap().f64().unwrap();
+    assert_eq!(amounts.get(0), Some(1234.56));
+    assert_eq!(amounts.get(1), Some(2.5));
+    assert_eq!(amounts.get(2), Some(-10.0));
+    let dates = converted
+        .column("fecha")
+        .unwrap()
+        .cast(&DataType::String)
+        .unwrap();
+    let dates = dates.str().unwrap();
+    assert_eq!(dates.get(0), Some("2025-02-01"));
+    assert_eq!(dates.get(1), Some("2024-12-31"));
+    assert_eq!(import_profile_schema_mismatch(&profile, &converted), None);
+}
