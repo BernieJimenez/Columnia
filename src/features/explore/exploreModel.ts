@@ -69,8 +69,27 @@ export function valueLabel(value: string | null): string {
   return value === null ? "Sin dato" : value;
 }
 
-export function formatNumber(value: number, fractionDigits = 0): string {
-  return value.toLocaleString(undefined, { maximumFractionDigits: fractionDigits });
+export function formatNumber(value: number, fractionDigits = 0, useGrouping = true): string {
+  return value.toLocaleString(undefined, { maximumFractionDigits: fractionDigits, useGrouping });
+}
+
+/** TXT-06: whole numbers between 1000 and 2999 read as years, written as such. */
+export function looksLikeYears(lower: number, upper: number): boolean {
+  return Number.isInteger(lower) && Number.isInteger(upper) && lower >= 1000 && upper <= 2999;
+}
+
+/** One histogram bin: «1925–1929» for whole-number bins, «1,5–3,2» otherwise. */
+export function binLabel(lower: number, upper: number, integer: boolean, last: boolean, years: boolean): string {
+  if (!integer) return `${formatNumber(lower, 2)} a ${formatNumber(upper, 2)}`;
+  const top = last ? upper : upper - 1;
+  const text = (value: number) => formatNumber(value, 0, !years);
+  return top <= lower ? text(lower) : `${text(lower)} a ${text(top)}`;
+}
+
+/** FUN-78: what a median, a mean or the histogram left out. */
+export function ignoredRowsText(count: number | undefined): string | null {
+  if (!count) return null;
+  return count === 1 ? "1 fila sin número no cuenta" : `${formatNumber(count)} filas sin número no cuentan`;
 }
 
 /** Chip text for an active filter. */

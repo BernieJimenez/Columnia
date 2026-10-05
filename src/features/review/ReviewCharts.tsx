@@ -243,6 +243,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                 const median = Number(column.median);
                 const thirdQuartile = Number(column.thirdQuartile);
                 const span = Math.max(maximum - minimum, Number.EPSILON);
+                const grouping = !readsAsCode(column.name, minimum, maximum);
                 const left = ((firstQuartile - minimum) / span) * 100;
                 const width = ((thirdQuartile - firstQuartile) / span) * 100;
                 const medianPosition = ((median - firstQuartile) / Math.max(thirdQuartile - firstQuartile, Number.EPSILON)) * 100;
@@ -251,7 +252,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                   <div className="quality-chart__item" role="listitem" key={column.name}>
                     <div className="quality-chart__label">
                       <span title={column.name}>{column.name}</span>
-                      <strong>Q1 {formatStatistic(firstQuartile)} · Mediana {formatStatistic(median)} · Q3 {formatStatistic(thirdQuartile)}</strong>
+                      <strong>Q1 {formatStatistic(firstQuartile, grouping)} · Mediana {formatStatistic(median, grouping)} · Q3 {formatStatistic(thirdQuartile, grouping)}</strong>
                     </div>
                     <div className="quality-boxplot" aria-hidden="true">
                       <span className="quality-boxplot__whisker" />
@@ -259,7 +260,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                         <span className="quality-boxplot__median" style={{ left: `${clampPercentage(medianPosition)}%` }} />
                       </span>
                     </div>
-                    <small className="quality-chart__range">Mín. {formatStatistic(minimum)} · Máx. {formatStatistic(maximum)}</small>
+                    <small className="quality-chart__range">Mín. {formatStatistic(minimum, grouping)} · Máx. {formatStatistic(maximum, grouping)}</small>
                   </div>
                 );
               })}
@@ -277,6 +278,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                 const buckets = column.histogram ?? [];
                 const maximumCount = Math.max(1, ...buckets.map((bucket) => bucket.count));
                 const titleId = `quality-histogram-column-${columnIndex}`;
+                const grouping = !readsAsCode(column.name, buckets[0]?.lower ?? 0.5, buckets.at(-1)?.upper ?? 0.5);
 
                 return (
                   <div className="quality-histogram" role="group" aria-labelledby={titleId} key={column.name}>
@@ -284,7 +286,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                     <div className="quality-histogram__bars" aria-hidden="true">
                       {buckets.map((bucket, bucketIndex) => {
                         const percentage = (bucket.count / maximumCount) * 100;
-                        const interval = histogramIntervalLabel(bucket.lower, bucket.upper, bucketIndex === buckets.length - 1);
+                        const interval = histogramIntervalLabel(bucket.lower, bucket.upper, bucketIndex === buckets.length - 1, grouping);
 
                         return (
                           <div
@@ -299,8 +301,8 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                       })}
                     </div>
                     <div className="quality-histogram__axis" aria-hidden="true">
-                      <span>{formatStatistic(buckets[0]?.lower ?? null)}</span>
-                      <span>{formatStatistic(buckets[buckets.length - 1]?.upper ?? null)}</span>
+                      <span>{formatStatistic(buckets[0]?.lower ?? null, grouping)}</span>
+                      <span>{formatStatistic(buckets[buckets.length - 1]?.upper ?? null, grouping)}</span>
                     </div>
                     <QualityDataDetails className="quality-histogram__table">
                       <table aria-label={`Tabla de frecuencias para ${column.name}`}>
@@ -315,7 +317,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                           {buckets.map((bucket, bucketIndex) => (
                             <tr key={`${bucket.lower}-${bucket.upper}-${bucketIndex}`}>
                               <th scope="row">
-                                {histogramIntervalLabel(bucket.lower, bucket.upper, bucketIndex === buckets.length - 1)}
+                                {histogramIntervalLabel(bucket.lower, bucket.upper, bucketIndex === buckets.length - 1, grouping)}
                               </th>
                               <td>{bucket.count.toLocaleString()}</td>
                             </tr>
@@ -1357,15 +1359,25 @@ export function profileColumnTypeLabel(column: ColumnProfile): string {
     : storedLabel;
 }
 
-export function formatStatistic(value: number | null): string {
+export function formatStatistic(value: number | null, useGrouping = true): string {
   if (value === null) return "—";
   // FUN-28: small magnitudes keep their significant digits instead of «0».
   if (value !== 0 && Math.abs(value) < 0.001) {
-    return value.toLocaleString(undefined, { maximumSignificantDigits: 3 });
+    return value.toLocaleString(undefined, { maximumSignificantDigits: 3, useGrouping });
   }
-  return value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+  return value.toLocaleString(undefined, { maximumFractionDigits: 3, useGrouping });
 }
 
-function histogramIntervalLabel(lower: number, upper: number, includesMaximum: boolean): string {
-  return `${formatStatistic(lower)} – ${formatStatistic(upper)}${includesMaximum ? " (incluye máximo)" : ""}`;
+/**
+ * TXT-06: whole numbers that are years or codes (1925, 1001) read without a
+ * thousands separator: «1925», not «1,925».
+ */
+export function readsAsCode(name: string, minimum: number, maximum: number): boolean {
+  if (!Number.isInteger(minimum) || !Number.isInteger(maximum)) return false;
+  return (minimum >= 1000 && maximum <= 2999)
+    || /(^|[_\s-])(id|cod|codigo|code|year|anio|año)([_\s-]|$)/i.test(name);
+}
+
+function histogramIntervalLabel(lower: number, upper: number, includesMaximum: boolean, useGrouping = true): string {
+  return `${formatStatistic(lower, useGrouping)} – ${formatStatistic(upper, useGrouping)}${includesMaximum ? " (incluye máximo)" : ""}`;
 }

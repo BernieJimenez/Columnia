@@ -7,7 +7,7 @@ import type {
   DatasetQueryEngine,
   DatasetProfile,
 } from "./dataset-contracts";
-import type { ImportProfile } from "./dataset-contracts";
+import type { ExploreFilter, ImportProfile } from "./dataset-contracts";
 import type {
   SavedRecipe,
 } from "./recipe-contracts";
@@ -62,6 +62,8 @@ export interface ProjectWorkspace {
   comparisonKeyColumns?: string[];
   joinType?: DatasetJoinType;
   importProfile?: ImportProfile;
+  /** UX-09: the Explorar filters, restored with the project. */
+  exploreFilters?: ExploreFilter[];
 }
 
 export interface ProjectVersionSummary {

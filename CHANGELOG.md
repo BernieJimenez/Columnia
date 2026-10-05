@@ -203,6 +203,16 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Explorar: un filtro con lista vacía o con más de 61 valores se rechaza en vez
+  de ignorarse; la mediana, la media y el histograma dicen cuántas filas sin
+  número dejaron fuera; los años y los números enteros tienen tramos enteros
+  (`1925 a 1929`) y se escriben sin separador de millares, también en el mínimo
+  y el máximo de Revisar para años y códigos; el primer panel muestra
+  «Preparando el panel…»; un panel sin gráficos explica por qué y una fecha
+  guardada como texto sugiere «Interpretar fechas»; los filtros de Explorar se
+  guardan con el proyecto y vuelven al abrirlo (catálogo v16); el botón «Abrir
+  esta copia en Power BI» se distingue de «Exportar y abrir en Power BI» y avisa
+  del `.pbids` que deja junto a la copia (FUN-77, FUN-78, UX-09, UX-11, TXT-06).
 - Recetas: los mensajes de error ya no usan nombres internos (`keepColumns`,
   `split`, `merge`, «source-backed», «payload»): dicen «columnas conservadas»,
   «la división», «la unión» o «el archivo de origen», y los límites de texto

@@ -5,8 +5,11 @@ import type { DatasetPreview, ExploreFilter, ExploreLayout, ExplorePanel } from 
 import {
   MAX_CHARTS,
   axisTicks,
+  binLabel,
   filterLabel,
   formatNumber,
+  ignoredRowsText,
+  looksLikeYears,
   isPeriodSelected,
   isRangeSelected,
   isValueSelected,
@@ -26,6 +29,9 @@ interface ExplorePhaseProps {
   /** Changes whenever the data changes, so the panel is recomputed. */
   datasetRevision: number;
   profileReady: boolean;
+  /** UX-09: the filters a reopened project had. */
+  initialFilters?: ExploreFilter[];
+  onFiltersChange?: (filters: ExploreFilter[]) => void;
 }
 
 type PanelState =
@@ -33,8 +39,9 @@ type PanelState =
   | { kind: "ready"; panel: ExplorePanel }
   | { kind: "error"; message: string; previous: ExplorePanel | null };
 
-export function ExplorePhase({ dataset, datasetRevision, profileReady }: ExplorePhaseProps) {
-  const [filters, setFilters] = useState<ExploreFilter[]>([]);
+export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFilters, onFiltersChange }: ExplorePhaseProps) {
+  const [filters, setFilters] = useState<ExploreFilter[]>(initialFilters ?? []);
+  useEffect(() => { onFiltersChange?.(filters); }, [filters, onFiltersChange]);
   // «Personalizar»: empty means Columnia chooses the charts.
   const [layout, setLayout] = useState<ExploreLayout>({});
   const [customizing, setCustomizing] = useState(false);
@@ -93,6 +100,10 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
 
       {!profileReady && (
         <p className="notice" role="status">Analizando la calidad para preparar el panel…</p>
+      )}
+      {/* UX-11: the first panel of a large dataset takes a moment. */}
+      {profileReady && state.kind === "loading" && !state.previous && (
+        <p className="notice" role="status">Preparando el panel…</p>
       )}
       {state.kind === "error" && (
         <div className="notice notice--error" role="alert">
@@ -201,6 +212,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
                 {kpi.kind === "count" && panel.rowCount !== panel.totalRowCount && (
                   <small>de {formatNumber(panel.totalRowCount)}</small>
                 )}
+                {ignoredRowsText(kpi.ignoredCount) && <small>{ignoredRowsText(kpi.ignoredCount)}</small>}
               </div>
             ))}
           </dl>
@@ -251,6 +263,8 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
               const histogram = panel.histogram;
               const max = Math.max(1, ...histogram.bins.map((bin) => bin.count));
               const active = filters.some((filter) => filter.column === histogram.column);
+              const years = histogram.integer && looksLikeYears(histogram.bins[0]?.lower ?? 0, histogram.bins.at(-1)?.upper ?? 0);
+              const ignored = ignoredRowsText(histogram.ignoredCount);
               return (
                 <section className="explore__panel explore__panel--wide" aria-label={`Distribución de ${histogram.column}`}>
                   <h4>{histogram.column}</h4>
@@ -263,7 +277,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
                           type="button"
                           className="explore__column"
                           aria-pressed={selected}
-                          aria-label={`${histogram.column} de ${formatNumber(bin.lower, 2)} a ${formatNumber(bin.upper, 2)}: ${formatNumber(bin.count)} filas`}
+                          aria-label={`${histogram.column} de ${binLabel(bin.lower, bin.upper, histogram.integer, index === histogram.bins.length - 1, years)}: ${formatNumber(bin.count)} filas`}
                           onClick={() => setFilters((current) =>
                             toggleRange(current, histogram.column, bin.lower, bin.upper, index === histogram.bins.length - 1))}
                         >
@@ -274,10 +288,13 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
                   </div>
                   <p className="explore__axis">
                     {axisTicks(histogram.bins[0]?.lower ?? 0, histogram.bins.at(-1)?.upper ?? 0).map((tick, index) => (
-                      <span key={index}>{formatNumber(tick, 2)}</span>
+                      <span key={index}>{formatNumber(histogram.integer ? Math.round(tick) : tick, 2, !years)}</span>
                     ))}
                   </p>
-                  <p className="explore__note">Filas por tramo de {histogram.column}; el tramo más alto tiene {formatNumber(max)}.</p>
+                  <p className="explore__note">
+                    Filas por tramo de {histogram.column}; el tramo más alto tiene {formatNumber(max)}.
+                    {ignored ? ` ${ignored}: no aparece en ningún tramo.` : ""}
+                  </p>
                 </section>
               );
             })()}
@@ -312,6 +329,21 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady }: Explore
               );
             })()}
           </div>
+          {/* UX-09: say why a panel has no charts or no trend. */}
+          {panel.categories.length === 0 && !panel.histogram && !(panel.trend && panel.trend.points.length > 0) && (
+            <p className="notice">
+              {panel.totalRowCount <= 1
+                ? "Con una sola fila no hay distribución que mostrar: los gráficos aparecen con más filas."
+                : "Ninguna columna sirve para un gráfico: hacen falta categorías con valores repetidos, números o fechas."}
+            </p>
+          )}
+          {!panel.trend && panel.options.textDates.length > 0 && (
+            <p className="notice">
+              {panel.options.textDates.length === 1
+                ? `«${panel.options.textDates[0]}» parece una fecha guardada como texto. Interprétala en Preparar («Interpretar fechas») para ver su tendencia.`
+                : `${panel.options.textDates.map((column) => `«${column}»`).join(", ")} parecen fechas guardadas como texto. Interprétalas en Preparar («Interpretar fechas») para ver su tendencia.`}
+            </p>
+          )}
           <p className="explore__note">Los gráficos usan todas las filas, no una muestra. Nada sale de tu equipo.</p>
         </section>
       )}

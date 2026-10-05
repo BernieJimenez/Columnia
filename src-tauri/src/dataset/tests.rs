@@ -19025,6 +19025,99 @@ fn explore_panel_chooses_charts_from_the_profile_and_counts_every_row() {
 }
 
 #[test]
+fn explore_rejects_an_empty_or_unbounded_value_filter() {
+    // FUN-77: `[]` used to mean «no filter», and the list had no limit.
+    let frame = explore_frame();
+    let profile = profile_dataset(&frame).expect("perfil");
+    let many = (0..10_000)
+        .map(|index| index.to_string())
+        .collect::<Vec<_>>();
+    let many = many.iter().map(String::as_str).collect::<Vec<_>>();
+    for (filter, message) in [
+        (explore_values("estado", &[]), "al menos un valor"),
+        (explore_values("estado", &many), "como máximo 61 valores"),
+    ] {
+        let error = explore::explore_panel(
+            frame.clone().lazy(),
+            &profile,
+            &[filter],
+            &ExploreLayout::default(),
+        )
+        .expect_err("el filtro no es válido");
+        assert!(error.contains(message), "{error}");
+    }
+}
+
+#[test]
+fn explore_whole_number_measures_get_whole_number_bins() {
+    // TXT-06: years binned as 1925–1929.8 read as nonsense.
+    let years = (1900_i64..=1999).chain(1900..=1949).collect::<Vec<_>>();
+    let frame = df!["release_year" => years].unwrap();
+    let profile = profile_dataset(&frame).expect("perfil");
+    let panel = explore::explore_panel(frame.lazy(), &profile, &[], &ExploreLayout::default())
+        .expect("panel");
+    let value = serde_json::to_value(&panel).unwrap();
+    let histogram = &value["histogram"];
+    assert_eq!(histogram["column"], "release_year");
+    assert_eq!(histogram["integer"], true);
+    let bins = histogram["bins"].as_array().unwrap();
+    assert_eq!(bins.len(), 20);
+    assert_eq!(
+        (bins[0]["lower"].as_f64(), bins[0]["upper"].as_f64()),
+        (Some(1900.0), Some(1905.0))
+    );
+    assert_eq!(bins[19]["upper"].as_f64(), Some(1999.0));
+    assert!(bins
+        .iter()
+        .all(|bin| bin["lower"].as_f64().unwrap().fract() == 0.0));
+    // 1900–1904 appears twice: in 1900..=1999 and in 1900..=1949.
+    assert_eq!(bins[0]["count"], 10);
+}
+
+#[test]
+fn explore_names_text_columns_that_could_draw_the_trend() {
+    // UX-09: dates imported as text give no trend until they are interpreted.
+    let frame = df![
+        "fecha" => &["2025-01-05", "2025-02-07", "2025-02-09", "2025-03-01"],
+        "estado" => &["A", "B", "A", "B"]
+    ]
+    .unwrap();
+    let profile = profile_dataset(&frame).expect("perfil");
+    let panel = explore::explore_panel(frame.lazy(), &profile, &[], &ExploreLayout::default())
+        .expect("panel");
+    let value = serde_json::to_value(&panel).unwrap();
+    assert!(value["trend"].is_null());
+    assert_eq!(value["options"]["textDates"], serde_json::json!(["fecha"]));
+}
+
+#[test]
+fn explore_counts_the_rows_a_measure_leaves_out() {
+    // FUN-78: text that is 95 % numbers is a measure; the 5 % is announced.
+    // 1..14 and 1..5 again (repeated, so not a key) plus one "x": 20 rows.
+    let mut amounts = (1..=14)
+        .chain(1..=5)
+        .map(|value| Some(value.to_string()))
+        .collect::<Vec<_>>();
+    amounts.push(Some("x".to_owned()));
+    let frame = df!["monto" => amounts].unwrap();
+    let profile = profile_dataset(&frame).expect("perfil");
+    let panel = explore::explore_panel(frame.lazy(), &profile, &[], &ExploreLayout::default())
+        .expect("panel");
+    let value = serde_json::to_value(&panel).unwrap();
+    assert_eq!(value["kpis"][1]["column"], "monto");
+    assert_eq!(value["kpis"][1]["ignoredCount"], 1);
+    assert_eq!(value["histogram"]["ignoredCount"], 1);
+    let binned: u64 = value["histogram"]["bins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|bin| bin["count"].as_u64().unwrap())
+        .sum();
+    assert_eq!(binned, 19);
+    assert!(value["kpis"][0].get("ignoredCount").is_none());
+}
+
+#[test]
 fn explore_filters_cross_every_chart_except_their_own() {
     let frame = explore_frame();
     let profile = profile_dataset(&frame).expect("perfil");
@@ -19177,6 +19270,7 @@ fn explore_layout_chooses_columns_and_expands_a_chart() {
             "categories": ["estado", "tipo", "habitaciones", "precio"],
             "measures": ["habitaciones", "precio"],
             "dates": ["fecha"],
+            "textDates": [],
         })
     );
 

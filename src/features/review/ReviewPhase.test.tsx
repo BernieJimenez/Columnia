@@ -10,7 +10,7 @@ import type {
 } from "../../bridge";
 import * as bridge from "../../bridge";
 import { DatasetPreviewPanel, ReviewPhase } from "./ReviewPhase";
-import { formatStatistic } from "./ReviewCharts";
+import { formatStatistic, readsAsCode } from "./ReviewCharts";
 import { createReadyDatasetStatus } from "../load/loadModel";
 import type { QualityActionTarget } from "./qualityActionPlan";
 import { beginProfileAnalysis, type ProfileStatus } from "./reviewModel";
@@ -352,6 +352,14 @@ describe("formatStatistic", () => {
     expect(formatStatistic(0)).toBe("0");
     expect(formatStatistic(12.34567)).toBe((12.346).toLocaleString());
     expect(formatStatistic(null)).toBe("—");
+  });
+
+  it("escribe años y códigos sin separador de millares (TXT-06)", () => {
+    expect(readsAsCode("release_year", 1925, 2021)).toBe(true);
+    expect(readsAsCode("cliente_id", 1001, 98_004)).toBe(true);
+    expect(readsAsCode("importe", 1001, 98_004)).toBe(false);
+    expect(readsAsCode("precio", 1000.5, 2000)).toBe(false);
+    expect(formatStatistic(1925, false)).toBe("1925");
   });
 });
 

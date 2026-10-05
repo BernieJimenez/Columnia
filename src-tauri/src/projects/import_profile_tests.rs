@@ -38,6 +38,7 @@ fn test_workspace(import_profile: Option<ImportProfile>) -> ProjectWorkspace {
         comparison_key_columns: Vec::new(),
         join_type: None,
         import_profile,
+        explore_filters: Vec::new(),
     }
 }
 

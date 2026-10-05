@@ -6,7 +6,9 @@ import type { DatasetPreview, ExplorePanel } from "../../bridge";
 import { ExplorePhase } from "./ExplorePhase";
 import {
   axisTicks,
+  binLabel,
   filterLabel,
+  ignoredRowsText,
   isPeriodSelected,
   isRangeSelected,
   isValueSelected,
@@ -42,8 +44,8 @@ const panel = (rowCount: number): ExplorePanel => ({
   categories: [
     { column: "estado", bars: [{ value: "CA", count: 3 }, { value: "FL", count: 3 }, { value: null, count: 2 }], otherCount: 0, distinctCount: 3 },
   ],
-  options: { categories: ["estado", "ciudad"], measures: ["precio", "metros"], dates: ["fecha", "alta"] },
-  histogram: { column: "precio", bins: [{ lower: 100, upper: 450, count: 4 }, { lower: 450, upper: 800, count: 4 }] },
+  options: { categories: ["estado", "ciudad"], measures: ["precio", "metros"], dates: ["fecha", "alta"], textDates: [] },
+  histogram: { column: "precio", bins: [{ lower: 100, upper: 450, count: 4 }, { lower: 450, upper: 800, count: 4 }], ignoredCount: 0, integer: false },
   trend: { column: "fecha", granularity: "month", points: [{ period: "2025-01", count: 2 }, { period: "2025-02", count: 6 }] },
 });
 
@@ -80,6 +82,14 @@ describe("exploreModel", () => {
     expect(toggleExpanded({}, "estado")).toEqual({ expanded: ["estado"] });
     expect(toggleExpanded({ expanded: ["estado"] }, "estado")).toEqual({ expanded: [] });
     expect(axisTicks(0, 100)).toEqual([0, 25, 50, 75, 100]);
+  });
+
+  it("labels whole-number bins and the rows a measure leaves out (TXT-06, FUN-78)", () => {
+    expect(binLabel(1925, 1930, true, false, true)).toBe("1925 a 1929");
+    expect(binLabel(1995, 1999, true, true, true)).toBe("1995 a 1999");
+    expect(binLabel(3, 4, true, false, false)).toBe("3");
+    expect(ignoredRowsText(0)).toBeNull();
+    expect(ignoredRowsText(1)).toBe("1 fila sin número no cuenta");
   });
 
   it("names the indicators in plain words", () => {
@@ -192,5 +202,65 @@ describe("ExplorePhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Quitar filtros y volver a lo automático" }));
     await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([], {}));
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("announces the first panel while it is computed (UX-11)", async () => {
+    let resolve!: (value: ExplorePanel) => void;
+    vi.spyOn(bridge, "getExplorePanel").mockReturnValue(new Promise((done) => { resolve = done; }));
+    render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
+    expect(screen.getByRole("status")).toHaveTextContent("Preparando el panel…");
+    resolve(panel(8));
+    expect(await screen.findByRole("region", { name: "Filas por estado" })).toBeInTheDocument();
+    expect(screen.queryByText("Preparando el panel…")).not.toBeInTheDocument();
+  });
+
+  it("says how many rows a measure left out and writes years as years (FUN-78, TXT-06)", async () => {
+    vi.spyOn(bridge, "getExplorePanel").mockResolvedValue({
+      ...panel(8),
+      kpis: [
+        { kind: "count", column: null, value: 8 },
+        { kind: "median", column: "release_year", value: 1927, ignoredCount: 2 },
+      ],
+      histogram: {
+        column: "release_year",
+        bins: [{ lower: 1925, upper: 1930, count: 3 }, { lower: 1930, upper: 1934, count: 3 }],
+        ignoredCount: 2,
+        integer: true,
+      },
+    });
+    render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
+    expect(await screen.findByText("2 filas sin número no cuentan")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "release_year de 1925 a 1929: 3 filas" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "release_year de 1930 a 1934: 3 filas" })).toBeInTheDocument();
+    expect(screen.getByText(/2 filas sin número no cuentan: no aparece en ningún tramo/)).toBeInTheDocument();
+  });
+
+  it("explains a panel without charts and suggests interpreting text dates (UX-09)", async () => {
+    vi.spyOn(bridge, "getExplorePanel").mockResolvedValue({
+      ...panel(1),
+      totalRowCount: 1,
+      categories: [],
+      histogram: null,
+      trend: null,
+      options: { categories: [], measures: [], dates: [], textDates: ["fecha"] },
+    });
+    render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
+    expect(await screen.findByText(/Con una sola fila no hay distribución que mostrar/)).toBeInTheDocument();
+    expect(screen.getByText(/«fecha» parece una fecha guardada como texto/)).toBeInTheDocument();
+  });
+
+  it("starts from the filters a reopened project kept and reports changes (UX-09)", async () => {
+    const getPanel = vi.spyOn(bridge, "getExplorePanel").mockResolvedValue(panel(3));
+    const onFiltersChange = vi.fn();
+    render(<ExplorePhase
+      dataset={dataset}
+      datasetRevision={1}
+      profileReady
+      initialFilters={[{ column: "estado", values: ["FL"] }]}
+      onFiltersChange={onFiltersChange}
+    />);
+    await waitFor(() => expect(getPanel).toHaveBeenCalledWith([{ column: "estado", values: ["FL"] }], {}));
+    fireEvent.click(await screen.findByRole("button", { name: "Quitar filtro estado: FL" }));
+    await waitFor(() => expect(onFiltersChange).toHaveBeenLastCalledWith([]));
   });
 });

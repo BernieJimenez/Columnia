@@ -498,6 +498,8 @@ export interface ExploreOptions {
   categories: string[];
   measures: string[];
   dates: string[];
+  /** UX-09: text columns that look like dates. */
+  textDates: string[];
 }
 
 export interface ExploreRange {
@@ -521,6 +523,8 @@ export interface ExploreKpi {
   kind: "count" | "median" | "mean";
   column: string | null;
   value: number | null;
+  /** FUN-78: rows without a usable number, left out of a median or mean. */
+  ignoredCount?: number;
 }
 
 export interface ExploreCategoryChart {
@@ -538,6 +542,10 @@ export interface ExploreBar {
 export interface ExploreHistogram {
   column: string;
   bins: ExploreBin[];
+  /** FUN-78: filtered rows without a usable number, in no bin. */
+  ignoredCount: number;
+  /** TXT-06: whole-number bins; every bin but the last excludes `upper`. */
+  integer: boolean;
 }
 
 export interface ExploreBin {

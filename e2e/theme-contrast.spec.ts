@@ -58,9 +58,9 @@ const explore = {
   totalRowCount: rows.length,
   kpis: [{ kind: "count", column: null, value: rows.length }, { kind: "mean", column: "total", value: 10.5 }],
   categories: [{ column: "cliente", bars: [{ value: "Ana", count: 2 }, { value: null, count: 1 }], otherCount: 0, distinctCount: 2 }],
-  histogram: { column: "total", bins: [{ lower: 10, upper: 11, count: 2 }] },
+  histogram: { column: "total", bins: [{ lower: 10, upper: 11, count: 2 }], ignoredCount: 0, integer: false },
   trend: null,
-  options: { categories: ["cliente"], measures: ["total"], dates: ["fecha"] },
+  options: { categories: ["cliente"], measures: ["total"], dates: ["fecha"], textDates: [] },
 } satisfies ExplorePanel;
 
 async function installContrastMock(page: Page) {

@@ -355,7 +355,7 @@ describe("señales de datos personales en Entregar", () => {
     expect(onExport).toHaveBeenLastCalledWith(expect.objectContaining({ format: "csv" }));
     view.rerender(<DeliveryHarness onExport={onExport} exportState={{ ...success }} />);
     await waitFor(() => expect(openInPowerBi).toHaveBeenCalledOnce());
-    expect(screen.getByText("Power BI Desktop se abre con esta copia.")).toBeInTheDocument();
+    expect(screen.getByText(/Power BI Desktop se abre con esta copia. Para abrirla se guardó a su lado un archivo de conexión .pbids/)).toBeInTheDocument();
 
     // A cancelled export forgets the request.
     view.rerender(<DeliveryHarness onExport={onExport} exportState={{ kind: "idle" }} />);
@@ -1359,7 +1359,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Abrir carpeta" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("No se pudo abrir la carpeta de exportación."));
     // A bundle is not a file Power BI opens directly.
-    expect(screen.queryByRole("button", { name: "Abrir en Power BI" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Abrir esta copia en Power BI" })).not.toBeInTheDocument();
 
     cleanup();
     render(<DeliveryHarness
@@ -1377,15 +1377,15 @@ describe("DeliveryPhase", () => {
       }}
     />);
     const openInPowerBi = vi.spyOn(bridge, "openLastExportInPowerBi").mockResolvedValue(false);
-    fireEvent.click(screen.getByRole("button", { name: "Abrir en Power BI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir esta copia en Power BI" }));
     await waitFor(() => expect(openInPowerBi).toHaveBeenCalledOnce());
-    expect(screen.getByText("Power BI Desktop se abre con esta copia.")).toBeInTheDocument();
+    expect(screen.getByText(/Power BI Desktop se abre con esta copia. Para abrirla se guardó a su lado un archivo de conexión .pbids/)).toBeInTheDocument();
     expect(screen.queryByText(/saltos de línea/)).not.toBeInTheDocument();
     openInPowerBi.mockResolvedValueOnce(true);
-    fireEvent.click(screen.getByRole("button", { name: "Abrir en Power BI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir esta copia en Power BI" }));
     expect(await screen.findByRole("note")).toHaveTextContent("Algunas celdas tienen saltos de línea");
     openInPowerBi.mockRejectedValueOnce(new Error("Power BI Desktop no está instalado."));
-    fireEvent.click(screen.getByRole("button", { name: "Abrir en Power BI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir esta copia en Power BI" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Power BI Desktop no está instalado."));
 
     cleanup();

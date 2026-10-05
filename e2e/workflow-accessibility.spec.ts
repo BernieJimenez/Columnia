@@ -25,9 +25,9 @@ const explore = {
     otherCount: 0,
     distinctCount: 2,
   }],
-  histogram: { column: "importe", bins: [{ lower: 0, upper: 10, count: 2 }, { lower: 10, upper: 20, count: 1 }] },
+  histogram: { column: "importe", bins: [{ lower: 0, upper: 10, count: 2 }, { lower: 10, upper: 20, count: 1 }], ignoredCount: 0, integer: false },
   trend: null,
-  options: { categories: [], measures: [], dates: [] },
+  options: { categories: [], measures: [], dates: [], textDates: [] },
 } satisfies ExplorePanel;
 
 const exportResult = {

@@ -424,13 +424,13 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Se cumplen los criterios de aceptación de TXT-14, LIM-09.
   - [x] `TXT-14` (Bajo) Mensajes de error con jerga interna y mezcla de inglés — hecho el 2026-10-05
   - [x] `LIM-09` (Bajo) `load_recipe_file`: segunda rama inalcanzable y nombre sugerido sin proteger nombres reservados de Windows — hecho el 2026-10-05
-- [ ] **RV87** — **Explorar** — Explorar: filtros con lista vacía se ignoran, y los valores no tienen tope (y 4 problemas más) · *Esfuerzo: 1,2 días*
+- [x] **RV87** — **Explorar** — Explorar: filtros con lista vacía se ignoran, y los valores no tienen tope (y 4 problemas más) · *Esfuerzo: 1,2 días* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-77, FUN-78, UX-09, UX-11, TXT-06.
-  - [ ] `FUN-77` (Bajo) Explorar: filtros con lista vacía se ignoran, y los valores no tienen tope
-  - [ ] `FUN-78` (Bajo) Explorar: histograma y KPIs descartan en silencio texto no numérico, nulos y no finitos
-  - [ ] `UX-09` (Bajo) Observaciones menores
-  - [ ] `UX-11` (Bajo) Primera carga de Explorar sin indicador: pantalla vacía hasta que llega el panel
-  - [ ] `TXT-06` (Bajo) Años e identificadores con separador de millares («release_year de 1,925 a 1,929.8», «Mín. 1,001»)
+  - [x] `FUN-77` (Bajo) Explorar: filtros con lista vacía se ignoran, y los valores no tienen tope — hecho el 2026-10-05
+  - [x] `FUN-78` (Bajo) Explorar: histograma y KPIs descartan en silencio texto no numérico, nulos y no finitos — hecho el 2026-10-05
+  - [x] `UX-09` (Bajo) Observaciones menores — hecho el 2026-10-05
+  - [x] `UX-11` (Bajo) Primera carga de Explorar sin indicador: pantalla vacía hasta que llega el panel — hecho el 2026-10-05
+  - [x] `TXT-06` (Bajo) Años e identificadores con separador de millares («release_year de 1,925 a 1,929.8», «Mín. 1,001») — hecho el 2026-10-05
 - [ ] **RV88** — **Importación** — Muestra de encabezados CSV con fin de línea CR solo falla en archivos grandes (y 4 problemas más) · *Esfuerzo: 2,8 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-79, FUN-80, FUN-81, ARQ-07, COD-18.
   - [ ] `FUN-79` (Bajo) Muestra de encabezados CSV con fin de línea CR solo falla en archivos grandes

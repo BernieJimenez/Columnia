@@ -14,24 +14,78 @@ const MAX_NUMERIC_CATEGORY_VALUES: usize = 12;
 const MAX_BARS: usize = 12;
 /// Bars of a chart the person expanded with «Ver todos».
 const MAX_EXPANDED_BARS: usize = 60;
+/// Values one filter may hold: every bar of an expanded chart plus «Sin dato».
+const MAX_FILTER_VALUES: usize = MAX_EXPANDED_BARS + 1;
 /// Most distinct values a column may have to be offered as a bar chart.
 const MAX_CUSTOM_CATEGORY_VALUES: usize = 1_000;
 const HISTOGRAM_BINS: usize = 20;
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExploreFilter {
     column: String,
     /// Keep rows whose value (as text) is one of these; `null` keeps gaps.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     values: Option<Vec<Option<String>>>,
     /// Keep rows whose number falls in `[min, max]`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     range: Option<ExploreRange>,
     /// Keep rows whose date falls in this trend period: `2025`, `2025-03`
     /// or `2025-03-09`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     period: Option<String>,
+}
+
+/// Filters a request may send, and a project may keep, at once.
+pub(crate) const MAX_EXPLORE_FILTERS: usize = 32;
+/// Longest column name or value a saved filter may keep.
+const MAX_FILTER_TEXT_CHARS: usize = 4 * 1024;
+
+/// UX-09: the shape every filter needs, checked both before computing the
+/// panel and before a project keeps the filters.
+pub(crate) fn validate_explore_filters(filters: &[ExploreFilter]) -> Result<(), String> {
+    if filters.len() > MAX_EXPLORE_FILTERS {
+        return Err("Demasiados filtros a la vez.".to_owned());
+    }
+    for filter in filters {
+        let kinds = usize::from(filter.values.is_some())
+            + usize::from(filter.range.is_some())
+            + usize::from(filter.period.is_some());
+        if kinds != 1 {
+            return Err("Cada filtro necesita valores o un rango, no ambos.".to_owned());
+        }
+        // FUN-77: an empty list used to drop the filter («no match» became
+        // «no filter»); a huge one built a deep OR tree.
+        match filter.values.as_ref().map(Vec::len) {
+            Some(0) => return Err("Un filtro de valores necesita al menos un valor.".to_owned()),
+            Some(count) if count > MAX_FILTER_VALUES => {
+                return Err(format!(
+                    "Un filtro admite como máximo {MAX_FILTER_VALUES} valores."
+                ))
+            }
+            _ => {}
+        }
+        if filter
+            .period
+            .as_deref()
+            .is_some_and(|period| period_days(period).is_none())
+        {
+            return Err("El periodo del filtro no es una fecha válida.".to_owned());
+        }
+        if filter
+            .range
+            .is_some_and(|range| !range.min.is_finite() || !range.max.is_finite())
+        {
+            return Err("El rango del filtro no es válido.".to_owned());
+        }
+        let too_long = std::iter::once(filter.column.as_str())
+            .chain(filter.values.iter().flatten().flatten().map(String::as_str))
+            .any(|text| text.chars().count() > MAX_FILTER_TEXT_CHARS);
+        if too_long {
+            return Err("Un filtro contiene un texto demasiado largo.".to_owned());
+        }
+    }
+    Ok(())
 }
 
 /// What the person chose in «Personalizar»; anything left out stays automatic.
@@ -56,6 +110,9 @@ pub struct ExploreOptions {
     categories: Vec<String>,
     measures: Vec<String>,
     dates: Vec<String>,
+    /// UX-09: text columns that look like dates; once interpreted in
+    /// Preparar they can draw the trend.
+    text_dates: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
@@ -87,6 +144,10 @@ pub struct ExploreKpi {
     kind: String,
     column: Option<String>,
     value: Option<f64>,
+    /// FUN-78: rows of the median or mean without a usable number (text,
+    /// empty or not finite), left out of the figure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ignored_count: Option<usize>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -111,6 +172,11 @@ pub struct ExploreBar {
 pub struct ExploreHistogram {
     column: String,
     bins: Vec<ExploreBin>,
+    /// FUN-78: filtered rows without a usable number, in no bin.
+    ignored_count: usize,
+    /// TXT-06: every value is a whole number (a year, a count), so the bins
+    /// have whole-number edges and every bin but the last excludes `upper`.
+    integer: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -204,6 +270,9 @@ fn plan_panel(profile: &DatasetProfile) -> PanelPlan {
         let identifier = is_row_identifier(column, profile.row_count);
         let dated = is_date_type(&column.data_type);
         let short_text = column.average_length.unwrap_or(0.0) <= MAX_CATEGORY_TEXT_LENGTH;
+        if is_text_type(&column.data_type) && column.suggested_type.as_deref() == Some("date") {
+            options.text_dates.push(column.name.clone());
+        }
         if dated {
             options.dates.push(column.name.clone());
         } else {
@@ -362,16 +431,19 @@ fn collect(plan: LazyFrame) -> Result<DataFrame, String> {
         .map_err(|error| format!("No se pudo calcular el panel: {error}"))
 }
 
-fn numbers(frame: &DataFrame, column: &str) -> Result<Vec<f64>, String> {
+/// The finite numbers of `column` and how many rows had none (FUN-78).
+fn numbers(frame: &DataFrame, column: &str) -> Result<(Vec<f64>, usize), String> {
     let values = frame
         .column(column)
         .and_then(|column| column.f64())
         .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?;
-    Ok(values
+    let numbers = values
         .iter()
         .flatten()
         .filter(|value| value.is_finite())
-        .collect())
+        .collect::<Vec<_>>();
+    let ignored = frame.height().saturating_sub(numbers.len());
+    Ok((numbers, ignored))
 }
 
 fn row_count(plan: LazyFrame) -> Result<usize, String> {
@@ -458,7 +530,7 @@ fn histogram(
     column: &str,
 ) -> Result<Option<ExploreHistogram>, String> {
     // Bins span the whole column so they stay put while filters change.
-    let all = numbers(
+    let (all, _) = numbers(
         &collect(
             plan.clone()
                 .select([number_expression(column).alias(column)]),
@@ -471,14 +543,23 @@ fn histogram(
     ) else {
         return Ok(None);
     };
-    let width = if maximum > minimum {
-        (maximum - minimum) / HISTOGRAM_BINS as f64
+    // TXT-06: whole numbers get whole-number bins (1925–1929, not
+    // 1925–1929.8); the span counts both ends, as a year range does.
+    let integer = all.iter().all(|value| value.fract() == 0.0) && maximum - minimum < 1e15;
+    let (width, bin_count) = if maximum <= minimum {
+        (1.0, 1)
+    } else if integer {
+        let span = maximum - minimum + 1.0;
+        let width = (span / HISTOGRAM_BINS as f64).ceil().max(1.0);
+        (
+            width,
+            ((span / width).ceil() as usize).clamp(1, HISTOGRAM_BINS),
+        )
     } else {
-        1.0
+        ((maximum - minimum) / HISTOGRAM_BINS as f64, HISTOGRAM_BINS)
     };
-    let bin_count = if maximum > minimum { HISTOGRAM_BINS } else { 1 };
     let mut counts = vec![0usize; bin_count];
-    let selected = numbers(
+    let (selected, ignored_count) = numbers(
         &collect(
             filtered(plan, filters, Some(column)).select([number_expression(column).alias(column)]),
         )?,
@@ -503,6 +584,8 @@ fn histogram(
                 count,
             })
             .collect(),
+        ignored_count,
+        integer,
     }))
 }
 
@@ -565,20 +648,8 @@ pub(super) fn explore_panel(
     filters: &[ExploreFilter],
     custom: &ExploreLayout,
 ) -> Result<ExplorePanel, String> {
+    validate_explore_filters(filters)?;
     for filter in filters {
-        let kinds = usize::from(filter.values.is_some())
-            + usize::from(filter.range.is_some())
-            + usize::from(filter.period.is_some());
-        if kinds != 1 {
-            return Err("Cada filtro necesita valores o un rango, no ambos.".to_owned());
-        }
-        if filter
-            .period
-            .as_deref()
-            .is_some_and(|period| period_days(period).is_none())
-        {
-            return Err("El periodo del filtro no es una fecha válida.".to_owned());
-        }
         if !profile
             .columns
             .iter()
@@ -650,9 +721,10 @@ pub(super) fn explore_panel(
         kind: "count".to_owned(),
         column: None,
         value: Some(row_count as f64),
+        ignored_count: None,
     }];
     for (index, measure) in layout.measures.iter().take(2).enumerate() {
-        let mut values = numbers(
+        let (mut values, ignored_count) = numbers(
             &collect(
                 everything
                     .clone()
@@ -672,6 +744,7 @@ pub(super) fn explore_panel(
             kind: kind.to_owned(),
             column: Some(measure.clone()),
             value,
+            ignored_count: Some(ignored_count),
         });
     }
 

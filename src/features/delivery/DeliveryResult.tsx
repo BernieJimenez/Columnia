@@ -90,7 +90,8 @@ export function DeliveryResult({
                     onClick={() => void openInPowerBi()}
                     disabled={powerBiState.kind === "working"}
                   >
-                    {powerBiState.kind === "working" ? "Abriendo Power BI…" : "Abrir en Power BI"}
+                    {/* UX-09: distinct from «Exportar y abrir en Power BI». */}
+                    {powerBiState.kind === "working" ? "Abriendo Power BI…" : "Abrir esta copia en Power BI"}
                   </button>
                 )}
               </div>
@@ -158,7 +159,9 @@ export function DeliveryResult({
             <p className="notice notice--error" role="alert">No se pudo abrir la carpeta de exportación.</p>
           )}
           {powerBiState.kind === "opened" && (
-            <p className="notice notice--success" role="status">Power BI Desktop se abre con esta copia.</p>
+            <p className="notice notice--success" role="status">
+              Power BI Desktop se abre con esta copia. Para abrirla se guardó a su lado un archivo de conexión .pbids con el mismo nombre; puedes borrarlo después.
+            </p>
           )}
           {powerBiState.kind === "opened" && powerBiState.quotedLineBreaks && (
             <p className="notice notice--warning" role="note">

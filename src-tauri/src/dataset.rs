@@ -181,6 +181,7 @@ use recipe_source_projection::{
 mod explore;
 #[path = "dataset/export_io.rs"]
 mod export_io;
+pub(crate) use explore::validate_explore_filters;
 pub use explore::{ExploreFilter, ExploreLayout, ExplorePanel};
 #[path = "dataset/snapshot_comparison.rs"]
 mod snapshot_comparison;
@@ -10359,7 +10360,7 @@ pub async fn get_explore_panel(
     layout: Option<ExploreLayout>,
 ) -> Result<ExplorePanel, String> {
     let layout = layout.unwrap_or_default();
-    if filters.len() > 32 {
+    if filters.len() > explore::MAX_EXPLORE_FILTERS {
         return Err("Demasiados filtros a la vez.".to_owned());
     }
     tauri::async_runtime::spawn_blocking(move || {

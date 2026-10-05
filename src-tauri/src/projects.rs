@@ -16,9 +16,9 @@ use tauri::{AppHandle, Manager};
 
 use crate::dataset::{
     validate_import_profile, validate_project_profile_with_row_count, validate_project_workspace,
-    DatasetPreview, DatasetProfile, DatasetState, ImportProfile, ProjectHistoryCapture,
-    ProjectHistoryRestore, ProjectHistoryRestoreEntry, QualityRule, StoredTransformRecipe,
-    OPERATION_CANCELLED_MESSAGE,
+    DatasetPreview, DatasetProfile, DatasetState, ExploreFilter, ImportProfile,
+    ProjectHistoryCapture, ProjectHistoryRestore, ProjectHistoryRestoreEntry, QualityRule,
+    StoredTransformRecipe, OPERATION_CANCELLED_MESSAGE,
 };
 use sha2::{Digest, Sha256};
 
@@ -26,7 +26,7 @@ use sha2::{Digest, Sha256};
 #[path = "projects/import_profile_tests.rs"]
 mod import_profile_tests;
 
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 16;
 const ID_LENGTH: usize = 32;
 const MAX_PROJECT_VERSIONS: usize = 5;
 const AUTOSAVE_QUOTA_BYTES: u64 = 512 * 1024 * 1024;
@@ -120,6 +120,9 @@ pub struct ProjectWorkspace {
     pub join_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub import_profile: Option<ImportProfile>,
+    /// UX-09: the Explorar filters, restored when the project reopens.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub explore_filters: Vec<ExploreFilter>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -211,6 +214,9 @@ struct StoredProject {
     comparison_key_columns_json: String,
     join_type: Option<String>,
     import_profile_json: Option<String>,
+    /// Versions saved before UX-09 have no filters.
+    #[serde(default)]
+    explore_filters_json: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -736,6 +742,30 @@ impl ProjectStore {
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
             }
+            15 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                // UX-09: a catalog taken back to an older version may keep
+                // the column; adding it twice would block the start.
+                let has_column: bool = transaction
+                    .query_row(
+                        "SELECT COUNT(*) > 0 FROM pragma_table_info('projects')
+                         WHERE name = 'explore_filters_json'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .map_err(|_| storage_error())?;
+                if !has_column {
+                    transaction
+                        .execute_batch("ALTER TABLE projects ADD COLUMN explore_filters_json TEXT;")
+                        .map_err(|_| storage_error())?;
+                }
+                transaction
+                    .execute_batch("PRAGMA user_version = 16;")
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
             _ => Err(storage_error()),
         };
         if migration.is_ok() && version < SCHEMA_VERSION {
@@ -1022,7 +1052,7 @@ impl ProjectStore {
              active_phase = ?16, query_engine = ?17, analysis_sample_rows = ?18,
              performance_profile = ?19, export_format = ?20, privacy_mode = ?21,
              comparison_key_columns_json = ?22, join_type = ?23,
-             import_profile_json = ?24 WHERE id = ?25",
+             import_profile_json = ?24, explore_filters_json = ?25 WHERE id = ?26",
             params![
                 restored.summary.name,
                 restored.summary.dataset_file_name,
@@ -1048,6 +1078,7 @@ impl ProjectStore {
                 restored.comparison_key_columns_json,
                 restored.join_type,
                 restored.import_profile_json,
+                restored.explore_filters_json,
                 project_id,
             ],
         );
@@ -1353,6 +1384,11 @@ impl ProjectStore {
             .map(serde_json::to_string)
             .transpose()
             .map_err(|_| "No se pudo validar el perfil de importación del proyecto.".to_owned())?;
+        crate::dataset::validate_explore_filters(&workspace.explore_filters)?;
+        let explore_filters_json = (!workspace.explore_filters.is_empty())
+            .then(|| serde_json::to_string(&workspace.explore_filters))
+            .transpose()
+            .map_err(|_| "No se pudieron validar los filtros de Explorar.".to_owned())?;
         let mut connection = self.connection()?;
         let updating = project_id.is_some();
         let id = match project_id {
@@ -1436,7 +1472,7 @@ impl ProjectStore {
                  active_phase = ?16, query_engine = ?17, analysis_sample_rows = ?18,
                  performance_profile = ?19, export_format = ?20, privacy_mode = ?21,
                  comparison_key_columns_json = ?22, join_type = ?23,
-                 import_profile_json = ?24 WHERE id = ?25",
+                 import_profile_json = ?24, explore_filters_json = ?25 WHERE id = ?26",
                     params![
                         name,
                         active.file_name,
@@ -1462,6 +1498,7 @@ impl ProjectStore {
                         comparison_key_columns_json,
                         join_type,
                         import_profile_json,
+                        explore_filters_json,
                         id
                     ],
                 )
@@ -1473,8 +1510,9 @@ impl ProjectStore {
                    generation_name, history_manifest_json, profile_json, profile_cache_sha256,
                     sql_history_json, review_tab, preview_offset, active_phase, query_engine,
                     analysis_sample_rows, performance_profile, export_format, privacy_mode,
-                    comparison_key_columns_json, join_type, import_profile_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+                    comparison_key_columns_json, join_type, import_profile_json,
+                    explore_filters_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
                 params![
                     id,
                     name,
@@ -1501,6 +1539,7 @@ impl ProjectStore {
                     comparison_key_columns_json,
                     join_type,
                     import_profile_json,
+                    explore_filters_json,
                     ],
                 )
             };
@@ -1818,7 +1857,7 @@ impl ProjectStore {
                          profile_cache_sha256, sql_history_json, review_tab, preview_offset,
                          active_phase, query_engine, analysis_sample_rows, performance_profile,
                          export_format, privacy_mode, comparison_key_columns_json, join_type,
-                         import_profile_json
+                         import_profile_json, explore_filters_json
                  FROM projects WHERE id = ?1",
                 params![id],
                 |row| {
@@ -1843,6 +1882,7 @@ impl ProjectStore {
                         comparison_key_columns_json: row.get(23)?,
                         join_type: row.get(24)?,
                         import_profile_json: row.get(25)?,
+                        explore_filters_json: row.get(26)?,
                     })
                 },
             )
@@ -2265,6 +2305,15 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
         validate_import_profile(profile)
             .map_err(|_| "El perfil de importación guardado no es válido.".to_owned())?;
     }
+    let explore_filters: Vec<ExploreFilter> = stored
+        .explore_filters_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|_| "Los filtros de Explorar guardados no son válidos.".to_owned())?
+        .unwrap_or_default();
+    crate::dataset::validate_explore_filters(&explore_filters)
+        .map_err(|_| "Los filtros de Explorar guardados no son válidos.".to_owned())?;
     Ok(ProjectWorkspace {
         quality_rules,
         recipe_draft,
@@ -2280,6 +2329,7 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
         comparison_key_columns,
         join_type,
         import_profile,
+        explore_filters,
     })
 }
 
@@ -3085,7 +3135,12 @@ mod tests {
             "exportFormat": "parquet",
             "privacyMode": "mask",
             "comparisonKeyColumns": ["value"],
-            "joinType": "full"
+            "joinType": "full",
+            // UX-09: Explorar filters travel with the project.
+            "exploreFilters": [
+                { "column": "label", "values": ["row-1", null] },
+                { "column": "value", "range": { "min": 1.0, "max": 2.0, "exclusiveMax": true } }
+            ]
         }))
         .expect("el workspace de prueba debe ser válido")
     }
@@ -3401,6 +3456,25 @@ mod tests {
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION + 1);
+    }
+
+    #[test]
+    fn invalid_explore_filters_are_not_saved() {
+        // UX-09 + FUN-77: a project keeps only filters Explorar accepts.
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[1, 2], "input.csv");
+        let invalid: ProjectWorkspace = serde_json::from_value(serde_json::json!({
+            "qualityRules": [],
+            "recipeDraft": null,
+            "exploreFilters": [{ "column": "label", "values": [] }]
+        }))
+        .unwrap();
+        let error = store
+            .save(&state, None, "Filtro vacío".to_owned(), invalid)
+            .unwrap_err();
+        assert!(error.contains("al menos un valor"), "{error}");
+        assert!(store.list().unwrap().is_empty());
     }
 
     #[test]
@@ -4228,6 +4302,7 @@ mod tests {
             comparison_key_columns: Default::default(),
             join_type: Default::default(),
             import_profile: None,
+            explore_filters: Vec::new(),
         };
         assert!(store
             .save(

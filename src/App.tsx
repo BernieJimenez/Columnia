@@ -1,5 +1,5 @@
 import { isCancellationError } from "./bridge/cancellation";
-import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import { excelLimitIssues, personalDataColumnNames, suggestQualityRules } from "./features/delivery/deliveryModel";
@@ -91,6 +91,7 @@ import {
   previewDatasetSelection,
   type AppInfo,
   type DatasetSourceInspection,
+  type ExploreFilter,
   type ImportProfile,
   type ExportFormat,
   type PerformanceProfile,
@@ -218,6 +219,12 @@ export function App() {
   const operationBusyRef = useRef(false);
   const [completedPhaseRevisions, setCompletedPhaseRevisions] = useState<Partial<Record<WorkflowPhase, number>>>({});
   const [recipeSession, setRecipeSession] = useState(0);
+  // UX-09: the Explorar filters of this data revision, saved with the project.
+  const [exploreFilters, setExploreFilters] = useState<{ revision: number; filters: ExploreFilter[] }>({ revision: 0, filters: [] });
+  const [exploreSession, setExploreSession] = useState(0);
+  const changeExploreFilters = useCallback((filters: ExploreFilter[]) => {
+    setExploreFilters({ revision: datasetRevisionRef.current, filters });
+  }, []);
   // UX-13: a recipe edit left unfinished survives a change of phase.
   const [recipeEdit, setRecipeEdit] = useState<{ session: number; draft: SavedRecipe } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -338,6 +345,9 @@ export function App() {
       activePhase,
       performanceProfile,
       importProfile: activeImportProfile ?? undefined,
+      exploreFilters: exploreFilters.revision === datasetRevision && exploreFilters.filters.length > 0
+        ? exploreFilters.filters
+        : undefined,
     },
     onActiveProjectDeleted: () => {
       review.forgetProjectSettings({ clearSqlHistory: true });
@@ -379,6 +389,8 @@ export function App() {
       setRecipeDraft(workspace.recipeDraft);
       setActiveExceptionPolicy(null);
       setRecipeSession((current) => current + 1);
+      setExploreFilters({ revision: datasetRevisionRef.current, filters: workspace.exploreFilters ?? [] });
+      setExploreSession((current) => current + 1);
       setActivePhase(workspace.activePhase ?? "review");
       const selectedPerformanceProfile = workspace.performanceProfile ?? readPerformanceProfile();
       setPerformanceProfile(selectedPerformanceProfile);
@@ -1541,9 +1553,12 @@ export function App() {
 
             {activePhase === "explore" && readyDataset && (
               <ExplorePhase
+                key={exploreSession}
                 dataset={readyDataset.dataset}
                 datasetRevision={datasetRevision}
                 profileReady={profileStatus.kind === "ready"}
+                initialFilters={exploreFilters.revision === datasetRevision ? exploreFilters.filters : undefined}
+                onFiltersChange={changeExploreFilters}
               />
             )}
 
