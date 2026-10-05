@@ -138,12 +138,16 @@ describe("Tauri desktop security boundary", () => {
       productionDirectives,
     );
 
-    for (const directive of productionDirectives.filter((name) => name !== "connect-src")) {
+    for (const directive of productionDirectives.filter((name) => name !== "connect-src" && name !== "style-src")) {
       expect(
         sorted(cspSources(devCsp, directive)),
         `development ${directive} must not be broader than production`,
       ).toEqual(sorted(cspSources(csp, directive)));
     }
+    // SEG-08: production styles come only from files; the Vite dev server
+    // injects its CSS as <style> elements, the one exception it may add.
+    expect(cspSources(csp, "style-src")).not.toContain("'unsafe-inline'");
+    expect(sorted(cspSources(devCsp, "style-src"))).toEqual(sorted([...cspSources(csp, "style-src"), "'unsafe-inline'"]));
 
     const expectedDevelopmentConnections = new Set(cspSources(csp, "connect-src"));
     expectedDevelopmentConnections.add(devUrl.origin);
