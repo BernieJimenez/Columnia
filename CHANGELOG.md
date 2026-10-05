@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Abrir un proyecto ya no cambia la preferencia global de motor SQL ni de filas
+  de muestra; el proyecto usa los suyos y la preferencia solo cambia desde el
+  selector (FUN-48).
 - La propuesta de Preparar se prueba también con identificadores en español
   (id_cliente, codigo_postal, num_factura) y, sin cambios elegidos, el botón
   dice «Elige un cambio» en lugar de «Aplicar 0 cambios» (QA-33).

@@ -41,8 +41,6 @@ import {
   recoverProfileCancellationFailure,
   requestProfileCancellation,
   updateProfileProgress,
-  writeAnalysisSampleRowsPreference,
-  writeQueryEnginePreference,
   type AnalysisSampleRows,
   type ProfileStatus,
 } from "./reviewModel";
@@ -169,12 +167,10 @@ export function useReviewController({
     setJoinType(workspace.joinType ?? "inner");
     setSqlHistory(workspace.sqlHistory ?? []);
     setReviewTab(workspace.reviewTab ?? "diagnosis");
-    const selectedQueryEngine = workspace.queryEngine ?? readQueryEnginePreference();
-    setQueryEngine(selectedQueryEngine);
-    writeQueryEnginePreference(selectedQueryEngine);
-    const sampleRows = workspace.analysisSampleRows ?? readAnalysisSampleRowsPreference();
-    setAnalysisSampleRows(sampleRows);
-    writeAnalysisSampleRowsPreference(sampleRows);
+    // FUN-48: a project brings its own engine and sample; the person's global
+    // preference only changes when they use the selector.
+    setQueryEngine(workspace.queryEngine ?? readQueryEnginePreference());
+    setAnalysisSampleRows(workspace.analysisSampleRows ?? readAnalysisSampleRowsPreference());
   }
 
   function invalidateProfile() {

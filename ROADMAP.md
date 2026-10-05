@@ -333,7 +333,7 @@ medio = 1 día; agregado por suma.
   - [x] `QA-33` (Bajo) `src/features/prepare/proposalModel.test.ts` / `src/features/prepare/PrepareProposal.test.tsx`: los casos de identificadores son solo en inglés y el botón puede decir «Aplicar 0 cambios» — hecho el 2026-10-04
 - [ ] **RV72** — **Revisar** — La preferencia global de motor/muestra se sobrescribe al abrir un proyecto (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-48, FUN-49, FUN-50, FUN-51, FUN-52, UX-15.
-  - [ ] `FUN-48` (Bajo) La preferencia global de motor/muestra se sobrescribe al abrir un proyecto
+  - [x] `FUN-48` (Bajo) La preferencia global de motor/muestra se sobrescribe al abrir un proyecto — hecho el 2026-10-04
   - [ ] `FUN-49` (Bajo) Formato numérico mezclado: `toLocaleString()` frente a `formatDecimal`, y «_cambios» codificado
   - [ ] `FUN-50` (Bajo) Página vacía muestra «Filas 101–100»
   - [ ] `FUN-51` (Bajo) Porcentajes redondeados a «100,0 %» con nulos reales

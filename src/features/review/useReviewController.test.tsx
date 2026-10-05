@@ -241,6 +241,9 @@ describe("useReviewController", () => {
       joinType: "left",
     });
     expect(result.current.workspace.sqlHistory).toHaveLength(1);
+    // FUN-48: the project's choice does not become the global preference.
+    expect(window.localStorage.getItem("columnia.review-query-engine")).toBeNull();
+    expect(window.localStorage.getItem("columnia.analysis-sample-rows")).toBeNull();
 
     act(() => result.current.forgetProjectSettings({ clearSqlHistory: false }));
     expect(result.current.workspace.comparisonKeyColumns).toEqual([]);
