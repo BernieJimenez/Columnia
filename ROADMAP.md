@@ -350,7 +350,7 @@ medio = 1 día; agregado por suma.
   - [x] `QA-35` (Bajo) Tests de proyectos: errores solo con mensajes que son una ruta y paneles sin cubrir — hecho el 2026-10-05
 - [ ] **RV75** — **Reglas de calidad** — La validación de regex del editor usa el motor de JavaScript, no el de Rust (y 4 problemas más) · *Esfuerzo: 2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-54, FUN-76, SEG-05, REN-11, COD-16.
-  - [ ] `FUN-54` (Bajo) La validación de regex del editor usa el motor de JavaScript, no el de Rust
+  - [x] `FUN-54` (Bajo) La validación de regex del editor usa el motor de JavaScript, no el de Rust — hecho el 2026-10-05
   - [ ] `FUN-76` (Bajo) Semántica inconsistente de nulos/ceros con signo en reglas entre filas
   - [ ] `SEG-05` (Bajo) La compuerta de calidad la decide quien llama: Rust valida las reglas que recibe por IPC, sin atarlas a un contrato guardado y aprobado
   - [ ] `REN-11` (Bajo) `allowed_values`, `referential_integrity` y claves `unique_together`: coste O(filas × referencias) y asignaciones por celda

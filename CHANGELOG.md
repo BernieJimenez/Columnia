@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- El editor de reglas marca en la propia regla los patrones regex que el motor
+  no admite (búsquedas hacia delante o atrás, referencias a grupos, grupos
+  atómicos) en lugar de fallar al exportar (FUN-54).
 - Proyectos: pulsar guardar, abrir, restaurar o eliminar mientras hay otra
   operación muestra «Hay otra operación en curso» en lugar de no hacer nada; el
   formulario explica por qué no se puede guardar y ofrece «Guardar como copia»

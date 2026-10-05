@@ -301,3 +301,17 @@ describe("excelLimitIssues (RV19 / FUN-05)", () => {
     expect(issues[1]).toMatch(/^notas, detalle: /);
   });
 });
+
+describe("rustRegexProblem (FUN-54)", () => {
+  it("señala lo que el motor Rust no admite y acepta el resto", async () => {
+    const { rustRegexProblem } = await import("./deliveryModel");
+    expect(rustRegexProblem("^(?=.*\\d)")).toMatch(/hacia delante/);
+    expect(rustRegexProblem("(?<!x)y")).toMatch(/hacia delante o hacia atrás/);
+    expect(rustRegexProblem("(a)\\1")).toMatch(/grupos anteriores/);
+    expect(rustRegexProblem("(?>ab)")).toMatch(/atómicos/);
+    expect(rustRegexProblem("a++")).toMatch(/posesivos/);
+    expect(rustRegexProblem("^[A-Z]{3}-\\d{4}$")).toBeNull();
+    expect(rustRegexProblem("precio \\(\\?=\\)")).toBeNull();
+    expect(rustRegexProblem("(?i)hola")).toBeNull();
+  });
+});

@@ -656,6 +656,8 @@ export function validateQualityRuleDraft(
       } catch {
         return `${label}: el patrón regular no es válido.`;
       }
+      const unsupported = rustRegexProblem(rule.pattern);
+      if (unsupported) return `${label}: ${unsupported}`;
       if (!column || !isTextType(column.dataType)) {
         return `${label}: las expresiones regulares solo aplican a columnas de texto.`;
       }
@@ -713,3 +715,23 @@ export const QUALITY_RULE_SUMMARY: Record<QualityRuleKind, string> = {
   schema_contract: "debe conservar las columnas requeridas",
   row_count: "debe mantener la cantidad de filas permitida",
 };
+
+/**
+ * FUN-54: the rules run in Rust, whose regex engine has no lookaround,
+ * backreferences or atomic groups. The editor flags them on the rule itself
+ * instead of failing at export time.
+ */
+export function rustRegexProblem(pattern: string): string | null {
+  // Escaped characters cannot start a construct: drop them before looking.
+  const unescaped = pattern.replace(/\\[^1-9k]/g, "");
+  if (/\(\?<?[=!]/.test(unescaped)) {
+    return "el motor no admite búsquedas hacia delante o hacia atrás ((?=…), (?!…), (?<=…), (?<!…)).";
+  }
+  if (/\\[1-9]|\\k</.test(unescaped)) {
+    return "el motor no admite referencias a grupos anteriores (\\1, \\k<…>).";
+  }
+  if (/\(\?>/.test(unescaped) || /[*+?}][+]/.test(unescaped)) {
+    return "el motor no admite grupos atómicos ni cuantificadores posesivos.";
+  }
+  return null;
+}
