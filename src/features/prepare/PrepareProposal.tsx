@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { DatasetProfile, SafeCorrectionOptions, SafeCorrectionsPreview } from "../../bridge";
 import { CellText } from "../../components/CellText";
@@ -115,6 +115,17 @@ export function PrepareProposal({
     );
     return () => { current = false; };
   }, [previewKey, onPreview]);
+  // ACC-17: «Siguiente», «Atrás», «Personalizar» and «Aplicar» replace the
+  // button just pressed; the new view's title takes the focus instead of
+  // leaving it on the page body. Not on the first render.
+  const titleRef = useRef<HTMLHeadingElement & HTMLLegendElement>(null);
+  const view = `${result ? "result" : mode}-${step}`;
+  const shownView = useRef(view);
+  useEffect(() => {
+    if (shownView.current === view) return;
+    shownView.current = view;
+    titleRef.current?.focus();
+  }, [view]);
   const fillsReady = previewKey === null || fills?.key === previewKey;
   const preview = fillsReady && previewKey !== null ? fills?.preview ?? null : null;
   const titleOf = (item: ProposalItem) => (
@@ -139,7 +150,7 @@ export function PrepareProposal({
     return (
       <section className="prepare-proposal" aria-labelledby="prepare-result-title">
         <div role="status">
-          <h3 id="prepare-result-title" className="prepare-proposal__title">Listo: cambios aplicados</h3>
+          <h3 id="prepare-result-title" ref={titleRef} tabIndex={-1} className="prepare-proposal__title">Listo: cambios aplicados</h3>
         </div>
         {result.changes.length > 0 && (
           <ul className="prepare-proposal__changes" aria-label="Cambios aplicados">
@@ -224,7 +235,7 @@ export function PrepareProposal({
           <span style={{ width: `${Math.round(((step + 1) / totalSteps) * 100)}%` }} />
         </div>
         <fieldset className="prepare-proposal__step" disabled={disabled}>
-          <legend id="prepare-step-title" className="prepare-proposal__title">{question.question}</legend>
+          <legend id="prepare-step-title" ref={titleRef} tabIndex={-1} className="prepare-proposal__title">{question.question}</legend>
           <p className="prepare-proposal__lead">{hint}</p>
           {[true, false].map((option) => (
             <label key={String(option)} className="prepare-proposal__option">
@@ -269,7 +280,7 @@ export function PrepareProposal({
   if (items.length === 0) {
     return (
       <section className="prepare-proposal" aria-labelledby="prepare-proposal-title">
-        <h3 id="prepare-proposal-title" className="prepare-proposal__title">No hay cambios que proponer</h3>
+        <h3 id="prepare-proposal-title" ref={titleRef} tabIndex={-1} className="prepare-proposal__title">No hay cambios que proponer</h3>
         <p className="prepare-proposal__lead">No se detectaron espacios sobrantes, duplicados ni vacíos que rellenar.</p>
         <div className="prepare-proposal__actions">
           <button type="button" className="link-action" disabled={disabled} onClick={() => { setMode("steps"); setStep(0); }}>
@@ -295,7 +306,7 @@ export function PrepareProposal({
   ];
   return (
     <section className="prepare-proposal" aria-labelledby="prepare-proposal-title">
-      <h3 id="prepare-proposal-title" className="prepare-proposal__title">
+      <h3 id="prepare-proposal-title" ref={titleRef} tabIndex={-1} className="prepare-proposal__title">
         {items.length === 1 ? "Columnia propone 1 cambio" : `Columnia propone ${items.length} cambios`}
       </h3>
       <p className="prepare-proposal__lead">Revísalos y aplícalos. Puedes deshacerlo después.</p>

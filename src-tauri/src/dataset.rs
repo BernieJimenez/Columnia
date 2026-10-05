@@ -1054,6 +1054,10 @@ pub struct ColumnRemovalResult {
     dataset: DatasetPreview,
     removed_column_count: usize,
     removed_columns: Vec<String>,
+    /// COD-08: the share of empty cells that made a column "mostly empty",
+    /// so the interface never repeats the figure by hand.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    threshold_percentage: Option<usize>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -3718,6 +3722,7 @@ fn remove_columns_source_backed_with_cancellation(
             dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
             removed_column_count: 0,
             removed_columns,
+            threshold_percentage: None,
         }));
     }
     let remaining_columns = dataset
@@ -3749,6 +3754,7 @@ fn remove_columns_source_backed_with_cancellation(
         dataset: mutation.dataset,
         removed_column_count: removed_columns.len(),
         removed_columns,
+        threshold_percentage: None,
     }))
 }
 
@@ -10669,6 +10675,7 @@ pub async fn remove_constant_columns(app: AppHandle) -> Result<ColumnRemovalResu
             dataset: preview,
             removed_column_count: removed_columns.len(),
             removed_columns,
+            threshold_percentage: None,
         })
     })
     .await
@@ -10718,6 +10725,7 @@ pub async fn remove_empty_columns(app: AppHandle) -> Result<ColumnRemovalResult,
             dataset: preview,
             removed_column_count: removed_columns.len(),
             removed_columns,
+            threshold_percentage: None,
         })
     })
     .await
@@ -10746,7 +10754,10 @@ pub async fn remove_high_null_columns(app: AppHandle) -> Result<ColumnRemovalRes
                 "Eliminar columnas con alta nulidad",
                 &cancellation,
             )? {
-                return Ok(result);
+                return Ok(ColumnRemovalResult {
+                    threshold_percentage: Some(HIGH_NULL_COLUMN_THRESHOLD_PERCENTAGE),
+                    ..result
+                });
             }
         }
         cancellation.ensure()?;
@@ -10767,6 +10778,7 @@ pub async fn remove_high_null_columns(app: AppHandle) -> Result<ColumnRemovalRes
             dataset: preview,
             removed_column_count: removed_columns.len(),
             removed_columns,
+            threshold_percentage: Some(HIGH_NULL_COLUMN_THRESHOLD_PERCENTAGE),
         })
     })
     .await
@@ -10816,6 +10828,7 @@ pub async fn remove_identifier_columns(app: AppHandle) -> Result<ColumnRemovalRe
             dataset: preview,
             removed_column_count: removed_columns.len(),
             removed_columns,
+            threshold_percentage: None,
         })
     })
     .await
@@ -10868,6 +10881,7 @@ pub async fn remove_personal_columns(app: AppHandle) -> Result<ColumnRemovalResu
             removed_column_count,
             // Personal-column names stay in the native operation only; the IPC result is aggregate.
             removed_columns: Vec::new(),
+            threshold_percentage: None,
         })
     })
     .await

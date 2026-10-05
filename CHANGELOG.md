@@ -203,6 +203,13 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Preparar: reemplazar valores atípicos por la mediana pide confirmación como
+  limitar y eliminar; el foco pasa al título de cada paso de la propuesta;
+  textos sin marcas de código ni anglicismos («valores atípicos», «fecha y
+  hora», «1,5»); el umbral de columnas casi vacías lo informa el motor; la
+  revisión de recetas no ofrece columnas numéricas para interpretar fechas y
+  trata los enteros sin signo como enteros (UX-14, ACC-17, TXT-11, COD-08,
+  COD-09, LIM-05).
 - Comparar revisiones: cancelar ya no se muestra como error, el botón se
   desbloquea si la cancelación falla y los textos hablan de revisiones y
   describen cada regla en lugar de mostrar su identificador interno; una edición

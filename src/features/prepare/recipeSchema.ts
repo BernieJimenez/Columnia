@@ -1,7 +1,8 @@
 import type { DatasetColumn, DatasetPreview, TransformRecipe } from "../../bridge";
 import { isDateType, isDatetimeType, isNumericType, isTextType } from "../../dataTypes";
 
-type RequiredColumnKind = "text" | "numeric" | "date";
+// "parseable": text or date before any date parse of the recipe (COD-09).
+type RequiredColumnKind = "text" | "numeric" | "date" | "parseable";
 
 export interface RecipeSchemaIssue {
   column: string;
@@ -27,7 +28,8 @@ function usesFor(recipe: TransformRecipe): Map<string, RecipeColumnUse> {
 
   recipe.renames.forEach((item) => add(item.from, "renombrar"));
   recipe.casts.forEach((item) => add(item.column, "convertir tipo"));
-  recipe.dateParses.forEach((item) => add(item.column, "interpretar fecha", ["date"]));
+  // COD-09: what a date parse reads is the column before it, text or date.
+  recipe.dateParses.forEach((item) => add(item.column, "interpretar fecha", ["parseable"]));
   recipe.filters.forEach((item) => add(
     item.column,
     `filtro ${item.operator}`,
@@ -66,7 +68,7 @@ export function recipeSourceSchema(recipe: TransformRecipe, dataset: DatasetPrev
   return dataset.columns.filter((column) => referencedColumns.has(column.name));
 }
 
-function effectiveKind(recipe: TransformRecipe, recipeColumn: string, datasetColumn: string, dataset: DatasetPreview): string {
+function effectiveKind(recipe: TransformRecipe, recipeColumn: string, datasetColumn: string, dataset: DatasetPreview, withDateParse = true): string {
   const cast = [...recipe.casts].reverse().find((item) => item.column === recipeColumn);
   if (cast) {
     if (cast.target === "integer") return "numeric";
@@ -75,7 +77,7 @@ function effectiveKind(recipe: TransformRecipe, recipeColumn: string, datasetCol
     return "boolean";
   }
   const dateParse = recipe.dateParses.find((item) => item.column === recipeColumn);
-  if (dateParse) return "date";
+  if (dateParse && withDateParse) return "date";
   const dataType = dataset.columns.find((item) => item.name === datasetColumn)?.dataType;
   if (dataType !== undefined && isNumericType(dataType)) return "numeric";
   if (dataType !== undefined && isTextType(dataType)) return "text";
@@ -85,19 +87,22 @@ function effectiveKind(recipe: TransformRecipe, recipeColumn: string, datasetCol
 
 function supportsRequirements(recipe: TransformRecipe, recipeColumn: string, datasetColumn: string, dataset: DatasetPreview, acceptedKinds: RequiredColumnKind[][]): boolean {
   const kind = effectiveKind(recipe, recipeColumn, datasetColumn, dataset);
-  return acceptedKinds.every((accepted) => accepted.includes(kind as RequiredColumnKind));
+  const sourceKind = effectiveKind(recipe, recipeColumn, datasetColumn, dataset, false);
+  return acceptedKinds.every((accepted) => accepted.includes("parseable")
+    ? sourceKind === "text" || sourceKind === "date"
+    : accepted.includes(kind as RequiredColumnKind));
 }
 
 function expectedKinds(acceptedKinds: RequiredColumnKind[][]): string {
   if (!acceptedKinds.length) return "tipo compatible con sus operaciones";
-  const label = (kind: RequiredColumnKind) => ({ text: "texto", numeric: "numérico", date: "fecha" })[kind];
+  const label = (kind: RequiredColumnKind) => ({ text: "texto", numeric: "numérico", date: "fecha", parseable: "texto o fecha" })[kind];
   return acceptedKinds.map((accepted) => accepted.map(label).join(" o ")).join(" y ");
 }
 
 function normalizedDataType(dataType: string): string {
   const normalized = dataType.toLowerCase().replaceAll(" ", "");
   if (["str", "string", "utf8", "largeutf8"].includes(normalized)) return "string";
-  if (["i8", "i16", "i32", "i64", "int8", "int16", "int32", "int64"].includes(normalized)) return "integer";
+  if (["i8", "i16", "i32", "i64", "int8", "int16", "int32", "int64", "u8", "u16", "u32", "u64", "uint8", "uint16", "uint32", "uint64"].includes(normalized)) return "integer";
   if (["f32", "f64", "float32", "float64"].includes(normalized)) return "float";
   if (normalized.startsWith("datetime(")) return "datetime";
   return normalized;

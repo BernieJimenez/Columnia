@@ -275,3 +275,17 @@ describe("PrepareProposal date count (FUN-24)", () => {
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ dateColumns: [{ column: "pago", order: "dmy" }] }));
   });
 });
+
+describe("PrepareProposal focus (ACC-17)", () => {
+  it("moves the focus to the title of each new step instead of the page body", async () => {
+    renderProposal(() => new Promise(() => undefined));
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
+    const firstStep = document.querySelector("#prepare-step-title");
+    expect(document.activeElement).toBe(firstStep);
+    const firstQuestion = firstStep?.textContent;
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    expect(document.activeElement).toBe(document.querySelector("#prepare-step-title"));
+    expect(document.activeElement?.textContent).not.toBe(firstQuestion);
+  });
+});

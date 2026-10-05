@@ -294,6 +294,8 @@ export interface ColumnRemovalResult {
   dataset: DatasetPreview;
   removedColumnCount: number;
   removedColumns: string[];
+  /** Share of empty cells behind «alta nulidad», from the engine (COD-08). */
+  thresholdPercentage?: number;
 }
 
 export interface ColumnRename {

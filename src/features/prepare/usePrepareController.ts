@@ -216,7 +216,7 @@ export function usePrepareController({
       setChangeStatus({
         kind: "applied",
         message: result.removedColumnCount === 0
-          ? "No se detectaron columnas con al menos 80% de valores nulos."
+          ? `No se detectaron columnas con al menos ${result.thresholdPercentage ?? 80} % de valores nulos.`
           : `${result.removedColumnCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.removedColumnCount, "columna con alta nulidad", "columnas con alta nulidad")}: ${result.removedColumns.join(", ")}.`,
       });
       await refreshHistory();
@@ -435,7 +435,7 @@ export function usePrepareController({
       setChangeStatus({
         kind: "applied",
         message: result.changedCellCount === 0
-          ? "No se detectaron outliers que necesitaran imputación."
+          ? "No se detectaron valores atípicos que necesitaran reemplazo."
           : `${result.changedCellCount === 1 ? "Se reemplazó" : "Se reemplazaron"} ${plural(result.changedCellCount, "valor atípico", "valores atípicos")} por la mediana en: ${columns}. El cambio puede revertirse desde el historial.`,
       });
       await refreshHistory();
@@ -459,7 +459,7 @@ export function usePrepareController({
         kind: "applied",
         message: action === "cap"
           ? result.changedCellCount === 0
-            ? "No se detectaron outliers que necesitaran limitación."
+            ? "No se detectaron valores atípicos que necesitaran limitación."
             : `${result.changedCellCount === 1 ? "Se limitó" : "Se limitaron"} ${plural(result.changedCellCount, "valor atípico", "valores atípicos")} a los límites IQR en: ${columns}. El cambio puede revertirse desde el historial.`
           : result.affectedRowCount === 0
             ? "No se detectaron filas atípicas para eliminar."

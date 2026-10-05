@@ -148,7 +148,7 @@ export function PreparePhase({
   const [conversionConfirmation, setConversionConfirmation] = useState<TypeConversionKind | null>(null);
   // TXT-01: changes can be undone only while the history keeps snapshots.
   const undoNote = undoAvailabilityNote(historyStatus.snapshotsEnabled);
-  const [outlierConfirmation, setOutlierConfirmation] = useState<"cap" | "drop" | null>(null);
+  const [outlierConfirmation, setOutlierConfirmation] = useState<"impute" | "cap" | "drop" | null>(null);
   const identifierColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => column.privacySignal === "identifier")
     : [];
@@ -414,7 +414,7 @@ export function PreparePhase({
               onNullifyInvalidTypes={() => setInvalidTypeConfirmation(true)}
               onImputeMissingValues={onImputeMissingValues}
               onImputeCategoricalValues={onImputeCategoricalValues}
-              onImputeOutliers={onImputeOutliers}
+              onImputeOutliers={() => setOutlierConfirmation("impute")}
               onCapOutliers={() => setOutlierConfirmation("cap")}
               onDropOutliers={() => setOutlierConfirmation("drop")}
             />
@@ -736,12 +736,14 @@ export function PreparePhase({
         >
           <p className="step">Confirmación requerida</p>
           <h3 id="outliers-confirm-title">
-            {outlierConfirmation === "cap" ? "Limitar valores atípicos" : "Eliminar filas atípicas"}
+            {OUTLIER_ACTION_TITLES[outlierConfirmation]}
           </h3>
           <p id="outliers-confirm-description">
-            {outlierConfirmation === "cap"
-              ? "Se limitarán los valores que excedan los límites IQR de 1.5 al límite correspondiente."
-              : "Se eliminará cualquier fila que contenga un valor que exceda los límites IQR de 1.5."}
+            {outlierConfirmation === "impute"
+              ? "Se reemplazarán por la mediana de su columna los valores que excedan los límites IQR de 1,5."
+              : outlierConfirmation === "cap"
+                ? "Se limitarán los valores que excedan los límites IQR de 1,5 al límite correspondiente."
+                : "Se eliminará cualquier fila que contenga un valor que exceda los límites IQR de 1,5."}
             {" "}No se mostrarán celdas ni valores del dataset.{undoNote}
           </p>
           <div className="sheet-dialog__actions">
@@ -754,12 +756,13 @@ export function PreparePhase({
               onClick={() => {
                 const action = outlierConfirmation;
                 setOutlierConfirmation(null);
-                if (action === "cap") onCapOutliers();
+                if (action === "impute") onImputeOutliers();
+                else if (action === "cap") onCapOutliers();
                 else onDropOutliers();
               }}
               disabled={changing}
             >
-              {outlierConfirmation === "cap" ? "Limitar outliers" : "Eliminar filas atípicas"}
+              {OUTLIER_ACTION_TITLES[outlierConfirmation]}
             </button>
           </div>
         </ModalDialog>
@@ -767,6 +770,13 @@ export function PreparePhase({
     </>
   );
 }
+
+/** UX-14: the three outlier actions all change data and ask first. */
+const OUTLIER_ACTION_TITLES = {
+  impute: "Reemplazar valores atípicos por la mediana",
+  cap: "Limitar valores atípicos",
+  drop: "Eliminar filas atípicas",
+} as const;
 
 const PERSONAL_PRIVACY_LABELS = {
   email: "correo electrónico",
@@ -993,13 +1003,13 @@ function CleaningSignals({
             <li><strong>Constantes:</strong> {constant.map((column) => column.name).join(", ")} {constant.length === 1 ? "no cambia" : "no cambian"} entre filas.</li>
           )}
           {outliers.length > 0 && (
-            <li><strong>Valores atípicos:</strong> {outliers.map((column) => `${column.name} (${(column.outlierCount ?? 0).toLocaleString()})`).join(", ")} supera los límites IQR de 1.5.</li>
+            <li><strong>Valores atípicos:</strong> {outliers.map((column) => `${column.name} (${(column.outlierCount ?? 0).toLocaleString()})`).join(", ")} supera los límites IQR de 1,5.</li>
           )}
           {encoding.length > 0 && (
             <li><strong>Doble codificación UTF-8:</strong> {encoding.map((column) => `${column.name} (${(column.encodingIssueCount ?? 0).toLocaleString()})`).join(", ")} contiene texto que puede repararse de forma segura.</li>
           )}
           {booleans.length > 0 && (
-            <li><strong>Booleanos:</strong> {booleans.map((column) => column.name).join(", ")} admite alias textuales que pueden canonicalizarse como `true`/`false`.</li>
+            <li><strong>Booleanos:</strong> {booleans.map((column) => column.name).join(", ")} admite alias textuales que pueden unificarse como «true» y «false».</li>
           )}
           {dateCandidates.length > 0 && (
             <li><strong>Fechas detectadas:</strong> {dateCandidates.map((column) => column.name).join(", ")} coincide con un formato de fecha cerrado.</li>
@@ -1029,13 +1039,13 @@ function CleaningSignals({
             <div className="cleaning-signals__action">
               <p>
                 Puedes reemplazar los valores atípicos por la mediana de cada columna usando
-                límites IQR de 1.5. La operación conserva el tipo numérico y no muestra celdas.{undoNote}
+                límites IQR de 1,5. La operación conserva el tipo numérico y no muestra celdas.{undoNote}
               </p>
               <button type="button" onClick={onImputeOutliers} disabled={busy}>
-                Imputar outliers con mediana
+                Reemplazar valores atípicos por la mediana
               </button>
               <button type="button" onClick={onCapOutliers} disabled={busy}>
-                Limitar outliers con IQR
+                Limitar valores atípicos con IQR
               </button>
               <button type="button" className="danger-action" onClick={onDropOutliers} disabled={busy}>
                 Eliminar filas atípicas
@@ -1072,7 +1082,7 @@ function CleaningSignals({
           {encoding.length > 0 && (
             <div className="cleaning-signals__action">
               <p>
-                Corrige secuencias heredadas como `Ã©` o `â€™`; solo se aplican reparaciones
+                Corrige secuencias heredadas como «Ã©» o «â€™»; solo se aplican reparaciones
                 UTF-8 inequívocas.{undoNote}
               </p>
               <button type="button" onClick={onFixEncoding} disabled={busy}>
@@ -1098,8 +1108,8 @@ function CleaningSignals({
           {booleans.length > 0 && (
             <div className="cleaning-signals__action">
               <p>
-                La normalización solo convierte `yes`/`no`, `sí`/`no` y `true`/`false` a
-                `true`/`false`; deja intactos los valores que no reconoce.
+                La normalización solo convierte «yes»/«no», «sí»/«no» y «true»/«false» a
+                «true»/«false»; deja intactos los valores que no reconoce.
               </p>
               <button type="button" onClick={onNormalizeBooleans} disabled={busy}>
                 Normalizar booleanos
@@ -1109,7 +1119,7 @@ function CleaningSignals({
           {dateCandidates.length > 0 && (
             <div className="cleaning-signals__action">
               <p>
-                Puedes convertir estas columnas de texto a <strong>Datetime</strong>. Solo se usa
+                Puedes convertir estas columnas de texto a <strong>fecha y hora</strong>. Solo se usa
                 un formato dominante cerrado y se omiten columnas ambiguas. Los valores que no
                 sean fechas quedan vacíos: si hay alguno, se pide confirmación.
               </p>

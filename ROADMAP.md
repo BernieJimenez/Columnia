@@ -319,14 +319,14 @@ medio = 1 día; agregado por suma.
   - [x] `UX-10` (Bajo) «Listo: cambios aplicados» solo aparece cuando termina el reperfilado, 10–13 s después de que los cambios ya estaban aplicados — hecho el 2026-10-04
   - [x] `UX-12` (Bajo) `RevisionComparison`: una comparación cancelada se muestra como error; cancelar sin éxito deja el botón bloqueado; textos con jerga interna — hecho el 2026-10-04
   - [x] `UX-13` (Bajo) Un borrador inválido no se conserva al salir de la pestaña — hecho el 2026-10-04
-- [ ] **RV70** — **Preparar** — «Imputar outliers con mediana» se aplica sin confirmación mientras «Limitar» y «Eliminar»… (y 5 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV70** — **Preparar** — «Imputar outliers con mediana» se aplica sin confirmación mientras «Limitar» y «Eliminar»… (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de UX-14, ACC-17, TXT-11, COD-08, COD-09, LIM-05.
-  - [ ] `UX-14` (Bajo) «Imputar outliers con mediana» se aplica sin confirmación mientras «Limitar» y «Eliminar» sí la piden
-  - [ ] `ACC-17` (Bajo) El foco se pierde al cambiar entre propuesta, pasos y resultado
-  - [ ] `TXT-11` (Bajo) Marcas de código literales y anglicismos en textos de interfaz
-  - [ ] `COD-08` (Bajo) Umbral «80 %» y otros textos del motor duplicados como literales en el controlador
-  - [ ] `COD-09` (Bajo) `recipeSchema`: `dateParses` se auto-satisface y ofrece cualquier columna como compatible; tipos enteros sin signo se tratan como cambio de tipo
-  - [ ] `LIM-05` (Bajo) JSDoc huérfano y textos auxiliares mal ubicados en `src/features/prepare/proposalModel.ts`
+  - [x] `UX-14` (Bajo) «Imputar outliers con mediana» se aplica sin confirmación mientras «Limitar» y «Eliminar» sí la piden — hecho el 2026-10-04
+  - [x] `ACC-17` (Bajo) El foco se pierde al cambiar entre propuesta, pasos y resultado — hecho el 2026-10-04
+  - [x] `TXT-11` (Bajo) Marcas de código literales y anglicismos en textos de interfaz — hecho el 2026-10-04
+  - [x] `COD-08` (Bajo) Umbral «80 %» y otros textos del motor duplicados como literales en el controlador — hecho el 2026-10-04
+  - [x] `COD-09` (Bajo) `recipeSchema`: `dateParses` se auto-satisface y ofrece cualquier columna como compatible; tipos enteros sin signo se tratan como cambio de tipo — hecho el 2026-10-04
+  - [x] `LIM-05` (Bajo) JSDoc huérfano y textos auxiliares mal ubicados en `src/features/prepare/proposalModel.ts` — hecho el 2026-10-04
 - [ ] **RV71** — **Preparar** — Props declaradas y no usadas; manejadores opcionales con no-op silencioso (y 1 problemas más) · *Esfuerzo: 4 h*
   - Criterio de cierre: Se cumplen los criterios de aceptación de LIM-06, QA-33.
   - [ ] `LIM-06` (Bajo) Props declaradas y no usadas; manejadores opcionales con no-op silencioso

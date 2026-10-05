@@ -707,7 +707,7 @@ describe("usePrepareController", () => {
     vi.spyOn(bridge, "removeEmptyRows").mockResolvedValue({ dataset, affectedRowCount: 0 });
     vi.spyOn(bridge, "removeConstantColumns").mockResolvedValue({ dataset, removedColumnCount: 0, removedColumns: [] });
     vi.spyOn(bridge, "removeEmptyColumns").mockResolvedValue({ dataset, removedColumnCount: 0, removedColumns: [] });
-    vi.spyOn(bridge, "removeHighNullColumns").mockResolvedValue({ dataset, removedColumnCount: 0, removedColumns: [] });
+    vi.spyOn(bridge, "removeHighNullColumns").mockResolvedValue({ dataset, removedColumnCount: 0, removedColumns: [], thresholdPercentage: 70 });
     vi.spyOn(bridge, "removeIdentifierColumns").mockResolvedValue({ dataset, removedColumnCount: 0, removedColumns: [] });
     vi.spyOn(bridge, "removePersonalColumns").mockResolvedValue({ dataset, removedColumnCount: 0, removedColumns: [] });
     vi.spyOn(bridge, "normalizeSentinelValues").mockResolvedValue({
@@ -754,7 +754,7 @@ describe("usePrepareController", () => {
     fireEvent.click(screen.getByRole("button", { name: "Vacías" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se eliminaron columnas vacías"));
     fireEvent.click(screen.getByRole("button", { name: "Alta nulidad" }));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se detectaron columnas con al menos 80%"));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se detectaron columnas con al menos 70 % de valores nulos"));
     fireEvent.click(screen.getByRole("button", { name: "Identificadores" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se detectaron columnas identificadoras"));
     fireEvent.click(screen.getByRole("button", { name: "Personales" }));
@@ -870,7 +870,7 @@ describe("usePrepareController", () => {
       ["Tipos incompatibles", "2 valores incompatibles"],
       ["Imputar", "Se imputó 1 valor nulo"],
       ["Outliers", "Se reemplazó 1 valor atípico"],
-      ["Capear", "No se detectaron outliers"],
+      ["Capear", "No se detectaron valores atípicos"],
       ["Eliminar atípicos", "No se detectaron filas atípicas"],
       ["Categorías", "Se completó 1 nulo textual"],
       ["Auditoría", "no produjo cambios"],

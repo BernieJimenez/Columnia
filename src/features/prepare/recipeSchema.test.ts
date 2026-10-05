@@ -62,6 +62,23 @@ describe("recipe schema preflight", () => {
     expect(canMapRecipeSchema(issues, { value: "value" })).toBe(true);
   });
 
+  it("a date parse needs a text or date source and does not accept numbers (COD-09)", () => {
+    const recipe: TransformRecipe = {
+      ...emptyRecipe,
+      dateParses: [{ column: "value", format: "iso8601", target: "date" }],
+    };
+    const issues = inspectRecipeSchema(recipe, dataset);
+    expect(issues).toEqual([expect.objectContaining({ column: "value", kind: "incompatible" })]);
+    expect(issues[0].compatibleColumns).toEqual(["name", "label", "detail", "key", "started"]);
+    expect(inspectRecipeSchema({ ...recipe, dateParses: [{ column: "label", format: "iso8601", target: "date" }] }, dataset)).toEqual([]);
+  });
+
+  it("an unsigned integer is still an integer (COD-09)", () => {
+    const recipe: TransformRecipe = { ...emptyRecipe, filters: [{ column: "value", operator: "eq", value: "2" }] };
+    const unsigned = { ...dataset, columns: dataset.columns.map((column) => column.name === "value" ? { ...column, dataType: "u32" } : column) };
+    expect(inspectRecipeSchema(recipe, unsigned, [{ name: "value", dataType: "i64" }])).toEqual([]);
+  });
+
   it("treats equivalent string type aliases as the same stored schema", () => {
     const recipe: TransformRecipe = {
       ...emptyRecipe,

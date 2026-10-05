@@ -352,11 +352,6 @@ export function defaultProposalSelection(items: ProposalItem[]): ProposalSelecti
 }
 
 /**
- * The title shown for an item. Imputation counts come from the engine's
- * simulation of the whole selected chain when there is one (RV17 / FUN-06);
- * otherwise they are estimated from the profile and the current selection.
- */
-/**
  * The columns «Convertir a número» types with this selection: one that holds
  * «sin dato» markers only types when those markers are converted first.
  */
@@ -366,6 +361,11 @@ export function typedColumns(item: ProposalItem, selection: ProposalSelection): 
     .map((column) => column.name);
 }
 
+/**
+ * The title shown for an item. Imputation counts come from the engine's
+ * simulation of the whole selected chain when there is one (RV17 / FUN-06);
+ * otherwise they are estimated from the profile and the current selection.
+ */
 export function proposalItemTitle(
   item: ProposalItem,
   selection: ProposalSelection,

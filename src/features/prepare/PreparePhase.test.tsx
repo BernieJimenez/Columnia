@@ -498,14 +498,21 @@ describe("PreparePhase", () => {
     expect(onImputeMissingValues).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Completar categorías desconocidas" }));
     expect(onImputeCategoricalValues).toHaveBeenCalledOnce();
-    expect(signals).toHaveTextContent("Valores atípicos: amount (1) supera los límites IQR de 1.5.");
-    fireEvent.click(screen.getByRole("button", { name: "Imputar outliers con mediana" }));
+    expect(signals).toHaveTextContent("Valores atípicos: amount (1) supera los límites IQR de 1,5.");
+    // UX-14: replacing by the median asks first, like the other two, and
+    // «Cancelar» changes nothing.
+    fireEvent.click(screen.getByRole("button", { name: "Reemplazar valores atípicos por la mediana" }));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Se reemplazarán por la mediana");
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancelar" }));
+    expect(onImputeOutliers).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Reemplazar valores atípicos por la mediana" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Reemplazar valores atípicos por la mediana" }));
     expect(onImputeOutliers).toHaveBeenCalledOnce();
-    expect(screen.getByRole("button", { name: "Limitar outliers con IQR" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Limitar valores atípicos con IQR" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Eliminar filas atípicas" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Limitar outliers con IQR" }));
+    fireEvent.click(screen.getByRole("button", { name: "Limitar valores atípicos con IQR" }));
     expect(screen.getByRole("alertdialog")).toHaveTextContent("Limitar valores atípicos");
-    fireEvent.click(screen.getByRole("button", { name: "Limitar outliers" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Limitar valores atípicos" }));
     expect(onCapOutliers).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar filas atípicas" }));
     expect(screen.getByRole("alertdialog")).toHaveTextContent("Se eliminará cualquier fila");
