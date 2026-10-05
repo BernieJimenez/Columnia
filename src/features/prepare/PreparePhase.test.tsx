@@ -286,7 +286,6 @@ describe("PreparePhase", () => {
       recipeDraft={null}
       recipeSession={0}
       onCancelProfile={() => undefined}
-      onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={() => undefined}
       onRemoveEmptyColumns={() => undefined}
@@ -294,9 +293,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
-      onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
-      onTrimText={() => undefined}
       onNormalizeText={() => undefined}
       onApplyTransforms={() => undefined}
       onRecipeDraftChange={() => undefined}
@@ -347,7 +344,6 @@ describe("PreparePhase", () => {
       recipeSession={0}
 
       onCancelProfile={() => undefined}
-      onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={() => undefined}
     onRemoveEmptyColumns={() => undefined}
@@ -355,9 +351,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
-      onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
-      onTrimText={() => undefined}
       onNormalizeText={onNormalizeText}
       onApplyTransforms={() => undefined}
       onRecipeDraftChange={() => undefined}
@@ -391,9 +385,9 @@ describe("PreparePhase", () => {
       dataset={dataset} profileStatus={{ kind: "idle" }} changeStatus={{ kind: "idle" }}
       historyStatus={history}  onCancelProfile={() => undefined}
       recipeDraft={null} recipeSession={0}
-      onRemoveDuplicates={() => undefined} onRemoveConstantColumns={() => undefined} onRemoveEmptyColumns={() => undefined} onRemoveHighNullColumns={() => undefined} onNormalizeBooleans={() => undefined} onImputeMissingValues={() => undefined} onEnableRowAudit={() => undefined} onNormalizeColumns={() => undefined}
+      onRemoveConstantColumns={() => undefined} onRemoveEmptyColumns={() => undefined} onRemoveHighNullColumns={() => undefined} onNormalizeBooleans={() => undefined} onImputeMissingValues={() => undefined} onEnableRowAudit={() => undefined}
       onRemoveEmptyRows={() => undefined}
-      onApplyRecommended={() => undefined} onTrimText={() => undefined}
+      onApplyRecommended={() => undefined}
       onNormalizeText={() => undefined} onApplyTransforms={() => undefined}
       onRecipeDraftChange={() => undefined}
       onUndo={onUndo} onRedo={onRedo}
@@ -431,7 +425,6 @@ describe("PreparePhase", () => {
       recipeSession={0}
 
       onCancelProfile={() => undefined}
-      onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={onRemoveConstantColumns}
       onRemoveEmptyColumns={onRemoveEmptyColumns}
@@ -440,15 +433,15 @@ describe("PreparePhase", () => {
       onParseDates={onParseDates}
       onCastNumeric={onCastNumeric}
       onFixEncoding={onFixEncoding}
+      onRemoveIdentifierColumns={vi.fn()}
+      onRemoveNearDuplicates={vi.fn()}
       onImputeMissingValues={onImputeMissingValues}
       onImputeCategoricalValues={onImputeCategoricalValues}
       onImputeOutliers={onImputeOutliers}
       onCapOutliers={onCapOutliers}
       onDropOutliers={onDropOutliers}
       onEnableRowAudit={onEnableRowAudit}
-      onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
-      onTrimText={() => undefined}
       onNormalizeText={() => undefined}
       onApplyTransforms={() => undefined}
       onRecipeDraftChange={() => undefined}
@@ -539,7 +532,6 @@ describe("PreparePhase", () => {
       recipeSession={0}
 
       onCancelProfile={() => undefined}
-      onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={() => undefined}
       onRemoveEmptyColumns={() => undefined}
@@ -548,9 +540,7 @@ describe("PreparePhase", () => {
       onCastNumeric={onCastNumeric}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
-      onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
-      onTrimText={() => undefined}
       onNormalizeText={() => undefined}
       onApplyTransforms={() => undefined}
       onRecipeDraftChange={() => undefined}
@@ -579,7 +569,6 @@ describe("PreparePhase", () => {
       recipeDraft: null,
       recipeSession: 0,
       onCancelProfile: () => undefined,
-      onRemoveDuplicates: () => undefined,
       onRemoveEmptyRows: () => undefined,
       onRemoveConstantColumns: () => undefined,
       onRemoveEmptyColumns: () => undefined,
@@ -587,9 +576,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans: () => undefined,
       onImputeMissingValues: () => undefined,
       onEnableRowAudit: () => undefined,
-      onNormalizeColumns: () => undefined,
       onApplyRecommended: () => undefined,
-      onTrimText: () => undefined,
       onNormalizeText: () => undefined,
       onApplyTransforms: () => undefined,
       onRecipeDraftChange: () => undefined,
@@ -616,7 +603,6 @@ describe("PreparePhase", () => {
       recipeSession={0}
 
       onCancelProfile={() => undefined}
-      onRemoveDuplicates={() => undefined}
       onRemoveNearDuplicates={onRemoveNearDuplicates}
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={() => undefined}
@@ -625,9 +611,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
-      onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
-      onTrimText={() => undefined}
       onNormalizeText={() => undefined}
       onApplyTransforms={() => undefined}
       onRecipeDraftChange={() => undefined}
@@ -659,7 +643,6 @@ describe("PreparePhase", () => {
       recipeSession={0}
 
       onCancelProfile={() => undefined}
-      onRemoveDuplicates={() => undefined}
       onRemoveNearDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={() => undefined}
@@ -669,9 +652,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
-      onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
-      onTrimText={() => undefined}
       onNormalizeText={() => undefined}
       onApplyTransforms={() => undefined}
       onRecipeDraftChange={() => undefined}
@@ -705,7 +686,6 @@ describe("PreparePhase", () => {
       recipeSession={0}
 
       onCancelProfile={() => undefined}
-      onRemoveDuplicates={() => undefined}
       onRemoveNearDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={() => undefined}
@@ -717,9 +697,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
-      onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
-      onTrimText={() => undefined}
       onNormalizeText={() => undefined}
       onApplyTransforms={() => undefined}
       onRecipeDraftChange={() => undefined}
@@ -766,7 +744,6 @@ describe("PreparePhase", () => {
       recipeSession={0}
 
       onCancelProfile={() => undefined}
-      onRemoveDuplicates={() => undefined}
       onRemoveNearDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={() => undefined}
@@ -779,9 +756,7 @@ describe("PreparePhase", () => {
       onNullifyInvalidTypes={onNullifyInvalidTypes}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
-      onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
-      onTrimText={() => undefined}
       onNormalizeText={() => undefined}
       onApplyTransforms={() => undefined}
       onRecipeDraftChange={() => undefined}
@@ -820,7 +795,6 @@ describe("PreparePhase", () => {
       onRemoveIdentifierColumns={onRemoveIdentifierColumns}
       onRemovePersonalColumns={onRemovePersonalColumns}
       onMaskPersonalValues={onMaskPersonalValues}
-      onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={() => undefined}
       onRemoveEmptyColumns={() => undefined}
@@ -828,9 +802,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
-      onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
-      onTrimText={() => undefined}
       onNormalizeText={() => undefined}
       onApplyTransforms={() => undefined}
       onRecipeDraftChange={() => undefined}
@@ -880,7 +852,6 @@ describe("PreparePhase", () => {
     const callbacks = {
       onCancelProfile: vi.fn(),
       onCancelPrepare: vi.fn(),
-      onRemoveDuplicates: vi.fn(),
       onRemoveNearDuplicates: vi.fn(),
       onRemoveEmptyRows: vi.fn(),
       onRemoveConstantColumns: vi.fn(),
@@ -892,9 +863,7 @@ describe("PreparePhase", () => {
       onFixEncoding: vi.fn(),
       onImputeMissingValues: vi.fn(),
       onEnableRowAudit: vi.fn(),
-      onNormalizeColumns: vi.fn(),
       onApplyRecommended: vi.fn<(options: SafeCorrectionOptions) => void>(),
-      onTrimText: vi.fn(),
       onNormalizeText: vi.fn(),
       onApplyTransforms: vi.fn(),
       onRecipeDraftChange: vi.fn(),
@@ -1072,7 +1041,6 @@ describe("PreparePhase", () => {
       recipeDraft: null,
       recipeSession: 0,
       onCancelProfile: vi.fn(),
-      onRemoveDuplicates: vi.fn(),
       onRemoveNearDuplicates: vi.fn(),
       onRemoveEmptyRows: vi.fn(),
       onRemoveConstantColumns: vi.fn(),
@@ -1081,9 +1049,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans: vi.fn(),
       onImputeMissingValues: vi.fn(),
       onEnableRowAudit: vi.fn(),
-      onNormalizeColumns: vi.fn(),
       onApplyRecommended,
-      onTrimText: vi.fn(),
       onNormalizeText: vi.fn(),
       onApplyTransforms: vi.fn(),
       onRecipeDraftChange: vi.fn(),
@@ -1176,7 +1142,6 @@ describe("PreparePhase", () => {
       recipeDraft: null,
       recipeSession: 0,
       onCancelProfile: vi.fn(),
-      onRemoveDuplicates: vi.fn(),
       onRemoveEmptyRows: vi.fn(),
       onRemoveConstantColumns: vi.fn(),
       onRemoveEmptyColumns: vi.fn(),
@@ -1184,9 +1149,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans: vi.fn(),
       onImputeMissingValues: vi.fn(),
       onEnableRowAudit: vi.fn(),
-      onNormalizeColumns: vi.fn(),
       onApplyRecommended: vi.fn(),
-      onTrimText: vi.fn(),
       onNormalizeText: vi.fn(),
       onApplyTransforms: vi.fn(),
       onRecipeDraftChange: vi.fn(),
@@ -1217,7 +1180,6 @@ describe("PreparePhase", () => {
       recipeDraft: null,
       recipeSession: 0,
       onCancelProfile: vi.fn(),
-      onRemoveDuplicates: vi.fn(),
       onRemoveEmptyRows: vi.fn(),
       onRemoveConstantColumns: vi.fn(),
       onRemoveEmptyColumns: vi.fn(),
@@ -1225,9 +1187,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans: vi.fn(),
       onImputeMissingValues: vi.fn(),
       onEnableRowAudit: vi.fn(),
-      onNormalizeColumns: vi.fn(),
       onApplyRecommended: vi.fn(),
-      onTrimText: vi.fn(),
       onNormalizeText: vi.fn(),
       onApplyTransforms: vi.fn(),
       onRecipeDraftChange: vi.fn(),
@@ -1261,9 +1221,9 @@ describe("PreparePhase", () => {
       historyStatus: EMPTY_HISTORY,
       recipeDraft: { version: 1 as const, name: "Limpieza", savedAt: "2026-08-21T00:00:00Z", recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "cliente" }] } },
       recipeSession: 0,
-      onCancelProfile: vi.fn(), onRemoveDuplicates: vi.fn(), onRemoveEmptyRows: vi.fn(), onRemoveConstantColumns: vi.fn(),
+      onCancelProfile: vi.fn(), onRemoveEmptyRows: vi.fn(), onRemoveConstantColumns: vi.fn(),
       onRemoveEmptyColumns: vi.fn(), onRemoveHighNullColumns: vi.fn(), onNormalizeBooleans: vi.fn(), onImputeMissingValues: vi.fn(),
-      onEnableRowAudit: vi.fn(), onNormalizeColumns: vi.fn(), onApplyRecommended: vi.fn(), onTrimText: vi.fn(), onNormalizeText: vi.fn(),
+      onEnableRowAudit: vi.fn(), onApplyRecommended: vi.fn(), onNormalizeText: vi.fn(),
       onApplyTransforms: vi.fn(), onRecipeDraftChange: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(),
     };
     let kept: SavedRecipe | null = null;
@@ -1303,7 +1263,6 @@ describe("PreparePhase", () => {
       recipeDraft={null}
       recipeSession={0}
       onCancelProfile={() => undefined}
-      onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={() => undefined}
       onRemoveEmptyColumns={() => undefined}
@@ -1311,9 +1270,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
-      onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
-      onTrimText={() => undefined}
       onNormalizeText={() => undefined}
       onApplyTransforms={() => undefined}
       onRecipeDraftChange={() => undefined}
@@ -1361,7 +1318,6 @@ describe("PreparePhase", () => {
       recipeSession={0}
 
       onCancelProfile={() => undefined}
-      onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={() => undefined}
       onRemoveEmptyColumns={() => undefined}
@@ -1369,9 +1325,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
-      onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
-      onTrimText={() => undefined}
       onNormalizeText={() => undefined}
       onApplyTransforms={() => undefined}
       onRecipeDraftChange={() => undefined}

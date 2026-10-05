@@ -1508,7 +1508,6 @@ export function App() {
                 recipeSession={recipeSession}
                 onCancelProfile={() => void review.cancelProfile()}
                 onCancelPrepare={prepare.cancelCurrent}
-                onRemoveDuplicates={prepare.applyDuplicateRemoval}
                 onRemoveNearDuplicates={prepare.applyNearDuplicateRemoval}
                 onRemoveEmptyRows={prepare.applyEmptyRowRemoval}
                 onRemoveConstantColumns={prepare.applyConstantColumnRemoval}
@@ -1528,9 +1527,7 @@ export function App() {
                 onCapOutliers={prepare.applyOutlierCapping}
                 onDropOutliers={prepare.applyOutlierRemoval}
                 onEnableRowAudit={prepare.applyRowAudit}
-                onNormalizeColumns={prepare.applyColumnNormalization}
                 onApplyRecommended={prepare.applyRecommendedCorrections}
-                onTrimText={prepare.trimText}
                 onNormalizeText={prepare.normalizeText}
                 onApplyTransforms={prepare.applyStructuralTransforms}
                 onRecipeDraftChange={handleRecipeDraftChange}

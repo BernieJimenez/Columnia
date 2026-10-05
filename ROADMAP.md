@@ -329,7 +329,7 @@ medio = 1 día; agregado por suma.
   - [x] `LIM-05` (Bajo) JSDoc huérfano y textos auxiliares mal ubicados en `src/features/prepare/proposalModel.ts` — hecho el 2026-10-04
 - [ ] **RV71** — **Preparar** — Props declaradas y no usadas; manejadores opcionales con no-op silencioso (y 1 problemas más) · *Esfuerzo: 4 h*
   - Criterio de cierre: Se cumplen los criterios de aceptación de LIM-06, QA-33.
-  - [ ] `LIM-06` (Bajo) Props declaradas y no usadas; manejadores opcionales con no-op silencioso
+  - [x] `LIM-06` (Bajo) Props declaradas y no usadas; manejadores opcionales con no-op silencioso — hecho el 2026-10-04
   - [ ] `QA-33` (Bajo) `src/features/prepare/proposalModel.test.ts` / `src/features/prepare/PrepareProposal.test.tsx`: los casos de identificadores son solo en inglés y el botón puede decir «Aplicar 0 cambios»
 - [ ] **RV72** — **Revisar** — La preferencia global de motor/muestra se sobrescribe al abrir un proyecto (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-48, FUN-49, FUN-50, FUN-51, FUN-52, UX-15.

@@ -203,6 +203,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Preparar ya no declara props sin uso y no muestra botones cuya acción no está
+  conectada (antes no hacían nada en silencio) (LIM-06).
 - Preparar: reemplazar valores atípicos por la mediana pide confirmación como
   limitar y eliminar; el foco pasa al título de cada paso de la propuesta;
   textos sin marcas de código ni anglicismos («valores atípicos», «fecha y

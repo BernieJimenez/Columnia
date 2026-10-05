@@ -38,7 +38,6 @@ interface PreparePhaseProps {
   recipeSession: number;
   onCancelProfile: () => void;
   onCancelPrepare?: () => void;
-  onRemoveDuplicates: () => void;
   onRemoveNearDuplicates?: () => void;
   onRemoveEmptyRows: () => void;
   onRemoveConstantColumns: () => void;
@@ -58,9 +57,7 @@ interface PreparePhaseProps {
   onCapOutliers?: () => void;
   onDropOutliers?: () => void;
   onEnableRowAudit: () => void;
-  onNormalizeColumns: () => void;
   onApplyRecommended: (options: SafeCorrectionOptions) => void;
-  onTrimText: () => void;
   onNormalizeText: (columns: string[], removeAccents: boolean) => void;
   onApplyTransforms: (recipe: TransformRecipe) => void;
   onRecipeDraftChange: (draft: SavedRecipe) => void;
@@ -84,24 +81,24 @@ export function PreparePhase({
   recipeSession,
   onCancelProfile,
   onCancelPrepare,
-  onRemoveNearDuplicates = () => undefined,
+  onRemoveNearDuplicates,
   onRemoveEmptyRows,
   onRemoveConstantColumns,
   onRemoveEmptyColumns,
   onRemoveHighNullColumns,
-  onRemoveIdentifierColumns = () => undefined,
-  onRemovePersonalColumns = () => undefined,
-  onMaskPersonalValues = () => undefined,
+  onRemoveIdentifierColumns,
+  onRemovePersonalColumns,
+  onMaskPersonalValues,
   onNormalizeBooleans,
-  onParseDates = () => undefined,
-  onCastNumeric = () => undefined,
-  onFixEncoding = () => undefined,
-  onNullifyInvalidTypes = () => undefined,
+  onParseDates,
+  onCastNumeric,
+  onFixEncoding,
+  onNullifyInvalidTypes,
   onImputeMissingValues,
-  onImputeCategoricalValues = () => undefined,
-  onImputeOutliers = () => undefined,
-  onCapOutliers = () => undefined,
-  onDropOutliers = () => undefined,
+  onImputeCategoricalValues,
+  onImputeOutliers,
+  onCapOutliers,
+  onDropOutliers,
   onEnableRowAudit,
   onApplyRecommended,
   onNormalizeText,
@@ -171,8 +168,8 @@ export function PreparePhase({
   function requestConversion(kind: TypeConversionKind) {
     const loss = profileStatus.kind === "ready" ? conversionNullEstimate(profileStatus.profile, kind) : [];
     if (loss.length === 0) {
-      if (kind === "numeric") onCastNumeric();
-      else onParseDates();
+      if (kind === "numeric") onCastNumeric?.();
+      else onParseDates?.();
       return;
     }
     setConversionConfirmation(kind);
@@ -404,21 +401,21 @@ export function PreparePhase({
               onRemoveConstantColumns={onRemoveConstantColumns}
               onRemoveEmptyColumns={onRemoveEmptyColumns}
               onRemoveHighNullColumns={onRemoveHighNullColumns}
-              onRemoveIdentifierColumns={() => setIdentifierConfirmation(true)}
-              onRemovePersonalColumns={() => setPersonalConfirmation(true)}
-              onMaskPersonalValues={() => setMaskPersonalConfirmation(true)}
+              onRemoveIdentifierColumns={onRemoveIdentifierColumns && (() => setIdentifierConfirmation(true))}
+              onRemovePersonalColumns={onRemovePersonalColumns && (() => setPersonalConfirmation(true))}
+              onMaskPersonalValues={onMaskPersonalValues && (() => setMaskPersonalConfirmation(true))}
               onNormalizeBooleans={onNormalizeBooleans}
-              onParseDates={() => requestConversion("dates")}
-              onCastNumeric={() => requestConversion("numeric")}
+              onParseDates={onParseDates && (() => requestConversion("dates"))}
+              onCastNumeric={onCastNumeric && (() => requestConversion("numeric"))}
               onFixEncoding={onFixEncoding}
-              onNullifyInvalidTypes={() => setInvalidTypeConfirmation(true)}
+              onNullifyInvalidTypes={onNullifyInvalidTypes && (() => setInvalidTypeConfirmation(true))}
               onImputeMissingValues={onImputeMissingValues}
               onImputeCategoricalValues={onImputeCategoricalValues}
-              onImputeOutliers={() => setOutlierConfirmation("impute")}
-              onCapOutliers={() => setOutlierConfirmation("cap")}
-              onDropOutliers={() => setOutlierConfirmation("drop")}
+              onImputeOutliers={onImputeOutliers && (() => setOutlierConfirmation("impute"))}
+              onCapOutliers={onCapOutliers && (() => setOutlierConfirmation("cap"))}
+              onDropOutliers={onDropOutliers && (() => setOutlierConfirmation("drop"))}
             />
-            {nearDuplicateCount !== null && nearDuplicateCount > 0 && (
+            {nearDuplicateCount !== null && nearDuplicateCount > 0 && onRemoveNearDuplicates && (
               <section className="prepare-card" aria-labelledby="near-duplicates-title">
                 <div>
                   <p className="step">Revisión con confirmación</p>
@@ -555,7 +552,7 @@ export function PreparePhase({
               className="danger-action"
               onClick={() => {
                 setNearDuplicateConfirmation(false);
-                onRemoveNearDuplicates();
+                onRemoveNearDuplicates?.();
               }}
               disabled={changing}
             >
@@ -587,7 +584,7 @@ export function PreparePhase({
               className="danger-action"
               onClick={() => {
                 setIdentifierConfirmation(false);
-                onRemoveIdentifierColumns();
+                onRemoveIdentifierColumns?.();
               }}
               disabled={changing}
             >
@@ -620,7 +617,7 @@ export function PreparePhase({
               className="danger-action"
               onClick={() => {
                 setPersonalConfirmation(false);
-                onRemovePersonalColumns();
+                onRemovePersonalColumns?.();
               }}
               disabled={changing}
             >
@@ -653,7 +650,7 @@ export function PreparePhase({
               className="danger-action"
               onClick={() => {
                 setMaskPersonalConfirmation(false);
-                onMaskPersonalValues();
+                onMaskPersonalValues?.();
               }}
               disabled={changing}
             >
@@ -683,7 +680,7 @@ export function PreparePhase({
               className="danger-action"
               onClick={() => {
                 setInvalidTypeConfirmation(false);
-                onNullifyInvalidTypes();
+                onNullifyInvalidTypes?.();
               }}
               disabled={changing}
             >
@@ -717,8 +714,8 @@ export function PreparePhase({
               onClick={() => {
                 const kind = conversionConfirmation;
                 setConversionConfirmation(null);
-                if (kind === "numeric") onCastNumeric();
-                else onParseDates();
+                if (kind === "numeric") onCastNumeric?.();
+                else onParseDates?.();
               }}
               disabled={changing}
             >
@@ -756,9 +753,9 @@ export function PreparePhase({
               onClick={() => {
                 const action = outlierConfirmation;
                 setOutlierConfirmation(null);
-                if (action === "impute") onImputeOutliers();
-                else if (action === "cap") onCapOutliers();
-                else onDropOutliers();
+                if (action === "impute") onImputeOutliers?.();
+                else if (action === "cap") onCapOutliers?.();
+                else onDropOutliers?.();
               }}
               disabled={changing}
             >
@@ -835,19 +832,19 @@ function CleaningSignals({
   onRemoveConstantColumns: () => void;
   onRemoveEmptyColumns: () => void;
   onRemoveHighNullColumns: () => void;
-  onRemoveIdentifierColumns: () => void;
-  onRemovePersonalColumns: () => void;
-  onMaskPersonalValues: () => void;
+  onRemoveIdentifierColumns?: () => void;
+  onRemovePersonalColumns?: () => void;
+  onMaskPersonalValues?: () => void;
   onNormalizeBooleans: () => void;
-  onParseDates: () => void;
-  onCastNumeric: () => void;
-  onFixEncoding: () => void;
-  onNullifyInvalidTypes: () => void;
+  onParseDates?: () => void;
+  onCastNumeric?: () => void;
+  onFixEncoding?: () => void;
+  onNullifyInvalidTypes?: () => void;
   onImputeMissingValues: () => void;
-  onImputeCategoricalValues: () => void;
-  onImputeOutliers: () => void;
-  onCapOutliers: () => void;
-  onDropOutliers: () => void;
+  onImputeCategoricalValues?: () => void;
+  onImputeOutliers?: () => void;
+  onCapOutliers?: () => void;
+  onDropOutliers?: () => void;
 }) {
   const incomplete = profile.columns.filter((column) => column.completenessPercentage < 100);
   const imputable = incomplete.filter(
@@ -967,7 +964,7 @@ function CleaningSignals({
                       Intentar imputación conservadora
                     </button>
                   )}
-                  {categoricalImputable.length > 0 && (
+                  {categoricalImputable.length > 0 && onImputeCategoricalValues && (
                     <button type="button" onClick={onImputeCategoricalValues} disabled={busy}>
                       Completar categorías desconocidas
                     </button>
@@ -1041,15 +1038,21 @@ function CleaningSignals({
                 Puedes reemplazar los valores atípicos por la mediana de cada columna usando
                 límites IQR de 1,5. La operación conserva el tipo numérico y no muestra celdas.{undoNote}
               </p>
-              <button type="button" onClick={onImputeOutliers} disabled={busy}>
-                Reemplazar valores atípicos por la mediana
-              </button>
-              <button type="button" onClick={onCapOutliers} disabled={busy}>
-                Limitar valores atípicos con IQR
-              </button>
-              <button type="button" className="danger-action" onClick={onDropOutliers} disabled={busy}>
-                Eliminar filas atípicas
-              </button>
+              {onImputeOutliers && (
+                <button type="button" onClick={onImputeOutliers} disabled={busy}>
+                  Reemplazar valores atípicos por la mediana
+                </button>
+              )}
+              {onCapOutliers && (
+                <button type="button" onClick={onCapOutliers} disabled={busy}>
+                  Limitar valores atípicos con IQR
+                </button>
+              )}
+              {onDropOutliers && (
+                <button type="button" className="danger-action" onClick={onDropOutliers} disabled={busy}>
+                  Eliminar filas atípicas
+                </button>
+              )}
             </div>
           )}
           {profile.columns.some((column) => column.privacySignal === "identifier") && (
@@ -1059,9 +1062,11 @@ function CleaningSignals({
                 inspeccionan ni muestran celdas, se conserva al menos una columna y la operación
                 queda disponible para revertir desde el historial.
               </p>
-              <button type="button" onClick={onRemoveIdentifierColumns} disabled={busy}>
-                Revisar identificadores detectados
-              </button>
+              {onRemoveIdentifierColumns && (
+                <button type="button" onClick={onRemoveIdentifierColumns} disabled={busy}>
+                  Revisar identificadores detectados
+                </button>
+              )}
             </div>
           )}
           {personalColumns.length > 0 && (
@@ -1071,12 +1076,16 @@ function CleaningSignals({
                 La acción no muestra nombres ni valores, excluye _cambios, conserva al menos una columna
                 y queda disponible para revertir desde el historial.
               </p>
-              <button type="button" onClick={onRemovePersonalColumns} disabled={busy}>
-                Revisar datos personales detectados
-              </button>
-              <button type="button" onClick={onMaskPersonalValues} disabled={busy}>
-                Proteger valores personales detectados
-              </button>
+              {onRemovePersonalColumns && (
+                <button type="button" onClick={onRemovePersonalColumns} disabled={busy}>
+                  Revisar datos personales detectados
+                </button>
+              )}
+              {onMaskPersonalValues && (
+                <button type="button" onClick={onMaskPersonalValues} disabled={busy}>
+                  Proteger valores personales detectados
+                </button>
+              )}
             </div>
           )}
           {encoding.length > 0 && (
@@ -1085,9 +1094,11 @@ function CleaningSignals({
                 Corrige secuencias heredadas como «Ã©» o «â€™»; solo se aplican reparaciones
                 UTF-8 inequívocas.{undoNote}
               </p>
-              <button type="button" onClick={onFixEncoding} disabled={busy}>
-                Corregir codificación
-              </button>
+              {onFixEncoding && (
+                <button type="button" onClick={onFixEncoding} disabled={busy}>
+                  Corregir codificación
+                </button>
+              )}
             </div>
           )}
           {typeDrift.length > 0 && (
@@ -1100,9 +1111,11 @@ function CleaningSignals({
                 Puedes apartar como nulos los valores que no coincidan con una sugerencia con al
                 menos 90% de confianza. La acción no muestra celdas y requiere confirmación.{undoNote}
               </p>
-              <button type="button" onClick={onNullifyInvalidTypes} disabled={busy}>
-                Revisar tipos incompatibles
-              </button>
+              {onNullifyInvalidTypes && (
+                <button type="button" onClick={onNullifyInvalidTypes} disabled={busy}>
+                  Revisar tipos incompatibles
+                </button>
+              )}
             </div>
           )}
           {booleans.length > 0 && (
@@ -1123,9 +1136,11 @@ function CleaningSignals({
                 un formato dominante cerrado y se omiten columnas ambiguas. Los valores que no
                 sean fechas quedan vacíos: si hay alguno, se pide confirmación.
               </p>
-              <button type="button" onClick={onParseDates} disabled={busy}>
-                Interpretar fechas detectadas
-              </button>
+              {onParseDates && (
+                <button type="button" onClick={onParseDates} disabled={busy}>
+                  Interpretar fechas detectadas
+                </button>
+              )}
             </div>
           )}
           {numericCandidates.length > 0 && (
@@ -1136,9 +1151,11 @@ function CleaningSignals({
                 identificadores o códigos con ceros iniciales. Los valores que no sean números
                 quedan vacíos: si hay alguno, se pide confirmación.
               </p>
-              <button type="button" onClick={onCastNumeric} disabled={busy}>
-                Convertir números detectados
-              </button>
+              {onCastNumeric && (
+                <button type="button" onClick={onCastNumeric} disabled={busy}>
+                  Convertir números detectados
+                </button>
+              )}
             </div>
           )}
           </div>
