@@ -420,10 +420,10 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-73` (Bajo) Mínimo/máximo de texto en el camino eager compara `AnyValue::to_string()` (posiblemente con comillas) y no el texto — hecho el 2026-10-05
   - [x] `FUN-74` (Bajo) El recuento de «celdas reemplazadas» incluye columnas que `keepColumns` descarta después — hecho el 2026-10-05
   - [x] `FUN-75` (Bajo) Orden de salida de grupos y fechas en blanco en el camino «source-backed» dependen de DuckDB — hecho el 2026-10-05
-- [ ] **RV86** — **Motor de recetas** — Mensajes de error con jerga interna y mezcla de inglés (y 1 problemas más) · *Esfuerzo: 4 h*
+- [x] **RV86** — **Motor de recetas** — Mensajes de error con jerga interna y mezcla de inglés (y 1 problemas más) · *Esfuerzo: 4 h* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de TXT-14, LIM-09.
-  - [ ] `TXT-14` (Bajo) Mensajes de error con jerga interna y mezcla de inglés
-  - [ ] `LIM-09` (Bajo) `load_recipe_file`: segunda rama inalcanzable y nombre sugerido sin proteger nombres reservados de Windows
+  - [x] `TXT-14` (Bajo) Mensajes de error con jerga interna y mezcla de inglés — hecho el 2026-10-05
+  - [x] `LIM-09` (Bajo) `load_recipe_file`: segunda rama inalcanzable y nombre sugerido sin proteger nombres reservados de Windows — hecho el 2026-10-05
 - [ ] **RV87** — **Explorar** — Explorar: filtros con lista vacía se ignoran, y los valores no tienen tope (y 4 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-77, FUN-78, UX-09, UX-11, TXT-06.
   - [ ] `FUN-77` (Bajo) Explorar: filtros con lista vacía se ignoran, y los valores no tienen tope

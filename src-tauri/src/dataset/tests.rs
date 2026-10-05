@@ -3008,7 +3008,7 @@ fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
     };
     let error = apply_recipe_to_dataset(&mut invalid_dataset, &recipe)
         .expect_err("la división por cero debe abortar antes de publicar");
-    assert!(error.contains("división por cero"));
+    assert!(error.contains("divide por cero"));
     assert!(invalid_dataset.source_backed);
     assert_eq!(invalid_dataset.frame.height(), 0);
     assert_eq!(
@@ -8128,6 +8128,61 @@ fn local_query_join_requires_comparison_and_matching_key_types() {
 }
 
 #[test]
+fn suggested_recipe_names_avoid_windows_reserved_names() {
+    // LIM-09
+    for (name, expected) in [
+        ("CON", "_CON.json"),
+        ("nul", "_nul.json"),
+        ("Com1", "_Com1.json"),
+        ("LPT9.v2", "_LPT9.v2.json"),
+        ("COM0", "COM0.json"),
+        ("Consolidado", "Consolidado.json"),
+        ("Ventas: marzo", "Ventas- marzo.json"),
+    ] {
+        assert_eq!(recipe_suggested_file_name(name), expected, "{name}");
+    }
+}
+
+#[test]
+fn recipe_errors_speak_the_language_of_the_app() {
+    // TXT-14: no internal names (keepColumns, split, source-backed).
+    let frame = df!["a" => &["x,y"], "b" => &["z"]].unwrap();
+    let recipe = TransformRecipe {
+        split_column: Some(SplitColumnRecipe {
+            source: "a".to_owned(),
+            delimiter: ",".to_owned(),
+            names: vec!["c".to_owned(), "d".to_owned()],
+            drop_source: false,
+        }),
+        keep_columns: Some(vec!["b".to_owned()]),
+        ..TransformRecipe::default()
+    };
+    for error in [
+        apply_eager_recipe_to_frame(&frame, &recipe)
+            .err()
+            .expect("la columna dividida no se conserva"),
+        apply_recipe_to_frame(&frame, &recipe)
+            .err()
+            .expect("la columna dividida no se conserva"),
+    ] {
+        assert!(error.contains("columnas conservadas"), "{error}");
+        for jargon in ["keepColumns", "split", "source-backed"] {
+            assert!(!error.contains(jargon), "{error}");
+        }
+    }
+    let long = "x".repeat(MAX_RECIPE_TEXT_FIELD_CHARS + 1);
+    let error = validate_recipe_structure(&TransformRecipe {
+        keep_columns: Some(vec![long]),
+        ..TransformRecipe::default()
+    })
+    .unwrap_err();
+    assert_eq!(
+        error,
+        format!("El campo «columna conservada» de la receta supera el límite de {MAX_RECIPE_TEXT_FIELD_CHARS} caracteres.")
+    );
+}
+
+#[test]
 fn every_recipe_text_field_has_a_length_limit() {
     // FUN-72: one over-long value in each text field of each operation.
     let long = "x".repeat(MAX_RECIPE_TEXT_FIELD_CHARS + 1);
@@ -8447,9 +8502,9 @@ fn every_recipe_text_field_has_a_length_limit() {
         let error = validate_recipe_structure(&recipe(&long)).expect_err(&format!(
             "{field}: un texto fuera de límite debe rechazarse"
         ));
-        assert!(error.contains("payload de receta"), "{field}: {error}");
+        assert!(error.contains("de la receta supera"), "{field}: {error}");
         if let Err(error) = validate_recipe_structure(&recipe(&ok)) {
-            assert!(!error.contains("payload de receta"), "{field}: {error}");
+            assert!(!error.contains("de la receta supera"), "{field}: {error}");
         }
     }
 }
@@ -15571,7 +15626,7 @@ fn keep_columns_rejects_empty_duplicate_missing_and_dropped_calculation_source()
     assert!(apply_recipe_to_frame(&frame, &calculation)
         .err()
         .unwrap()
-        .contains("descartada"));
+        .contains("no está entre las columnas conservadas"));
 
     let renamed_success = TransformRecipe {
         renames: vec![RecipeRename {
@@ -15779,7 +15834,7 @@ fn split_merge_remap_renames_and_validate_keep_and_drop_dependencies() {
     assert!(apply_recipe_to_frame(&frame, &dropped)
         .err()
         .unwrap()
-        .contains("keepColumns"));
+        .contains("columnas conservadas"));
     let conflict = TransformRecipe {
         split_column: Some(SplitColumnRecipe {
             drop_source: true,

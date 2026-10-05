@@ -2423,7 +2423,7 @@ pub(super) fn apply_eager_recipe_to_frame_with_exception_policy(
     let calculated_column_count = if let Some(calculation) = &recipe.calculated_column {
         let source_name = remapped_name(&calculation.source, &rename_map);
         recipe_column(&candidate, source_name).map_err(|_| {
-            format!("La columna fuente calculada '{source_name}' fue descartada por keepColumns.")
+            format!("La columna fuente calculada '{source_name}' no está entre las columnas conservadas.")
         })?;
         if let Some(CalculatedOperand {
             kind: CalculatedOperandKind::Column,
@@ -2433,7 +2433,7 @@ pub(super) fn apply_eager_recipe_to_frame_with_exception_policy(
             let operand_name = remapped_name(value, &rename_map);
             recipe_column(&candidate, operand_name).map_err(|_| {
                 format!(
-                    "La columna operando calculada '{operand_name}' fue descartada por keepColumns."
+                    "La columna operando calculada '{operand_name}' no está entre las columnas conservadas."
                 )
             })?;
         }
@@ -2453,7 +2453,7 @@ pub(super) fn apply_eager_recipe_to_frame_with_exception_policy(
     let (split_column_count, split_dropped) = if let Some(split) = &recipe.split_column {
         let effective = remapped_name(&split.source, &rename_map);
         recipe_column(&candidate, effective).map_err(|_| {
-            format!("La columna '{effective}' requerida por split fue descartada por keepColumns.")
+            format!("La columna '{effective}' que necesita la división no está entre las columnas conservadas.")
         })?;
         apply_split_column(&mut candidate, split, &rename_map)?
     } else {
@@ -2462,7 +2462,7 @@ pub(super) fn apply_eager_recipe_to_frame_with_exception_policy(
     let (merged_column_count, merge_dropped) = if let Some(merge) = &recipe.merge_columns {
         for source in &merge.sources {
             let effective = remapped_name(source, &rename_map);
-            recipe_column(&candidate, effective).map_err(|_| format!("La columna '{effective}' requerida por merge fue descartada por keepColumns o split."))?;
+            recipe_column(&candidate, effective).map_err(|_| format!("La columna '{effective}' que necesita la unión no se conserva o la quita la división."))?;
         }
         apply_merge_columns(&mut candidate, merge, &rename_map)?
     } else {

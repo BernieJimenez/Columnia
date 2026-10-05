@@ -203,6 +203,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Recetas: los mensajes de error ya no usan nombres internos (`keepColumns`,
+  `split`, `merge`, «source-backed», «payload»): dicen «columnas conservadas»,
+  «la división», «la unión» o «el archivo de origen», y los límites de texto
+  nombran el campo en español; el nombre sugerido para guardar una receta
+  llamada `CON`, `NUL` o `COM1` lleva `_` delante para que Windows lo acepte; se
+  quita una rama de lectura que nunca podía ejecutarse (TXT-14, LIM-09).
 - Motor de recetas: el tabulador vertical cuenta como espacio también en textos
   ASCII al comparar filas parecidas; «Quitar columnas constantes» ya no elimina
   una columna con un valor y huecos, ni cuenta `_cambios` como la columna que

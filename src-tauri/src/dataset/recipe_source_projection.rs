@@ -341,7 +341,7 @@ fn source_backed_projection_plan(
                 .unwrap_or_else(|| name.clone());
             if !output_columns.iter().any(|column| column == &effective) {
                 return Err(format!(
-                    "La columna '{effective}' no existe en la selección source-backed."
+                    "La columna '{effective}' no existe entre las columnas del archivo."
                 ));
             }
             if !seen.insert(effective.clone()) {
@@ -475,7 +475,7 @@ fn source_backed_projection_plan(
             && !selected_columns.iter().any(|name| name == &source_name)
         {
             return Err(format!(
-                "La columna fuente calculada '{source_name}' fue descartada por keepColumns."
+                "La columna fuente calculada '{source_name}' no está entre las columnas conservadas."
             ));
         }
         if let Some(operand) = &calculation.operand {
@@ -501,7 +501,7 @@ fn source_backed_projection_plan(
                         && !selected_columns.iter().any(|name| name == &operand_name)
                     {
                         return Err(format!(
-                            "La columna operando calculada '{operand_name}' fue descartada por keepColumns."
+                            "La columna operando calculada '{operand_name}' no está entre las columnas conservadas."
                         ));
                     }
                 }
@@ -596,7 +596,7 @@ fn source_backed_projection_plan(
             .unwrap_or_else(|| split.source.clone());
         if recipe.keep_columns.is_some() && !selected_columns.iter().any(|name| name == &source) {
             return Err(format!(
-                "La columna '{source}' requerida por split fue descartada por keepColumns."
+                "La columna '{source}' que necesita la división no está entre las columnas conservadas."
             ));
         }
         if !text_after_cast(&source, source_column) {
@@ -692,7 +692,7 @@ fn source_backed_projection_plan(
                     && !selected_columns.iter().any(|name| name == &effective_name)
                 {
                     return Err(format!(
-                        "La columna '{effective_name}' requerida por merge fue descartada por keepColumns."
+                        "La columna '{effective_name}' que necesita la unión no está entre las columnas conservadas."
                     ));
                 }
                 if !text_after_cast(&effective_name, source_column) {
@@ -736,7 +736,7 @@ fn source_backed_projection_plan(
                     && !selected_columns.iter().any(|name| name == &column)
                 {
                     return Err(format!(
-                        "La columna '{column}' requerida por contactos fue descartada por keepColumns."
+                        "La columna '{column}' que necesita la normalización de contactos no está entre las columnas conservadas."
                     ));
                 }
                 if split_columns
@@ -828,7 +828,7 @@ fn source_backed_projection_plan(
                     && !selected_columns.iter().any(|name| name == &source)
                 {
                     return Err(format!(
-                        "La columna '{source}' requerida por extracción fue descartada por keepColumns."
+                        "La columna '{source}' que necesita la extracción no está entre las columnas conservadas."
                     ));
                 }
                 if split_columns
@@ -997,7 +997,7 @@ fn source_backed_projection_plan(
             .unwrap_or_else(|| filter.column.clone());
         if !output_columns.iter().any(|column| column == &effective) {
             return Err(format!(
-                "La columna '{}' no existe para el filtro source-backed.",
+                "La columna '{}' no existe para el filtro.",
                 filter.column
             ));
         }
@@ -1109,7 +1109,7 @@ fn source_backed_regex_replacement(value: &str) -> Result<String, String> {
     while let Some(character) = characters.next() {
         if character == '\\' {
             return Err(
-                "La sustitución regex source-backed no admite barras invertidas literales."
+                "La sustitución con expresión regular no admite barras invertidas literales."
                     .to_owned(),
             );
         }
@@ -1127,14 +1127,15 @@ fn source_backed_regex_replacement(value: &str) -> Result<String, String> {
                 let group = characters.next();
                 if !matches!(group, Some('1'..='9')) || characters.next() != Some('}') {
                     return Err(
-                        "La sustitución regex source-backed solo admite grupos $1 a $9.".to_owned(),
+                        "La sustitución con expresión regular solo admite grupos $1 a $9."
+                            .to_owned(),
                     );
                 }
                 output.push('\\');
                 output.push(group.expect("se validó el grupo regex"));
             }
             _ => return Err(
-                "La sustitución regex source-backed solo admite texto literal y grupos $1 a $9."
+                "La sustitución con expresión regular solo admite texto literal y grupos $1 a $9."
                     .to_owned(),
             ),
         }
@@ -2451,42 +2452,41 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
     let source_reference = dataset
         .source_path
         .as_deref()
-        .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
+        .ok_or_else(|| "El archivo de origen ya no está disponible.".to_owned())?;
     let (original_source_path, source_size, original_extension) =
         validate_dataset_file(source_reference)?;
     if source_size != dataset.file_size_bytes || source_modified_since_load(&original_source_path) {
-        return Err("El archivo source-backed cambió después de la carga.".to_owned());
+        return Err("El archivo de origen cambió después de la carga.".to_owned());
     }
-    let (source_path, source_format, extension) = if let Some(snapshot_path) =
-        dataset.history.source_snapshot_path.as_deref()
-    {
-        let (snapshot_path, _, snapshot_extension) = validate_dataset_file(snapshot_path)?;
-        if snapshot_extension != "parquet" {
-            return Err("El snapshot source-backed no es un Parquet válido.".to_owned());
-        }
-        (
-            snapshot_path,
-            crate::duckdb_query::DuckDbFileFormat::Parquet,
-            snapshot_extension,
-        )
-    } else {
-        let source_format = match original_extension.as_str() {
-            "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-            "csv" | "tsv" | "txt" => {
-                let delimiter = detect_delimiter(&original_source_path, &original_extension)?;
-                crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }
+    let (source_path, source_format, extension) =
+        if let Some(snapshot_path) = dataset.history.source_snapshot_path.as_deref() {
+            let (snapshot_path, _, snapshot_extension) = validate_dataset_file(snapshot_path)?;
+            if snapshot_extension != "parquet" {
+                return Err("La copia de trabajo del archivo no es un Parquet válido.".to_owned());
             }
-            "json" | "jsonl" | "ndjson" => crate::duckdb_query::DuckDbFileFormat::Json,
-            _ => {
-                return Err("La receta source-backed requiere una fuente compatible.".to_owned());
-            }
+            (
+                snapshot_path,
+                crate::duckdb_query::DuckDbFileFormat::Parquet,
+                snapshot_extension,
+            )
+        } else {
+            let source_format = match original_extension.as_str() {
+                "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+                "csv" | "tsv" | "txt" => {
+                    let delimiter = detect_delimiter(&original_source_path, &original_extension)?;
+                    crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }
+                }
+                "json" | "jsonl" | "ndjson" => crate::duckdb_query::DuckDbFileFormat::Json,
+                _ => {
+                    return Err("La receta necesita un archivo de origen compatible.".to_owned());
+                }
+            };
+            (
+                original_source_path.clone(),
+                source_format,
+                original_extension.clone(),
+            )
         };
-        (
-            original_source_path.clone(),
-            source_format,
-            original_extension.clone(),
-        )
-    };
     let schema = dataset.frame.clone();
     let plan = source_backed_projection_plan(&schema, recipe)?;
     let split_column_count = plan
@@ -2526,13 +2526,13 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
     {
         let page_frame = collect_lazy_frame_streaming_with_cancel(
             source_scan(&source_path, &extension)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
-            "No se pudo leer la vista previa source-backed",
+            "No se pudo leer la vista previa",
             &is_cancelled,
         )?;
         let expected_page_rows = dataset.row_count.min(PREVIEW_ROW_LIMIT);
         if page_frame.height() != expected_page_rows {
             return Err(
-                "La fuente source-backed cambió durante la lectura de la vista previa.".to_owned(),
+                "El archivo de origen cambió durante la lectura de la vista previa.".to_owned(),
             );
         }
         let preview = dataset_preview_from_schema_and_page(
@@ -2583,7 +2583,7 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
         let invalid = crate::duckdb_query::query_file_scalar(&source_path, source_format, query)?;
         if invalid != 0 {
             return Err(
-                "El resumen source-backed contiene claves, agregaciones o sumas no válidas."
+                "El resumen por grupos contiene claves, agregaciones o sumas no válidas."
                     .to_owned(),
             );
         }
@@ -2591,14 +2591,14 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
     if let Some(query) = queries.calculation_validation.as_deref() {
         let invalid = crate::duckdb_query::query_file_scalar(&source_path, source_format, query)?;
         if invalid != 0 {
-            return Err("La división source-backed contiene división por cero.".to_owned());
+            return Err("La columna calculada divide por cero en alguna fila.".to_owned());
         }
     }
     if let Some(query) = queries.outlier_validation.as_deref() {
         let invalid = crate::duckdb_query::query_file_scalar(&source_path, source_format, query)?;
         if invalid != 0 {
             return Err(
-                "Los tratamientos IQR source-backed requieren al menos cuatro valores finitos y dentro de precisión segura."
+                "Los tratamientos de atípicos (IQR) requieren al menos cuatro valores finitos y dentro de precisión segura."
                     .to_owned(),
             );
         }
@@ -2639,9 +2639,7 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
     let temporary =
         tempfile::NamedTempFile::with_suffix_in(".parquet", dataset.history.directory.path())
             .map_err(|error| {
-                format!(
-                    "No se pudo preparar la salida temporal de la receta source-backed: {error}"
-                )
+                format!("No se pudo preparar la salida temporal de la receta: {error}")
             })?;
     let output_path = temporary.path().to_owned();
     drop(temporary);
@@ -2668,7 +2666,7 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
     }
 
     let output_size = fs::metadata(&output_path)
-        .map_err(|error| format!("No se pudo verificar la receta source-backed: {error}"))?
+        .map_err(|error| format!("No se pudo verificar la receta: {error}"))?
         .len();
     let output_schema = read_parquet_schema_frame(&output_path)?;
     let output_row_count = crate::duckdb_query::count_file_rows(
@@ -2678,9 +2676,7 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
     )?;
     if output_row_count > dataset.row_count {
         let _ = fs::remove_file(&output_path);
-        return Err(
-            "La receta source-backed aumentó inesperadamente el conteo de filas.".to_owned(),
-        );
+        return Err("La receta aumentó inesperadamente el conteo de filas.".to_owned());
     }
     if let Some(query) = queries.output_validation.as_deref() {
         let invalid = crate::duckdb_query::query_file_scalar(
@@ -2693,7 +2689,7 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
         })?;
         if invalid != 0 {
             let _ = fs::remove_file(&output_path);
-            return Err("El resumen source-backed produjo un valor numérico no finito.".to_owned());
+            return Err("El resumen por grupos produjo un valor numérico no finito.".to_owned());
         }
     }
     let replaced_cell_count = queries
@@ -2721,7 +2717,7 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
         || source_modified_since_load(&original_source_path)
     {
         let _ = fs::remove_file(&output_path);
-        return Err("El archivo source-backed cambió durante la receta.".to_owned());
+        return Err("El archivo de origen cambió durante la receta.".to_owned());
     }
     let removed_row_count = filtered_input_row_count
         .map(|input_rows| dataset.row_count.saturating_sub(input_rows))
@@ -2744,7 +2740,7 @@ pub(super) fn apply_source_backed_projection_recipe_with_cancellation(
         let _ = fs::remove_file(&output_path);
         let page_frame = collect_lazy_frame_streaming_with_cancel(
             source_scan(&source_path, &extension)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
-            "No se pudo leer la vista previa source-backed",
+            "No se pudo leer la vista previa",
             &is_cancelled,
         )?;
         if let Some(cancellation) = cancellation {

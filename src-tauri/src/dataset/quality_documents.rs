@@ -1308,7 +1308,7 @@ pub(super) fn validate_quality_rules_payload(quality_rules: &[QualityRule]) -> R
         push_rule_text_fields(rule, false, &mut text_fields);
     }
     validate_semantic_text_budget(
-        "payload de reglas de calidad",
+        "las reglas de calidad",
         text_fields,
         MAX_QUALITY_COLUMN_CHARS,
         MAX_QUALITY_TOTAL_TEXT_CHARS,

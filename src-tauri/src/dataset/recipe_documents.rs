@@ -33,7 +33,23 @@ pub(super) fn recipe_suggested_file_name(name: &str) -> String {
             _ => character,
         })
         .collect();
-    format!("{safe_name}.json")
+    // LIM-09: `CON.json` or `com1.json` is a reserved device name on Windows,
+    // whatever the extension; the save dialog would reject it.
+    let stem = safe_name.split('.').next().unwrap_or_default().trim_end();
+    let reserved = matches!(
+        stem.to_ascii_uppercase().as_str(),
+        "CON" | "PRN" | "AUX" | "NUL"
+    ) || ["COM", "LPT"].iter().any(|prefix| {
+        stem.len() == 4
+            && stem.to_ascii_uppercase().starts_with(prefix)
+            && stem.as_bytes()[3].is_ascii_digit()
+            && stem.as_bytes()[3] != b'0'
+    });
+    if reserved {
+        format!("_{safe_name}.json")
+    } else {
+        format!("{safe_name}.json")
+    }
 }
 
 fn current_recipe_timestamp() -> String {
@@ -65,7 +81,7 @@ fn validate_recipe_export_options(options: &RecipeExportOptions) -> Result<(), S
         return Err("La entrega puede seleccionar como máximo 512 columnas.".to_owned());
     }
     validate_semantic_text_budget(
-        "opciones de entrega",
+        "las opciones de entrega",
         options
             .selected_columns
             .iter()
@@ -104,7 +120,7 @@ pub(super) fn validate_stored_recipe(document: &StoredTransformRecipe) -> Result
             }
         }
         validate_semantic_text_budget(
-            "esquema de origen de receta",
+            "el esquema de origen de la receta",
             schema.iter().flat_map(|column| {
                 [
                     ("nombre de columna", column.name.as_str()),
@@ -151,13 +167,13 @@ where
         let field_chars = value.chars().count();
         if field_chars > maximum_field_chars {
             return Err(format!(
-                "El campo {field} del {payload} supera el límite de {maximum_field_chars} caracteres."
+                "El campo «{field}» de {payload} supera el límite de {maximum_field_chars} caracteres."
             ));
         }
         total_chars = total_chars.saturating_add(field_chars);
         if total_chars > maximum_total_chars {
             return Err(format!(
-                "El {payload} supera el presupuesto semántico de {maximum_total_chars} caracteres."
+                "El texto de {payload} supera el límite total de {maximum_total_chars} caracteres."
             ));
         }
     }
@@ -168,57 +184,57 @@ fn validate_recipe_text_budget(recipe: &TransformRecipe) -> Result<(), String> {
     let mut fields: Vec<(&'static str, &str)> = Vec::new();
     for rename in &recipe.renames {
         fields.extend([
-            ("from de renombre", rename.from.as_str()),
-            ("to de renombre", rename.to.as_str()),
+            ("nombre original del renombre", rename.from.as_str()),
+            ("nombre nuevo del renombre", rename.to.as_str()),
         ]);
     }
     for cast in &recipe.casts {
-        fields.push(("column de conversión", cast.column.as_str()));
+        fields.push(("columna de la conversión", cast.column.as_str()));
     }
     for date_parse in &recipe.date_parses {
-        fields.push(("column de fecha", date_parse.column.as_str()));
+        fields.push(("columna de la fecha", date_parse.column.as_str()));
     }
     for filter in &recipe.filters {
-        fields.push(("column de filtro", filter.column.as_str()));
+        fields.push(("columna del filtro", filter.column.as_str()));
         if let Some(value) = &filter.value {
-            fields.push(("value de filtro", value.as_str()));
+            fields.push(("valor del filtro", value.as_str()));
         }
     }
     if let Some(calculation) = &recipe.calculated_column {
         fields.extend([
-            ("name de cálculo", calculation.name.as_str()),
-            ("source de cálculo", calculation.source.as_str()),
+            ("nombre de la columna calculada", calculation.name.as_str()),
+            ("columna base del cálculo", calculation.source.as_str()),
         ]);
         if let Some(operand) = &calculation.operand {
-            fields.push(("value de operando", operand.value.as_str()));
+            fields.push(("valor del operando", operand.value.as_str()));
         }
     }
     if let Some(replacement) = &recipe.find_replace {
         if let Some(column) = &replacement.column {
-            fields.push(("column de reemplazo", column.as_str()));
+            fields.push(("columna del reemplazo", column.as_str()));
         }
         fields.extend([
-            ("find de reemplazo", replacement.find.as_str()),
-            ("replace de reemplazo", replacement.replace.as_str()),
+            ("texto buscado", replacement.find.as_str()),
+            ("texto de reemplazo", replacement.replace.as_str()),
         ]);
     }
     if let Some(columns) = &recipe.keep_columns {
         fields.extend(
             columns
                 .iter()
-                .map(|column| ("keepColumns", column.as_str())),
+                .map(|column| ("columna conservada", column.as_str())),
         );
     }
     if let Some(split) = &recipe.split_column {
         fields.extend([
-            ("source de división", split.source.as_str()),
-            ("delimiter de división", split.delimiter.as_str()),
+            ("columna que se divide", split.source.as_str()),
+            ("separador de la división", split.delimiter.as_str()),
         ]);
         fields.extend(
             split
                 .names
                 .iter()
-                .map(|name| ("names de división", name.as_str())),
+                .map(|name| ("columna nueva de la división", name.as_str())),
         );
     }
     if let Some(merge) = &recipe.merge_columns {
@@ -226,51 +242,51 @@ fn validate_recipe_text_budget(recipe: &TransformRecipe) -> Result<(), String> {
             merge
                 .sources
                 .iter()
-                .map(|source| ("sources de combinación", source.as_str())),
+                .map(|source| ("columna de la unión", source.as_str())),
         );
         fields.extend([
-            ("name de combinación", merge.name.as_str()),
-            ("separator de combinación", merge.separator.as_str()),
+            ("nombre de la unión", merge.name.as_str()),
+            ("separador de la unión", merge.separator.as_str()),
         ]);
     }
     fields.extend(
         recipe
             .outlier_treatments
             .iter()
-            .map(|treatment| ("column de atípicos", treatment.column.as_str())),
+            .map(|treatment| ("columna de atípicos", treatment.column.as_str())),
     );
     if let Some(summary) = &recipe.group_summary {
         fields.extend(
             summary
                 .group_by
                 .iter()
-                .map(|column| ("groupBy", column.as_str())),
+                .map(|column| ("columna de agrupación", column.as_str())),
         );
         fields.extend(
             summary
                 .aggregations
                 .iter()
-                .map(|aggregation| ("column de agregación", aggregation.column.as_str())),
+                .map(|aggregation| ("columna de la agregación", aggregation.column.as_str())),
         );
     }
     fields.extend(
         recipe
             .contact_normalizations
             .iter()
-            .map(|normalization| ("column de contacto", normalization.column.as_str())),
+            .map(|normalization| ("columna de contacto", normalization.column.as_str())),
     );
     for extraction in &recipe.text_extractions {
         fields.extend([
-            ("source de extracción", extraction.source.as_str()),
-            ("name de extracción", extraction.name.as_str()),
+            ("columna de la extracción", extraction.source.as_str()),
+            ("nombre de la extracción", extraction.name.as_str()),
         ]);
         if let Some(delimiter) = &extraction.delimiter {
-            fields.push(("delimiter de extracción", delimiter.as_str()));
+            fields.push(("separador de la extracción", delimiter.as_str()));
         }
     }
 
     validate_semantic_text_budget(
-        "payload de receta",
+        "la receta",
         fields,
         MAX_RECIPE_TEXT_FIELD_CHARS,
         MAX_RECIPE_TOTAL_TEXT_CHARS,
@@ -396,11 +412,8 @@ pub(super) fn load_recipe_file(path: &Path) -> Result<StoredTransformRecipe, Str
         return Ok(document);
     }
 
-    if let Ok(document) = serde_json::from_value::<StoredTransformRecipe>(raw.clone()) {
-        validate_stored_recipe(&document)?;
-        return Ok(document);
-    }
-
+    // LIM-09: without `recipe` it cannot be a stored recipe; a second
+    // deserialization of a clone could never succeed.
     Err("El archivo no contiene una receta Columnia válida.".to_owned())
 }
 

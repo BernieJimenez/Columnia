@@ -1146,7 +1146,7 @@ pub(super) fn apply_lazy_recipe_to_frame(
         let source_name = remapped_name(&calculation.source, &rename_map);
         if recipe.keep_columns.is_some() && !keep_names.iter().any(|name| name == source_name) {
             return Err(format!(
-                "La columna fuente calculada '{source_name}' fue descartada por keepColumns."
+                "La columna fuente calculada '{source_name}' no está entre las columnas conservadas."
             ));
         }
         let source_column = recipe_column(source, &calculation.source)?;
@@ -1255,7 +1255,7 @@ pub(super) fn apply_lazy_recipe_to_frame(
         }
         if !output_names.iter().any(|name| name == &source_name) {
             return Err(format!(
-                "La columna '{source_name}' requerida por split fue descartada por keepColumns."
+                "La columna '{source_name}' que necesita la división no está entre las columnas conservadas."
             ));
         }
         let source_column = recipe_column(source, &split.source)?;
@@ -1370,7 +1370,7 @@ pub(super) fn apply_lazy_recipe_to_frame(
                     let effective_name = remapped_name(source_name, &rename_map).to_owned();
                     if !output_names.iter().any(|name| name == &effective_name) {
                         return Err(format!(
-                            "La columna '{effective_name}' requerida por merge fue descartada por keepColumns."
+                            "La columna '{effective_name}' que necesita la unión no está entre las columnas conservadas."
                         ));
                     }
                     let source_column = recipe_column(source, source_name)?;
