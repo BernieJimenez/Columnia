@@ -1699,7 +1699,7 @@ export function App() {
       {diagnosticsOpen && (
         <DiagnosticsDialog
           appVersion={status.kind === "ready" ? status.info?.version ?? null : null}
-          activePhase={activePhase === "explore" ? "prepare" : activePhase}
+          activePhase={activePhase}
           datasetMetrics={activeDataset
             ? {
               rowCount: activeDataset.dataset.rowCount,

@@ -19,6 +19,7 @@ const PHASE_LABELS: Record<DiagnosticPhase, string> = {
   load: "Cargar",
   review: "Revisar",
   prepare: "Preparar",
+  explore: "Explorar",
   deliver: "Entregar",
 };
 

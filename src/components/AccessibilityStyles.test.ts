@@ -67,11 +67,16 @@ describe("contratos CSS de accesibilidad", () => {
         if (tokens[surface]) expect(ratio(tokens["control-border"], tokens[surface]), `${selector} ${surface}`).toBeGreaterThanOrEqual(3);
         // ACC-08: destructive actions use the theme's danger colour as text.
         if (tokens[surface] && tokens.danger) expect(ratio(tokens.danger, tokens[surface]), `${selector} danger`).toBeGreaterThanOrEqual(4.5);
+        // ACC-16: small accent text (links, sample descriptions) on every surface.
+        if (tokens[surface] && tokens.accent) expect(ratio(tokens.accent, tokens[surface]), `${selector} accent`).toBeGreaterThanOrEqual(4.5);
       }
       if (tokens.canvas && tokens["text-primary"]) expect(ratio(tokens.canvas, tokens["text-primary"])).toBeGreaterThanOrEqual(4.5);
     }
     expect(styles).toMatch(/\.skip-link \{[^}]*background: var\(--text-primary\); color: var\(--canvas\)/);
     expect(styles).not.toMatch(/#93473f/);
+    // ACC-15: the updater error uses the sidebar's light danger colour.
+    expect(styles).toMatch(/\.update-panel__status--error \{ color: var\(--danger\)/);
+    expect(styles).toMatch(/\.sidebar \{[^}]*--danger: #f4a39b/);
     expect(styles).not.toMatch(/quality-temporal-line__label \{[^}]*fill: var\(--border-subtle\)/);
   });
 });

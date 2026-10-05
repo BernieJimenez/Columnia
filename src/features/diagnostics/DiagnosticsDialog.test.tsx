@@ -56,6 +56,14 @@ describe("informe de diagnóstico local", () => {
     expect(saveDiagnosticReport).not.toHaveBeenCalled();
   });
 
+  it("ofrece las cinco etapas, Explorar incluida (ACC-14)", () => {
+    render(<DiagnosticsDialog appVersion="1.26.0" activePhase="explore" datasetMetrics={datasetMetrics} onDismiss={onDismiss} />);
+    const stage = screen.getByLabelText("Etapa relacionada");
+    expect([...stage.querySelectorAll("option")].map((option) => option.textContent))
+      .toEqual(["Cargar", "Revisar", "Preparar", "Explorar", "Entregar"]);
+    expect(stage).toHaveValue("explore");
+  });
+
   it("permite cancelar antes del preview sin abrir el guardado local", () => {
     render(
       <DiagnosticsDialog

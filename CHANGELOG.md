@@ -203,6 +203,12 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- El cronómetro de una operación sigue contando al pedir la cancelación y el
+  porcentaje se redondea; el monitor de recursos nunca acumula lecturas, no
+  sondea con la ventana oculta y conserva las cifras ante un fallo; el informe
+  de diagnóstico ofrece Explorar; el error del actualizador, las celdas de
+  correlación en oscuro y el acento del tema Océano alcanzan 4,5:1 (FUN-44,
+  REN-09, ACC-13 a ACC-16).
 - Nuevo test que carga un CSV con coma decimal y fechas día/mes, aplica las
   convenciones de un perfil de importación guardado y comprueba valores y
   esquema (QA-44).

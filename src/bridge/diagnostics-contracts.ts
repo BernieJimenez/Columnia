@@ -1,5 +1,5 @@
 export type DiagnosticContract = "columnia-diagnostic-report";
-export type DiagnosticPhase = "load" | "review" | "prepare" | "deliver";
+export type DiagnosticPhase = "load" | "review" | "prepare" | "explore" | "deliver";
 export type DiagnosticStatus = "ready" | "working" | "issue_reported" | "no_dataset";
 export type DiagnosticErrorCode =
   | "DATASET_LOAD_FAILED"

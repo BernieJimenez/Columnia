@@ -101,12 +101,19 @@ export const ResourceMonitor = memo(function ResourceMonitor({
     let cancelled = false;
     setState({ kind: "loading" });
 
+    // REN-09: one request at a time, none while the window is hidden, and a
+    // failed reading keeps the last figures instead of emptying the panel.
+    let inFlight = false;
     const refresh = async () => {
+      if (inFlight || document.hidden) return;
+      inFlight = true;
       try {
         const usage = await fetchUsage();
         if (!cancelled) setState({ kind: "ready", usage });
       } catch {
-        if (!cancelled) setState({ kind: "error" });
+        if (!cancelled) setState((current) => (current.kind === "ready" ? current : { kind: "error" }));
+      } finally {
+        inFlight = false;
       }
     };
 

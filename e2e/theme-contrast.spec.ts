@@ -131,7 +131,10 @@ async function contrastFailures(page: Page) {
       const value = ratio(parse(style.color), background(element));
       const size = Number.parseFloat(style.fontSize);
       const large = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700);
-      if (value < (large ? 3 : 4.5)) failures.push(`${element.textContent?.trim().slice(0, 40)} → ${value.toFixed(2)}:1`);
+      if (value < (large ? 3 : 4.5)) {
+        const back = background(element);
+        failures.push(`${element.textContent?.trim().slice(0, 40)} → ${value.toFixed(2)}:1 (${style.color} sobre rgb(${Math.round(back.r)}, ${Math.round(back.g)}, ${Math.round(back.b)}))`);
+      }
     }
     return { failures, svgTexts };
   });
@@ -155,6 +158,9 @@ for (const theme of themes) {
     await page.goto("/");
     const failures: string[] = [];
     const measure = async (phase: string) => {
+      // A control that has just been enabled can still be painted with the
+      // disabled colours for a frame; measure the settled page.
+      await page.waitForTimeout(250);
       const result = await contrastFailures(page);
       failures.push(...result.failures.map((failure) => `${phase}: ${failure}`));
       return result;

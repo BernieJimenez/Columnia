@@ -20,6 +20,8 @@ pub enum DiagnosticPhase {
     Load,
     Review,
     Prepare,
+    // ACC-14: the fifth stage can be named in a report too.
+    Explore,
     Deliver,
 }
 

@@ -771,7 +771,7 @@ td {
 
 .brand__mark { flex: 0 0 28px; width: 28px; height: 28px; color: var(--accent); }
 
-.sidebar { --text-primary: #e8f0ed; --text-secondary: #b7c8c5; --border-subtle: #3a5157; --surface: #20383e; --surface-subtle: #243e44; --surface-raised: #29474c; --sidebar-surface: #142d33; --accent: #9cdebd; --disabled-text: #a5b8b5; --eyebrow: #b7c8c5; color: var(--text-primary); }
+.sidebar { --text-primary: #e8f0ed; --text-secondary: #b7c8c5; --border-subtle: #3a5157; --surface: #20383e; --surface-subtle: #243e44; --surface-raised: #29474c; --sidebar-surface: #142d33; --accent: #9cdebd; --disabled-text: #a5b8b5; --eyebrow: #b7c8c5; --danger: #f4a39b; color: var(--text-primary); }
 
 :root .sidebar .brand h1 { color: var(--text-primary); }
 

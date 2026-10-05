@@ -42,20 +42,21 @@ export function OperationProgressView({
 }: OperationProgressViewProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const copy = OPERATION_COPY[progress.operation];
-  const percent = Math.min(100, Math.max(0, progress.percent));
+  const percent = Math.round(Math.min(100, Math.max(0, progress.percent)));
   const isCancelling = cancellation.kind === "requested";
   const titleId = `operation-progress-title-${progress.operation}`;
   const descriptionId = `operation-progress-description-${progress.operation}`;
 
+  // FUN-44: the clock belongs to the operation; asking to cancel keeps it
+  // running, because cancelling a long operation can take a while too.
   useEffect(() => {
     setElapsedSeconds(0);
-    if (isCancelling) return undefined;
     const startedAt = Date.now();
     const timer = window.setInterval(() => {
       setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [progress.operation, isCancelling]);
+  }, [progress.operation]);
 
   return (
     <>

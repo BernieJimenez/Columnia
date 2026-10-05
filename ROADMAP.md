@@ -298,14 +298,14 @@ medio = 1 día; agregado por suma.
 - [x] **RV66** — **Perfil** — Suites pequeñas: perfil de importación con coma decimal solo se serializa (nunca se aplica) y la migración solo se prue… · *Esfuerzo: 1 día* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-44.
   - [x] `QA-44` (Bajo) Suites pequeñas: perfil de importación con coma decimal solo se serializa (nunca se aplica) y la migración solo se prueba desde v12 — hecho el 2026-10-04
-- [ ] **RV67** — **Estilos y componentes** — El cronómetro de la operación se pone a 00:00 al pulsar «Cancelar» (y 5 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV67** — **Estilos y componentes** — El cronómetro de la operación se pone a 00:00 al pulsar «Cancelar» (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-44, REN-09, ACC-13, ACC-14, ACC-15, ACC-16.
-  - [ ] `FUN-44` (Bajo) El cronómetro de la operación se pone a 00:00 al pulsar «Cancelar»
-  - [ ] `REN-09` (Bajo) Sondeo de ResourceMonitor: sin protección de solapamiento ni pausa por ventana oculta (hipótesis)
-  - [ ] `ACC-13` (Bajo) Celdas de correlación a 4,19-4,49:1 (texto en negrita de 15 px)
-  - [ ] `ACC-14` (Bajo) La lista de etapas del informe de diagnóstico omite Explorar
-  - [ ] `ACC-15` (Bajo) Mensaje de error del actualizador con color fijo `#a33e35`: 1,78:1 sobre el panel de la barra lateral
-  - [ ] `ACC-16` (Bajo) Texto de acento sobre superficie sutil por debajo de 4,5:1 en el tema Ocean
+  - [x] `FUN-44` (Bajo) El cronómetro de la operación se pone a 00:00 al pulsar «Cancelar» — hecho el 2026-10-04
+  - [x] `REN-09` (Bajo) Sondeo de ResourceMonitor: sin protección de solapamiento ni pausa por ventana oculta (hipótesis) — hecho el 2026-10-04
+  - [x] `ACC-13` (Bajo) Celdas de correlación a 4,19-4,49:1 (texto en negrita de 15 px) — hecho el 2026-10-04
+  - [x] `ACC-14` (Bajo) La lista de etapas del informe de diagnóstico omite Explorar — hecho el 2026-10-04
+  - [x] `ACC-15` (Bajo) Mensaje de error del actualizador con color fijo `#a33e35`: 1,78:1 sobre el panel de la barra lateral — hecho el 2026-10-04
+  - [x] `ACC-16` (Bajo) Texto de acento sobre superficie sutil por debajo de 4,5:1 en el tema Ocean — hecho el 2026-10-04
 - [ ] **RV68** — **Estilos y componentes** — En tema oscuro los avisos ámbar (`.notice`) se pintan de verde «éxito» (y 2 problemas más) · *Esfuerzo: 6 h*
   - Criterio de cierre: Se cumplen los criterios de aceptación de UI-01, TXT-10, QA-32.
   - [ ] `UI-01` (Bajo) En tema oscuro los avisos ámbar (`.notice`) se pintan de verde «éxito»

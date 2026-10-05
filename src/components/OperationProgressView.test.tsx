@@ -70,4 +70,19 @@ describe("OperationProgressView", () => {
       vi.useRealTimers();
     }
   });
+
+  it("el tiempo sigue contando al pedir la cancelación y el porcentaje se redondea (FUN-44)", async () => {
+    vi.useFakeTimers();
+    try {
+      const progress = { operation: "profile" as const, stage: "Analizando columnas", percent: 33.3333 };
+      const view = render(<OperationProgressView progress={progress} cancellation={{ kind: "available", onCancel: vi.fn() }} />);
+      expect(screen.getByText("33%", { selector: ".operation-progress__percent" })).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(5_000);
+      view.rerender(<OperationProgressView progress={progress} cancellation={{ kind: "requested" }} />);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(screen.getByLabelText("Tiempo transcurrido: 00:07")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

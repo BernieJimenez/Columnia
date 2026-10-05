@@ -214,4 +214,31 @@ describe("ResourceMonitor", () => {
     expect(onPerformanceProfileChange).toHaveBeenCalledWith("conservative");
     expect(window.localStorage.getItem("columnia.performance-profile")).toBeNull();
   });
+
+  it("nunca deja más de una lectura en vuelo y conserva las cifras si una falla (REN-09)", async () => {
+    vi.useFakeTimers();
+    try {
+      const usage = {
+        processCpuPercentage: 12.5, systemCpuPercentage: 1.2, logicalCpuCount: 12,
+        processMemoryBytes: 120 * 1024 * 1024, systemMemoryUsedBytes: 8 * 1024 ** 3, systemMemoryTotalBytes: 32 * 1024 ** 3,
+      };
+      let resolveSlow: (value: typeof usage) => void = () => undefined;
+      const fetchUsage = vi.fn()
+        .mockResolvedValueOnce(usage)
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveSlow = resolve; }))
+        .mockRejectedValue(new Error("motor ocupado"));
+      render(<ResourceMonitor enabled fetchUsage={fetchUsage} pollIntervalMs={1_000} />);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(screen.getByText("120 MB")).toBeInTheDocument();
+      // The second reading hangs: three more ticks start no new request.
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(fetchUsage).toHaveBeenCalledTimes(2);
+      resolveSlow(usage);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(fetchUsage).toHaveBeenCalledTimes(3);
+      expect(screen.getByText("120 MB")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
