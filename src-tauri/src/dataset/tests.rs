@@ -20916,3 +20916,30 @@ fn quality_payload_budget_counts_baseline_dates_and_nested_rules() {
         validate_quality_rules_payload(&[quality_rule("monto", QualityRuleKind::NotNull)]).is_ok()
     );
 }
+
+/// REN-11: `cargo test --release --lib -- --ignored quality_reference_bench --nocapture`
+#[test]
+#[ignore = "medición de rendimiento"]
+fn quality_reference_bench() {
+    let rows = 2_000_000_i64;
+    let frame = df![
+        "cliente" => (0..rows).map(|row| row % 5_000).collect::<Vec<_>>(),
+        "estado" => (0..rows).map(|row| format!("e{}", row % 1_500)).collect::<Vec<_>>()
+    ]
+    .unwrap();
+    let mut referential = quality_rule("cliente", QualityRuleKind::ReferentialIntegrity);
+    referential.columns = Some(vec!["cliente".to_owned()]);
+    referential.reference_values = Some((0..120).map(|value| value.to_string()).collect());
+    referential.max_invalid_pct = Some(100.0);
+    let mut allowed = quality_rule("estado", QualityRuleKind::AllowedValues);
+    allowed.values = Some((0..120).map(|value| format!("e{value}")).collect());
+    allowed.max_invalid_pct = Some(100.0);
+    let started = std::time::Instant::now();
+    let result = evaluate_quality_rules(&frame, &[referential, allowed]).unwrap();
+    println!(
+        "REN-11: {} ms (inválidos {} y {})",
+        started.elapsed().as_millis(),
+        result.rules[0].invalid_count,
+        result.rules[1].invalid_count
+    );
+}

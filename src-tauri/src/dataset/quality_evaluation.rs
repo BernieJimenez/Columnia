@@ -1452,6 +1452,66 @@ fn quality_numeric_value(value: AnyValue<'_>) -> Option<f64> {
     }
 }
 
+/// REN-11: the references of a single-column `referential_integrity` rule,
+/// parsed once for the column's type. `contains` returns `None` for types it
+/// does not index (decimals, dates), which keep the exact per-value check.
+enum ReferenceLookup<'a> {
+    Text(HashSet<&'a str>),
+    Integer(HashSet<i128>),
+    Boolean(HashSet<bool>),
+    Unindexed,
+}
+
+impl<'a> ReferenceLookup<'a> {
+    fn build(dtype: &DataType, references: &'a [String]) -> Self {
+        if dtype == &DataType::String {
+            Self::Text(references.iter().map(String::as_str).collect())
+        } else if dtype.is_integer() {
+            Self::Integer(
+                references
+                    .iter()
+                    .filter_map(|reference| reference.parse::<i128>().ok())
+                    .collect(),
+            )
+        } else if dtype == &DataType::Boolean {
+            Self::Boolean(
+                references
+                    .iter()
+                    .filter_map(|reference| reference.parse::<bool>().ok())
+                    .collect(),
+            )
+        } else {
+            Self::Unindexed
+        }
+    }
+
+    fn contains(&self, value: &AnyValue<'_>) -> Option<bool> {
+        let integer = |value: &AnyValue<'_>| -> Option<i128> {
+            Some(match value {
+                AnyValue::Int8(number) => i128::from(*number),
+                AnyValue::Int16(number) => i128::from(*number),
+                AnyValue::Int32(number) => i128::from(*number),
+                AnyValue::Int64(number) => i128::from(*number),
+                AnyValue::UInt8(number) => i128::from(*number),
+                AnyValue::UInt16(number) => i128::from(*number),
+                AnyValue::UInt32(number) => i128::from(*number),
+                AnyValue::UInt64(number) => i128::from(*number),
+                _ => return None,
+            })
+        };
+        match (self, value) {
+            (Self::Text(set), AnyValue::String(text)) => Some(set.contains(text)),
+            (Self::Text(set), AnyValue::StringOwned(text)) => Some(set.contains(text.as_str())),
+            (Self::Integer(set), value) if integer(value).is_some() => {
+                integer(value).map(|number| set.contains(&number))
+            }
+            (Self::Boolean(set), AnyValue::Boolean(flag)) => Some(set.contains(flag)),
+            (_, AnyValue::Null) => Some(false),
+            _ => None,
+        }
+    }
+}
+
 fn quality_reference_scalar_matches(value: AnyValue<'_>, expected: &str) -> bool {
     match value {
         AnyValue::String(actual) => actual == expected,
@@ -2258,12 +2318,15 @@ where
                     .collect::<Result<Vec<_>, _>>()?;
                 let invalid_count = if key_columns.len() == 1 {
                     let column = key_columns[0];
+                    let lookup = ReferenceLookup::build(column.dtype(), references);
                     let mut invalid_count = 0;
                     for row_index in 0..row_count {
                         ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
                         let valid = column.get(row_index).ok().is_some_and(|value| {
-                            references.iter().any(|reference| {
-                                quality_reference_scalar_matches(value.clone(), reference)
+                            lookup.contains(&value).unwrap_or_else(|| {
+                                references.iter().any(|reference| {
+                                    quality_reference_scalar_matches(value.clone(), reference)
+                                })
                             })
                         });
                         invalid_count += usize::from(!valid);
@@ -2438,13 +2501,14 @@ where
                     },
                     QualityRuleKind::AllowedValues => {
                         let allowed = rule.values.as_ref().expect("values validados");
+                        // REN-11: one hash lookup per row, not a scan of the list.
+                        let allowed = allowed.iter().map(String::as_str).collect::<HashSet<_>>();
                         let values = column.str().map_err(|error| error.to_string())?;
                         let mut invalid_count = 0;
                         for (row_index, value) in values.iter().enumerate() {
                             ensure_quality_row_not_cancelled(row_index, &is_cancelled)?;
-                            invalid_count += usize::from(
-                                value.is_none_or(|text| !allowed.iter().any(|item| item == text)),
-                            );
+                            invalid_count +=
+                                usize::from(value.is_none_or(|text| !allowed.contains(text)));
                         }
                         invalid_count
                     }

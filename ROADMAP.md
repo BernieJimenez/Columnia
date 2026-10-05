@@ -352,8 +352,8 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-54, FUN-76, SEG-05, REN-11, COD-16.
   - [x] `FUN-54` (Bajo) La validación de regex del editor usa el motor de JavaScript, no el de Rust — hecho el 2026-10-05
   - [x] `FUN-76` (Bajo) Semántica inconsistente de nulos/ceros con signo en reglas entre filas — hecho el 2026-10-05
-  - [ ] `SEG-05` (Bajo) La compuerta de calidad la decide quien llama: Rust valida las reglas que recibe por IPC, sin atarlas a un contrato guardado y aprobado
-  - [ ] `REN-11` (Bajo) `allowed_values`, `referential_integrity` y claves `unique_together`: coste O(filas × referencias) y asignaciones por celda
+  - [ ] `SEG-05` (Bajo) La compuerta de calidad la decide quien llama: Rust valida las reglas que recibe por IPC, sin atarlas a un contrato guardado y aprobado — Requiere tu decisión: para que Rust imponga el contrato hay que decidir qué es el contrato aprobado de un dataset sin proyecto (hoy solo existe en el proyecto guardado y en la interfaz); con uso personal y la casilla explícita el riesgo es bajo
+  - [x] `REN-11` (Bajo) `allowed_values`, `referential_integrity` y claves `unique_together`: coste O(filas × referencias) y asignaciones por celda — hecho el 2026-10-05
   - [x] `COD-16` (Bajo) El presupuesto de texto del contrato omite campos (`baseline`, `dtype`, `minDate`, `maxDate`, `then.referenceValues`) — hecho el 2026-10-05
 - [ ] **RV76** — **Entregar** — Fechas de `date_range` con formato ambiguo se interpretan con `Date.parse` del motor JS (y 5 problemas más) · *Esfuerzo: 2,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-55, FUN-56, UX-18, UX-19, ACC-12, PROD-05.

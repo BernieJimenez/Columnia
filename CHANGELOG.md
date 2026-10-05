@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Validar `allowed_values` e integridad referencial de una columna ya no recorre
+  la lista por cada fila: con 2 M de filas y 120 valores pasa de 1,8 s a 0,15 s
+  con los mismos resultados (REN-11).
 - El límite de texto de un contrato de calidad cuenta también `baseline`,
   `dtype`, las fechas y todos los campos de la subregla `then` (COD-16).
 - Reglas de calidad entre filas con una semántica única y documentada:
