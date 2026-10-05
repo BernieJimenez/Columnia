@@ -203,6 +203,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Revisar: un porcentaje con nulos ya no se redondea a «100,0 %» (se muestra
+  «>99,9 %»), una página sin filas no muestra un rango invertido, las medias
+  usan el formato común y la columna de auditoría «_cambios» se trata igual en
+  el resumen y en el perfil (FUN-49, FUN-50, FUN-51).
 - Abrir un proyecto ya no cambia la preferencia global de motor SQL ni de filas
   de muestra; el proyecto usa los suyos y la preferencia solo cambia desde el
   selector (FUN-48).

@@ -9,6 +9,7 @@ import type {
   TransformRecipe,
 } from "../../bridge";
 import { isTextType } from "../../dataTypes";
+import { isRowAuditColumn } from "../../rowAudit";
 
 export type ChangeStatus =
   | { kind: "idle" }
@@ -166,7 +167,7 @@ export type TypeConversionKind = "numeric" | "dates";
 /** Text columns that «Convertir números detectados» would consider. */
 export function numericConversionCandidates(profile: DatasetProfile) {
   return profile.columns.filter(
-    (column) => column.name !== "_cambios" && isTextType(column.dataType) &&
+    (column) => !isRowAuditColumn(column.name) && isTextType(column.dataType) &&
       (column.suggestedType === "integer" || column.suggestedType === "decimal") &&
       (column.typeMatchPercentage ?? 0) > 90 &&
       column.privacySignal !== "identifier",
@@ -176,7 +177,7 @@ export function numericConversionCandidates(profile: DatasetProfile) {
 /** Text columns that «Interpretar fechas detectadas» would consider. */
 export function dateConversionCandidates(profile: DatasetProfile) {
   return profile.columns.filter(
-    (column) => column.name !== "_cambios" && isTextType(column.dataType) && column.suggestedType === "date",
+    (column) => !isRowAuditColumn(column.name) && isTextType(column.dataType) && column.suggestedType === "date",
   );
 }
 

@@ -13,7 +13,20 @@ export function formatDecimal(value: number, fractionDigits = 1): string {
   }).format(value);
 }
 
+/** A number with up to `maximumFractionDigits` decimals, no trailing zeros. */
+export function formatNumber(value: number, maximumFractionDigits = 3): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits }).format(value);
+}
+
+/**
+ * A share never rounds to 100 % while something is missing, nor to 0 % while
+ * something is there (FUN-51): 99.999 % reads «>99,9%», 0.001 % «<0,1%».
+ */
 export function formatPercent(value: number, fractionDigits = 1): string {
+  const step = 10 ** -fractionDigits;
+  const rounded = Math.round(value / step) * step;
+  if (value < 100 && rounded >= 100) return `>${formatDecimal(100 - step, fractionDigits)}%`;
+  if (value > 0 && rounded <= 0) return `<${formatDecimal(step, fractionDigits)}%`;
   return `${formatDecimal(value, fractionDigits)}%`;
 }
 

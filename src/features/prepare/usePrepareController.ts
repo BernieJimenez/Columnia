@@ -38,6 +38,7 @@ import {
   type TransformRecipe,
 } from "../../bridge";
 import { EMPTY_HISTORY, appliedPlanChanges, nullifiedCellsSentence, type ChangeStatus } from "./prepareModel";
+import { isRowAuditColumn } from "../../rowAudit";
 
 interface PrepareControllerOptions {
   activeDataset: DatasetPreview | null;
@@ -500,7 +501,7 @@ export function usePrepareController({
       const result = await enableRowAudit();
       onDatasetChanged(result.dataset);
       onProfileInvalidated();
-      const enabled = result.dataset.columns.some((column) => column.name === "_cambios");
+      const enabled = result.dataset.columns.some((column) => isRowAuditColumn(column.name));
       setChangeStatus({
         kind: "applied",
         message: enabled

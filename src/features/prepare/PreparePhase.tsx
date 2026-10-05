@@ -24,6 +24,7 @@ import type { QualityActionTarget } from "../review/qualityActionPlan";
 import { formatPercent } from "../../format";
 import { plural } from "../../plural";
 import { isTextType } from "../../dataTypes";
+import { isRowAuditColumn } from "../../rowAudit";
 
 interface PreparePhaseProps {
   dataset: DatasetPreview;
@@ -111,10 +112,10 @@ export function PreparePhase({
 }: PreparePhaseProps) {
   const nearDuplicateCount = profileStatus.kind === "ready" ? profileStatus.profile.nearDuplicateRowCount : null;
   const changing = changeStatus.kind === "working";
-  const textColumns = dataset.columns.filter((column) => isTextType(column.dataType) && column.name !== "_cambios");
+  const textColumns = dataset.columns.filter((column) => isTextType(column.dataType) && !isRowAuditColumn(column.name));
   const hasColumns = dataset.columns.length > 0;
   const hasRowsAndColumns = dataset.rowCount > 0 && hasColumns;
-  const hasRowAuditColumn = dataset.columns.some((column) => column.name === "_cambios");
+  const hasRowAuditColumn = dataset.columns.some((column) => isRowAuditColumn(column.name));
   const [selectedTextColumns, setSelectedTextColumns] = useState<string[]>([]);
   const [removeAccents, setRemoveAccents] = useState(true);
   const pendingPlanComparison = useRef<{
@@ -150,13 +151,13 @@ export function PreparePhase({
     ? profileStatus.profile.columns.filter((column) => column.privacySignal === "identifier")
     : [];
   const personalColumns = profileStatus.kind === "ready"
-    ? profileStatus.profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && column.name !== "_cambios")
+    ? profileStatus.profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && !isRowAuditColumn(column.name))
     : [];
   const typeDriftColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => (column.invalidTypeCount ?? 0) > 0)
     : [];
   const outlierColumns = profileStatus.kind === "ready"
-    ? profileStatus.profile.columns.filter((column) => (column.outlierCount ?? 0) > 0 && column.name !== "_cambios")
+    ? profileStatus.profile.columns.filter((column) => (column.outlierCount ?? 0) > 0 && !isRowAuditColumn(column.name))
     : [];
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
   const conversionLoss = profileStatus.kind === "ready" && conversionConfirmation !== null
@@ -177,7 +178,7 @@ export function PreparePhase({
 
   useEffect(() => {
     const available = new Set(dataset.columns
-      .filter((column) => isTextType(column.dataType) && column.name !== "_cambios")
+      .filter((column) => isTextType(column.dataType) && !isRowAuditColumn(column.name))
       .map((column) => column.name));
     setSelectedTextColumns((current) => current.filter((name) => available.has(name)));
   }, [dataset.columns]);
@@ -848,7 +849,7 @@ function CleaningSignals({
 }) {
   const incomplete = profile.columns.filter((column) => column.completenessPercentage < 100);
   const imputable = incomplete.filter(
-    (column) => column.nullCount > 0 && column.nullCount < profile.rowCount && column.name !== "_cambios"
+    (column) => column.nullCount > 0 && column.nullCount < profile.rowCount && !isRowAuditColumn(column.name)
       // FUN-47: the engine leaves personal data and identifiers unfilled.
       && !column.privacySignal && !looksLikeIdentifier(column.name),
   );
@@ -874,15 +875,15 @@ function CleaningSignals({
     (column) => (column.invalidTypeCount ?? 0) > 0,
   );
   const outliers = profile.columns.filter(
-    (column) => (column.outlierCount ?? 0) > 0 && column.name !== "_cambios",
+    (column) => (column.outlierCount ?? 0) > 0 && !isRowAuditColumn(column.name),
   );
   // FUN-47: the same guards as the proposal, and as the engine applies.
   const categoricalImputable = profile.columns.filter(
-    (column) => isTextType(column.dataType) && column.nullCount > 0 && column.name !== "_cambios"
+    (column) => isTextType(column.dataType) && column.nullCount > 0 && !isRowAuditColumn(column.name)
       && !column.privacySignal && column.suggestedType !== "date" && !looksLikeIdentifier(column.name),
   );
   const hasNullActions = empty.length > 0 || highNull.length > 0 || imputable.length > 0 || categoricalImputable.length > 0;
-  const dataColumns = profile.columns.filter((column) => column.name !== "_cambios");
+  const dataColumns = profile.columns.filter((column) => !isRowAuditColumn(column.name));
   const totalNullCount = dataColumns.reduce((total, column) => total + column.nullCount, 0);
   const columnsWithNulls = dataColumns.filter((column) => column.nullCount > 0);
   const totalCellCount = profile.rowCount * dataColumns.length;
@@ -890,7 +891,7 @@ function CleaningSignals({
     ? 100
     : ((totalCellCount - totalNullCount) / totalCellCount) * 100;
   const personal = profile.columns.filter((column) => column.privacySignal !== null);
-  const personalColumns = profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && column.name !== "_cambios");
+  const personalColumns = profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && !isRowAuditColumn(column.name));
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
   const hasOtherSignals = profile.duplicateRowCount > 0 || nearDuplicates || constant.length > 0 || encoding.length > 0 || booleans.length > 0 || dateCandidates.length > 0 || numericCandidates.length > 0 || typeDrift.length > 0 || outliers.length > 0 || personal.length > 0;
 

@@ -12,11 +12,11 @@ import type {
 } from "../../bridge";
 import { QUALITY_DATASET_COLUMN } from "../../bridge";
 import { isTextType } from "../../dataTypes";
+import { ROW_AUDIT_COLUMN } from "../../rowAudit";
 
 export const MAX_QUALITY_RULES = 16;
 
 const PERSONAL_DATA_SIGNALS = new Set<ColumnProfile["privacySignal"]>(["email", "phone", "address", "name"]);
-const ROW_AUDIT_COLUMN = "_cambios";
 
 /** Columns whose profile detected personal data; identifiers are excluded because they are not contact data. */
 export function personalDataColumnNames(columns: readonly ColumnProfile[] | null): string[] {

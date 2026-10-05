@@ -37,7 +37,8 @@ import {
 } from "../prepare/proposalModel";
 import type { QualityActionTarget } from "./qualityActionPlan";
 import type { ReviewComparison } from "./useReviewController";
-import { formatBytes, formatDataType, formatDecimal, formatPercent } from "../../format";
+import { formatBytes, formatDataType, formatDecimal, formatNumber, formatPercent } from "../../format";
+import { isRowAuditColumn } from "../../rowAudit";
 import {
   QualityVisuals,
   formatStatistic,
@@ -654,7 +655,10 @@ export function DatasetPreviewPanel({
         <p className="preview-note" aria-live="polite">
           {dataset.rowCount === 0
             ? "El dataset no contiene filas."
-            : `Filas ${pageOffset + 1}–${pageEnd} de ${dataset.rowCount.toLocaleString()}`}
+            : dataset.rows.length === 0
+              // FUN-50: a page past the end (the dataset shrank) has no range.
+              ? `Esta página no tiene filas; el dataset tiene ${dataset.rowCount.toLocaleString()}.`
+              : `Filas ${(pageOffset + 1).toLocaleString()}–${pageEnd.toLocaleString()} de ${dataset.rowCount.toLocaleString()}`}
         </p>
         <div>
           <button
@@ -718,12 +722,13 @@ function QualityProfile({
   datasetRevision: number;
   extraTools: ReactNode;
 }) {
-  const textColumns = profile.columns.filter((column) => column.emptyCount !== null);
-  const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
-  const columnsWithNulls = profile.columns.filter((column) => column.nullCount > 0 && column.name !== "_cambios");
+  const userColumns = profile.columns.filter((column) => !isRowAuditColumn(column.name));
+  const textColumns = userColumns.filter((column) => column.emptyCount !== null);
+  const numericColumns = userColumns.filter((column) => column.outlierCount !== null);
+  const columnsWithNulls = profile.columns.filter((column) => column.nullCount > 0 && !isRowAuditColumn(column.name));
   const totalNullCount = columnsWithNulls.reduce((total, column) => total + column.nullCount, 0);
   const invalidTypeCount = profile.columns.reduce(
-    (total, column) => total + (column.name === "_cambios" ? 0 : Math.max(0, column.invalidTypeCount ?? 0)),
+    (total, column) => total + (isRowAuditColumn(column.name) ? 0 : Math.max(0, column.invalidTypeCount ?? 0)),
     0,
   );
   const actionPlan = buildQualityActionPlan({
@@ -779,7 +784,7 @@ function QualityProfile({
       <ReviewMoreTools>
         <QualitySnapshot
           rowCount={profile.rowCount}
-          columnCount={profile.columns.filter((column) => column.name !== "_cambios").length}
+          columnCount={profile.columns.filter((column) => !isRowAuditColumn(column.name)).length}
           nullCount={totalNullCount}
           duplicateCount={profile.duplicateRowCount}
           duplicatePercentage={profile.duplicatePercentage}
@@ -834,7 +839,7 @@ function QualityProfile({
             </tr>
           </thead>
           <tbody>
-            {profile.columns.map((column) => (
+            {userColumns.map((column) => (
               <tr key={column.name}>
                 <th scope="row">
                   <span>{column.name}</span>
@@ -848,7 +853,7 @@ function QualityProfile({
                 <td>
                   {column.mean === null
                     ? "—"
-                    : column.mean.toLocaleString(undefined, { maximumFractionDigits: 3 })}
+                    : formatNumber(column.mean, 3)}
                 </td>
               </tr>
             ))}
@@ -926,9 +931,7 @@ function QualityProfile({
                     <td>{column.minimumLength?.toLocaleString() ?? "—"}</td>
                     <td>{column.maximumLength?.toLocaleString() ?? "—"}</td>
                     <td>
-                      {column.averageLength?.toLocaleString(undefined, {
-                        maximumFractionDigits: 1,
-                      }) ?? "—"}
+                      {column.averageLength == null ? "—" : formatNumber(column.averageLength, 1)}
                     </td>
                     <td>{suggestedTypeLabel(column.suggestedType)}</td>
                     <td>

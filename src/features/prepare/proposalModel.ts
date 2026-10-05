@@ -12,6 +12,7 @@ import type {
 } from "../../bridge";
 import { formatDecimal } from "../../format";
 import { isNumericType, isTextType } from "../../dataTypes";
+import { ROW_AUDIT_COLUMN } from "../../rowAudit";
 
 export type ProposalItemId = "sentinels" | "trim" | "types" | "dates" | "duplicates" | "impute";
 
@@ -51,7 +52,6 @@ export interface ProposalItem {
 
 export type ProposalSelection = Record<ProposalItemId, boolean>;
 
-const ROW_AUDIT_COLUMN = "_cambios";
 const MAX_EXAMPLES = 3;
 /** Filling more than this share of a column invents too much of it. */
 const MAX_IMPUTED_SHARE = 0.05;

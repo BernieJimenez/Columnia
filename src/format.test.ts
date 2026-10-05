@@ -10,6 +10,13 @@ describe("formateo visible", () => {
     expect(formatPercent(8.333)).toBe(`8${decimalSeparator}3%`);
   });
 
+  it("no redondea a 100 % con un nulo en 100.000 filas ni a 0 % con un valor (FUN-51)", () => {
+    expect(formatPercent(99.999)).toBe(`>99${decimalSeparator}9%`);
+    expect(formatPercent(0.001)).toBe(`<0${decimalSeparator}1%`);
+    expect(formatPercent(100)).toBe(`100${decimalSeparator}0%`);
+    expect(formatPercent(0)).toBe(`0${decimalSeparator}0%`);
+  });
+
   it("expresa tamaños en unidades binarias coherentes", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(1024)).toBe(`1${decimalSeparator}0 KiB`);

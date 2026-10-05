@@ -370,6 +370,16 @@ describe("ReviewPhase", () => {
     expect(onContinueToPrepare).toHaveBeenCalledWith();
   });
 
+  it("la columna de auditoría _cambios no cuenta en el resumen ni aparece en el perfil (FUN-49)", () => {
+    const withAudit = {
+      ...profile,
+      columns: [...profile.columns, { ...profile.columns[0], name: "_cambios", nullCount: 100, completenessPercentage: 16.7 }],
+    };
+    render(temporalTrendElement(withAudit, 17, vi.fn()));
+    expect(screen.getByRole("list", { name: "Prioridades de revisión" })).toHaveTextContent("6 celdas sin valor en 1 columna.");
+    expect(screen.queryByRole("cell", { name: "_cambios" })).not.toBeInTheDocument();
+  });
+
   it("sugiere la convención de coma decimal para varias columnas (PROD-04)", () => {
     const commaProfile = {
       ...profile,
@@ -1390,6 +1400,12 @@ describe("ReviewPhase", () => {
     expect(nextButton).toBeEnabled();
     fireEvent.click(nextButton);
     expect(onConflictPageChange).toHaveBeenCalledWith(1);
+  });
+
+  it("una página sin filas no muestra un rango invertido (FUN-50)", () => {
+    render(<DatasetPreviewPanel dataset={{ ...dataset, rows: [] }} pageOffset={100} pageLoading={false} onPageChange={vi.fn()} />);
+    expect(screen.getByText("Esta página no tiene filas; el dataset tiene 120.")).toBeInTheDocument();
+    expect(screen.queryByText(/Filas 101/)).not.toBeInTheDocument();
   });
 
   it("anuncia el rango, representa null y solicita saltos exactos de 50", () => {
