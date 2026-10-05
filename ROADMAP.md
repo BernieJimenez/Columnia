@@ -400,9 +400,9 @@ medio = 1 día; agregado por suma.
   - [x] `COD-11` (Bajo) `get_performance_settings` usa `lock()` y falla con veneno; el resto del módulo usa `lock_recovering` — hecho el 2026-10-05
 - [ ] **RV83** — **Exportación y libros** — Un destino XLSX con más de 16.384 columnas produce un libro que Excel no abre (y 3 problemas más) · *Esfuerzo: 1,8 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-68, TXT-07, COD-15, QA-55.
-  - [ ] `FUN-68` (Bajo) Un destino XLSX con más de 16.384 columnas produce un libro que Excel no abre
-  - [ ] `TXT-07` (Bajo) El paquete ZIP promete receta y el resumen dice «no incluida» aunque se aplicaron cambios; el mensaje de la UI lista un contenido distinto del real
-  - [ ] `COD-15` (Bajo) Candidatos de rendimiento sin medir en exportación y updater
+  - [x] `FUN-68` (Bajo) Un destino XLSX con más de 16.384 columnas produce un libro que Excel no abre — hecho el 2026-10-05
+  - [x] `TXT-07` (Bajo) El paquete ZIP promete receta y el resumen dice «no incluida» aunque se aplicaron cambios; el mensaje de la UI lista un contenido distinto del real — hecho el 2026-10-05
+  - [ ] `COD-15` (Bajo) Candidatos de rendimiento sin medir en exportación y updater — Hechas (a) SQL con búfer, 104 s → 2,8 s; (b) sin copia intermedia salvo el CSV de Excel, que necesita el BOM delante; (d) instalador sin clonar. **Requiere tu decisión** para (c): el lote carga cada archivo en el preflight y otra vez al ejecutarlo; validar solo la estructura evitaría la doble lectura, pero un archivo dañado en el trabajo N pasaría de «manifiesto inválido, código 1, sin salidas» a «fallo tardío, código 2, con las salidas anteriores» (cambia el contrato de cli.md).
   - [ ] `QA-55` (Bajo) Mutantes no detectados en la detección de números con signo y en el analizador de fechas
 - [ ] **RV84** — **CLI** — Parser CLI: valores que empiezan por `--` rechazados y sin separador `--` (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-69, DAT-13, SEG-10, UX-07, DOC-14, DOC-18.

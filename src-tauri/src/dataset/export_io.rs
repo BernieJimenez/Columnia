@@ -249,6 +249,10 @@ where
         return Err("SQL requiere al menos una columna para crear la tabla.".to_owned());
     }
     let table = sql_identifier(TABLE);
+    // COD-15: every fragment went straight to the file (several system calls
+    // per cell); a 64 KiB buffer took 1 M rows x 10 columns from 104 s to
+    // 2.8 s, same bytes.
+    let output = &mut std::io::BufWriter::with_capacity(64 * 1024, output);
     writeln!(output, "{}", crate::duckdb_query::SQL_SCRIPT_HEADER)
         .map_err(|error| format!("No se pudo escribir el encabezado SQL: {error}"))?;
     writeln!(output, "BEGIN TRANSACTION;")
@@ -310,6 +314,9 @@ where
     ensure_not_cancelled(is_cancelled())?;
     writeln!(output, "COMMIT;")
         .map_err(|error| format!("No se pudo escribir el cierre SQL: {error}"))?;
+    output
+        .flush()
+        .map_err(|error| format!("No se pudo escribir el cierre SQL: {error}"))?;
     report(85);
     Ok(())
 }
@@ -317,6 +324,7 @@ where
 /// Excel limits (RV19 / FUN-05): a sheet beyond them does not open.
 const EXCEL_MAX_DATA_ROWS: usize = 1_048_575;
 const EXCEL_MAX_CELL_CHARS: usize = 32_767;
+const EXCEL_MAX_COLUMNS: usize = 16_384;
 
 /// XML 1.0 forbids most control characters; one of them made the whole sheet
 /// unreadable. They become U+FFFD so the gap stays visible.
@@ -359,7 +367,13 @@ fn xml_safe_text(value: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-fn ensure_excel_row_count(data_rows: usize) -> Result<(), String> {
+fn ensure_excel_dimensions(data_rows: usize, columns: usize) -> Result<(), String> {
+    // FUN-68: past column XFD Excel declares the whole workbook damaged.
+    if columns > EXCEL_MAX_COLUMNS {
+        return Err(format!(
+            "Excel admite como máximo 16.384 columnas por hoja y este dataset tiene {columns}. Exporta a CSV o Parquet, o quita columnas antes de exportar."
+        ));
+    }
     if data_rows > EXCEL_MAX_DATA_ROWS {
         return Err(format!(
             "Excel admite como máximo 1.048.575 filas de datos por hoja y este dataset tiene {data_rows}. Exporta a CSV o Parquet para conservar todas las filas."
@@ -596,7 +610,7 @@ where
     if schema.width() == 0 {
         return Err("Excel requiere al menos una columna.".to_owned());
     }
-    ensure_excel_row_count(row_count)?;
+    ensure_excel_dimensions(row_count, schema.width())?;
     const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>"#;
     const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
     const WORKBOOK: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="dataset" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
@@ -819,8 +833,10 @@ where
     })
 }
 
-/// Writes through DuckDB into a scratch file, then copies it into the
-/// publication file, as the CSV, JSON, SQL and Parquet exports do.
+/// Lets DuckDB write the CSV, JSON, SQL or Parquet export and makes that file
+/// the publication file. COD-15: it used to write a scratch file and copy it,
+/// twice the disk space and twice the writing for a large export; only a file
+/// that needs a prefix (the Excel CSV BOM) is still copied.
 fn write_through_scratch<C>(
     temporary: &mut tempfile::NamedTempFile,
     extension: &str,
@@ -835,12 +851,34 @@ where
         .parent()
         .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?
         .to_path_buf();
-    let scratch = tempfile::tempdir_in(&parent)
-        .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
-    let partial = scratch.path().join(format!("dataset.partial.{extension}"));
-    write(&partial, is_cancelled.clone())?;
+    // DuckDB picks the format by the path, so the file keeps the extension;
+    // the guard still deletes it if the export fails or is cancelled.
+    let staged = tempfile::Builder::new()
+        .prefix(".columnia-export-")
+        .suffix(&format!(".{extension}"))
+        .tempfile_in(&parent)
+        .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?
+        .into_temp_path();
+    write(&staged, is_cancelled.clone())?;
     ensure_not_cancelled(is_cancelled())?;
-    copy_file_with_cancel(&partial, temporary.as_file_mut(), is_cancelled)?;
+    let has_prefix = temporary
+        .as_file()
+        .metadata()
+        .map_err(|error| format!("No se pudo preparar la exportación temporal: {error}"))?
+        .len()
+        > 0;
+    if has_prefix {
+        // The Excel CSV starts with a BOM DuckDB cannot write: only then the
+        // DuckDB output is appended after it.
+        copy_file_with_cancel(&staged, temporary.as_file_mut(), is_cancelled)?;
+        return Ok(0);
+    }
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&staged)
+        .map_err(|error| format!("No se pudo abrir la exportación temporal: {error}"))?;
+    *temporary = tempfile::NamedTempFile::from_parts(file, staged);
     Ok(0)
 }
 
@@ -895,7 +933,7 @@ where
     if frame.width() == 0 {
         return Err("Excel requiere al menos una columna.".to_owned());
     }
-    ensure_excel_row_count(frame.height())?;
+    ensure_excel_dimensions(frame.height(), frame.width())?;
     const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>"#;
     const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
     const WORKBOOK: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="dataset" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
@@ -2121,7 +2159,7 @@ pub(super) fn bundle_delivery_summary(
         format!(
             "- Receta: {}",
             recipe.map_or_else(
-                || "no incluida".to_owned(),
+                || "no incluida (no había una receta activa)".to_owned(),
                 |recipe| format!("`recipe.json` v{}", recipe.version)
             )
         ),
@@ -2438,6 +2476,63 @@ mod xlsx_writer_tests {
             push_xml_escaped(&mut pushed, value);
             assert_eq!(pushed, xml_escape(value), "{value:?}");
         }
+    }
+
+    #[test]
+    #[ignore = "medición: cargo test --lib sql_script_benchmark -- --ignored --nocapture"]
+    fn sql_script_benchmark() {
+        // COD-15: 1 M rows x 10 columns to a real file.
+        const ROWS: usize = 1_000_000;
+        let columns = (0..10)
+            .map(|index| {
+                if index % 2 == 0 {
+                    Column::new(
+                        format!("n{index}").into(),
+                        (0..ROWS as i64).collect::<Vec<_>>(),
+                    )
+                } else {
+                    Column::new(
+                        format!("t{index}").into(),
+                        (0..ROWS)
+                            .map(|row| format!("valor {row}"))
+                            .collect::<Vec<_>>(),
+                    )
+                }
+            })
+            .collect();
+        let frame = DataFrame::new(ROWS, columns).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let mut file = File::create(directory.path().join("bench.sql")).unwrap();
+        let started = std::time::Instant::now();
+        write_sql_script(&frame, &mut file, |_| {}, || false).unwrap();
+        file.sync_all().unwrap();
+        println!(
+            "COD-15 sql 1M x 10: {:.2} s, {} bytes",
+            started.elapsed().as_secs_f64(),
+            file.metadata().unwrap().len()
+        );
+    }
+
+    #[test]
+    fn xlsx_rejects_more_columns_than_excel_opens_before_writing() {
+        // FUN-68
+        let wide = |width: usize| {
+            DataFrame::new(
+                1,
+                (0..width)
+                    .map(|index| Column::new(format!("c{index}").into(), [index as i64]))
+                    .collect(),
+            )
+            .unwrap()
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("ancho.xlsx");
+        let mut file = File::create(&path).unwrap();
+        let error = write_xlsx(&wide(EXCEL_MAX_COLUMNS + 1), &mut file, |_| {}, || false)
+            .expect_err("más de 16.384 columnas no caben en una hoja");
+        assert!(error.contains("16.384 columnas"), "{error}");
+        assert_eq!(file.metadata().unwrap().len(), 0);
+        assert!(ensure_excel_dimensions(1, EXCEL_MAX_COLUMNS).is_ok());
     }
 
     #[test]

@@ -731,6 +731,18 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("note")).toHaveTextContent("delivery-summary.md");
   });
 
+  it("no promete una receta que el paquete no lleva (TXT-07)", () => {
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    const format = screen.getByRole("combobox", { name: "Formato de exportación" });
+    expect(screen.getByRole("option", { name: /Paquete ZIP/ })).not.toHaveTextContent("receta");
+
+    fireEvent.change(format, { target: { value: "bundle" } });
+
+    const note = screen.getByRole("note");
+    expect(note).toHaveTextContent("dataset.csv, dictionary.json, delivery-summary.md y manifest.json");
+    expect(note).toHaveTextContent("No lleva recipe.json porque no hay una receta activa");
+  });
+
   it("permite seleccionar una política de privacidad antes de exportar", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
@@ -1335,7 +1347,7 @@ describe("DeliveryPhase", () => {
     expect(within(result).getByText("Salida confirmada sin reglas de calidad")).toBeInTheDocument();
     expect(within(result).getByText("2 cambios del historial activo")).toBeInTheDocument();
     expect(within(result).getByText("1 columnas: email")).toBeInTheDocument();
-    expect(within(result).getByText(/recipe\.json incluye la receta validada/)).toBeInTheDocument();
+    expect(within(result).getByText("Incluye dataset.csv, dictionary.json, recipe.json, delivery-summary.md y manifest.json.")).toBeInTheDocument();
     expect(within(result).getByText("Esta copia no incluye una validación de calidad.")).toBeInTheDocument();
     fireEvent.click(within(result).getByText("Ver cambios incluidos (2)"));
     expect(within(result).getByText("Espacios exteriores recortados")).toBeInTheDocument();

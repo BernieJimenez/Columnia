@@ -203,6 +203,13 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Exportación: un XLSX con más de 16.384 columnas se rechaza con un mensaje
+  claro antes de escribir; el paquete ZIP lista exactamente los archivos que
+  lleva (`recipe.json` solo con una receta activa, `quality-report.json` solo
+  con reglas) en la opción, el aviso y el resultado; el script SQL se escribe
+  con búfer (1 M filas × 10 columnas: de 104 s a 2,8 s), las exportaciones
+  source-backed ya no hacen una copia intermedia y el instalador descargado ya
+  no se clona en memoria (FUN-68, TXT-07, COD-15).
 - Arranque y servicios: la descarga de actualización informa al terminar o
   cancelar los bytes realmente recibidos; `reusable-tasks.sqlite3` ya no se
   reescribe en cada arranque; la CSP de producción quita `style-src

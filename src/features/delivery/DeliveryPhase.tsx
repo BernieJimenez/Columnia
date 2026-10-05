@@ -34,8 +34,10 @@ import {
   type DeliveryExportState,
   INITIAL_DATABASE_TARGET,
   QUALITY_RULE_SUMMARY,
+  bundleFileNames,
   databaseKindForExportFormat,
   isDatabaseExportFormat,
+  listFileNames,
   validateDatabaseTargetDraft,
   validateQualityRuleDraft,
 } from "./deliveryModel";
@@ -812,7 +814,7 @@ export function DeliveryPhase({
               <option value="sql">SQL</option>
               <option value="excel">Excel</option>
               <option value="sqlite">SQLite</option>
-              <option value="bundle">Paquete ZIP (dataset + diccionario + receta + calidad)</option>
+              <option value="bundle">Paquete ZIP (dataset, diccionario y resumen)</option>
               <optgroup label="Bases de datos mediante ODBC">
                 <option value="postgresql">PostgreSQL</option>
                 <option value="mysql">MySQL</option>
@@ -1055,9 +1057,10 @@ export function DeliveryPhase({
         )}
         {selectedExportFormat === "bundle" && (
           <p className="export-requirement" role="note">
+            {`El paquete contendrá ${listFileNames(bundleFileNames({ recipe: recipeDraft !== null, quality: contract.kind === "with_contract" }))}.`}
             {recipeDraft
-              ? "Este paquete incluirá delivery-summary.md, recipe.json con la receta actual validada y sus referencias y hashes en manifest.json."
-              : "No hay una receta activa para incluir; el paquete contendrá dataset.csv, dictionary.json, delivery-summary.md y manifest.json."}
+              ? " recipe.json lleva la receta activa validada, con sus hashes en manifest.json."
+              : " No lleva recipe.json porque no hay una receta activa: los cambios aplicados desde la propuesta no forman una receta."}
           </p>
         )}
         {contract.kind === "with_contract" && !gatePassed && !validationError && (

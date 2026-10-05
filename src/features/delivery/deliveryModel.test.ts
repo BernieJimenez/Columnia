@@ -4,6 +4,8 @@ import { QUALITY_DATASET_COLUMN, type ColumnProfile, type DatasetPreview, type Q
 import {
   INITIAL_DELIVERY_CONTRACT,
   MAX_QUALITY_RULES,
+  bundleFileNames,
+  listFileNames,
   databaseKindForExportFormat,
   deliveryContractFromRules,
   excelLimitIssues,
@@ -325,5 +327,16 @@ describe("parseQualityDateBound (FUN-55)", () => {
     expect(parseQualityDateBound("2024-01-15T10:30:00")).toBe(Date.UTC(2024, 0, 15, 10, 30));
     expect(parseQualityDateBound("Jan 2, 2024")).toBeNull();
     expect(parseQualityDateBound("31/02/2024")).toBeNull();
+  });
+});
+
+describe("contenido del paquete (TXT-07)", () => {
+  it("lista la receta y la calidad solo cuando el ZIP las lleva", () => {
+    expect(bundleFileNames({ recipe: false, quality: false })).toEqual(["dataset.csv", "dictionary.json", "delivery-summary.md", "manifest.json"]);
+    expect(bundleFileNames({ recipe: true, quality: true })).toEqual([
+      "dataset.csv", "dictionary.json", "quality-report.json", "recipe.json", "delivery-summary.md", "manifest.json",
+    ]);
+    expect(listFileNames(["a", "b", "c"])).toBe("a, b y c");
+    expect(listFileNames(["a"])).toBe("a");
   });
 });

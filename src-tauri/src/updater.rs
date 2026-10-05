@@ -289,7 +289,12 @@ pub async fn download_update(
     });
 
     let downloaded_bytes = received.load(std::sync::atomic::Ordering::Relaxed);
-    let successful_bytes = result.as_ref().ok().cloned();
+    // COD-15: the installer moves into the pending update; it was cloned,
+    // holding two copies of it in memory.
+    let (result, successful_bytes) = match result {
+        Ok(bytes) => (Ok(()), Some(bytes)),
+        Err(error) => (Err(error), None),
+    };
     {
         with_pending(&app, |pending| {
             if let Some(value) = pending.as_mut() {
@@ -303,7 +308,7 @@ pub async fn download_update(
     }
 
     match result {
-        Ok(_) => {
+        Ok(()) => {
             let _ = on_progress.send(UpdaterProgress {
                 phase: "finished",
                 downloaded_bytes,

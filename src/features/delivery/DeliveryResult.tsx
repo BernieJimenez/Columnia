@@ -3,7 +3,7 @@ import { useEffect, useEffectEvent, useState } from "react";
 import { openLastExport, openLastExportInPowerBi } from "../../bridge";
 import type { SavedRecipe } from "../../bridge";
 import { formatFileSize } from "./DatasetMetrics";
-import type { DeliveryContractState, DeliveryExportState } from "./deliveryModel";
+import { bundleFileNames, listFileNames, type DeliveryContractState, type DeliveryExportState } from "./deliveryModel";
 
 type ExportResult = Extract<DeliveryExportState, { kind: "success" }>["result"];
 
@@ -145,7 +145,7 @@ export function DeliveryResult({
           )}
           {result.format === "Paquete Columnia" && (
             <p className="delivery-result__note">
-              Incluye dataset.csv, dictionary.json, delivery-summary.md y manifest.json{recipeDraft ? "; recipe.json incluye la receta validada" : ""}, además del reporte de calidad cuando hay reglas aprobadas.
+              Incluye {listFileNames(bundleFileNames({ recipe: recipeDraft !== null, quality: contract.kind === "with_contract" }))}.
             </p>
           )}
           {contract.kind === "without_contract" && (

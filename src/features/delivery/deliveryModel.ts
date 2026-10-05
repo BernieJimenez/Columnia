@@ -44,6 +44,27 @@ export function excelLimitIssues(rowCount: number, columns: readonly ColumnProfi
   return issues;
 }
 
+/**
+ * TXT-07: the files of a Columnia bundle, in the order of the ZIP. The recipe
+ * travels only when there is an active recipe (changes applied from the
+ * proposal are not one), and the quality report only with validated rules.
+ */
+export function bundleFileNames({ recipe, quality }: { recipe: boolean; quality: boolean }): string[] {
+  return [
+    "dataset.csv",
+    "dictionary.json",
+    ...(quality ? ["quality-report.json"] : []),
+    ...(recipe ? ["recipe.json"] : []),
+    "delivery-summary.md",
+    "manifest.json",
+  ];
+}
+
+/** «a, b y c» for a short list of file names. */
+export function listFileNames(names: readonly string[]): string {
+  return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`;
+}
+
 export const MAX_SUGGESTED_QUALITY_RULES = 6;
 const IDENTIFIER_NAME = /(^|[_\s-])(id|codigo|código|code|key|clave)([_\s-]|$)/i;
 
