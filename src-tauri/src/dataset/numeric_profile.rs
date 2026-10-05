@@ -1,6 +1,11 @@
 use super::*;
 
 pub(super) fn numeric_value(value: AnyValue<'_>) -> Option<f64> {
+    numeric_value_with_non_finite(value).filter(|number| number.is_finite())
+}
+
+/// The number of a cell, NaN and ±inf included (FUN-43 counts them).
+pub(super) fn numeric_value_with_non_finite(value: AnyValue<'_>) -> Option<f64> {
     let value = match value {
         AnyValue::UInt8(value) => Some(value.into()),
         AnyValue::UInt16(value) => Some(value.into()),
@@ -16,7 +21,7 @@ pub(super) fn numeric_value(value: AnyValue<'_>) -> Option<f64> {
         AnyValue::Float64(value) => Some(value),
         _ => None,
     };
-    value.filter(|number| number.is_finite())
+    value
 }
 
 pub(super) struct NumericStatistics {

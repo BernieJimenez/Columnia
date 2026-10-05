@@ -10,6 +10,7 @@ import {
   QUERY_ENGINE_STORAGE_KEY,
   beginPageLoad,
   beginProfileAnalysis,
+  nonFiniteColumns,
   commaDecimalColumns,
   completePageLoad,
   failPageLoad,
@@ -145,5 +146,13 @@ describe("commaDecimalColumns (PROD-04)", () => {
       columns: [column("importe", 9), column("mixto", 8), column("vacio", 0), column("con_nulos", 5, 5)],
     } as unknown as DatasetProfile;
     expect(commaDecimalColumns(profile)).toEqual(["importe", "con_nulos"]);
+  });
+});
+
+describe("nonFiniteColumns (FUN-43)", () => {
+  it("lista las columnas con NaN o infinito y su recuento", () => {
+    const column = (name: string, nonFiniteCount?: number) => ({ name, nonFiniteCount }) as ColumnProfile;
+    const profile = { rowCount: 4, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [column("a"), column("b", 2)] } as DatasetProfile;
+    expect(nonFiniteColumns(profile)).toEqual([{ name: "b", count: 2 }]);
   });
 });

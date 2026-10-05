@@ -215,8 +215,8 @@ use export_io::{
 #[cfg(test)]
 use export_io::{export_frame_atomic_with_privacy_and_quality, frame_for_export, write_xlsx};
 use numeric_profile::{
-    numeric_correlation_matrix, numeric_statistics, numeric_value, semantic_numeric_value,
-    source_numeric_correlation_matrix, source_numeric_statistics,
+    numeric_correlation_matrix, numeric_statistics, numeric_value, numeric_value_with_non_finite,
+    semantic_numeric_value, source_numeric_correlation_matrix, source_numeric_statistics,
     validate_numeric_correlation_sample_rows, NumericRunWriter,
 };
 use operation_cancellation::{
@@ -1018,6 +1018,10 @@ pub struct ColumnProfile {
     /// which the profile does not read as numbers (PROD-04).
     #[serde(default)]
     comma_decimal_count: Option<usize>,
+    /// FUN-43: NaN or infinite values of a decimal column, left out of the
+    /// statistics and charts; `None` when there are none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    non_finite_count: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]

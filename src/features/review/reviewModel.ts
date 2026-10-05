@@ -102,6 +102,16 @@ export function commaDecimalColumns(profile: DatasetProfile): string[] {
     .map((column) => column.name);
 }
 
+/**
+ * Decimal columns with NaN or infinite values, which the statistics and
+ * charts leave out (FUN-43), as «name: count».
+ */
+export function nonFiniteColumns(profile: DatasetProfile): Array<{ name: string; count: number }> {
+  return profile.columns
+    .filter((column) => (column.nonFiniteCount ?? 0) > 0)
+    .map((column) => ({ name: column.name, count: column.nonFiniteCount ?? 0 }));
+}
+
 export function beginProfileAnalysis(): ProfileStatus {
   return {
     kind: "loading",

@@ -824,7 +824,26 @@ where
         comma_decimal_count: text_statistics
             .as_ref()
             .map(|statistics| statistics.comma_decimal_count),
+        non_finite_count: non_finite_count(column)?,
     })
+}
+
+/// FUN-43: NaN and ±inf of a float column, which the statistics leave out.
+fn non_finite_count(column: &Column) -> Result<Option<usize>, String> {
+    if !column.dtype().is_float() {
+        return Ok(None);
+    }
+    let values = column
+        .cast(&DataType::Float64)
+        .map_err(|error| format!("No se pudieron revisar los valores no finitos: {error}"))?;
+    let count = values
+        .f64()
+        .map_err(|error| format!("No se pudieron revisar los valores no finitos: {error}"))?
+        .iter()
+        .flatten()
+        .filter(|value| !value.is_finite())
+        .count();
+    Ok((count > 0).then_some(count))
 }
 
 pub(super) struct SourceTextAccumulator {
@@ -1031,6 +1050,7 @@ pub(super) struct SourceNumericAccumulator {
     mean: f64,
     m2: f64,
     runs: Option<NumericRunWriter>,
+    non_finite_count: usize,
 }
 
 impl SourceNumericAccumulator {
@@ -1042,13 +1062,18 @@ impl SourceNumericAccumulator {
             mean: 0.0,
             m2: 0.0,
             runs: None,
+            non_finite_count: 0,
         }
     }
 
     fn push(&mut self, value: Option<f64>) -> Result<(), String> {
-        let Some(value) = value.filter(|value| value.is_finite()) else {
+        let Some(value) = value else {
             return Ok(());
         };
+        if !value.is_finite() {
+            self.non_finite_count = self.non_finite_count.saturating_add(1);
+            return Ok(());
+        }
         self.value_count = self.value_count.saturating_add(1);
         self.minimum = Some(self.minimum.map_or(value, |current| current.min(value)));
         self.maximum = Some(self.maximum.map_or(value, |current| current.max(value)));
@@ -1111,7 +1136,7 @@ impl SourceColumnAccumulator {
                         None => (integer, integer),
                     });
                 }
-                self.numeric.push(numeric_value(value))?;
+                self.numeric.push(numeric_value_with_non_finite(value))?;
             }
         } else if self.is_temporal {
             for row_index in 0..column.len() {
@@ -1276,6 +1301,8 @@ impl SourceColumnAccumulator {
                 comma_decimal_count: text
                     .as_ref()
                     .map(|statistics| statistics.comma_decimal_count),
+                non_finite_count: (self.numeric.non_finite_count > 0)
+                    .then_some(self.numeric.non_finite_count),
             },
             categorical_candidates,
         ))

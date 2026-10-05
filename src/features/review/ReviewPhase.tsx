@@ -16,6 +16,7 @@ import {
   ANALYSIS_SAMPLE_ROW_OPTIONS,
   isAnalysisSampleRows,
   commaDecimalColumns,
+  nonFiniteColumns,
   nextPageOffset,
   pageRange,
   readAnalysisSampleRowsPreference,
@@ -737,6 +738,7 @@ function QualityProfile({
   const proposalSelection = defaultProposalSelection(proposal);
   const priorityCount = proposal.length;
   const commaColumns = commaDecimalColumns(profile);
+  const nonFinite = nonFiniteColumns(profile);
   return (
     <>
       <section className="quality-overview quality-overview--plain" aria-labelledby="quality-overview-title">
@@ -765,6 +767,12 @@ function QualityProfile({
             {commaColumns.length === 1 ? `«${commaColumns[0]}» parece` : `${commaColumns.map((name) => `«${name}»`).join(", ")} parecen`}{" "}
             usar coma decimal (1,5 o 1.234,56) y por eso no se analiza como número. Vuelve a cargar el archivo eligiendo
             «Decimal coma · miles punto» en Números.
+          </p>
+        )}
+        {nonFinite.length > 0 && (
+          <p className="quality-overview__note" role="note">
+            {nonFinite.map(({ name, count }) => `«${name}»: ${count.toLocaleString()} ${count === 1 ? "valor no finito" : "valores no finitos"}`).join(", ")}{" "}
+            (NaN o infinito) quedan fuera del mínimo, el máximo, la media y los gráficos.
           </p>
         )}
       </section>

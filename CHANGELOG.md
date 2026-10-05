@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Revisar indica cuántos valores NaN o infinitos de cada columna decimal quedan
+  fuera del mínimo, el máximo, la media y los gráficos; el recuento coincide en
+  memoria y en archivos grandes (FUN-43).
 - Nuevo ADR-0002 con las decisiones ya aplicadas (Polars y DuckDB, entrega ODBC,
   updater desactivado sin endpoint, catálogos SQLite, informes de fallo locales,
   distribución solo como código fuente y uso personal); ADR-0001 queda marcado

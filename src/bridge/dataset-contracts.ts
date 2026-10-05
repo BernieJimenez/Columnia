@@ -270,6 +270,8 @@ export interface ColumnProfile {
   untrimmedCount: number | null;
   /** Text values written with a decimal comma, «1,5» or «1.234,56» (PROD-04). */
   commaDecimalCount?: number;
+  /** NaN or infinite values left out of the statistics and charts (FUN-43). */
+  nonFiniteCount?: number;
 }
 
 export interface DatasetProfile {

@@ -4968,7 +4968,10 @@ fn rejects_a_directory_junction_as_source_and_destination() {
         .stdout(std::process::Stdio::null())
         .status()
         .expect("mklink debe ejecutarse");
-    assert!(status.success(), "mklink /J debe crear la unión sin privilegios");
+    assert!(
+        status.success(),
+        "mklink /J debe crear la unión sin privilegios"
+    );
 
     let read_error = canonicalize_existing_file(&junction, "el dataset seleccionado")
         .expect_err("una lectura no debe seguir una unión");
@@ -12369,7 +12372,10 @@ fn snapshots_xlsx_in_streaming_blocks_without_changing_typed_values() {
     let expected = load_compare_frame(&source, "xlsx").expect("Excel debe cargar");
     // QA-16: exporting and reading back an XLSX keeps integer columns integer.
     assert_eq!(expected.column("id").unwrap().dtype(), &DataType::Int64);
-    assert_eq!(expected.column("amount").unwrap().dtype(), &DataType::Float64);
+    assert_eq!(
+        expected.column("amount").unwrap().dtype(),
+        &DataType::Float64
+    );
     let current = df![
         "id" => &[1_i64, 2, 3],
         "name" => &["Ana", "Luis", "María"],
@@ -20367,6 +20373,19 @@ fn profiles_agree_on_big_integers_non_finite_floats_and_padded_numbers() {
         MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
     )
     .expect("el perfil del archivo grande no debe fallar");
+    // FUN-43: both paths say how many NaN/inf values the statistics left out.
+    let non_finite = |profile: &DatasetProfile| {
+        profile
+            .columns
+            .iter()
+            .map(|column| column.non_finite_count)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        non_finite(&expected),
+        vec![None, Some(1), Some(1), Some(4), None]
+    );
+    assert_eq!(non_finite(&actual), non_finite(&expected));
     let grande = &expected.columns[0];
     assert_eq!(grande.minimum.as_deref(), Some("9007199254740993"));
     assert_eq!(grande.maximum.as_deref(), Some("9007199254740999"));
@@ -20622,20 +20641,37 @@ fn compared_file_persistence_stops_on_cancellation() {
 fn source_backed_exports_keep_leading_zeros_and_long_codes() {
     let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
     let source = directory.path().join("codigos.csv");
-    fs::write(&source, "codigo,cuenta,importe\n00123,0012345678901234567890,1.50\n007,0000000000000000001,2\n").unwrap();
+    fs::write(
+        &source,
+        "codigo,cuenta,importe\n00123,0012345678901234567890,1.50\n007,0000000000000000001,2\n",
+    )
+    .unwrap();
     let size = fs::metadata(&source).unwrap().len();
 
     let csv = directory.path().join("salida.csv");
-    export_source_backed_csv_atomic(&source, size, &csv, |_, _| {}, || false).expect("CSV source-backed");
+    export_source_backed_csv_atomic(&source, size, &csv, |_, _| {}, || false)
+        .expect("CSV source-backed");
     let excel = directory.path().join("salida-excel.csv");
-    export_source_backed_delimited_atomic(&source, size, &excel, true, |_, _| {}, || false).expect("CSV para Excel source-backed");
+    export_source_backed_delimited_atomic(&source, size, &excel, true, |_, _| {}, || false)
+        .expect("CSV para Excel source-backed");
     let sql = directory.path().join("salida.sql");
-    export_source_backed_sql_atomic(&source, size, &sql, |_, _| {}, || false).expect("SQL source-backed");
+    export_source_backed_sql_atomic(&source, size, &sql, |_, _| {}, || false)
+        .expect("SQL source-backed");
 
     for path in [&csv, &excel, &sql] {
         let text = fs::read_to_string(path).unwrap();
-        for code in ["00123", "007", "0012345678901234567890", "0000000000000000001", "1.50"] {
-            assert!(text.contains(code), "{} perdió {code}:\n{text}", path.display());
+        for code in [
+            "00123",
+            "007",
+            "0012345678901234567890",
+            "0000000000000000001",
+            "1.50",
+        ] {
+            assert!(
+                text.contains(code),
+                "{} perdió {code}:\n{text}",
+                path.display()
+            );
         }
     }
 }
