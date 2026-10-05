@@ -93,6 +93,10 @@ describe("buildPrepareProposal", () => {
           column({ name: "CustomerID", nullCount: 3, uniqueCount: 40 }),
           column({ name: "InvoiceNo", nullCount: 2, uniqueCount: 10 }),
           column({ name: "vm_id", dataType: "i64", nullCount: 2, uniqueCount: 50, median: 7 }),
+          // QA-33: Spanish identifier names too.
+          column({ name: "id_cliente", nullCount: 2, uniqueCount: 5 }),
+          column({ name: "codigo_postal", nullCount: 2, uniqueCount: 5 }),
+          column({ name: "num_factura", dataType: "i64", nullCount: 2, uniqueCount: 50, median: 7 }),
           column({ name: "cliente", nullCount: 2, uniqueCount: 5, privacySignal: "name" }),
           column({ name: "alta", nullCount: 2, uniqueCount: 5, suggestedType: "date" }),
           column({ name: "comentario", nullCount: 2, uniqueCount: 60 }),

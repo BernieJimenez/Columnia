@@ -436,5 +436,7 @@ function typedColumnsOf(items: ProposalItem[], selection: ProposalSelection): st
 }
 
 export function applyLabel(count: number): string {
+  // QA-33: a disabled «Aplicar 0 cambios» read as an action; say what is missing.
+  if (count === 0) return "Elige un cambio";
   return count === 1 ? "Aplicar 1 cambio" : `Aplicar ${count} cambios`;
 }

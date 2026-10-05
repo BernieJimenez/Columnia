@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La propuesta de Preparar se prueba también con identificadores en español
+  (id_cliente, codigo_postal, num_factura) y, sin cambios elegidos, el botón
+  dice «Elige un cambio» en lugar de «Aplicar 0 cambios» (QA-33).
 - Preparar ya no declara props sin uso y no muestra botones cuya acción no está
   conectada (antes no hacían nada en silencio) (LIM-06).
 - Preparar: reemplazar valores atípicos por la mediana pide confirmación como

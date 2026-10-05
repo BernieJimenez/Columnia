@@ -113,7 +113,7 @@ describe("PrepareProposal ambiguous dates (RV18)", () => {
         onApply={onApply} onUndo={vi.fn()} onDismissResult={vi.fn()} />,
     );
 
-    const apply = screen.getByRole("button", { name: "Aplicar 0 cambios" });
+    const apply = screen.getByRole("button", { name: "Elige un cambio" });
     expect(apply).toBeDisabled();
     const question = screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" });
     fireEvent.click(within(question).getByLabelText("Día/mes: 2024-02-01"));

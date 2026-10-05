@@ -327,10 +327,10 @@ medio = 1 día; agregado por suma.
   - [x] `COD-08` (Bajo) Umbral «80 %» y otros textos del motor duplicados como literales en el controlador — hecho el 2026-10-04
   - [x] `COD-09` (Bajo) `recipeSchema`: `dateParses` se auto-satisface y ofrece cualquier columna como compatible; tipos enteros sin signo se tratan como cambio de tipo — hecho el 2026-10-04
   - [x] `LIM-05` (Bajo) JSDoc huérfano y textos auxiliares mal ubicados en `src/features/prepare/proposalModel.ts` — hecho el 2026-10-04
-- [ ] **RV71** — **Preparar** — Props declaradas y no usadas; manejadores opcionales con no-op silencioso (y 1 problemas más) · *Esfuerzo: 4 h*
+- [x] **RV71** — **Preparar** — Props declaradas y no usadas; manejadores opcionales con no-op silencioso (y 1 problemas más) · *Esfuerzo: 4 h* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de LIM-06, QA-33.
   - [x] `LIM-06` (Bajo) Props declaradas y no usadas; manejadores opcionales con no-op silencioso — hecho el 2026-10-04
-  - [ ] `QA-33` (Bajo) `src/features/prepare/proposalModel.test.ts` / `src/features/prepare/PrepareProposal.test.tsx`: los casos de identificadores son solo en inglés y el botón puede decir «Aplicar 0 cambios»
+  - [x] `QA-33` (Bajo) `src/features/prepare/proposalModel.test.ts` / `src/features/prepare/PrepareProposal.test.tsx`: los casos de identificadores son solo en inglés y el botón puede decir «Aplicar 0 cambios» — hecho el 2026-10-04
 - [ ] **RV72** — **Revisar** — La preferencia global de motor/muestra se sobrescribe al abrir un proyecto (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-48, FUN-49, FUN-50, FUN-51, FUN-52, UX-15.
   - [ ] `FUN-48` (Bajo) La preferencia global de motor/muestra se sobrescribe al abrir un proyecto
