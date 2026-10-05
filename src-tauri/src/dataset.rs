@@ -7420,6 +7420,16 @@ where
     }
 }
 
+/// FUN-61: a DuckDB failure after the query was accepted keeps its cause;
+/// cancellation stays the plain cancellation message.
+fn duckdb_execution_error(error: String) -> String {
+    if error == OPERATION_CANCELLED_MESSAGE || error.starts_with("DuckDB") {
+        error
+    } else {
+        format!("DuckDB no pudo ejecutar la consulta: {error}")
+    }
+}
+
 fn collect_lazy_frame_streaming(plan: LazyFrame, context: &str) -> Result<DataFrame, String> {
     plan.collect_with_engine(Engine::Streaming)
         .map(|result| result.unwrap_single())
@@ -8931,13 +8941,10 @@ pub async fn query_dataset(
                             )
                         };
                         if let Some(result) = result {
-                            match result {
-                                Ok(result) => return Ok(result),
-                                Err(error) if error == OPERATION_CANCELLED_MESSAGE => {
-                                    return Err(error);
-                                }
-                                Err(_) => {}
-                            }
+                            // FUN-61: the query was accepted for DuckDB, so a
+                            // failure here is real (disk, memory, a missing
+                            // snapshot) and is reported, not retried elsewhere.
+                            return result.map_err(duckdb_execution_error);
                         }
                     }
                 }
@@ -8968,10 +8975,7 @@ pub async fn query_dataset(
                             },
                         ) {
                             Ok(result) => return Ok(result),
-                            Err(error) if error == OPERATION_CANCELLED_MESSAGE => {
-                                return Err(error);
-                            }
-                            Err(_) => {}
+                            Err(error) => return Err(duckdb_execution_error(error)),
                         }
                     }
                 }

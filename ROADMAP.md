@@ -372,7 +372,7 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-58` (Bajo) «Normalizar texto sin acentos» elimina marcas combinantes de todas las escrituras y no recompone — hecho el 2026-10-05
   - [x] `FUN-59` (Bajo) Un archivo UTF-16 u otro binario se ofrece como «Windows-1252» — hecho el 2026-10-05
   - [x] `FUN-60` (Bajo) Delimitador por defecto con encabezado de una sola línea — hecho el 2026-10-05
-  - [ ] `FUN-61` (Bajo) `query_dataset` (motor Polars) traga errores de DuckDB y cae a otro motor sin avisar
+  - [x] `FUN-61` (Bajo) `query_dataset` (motor Polars) traga errores de DuckDB y cae a otro motor sin avisar — hecho el 2026-10-05
   - [ ] `FUN-62` (Bajo) `apply_safe_corrections` anuncia `affected_row_count` como el máximo de dos conjuntos de filas, no su unión
 - [ ] **RV79** — **Motor (dataset.rs)** — `.pbids` escrito sin atomicidad ni aviso de sobrescritura (y 1 problemas más) · *Esfuerzo: 4 h*
   - Criterio de cierre: Se cumplen los criterios de aceptación de DAT-14, LIM-07.

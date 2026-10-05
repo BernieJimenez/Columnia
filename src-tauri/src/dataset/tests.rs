@@ -21021,3 +21021,16 @@ fn delimiter_detection_tolerates_one_irregular_row_and_header_only_files() {
     fs::write(&comma, "a,b\n1,2\n").unwrap();
     assert_eq!(detect_delimiter(&comma, "csv").unwrap(), b',');
 }
+
+/// FUN-61: a DuckDB failure keeps its cause and cancellation stays as is.
+#[test]
+fn duckdb_execution_errors_keep_their_cause() {
+    assert_eq!(
+        duckdb_execution_error(OPERATION_CANCELLED_MESSAGE.to_owned()),
+        OPERATION_CANCELLED_MESSAGE
+    );
+    assert_eq!(
+        duckdb_execution_error("No space left on device".to_owned()),
+        "DuckDB no pudo ejecutar la consulta: No space left on device"
+    );
+}

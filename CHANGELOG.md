@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Una consulta SQL aceptada por DuckDB que falla al ejecutarse (disco, memoria,
+  comparación borrada) muestra el error en lugar de repetirse en silencio con
+  otro motor que podía dar otro resultado (FUN-61).
 - La detección del separador elige el más coherente cuando una fila es irregular
   y usa «;» en un archivo que solo tiene encabezado separado por «;» (antes caía
   en «,» y se abría como una sola columna) (FUN-60).
