@@ -203,6 +203,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Contar filas casi duplicadas lee cada cubo en trozos ordenados y sin
+  repetidos, así que la memoria depende de los valores distintos y no de las
+  filas: un archivo con millones de filas iguales ya no carga un cubo entero; el
+  perfil usa la misma función que la comparación (REN-12).
 - El perfilado en paralelo corta la cola al primer error, devuelve ese mensaje y
   ya no puede entrar en pánico si falta el perfil de una columna (COD-17).
 - La señal de datos personales de una columna ya no salta por fragmentos:

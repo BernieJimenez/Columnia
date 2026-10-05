@@ -20751,3 +20751,25 @@ fn parallel_profile_returns_the_first_error_and_stops_the_queue() {
     .expect_err("el fallo inyectado debe devolverse");
     assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
 }
+
+/// REN-12: identical rows across more than one read chunk are counted
+/// exactly, and the distinct list stays at one value.
+#[test]
+fn duplicate_fingerprint_buckets_count_identical_rows_across_chunks() {
+    use std::io::Write as _;
+    let directory = tempfile::tempdir().unwrap();
+    let bucket = directory.path().join("bucket.bin");
+    let mut writer = std::io::BufWriter::new(File::create(&bucket).unwrap());
+    let identical = 0x1234_u128.to_le_bytes();
+    for _ in 0..5_000_000 {
+        writer.write_all(&identical).unwrap();
+    }
+    for value in [7_u128, 8, 7] {
+        writer.write_all(&value.to_le_bytes()).unwrap();
+    }
+    writer.flush().unwrap();
+    drop(writer);
+    let duplicates = count_normalized_duplicate_fingerprints(&[bucket], &|| false).unwrap();
+    // 5,000,003 rows with three distinct values.
+    assert_eq!(duplicates, 5_000_000);
+}

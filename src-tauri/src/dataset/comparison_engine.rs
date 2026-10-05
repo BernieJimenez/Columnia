@@ -834,6 +834,13 @@ where
     Ok(observation)
 }
 
+/// Fingerprints read at a time from one bucket (64 MiB).
+const DUPLICATE_FINGERPRINT_CHUNK: usize = 1 << 22;
+
+/// Repeated fingerprints across the buckets: each row beyond the first of its
+/// value. REN-12: a bucket is read in sorted, deduplicated chunks merged into
+/// its distinct values, so memory follows the distinct values, not the rows;
+/// a file of identical rows no longer loads a whole bucket.
 pub(super) fn count_normalized_duplicate_fingerprints<C>(
     bucket_paths: &[PathBuf],
     is_cancelled: &C,
@@ -863,26 +870,57 @@ where
             format!("No se pudo leer el almacenamiento temporal de duplicados parecidos: {error}")
         })?;
         let mut reader = BufReader::new(file);
-        let mut fingerprints = Vec::with_capacity(fingerprint_count);
+        let mut distinct = Vec::<u128>::new();
+        let mut chunk = Vec::with_capacity(fingerprint_count.min(DUPLICATE_FINGERPRINT_CHUNK));
         let mut encoded = [0_u8; NORMALIZED_FINGERPRINT_BYTES];
-        for index in 0..fingerprint_count {
-            if index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-                ensure_not_cancelled(is_cancelled())?;
+        let mut remaining = fingerprint_count;
+        while remaining > 0 {
+            let take = remaining.min(DUPLICATE_FINGERPRINT_CHUNK);
+            chunk.clear();
+            for index in 0..take {
+                if index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                    ensure_not_cancelled(is_cancelled())?;
+                }
+                reader.read_exact(&mut encoded).map_err(|error| {
+                    format!("No se pudo leer una huella temporal de duplicados parecidos: {error}")
+                })?;
+                chunk.push(u128::from_le_bytes(encoded));
             }
-            reader.read_exact(&mut encoded).map_err(|error| {
-                format!("No se pudo leer una huella temporal de duplicados parecidos: {error}")
-            })?;
-            fingerprints.push(u128::from_le_bytes(encoded));
+            remaining -= take;
+            chunk.sort_unstable();
+            chunk.dedup();
+            distinct = merge_distinct_fingerprints(&distinct, &chunk);
         }
-        fingerprints.sort_unstable();
-        normalized_duplicate_row_count = normalized_duplicate_row_count.saturating_add(
-            fingerprints
-                .windows(2)
-                .filter(|pair| pair[0] == pair[1])
-                .count(),
-        );
+        normalized_duplicate_row_count = normalized_duplicate_row_count
+            .saturating_add(fingerprint_count.saturating_sub(distinct.len()));
     }
     Ok(normalized_duplicate_row_count)
+}
+
+/// The union of two sorted lists without repeats, sorted and without repeats.
+fn merge_distinct_fingerprints(left: &[u128], right: &[u128]) -> Vec<u128> {
+    let mut merged = Vec::with_capacity(left.len() + right.len());
+    let (mut i, mut j) = (0, 0);
+    while i < left.len() && j < right.len() {
+        match left[i].cmp(&right[j]) {
+            std::cmp::Ordering::Less => {
+                merged.push(left[i]);
+                i += 1;
+            }
+            std::cmp::Ordering::Greater => {
+                merged.push(right[j]);
+                j += 1;
+            }
+            std::cmp::Ordering::Equal => {
+                merged.push(left[i]);
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    merged.extend_from_slice(&left[i..]);
+    merged.extend_from_slice(&right[j..]);
+    merged
 }
 
 #[cfg(test)]

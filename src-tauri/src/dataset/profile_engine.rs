@@ -1699,47 +1699,8 @@ where
     producer_result?;
 
     report("Ordenando filas parecidas", 40);
-    let mut normalized_duplicate_row_count = 0usize;
-    for bucket_path in &bucket_paths {
-        ensure_not_cancelled(is_cancelled())?;
-        if !bucket_path.exists() {
-            continue;
-        }
-        let bytes = fs::metadata(bucket_path)
-            .map_err(|error| {
-                format!("No se pudo inspeccionar el almacenamiento temporal: {error}")
-            })?
-            .len();
-        if bytes % NORMALIZED_FINGERPRINT_BYTES as u64 != 0 {
-            return Err(
-                "El almacenamiento temporal de duplicados parecidos quedó incompleto.".to_owned(),
-            );
-        }
-        let fingerprint_count = usize::try_from(bytes / NORMALIZED_FINGERPRINT_BYTES as u64)
-            .map_err(|_| "El conteo de huellas temporales excede la capacidad local.".to_owned())?;
-        let file = File::open(bucket_path).map_err(|error| {
-            format!("No se pudo leer el almacenamiento temporal de duplicados parecidos: {error}")
-        })?;
-        let mut reader = BufReader::new(file);
-        let mut fingerprints = Vec::with_capacity(fingerprint_count);
-        let mut encoded = [0_u8; NORMALIZED_FINGERPRINT_BYTES];
-        for index in 0..fingerprint_count {
-            if index % 4096 == 0 {
-                ensure_not_cancelled(is_cancelled())?;
-            }
-            reader.read_exact(&mut encoded).map_err(|error| {
-                format!("No se pudo leer una huella temporal de duplicados parecidos: {error}")
-            })?;
-            fingerprints.push(u128::from_le_bytes(encoded));
-        }
-        fingerprints.sort_unstable();
-        normalized_duplicate_row_count = normalized_duplicate_row_count.saturating_add(
-            fingerprints
-                .windows(2)
-                .filter(|pair| pair[0] == pair[1])
-                .count(),
-        );
-    }
+    let normalized_duplicate_row_count =
+        count_normalized_duplicate_fingerprints(&bucket_paths, &is_cancelled)?;
     ensure_not_cancelled(is_cancelled())?;
     Ok(normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count))
 }
