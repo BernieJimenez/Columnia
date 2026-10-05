@@ -203,6 +203,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- CONTEXTO.md y THREAT_MODEL.md ya no repiten cifras de comandos, estructuras,
+  líneas o pruebas (remiten al inventario generado) y `docs:check` rechaza que
+  vuelvan; la tabla de auditorías de AUDITORIA.md tiene fecha y commit, con
+  resultados de hoy (DOC-01, DOC-03).
 - Nuevo test de exportación sin cargar en memoria (CSV, CSV para Excel y SQL)
   que falla si se pierden ceros a la izquierda, códigos largos o decimales como
   `1.50`; el perfil con NaN e infinitos queda cubierto por el test de RV48

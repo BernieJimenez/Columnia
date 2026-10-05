@@ -192,6 +192,15 @@ export function localLinkTargets(contents) {
   return targets;
 }
 
+/**
+ * DOC-01: figures that only the generated inventory or a test run can know.
+ * Written by hand in a living document they go stale, so they are rejected.
+ */
+export function handWrittenInventoryFigures(contents) {
+  const pattern = /\b\d+ (?:comandos de producción|estructuras compartidas|estructuras del inventario|pruebas (?:frontend|Rust)|tests (?:frontend|Rust))\b/g;
+  return [...contents.matchAll(pattern)].map((match) => match[0]);
+}
+
 /** Documents whose links are not maintained: frozen snapshots and audit drafts. */
 export function skipsLinkCheck(relativePath) {
   return relativePath.startsWith("docs/archive/") || /^docs\/auditorias\/[^/]+\/parciales\//.test(relativePath);
@@ -369,6 +378,11 @@ try {
     }
   }
   if (brokenLinks.length > 0) fail(`Enlaces locales rotos: ${brokenLinks.join(", ")}`);
+  // AUDITORIA.md keeps its counts because the checks above verify them.
+  for (const living of ["CONTEXTO.md", "THREAT_MODEL.md", "README.md"]) {
+    const figures = handWrittenInventoryFigures(await readUtf8(living));
+    if (figures.length > 0) fail(`${living} repite cifras que caducan (${figures.join(", ")}); remite a docs/reference/ipc-inventory.json o a la evidencia fechada.`);
+  }
 
   for (const imageRoot of ["docs", "fixtures"]) {
     for (const image of await imagesUnder(imageRoot)) {

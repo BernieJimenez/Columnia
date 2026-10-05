@@ -91,3 +91,9 @@ test("los parciales de auditoría y el archivo no se revisan por enlaces (OPS-09
   assert.equal(skipsLinkCheck("docs/archive/v0.md"), true);
   assert.equal(skipsLinkCheck("docs/auditorias/2026-10-01/AUDITORIA.md"), false);
 });
+
+test("rechaza cifras de inventario escritas a mano (DOC-01)", async () => {
+  const { handWrittenInventoryFigures } = await import("./check-documentation.mjs");
+  assert.deepEqual(handWrittenInventoryFigures("Registra 92 comandos de producción y 84 estructuras compartidas."), ["92 comandos de producción", "84 estructuras compartidas"]);
+  assert.deepEqual(handWrittenInventoryFigures("Las cifras vigentes están en el inventario."), []);
+});

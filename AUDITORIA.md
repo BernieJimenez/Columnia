@@ -13,7 +13,7 @@ Este snapshot técnico se conserva aquí para evitar una segunda auditoría
 independiente. No es otra cola de trabajo: los cambios necesarios siguen el orden
 de [`ROADMAP.md`](ROADMAP.md).
 
-Ficha de dependencias regenerada el **2026-09-23** sobre `1.26.0` desde los manifiestos. El commit `cb86ea5` (2026-09-20) subió versiones mayores de TypeScript (7), Vite (8), Vitest y su cobertura (5), jsdom (29), `@vitejs/plugin-react` (6) y `@testing-library/jest-dom` (7), además de `rusqlite` 0.40, `tokio` 1.53 y `tauri-plugin-updater` 2.12; el gate Full del 2026-09-23 pasa con ellas. El inventario IPC quedó verificado y sincronizado el **2026-09-22**. Es una referencia local
+Ficha de dependencias comprobada el **2026-10-04** sobre `1.26.0` desde los manifiestos (`docs:check` la compara con ellos). El commit `cb86ea5` (2026-09-20) subió versiones mayores de TypeScript (7), Vite (8), Vitest y su cobertura (5), jsdom (29), `@vitejs/plugin-react` (6) y `@testing-library/jest-dom` (7), además de `rusqlite` 0.40, `tokio` 1.53 y `tauri-plugin-updater` 2.12; el gate Full del 2026-09-23 pasa con ellas. Es una referencia local
 reproducible, no una aprobación permanente de actualizar a la última versión.
 Antes de cambiar una dependencia, ejecuta los comandos de la tabla y registra el
 resultado en el mismo cambio.
@@ -55,17 +55,23 @@ de supply chain verifica checksums y fuentes. Las versiones declaradas son:
 
 ### Auditorías ejecutadas
 
-| Comando | Resultado del snapshot | Interpretación |
+Resultados del **2026-10-04** sobre el commit `11dc27d` (DOC-03). Son una
+fotografía fechada, no un estado permanente: la evidencia completa queda en
+`.local/validation/` y antes de un release se vuelven a ejecutar. Los conteos de
+dependencias del lockfile y del inventario IPC los comprueba `docs:check` contra
+`package-lock.json` e [`ipc-inventory.json`](docs/reference/ipc-inventory.json).
+
+| Comando | Resultado (2026-10-04, `11dc27d`) | Interpretación |
 | --- | --- | --- |
-| `npm audit --json --omit=optional` | 0 vulnerabilidades reportadas; 200 dependencias del lockfile | Reauditado el 2026-09-24 tras añadir `oxlint`; repetir antes de release |
-| `cargo audit --json` | `cargo-audit 0.22.2`; 0 vulnerabilidades después de las excepciones documentadas; los avisos informativos no son bloqueantes | `quick-xml 0.39.4` llega transitivamente por `object_store 0.13.2`; Columnia no habilita los features cloud ni expone un flujo remoto. La razón vigente está en `src-tauri/deny.toml` |
-| `cargo deny --format json check` | `cargo-deny 0.20.2`; advisories/licencias/fuentes sin errores; 48 duplicados en warning | Política explícita en `src-tauri/deny.toml`; excepciones upstream tienen razón y se revisan al actualizar Tauri/Polars |
+| `npm audit --json --omit=optional` | 0 vulnerabilidades; 200 dependencias del lockfile | Desde OPS-01, una vulnerabilidad hace fallar `supply-chain:check` |
+| `cargo audit --json` | 0 vulnerabilidades; avisos informativos (7 crates sin mantenimiento, 1 unsound) con 2 excepciones documentadas | `quick-xml` llega transitivamente por `object_store`; Columnia no habilita los features cloud. La razón vigente está en `src-tauri/deny.toml` |
+| `cargo deny --format json check` | Aprobado | Política explícita en `src-tauri/deny.toml`; las excepciones upstream tienen razón y se revisan al actualizar Tauri/Polars |
 | `cargo outdated --version` | Herramienta no instalada | No se inventa un estado de actualización Cargo |
-| `npm run secrets:check` | 0 hallazgos; 477 archivos inspeccionados | Escaneo local de claves privadas, tokens y credenciales asignadas |
+| `npm run secrets:check` | Aprobado | Escaneo de los archivos versionados en busca de claves privadas, tokens y credenciales |
 | `npm run network:check` | Aprobado | Sin APIs de red/telemetría en producción; CSP solo deja IPC interno |
-| `npm run notices:check` | Aprobado; 999 identidades de dependencia sin `UNKNOWN`, sin filas duplicadas | `THIRD_PARTY_NOTICES.md` se deriva offline de ambos lockfiles y rechaza licencias desconocidas, contradictorias o incompletas |
-| `npm run toolchains:check` | Aprobado; Node 24.14.0, npm 11.10.1 y Rust/Cargo 1.98.1 | Las versiones exactas están fijadas en `package.json` y `rust-toolchain.toml` |
-| `npm run ipc:check` | Aprobado; 92 comandos de producción, 4 debug y 84 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](docs/reference/ipc-inventory.json); incluye tareas reutilizables, catálogo de proyectos/candidato de recuperación combinado, preflight/presets de entrega, inspección de libros en dos pasos y updater autenticado |
+| `npm run notices:check` | Aprobado | `THIRD_PARTY_NOTICES.md` se deriva offline de ambos lockfiles; aprueba igual en un clon con CRLF (OPS-03) |
+| `npm run toolchains:check` | Aprobado; Node 24.14.0, npm 11.10.1 y Rust/Cargo 1.98.1 | Node y npm se comparan con el rango de `engines`; Rust con `rust-toolchain.toml` |
+| `npm run ipc:check` | Aprobado; 92 comandos de producción, 4 debug y 84 estructuras compartidas | El inventario se genera desde `generate_handler!` y exige un `invoke` de TypeScript por cada comando de producción |
 
 Las excepciones de `cargo audit`/`cargo deny` no ocultan una vulnerabilidad de
 la aplicación: están limitadas a advisories transitivos con razón, versión y

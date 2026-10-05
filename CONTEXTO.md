@@ -73,7 +73,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | Ruta | Responsabilidad |
 | --- | --- |
 | `src/main.tsx` | Monta `<App />` en modo estricto de React y publica la marca de bootstrap usada para separar compilación fría del primer render. |
-| `src/App.tsx` | Coordina el flujo principal y los estados compartidos de la interfaz en 867 líneas. |
+| `src/App.tsx` | Coordina el flujo principal y los estados compartidos de la interfaz. |
 | `src/components/` | Componentes accesibles extraídos para diálogos, tabs de revisión y progreso cancelable. |
 | `src/components/ResourceMonitor.tsx` | Monitor compacto de consumo de CPU/RAM del proceso y del equipo, con polling nativo, selector persistente de concurrencia Rayon y estado degradado para el shell web. |
 | `src/features/load/` | Fase Cargar: vista y modelo de inspección, selección de hojas, arrastre nativo sin rutas en React, archivos recientes sin rutas, progreso, cancelación y recuperación. |
@@ -127,7 +127,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/verify-experience.ps1` | Ejecuta juntos `accessibility:check` y `perf:check` para verificar los contratos visual y de rendimiento después de generar evidencias. |
 | `tools/verify-tier.ps1` | Orquesta el tier reproducible completo: tests, build, accesibilidad, benchmark sostenido, Package, smokes CLI/WebView2 y gates finales; permite omitir Package o native de forma explícita. |
 | `tools/check-toolchains.mjs` / `rust-toolchain.toml` | Rechazan Node/npm/Rust fuera de las versiones exactas del entorno de release. |
-| `tools/check-ipc-inventory.mjs` / `docs/reference/ipc-inventory.json` | Generan y verifican desde Rust el inventario de 68 comandos de producción, 4 debug y 60 estructuras compartidas; los tests de contrato consumen el inventario. |
+| `tools/check-ipc-inventory.mjs` / `docs/reference/ipc-inventory.json` | Generan y verifican desde Rust el inventario de comandos de producción, comandos debug y estructuras compartidas (las cifras vigentes están solo en el JSON generado); los tests de contrato consumen el inventario. |
 | `docs/reference/legal-distribution-review.md` / `src/App.tsx` | Hacen descubribles MIT, notices y privacidad local; la revisión legal de canal/jurisdicción/contacto sigue pendiente antes de publicar. |
 | `ACCESSIBILITY_MANUAL_CHECKLIST.md` | Checklist operativa para teclado, lector de pantalla, High Contrast, zoom y evidencia manual; no declara completada la auditoría sin una sesión real. |
 | `fixtures/accessibility/visual-baseline-v1.json` | Contrato versionado de escenarios y mínimos visuales; no contiene imágenes ni datos de usuario. |
@@ -293,53 +293,11 @@ Los proyectos guardan el frame materializado como una nueva generación Parquet 
 
 ## Contrato React ↔ Rust
 
-La superficie pública está centralizada en `src/bridge.ts` y registrada en `src-tauri/src/lib.rs`.
+La superficie pública está centralizada en `src/bridge/` y registrada en `generate_handler!` de `src-tauri/src/lib.rs`. La lista completa y vigente de comandos y estructuras compartidas es [`docs/reference/ipc-inventory.json`](docs/reference/ipc-inventory.json), generada desde Rust por `npm run ipc:check -- --write`; este documento no repite cifras ni listas que puedan quedar viejas (DOC-01).
 
-### Runtime y carga
+Detalle que no está en el inventario: `open_last_export_in_power_bi` escribe `<nombre>.pbids` (protocolo `file` y la ruta, sin el prefijo `\\?\`) junto a la última exportación CSV, Excel o Parquet y lo abre con `explorer.exe`; si la extensión `.pbids` no está registrada, explica que falta Power BI Desktop. No recibe rutas desde React y avisa si el CSV tiene saltos de línea dentro de celdas entre comillas.
 
-- `get_app_info`
-- `get_resource_usage`
-- `pick_dataset_source`
-- `load_dataset_selection`
-- `discard_dataset_selection`
-- `get_dataset_page`
-
-### Perfil, cancelación y entrega
-
-- `get_dataset_profile`
-- `validate_quality_rules`
-- `cancel_operation`
-- `export_dataset`
-- `open_last_export_in_power_bi`: escribe `<nombre>.pbids` (origen de datos de
-  Power BI Desktop: protocolo `file` y la ruta, sin el prefijo `\\?\`) junto a la
-  última exportación CSV, Excel o Parquet y lo abre con `explorer.exe`; si la extensión
-  `.pbids` no está registrada, explica que falta Power BI Desktop. No recibe rutas
-  desde React. Devuelve si el CSV tiene saltos de línea dentro de celdas entre
-  comillas, que la importación por defecto de Power BI parte en dos filas.
-
-### Preparación e historial
-
-- `remove_duplicates`
-- `normalize_column_names`
-- `trim_text_values`
-- `normalize_text_values`
-- `preview_safe_corrections`
-- `apply_safe_corrections`
-- `apply_transform_recipe`
-- `save_transform_recipe`
-- `pick_transform_recipe`
-- `get_history_state`
-- `undo_last_change`
-- `redo_last_change`
-
-### Proyectos y recuperación
-
-- `list_projects`
-- `save_project`
-- `open_project`
-- `delete_project`
-
-Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en el bridge y en el inventario generado. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores y las 69 estructuras compartidas del inventario. Las subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
+Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en el bridge y en el inventario generado. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores y todas las estructuras compartidas del inventario. Las subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
 
 ## Capacidades implementadas
 
@@ -565,15 +523,13 @@ Los gates estáticos verifican que la CSP de producción permanezca local, que d
 
 Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del registro oficial, crates sin checksum o fuera de crates.io, fuentes Git e identidades contradictorias. Release genera el SBOM sin red, timestamps, UUID, rutas locales ni URLs de descarga.
 
-La validación del 2026-08-28 registra 248 pruebas frontend, 234 pruebas Rust y 9
-E2E; las ramas específicas de symlinks/reparse points dependen de la plataforma.
-Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
+Las ramas específicas de symlinks/reparse points dependen de la plataforma; en Windows se prueban con una unión de directorio, que no requiere privilegios.
 
 ## Riesgos y deuda técnica visibles
 
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.
 2. **Editor de recetas amplio**: las cinco fases viven en módulos feature y el estado de Revisar y Entregar está en `useReviewController` y `useDeliveryController` (T10-23 y T10-24). `App.tsx` conserva la carga, la navegación y la coordinación entre fases. `TransformRecipeEditor.tsx` reúne muchos subdominios de receta. Cualquier división futura debe preservar el orden, dependencias y confirmaciones destructivas.
-3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 69 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
+3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero las estructuras compartidas del inventario tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
 4. **Memoria**: los datasets no tienen un tope fijo de tamaño. Polars materializa el dataset y algunas operaciones crean candidatos completos, por lo que la capacidad efectiva depende de la RAM, el espacio disponible y los demás recursos del equipo.
 5. **Consumo de disco durable**: cada proyecto puede conservar generaciones e historial Parquet de hasta 12 revisiones/1 GiB; los límites por proyecto no forman un presupuesto global para todos los proyectos.
 6. **Cobertura de plataforma**: arranque y empaquetado están verificados en Windows; macOS y Linux aún requieren validación local real.
