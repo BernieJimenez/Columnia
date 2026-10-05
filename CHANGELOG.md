@@ -203,6 +203,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- «Completar categorías desconocidas» e «Intentar imputación conservadora» ya no
+  rellenan correos, nombres, teléfonos, direcciones ni identificadores: el motor
+  los salta en memoria y en archivos grandes, y Preparar no ofrece esas columnas
+  (FUN-47).
 - La vista previa de una receta con resumen agrupado muestra exactamente las
   columnas de agrupación y las agregaciones; que un plan no cambiara nada se
   indica con un campo y ya no se deduce del texto del mensaje (FUN-45, FUN-46).

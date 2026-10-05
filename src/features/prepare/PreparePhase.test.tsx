@@ -1225,6 +1225,53 @@ describe("PreparePhase", () => {
     expect(props.onRecipeDraftChange).not.toHaveBeenCalled();
   });
 
+  it("no ofrece rellenar con Desconocido ni imputar columnas personales o identificadores (FUN-47)", () => {
+    const personalDataset: DatasetPreview = {
+      ...dataset,
+      columns: [{ name: "correo", dataType: "String" }, { name: "cliente_id", dataType: "String" }],
+      columnCount: 2,
+      rows: [["a@b.c", "C1"], [null, null]],
+    };
+    const base = cleaningSignalsProfile.columns[5];
+    const textColumn = (name: string, privacySignal: "email" | "identifier") => ({
+      ...base, name, dataType: "String", nullCount: 1, completenessPercentage: 50, privacySignal,
+      outlierCount: 0, suggestedType: null, typeMatchPercentage: null, invalidTypeCount: 0, sentinelCount: 0, encodingIssueCount: 0,
+      firstQuartile: null, median: null, thirdQuartile: null, mean: null,
+    });
+    const personalProfile: DatasetProfile = {
+      ...cleaningSignalsProfile, rowCount: 2, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0,
+      columns: [textColumn("correo", "email"), textColumn("cliente_id", "identifier")],
+    };
+    render(<PreparePhase
+      dataset={personalDataset}
+      profileStatus={{ kind: "ready", profile: personalProfile }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      onCancelProfile={() => undefined}
+      onRemoveDuplicates={() => undefined}
+      onRemoveEmptyRows={() => undefined}
+      onRemoveConstantColumns={() => undefined}
+      onRemoveEmptyColumns={() => undefined}
+      onRemoveHighNullColumns={() => undefined}
+      onNormalizeBooleans={() => undefined}
+      onImputeMissingValues={() => undefined}
+      onEnableRowAudit={() => undefined}
+      onNormalizeColumns={() => undefined}
+      onApplyRecommended={() => undefined}
+      onTrimText={() => undefined}
+      onNormalizeText={() => undefined}
+      onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
+      onUndo={() => undefined}
+      onRedo={() => undefined}
+    />);
+    openIndividualSignalActions();
+    expect(screen.queryByRole("button", { name: "Completar categorías desconocidas" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Intentar imputación conservadora" })).not.toBeInTheDocument();
+  });
+
   it("prioriza correcciones con señal y oculta herramientas sin columnas compatibles", () => {
     const onlyNumericDataset: DatasetPreview = {
       ...dataset,

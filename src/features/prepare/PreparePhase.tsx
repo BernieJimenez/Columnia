@@ -9,7 +9,7 @@ import { ChangeFeedback, HistoryBar } from "./HistoryBar";
 import { TransformRecipeEditor } from "./TransformRecipeEditor";
 import { RevisionComparison } from "./RevisionComparison";
 import { PrepareProposal, type ProposalResult } from "./PrepareProposal";
-import { buildPrepareProposal } from "./proposalModel";
+import { buildPrepareProposal, looksLikeIdentifier } from "./proposalModel";
 import {
   cellCount,
   conversionNullEstimate,
@@ -815,7 +815,9 @@ function CleaningSignals({
 }) {
   const incomplete = profile.columns.filter((column) => column.completenessPercentage < 100);
   const imputable = incomplete.filter(
-    (column) => column.nullCount > 0 && column.nullCount < profile.rowCount && column.name !== "_cambios",
+    (column) => column.nullCount > 0 && column.nullCount < profile.rowCount && column.name !== "_cambios"
+      // FUN-47: the engine leaves personal data and identifiers unfilled.
+      && !column.privacySignal && !looksLikeIdentifier(column.name),
   );
   const constant = profile.columns.filter(
     (column) => profile.rowCount > 1 && column.uniqueCount <= 1 && column.nullCount < profile.rowCount,
@@ -841,8 +843,10 @@ function CleaningSignals({
   const outliers = profile.columns.filter(
     (column) => (column.outlierCount ?? 0) > 0 && column.name !== "_cambios",
   );
+  // FUN-47: the same guards as the proposal, and as the engine applies.
   const categoricalImputable = profile.columns.filter(
-    (column) => isTextType(column.dataType) && column.nullCount > 0 && column.name !== "_cambios",
+    (column) => isTextType(column.dataType) && column.nullCount > 0 && column.name !== "_cambios"
+      && !column.privacySignal && column.suggestedType !== "date" && !looksLikeIdentifier(column.name),
   );
   const hasNullActions = empty.length > 0 || highNull.length > 0 || imputable.length > 0 || categoricalImputable.length > 0;
   const dataColumns = profile.columns.filter((column) => column.name !== "_cambios");

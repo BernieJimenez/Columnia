@@ -4956,7 +4956,9 @@ fn source_backed_imputation_with_cancellation(
         .iter()
         .filter(|column| {
             column.name() != "_cambios"
+                && privacy_signal(column.name()).is_none()
                 && if categorical_only {
+                    // FUN-47: same exclusions as the in-memory path.
                     column.dtype() == &DataType::String
                 } else {
                     column.dtype() == &DataType::String
@@ -6153,6 +6155,11 @@ fn impute_missing_values_in_columns(
         if columns.is_some_and(|listed| !listed.iter().any(|listed| listed == &name)) {
             continue;
         }
+        // FUN-47: filling every column skips personal data and identifiers;
+        // an explicit list (the reviewed proposal) already left them out.
+        if columns.is_none() && privacy_signal(&name).is_some() {
+            continue;
+        }
 
         if column.dtype() == &DataType::String {
             let values = column
@@ -6318,6 +6325,11 @@ fn impute_categorical_values_in_frame(
     for column in frame.columns() {
         let name = column.name().to_string();
         if name == "_cambios" || column.dtype() != &DataType::String || column.null_count() == 0 {
+            continue;
+        }
+        // FUN-47: «Desconocido» would be a fabricated email, name, phone,
+        // address or identifier; those columns keep their gaps.
+        if privacy_signal(&name).is_some() {
             continue;
         }
         let values = column

@@ -19099,11 +19099,11 @@ fn outlier_cap_and_imputation_keep_integer_columns_exact() {
     );
 
     let big = 9_007_199_254_740_993_i64;
-    let frame = df!("id" => [Some(big), None, Some(big + 2), Some(big + 4)]).expect("frame");
+    let frame = df!("saldo" => [Some(big), None, Some(big + 2), Some(big + 4)]).expect("frame");
     let (imputed, _, changed, _, _) =
         impute_missing_values_in_columns(&frame, None).expect("imputar");
     assert_eq!(changed, 1);
-    let values = imputed.column("id").unwrap().i64().unwrap();
+    let values = imputed.column("saldo").unwrap().i64().unwrap();
     assert_eq!(values.get(0), Some(big));
     assert_eq!(values.get(1), Some(big + 2));
     assert_eq!(values.get(3), Some(big + 4));
@@ -20828,4 +20828,34 @@ fn a_saved_import_profile_applies_comma_decimals_and_day_month_dates_to_a_file()
     assert_eq!(dates.get(0), Some("2025-02-01"));
     assert_eq!(dates.get(1), Some("2024-12-31"));
     assert_eq!(import_profile_schema_mismatch(&profile, &converted), None);
+}
+
+/// FUN-47: filling with «Desconocido» skips emails, names, phones and
+/// identifiers, as the one-click proposal does.
+#[test]
+fn categorical_fill_leaves_personal_and_identifier_columns_alone() {
+    let frame = df![
+        "estado" => [Some("ok"), None, Some("ok")],
+        "correo" => [Some("a@b.c"), None, Some("c@d.e")],
+        "cliente_id" => [Some("C1"), None, Some("C3")],
+        "nombre" => [Some("Ana"), None, Some("Luis")]
+    ]
+    .unwrap();
+    let (cleaned, _, changed_cells, changed_columns) =
+        impute_categorical_values_in_frame(&frame).unwrap();
+    assert_eq!(changed_cells, 1);
+    assert_eq!(
+        changed_columns
+            .iter()
+            .map(|column| column.name.as_str())
+            .collect::<Vec<_>>(),
+        ["estado"]
+    );
+    for untouched in ["correo", "cliente_id", "nombre"] {
+        assert_eq!(
+            cleaned.column(untouched).unwrap().null_count(),
+            1,
+            "{untouched}"
+        );
+    }
 }
