@@ -1,6 +1,7 @@
 # ADR-0001: contratos iniciales del repositorio
 
-- Estado: Aprobada
+- Estado: Reemplazada en parte por [ADR-0002](0002-motores-entrega-y-distribucion.md)
+  (decisiones 1 en lo relativo a binarios, 4 y 5); el resto sigue vigente
 - Fecha: 2026-08-23
 - Alcance: Fase I0, prototipo `0.49.0`
 

@@ -10,6 +10,7 @@ const requiredFiles = [
   "docs/README.md",
   "docs/adr/README.md",
   "docs/adr/0001-contratos-del-repositorio.md",
+  "docs/adr/0002-motores-entrega-y-distribucion.md",
   "docs/tutorials/first-dataset.md",
   "docs/how-to/run-beta-validation.md",
   "docs/how-to/validate-release-evidence.md",

@@ -203,6 +203,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Nuevo ADR-0002 con las decisiones ya aplicadas (Polars y DuckDB, entrega ODBC,
+  updater desactivado sin endpoint, catálogos SQLite, informes de fallo locales,
+  distribución solo como código fuente y uso personal); ADR-0001 queda marcado
+  como reemplazado en parte (DOC-06).
 - CONTEXTO.md y THREAT_MODEL.md ya no repiten cifras de comandos, estructuras,
   líneas o pruebas (remiten al inventario generado) y `docs:check` rechaza que
   vuelvan; la tabla de auditorías de AUDITORIA.md tiene fecha y commit, con

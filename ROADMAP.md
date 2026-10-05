@@ -281,9 +281,9 @@ medio = 1 día; agregado por suma.
   - [x] `DOC-01` (Medio) CONTEXTO.md: cifras e inventario de IPC desactualizados y contradictorios entre sí — hecho el 2026-10-04
   - [x] `DOC-03` (Medio) AUDITORIA.md: resultados de gates con fecha vieja o ya falsos — hecho el 2026-10-04
   - [ ] `DOC-04` (Medio) CHANGELOG: la versión vigente 1.26.0 no tiene sección y el archivo funciona como diario de trabajo — Requiere tu decisión: crear la sección [1.26.0] equivale a cortar la versión (ROADMAP: «la sección se crea al cortar la versión»); no se hace sin tu indicación
-- [ ] **RV64** — **Configuración de Rust y Tauri** — El único ADR está obsoleto y contradice la realidad; decisiones mayores sin ADR · *Esfuerzo: 1 día*
+- [x] **RV64** — **Configuración de Rust y Tauri** — El único ADR está obsoleto y contradice la realidad; decisiones mayores sin ADR · *Esfuerzo: 1 día* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de DOC-06.
-  - [ ] `DOC-06` (Medio) El único ADR está obsoleto y contradice la realidad; decisiones mayores sin ADR
+  - [x] `DOC-06` (Medio) El único ADR está obsoleto y contradice la realidad; decisiones mayores sin ADR — hecho el 2026-10-04
 
 ### Tier 3 — Pulido y mantenimiento
 
