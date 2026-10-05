@@ -41,7 +41,7 @@ agregada y sanitizada que se versiona al cerrar los gates.
   formatos obligatorios, persistencia, presupuestos y límites explícitos.
 - [Referencia de la CLI](reference/cli.md): comandos, opciones, contratos JSON y
   códigos de salida.
-- [Paridad funcional](reference/feature-parity.md): capacidades disponibles,
+- [Capacidades](reference/capabilities.md): capacidades disponibles,
   contratos de calidad y brechas pendientes.
 - [Monitor de recursos](reference/resource-monitor.md): contrato de CPU,
   memoria disponible y estado explícito de la capacidad GPU.

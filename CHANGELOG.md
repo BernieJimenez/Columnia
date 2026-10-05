@@ -203,6 +203,16 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- CLI: `--opción=valor` permite valores que empiezan por `--` (`--sheet=--x`);
+  `project-list`, `project-inspect`, `project-export` y `project-delete` ya no
+  crean un almacén inexistente y el listado marca con `snapshotAvailable` los
+  proyectos cuyos datos ya no se leen; los errores de stderr ocultan rutas
+  (también relativas), correos y secretos sin perder el resto del mensaje; los
+  errores de receta, identificador y salida dicen su causa; `cli.md` documenta
+  TXT/JSONL/NDJSON, el significado de `dataType` por formato y que `--release`
+  no hace falta, y el gate de documentación compara sus subcomandos con la CLI;
+  `feature-parity.md` pasa a `capabilities.md` con la fila de Escala como lista
+  (FUN-69, DAT-13, SEG-10, UX-07, DOC-14, DOC-18).
 - Exportación: un XLSX con más de 16.384 columnas se rechaza con un mensaje
   claro antes de escribir; el paquete ZIP lista exactamente los archivos que
   lleva (`recipe.json` solo con una receta activa, `quality-report.json` solo

@@ -215,6 +215,20 @@ export function undocumentedEnvironmentVariables(sources, table) {
   return [...names].filter((name) => !table.includes(`\`${name}\``)).sort();
 }
 
+/**
+ * DOC-14: the subcommands documented in docs/reference/cli.md (one `###`
+ * heading each) against those of the CLI help in src-tauri/src/automation.rs.
+ */
+export function cliSubcommandProblems(reference, automationSource) {
+  const documented = new Set([...reference.matchAll(/^### `([a-z-]+)`$/gm)].map((match) => match[1]));
+  const help = automationSource.match(/const GENERAL_HELP: &str = "([^"]*(?:\\"[^"]*)*)"/)?.[1] ?? "";
+  const implemented = new Set([...help.matchAll(/columnia-cli ([a-z-]+)/g)].map((match) => match[1]));
+  return [
+    ...[...implemented].filter((name) => !documented.has(name)).map((name) => `${name} falta en cli.md`),
+    ...[...documented].filter((name) => !implemented.has(name)).map((name) => `${name} no existe en la CLI`),
+  ];
+}
+
 /** Documents whose links are not maintained: frozen snapshots and audit drafts. */
 export function skipsLinkCheck(relativePath) {
   return relativePath.startsWith("docs/archive/") || /^docs\/auditorias\/[^/]+\/parciales\//.test(relativePath);
@@ -411,6 +425,8 @@ try {
   }
   const undocumented = undocumentedEnvironmentVariables(environmentSources, await readUtf8("docs/reference/environment-variables.md"));
   if (undocumented.length > 0) fail(`Variables de entorno sin documentar en docs/reference/environment-variables.md: ${undocumented.join(", ")}`);
+  const cliProblems = cliSubcommandProblems(await readUtf8("docs/reference/cli.md"), await readUtf8("src-tauri/src/automation.rs"));
+  if (cliProblems.length > 0) fail(`docs/reference/cli.md no coincide con la CLI: ${cliProblems.join(", ")}`);
   // AUDITORIA.md keeps its counts because the checks above verify them.
   for (const living of ["CONTEXTO.md", "THREAT_MODEL.md", "README.md"]) {
     const figures = handWrittenInventoryFigures(await readUtf8(living));

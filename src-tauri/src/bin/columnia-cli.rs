@@ -9,7 +9,11 @@ fn main() -> ExitCode {
     match run() {
         Ok(exit_code) => exit_code,
         Err(error) => {
-            eprintln!("Error: {error}");
+            // SEG-10: stderr carries no paths, like stdout.
+            eprintln!(
+                "Error: {}",
+                privacy::sanitize_error_message(&error.to_string())
+            );
             eprintln!("Usa columnia-cli --help para ver la interfaz admitida.");
             ExitCode::FAILURE
         }

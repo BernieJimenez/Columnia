@@ -18,7 +18,7 @@ de rutas fuera del repositorio.
 | Salidas | CSV, CSV para Excel (UTF-8 con BOM y punto y coma), JSON, Parquet, SQL, Excel, SQLite, bundle ZIP auditable y entrega ODBC a PostgreSQL/MySQL/SQL Server con transmisión source-backed y desde snapshots Parquet durables compatibles | Implementada | Políticas de esquema remoto más ricas y streaming para fuentes aún incompatibles |
 | Proyectos | Catálogo SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes, reapertura segura, cobertura de correlaciones, motor SQL, perfil de rendimiento, formato de exportación, protección, claves de comparación y tipo de JOIN por proyecto | Implementada | Muestras y resultados derivados no portables |
 | Privacidad | Sin telemetría, sanitización de contratos e informes, detección agregada de datos personales y máscara/hash local | Implementada | Extender contratos equivalentes |
-| Escala | Lazy para recetas compatibles, apertura source-backed de JSON/JSONL/NDJSON/XLSX/XLSB grandes mediante snapshots Parquet privados por bloques, limpiezas source-backed de filas vacías, duplicados exactos y parecidos, columnas con historial reversible, correcciones recomendadas que combinan trim/renombres, retiro y máscara de identificadores y datos personales detectados desde DuckDB, normalización de nombres y activación de `_cambios` source-backed, recorte/normalización de texto/valores centinela y booleanos source-backed con umbrales y conteos exactos, separación source-backed de tipos incompatibles con inferencia conservadora de booleanos/enteros/decimales/fechas, corrección source-backed de secuencias mojibake inequívocas con fallback eager para valores ambiguos, inferencia source-backed de números y fechas, imputaciones source-backed conservadora y categórica, acciones directas IQR source-backed `cap`/`impute`/`drop`, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal y regex con grupos `$1`–`$9`/división calculada/división de texto/unión/extracción de texto/normalización de contactos/resúmenes por grupo/tratamientos IQR, protección `mask`/`hash` mediante snapshot DuckDB, lectura por bloques, snapshots administrados, conteo de apertura con DuckDB y cancelación, exportación CSV/JSON/Parquet/SQL/Excel/SQLite/Bundle/ODBC source-backed con privacidad incremental, Bundle con `recipe.json` validado y entrega remota por lotes a PostgreSQL/MySQL/SQL Server, transferencia por filas de Excel y SQLite, diccionario Bundle con nulos agregados en disco, consultas y mutaciones source-backed `INNER`/`LEFT`/`FULL JOIN`, consolidación y resolución acotada de conflictos por claves, paginación de conflictos desde disco con resultados Parquet reversibles, DuckDB opcional, `JOIN` con frame activo y snapshot Parquet comparado, benchmark source-backed de 512 MiB, orden global por conteo real, rechazo de materialización implícita cuando la combinación es compatible, cancelación, guardia de RAM para materialización eager de fuentes grandes y restauración durable de snapshots, admisión común para lecturas eager indirectas de comparación, historial y automatización, y presupuestos explícitos | Parcial | Streaming remoto para fuentes/reglas aún incompatibles y ejecución integral fuera de RAM |
+| Escala | Lazy, source-backed (DuckDB) y lectura por bloques; detalle en [Escala](#escala) | Parcial | Streaming remoto para fuentes/reglas aún incompatibles y ejecución integral fuera de RAM |
 
 Los JOIN mutadores `INNER`, `LEFT` y `FULL` también reutilizan el snapshot
 Parquet durable del cursor actual cuando el dataset activo ya está materializado.
@@ -299,3 +299,38 @@ Los contratos se cubren por capas:
 - `npm run brand:check` evita que regresen referencias de marca retiradas al árbol activo.
 - `npm run ipc:check` compara el inventario IPC con `lib.rs` y el bridge.
 - `npm run verify:tier` orquesta los gates reproducibles del tier completo.
+
+## Escala
+
+- Recetas lazy cuando son compatibles.
+- Apertura source-backed de JSON/JSONL/NDJSON/XLSX/XLSB grandes mediante
+  snapshots Parquet privados por bloques, con conteo de apertura en DuckDB y
+  cancelación.
+- Limpiezas source-backed: filas vacías, duplicados exactos y parecidos,
+  columnas con historial reversible, recorte y normalización de texto, valores
+  centinela y booleanos con umbrales y conteos exactos.
+- Correcciones recomendadas source-backed que combinan recortes y renombres,
+  retiro y máscara de identificadores y datos personales detectados, y
+  normalización de nombres con `_cambios`.
+- Separación de tipos incompatibles con inferencia conservadora de booleanos,
+  enteros, decimales y fechas; corrección de mojibake inequívoco con alternativa
+  eager para los valores ambiguos.
+- Imputación conservadora y categórica, y acciones IQR `cap`/`impute`/`drop`.
+- Recetas source-backed de proyección, filtros, casts, fechas, cálculos
+  simples, reemplazo literal y regex con grupos `$1`–`$9`, división calculada,
+  división, unión y extracción de texto, normalización de contactos, resúmenes
+  por grupo y tratamientos IQR.
+- Protección `mask`/`hash` mediante snapshot DuckDB.
+- Exportación source-backed a CSV, JSON, Parquet, SQL, Excel, SQLite, Bundle y
+  ODBC con privacidad incremental; Bundle con `recipe.json` validado y
+  diccionario con nulos calculados en disco; entrega remota por lotes a
+  PostgreSQL, MySQL y SQL Server.
+- Consultas y mutaciones `INNER`/`LEFT`/`FULL JOIN` source-backed, con el frame
+  activo o el snapshot Parquet comparado; consolidación y resolución acotada de
+  conflictos por claves, con paginación desde disco y resultados reversibles.
+- Orden global por conteo real y rechazo de la materialización implícita cuando
+  la combinación es compatible.
+- Guardia de RAM para materializar fuentes grandes, admisión común para las
+  lecturas eager indirectas (comparación, historial y automatización) y
+  restauración durable de snapshots.
+- Benchmark source-backed de 512 MiB.

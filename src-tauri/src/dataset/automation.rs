@@ -172,8 +172,9 @@ pub(super) fn export_source_backed_for_automation(
 #[derive(Debug)]
 pub(crate) enum AutomationTransformError {
     Load,
-    Recipe,
-    Export,
+    /// UX-07: each kind keeps its cause, so the CLI can say what to fix.
+    Recipe(String),
+    Export(String),
 }
 
 pub(crate) fn transform_source_backed_for_automation(
@@ -191,10 +192,10 @@ pub(crate) fn transform_source_backed_for_automation(
     let input_column_count = dataset.frame.width();
     let result = validate_recipe_structure(&recipe.recipe)
         .and_then(|()| apply_recipe_to_dataset(&mut dataset, &recipe.recipe))
-        .map_err(|_| AutomationTransformError::Recipe)?;
+        .map_err(AutomationTransformError::Recipe)?;
     let exported =
         export_source_backed_for_automation(&dataset, output, format, None, Some(recipe))
-            .map_err(|_| AutomationTransformError::Export)?;
+            .map_err(AutomationTransformError::Export)?;
     Ok(AutomationSourceBackedTransformResult {
         exported,
         changed: result.changed,

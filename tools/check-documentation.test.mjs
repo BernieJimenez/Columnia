@@ -105,3 +105,10 @@ test("cada variable COLUMNIA_* del código está en la tabla única (DOC-10)", a
   const sources = ['option_env!("COLUMNIA_UPDATER_ENDPOINT")', `process.env.${unlisted}; window.__COLUMNIA_E2E_CALLS__`];
   assert.deepEqual(undocumentedEnvironmentVariables(sources, "| `COLUMNIA_UPDATER_ENDPOINT` | ..."), [unlisted]);
 });
+
+test("los subcomandos de cli.md coinciden con la ayuda de la CLI (DOC-14)", async () => {
+  const { cliSubcommandProblems } = await import("./check-documentation.mjs");
+  const source = 'const GENERAL_HELP: &str = "USO:\\n  columnia-cli inspect --input <ruta>\\n  columnia-cli batch --manifest <ruta>\\n";';
+  assert.deepEqual(cliSubcommandProblems("### `inspect`\n\n### `batch`\n", source), []);
+  assert.deepEqual(cliSubcommandProblems("### `inspect`\n\n### `viejo`\n", source), ["batch falta en cli.md", "viejo no existe en la CLI"]);
+});

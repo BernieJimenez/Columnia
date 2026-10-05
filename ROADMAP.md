@@ -404,14 +404,14 @@ medio = 1 día; agregado por suma.
   - [x] `TXT-07` (Bajo) El paquete ZIP promete receta y el resumen dice «no incluida» aunque se aplicaron cambios; el mensaje de la UI lista un contenido distinto del real — hecho el 2026-10-05
   - [ ] `COD-15` (Bajo) Candidatos de rendimiento sin medir en exportación y updater — Hechas (a) SQL con búfer, 104 s → 2,8 s; (b) sin copia intermedia salvo el CSV de Excel, que necesita el BOM delante; (d) instalador sin clonar. **Requiere tu decisión** para (c): el lote carga cada archivo en el preflight y otra vez al ejecutarlo; validar solo la estructura evitaría la doble lectura, pero un archivo dañado en el trabajo N pasaría de «manifiesto inválido, código 1, sin salidas» a «fallo tardío, código 2, con las salidas anteriores» (cambia el contrato de cli.md).
   - [ ] `QA-55` (Bajo) Mutantes no detectados en la detección de números con signo y en el analizador de fechas
-- [ ] **RV84** — **CLI** — Parser CLI: valores que empiezan por `--` rechazados y sin separador `--` (y 5 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV84** — **CLI** — Parser CLI: valores que empiezan por `--` rechazados y sin separador `--` (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-69, DAT-13, SEG-10, UX-07, DOC-14, DOC-18.
-  - [ ] `FUN-69` (Bajo) Parser CLI: valores que empiezan por `--` rechazados y sin separador `--`
-  - [ ] `DAT-13` (Bajo) `project-list` crea la carpeta del almacén y lista proyectos cuyo snapshot ya no existe
-  - [ ] `SEG-10` (Bajo) `sanitize_error`/stderr: la CLI imprime errores sin sanear y la heurística de rutas tiene huecos
-  - [ ] `UX-07` (Bajo) Mensajes de error de la CLI que no explican la causa
-  - [ ] `DOC-14` (Bajo) cli.md, v1-scope.md y feature-parity.md: omisiones, subcomando mal ubicado y celda ilegible
-  - [ ] `DOC-18` (Bajo) `inspect` devuelve `str` para todas las columnas de un CSV y tipos reales en libros
+  - [x] `FUN-69` (Bajo) Parser CLI: valores que empiezan por `--` rechazados y sin separador `--` — hecho el 2026-10-05
+  - [x] `DAT-13` (Bajo) `project-list` crea la carpeta del almacén y lista proyectos cuyo snapshot ya no existe — hecho el 2026-10-05
+  - [x] `SEG-10` (Bajo) `sanitize_error`/stderr: la CLI imprime errores sin sanear y la heurística de rutas tiene huecos — hecho el 2026-10-05
+  - [x] `UX-07` (Bajo) Mensajes de error de la CLI que no explican la causa — hecho el 2026-10-05
+  - [x] `DOC-14` (Bajo) cli.md, v1-scope.md y feature-parity.md: omisiones, subcomando mal ubicado y celda ilegible — hecho el 2026-10-05
+  - [x] `DOC-18` (Bajo) `inspect` devuelve `str` para todas las columnas de un CSV y tipos reales en libros — hecho el 2026-10-05
 - [ ] **RV85** — **Motor de recetas** — Huellas normalizadas: el camino ASCII y el Unicode no coinciden en el espacio vertical (U… (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-70, FUN-71, FUN-72, FUN-73, FUN-74, FUN-75.
   - [ ] `FUN-70` (Bajo) Huellas normalizadas: el camino ASCII y el Unicode no coinciden en el espacio vertical (U+000B)

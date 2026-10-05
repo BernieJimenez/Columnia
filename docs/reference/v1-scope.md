@@ -79,8 +79,11 @@ si el equipo no dispone del presupuesto necesario.
 
 ## Actualizaciones
 
-V1 conserva el updater firmado de Tauri. La comprobación y descarga requieren
-una acción explícita, muestran versión y tamaño, verifican firma y no transmiten
+El updater firmado de Tauri está en el código pero apagado: solo una compilación
+con `COLUMNIA_UPDATER_ENDPOINT` (ver
+[variables de entorno](environment-variables.md)) lo activa, y la compilación de
+uso personal no la define. Activado, la comprobación y la descarga requieren una
+acción explícita, muestran versión y tamaño, verifican firma y no transmiten
 datasets. El trabajo local sigue disponible aunque no exista red o no se configure
 un canal de actualizaciones.
 

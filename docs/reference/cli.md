@@ -9,8 +9,16 @@ JSON v1 sin rutas, filas ni muestras del dataset.
 Desde la raíz del repositorio:
 
 ```powershell
-cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- <comando> <opciones>
+cargo run --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- <comando> <opciones>
 ```
+
+El perfil `dev` ya compila optimizado; no hay un perfil `release` propio, así
+que `--release` solo alarga la compilación. La primera compilación tarda varios
+minutos (Polars y DuckDB).
+
+Cada opción con valor acepta `--opción valor` y `--opción=valor`. Un valor que
+empieza por `--` (por ejemplo una hoja llamada `--x`) solo se puede pasar con la
+segunda forma: `--sheet=--x`.
 
 ## Comandos de datasets
 
@@ -20,9 +28,20 @@ cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- <
 inspect --input FILE [--sheet NAME --header first-row|generated]
 ```
 
-Acepta CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS. Los libros requieren una
-hoja exacta y un modo de encabezado. Devuelve `schemaVersion`, `command`, nombre
-visible, dimensiones y columnas con nombre y tipo.
+Acepta CSV, TSV, TXT, JSON, JSONL, NDJSON, Parquet, XLSX, XLS, XLSB y ODS. Los
+libros requieren una hoja exacta y un modo de encabezado. Devuelve
+`schemaVersion`, `command`, nombre visible, dimensiones y columnas con nombre y
+`dataType`.
+
+`dataType` es el tipo con el que se leyó el archivo, no el tipo que Columnia
+sugiere después al revisarlo:
+
+| Formato | `dataType` |
+| --- | --- |
+| CSV, TSV, TXT | Siempre `str`: Columnia lee el texto tal cual y propone los tipos en Revisar. |
+| JSON, JSONL, NDJSON | El tipo que trae el documento (`i64`, `f64`, `bool`, `str`…). |
+| Parquet | El tipo guardado en el archivo. |
+| XLSX, XLS, XLSB, ODS | El tipo de las celdas de la hoja (`f64` para números, `str` para texto). |
 
 ### `transform`
 
@@ -56,6 +75,18 @@ compatibilidad, también admite el documento histórico
 Código 0 indica contrato aprobado, 2 contrato reprobado y 1 error de uso o
 carga.
 
+### `quality-migration-report`
+
+```text
+quality-migration-report --rules FILE
+```
+
+Ejecuta un preflight sanitizado de un contrato de calidad Columnia v1 o
+legacy. Devuelve un resumen por regla con la severidad y las
+políticas `on_missing`/`null_policy`, el hash SHA-256 del artefacto y acciones
+manuales. No muestra rutas, nombres de columnas ni valores. El código es `2`
+cuando existen reglas omitidas o políticas no equivalentes que deben revisarse.
+
 ### `batch`
 
 ```text
@@ -74,7 +105,9 @@ código 2; un manifiesto inválido termina con código 1 sin outputs.
 ## Comandos de proyectos
 
 Todos requieren `--store DIR`. Ese almacén es independiente del directorio
-privado de la aplicación de escritorio.
+privado de la aplicación de escritorio. Solo `project-save` crea un almacén
+nuevo; los demás comandos terminan con código 1 si la carpeta no existe, para
+que un `--store` mal escrito no deje almacenes vacíos.
 
 ### `project-save`
 
@@ -96,18 +129,8 @@ project-list --store DIR
 ```
 
 Lista resúmenes ordenados sin activar datasets ni devolver rutas internas.
-
-### `quality-migration-report`
-
-```text
-quality-migration-report --rules FILE
-```
-
-Ejecuta un preflight sanitizado de un contrato de calidad Columnia v1 o
-legacy. Devuelve un resumen por regla con la severidad y las
-políticas `on_missing`/`null_policy`, el hash SHA-256 del artefacto y acciones
-manuales. No muestra rutas, nombres de columnas ni valores. El código es `2`
-cuando existen reglas omitidas o políticas no equivalentes que deben revisarse.
+Cada proyecto lleva `snapshotAvailable`: `false` indica que sus datos guardados
+ya no se pueden leer y que `project-export` fallará.
 
 ### `project-inspect`
 
@@ -153,6 +176,11 @@ Borra únicamente cuando `--confirm` coincide exactamente con `--id`.
 - Todos los comandos que escriben JSON pasan por la misma sanitización antes de
   llegar a stdout. Las rutas, nombres de archivo, valores, emails y secretos
   se mantienen en Rust y no aparecen en stdout ni en errores de contrato.
+- Los errores van a stderr con el mismo cuidado: las palabras que nombran una
+  ruta (también relativa), un correo o un secreto se sustituyen por
+  `[redactado]` y el resto del mensaje se conserva.
+- Un error dice qué corregir: la receta (con el paso que falló), el
+  identificador o la escritura de la salida (con la causa del sistema).
 - La exportación es atómica y un fallo conserva un destino anterior.
 - Si un archivo no se puede leer, el error nombra la causa cuando se reconoce
   (UTF-16, codificación distinta de UTF-8, finales de línea mezclados o una

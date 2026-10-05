@@ -64,6 +64,42 @@ pub fn sanitize_error(value: &str) -> String {
     }
 }
 
+/// SEG-10: a CLI error for stderr. Unlike [`sanitize_error`], which drops the
+/// whole text, only the words that name a path, an address or a secret are
+/// replaced, so the person still reads what went wrong.
+pub fn sanitize_error_message(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| !character.is_control() || *character == '\n')
+        .collect::<String>()
+        .split('\n')
+        .map(|line| {
+            let mut after_secret_key = false;
+            line.split(' ')
+                .map(|word| {
+                    // `token: abc` keeps the secret in the next word.
+                    let hidden = after_secret_key
+                        || looks_like_private_reference(word)
+                        || looks_like_sensitive_literal(word);
+                    after_secret_key = word
+                        .strip_suffix([':', '='])
+                        .is_some_and(|key| is_secret_word(&normalize_key(key)));
+                    if hidden {
+                        REDACTED
+                    } else {
+                        word
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .chars()
+        .take(MAX_SAFE_ERROR_CHARS)
+        .collect()
+}
+
 fn sanitize_value(value: &mut Value) {
     match value {
         Value::Object(object) => sanitize_object(object),
@@ -244,8 +280,11 @@ fn looks_like_private_reference(value: &str) -> bool {
         return true;
     }
     let bytes = value.as_bytes();
-    if bytes.windows(3).any(|window| {
-        window[0].is_ascii_alphabetic() && window[1] == b':' && matches!(window[2], b'\\' | b'/')
+    if (0..bytes.len().saturating_sub(2)).any(|index| {
+        bytes[index].is_ascii_alphabetic()
+            && bytes[index + 1] == b':'
+            && matches!(bytes[index + 2], b'\\' | b'/')
+            && (index == 0 || !bytes[index - 1].is_ascii_alphanumeric())
     }) {
         return true;
     }
@@ -288,11 +327,38 @@ fn looks_like_sensitive_literal(value: &str) -> bool {
             })
         })
         .any(|token| {
+            if let Some((key, value)) = token.split_once(['=', ':']) {
+                // SEG-10: `Pwd=...` or `token: ...` written inside a message.
+                if !value.is_empty() && is_secret_word(&normalize_key(key)) {
+                    return true;
+                }
+            }
             let Some(at) = token.find('@') else {
                 return false;
             };
-            at > 0 && token[at + 1..].contains('.') && at + 1 < token.len()
+            // SEG-10: `ana@localhost` is an address too, dot or not.
+            at > 0
+                && token[at + 1..]
+                    .chars()
+                    .next()
+                    .is_some_and(|character| character.is_alphanumeric())
         })
+}
+
+fn is_secret_word(normalized: &str) -> bool {
+    matches!(
+        normalized,
+        "pwd"
+            | "pass"
+            | "password"
+            | "secret"
+            | "token"
+            | "accesstoken"
+            | "apikey"
+            | "clientsecret"
+            | "authorization"
+            | "sslpassword"
+    )
 }
 
 fn looks_like_private_reference_token(value: &str) -> bool {
@@ -300,6 +366,15 @@ fn looks_like_private_reference_token(value: &str) -> bool {
         || value.starts_with("fixture://")
         || value.starts_with("\\\\")
         || value.starts_with('/')
+    {
+        return true;
+    }
+    // SEG-10: relative paths (`datos\x.csv`, `.\x`, `./x`, `../x`).
+    let unquoted = value.trim_start_matches(['"', '\'', '(', '[', '{', '=']);
+    if unquoted.contains('\\')
+        || ["./", "../", ".\\", "..\\"]
+            .iter()
+            .any(|prefix| unquoted.starts_with(prefix))
     {
         return true;
     }
@@ -468,6 +543,49 @@ mod tests {
             "La validación terminó correctamente"
         );
         assert_eq!(sanitize_error("mensaje\u{1b}[31m"), "mensaje[31m");
+    }
+
+    #[test]
+    fn cli_errors_keep_their_words_but_not_paths_addresses_or_secrets() {
+        // SEG-10
+        for (message, kept, hidden) in [
+            (
+                "No se pudo leer datos\\clientes.csv: no existe",
+                "No se pudo leer",
+                "clientes",
+            ),
+            ("No se pudo leer .\\x.csv", "No se pudo leer", "x.csv"),
+            (
+                "No se pudo leer ../privado/x.csv",
+                "No se pudo leer",
+                "privado",
+            ),
+            ("Falla C:\\Users\\Ana\\x.csv al abrir", "al abrir", "Ana"),
+            (
+                "Contacto ana@localhost sin respuesta",
+                "sin respuesta",
+                "ana@",
+            ),
+            (
+                "Driver rechazó Pwd=secreto123 en la conexión",
+                "en la conexión",
+                "secreto123",
+            ),
+            ("Fase durable: token: abc123", "Fase durable:", "abc123"),
+        ] {
+            let sanitized = sanitize_error_message(message);
+            assert!(sanitized.contains(kept), "{message} -> {sanitized}");
+            assert!(!sanitized.contains(hidden), "{message} -> {sanitized}");
+            assert!(sanitized.contains(REDACTED), "{message} -> {sanitized}");
+        }
+        assert_eq!(
+            sanitize_error_message("Consulta https://columnia.example/ayuda y/o el manual"),
+            "Consulta https://columnia.example/ayuda y/o el manual"
+        );
+        assert_eq!(
+            sanitize_error("Consulta https://columnia.example/ayuda"),
+            "Consulta https://columnia.example/ayuda"
+        );
     }
 
     #[test]

@@ -15,7 +15,7 @@ use crate::{
 };
 
 const WORKBOOK_FLAGS: &str = "Para XLSX, XLS, XLSB u ODS son obligatorios --sheet <nombre-exacto> y --header first-row|generated. En otros formatos están prohibidos.";
-const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli quality-migration-report --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. quality-migration-report, validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2 cuando requieren revisión; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
+const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli quality-migration-report --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, TXT, JSON, JSONL, NDJSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. quality-migration-report, validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2 cuando requieren revisión; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
 const INSPECT_HELP: &str = "USO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n\nInspecciona un dataset y emite esquema y dimensiones como JSON, sin filas ni rutas.\n";
 const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--force]\n\nAplica una receta Columnia y publica la salida atómicamente. Nunca escribe sobre --input ni --recipe; reemplazar otro archivo existente exige --force. CSV y Excel escriben valores como texto seguro; SQL produce un script portable, SQLite una base local con tabla dataset y bundle un ZIP con dataset, diccionario, receta validada, calidad opcional y manifest.\n";
 const VALIDATE_HELP: &str = "USO:\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nEvalúa un contrato JSON Columnia con {\"format\":\"columnia-quality-rules\",\"version\":1,\"rules\":[...]}. El documento anterior {\"version\":1,\"rules\":[...]} sigue admitido por compatibilidad. Emite solo conteos; código 0 si pasa y 2 si no pasa.\n";
@@ -345,7 +345,29 @@ impl BatchOutput {
 pub struct ProjectListOutput {
     schema_version: u8,
     command: &'static str,
-    projects: Vec<ProjectSummary>,
+    projects: Vec<ProjectListEntry>,
+}
+
+/// DAT-13: a listed project says whether its snapshot can still be read, so a
+/// project that would fail to export is visible before trying.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectListEntry {
+    #[serde(flatten)]
+    project: ProjectSummary,
+    snapshot_available: bool,
+}
+
+/// DAT-13: only `project-save` may create a store; reading one that does not
+/// exist (a mistyped `--store`) is an error, not a new empty store.
+fn existing_store(store: &Path) -> Result<(), AutomationError> {
+    if store.is_dir() {
+        Ok(())
+    } else {
+        Err(AutomationError::new(
+            "El almacén de proyectos no existe; comprueba la ruta de --store. Solo project-save crea un almacén nuevo.",
+        ))
+    }
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -433,6 +455,35 @@ fn parse_flags(
         let flag = arguments[index]
             .to_str()
             .ok_or_else(|| AutomationError::new("La opción no contiene texto válido."))?;
+        // FUN-69: `--sheet=--x` passes a value that starts with `--`; with a
+        // space such a value still reads as a forgotten value.
+        if let Some((name, value)) = flag
+            .split_once('=')
+            .filter(|(name, _)| name.starts_with("--"))
+        {
+            let Some(known_flag) = value_flags
+                .iter()
+                .copied()
+                .find(|candidate| *candidate == name)
+            else {
+                return Err(AutomationError::new(format!(
+                    "Se recibió una opción desconocida: {name}."
+                )));
+            };
+            if parsed.contains_key(known_flag) {
+                return Err(AutomationError::new(format!(
+                    "La opción {known_flag} está duplicada."
+                )));
+            }
+            if value.is_empty() {
+                return Err(AutomationError::new(format!(
+                    "La opción {known_flag} requiere un valor."
+                )));
+            }
+            parsed.insert(known_flag, OsString::from(value));
+            index += 1;
+            continue;
+        }
         if let Some(known_switch) = switches
             .iter()
             .copied()
@@ -451,7 +502,9 @@ fn parse_flags(
             .copied()
             .find(|candidate| *candidate == flag)
         else {
-            return Err(AutomationError::new("Se recibió una opción desconocida."));
+            return Err(AutomationError::new(format!(
+                "Se recibió una opción desconocida: {flag}."
+            )));
         };
         if parsed.contains_key(known_flag) || enabled.contains(known_flag) {
             return Err(AutomationError::new(format!(
@@ -462,7 +515,9 @@ fn parse_flags(
             .get(index + 1)
             .filter(|value| !value.is_empty() && !value.to_string_lossy().starts_with("--"))
             .ok_or_else(|| {
-                AutomationError::new(format!("La opción {known_flag} requiere un valor."))
+                AutomationError::new(format!(
+                    "La opción {known_flag} requiere un valor. Si el valor empieza por --, escríbelo como {known_flag}=valor."
+                ))
             })?;
         parsed.insert(known_flag, value.clone());
         index += 2;
@@ -1131,6 +1186,21 @@ fn input_problem(input: &Path) -> Option<String> {
     None
 }
 
+/// UX-07: a recipe that does not fit the data, with the step that failed.
+fn recipe_error(cause: &str) -> AutomationError {
+    AutomationError::new(format!(
+        "La receta no es válida para el dataset de entrada. Causa: {cause}"
+    ))
+}
+
+/// UX-07: the output could not be written; the cause tells a value the
+/// destination rejects apart from a folder without permission or a file in use.
+fn output_error(cause: &str) -> AutomationError {
+    AutomationError::new(format!(
+        "No se pudo escribir el archivo de salida; no se publicó nada. Causa: {cause}"
+    ))
+}
+
 fn input_error(input: &Path, summary: &str) -> AutomationError {
     match input_problem(input) {
         Some(cause) => AutomationError::new(format!("{summary} {cause}")),
@@ -1224,12 +1294,8 @@ pub fn transform_with_options(
             dataset::AutomationTransformError::Load => {
                 input_error(input, "No se pudo cargar el dataset.")
             }
-            dataset::AutomationTransformError::Recipe => {
-                AutomationError::new("La receta no es válida para el dataset de entrada.")
-            }
-            dataset::AutomationTransformError::Export => {
-                AutomationError::new("No se pudo publicar el archivo de salida de forma atómica.")
-            }
+            dataset::AutomationTransformError::Recipe(cause) => recipe_error(&cause),
+            dataset::AutomationTransformError::Export(cause) => output_error(&cause),
         })?;
         return Ok(TransformOutput {
             schema_version: 1,
@@ -1251,7 +1317,7 @@ pub fn transform_with_options(
         .map_err(|_| input_error(input, "No se pudo cargar el dataset."))?;
     let summary_before = (source.height(), source.width());
     let (candidate, changed) = dataset::apply_recipe_for_automation(&source, &stored_recipe.recipe)
-        .map_err(|_| AutomationError::new("La receta no es válida para el dataset de entrada."))?;
+        .map_err(|cause| recipe_error(&cause))?;
     let summary_after = (candidate.height(), candidate.width());
     let exported = dataset::export_frame_for_automation_with_recipe(
         &candidate,
@@ -1259,9 +1325,7 @@ pub fn transform_with_options(
         format.dataset_format(),
         Some(&stored_recipe),
     )
-    .map_err(|_| {
-        AutomationError::new("No se pudo publicar el archivo de salida de forma atómica.")
-    })?;
+    .map_err(|cause| output_error(&cause))?;
 
     Ok(TransformOutput {
         schema_version: 1,
@@ -1316,12 +1380,19 @@ pub fn validate(
 }
 
 pub fn project_list(store: &Path) -> Result<ProjectListOutput, AutomationError> {
+    existing_store(store)?;
     let projects = projects::automation_list_projects(store)
         .map_err(|_| AutomationError::new("No se pudo abrir el almacén de proyectos."))?;
     Ok(ProjectListOutput {
         schema_version: 1,
         command: "project-list",
-        projects,
+        projects: projects
+            .into_iter()
+            .map(|project| ProjectListEntry {
+                snapshot_available: project.storage_bytes.is_some(),
+                project,
+            })
+            .collect(),
     })
 }
 
@@ -1338,6 +1409,17 @@ pub fn project_save(
     profile: bool,
 ) -> Result<ProjectSaveOutput, AutomationError> {
     validate_input_options(input, sheet, header)?;
+    // UX-07: a malformed id is named before loading anything.
+    if id.as_deref().is_some_and(|id| {
+        id.len() != 32
+            || !id
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    }) {
+        return Err(AutomationError::new(
+            "El identificador de --id debe tener 32 caracteres hexadecimales en minúscula, como los que devuelven project-list y project-save.",
+        ));
+    }
     let existed = match id.as_deref() {
         Some(id) => projects::automation_list_projects(store)
             .map_err(|_| AutomationError::new("No se pudo abrir el almacén de proyectos."))?
@@ -1404,7 +1486,9 @@ pub fn project_save(
             ..previous
         },
     )
-    .map_err(|_| AutomationError::new("No se pudo guardar el proyecto."))?;
+    .map_err(|cause| {
+        AutomationError::new(format!("No se pudo guardar el proyecto. Causa: {cause}"))
+    })?;
     Ok(ProjectSaveOutput {
         schema_version: 1,
         command: "project-save",
@@ -1414,6 +1498,7 @@ pub fn project_save(
 }
 
 pub fn project_inspect(store: &Path, id: &str) -> Result<ProjectInspectOutput, AutomationError> {
+    existing_store(store)?;
     let inspection = projects::automation_inspect_project(store, id).map_err(|error| {
         AutomationError::new(format!(
             "No se pudo inspeccionar el proyecto solicitado. Fase durable: {error}"
@@ -1467,6 +1552,7 @@ pub fn project_export_with_options(
             "La extensión de --output debe coincidir con --format.",
         ));
     }
+    existing_store(store)?;
     let opened = projects::automation_open_project(store, id)
         .map_err(|_| AutomationError::new("No se pudo abrir el proyecto solicitado."))?;
     let total_rules = opened.workspace.quality_rules.len();
@@ -1546,7 +1632,7 @@ pub fn project_export_with_options(
         if error == dataset::DESTINATION_IS_SOURCE_MESSAGE {
             AutomationError::new(error)
         } else {
-            AutomationError::new("No se pudo publicar la salida de forma atómica.")
+            output_error(&error)
         }
     })?;
     Ok(ProjectExportOutput {
@@ -1570,6 +1656,7 @@ pub fn project_delete(
             "La confirmación no coincide exactamente con el identificador.",
         ));
     }
+    existing_store(store)?;
     projects::automation_delete_project(store, &id)
         .map_err(|_| AutomationError::new("No se pudo eliminar el proyecto solicitado."))?;
     Ok(ProjectDeleteOutput {
@@ -1929,6 +2016,8 @@ mod tests {
         assert_eq!(json["fileName"], "source.csv");
         assert_eq!(json["rowCount"], 2);
         assert_eq!(json["columnCount"], 2);
+        // DOC-18: a delimited file is read as text; cli.md documents it.
+        assert_eq!(json["columns"][1]["dataType"], "str");
         assert!(json.get("rows").is_none());
         assert!(json.get("path").is_none());
         assert!(!json
@@ -2013,6 +2102,34 @@ mod tests {
         ])
         .unwrap();
         assert!(matches!(parsed, CliCommand::Transform { force: true, .. }));
+    }
+
+    #[test]
+    fn option_values_that_start_with_two_dashes_use_the_equals_form() {
+        // FUN-69
+        let parsed = parse_cli_args([
+            "inspect",
+            "--input=libro.xlsx",
+            "--sheet=--x",
+            "--header",
+            "first-row",
+        ])
+        .unwrap();
+        assert!(matches!(
+            parsed,
+            CliCommand::Inspect { ref input, sheet: Some(ref sheet), .. }
+                if input == Path::new("libro.xlsx") && sheet == "--x"
+        ));
+
+        let error = parse_cli_args(["inspect", "--input", "a.xlsx", "--sheet", "--x"]).unwrap_err();
+        assert!(error.to_string().contains("--sheet=valor"), "{error}");
+        for arguments in [
+            ["inspect", "--input=a.csv", "--input=b.csv"],
+            ["inspect", "--input=", "--header=first-row"],
+            ["inspect", "--otra=1", "--input=a.csv"],
+        ] {
+            assert!(parse_cli_args(arguments).is_err(), "{arguments:?}");
+        }
     }
 
     /// PROD-01: an unreadable input names its cause, and JSON with a UTF-8 BOM loads.
@@ -2269,7 +2386,7 @@ C,3
         assert!(!absent_output.exists());
         assert_eq!(
             error.to_string(),
-            "La receta no es válida para el dataset de entrada."
+            "La receta no es válida para el dataset de entrada. Causa: La columna 'missing' no existe en el dataset activo."
         );
         assert!(!error
             .to_string()
@@ -2550,6 +2667,90 @@ C,3
     }
 
     #[test]
+    fn cli_errors_name_the_cause_to_fix() {
+        // UX-07
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("source.csv");
+        fs::write(&input, "id\n1\n").unwrap();
+        let error = project_save(
+            &directory.path().join("store"),
+            "Ventas".to_owned(),
+            &input,
+            Some("p1".to_owned()),
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("32 caracteres hexadecimales"),
+            "{error}"
+        );
+
+        let recipe = directory.path().join("recipe.json");
+        write_recipe(&recipe, "missing", "new");
+        let error = transform(
+            &input,
+            None,
+            None,
+            &recipe,
+            &directory.path().join("out.csv"),
+            AutomationFormat::Csv,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.starts_with("La receta no es válida"), "{error}");
+        assert!(error.contains("Causa: "), "{error}");
+        assert!(output_error("disco lleno")
+            .to_string()
+            .contains("Causa: disco lleno"));
+    }
+
+    #[test]
+    fn project_list_reads_an_existing_store_and_flags_a_lost_snapshot() {
+        // DAT-13
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("almacen-mal-escrito");
+        let error = project_list(&missing).unwrap_err();
+        assert!(error.to_string().contains("no existe"), "{error}");
+        assert!(!missing.exists());
+        assert!(project_inspect(&missing, "0123456789abcdef0123456789abcdef").is_err());
+        assert!(!missing.exists());
+
+        let store = directory.path().join("store");
+        let input = directory.path().join("source.csv");
+        fs::write(&input, "id\n1\n").unwrap();
+        project_save(
+            &store,
+            "Ventas".to_owned(),
+            &input,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+        for entry in fs::read_dir(store.join("project-snapshots")).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                fs::remove_dir_all(path).unwrap();
+            } else {
+                fs::remove_file(path).unwrap();
+            }
+        }
+        let list = project_list(&store).unwrap();
+        assert_eq!(list.projects.len(), 1);
+        assert!(!list.projects[0].snapshot_available);
+        let json = serde_json::to_value(&list).unwrap();
+        assert_eq!(json["projects"][0]["snapshotAvailable"], false);
+        assert_eq!(json["projects"][0]["name"], "Ventas");
+    }
+
+    #[test]
     fn project_commands_persist_inspect_export_and_delete_without_paths() {
         let directory = tempfile::tempdir().unwrap();
         let store = directory.path().join("store");
@@ -2588,7 +2789,13 @@ C,3
         );
         let id = saved.project.id.clone();
         let list = project_list(&store).unwrap();
-        assert_eq!(list.projects, vec![saved.project.clone()]);
+        assert_eq!(
+            list.projects,
+            vec![ProjectListEntry {
+                project: saved.project.clone(),
+                snapshot_available: true,
+            }]
+        );
         assert_eq!(
             serde_json::to_value(&list)
                 .unwrap()
