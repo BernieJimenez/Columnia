@@ -5900,7 +5900,13 @@ fn clean_text_columns(
         changed_columns.push(ChangedTextColumn {
             name,
             changed_cell_count: column_changes,
-            nullified_cell_count: 0,
+            // QA-03: values that did not match the detected type are lost data,
+            // reported apart from ordinary edits.
+            nullified_cell_count: if matches!(mode, TextCleaningMode::NullifyInvalidTypes) {
+                column_changes
+            } else {
+                0
+            },
         });
     }
 

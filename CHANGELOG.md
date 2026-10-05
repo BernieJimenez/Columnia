@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- «Apartar tipos incompatibles» informa de cuántas celdas vació por columna
+  (antes las contaba como un cambio más); tests fijan el umbral de sugerencia de
+  tipo en 89/90/91/100 % (QA-03).
 - Los tests de publicación source-backed de JOIN y consolidación ejercen la
   función de producción (con sello y cancelación); se eliminó su copia de test
   (QA-02).

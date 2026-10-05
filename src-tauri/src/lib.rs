@@ -353,7 +353,12 @@ fn show_startup_error(message: &str) {
         // SAFETY: both buffers are NUL-terminated UTF-16 that outlive the call,
         // and a null owner window is allowed.
         unsafe {
-            MessageBoxW(std::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), MB_ICONERROR);
+            MessageBoxW(
+                std::ptr::null_mut(),
+                text.as_ptr(),
+                caption.as_ptr(),
+                MB_ICONERROR,
+            );
         }
     }
 }

@@ -11460,9 +11460,31 @@ fn nullifies_invalid_values_for_a_confident_suggested_type() {
     assert_eq!(affected_rows, 1);
     assert_eq!(changed_cells, 1);
     assert_eq!(changed_columns[0].name, "created_at");
+    // QA-03: a value made empty is always reported, never lost silently.
+    assert_eq!(changed_columns[0].nullified_cell_count, 1);
     assert_eq!(dates.get(0), Some("2024-01-01"));
     assert_eq!(dates.get(9), None);
     assert_eq!(notes.get(0), Some("keep"));
+}
+
+#[test]
+fn suggested_type_threshold_is_fixed_at_ninety_percent() {
+    // QA-03: the border of the "convert detected" suggestion, pinned on both sides.
+    use super::profile_engine::suggest_text_type;
+    assert_eq!(suggest_text_type(100, 0, 0, 0, 89), (None, None, None));
+    assert_eq!(
+        suggest_text_type(100, 0, 0, 0, 90),
+        (Some("date"), Some(90.0), Some(10))
+    );
+    assert_eq!(
+        suggest_text_type(100, 0, 0, 0, 91),
+        (Some("date"), Some(91.0), Some(9))
+    );
+    assert_eq!(
+        suggest_text_type(100, 0, 100, 0, 0),
+        (Some("integer"), Some(100.0), Some(0))
+    );
+    assert_eq!(suggest_text_type(2, 0, 2, 0, 0), (None, None, None));
 }
 
 #[test]
