@@ -64,6 +64,9 @@ interface PreparePhaseProps {
   onNormalizeText: (columns: string[], removeAccents: boolean) => void;
   onApplyTransforms: (recipe: TransformRecipe) => void;
   onRecipeDraftChange: (draft: SavedRecipe) => void;
+  /** UX-13: an unfinished (invalid) recipe edit kept outside the phase. */
+  recipeEdit?: SavedRecipe | null;
+  onRecipeEditChange?: (draft: SavedRecipe | null) => void;
   onUndo: () => void;
   onRedo: () => void;
 }
@@ -104,6 +107,8 @@ export function PreparePhase({
   onNormalizeText,
   onApplyTransforms,
   onRecipeDraftChange,
+  recipeEdit,
+  onRecipeEditChange,
   onUndo,
   onRedo,
 }: PreparePhaseProps) {
@@ -119,6 +124,17 @@ export function PreparePhase({
     sourceRevision: number;
     profile: DatasetProfile;
   } | null>(null);
+  // UX-13: kept here across tab changes, and in App across phases when it
+  // passes `recipeEdit`.
+  // Tied to the recipe session: another dataset or recipe starts clean.
+  const [localEdit, setLocalEdit] = useState<{ session: number; draft: SavedRecipe } | null>(null);
+  const unfinishedEdit = recipeEdit !== undefined
+    ? recipeEdit
+    : localEdit?.session === recipeSession ? localEdit.draft : null;
+  const changeUnfinishedEdit = (draft: SavedRecipe | null) => {
+    setLocalEdit(draft ? { session: recipeSession, draft } : null);
+    onRecipeEditChange?.(draft);
+  };
   const [planComparison, setPlanComparison] = useState<(ProposalResult & { revision: number }) | null>(null);
   // The result belongs to the revision it describes: any later change, such
   // as Deshacer from the history panel, brings back the proposal (FUN-11).
@@ -362,9 +378,10 @@ export function PreparePhase({
             dataset={dataset}
             datasetRevision={datasetRevision}
             busy={changing}
-            initialDraft={recipeDraft}
+            initialDraft={unfinishedEdit ?? recipeDraft}
             onApply={onApplyTransforms}
             onDraftChange={onRecipeDraftChange}
+            onUnfinishedChange={changeUnfinishedEdit}
           />
         </div>
       ) : (

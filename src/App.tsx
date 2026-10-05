@@ -218,6 +218,8 @@ export function App() {
   const operationBusyRef = useRef(false);
   const [completedPhaseRevisions, setCompletedPhaseRevisions] = useState<Partial<Record<WorkflowPhase, number>>>({});
   const [recipeSession, setRecipeSession] = useState(0);
+  // UX-13: a recipe edit left unfinished survives a change of phase.
+  const [recipeEdit, setRecipeEdit] = useState<{ session: number; draft: SavedRecipe } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const previousPhaseRef = useRef(activePhase);
 
@@ -1532,6 +1534,8 @@ export function App() {
                 onNormalizeText={prepare.normalizeText}
                 onApplyTransforms={prepare.applyStructuralTransforms}
                 onRecipeDraftChange={handleRecipeDraftChange}
+                recipeEdit={recipeEdit?.session === recipeSession ? recipeEdit.draft : null}
+                onRecipeEditChange={(draft) => setRecipeEdit(draft ? { session: recipeSession, draft } : null)}
                 onUndo={prepare.undoChange}
                 onRedo={prepare.redoChange}
               />

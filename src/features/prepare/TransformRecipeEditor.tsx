@@ -134,6 +134,7 @@ export function TransformRecipeEditor({
   initialDraft,
   onApply,
   onDraftChange,
+  onUnfinishedChange,
 }: {
   dataset: DatasetPreview;
   datasetRevision?: number;
@@ -141,6 +142,12 @@ export function TransformRecipeEditor({
   initialDraft: SavedRecipe | null;
   onApply: (recipe: TransformRecipe) => void;
   onDraftChange: (draft: SavedRecipe) => void;
+  /**
+   * UX-13: an edit left invalid (and so not published as the project draft)
+   * is handed over here so that it survives leaving the editor; `null` once
+   * the recipe is valid again.
+   */
+  onUnfinishedChange?: (draft: SavedRecipe | null) => void;
 }) {
   type RenameDraft = TransformRecipe["renames"][number];
   type CastDraft = TransformRecipe["casts"][number];
@@ -370,10 +377,14 @@ export function TransformRecipeEditor({
       sourceSchema: recipeSourceSchema(buildRecipe(), dataset),
     };
     if (exportOptions) nextDraft.exportOptions = exportOptions;
+    if (invalid) {
+      onUnfinishedChange?.(nextDraft);
+      return;
+    }
+    onUnfinishedChange?.(null);
     onDraftChange(nextDraft);
   });
   useEffect(() => {
-    if (invalid) return;
     if (lastWorkspaceDraftFingerprint.current === workspaceDraftFingerprint) return;
     lastWorkspaceDraftFingerprint.current = workspaceDraftFingerprint;
     publishDraft();

@@ -94,7 +94,26 @@ describe("RevisionComparison", () => {
     fireEvent.click(screen.getByText(/Tipos y nulos por columna/));
     expect(screen.getByText(/String → Float64/)).toBeInTheDocument();
     fireEvent.click(screen.getByText(/Reglas de calidad/));
-    expect(screen.getByText(/Regla 1 · numeric_range/)).toBeInTheDocument();
+    expect(screen.getByText(/Regla 1 · monto/)).toBeInTheDocument();
+    expect(screen.getByText(/debe permanecer dentro del rango definido/)).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/numeric_range|undefined|snapshot/);
+  });
+
+  it("una comparación cancelada no se muestra como error (UX-12)", async () => {
+    vi.spyOn(bridge, "compareHistorySnapshots").mockRejectedValue(new Error("Operación cancelada por el usuario."));
+    render(<RevisionComparison historyStatus={history()} qualityRules={[]} datasetRevision={4} busy={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Comparar agregados" }));
+    expect(await screen.findByText("Comparación cancelada.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("si la cancelación falla, el botón vuelve a estar disponible (UX-12)", async () => {
+    vi.spyOn(bridge, "compareHistorySnapshots").mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(bridge, "cancelOperation").mockRejectedValue(new Error("sin respuesta"));
+    render(<RevisionComparison historyStatus={history()} qualityRules={[]} datasetRevision={4} busy={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Comparar agregados" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Cancelar/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Cancelar/ })).toBeEnabled());
   });
 
   it("explica el historial desactivado o degradado y no ofrece comparar", () => {

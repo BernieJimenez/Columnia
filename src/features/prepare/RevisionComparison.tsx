@@ -8,14 +8,17 @@ import {
   type QualityRule,
   type SnapshotRevisionComparison as SnapshotComparisonResult,
 } from "../../bridge";
+import { isCancellationError } from "../../bridge/cancellation";
 import { OperationProgressView } from "../../components/OperationProgressView";
+import { QUALITY_RULE_SUMMARY } from "../delivery/deliveryModel";
 import { formatPercent } from "../../format";
 
 type ComparisonState =
   | { kind: "idle" }
   | { kind: "loading"; progress: OperationProgress; cancelRequested: boolean }
   | { kind: "ready"; result: SnapshotComparisonResult }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+  | { kind: "cancelled" };
 
 interface RevisionComparisonProps {
   historyStatus: HistoryState;
@@ -105,6 +108,11 @@ export function RevisionComparison({
       setComparison({ kind: "ready", result });
     } catch (error: unknown) {
       if (requestGeneration.current !== requestId) return;
+      // UX-12: a comparison the person cancelled is not an error.
+      if (isCancellationError(error)) {
+        setComparison({ kind: "cancelled" });
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       setComparison({ kind: "error", message });
     }
@@ -114,7 +122,10 @@ export function RevisionComparison({
     setComparison((current) => current.kind === "loading"
       ? { ...current, cancelRequested: true }
       : current);
-    await cancelOperation("snapshotComparison").catch(() => undefined);
+    await cancelOperation("snapshotComparison").catch(() => {
+      // The request did not reach the engine: let the person try again.
+      setComparison((current) => current.kind === "loading" ? { ...current, cancelRequested: false } : current);
+    });
   }
 
   function changeSelection(side: "before" | "after", id: string) {
@@ -131,10 +142,10 @@ export function RevisionComparison({
         <h3 id="revision-comparison-title">Comparar revisiones</h3>
         <p>
           Elige dos cambios del historial para medir el antes y el después. Cada comparación vuelve a
-          perfilar ambos snapshots y solo muestra agregados; no guarda perfiles ni devuelve valores de muestra.
+          analizar ambas revisiones y solo muestra totales; no guarda análisis ni muestra valores de las filas.
         </p>
         <p className="profile-note">
-          Los IDs pertenecen a cada snapshot. Los proyectos guardados los conservan al reabrirse; el historial de una sesión sin guardar es temporal.
+          Los proyectos guardados conservan sus revisiones al reabrirse; el historial de una sesión sin guardar es temporal.
         </p>
       </div>
 
@@ -142,7 +153,7 @@ export function RevisionComparison({
         <p className="notice" role="note">
           {historyStatus.degradedReason
             ? `Comparación desactivada. Motivo del historial: ${historyStatus.degradedReason}`
-            : "La comparación está desactivada porque este dataset no conserva snapshots de historial."}
+            : "La comparación está desactivada porque este dataset no conserva revisiones en el historial."}
         </p>
       ) : availableEntries.length < 2 ? (
         <p className="profile-note">Se necesitan al menos dos revisiones disponibles para comparar.</p>
@@ -187,6 +198,9 @@ export function RevisionComparison({
           )}
           {comparison.kind === "error" && (
             <p className="notice notice--error" role="alert">No se pudo comparar: {comparison.message}</p>
+          )}
+          {comparison.kind === "cancelled" && (
+            <p className="profile-note" role="status">Comparación cancelada.</p>
           )}
         </>
       )}
@@ -236,9 +250,9 @@ function SnapshotComparisonResultView({ result }: { result: SnapshotComparisonRe
           <ul>
             {result.quality.rules.map((rule) => (
               <li key={rule.ruleIndex}>
-                <strong>Regla {rule.ruleIndex} · {rule.kind}</strong>{rule.column ? ` · ${rule.column}` : ""}{": "}
+                <strong>Regla {rule.ruleIndex}{rule.column ? ` · ${rule.column}` : ""}</strong>{` (${QUALITY_RULE_SUMMARY[rule.kind] ?? "regla de calidad"}): `}
                 {rule.comparable
-                  ? `${rule.beforeInvalidCount?.toLocaleString()} → ${rule.afterInvalidCount?.toLocaleString()} valores inválidos; tasa ${rule.beforeInvalidPercentage == null ? "—" : formatPercent(rule.beforeInvalidPercentage, 1)} → ${rule.afterInvalidPercentage == null ? "—" : formatPercent(rule.afterInvalidPercentage, 1)}; pasó ${metricLabel(rule.beforePassed)} → ${metricLabel(rule.afterPassed)}`
+                  ? `${rule.beforeInvalidCount?.toLocaleString() ?? "—"} → ${rule.afterInvalidCount?.toLocaleString() ?? "—"} valores inválidos; tasa ${rule.beforeInvalidPercentage == null ? "—" : formatPercent(rule.beforeInvalidPercentage, 1)} → ${rule.afterInvalidPercentage == null ? "—" : formatPercent(rule.afterInvalidPercentage, 1)}; pasó ${metricLabel(rule.beforePassed)} → ${metricLabel(rule.afterPassed)}`
                   : rule.reason ?? "No comparable"}
               </li>
             ))}
@@ -247,7 +261,7 @@ function SnapshotComparisonResultView({ result }: { result: SnapshotComparisonRe
       </details>
       <p className="profile-note">
         Mejoras de tasa de incumplimiento: {result.quality.improvedRuleCount}; retrocesos: {result.quality.degradedRuleCount}.
-        Las reglas se evaluaron sin cambios en ambos snapshots.
+        Las reglas se evaluaron sin cambios en ambas revisiones.
       </p>
     </div>
   );

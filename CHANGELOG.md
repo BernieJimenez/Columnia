@@ -203,6 +203,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Comparar revisiones: cancelar ya no se muestra como error, el botón se
+  desbloquea si la cancelación falla y los textos hablan de revisiones y
+  describen cada regla en lugar de mostrar su identificador interno; una edición
+  de receta a medias (inválida) se conserva al cambiar de pestaña o de fase sin
+  publicarse como borrador del proyecto (UX-12, UX-13).
 - «Listo: cambios aplicados» y «Deshacer» aparecen en cuanto termina de
   aplicarse la propuesta; las cifras de antes y después se completan cuando
   acaba el nuevo análisis, en lugar de esperar 10 s en archivos grandes (UX-10).

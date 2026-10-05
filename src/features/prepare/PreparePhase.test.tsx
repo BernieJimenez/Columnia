@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { localeText } from "../../test/localeText";
 
 import * as bridge from "../../bridge";
-import type { DatasetPreview, DatasetProfile, HistoryState, LoadedRecipe, SafeCorrectionOptions, SnapshotRevisionComparison, TransformRecipe } from "../../bridge";
+import type { DatasetPreview, DatasetProfile, HistoryState, LoadedRecipe, SafeCorrectionOptions, SavedRecipe, SnapshotRevisionComparison, TransformRecipe } from "../../bridge";
 import { PreparePhase } from "./PreparePhase";
 import { TransformRecipeEditor } from "./TransformRecipeEditor";
 import { EMPTY_HISTORY } from "./prepareModel";
@@ -1200,7 +1200,7 @@ describe("PreparePhase", () => {
     expect(screen.queryByRole("region", { name: "Listo: cambios aplicados" })).not.toBeInTheDocument();
   });
 
-  it("al cambiar de pestaña descarta la edición inválida y vuelve al último borrador válido", () => {
+  it("al cambiar de pestaña conserva la edición a medias sin publicarla como borrador (UX-13)", () => {
     const props = {
       dataset,
       datasetRevision: 8,
@@ -1239,7 +1239,35 @@ describe("PreparePhase", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Correcciones" }));
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
 
-    expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue("cliente");
+    // UX-13: the unfinished edit comes back; the project draft stays the last
+    // valid one, and the recipe cannot be applied while it is invalid.
+    expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue("");
+    expect(props.onRecipeDraftChange).not.toHaveBeenCalled();
+  });
+
+  it("al salir de Preparar y volver se recupera la edición a medias (UX-13)", () => {
+    const props = {
+      dataset,
+      datasetRevision: 8,
+      profileStatus: { kind: "ready" as const, profile: cleaningSignalsProfile },
+      changeStatus: { kind: "idle" as const },
+      historyStatus: EMPTY_HISTORY,
+      recipeDraft: { version: 1 as const, name: "Limpieza", savedAt: "2026-08-21T00:00:00Z", recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "cliente" }] } },
+      recipeSession: 0,
+      onCancelProfile: vi.fn(), onRemoveDuplicates: vi.fn(), onRemoveEmptyRows: vi.fn(), onRemoveConstantColumns: vi.fn(),
+      onRemoveEmptyColumns: vi.fn(), onRemoveHighNullColumns: vi.fn(), onNormalizeBooleans: vi.fn(), onImputeMissingValues: vi.fn(),
+      onEnableRowAudit: vi.fn(), onNormalizeColumns: vi.fn(), onApplyRecommended: vi.fn(), onTrimText: vi.fn(), onNormalizeText: vi.fn(),
+      onApplyTransforms: vi.fn(), onRecipeDraftChange: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(),
+    };
+    let kept: SavedRecipe | null = null;
+    const view = render(<PreparePhase {...props} recipeEdit={kept} onRecipeEditChange={(draft) => { kept = draft; }} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Nuevo nombre 1" }), { target: { value: "" } });
+    view.unmount();
+    expect(kept).not.toBeNull();
+    render(<PreparePhase {...props} recipeEdit={kept} onRecipeEditChange={(draft) => { kept = draft; }} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue("");
     expect(props.onRecipeDraftChange).not.toHaveBeenCalled();
   });
 

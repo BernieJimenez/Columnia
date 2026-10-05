@@ -1903,7 +1903,7 @@ describe("App", () => {
     applyProposalWithColumnNames();
 
     expect(await screen.findByText("Plan aplicado: 1 columna renombrada.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Deshacer" })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeInTheDocument();
     expect(within(screen.getByRole("button", { name: "Preparar" })).getByText("Hecho")).toBeInTheDocument();
     expect(normalizeSpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: false, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false }));
 
@@ -2010,7 +2010,7 @@ describe("App", () => {
     expect(
       await screen.findByText(/Plan aplicado: 1 celda actualizada y 1 columna renombrada/),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
+    expect(within(screen.getByRole("region", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
     expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: true, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false }));
   });
@@ -2479,7 +2479,7 @@ describe("App", () => {
       contactNormalizations: [], textExtractions: [],
     }, null);
     expect(await screen.findByText(/Receta aplicada: 1 renombre, 1 conversión, 1 fecha interpretada/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
+    expect(within(screen.getByRole("region", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeEnabled();
   });
 
   it("guarda el borrador de receta por el bridge sin entregar rutas", async () => {
@@ -2761,7 +2761,7 @@ describe("App", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar y aplicar" }));
 
     expect(await screen.findByText("La receta no produjo cambios en el dataset.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Deshacer" })).toBeDisabled();
+    expect(within(screen.getByRole("region", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeDisabled();
   });
 
   it("confirma y aplica un resumen agrupado respetando tipos efectivos", async () => {
@@ -2807,7 +2807,7 @@ describe("App", () => {
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Confirmar y aplicar" }));
     expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ groupSummary: { groupBy: ["region"], aggregations: [{ column: "importe", operation: "sum" }, { column: "nota", operation: "count_unique" }] } }), null);
     expect(await screen.findByText(/resumen de 2 grupos con 2 agregaciones/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
+    expect(within(screen.getByRole("region", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeEnabled();
   });
 
   it("combina contacto y extracción textual con tipos efectivos", async () => {
@@ -2863,7 +2863,7 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     expect(screen.getByText("No hay espacio disponible para snapshots.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Deshacer" })).toBeDisabled();
+    expect(within(screen.getByRole("region", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
     expect(screen.queryByText("Ver versiones (1)")).not.toBeInTheDocument();
   });

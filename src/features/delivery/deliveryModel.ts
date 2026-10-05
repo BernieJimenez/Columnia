@@ -6,6 +6,7 @@ import type {
   ExportResult,
   OperationProgress,
   QualityRule,
+  QualityRuleKind,
   PrivacyMode,
   QualityValidationResult,
 } from "../../bridge";
@@ -690,3 +691,25 @@ export function validateQualityRuleDraft(
 
   return null;
 }
+
+/** What each kind of quality rule asks, in plain words (shared with Prepare, UX-12). */
+export const QUALITY_RULE_SUMMARY: Record<QualityRuleKind, string> = {
+  not_null: "no admite valores nulos",
+  non_empty: "no admite texto vacío",
+  unique: "debe contener valores únicos",
+  numeric_range: "debe permanecer dentro del rango definido",
+  allowed_values: "solo admite los valores permitidos",
+  regex: "debe cumplir el formato configurado",
+  dtype: "debe conservar el tipo de dato esperado",
+  unique_together: "debe formar una combinación única",
+  column_compare: "debe cumplir la comparación entre columnas",
+  referential_integrity: "solo admite valores incluidos en la referencia",
+  monotonic: "debe mantener el orden esperado",
+  aggregate_check: "debe cumplir el total o agregado esperado",
+  aggregate_reconciliation: "debe conciliar los agregados comparados",
+  distribution_drift: "debe mantener su media cerca de la de la línea base",
+  date_range: "debe permanecer dentro del periodo definido",
+  conditional: "debe cumplir la condición configurada",
+  schema_contract: "debe conservar las columnas requeridas",
+  row_count: "debe mantener la cantidad de filas permitida",
+};
