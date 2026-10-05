@@ -21034,3 +21034,18 @@ fn duckdb_execution_errors_keep_their_cause() {
         "DuckDB no pudo ejecutar la consulta: No space left on device"
     );
 }
+
+/// FUN-62: rows trimmed and rows filled are different rows; the plan counts
+/// both, and a row touched by both steps once.
+#[test]
+fn safe_plan_counts_the_union_of_trimmed_and_filled_rows() {
+    let frame = df![
+        "estado" => &[Some(" ok "), Some("ok "), Some("ok"), Some("ok"), Some(" no"), Some("no")],
+        "zona" => &[Some("n"), Some("n"), None, None, None, Some("s")]
+    ]
+    .unwrap();
+    let plan = safe_corrected_plan_frame(&frame, true, false, false, false, true, None, None, None)
+        .unwrap();
+    // Trimmed: rows 0, 1 and 4; filled: rows 2, 3 and 4.
+    assert_eq!(plan.affected_row_count, 5);
+}

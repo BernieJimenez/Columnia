@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La cifra de filas afectadas de la propuesta de Preparar suma las filas
+  recortadas y las rellenadas (contando una vez las que están en ambos grupos),
+  en lugar de quedarse con el mayor de los dos conjuntos (FUN-62).
 - Una consulta SQL aceptada por DuckDB que falla al ejecutarse (disco, memoria,
   comparación borrada) muestra el error en lugar de repetirse en silencio con
   otro motor que podía dar otro resultado (FUN-61).

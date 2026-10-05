@@ -6809,8 +6809,8 @@ pub(super) fn safe_corrected_plan_frame(
     cast_columns: Option<&[String]>,
     date_columns: Option<&[DateColumnPlan]>,
 ) -> Result<SafeCorrectionPlanFrame, String> {
-    let (corrected, mut affected_row_count, changed_cell_count, removed_row_count, renames) =
-        safe_corrected_frame(
+    let (corrected, mut affected_rows, changed_cell_count, removed_row_count, renames) =
+        safe_corrected_frame_with_rows(
             frame,
             trim_text,
             normalize_column_names,
@@ -6848,9 +6848,24 @@ pub(super) fn safe_corrected_plan_frame(
     };
     let (frame, imputed_cell_count, imputations) = if impute_missing {
         let renamed_columns = impute_columns.map(renamed);
-        let (imputed, imputed_rows, imputed_cells, changed_columns, fill_values) =
+        let (imputed, _, imputed_cells, changed_columns, fill_values) =
             impute_missing_values_in_columns(&corrected, renamed_columns.as_deref())?;
-        affected_row_count = affected_row_count.max(imputed_rows);
+        // FUN-62: a filled row joins the trimmed ones; rows in both count once.
+        for changed in &changed_columns {
+            let before = corrected
+                .column(&changed.name)
+                .map_err(|error| error.to_string())?
+                .is_null();
+            let after = imputed
+                .column(&changed.name)
+                .map_err(|error| error.to_string())?
+                .is_null();
+            for (row, (was_null, is_null)) in before.iter().zip(after.iter()).enumerate() {
+                if was_null == Some(true) && is_null == Some(false) {
+                    affected_rows.mark_kept_row(row);
+                }
+            }
+        }
         let imputations = changed_columns
             .into_iter()
             .zip(fill_values)
@@ -6869,7 +6884,7 @@ pub(super) fn safe_corrected_plan_frame(
     };
     Ok(SafeCorrectionPlanFrame {
         frame,
-        affected_row_count,
+        affected_row_count: affected_rows.affected_row_count(),
         changed_cell_count,
         removed_row_count,
         renames,
@@ -6887,6 +6902,51 @@ fn safe_corrected_frame(
     normalize_sentinels: bool,
     remove_duplicates: bool,
 ) -> Result<(DataFrame, usize, usize, usize, Vec<ColumnRename>), String> {
+    let (corrected, rows, changed_cell_count, removed_row_count, renames) =
+        safe_corrected_frame_with_rows(
+            frame,
+            trim_text,
+            normalize_column_names,
+            normalize_sentinels,
+            remove_duplicates,
+        )?;
+    Ok((
+        corrected,
+        rows.affected_row_count(),
+        changed_cell_count,
+        removed_row_count,
+        renames,
+    ))
+}
+
+/// FUN-62: which source rows a plan touched, so that later steps add their
+/// rows to the same set instead of taking the larger of two counts.
+struct AffectedRows {
+    /// One flag per row of the source frame.
+    changed: Vec<bool>,
+    /// For each row left after removing duplicates, its source row.
+    kept: Vec<usize>,
+}
+
+impl AffectedRows {
+    fn mark_kept_row(&mut self, kept_row: usize) {
+        if let Some(source) = self.kept.get(kept_row) {
+            self.changed[*source] = true;
+        }
+    }
+
+    fn affected_row_count(&self) -> usize {
+        self.changed.iter().filter(|changed| **changed).count()
+    }
+}
+
+fn safe_corrected_frame_with_rows(
+    frame: &DataFrame,
+    trim_text: bool,
+    normalize_column_names: bool,
+    normalize_sentinels: bool,
+    remove_duplicates: bool,
+) -> Result<(DataFrame, AffectedRows, usize, usize, Vec<ColumnRename>), String> {
     let mut candidate = frame.clone();
     if trim_text {
         candidate = clean_text_columns(&candidate, None, TextCleaningMode::Trim)?.0;
@@ -6894,7 +6954,7 @@ fn safe_corrected_frame(
     if normalize_sentinels {
         candidate = clean_text_columns(&candidate, None, TextCleaningMode::Sentinels)?.0;
     }
-    let (affected_row_count, changed_cell_count) = count_changed_text_cells(frame, &candidate)?;
+    let (changed_rows, changed_cell_count) = changed_text_rows(frame, &candidate)?;
     let (names, renames) = if normalize_column_names {
         normalized_column_names(&candidate)
     } else {
@@ -6905,24 +6965,59 @@ fn safe_corrected_frame(
             .set_column_names(&names)
             .map_err(|error| format!("No se pudieron normalizar las columnas: {error}"))?;
     }
-    let (candidate, removed_row_count) = if remove_duplicates {
-        remove_duplicate_rows(&candidate)?
+    let (candidate, removed_row_count, kept) = if remove_duplicates {
+        let (deduplicated, removed) = remove_duplicate_rows(&candidate)?;
+        let kept = if removed == 0 {
+            (0..candidate.height()).collect()
+        } else {
+            kept_row_indices(&candidate)?
+        };
+        (deduplicated, removed, kept)
     } else {
-        (candidate, 0)
+        let kept = (0..candidate.height()).collect();
+        (candidate, 0, kept)
     };
     Ok((
         candidate,
-        affected_row_count,
+        AffectedRows {
+            changed: changed_rows,
+            kept,
+        },
         changed_cell_count,
         removed_row_count,
         renames,
     ))
 }
 
-fn count_changed_text_cells(
-    before: &DataFrame,
-    after: &DataFrame,
-) -> Result<(usize, usize), String> {
+/// The source rows `remove_duplicate_rows` keeps (the first of each value).
+fn kept_row_indices(frame: &DataFrame) -> Result<Vec<usize>, String> {
+    const ROW: &str = "__columnia_row__";
+    let subset = frame
+        .get_column_names()
+        .into_iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let indexed = frame
+        .clone()
+        .with_row_index(ROW.into(), None)
+        .map_err(|error| format!("No se pudieron numerar las filas: {error}"))?;
+    let unique = indexed
+        .unique_stable(Some(&subset), UniqueKeepStrategy::First, None)
+        .map_err(|error| format!("No se pudieron eliminar las filas duplicadas: {error}"))?;
+    let rows = unique
+        .column(ROW)
+        .and_then(|column| column.cast(&DataType::UInt64))
+        .map_err(|error| format!("No se pudieron numerar las filas: {error}"))?;
+    let rows = rows
+        .u64()
+        .map_err(|error| format!("No se pudieron numerar las filas: {error}"))?
+        .into_no_null_iter()
+        .map(|row| row as usize)
+        .collect();
+    Ok(rows)
+}
+
+fn changed_text_rows(before: &DataFrame, after: &DataFrame) -> Result<(Vec<bool>, usize), String> {
     let mut changed_rows = vec![false; before.height()];
     let mut changed_cell_count = 0;
     for column in before.columns() {
@@ -6947,10 +7042,7 @@ fn count_changed_text_cells(
             }
         }
     }
-    Ok((
-        changed_rows.into_iter().filter(|changed| *changed).count(),
-        changed_cell_count,
-    ))
+    Ok((changed_rows, changed_cell_count))
 }
 
 #[cfg(test)]
