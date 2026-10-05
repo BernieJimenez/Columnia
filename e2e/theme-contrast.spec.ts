@@ -147,15 +147,8 @@ const themes = [
   { name: "pizarra", colorScheme: "light", dataTheme: "slate" },
 ] as const;
 
-// QA-07 (open): failures this test found and that are not fixed yet; each
-// case turns red as soon as it passes, so the list cannot go stale.
-// claro/pizarra: «Cargar archivo» in the import dialog (4.25:1, 3.73:1);
-// papel/océano/pizarra: edges of the Entregar selects (~1.5:1).
-const knownFailures = new Set(["claro", "papel", "océano", "pizarra"]);
-
 for (const theme of themes) {
   test(`las cinco fases cumplen contraste AA en tema ${theme.name}`, async ({ page }) => {
-    test.fail(knownFailures.has(theme.name), "QA-07: fallo de contraste conocido, pendiente de corregir");
     await installContrastMock(page);
     await page.emulateMedia({ colorScheme: theme.colorScheme, reducedMotion: "reduce" });
     await page.addInitScript((value) => localStorage.setItem("columnia.theme", value), theme.dataTheme);
@@ -170,11 +163,15 @@ for (const theme of themes) {
     await measure("Cargar");
     await page.getByRole("button", { name: "Seleccionar dataset" }).click();
     const review = page.getByRole("dialog", { name: "Revisar encabezados de contraste.csv" });
+    await expect(review.getByRole("button", { name: "Cargar archivo" })).toBeEnabled();
     await measure("Importar");
     await review.getByRole("button", { name: "Cargar archivo" }).click();
     await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
     await page.getByText("Más análisis y herramientas", { exact: true }).click();
-    await measure("Revisar");
+    await page.getByText("Explorar análisis detallado", { exact: true }).click();
+    await expect(page.locator("main svg text").first()).toBeAttached();
+    const diagnosis = await measure("Revisar");
+    expect(diagnosis.svgTexts, "la tendencia temporal se mide por su relleno SVG").toBeGreaterThan(0);
     await page.getByRole("tab", { name: "Vista previa" }).click();
     await expect(page.locator("main .null-value").first()).toBeVisible();
     await measure("Revisar · vista previa");

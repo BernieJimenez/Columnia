@@ -1218,7 +1218,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 }
 :root:is([data-theme="paper"], [data-theme="ocean"], [data-theme="slate"]) .workspace :is(h2, h3, h4, h5, strong, legend) { color: var(--text-primary); }
 :root:is([data-theme="paper"], [data-theme="ocean"], [data-theme="slate"]) .workspace :is(p, small, li, dt, label, .phase-header p:last-child, .preview-note) { color: var(--text-secondary); }
-:root:is([data-theme="paper"], [data-theme="ocean"], [data-theme="slate"]) .workspace :is(button, input, select, textarea) { border-color: var(--border-subtle); }
+:root:is([data-theme="paper"], [data-theme="ocean"], [data-theme="slate"]) .workspace :is(button, input, select, textarea) { border-color: var(--control-border); }
 :root:is([data-theme="paper"], [data-theme="ocean"], [data-theme="slate"]) .workspace :is(input, select, textarea) { background: var(--surface-raised); color: var(--text-primary); }
 :root:is([data-theme="paper"], [data-theme="ocean"], [data-theme="slate"]) .workspace :is(.prepare-card, .transform-recipe, .export-panel, .projects, .quality-contract, .quality-visuals, .local-query, .profile-region, .table-region, .operation-progress) {
   border-color: var(--border-subtle);

@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- El E2E de contraste ya pasa sin excepciones en los seis modos de tema,
+  incluido el texto SVG de la tendencia temporal; los bordes de campos de los
+  temas Papel, Océano y Pizarra usan el borde de control ≥ 3:1 (QA-07).
 - Hojas de estilo sin tokens inexistentes ni reglas duplicadas (test de higiene
   CSS); los E2E usan un único mock IPC tipado con los contratos de `src/bridge`
   (`npm run typecheck:e2e`), sin lógica del motor reimplementada; el E2E de
