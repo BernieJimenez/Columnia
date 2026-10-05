@@ -100,9 +100,9 @@ pub(super) fn ensure_sample_dataset(
             .write_all(sample.content.as_bytes())
             .and_then(|_| temporary.as_file().sync_all())
             .map_err(|error| format!("No se pudo preparar el dataset de ejemplo: {error}"))?;
-        temporary
-            .persist(&path)
-            .map_err(|error| format!("No se pudo preparar el dataset de ejemplo: {}", error.error))?;
+        temporary.persist(&path).map_err(|error| {
+            format!("No se pudo preparar el dataset de ejemplo: {}", error.error)
+        })?;
     }
 
     canonicalize_existing_file(&path, "el dataset de ejemplo")

@@ -294,7 +294,7 @@ medio = 1 día; agregado por suma.
   - [ ] `REN-12` (Bajo) Duplicados parecidos: con muchas filas casi idénticas un solo cubo concentra todas las huellas y se carga entero en memoria
   - [ ] `REN-13` (Bajo) Perfil de origen grande: una corrida ordenada por cada 262.144 valores y por columna numérica, todas vivas hasta el final
   - [ ] `COD-17` (Bajo) Perfilado en paralelo: `expect` sobre perfiles que pueden faltar si el candado de la cola se envenena
-  - [ ] `LIM-10` (Bajo) `privacy_signal` clasifica por subcadena y produce falsos positivos
+  - [x] `LIM-10` (Bajo) `privacy_signal` clasifica por subcadena y produce falsos positivos — hecho el 2026-10-04
 - [ ] **RV66** — **Perfil** — Suites pequeñas: perfil de importación con coma decimal solo se serializa (nunca se aplica) y la migración solo se prue… · *Esfuerzo: 1 día*
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-44.
   - [ ] `QA-44` (Bajo) Suites pequeñas: perfil de importación con coma decimal solo se serializa (nunca se aplica) y la migración solo se prueba desde v12

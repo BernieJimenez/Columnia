@@ -343,7 +343,10 @@ fn a_truncated_or_edited_sample_dataset_is_restored() {
     let path = ensure_sample_dataset(&app_data_dir, "quality").unwrap();
     let original = fs::read(&path).unwrap();
     fs::write(&path, &original[..original.len() / 3]).unwrap();
-    assert_eq!(ensure_sample_dataset(&app_data_dir, "quality").unwrap(), path);
+    assert_eq!(
+        ensure_sample_dataset(&app_data_dir, "quality").unwrap(),
+        path
+    );
     assert_eq!(fs::read(&path).unwrap(), original);
     fs::write(&path, b"").unwrap();
     ensure_sample_dataset(&app_data_dir, "quality").unwrap();
@@ -11555,6 +11558,40 @@ fn imputes_repeated_text_and_lower_median_numeric_nuls_only() {
     assert_eq!(status.get(1), Some("ok"));
     assert_eq!(amount.get(1), Some(20));
     assert_eq!(notes.get(1), None);
+}
+
+#[test]
+fn privacy_signal_matches_words_not_fragments() {
+    // LIM-10: short words count only as whole words of the column name.
+    use super::profile_engine::privacy_signal;
+    for name in [
+        "hotel",
+        "intelligence",
+        "hostel",
+        "filename",
+        "hostname",
+        "gmail_ok",
+        "sheet_name",
+    ] {
+        assert_eq!(privacy_signal(name), None, "{name}");
+    }
+    for (name, signal) in [
+        ("email", "email"),
+        ("e-mail", "email"),
+        ("correo_cliente", "email"),
+        ("clientEmail", "email"),
+        ("tel", "phone"),
+        ("tel_movil", "phone"),
+        ("phoneNumber", "phone"),
+        ("telefono", "phone"),
+        ("direccion", "address"),
+        ("customer_name", "name"),
+        ("firstName", "name"),
+        ("nombre", "name"),
+        ("cliente_id", "identifier"),
+    ] {
+        assert_eq!(privacy_signal(name), Some(signal), "{name}");
+    }
 }
 
 #[test]

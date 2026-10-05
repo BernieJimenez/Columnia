@@ -371,7 +371,17 @@ pub(super) fn is_boolean_candidate(column: &Column) -> Result<bool, String> {
 }
 
 pub(super) fn privacy_signal(column_name: &str) -> Option<&'static str> {
-    let normalized = normalize_text_value(column_name, true);
+    // LIM-10: camelCase counts as separate words ("clientEmail" → client email).
+    let mut spaced = String::with_capacity(column_name.len() + 4);
+    let mut previous_lowercase = false;
+    for character in column_name.chars() {
+        if character.is_uppercase() && previous_lowercase {
+            spaced.push(' ');
+        }
+        previous_lowercase = character.is_lowercase() || character.is_ascii_digit();
+        spaced.push(character);
+    }
+    let normalized = normalize_text_value(&spaced, true);
     let tokens = normalized
         .split(|character: char| !character.is_alphanumeric())
         .filter(|token| !token.is_empty())
@@ -382,11 +392,13 @@ pub(super) fn privacy_signal(column_name: &str) -> Option<&'static str> {
             .iter()
             .any(|value| tokens.iter().any(|token| token == value))
     };
+    // Long words are distinctive inside a name; short ones ("tel", "mail",
+    // "name") only as whole words, so "hotel" or "filename" carry no signal.
     let has_text = |values: &[&str]| values.iter().any(|value| compact.contains(value));
 
-    if has_text(&["email", "correo", "mail"]) {
+    if has_text(&["email", "correo"]) || has_token(&["mail"]) {
         Some("email")
-    } else if has_text(&["phone", "telefono", "tel", "movil", "celular"]) {
+    } else if has_text(&["phone", "telefono", "movil", "celular"]) || has_token(&["tel"]) {
         Some("phone")
     } else if has_text(&["address", "direccion", "domicilio"]) {
         Some("address")
@@ -406,7 +418,15 @@ pub(super) fn privacy_signal(column_name: &str) -> Option<&'static str> {
         "ssn",
     ]) {
         Some("identifier")
-    } else if has_text(&["name", "nombre", "apellido", "surname"]) {
+    } else if has_text(&["nombre", "apellido", "surname"])
+        || (has_token(&["name"])
+            // "sheet_name", "product name": the name of a thing, not a person.
+            && !has_token(&[
+                "file", "host", "sheet", "table", "column", "field", "path", "domain", "server",
+                "schema", "type", "class", "db", "database", "product", "item", "category", "brand",
+                "company", "store", "city", "country", "region", "dataset", "project", "app",
+            ]))
+    {
         Some("name")
     } else {
         None

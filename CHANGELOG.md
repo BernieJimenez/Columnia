@@ -203,6 +203,10 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- La señal de datos personales de una columna ya no salta por fragmentos:
+  «hotel», «filename» o «sheet_name» no se marcan; las palabras cortas (tel,
+  mail, name) cuentan solo como palabras completas y se entienden nombres en
+  camelCase como «clientEmail» (LIM-10).
 - Un dataset de ejemplo truncado o editado se restaura: solo se reutiliza si
   coincide con el original, y se escribe por un temporal para que un cierre a
   medias no deje una copia parcial (DAT-20).
