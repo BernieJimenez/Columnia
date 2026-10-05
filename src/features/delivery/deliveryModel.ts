@@ -129,15 +129,29 @@ const ORDERING_COMPARISONS = new Set(["lt", "lte", "gt", "gte"]);
 const MONOTONIC_DIRECTIONS = new Set(["increasing", "decreasing"]);
 const QUALITY_AGGREGATES = new Set(["count", "sum", "min", "max"]);
 
-function parseQualityDateBound(value: string): number | null {
+/**
+ * FUN-55: the same formats as `parse_quality_datetime` in Rust — ISO 8601,
+ * «dd/mm/aaaa» and «aaaa/mm/dd» — and nothing else, so «1/2/2024» is never
+ * read month-first here while Rust reads it day-first.
+ */
+export function parseQualityDateBound(value: string): number | null {
   const normalized = value.trim();
-  const dayFirst = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(normalized);
-  if (dayFirst) {
-    const parsed = Date.parse(`${dayFirst[3]}-${dayFirst[2]}-${dayFirst[1]}T00:00:00Z`);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  const parsed = Date.parse(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
+  const utcDay = (year: string, month: string, day: string) => {
+    const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+    return date.getUTCFullYear() === Number(year) && date.getUTCMonth() === Number(month) - 1
+      && date.getUTCDate() === Number(day) ? date.getTime() : null;
+  };
+  const dayFirst = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(normalized);
+  if (dayFirst) return utcDay(dayFirst[3], dayFirst[2], dayFirst[1]);
+  const yearFirst = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(normalized);
+  if (yearFirst) return utcDay(yearFirst[1], yearFirst[2], yearFirst[3]);
+  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.exec(normalized);
+  if (!iso) return null;
+  const day = utcDay(iso[1], iso[2], iso[3]);
+  if (day === null) return null;
+  const [hours, minutes, seconds] = [Number(iso[4] ?? 0), Number(iso[5] ?? 0), Number(iso[6] ?? 0)];
+  if (hours > 23 || minutes > 59 || seconds > 59) return null;
+  return day + ((hours * 60 + minutes) * 60 + seconds) * 1000;
 }
 
 function supportsQualityOrdering(dataType: string): boolean {

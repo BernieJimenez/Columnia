@@ -315,3 +315,15 @@ describe("rustRegexProblem (FUN-54)", () => {
     expect(rustRegexProblem("(?i)hola")).toBeNull();
   });
 });
+
+describe("parseQualityDateBound (FUN-55)", () => {
+  it("lee las fechas como el motor Rust y rechaza el resto", async () => {
+    const { parseQualityDateBound } = await import("./deliveryModel");
+    expect(parseQualityDateBound("1/2/2024")).toBe(Date.UTC(2024, 1, 1));
+    expect(parseQualityDateBound("15/01/2024")).toBe(Date.UTC(2024, 0, 15));
+    expect(parseQualityDateBound("2024/01/15")).toBe(Date.UTC(2024, 0, 15));
+    expect(parseQualityDateBound("2024-01-15T10:30:00")).toBe(Date.UTC(2024, 0, 15, 10, 30));
+    expect(parseQualityDateBound("Jan 2, 2024")).toBeNull();
+    expect(parseQualityDateBound("31/02/2024")).toBeNull();
+  });
+});

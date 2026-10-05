@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Las fechas de una regla de periodo se leen en la interfaz con los mismos
+  formatos que el motor (ISO, dd/mm/aaaa y aaaa/mm/dd); «1/2/2024» ya no se
+  interpreta como 2 de enero y los formatos ajenos se rechazan (FUN-55).
 - Validar `allowed_values` e integridad referencial de una columna ya no recorre
   la lista por cada fila: con 2 M de filas y 120 valores pasa de 1,8 s a 0,15 s
   con los mismos resultados (REN-11).

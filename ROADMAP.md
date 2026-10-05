@@ -357,7 +357,7 @@ medio = 1 día; agregado por suma.
   - [x] `COD-16` (Bajo) El presupuesto de texto del contrato omite campos (`baseline`, `dtype`, `minDate`, `maxDate`, `then.referenceValues`) — hecho el 2026-10-05
 - [ ] **RV76** — **Entregar** — Fechas de `date_range` con formato ambiguo se interpretan con `Date.parse` del motor JS (y 5 problemas más) · *Esfuerzo: 2,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-55, FUN-56, UX-18, UX-19, ACC-12, PROD-05.
-  - [ ] `FUN-55` (Bajo) Fechas de `date_range` con formato ambiguo se interpretan con `Date.parse` del motor JS
+  - [x] `FUN-55` (Bajo) Fechas de `date_range` con formato ambiguo se interpretan con `Date.parse` del motor JS — hecho el 2026-10-05
   - [ ] `FUN-56` (Bajo) Una exportación en curso que queda obsoleta bloquea en silencio la siguiente y su resultado se descarta
   - [ ] `UX-18` (Bajo) «Guardar preset» sobrescribe el preset seleccionado sin avisar
   - [ ] `UX-19` (Bajo) Campos numéricos de tolerancia vuelven a 0 al vaciarlos y la tolerancia por defecto de «Comprobación agregada» es 0
