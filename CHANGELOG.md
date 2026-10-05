@@ -203,6 +203,9 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Los tests de publicación source-backed de JOIN y consolidación ejercen la
+  función de producción (con sello y cancelación); se eliminó su copia de test
+  (QA-02).
 - El E2E de contraste ya pasa sin excepciones en los seis modos de tema,
   incluido el texto SVG de la tendencia temporal; los bordes de campos de los
   temas Papel, Océano y Pizarra usan el borde de control ≥ 3:1 (QA-07).

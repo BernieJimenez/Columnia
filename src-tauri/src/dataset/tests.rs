@@ -5672,9 +5672,13 @@ fn source_backed_join_publishes_a_reversible_parquet_cursor() {
         },
     )
     .expect("el JOIN debe escribir el resultado Parquet");
-    let preview = publish_source_backed_result_output(
+    // QA-02: the production publisher, with the stamp captured before.
+    let stamp = DatasetMutationStamp::capture(&dataset);
+    let preview = publish_review_source_backed_result_output(
         &mut dataset,
+        &mut None,
         &context,
+        &stamp,
         SourceBackedResultOutput {
             compared_path: &compared_path,
             compared_size_bytes: fs::metadata(&compared_path)
@@ -5685,6 +5689,9 @@ fn source_backed_join_publishes_a_reversible_parquet_cursor() {
             file_name: "Join full · current.csv + compared.csv",
             label: "Unir datasets (full)",
         },
+        None,
+        false,
+        &ReviewMutationCancellation::disabled(),
     )
     .expect("el cursor source-backed debe publicarse")
     .expect("el historial debe permitir publicar el cursor");
@@ -6336,9 +6343,13 @@ fn snapshot_backed_join_uses_the_current_history_cursor_without_materializing_ac
             .collect::<Vec<_>>(),
         ["id", "city", "segment"]
     );
-    let preview = publish_source_backed_result_output(
+    // QA-02: the production publisher, with the stamp captured before.
+    let stamp = DatasetMutationStamp::capture(&dataset);
+    let preview = publish_review_source_backed_result_output(
         &mut dataset,
+        &mut None,
         &context,
+        &stamp,
         SourceBackedResultOutput {
             compared_path: &compared_path,
             compared_size_bytes: fs::metadata(&compared_path)
@@ -6349,6 +6360,9 @@ fn snapshot_backed_join_uses_the_current_history_cursor_without_materializing_ac
             file_name: "Join full · current.csv + compared.csv",
             label: "Unir datasets (full)",
         },
+        None,
+        false,
+        &ReviewMutationCancellation::disabled(),
     )
     .expect("el cursor del snapshot debe publicarse")
     .expect("el historial debe permitir publicar el cursor");
@@ -6572,9 +6586,13 @@ fn source_backed_consolidation_publishes_a_reversible_parquet_cursor() {
         },
     )
     .expect("la consolidación debe escribir el resultado Parquet");
-    let preview = publish_source_backed_result_output(
+    // QA-02: the production publisher, with the stamp captured before.
+    let stamp = DatasetMutationStamp::capture(&dataset);
+    let preview = publish_review_source_backed_result_output(
         &mut dataset,
+        &mut None,
         &context,
+        &stamp,
         SourceBackedResultOutput {
             compared_path: &compared_path,
             compared_size_bytes: fs::metadata(&compared_path)
@@ -6585,6 +6603,9 @@ fn source_backed_consolidation_publishes_a_reversible_parquet_cursor() {
             file_name: "Consolidado · current.csv + compared.csv",
             label: "Consolidar datasets",
         },
+        None,
+        false,
+        &ReviewMutationCancellation::disabled(),
     )
     .expect("el cursor de consolidación debe publicarse")
     .expect("el historial debe permitir publicar el cursor");

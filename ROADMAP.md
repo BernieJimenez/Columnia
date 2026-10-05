@@ -266,7 +266,7 @@ medio = 1 día; agregado por suma.
   - [x] `QA-07` (Medio) El E2E de contraste cubre 3 de los 5 temas y no mide SVG, `progress`, bordes ni Cargar/Explorar — hecho el 2026-10-04
 - [ ] **RV61** — **Pruebas del motor** — Tres tests de publicación source-backed ejercen una copia `#[cfg(test)]`, no la función d… (y 4 problemas más) · *Esfuerzo: 2,8 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-02, QA-03, QA-04, QA-15, QA-16.
-  - [ ] `QA-02` (Medio) Tres tests de publicación source-backed ejercen una copia `#[cfg(test)]`, no la función de producción
+  - [x] `QA-02` (Medio) Tres tests de publicación source-backed ejercen una copia `#[cfg(test)]`, no la función de producción — hecho el 2026-10-04
   - [ ] `QA-03` (Medio) Dos tests fijan como correcto el umbral del 90 % de coincidencia y la anulación silenciosa de lo no coincidente
   - [ ] `QA-04` (Medio) La protección contra enlaces y puntos de reanálisis en los destinos no tiene ninguna prueba efectiva
   - [ ] `QA-15` (Medio) Recetas: ningún test de equivalencia lazy↔eager ni con datos en varios chunks; los tests lazy usan 2-6 filas
