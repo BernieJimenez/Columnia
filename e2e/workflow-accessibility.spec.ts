@@ -130,6 +130,34 @@ async function loadSyntheticDataset(page: Page, stopAt: "review" | "delivery" = 
   await expect(page.getByRole("heading", { name: "Exportar dataset activo" })).toBeVisible();
 }
 
+test.describe("CSP de producción (SEG-08)", () => {
+  test("el recorrido completo no provoca ninguna violación de la CSP estricta", async ({ page }) => {
+    await page.addInitScript(() => {
+      const violations: string[] = [];
+      Object.defineProperty(window, "__CSP_VIOLATIONS__", { value: violations });
+      document.addEventListener("securitypolicyviolation", (event) => {
+        // Playwright's own init scripts run as inline scripts the policy blocks;
+        // they are not part of Columnia, whose inline script is hashed.
+        if (event.effectiveDirective === "script-src-elem" && event.blockedURI === "inline") return;
+        violations.push(`${event.effectiveDirective}: ${event.blockedURI || event.sample}`);
+      });
+    });
+    await installSyntheticTauriMock(page);
+    const response = await page.goto("/", { waitUntil: "commit" });
+    const policy = response?.headers()["content-security-policy"] ?? "";
+    expect(policy).toContain("style-src 'self'");
+    expect(policy).not.toContain("unsafe-inline");
+
+    await loadSyntheticDataset(page);
+    // The stylesheet applied: the theme chosen by the inline script and the CSS.
+    await expect(page.locator("html")).toHaveAttribute("data-resolved-theme", /.+/);
+    expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe("system");
+    expect(await page.locator("body").evaluate((body) => getComputedStyle(body).margin)).toBe("0px");
+    const violations = await page.evaluate(() => (window as Window & { __CSP_VIOLATIONS__?: string[] }).__CSP_VIOLATIONS__ ?? []);
+    expect(violations).toEqual([]);
+  });
+});
+
 test.describe("recorrido cargado de accesibilidad", () => {
   test("devuelve el foco a Seleccionar dataset al cerrar la revisión de encabezados", async ({ page }) => {
     await installSyntheticTauriMock(page);

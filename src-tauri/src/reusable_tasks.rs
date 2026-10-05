@@ -136,6 +136,11 @@ impl TaskStore {
         if version > TASK_SCHEMA_VERSION {
             return Err("El catálogo de tareas pertenece a una versión más reciente.".to_owned());
         }
+        // DAT-19: an up-to-date catalog is left untouched; rewriting
+        // `user_version` on every start changed the file for nothing.
+        if version == TASK_SCHEMA_VERSION {
+            return Ok(());
+        }
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| storage_error())?;
@@ -704,6 +709,22 @@ mod tests {
         assert_eq!(reopened.open(created.id.clone()).unwrap(), task());
         reopened.delete(created.id.clone()).unwrap();
         assert!(reopened.open(created.id).is_err());
+    }
+
+    #[test]
+    fn starting_again_leaves_an_up_to_date_catalog_untouched() {
+        // DAT-19: the second start used to rewrite `user_version`.
+        let directory = tempfile::tempdir().unwrap();
+        let app_data_dir = directory.path().join("data");
+        let read_catalog = || {
+            ["reusable-tasks.sqlite3", "reusable-tasks.sqlite3-wal"]
+                .map(|name| fs::read(app_data_dir.join(name)).ok())
+        };
+        drop(TaskStore::initialize(app_data_dir.clone()).unwrap());
+        let first = read_catalog();
+        assert!(first[0].is_some());
+        drop(TaskStore::initialize(app_data_dir.clone()).unwrap());
+        assert_eq!(read_catalog(), first);
     }
 
     #[test]

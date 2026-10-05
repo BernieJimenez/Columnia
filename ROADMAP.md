@@ -392,12 +392,12 @@ medio = 1 día; agregado por suma.
   - [x] `DAT-18` (Bajo) El libro de entregas remotas se reinicia en silencio si el archivo está dañado o cambia de versión, y no tiene bloqueo entre instancias — hecho el 2026-10-05
   - [x] `SEG-09` (Bajo) El aviso de cifrado trata como «local» cualquier servidor cuyo nombre contenga «localhost» o «127.0.0.1» — hecho el 2026-10-05
   - [x] `DOC-10` (Bajo) Variables de entorno de construcción/ejecución sin documentar — hecho el 2026-10-05
-- [ ] **RV82** — **Arranque y servicios** — El evento final de progreso de la descarga de actualización siempre informa 0 bytes (y 3 problemas más) · *Esfuerzo: 1 día*
+- [x] **RV82** — **Arranque y servicios** — El evento final de progreso de la descarga de actualización siempre informa 0 bytes (y 3 problemas más) · *Esfuerzo: 1 día* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-67, DAT-19, SEG-08, COD-11.
-  - [ ] `FUN-67` (Bajo) El evento final de progreso de la descarga de actualización siempre informa 0 bytes
-  - [ ] `DAT-19` (Bajo) `reusable-tasks.sqlite3` se reescribe en cada arranque (migración no idempotente)
-  - [ ] `SEG-08` (Bajo) CSP con `style-src 'unsafe-inline'` y updater con `endpoints: []` pero plugin cargado
-  - [ ] `COD-11` (Bajo) `get_performance_settings` usa `lock()` y falla con veneno; el resto del módulo usa `lock_recovering`
+  - [x] `FUN-67` (Bajo) El evento final de progreso de la descarga de actualización siempre informa 0 bytes — hecho el 2026-10-05
+  - [x] `DAT-19` (Bajo) `reusable-tasks.sqlite3` se reescribe en cada arranque (migración no idempotente) — hecho el 2026-10-05
+  - [x] `SEG-08` (Bajo) CSP con `style-src 'unsafe-inline'` y updater con `endpoints: []` pero plugin cargado — hecho el 2026-10-05
+  - [x] `COD-11` (Bajo) `get_performance_settings` usa `lock()` y falla con veneno; el resto del módulo usa `lock_recovering` — hecho el 2026-10-05
 - [ ] **RV83** — **Exportación y libros** — Un destino XLSX con más de 16.384 columnas produce un libro que Excel no abre (y 3 problemas más) · *Esfuerzo: 1,8 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-68, TXT-07, COD-15, QA-55.
   - [ ] `FUN-68` (Bajo) Un destino XLSX con más de 16.384 columnas produce un libro que Excel no abre

@@ -258,11 +258,16 @@ pub async fn download_update(
         content_length: None,
     });
 
-    let mut downloaded_bytes = 0_u64;
+    // FUN-67: shared with the progress callback, so `finished` and
+    // `cancelled` report the bytes really received (a `move` copy stayed 0).
+    let received = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let progress_received = std::sync::Arc::clone(&received);
     let progress_channel = on_progress.clone();
     let download_future = update.download(
         move |chunk_length, content_length| {
-            downloaded_bytes = downloaded_bytes.saturating_add(chunk_length as u64);
+            let downloaded_bytes = progress_received
+                .fetch_add(chunk_length as u64, std::sync::atomic::Ordering::Relaxed)
+                .saturating_add(chunk_length as u64);
             let _ = progress_channel.send(UpdaterProgress {
                 phase: "progress",
                 downloaded_bytes,
@@ -283,6 +288,7 @@ pub async fn download_update(
         }
     });
 
+    let downloaded_bytes = received.load(std::sync::atomic::Ordering::Relaxed);
     let successful_bytes = result.as_ref().ok().cloned();
     {
         with_pending(&app, |pending| {

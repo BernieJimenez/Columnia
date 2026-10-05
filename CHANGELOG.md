@@ -203,6 +203,13 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Arranque y servicios: la descarga de actualización informa al terminar o
+  cancelar los bytes realmente recibidos; `reusable-tasks.sqlite3` ya no se
+  reescribe en cada arranque; la CSP de producción quita `style-src
+  'unsafe-inline'` (la suite E2E corre ahora con esa CSP) y el plugin del
+  updater solo se carga si la compilación tiene endpoint; la lectura de
+  rendimiento y de memoria se recupera de un bloqueo envenenado (FUN-67, DAT-19,
+  SEG-08, COD-11).
 - Entrega a bases de datos: una columna de hora se crea como TIME y una fecha
   con zona viaja en UTC (probado contra SQL Server); el libro de entregas dañado
   o de otra versión se guarda como `remote-deliveries.json.bak` y se escribe con

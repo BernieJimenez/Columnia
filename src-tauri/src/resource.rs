@@ -90,10 +90,7 @@ fn snapshot(state: &PerformanceState) -> PerformanceSettings {
 }
 
 pub fn get_performance_settings() -> Result<PerformanceSettings, String> {
-    performance_state()
-        .lock()
-        .map(|state| snapshot(&state))
-        .map_err(|_| "La configuración de rendimiento quedó bloqueada.".to_owned())
+    Ok(snapshot(&performance_state().lock_recovering()))
 }
 
 pub fn set_performance_profile(profile: PerformanceProfile) -> Result<PerformanceSettings, String> {
@@ -178,7 +175,7 @@ pub fn get_resource_usage() -> Result<ResourceUsage, String> {
 }
 
 pub(crate) fn available_memory_bytes() -> Option<u64> {
-    let mut system = system_snapshot().lock().ok()?;
+    let mut system = system_snapshot().lock_recovering();
     system.refresh_memory();
     Some(system.available_memory())
 }

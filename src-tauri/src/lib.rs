@@ -125,7 +125,12 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             restore_main_window(app);
         }));
-        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+        // SEG-08: without an endpoint compiled in there is nothing to update
+        // from, so the plugin is not loaded; the commands still answer that
+        // the updater is not configured.
+        if updater::configured() {
+            builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+        }
         builder = builder.manage(updater::UpdaterState::default());
     }
 
