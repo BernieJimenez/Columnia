@@ -29,6 +29,51 @@ fn after_frame() -> DataFrame {
     .expect("la revisión limpia debe ser válida")
 }
 
+/// The fields of a revision comparison; adding one means reviewing what it
+/// reveals (QA-45).
+const EXPECTED_COMPARISON_FIELDS: [&str; 9] = [
+    "beforeSnapshotId",
+    "afterSnapshotId",
+    "beforeLabel",
+    "afterLabel",
+    "before",
+    "after",
+    "deltas",
+    "columns",
+    "quality",
+];
+
+/// QA-45: no text cell of either revision and no path of the history may
+/// reach the serialized comparison, whatever its spelling.
+fn assert_reveals_no_cell_or_path(
+    serialized: &str,
+    frames: &[&DataFrame],
+    history: &HistoryManager,
+) {
+    for frame in frames {
+        for column in frame.columns() {
+            let Ok(values) = column.str() else { continue };
+            for value in values.iter().flatten().filter(|value| value.len() > 1) {
+                assert!(
+                    !serialized.contains(value),
+                    "la comparación revela la celda {value}"
+                );
+            }
+        }
+    }
+    let directory = history.directory.path();
+    for path in [
+        directory.to_string_lossy().into_owned(),
+        directory.to_string_lossy().replace('\\', "/"),
+    ] {
+        assert!(
+            !serialized.contains(&path),
+            "la comparación revela la ruta {path}"
+        );
+    }
+    assert!(!serialized.contains(".parquet"));
+}
+
 fn rule(column: &str) -> QualityRule {
     serde_json::from_value(serde_json::json!({
         "column": column,
@@ -105,10 +150,23 @@ fn history_comparison_profiles_immutable_revisions_and_returns_aggregate_only_de
         .contains("solo_antes"));
 
     let serialized = serde_json::to_string(&comparison).unwrap();
-    assert!(!serialized.contains("alice@example.test"));
-    assert!(!serialized.contains("bob@example.test"));
-    assert!(!serialized.contains("snapshot-") && !serialized.contains(".parquet"));
+    assert_reveals_no_cell_or_path(&serialized, &[&before, &after], &history);
     assert!(!serialized.contains("histogram"));
+    // A closed list: a new field has to be reviewed here before it ships.
+    let value = serde_json::to_value(&comparison).unwrap();
+    let mut fields = value
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
+    fields.sort();
+    let expected = {
+        let mut expected = EXPECTED_COMPARISON_FIELDS.map(str::to_owned).to_vec();
+        expected.sort();
+        expected
+    };
+    assert_eq!(fields, expected);
 
     let (still_before, _) = history.restore_by_id(&before_id).unwrap();
     assert!(
@@ -139,10 +197,23 @@ fn history_comparison_rejects_identical_and_obsolete_snapshot_ids() {
 
     history.record(&after, "Cambio A").unwrap();
     let obsolete_id = history.entries[1].id.clone();
-    history.cursor = 0;
+    // QA-45: go back through the public undo, not by moving the cursor.
+    let mut dataset = LoadedDataset {
+        source_path: None,
+        file_name: "datos.csv".to_owned(),
+        file_size_bytes: 0,
+        row_count: after.height(),
+        frame: after.clone(),
+        source_backed: false,
+        delimited_header_mode: None,
+        profile: None,
+        history,
+    };
+    undo_dataset(&mut dataset).unwrap();
     let branch =
         DataFrame::new(1, vec![Series::new("monto".into(), [9_i64]).into_column()]).unwrap();
-    history.record(&branch, "Nueva rama").unwrap();
+    dataset.history.record(&branch, "Nueva rama").unwrap();
+    let history = &dataset.history;
     assert!(!history.contains_id(&obsolete_id));
     assert!(history
         .restore_by_id(&obsolete_id)

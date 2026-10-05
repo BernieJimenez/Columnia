@@ -242,4 +242,36 @@ describe("DatasetComparisonSection", () => {
     finishPage();
     await waitFor(() => expect(screen.queryByRole("button", { name: "Cancelar carga" })).not.toBeInTheDocument());
   });
+
+  it("no deja unir mientras la comparación lee la otra fuente (UX-16)", () => {
+    renderSection({ status: { kind: "loading" } });
+    expect(screen.getByRole("button", { name: "Elegir fuente y unir" })).toBeDisabled();
+  });
+
+  it("cuenta las filas que las claves repetidas dejan sin comparar (FUN-82)", () => {
+    renderSection({ status: { kind: "ready", comparison: { ...comparison, duplicateKeyCount: 2, duplicateKeyRowCount: 5, canConsolidate: false } } });
+    expect(screen.getByText(/5 filas tienen una clave repetida/)).toBeInTheDocument();
+  });
+
+  it("distingue un valor nulo, uno vacío y el texto «null» (TXT-12)", () => {
+    renderSection({
+      status: {
+        kind: "ready",
+        comparison: {
+          ...withConflicts,
+          conflictsTruncated: true,
+          conflicts: [{ key: [null], cells: [
+            { column: "nota", current: null, compared: "null" },
+            { column: "otra", current: "", compared: "x" },
+          ] }],
+        } as unknown as DatasetComparison,
+      },
+    });
+    const conflict = screen.getByRole("group", { name: /clave \(nulo\)/ });
+    expect(within(conflict).getAllByText("(nulo)").length).toBeGreaterThan(0);
+    expect(within(conflict).getByText("null")).toBeInTheDocument();
+    expect(within(conflict).getByText("(vacío)")).toBeInTheDocument();
+    // The page still lacks decisions, so it is not «completa».
+    expect(screen.getByText(/Faltan decisiones en esta página/)).toBeInTheDocument();
+  });
 });

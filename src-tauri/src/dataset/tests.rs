@@ -10586,6 +10586,9 @@ fn compares_explicit_keys_and_reports_conflicts_and_duplicate_keys() {
     )
     .expect("la comparación duplicada debe calcularse");
     assert_eq!(duplicate_result.duplicate_key_count, 1);
+    // FUN-82: one row of id 2 here and two there are left out of the comparison.
+    assert_eq!(duplicate_result.duplicate_key_row_count, Some(3));
+    assert_eq!(result.duplicate_key_row_count, None);
     assert!(!duplicate_result.can_consolidate);
     assert_eq!(result.conflicts.len(), 1);
     assert_eq!(result.conflicts[0].key, vec![Some("2".to_owned())]);
@@ -13198,6 +13201,106 @@ fn loads_xlsx_through_a_source_backed_parquet_snapshot() {
     assert!(dataset.frame.equals_missing(&expected));
     assert_eq!(fs::metadata(&source).unwrap().len(), expected_size);
     fs::remove_file(source).expect("se debe limpiar el libro Excel");
+}
+
+#[test]
+fn a_missing_key_is_the_answer_not_a_reason_to_retry_in_memory() {
+    // ARQ-08: every disk error used to be retried after materializing.
+    let directory = tempfile::tempdir().unwrap();
+    let write = |name: &str| {
+        let path = directory.path().join(name);
+        let mut frame = df!["id" => &[1_i64, 2], "valor" => &["a", "b"]].unwrap();
+        ParquetWriter::new(fs::File::create(&path).unwrap())
+            .finish(&mut frame)
+            .unwrap();
+        path
+    };
+    let (current, compared) = (write("actual.parquet"), write("comparado.parquet"));
+    let error = comparison_engine::compare_parquet_sources_with_cancel(
+        &current,
+        "actual.parquet",
+        2,
+        &compared,
+        "comparado.parquet",
+        2,
+        &["codigo".to_owned()],
+        &|| false,
+    )
+    .expect_err("la clave no existe");
+    assert!(error.contains("codigo"), "{error}");
+    assert!(!comparison_reader::comparison_may_succeed_in_memory(&error));
+    assert!(!comparison_reader::comparison_may_succeed_in_memory(
+        OPERATION_CANCELLED_MESSAGE
+    ));
+    assert!(comparison_reader::comparison_may_succeed_in_memory(
+        "DuckDB no pudo leer el snapshot."
+    ));
+}
+
+#[test]
+fn the_disk_comparison_counts_rows_left_out_by_repeated_keys() {
+    // FUN-82, in the Parquet path: id 1 twice here and once there.
+    let directory = tempfile::tempdir().unwrap();
+    let write = |name: &str, mut frame: DataFrame| {
+        let path = directory.path().join(name);
+        ParquetWriter::new(fs::File::create(&path).unwrap())
+            .finish(&mut frame)
+            .unwrap();
+        path
+    };
+    let current = write(
+        "actual.parquet",
+        df!["id" => &[1_i64, 1, 2], "valor" => &["a", "b", "c"]].unwrap(),
+    );
+    let compared = write(
+        "comparado.parquet",
+        df!["id" => &[1_i64, 3, 3], "valor" => &["z", "d", "e"]].unwrap(),
+    );
+    let comparison = comparison_engine::compare_parquet_sources_with_cancel(
+        &current,
+        "actual.parquet",
+        3,
+        &compared,
+        "comparado.parquet",
+        3,
+        &["id".to_owned()],
+        &|| false,
+    )
+    .unwrap();
+    // id 1: 2 + 1 rows; id 3: 2 rows only on the compared side.
+    assert_eq!(comparison.duplicate_key_row_count, Some(5));
+    assert!(comparison.conflicts.is_empty());
+}
+
+#[test]
+fn compared_json_lines_take_the_json_path_and_types() {
+    // LIM-11: `.jsonl` used to be loaded whole in memory, with other types.
+    let directory = tempfile::tempdir().unwrap();
+    let json = directory.path().join("comparado.json");
+    let lines = directory.path().join("comparado.jsonl");
+    fs::write(
+        &json,
+        r#"[{"id": 1, "monto": 2.5}, {"id": 2, "monto": null}]"#,
+    )
+    .unwrap();
+    fs::write(
+        &lines,
+        "{\"id\": 1, \"monto\": 2.5}\n{\"id\": 2, \"monto\": null}\n",
+    )
+    .unwrap();
+    let read = |path: &Path, extension: &str| {
+        let (_directory, snapshot, row_count) =
+            comparison_io::persist_comparison_file_with_cancel(path, extension, || false).unwrap();
+        let frame = read_parquet_frame(&snapshot).unwrap();
+        let types = frame
+            .columns()
+            .iter()
+            .map(|column| (column.name().to_string(), column.dtype().to_string()))
+            .collect::<Vec<_>>();
+        (row_count, types)
+    };
+    assert_eq!(read(&lines, "jsonl"), read(&json, "json"));
+    assert_eq!(read(&lines, "ndjson").0, 2);
 }
 
 #[test]

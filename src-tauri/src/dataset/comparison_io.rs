@@ -305,7 +305,8 @@ where
             )?;
             (directory, snapshot_path, row_count)
         }
-        "json" => {
+        // LIM-11: JSON Lines takes the same disk path and types as JSON.
+        "json" | "jsonl" | "ndjson" => {
             let (directory, snapshot_path) =
                 persist_json_comparison_source_file_with_cancel(path, is_cancelled.clone())?;
             ensure_not_cancelled(is_cancelled())?;

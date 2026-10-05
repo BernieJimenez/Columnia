@@ -149,13 +149,17 @@ fn materialized_bundle_includes_safe_aggregate_summary_and_hashes() {
     )
     .expect("el bundle materializado debe exportarse");
 
+    // QA-45: every text cell and the folder of the delivery, not a sample.
+    let folder = directory.path().to_string_lossy().into_owned();
     verify_summary_and_manifest(
         &destination,
         &[
             "persona-privada@example.com",
+            "otra-persona@example.com",
             "nombre de receta privado",
             "columna-sensible",
             "patron-privado",
+            &folder,
         ],
     );
 }
@@ -198,7 +202,10 @@ fn source_backed_bundle_includes_summary_without_source_path_or_values() {
             "nombre de receta privado",
             "columna-sensible",
             "patron-privado",
+            "otra-persona@example.com",
             source_path.to_string_lossy().as_ref(),
+            source_directory.path().to_string_lossy().as_ref(),
+            destination_directory.path().to_string_lossy().as_ref(),
         ],
     );
 }

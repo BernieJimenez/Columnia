@@ -249,10 +249,12 @@ export function DatasetComparisonSection({
             className="primary-action"
             onClick={() => activeReviewMutation === "join" ? onCancelReviewMutation() : onJoin(joinType)}
             disabled={
-              reviewMutationBusy
-              && (activeReviewMutation !== "join"
-                || reviewMutationFinalizing
-                || reviewMutationCancellationRequested)
+              // UX-16: a join during a comparison in progress did nothing.
+              (status.kind === "loading" && activeReviewMutation !== "join")
+              || (reviewMutationBusy
+                && (activeReviewMutation !== "join"
+                  || reviewMutationFinalizing
+                  || reviewMutationCancellationRequested))
             }
           >
           {reviewMutationCancellationPending
@@ -352,6 +354,11 @@ export function DatasetComparisonSection({
                 <div><dt>Conflictos</dt><dd>{status.comparison.conflictingKeyCount.toLocaleString()}</dd></div>
                 <div><dt>Claves duplicadas</dt><dd>{status.comparison.duplicateKeyCount.toLocaleString()}</dd></div>
               </dl>
+              {(status.comparison.duplicateKeyRowCount ?? 0) > 0 && (
+                <p className="notice" role="note">
+                  {(status.comparison.duplicateKeyRowCount ?? 0).toLocaleString()} filas tienen una clave repetida en alguno de los dos datasets y no se comparan: no aparecen como conflicto aunque sus valores difieran. Quita los duplicados o elige más columnas clave.
+                </p>
+              )}
             </div>
           )}
           {status.comparison.conflicts.length > 0 && (
@@ -410,13 +417,13 @@ export function DatasetComparisonSection({
                 return (
                 <fieldset className="conflict-resolution__item" key={globalConflictIndex}>
                   <legend>
-                    Conflicto {globalConflictIndex + 1} · clave {conflict.key.map((value) => value ?? "null").join(" · ")}
+                    Conflicto {globalConflictIndex + 1} · clave {conflict.key.map(cellText).join(" · ")}
                   </legend>
                   <div className="conflict-resolution__choices">
                     <label>
                       <input
                         type="checkbox"
-                        aria-label={`Excluir la fila activa de la clave ${conflict.key.map((value) => value ?? "null").join(" · ")}`}
+                        aria-label={`Excluir la fila activa de la clave ${conflict.key.map(cellText).join(" · ")}`}
                         checked={excludedConflictIndexes[globalConflictIndex] === true}
                         disabled={reviewMutationBusy}
                         onChange={(event) => chooseConflictExclusion(globalConflictIndex, event.currentTarget.checked)}
@@ -431,8 +438,8 @@ export function DatasetComparisonSection({
                       return (
                         <li key={cell.column}>
                           <strong>{cell.column}</strong>
-                          <span>Activo: <code>{cell.current ?? "null"}</code></span>
-                          <span>Comparado: <code>{cell.compared ?? "null"}</code></span>
+                          <span>Activo: <ConflictValue value={cell.current} /></span>
+                          <span>Comparado: <ConflictValue value={cell.compared} /></span>
                           <div className="conflict-resolution__choices">
                             <label>
                               <input
@@ -464,7 +471,9 @@ export function DatasetComparisonSection({
               })}
               {status.comparison.conflictsTruncated && (
                 <p className="notice" role="status">
-                  Esta página está completa. Avanza para revisar los siguientes conflictos antes de resolverlos.
+                  {visibleConflictPageComplete
+                    ? "Esta página está completa. Avanza para revisar los siguientes conflictos antes de resolverlos."
+                    : "Faltan decisiones en esta página. Elige una fuente para cada celda y avanza para revisar los siguientes conflictos."}
                 </p>
               )}
               {status.comparison.conflicts.length > 0 && (
@@ -553,4 +562,16 @@ export function DatasetComparisonSection({
       )}
     </section>
   );
+}
+
+/** TXT-12: an empty cell and a missing one read differently from the text «null». */
+function cellText(value: string | null): string {
+  if (value === null) return "(nulo)";
+  return value === "" ? "(vacío)" : value;
+}
+
+function ConflictValue({ value }: { value: string | null }) {
+  return value === null || value === ""
+    ? <em className="conflict-resolution__missing">{cellText(value)}</em>
+    : <code>{value}</code>;
 }

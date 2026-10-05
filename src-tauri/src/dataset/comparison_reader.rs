@@ -67,6 +67,7 @@ pub(super) async fn compare_dataset_impl(
             };
 
         let state = app.state::<DatasetState>();
+        let read_from_disk = current_snapshot.is_some() || current_source.is_some();
         let (current_directory, current_path, current_row_count) = if let Some(current_path) =
             current_snapshot
         {
@@ -104,23 +105,40 @@ pub(super) async fn compare_dataset_impl(
             &is_cancelled,
         ) {
             Ok(comparison) => comparison,
-            Err(_) => {
+            // ARQ-08: a wrong key or a cancellation is the answer; retrying in
+            // memory only repeats the work and hides the cause.
+            Err(error) if !read_from_disk || !comparison_may_succeed_in_memory(&error) => {
                 cancellation_for_work.ensure()?;
-                let (current_frame, fallback_file_name) =
-                    materialize_current_dataset_with_cancel(&state, &is_cancelled)?;
-                let fallback_row_count = current_frame.height();
-                let (_fallback_directory, fallback_path) =
-                    persist_comparison_snapshot_with_cancel(&current_frame, &is_cancelled)?;
-                compare_parquet_sources_with_cancel(
-                    &fallback_path,
-                    &fallback_file_name,
-                    fallback_row_count,
-                    &snapshot_path,
-                    &compared_file_name,
-                    compared_row_count,
-                    &key_columns,
-                    &is_cancelled,
-                )?
+                return Err(error);
+            }
+            Err(disk_error) => {
+                cancellation_for_work.ensure()?;
+                let retry = || -> Result<DatasetComparison, String> {
+                    let (current_frame, fallback_file_name) =
+                        materialize_current_dataset_with_cancel(&state, &is_cancelled)?;
+                    let fallback_row_count = current_frame.height();
+                    let (_fallback_directory, fallback_path) =
+                        persist_comparison_snapshot_with_cancel(&current_frame, &is_cancelled)?;
+                    compare_parquet_sources_with_cancel(
+                        &fallback_path,
+                        &fallback_file_name,
+                        fallback_row_count,
+                        &snapshot_path,
+                        &compared_file_name,
+                        compared_row_count,
+                        &key_columns,
+                        &is_cancelled,
+                    )
+                };
+                match retry() {
+                    Ok(comparison) => comparison,
+                    Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
+                    Err(memory_error) => {
+                        return Err(format!(
+                            "{disk_error} Tampoco se pudo comparar en memoria: {memory_error}"
+                        ))
+                    }
+                }
             }
         };
         let _ = &current_directory;
@@ -142,6 +160,15 @@ pub(super) async fn compare_dataset_impl(
     .map_err(|error| {
         crate::crash_report::task_interrupted("La comparación se interrumpió", &error)
     })?
+}
+
+/// ARQ-08: errors a second, in-memory attempt cannot fix: the person must
+/// change the keys, or asked to stop.
+pub(super) fn comparison_may_succeed_in_memory(error: &str) -> bool {
+    error != OPERATION_CANCELLED_MESSAGE
+        && !error.starts_with("La columna clave")
+        && !error.starts_with("Las columnas clave")
+        && !error.starts_with("La comparación admite como máximo")
 }
 
 pub(super) async fn get_dataset_conflict_page_impl(

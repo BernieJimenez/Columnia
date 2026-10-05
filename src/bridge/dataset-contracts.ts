@@ -74,6 +74,8 @@ export interface DatasetComparison {
   comparedOnlyKeyCount: number;
   conflictingKeyCount: number;
   duplicateKeyCount: number;
+  /** FUN-82: rows whose key repeats on either side, left out of the comparison. */
+  duplicateKeyRowCount?: number;
   conflicts: DatasetConflict[];
   conflictOffset: number;
   conflictsTruncated: boolean;

@@ -616,6 +616,9 @@ pub struct DatasetComparison {
     pub(crate) compared_only_key_count: usize,
     pub(crate) conflicting_key_count: usize,
     pub(crate) duplicate_key_count: usize,
+    /// FUN-82: rows whose key repeats on either side and are not compared.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) duplicate_key_row_count: Option<usize>,
     pub(crate) conflicts: Vec<DatasetConflict>,
     pub(crate) conflict_offset: usize,
     pub(crate) conflicts_truncated: bool,

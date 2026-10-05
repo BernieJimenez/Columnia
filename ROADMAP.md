@@ -438,14 +438,14 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-81` (Bajo) Un JSON cuyo raíz es un objeto envolvente (`{"data":[...]}`) se carga como una sola fila — hecho el 2026-10-05
   - [x] `ARQ-07` (Bajo) La paginación directa traga cualquier error de la fuente y cae a materializar el dataset entero, con el mutex del dataset tomado durante toda la E/S — hecho el 2026-10-05
   - [x] `COD-18` (Bajo) `unwrap_or(HistoryManager::deferred()?)` crea un directorio temporal aunque no se use — hecho el 2026-10-05
-- [ ] **RV89** — **Comparación** — Claves duplicadas y nulas: filas excluidas de conflictos y sin recuento de filas afectadas (y 5 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV89** — **Comparación** — Claves duplicadas y nulas: filas excluidas de conflictos y sin recuento de filas afectadas (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-82, ARQ-08, UX-16, TXT-12, LIM-11, QA-45.
-  - [ ] `FUN-82` (Bajo) Claves duplicadas y nulas: filas excluidas de conflictos y sin recuento de filas afectadas
-  - [ ] `ARQ-08` (Bajo) Fallo de la comparación por Parquet se reintenta en silencio materializando el activo en RAM
-  - [ ] `UX-16` (Bajo) Unir/consolidar con la comparación aún en curso es un clic sin efecto
-  - [ ] `TXT-12` (Bajo) Textos de conflictos: «Esta página está completa» siempre, y `null` indistinguible del texto «null»
-  - [ ] `LIM-11` (Bajo) Los archivos `.jsonl`/`.ndjson` comparados van por la ruta en memoria, distinta de la de `.json`
-  - [ ] `QA-45` (Bajo) El test de comparación de revisiones manipula `history.cursor` directamente y las aserciones de privacidad usan `contains` de cadenas
+  - [x] `FUN-82` (Bajo) Claves duplicadas y nulas: filas excluidas de conflictos y sin recuento de filas afectadas — hecho el 2026-10-05
+  - [x] `ARQ-08` (Bajo) Fallo de la comparación por Parquet se reintenta en silencio materializando el activo en RAM — hecho el 2026-10-05
+  - [x] `UX-16` (Bajo) Unir/consolidar con la comparación aún en curso es un clic sin efecto — hecho el 2026-10-05
+  - [x] `TXT-12` (Bajo) Textos de conflictos: «Esta página está completa» siempre, y `null` indistinguible del texto «null» — hecho el 2026-10-05
+  - [x] `LIM-11` (Bajo) Los archivos `.jsonl`/`.ndjson` comparados van por la ruta en memoria, distinta de la de `.json` — hecho el 2026-10-05
+  - [x] `QA-45` (Bajo) El test de comparación de revisiones manipula `history.cursor` directamente y las aserciones de privacidad usan `contains` de cadenas — hecho el 2026-10-05
 - [ ] **RV90** — **Proyectos e historial (motor)** — Un único respaldo de versión ilegible hace fallar el listado completo de versiones (y 5 problemas más) · *Esfuerzo: 3 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de DAT-15, DAT-16, DAT-17, REN-10, COD-12, QA-46.
   - [ ] `DAT-15` (Bajo) Un único respaldo de versión ilegible hace fallar el listado completo de versiones

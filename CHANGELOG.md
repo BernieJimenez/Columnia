@@ -203,6 +203,15 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Comparación: el resumen cuenta las filas que una clave repetida deja sin
+  comparar y lo explica; una clave inexistente da su mensaje sin repetir la
+  comparación en memoria, y si el reintento falla se ven las dos causas; «Elegir
+  fuente y unir» se desactiva mientras se lee la otra fuente; en los conflictos
+  un valor nulo se ve «(nulo)», uno vacío «(vacío)» y el texto «null» tal cual,
+  y el aviso de página dice si faltan decisiones; los `.jsonl`/`.ndjson`
+  comparados van por la misma ruta en disco y con los mismos tipos que `.json`;
+  las pruebas de privacidad revisan todas las celdas y rutas y deshacen con la
+  API pública (FUN-82, ARQ-08, UX-16, TXT-12, LIM-11, QA-45).
 - Pruebas: `cargo mutants` sobre la protección de fórmulas CSV y el analizador
   de fechas ya no deja mutantes sin detectar (62 probados: 60 detectados, 2
   inviables); se añadieron casos para la etiqueta `iso`, partes con signo, días

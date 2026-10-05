@@ -943,6 +943,8 @@ pub(super) struct KeyComparisonSummary {
     pub(super) compared_only_key_count: usize,
     pub(super) conflicting_key_count: usize,
     pub(super) duplicate_key_count: usize,
+    /// FUN-82: rows (both sides) whose key repeats, so they are not compared.
+    pub(super) duplicate_key_row_count: usize,
 }
 
 pub(super) fn validate_key_columns(
@@ -1038,6 +1040,18 @@ where
             .values()
             .filter(|rows| rows.count > 1)
             .count();
+        // FUN-82: the rows a repeated key keeps out of the comparison.
+        for (key, rows) in &current_bucket {
+            let compared_count = compared_bucket.get(key).map_or(0, |rows| rows.count);
+            if rows.count > 1 || compared_count > 1 {
+                summary.duplicate_key_row_count += rows.count + compared_count;
+            }
+        }
+        summary.duplicate_key_row_count += compared_bucket
+            .iter()
+            .filter(|(key, rows)| rows.count > 1 && !current_bucket.contains_key(*key))
+            .map(|(_, rows)| rows.count)
+            .sum::<usize>();
         summary.duplicate_key_count += compared_bucket
             .iter()
             .filter(|(key, rows)| {
@@ -1112,6 +1126,18 @@ pub(super) fn compare_keyed_parquet(
             .values()
             .filter(|rows| rows.count > 1)
             .count();
+        // FUN-82: the rows a repeated key keeps out of the comparison.
+        for (key, rows) in &current_bucket {
+            let compared_count = compared_bucket.get(key).map_or(0, |rows| rows.count);
+            if rows.count > 1 || compared_count > 1 {
+                summary.duplicate_key_row_count += rows.count + compared_count;
+            }
+        }
+        summary.duplicate_key_row_count += compared_bucket
+            .iter()
+            .filter(|(key, rows)| rows.count > 1 && !current_bucket.contains_key(*key))
+            .map(|(_, rows)| rows.count)
+            .sum::<usize>();
         summary.duplicate_key_count += compared_bucket
             .iter()
             .filter(|(key, rows)| {
@@ -1213,6 +1239,11 @@ where
             if current_group.count > 1 {
                 summary.duplicate_key_count += 1;
             }
+            // FUN-82: the rows a repeated key keeps out of the comparison.
+            let compared_count = compared_bucket.get(key).map_or(0, |group| group.count);
+            if current_group.count > 1 || compared_count > 1 {
+                summary.duplicate_key_row_count += current_group.count + compared_count;
+            }
             let Some(compared_group) = compared_bucket.get(key) else {
                 continue;
             };
@@ -1229,6 +1260,9 @@ where
             }
             if !current_bucket.contains_key(key) {
                 summary.compared_only_key_count += 1;
+                if compared_group.count > 1 {
+                    summary.duplicate_key_row_count += compared_group.count;
+                }
             }
             if compared_group.count > 1
                 && current_bucket
@@ -2740,6 +2774,8 @@ where
         compared_only_key_count: key_summary.compared_only_key_count,
         conflicting_key_count: key_summary.conflicting_key_count,
         duplicate_key_count: key_summary.duplicate_key_count,
+        duplicate_key_row_count: (key_summary.duplicate_key_row_count > 0)
+            .then_some(key_summary.duplicate_key_row_count),
         conflicts: conflicts.into_iter().map(|item| item.conflict).collect(),
         conflict_offset: 0,
         conflicts_truncated,
@@ -2848,6 +2884,8 @@ pub(super) fn compare_parquet_source(
         compared_only_key_count: key_summary.compared_only_key_count,
         conflicting_key_count: key_summary.conflicting_key_count,
         duplicate_key_count: key_summary.duplicate_key_count,
+        duplicate_key_row_count: (key_summary.duplicate_key_row_count > 0)
+            .then_some(key_summary.duplicate_key_row_count),
         conflicts: conflicts.into_iter().map(|item| item.conflict).collect(),
         conflict_offset: 0,
         conflicts_truncated,
@@ -3004,6 +3042,8 @@ where
         compared_only_key_count: key_summary.compared_only_key_count,
         conflicting_key_count: key_summary.conflicting_key_count,
         duplicate_key_count: key_summary.duplicate_key_count,
+        duplicate_key_row_count: (key_summary.duplicate_key_row_count > 0)
+            .then_some(key_summary.duplicate_key_row_count),
         conflicts: conflicts.into_iter().map(|item| item.conflict).collect(),
         conflict_offset: 0,
         conflicts_truncated,
