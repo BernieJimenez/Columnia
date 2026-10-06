@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_RECENT_DATASETS,
   RECENT_DATASETS_STORAGE_KEY,
+  formatRecentDatasetDate,
   formatRecentDatasetFormat,
   normalizeRecentFileName,
   readRecentDatasets,
@@ -66,5 +67,25 @@ describe("recentFilesModel", () => {
     expect(loaded).toHaveLength(1);
     expect(removeRecentDataset(loaded, "ok-1")).toEqual([]);
     expect(formatRecentDatasetFormat("excel")).toBe("Excel");
+  });
+});
+
+describe("recientes sin cubrir (QA-38)", () => {
+  it("formatea la fecha y cae a un texto cuando Intl falla", () => {
+    expect(formatRecentDatasetDate(Date.UTC(2026, 0, 15, 12))).toMatch(/15/);
+    const original = Intl.DateTimeFormat;
+    Intl.DateTimeFormat = function broken() { throw new RangeError("sin locale"); } as unknown as typeof Intl.DateTimeFormat;
+    try {
+      expect(formatRecentDatasetDate(0)).toBe("Fecha no disponible");
+    } finally {
+      Intl.DateTimeFormat = original;
+    }
+  });
+
+  it("trata como el mismo archivo un nombre con otras mayúsculas", () => {
+    const first = rememberRecentDataset([], { fileName: "Ventas.CSV", format: "csv" }, 1);
+    const again = rememberRecentDataset(first, { fileName: "ventas.csv", format: "csv" }, 2);
+    expect(again).toHaveLength(1);
+    expect(again[0]).toMatchObject({ id: first[0]?.id, fileName: "ventas.csv", lastOpenedAt: 2 });
   });
 });

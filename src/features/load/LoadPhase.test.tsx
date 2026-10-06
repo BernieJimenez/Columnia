@@ -371,7 +371,6 @@ describe("LoadPhase", () => {
 
     expect(screen.getByRole("button", { name: "Elegir de nuevo" })).toBeDisabled();
     expect(screen.getByText("ventas.csv")).toBeInTheDocument();
-    });
   });
 
   it("actualiza el resumen cuando cambian la hoja y el modo de encabezados", () => {
@@ -427,6 +426,7 @@ describe("LoadPhase", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Continuar con la carga" }));
     expect(onResourcePreflightAction).toHaveBeenCalledWith({ kind: "confirmed" });
   });
+});
 
 describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12)", () => {
   const profile = {

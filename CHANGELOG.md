@@ -203,6 +203,11 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Pruebas de Cargar: las de LoadPhase vuelven a estar todas dentro de su
+  `describe`; cada función exportada del modelo de Cargar tiene prueba propia,
+  una de ellas fija que el prefijo de codificación heredada coincide con el de
+  Rust, y los recientes prueban la fecha sin `Intl` y los nombres con otras
+  mayúsculas (QA-37, QA-38).
 - Cargar: una tarea reutilizable se puede eliminar desde el panel tras
   confirmarlo; su privacidad se lee en palabras («columnas personales
   enmascaradas»); la vista previa con encabezados repetidos ya no duplica claves

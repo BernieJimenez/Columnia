@@ -1,8 +1,18 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { DatasetPreview, DatasetSourceInspection, ImportProfile } from "../../bridge";
 import {
+  LEGACY_ENCODING_PREFIX,
   beginDatasetLoad,
+  beginDelimitedHeaderReview,
+  beginSchemaPreview,
+  completeSchemaPreview,
+  failSchemaPreview,
+  legacyEncodingExample,
+  recoverDatasetLoadCancellationFailure,
+  schemaMismatchInspection,
   completeDelimitedHeaderReview,
   createReadyDatasetStatus,
   delimitedHeaderInspection,
@@ -236,5 +246,48 @@ describe("loadModel", () => {
       useSavedProfile: false,
       suggestedProfile: profile,
     });
+  });
+});
+
+describe("modelo de Cargar sin cubrir (QA-38)", () => {
+  it("comparte con Rust el prefijo de la codificación heredada", () => {
+    const rust = readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8");
+    const declared = /const LEGACY_ENCODING_PREFIX: &str = "([^"]+)";/.exec(rust)?.[1];
+    expect(declared).toBe(LEGACY_ENCODING_PREFIX);
+    expect(legacyEncodingExample(`${LEGACY_ENCODING_PREFIX}Año`)).toBe("Año");
+    expect(legacyEncodingExample("otro error")).toBeNull();
+    expect(legacyEncodingExample(null)).toBeNull();
+  });
+
+  it("abre, completa y falla la vista previa de esquema solo con una hoja elegida", () => {
+    const selected = workbookInspection(workbook);
+    const loading = beginSchemaPreview(selected);
+    expect(loading).toMatchObject({ schemaPreview: null, schemaPreviewLoading: true, schemaPreviewError: null });
+    const preview = { rowCount: 1, columns: [], schemaMismatch: null };
+    expect(completeSchemaPreview(loading, preview)).toMatchObject({ schemaPreview: preview, schemaPreviewLoading: false });
+    expect(failSchemaPreview(loading, "sin acceso")).toMatchObject({ schemaPreview: null, schemaPreviewError: "sin acceso" });
+    const idle = { kind: "idle" } as const;
+    expect(beginSchemaPreview(idle)).toBe(idle);
+    expect(completeSchemaPreview(idle, preview)).toBe(idle);
+    expect(failSchemaPreview(idle, "x")).toBe(idle);
+  });
+
+  it("solo revisa encabezados de archivos delimitados", () => {
+    const workbookSelection = workbookInspection(workbook);
+    expect(beginDelimitedHeaderReview(workbookSelection)).toBe(workbookSelection);
+    const delimited = workbookInspection({ ...workbook, format: "csv", fileName: "ventas.csv" });
+    expect(beginDelimitedHeaderReview(delimited)).toMatchObject({ headerReview: null, headerReviewLoading: true, error: null });
+  });
+
+  it("guarda la discrepancia de esquema y el fallo al cancelar una carga", () => {
+    const profile = { version: 1, format: "csv", schema: [] } as unknown as ImportProfile;
+    const mismatch = { code: "importProfileSchemaMismatch" as const, missingColumns: ["id"], addedColumns: [], changedTypes: [] };
+    expect(schemaMismatchInspection(workbook, profile, mismatch, "s1", "firstRow")).toEqual({
+      kind: "schema_mismatch", source: workbook, profile, mismatch, sheetId: "s1", headerMode: "firstRow",
+    });
+    const loading = beginDatasetLoad({ kind: "ready", dataset } as never);
+    expect(recoverDatasetLoadCancellationFailure(loading, "no respondió")).toMatchObject({ cancelRequested: false, cancellationError: "no respondió" });
+    const idle = { kind: "idle" } as never;
+    expect(recoverDatasetLoadCancellationFailure(idle, "x")).toBe(idle);
   });
 });

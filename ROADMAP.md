@@ -481,10 +481,10 @@ medio = 1 día; agregado por suma.
   - [x] `PROD-07` (Bajo) Las tareas reutilizables no se pueden borrar ni renombrar desde la interfaz — hecho el 2026-10-06
   - [x] `COD-10` (Bajo) Claves de React duplicadas en la vista previa si el archivo trae encabezados repetidos — hecho el 2026-10-06
   - [x] `LIM-03` (Bajo) Exportaciones sin uso en el frontend — hecho el 2026-10-06
-- [ ] **RV95** — **Cargar** — Tres pruebas de LoadPhase quedaron fuera del `describe` por una llave mal colocada (y 1 problemas más) · *Esfuerzo: 4 h*
+- [x] **RV95** — **Cargar** — Tres pruebas de LoadPhase quedaron fuera del `describe` por una llave mal colocada (y 1 problemas más) · *Esfuerzo: 4 h* — hecho el 2026-10-06
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-37, QA-38.
-  - [ ] `QA-37` (Bajo) Tres pruebas de LoadPhase quedaron fuera del `describe` por una llave mal colocada
-  - [ ] `QA-38` (Bajo) Huecos de prueba en el modelo de Cargar y en el de reglas importadas
+  - [x] `QA-37` (Bajo) Tres pruebas de LoadPhase quedaron fuera del `describe` por una llave mal colocada — hecho el 2026-10-06
+  - [x] `QA-38` (Bajo) Huecos de prueba en el modelo de Cargar y en el de reglas importadas — hecho el 2026-10-06
 - [ ] **RV96** — **Gates y scripts** — Verificaciones criptográficas parciales en el updater (comentario de confianza y política… (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de SEG-11, SEG-12, COD-19, COD-20, LIM-12, LIM-13.
   - [ ] `SEG-11` (Bajo) Verificaciones criptográficas parciales en el updater (comentario de confianza y política de claves)
