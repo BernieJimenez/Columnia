@@ -203,6 +203,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- `npm run build` comprueba también los tipos de los E2E y de
+  `playwright.config.ts`: un error de tipos en un spec rompe el build (QA-31).
 - Calidad del frontend: el indicador dice «Motor local listo» solo cuando el
   motor respondió y los catálogos esperan a esa respuesta; `npm run lint` falla
   con cualquier aviso, revisa dependencias de efectos, refs leídos al renderizar

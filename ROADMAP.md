@@ -470,9 +470,9 @@ medio = 1 día; agregado por suma.
   - [x] `LIM-04` (Bajo) Configuración de E2E incoherente (Edge frente a Chromium instalado; reintentos solo en CI inexistente) — hecho el 2026-10-06
   - [x] `QA-29` (Bajo) El test de paridad IPC compara nombres de campos y formas, no variantes de enums ni la constante de cancelación — hecho el 2026-10-06
   - [x] `QA-30` (Bajo) `src/bridge.test.ts` prueba sobre todo que el mock devuelve lo que se le dijo; 14 funciones del puente sin test — hecho el 2026-10-06
-- [ ] **RV93** — **App y puente** — `tsc --noEmit` y el tipado no cubren `e2e/` ni `tools/` · *Esfuerzo: 2 h*
+- [x] **RV93** — **App y puente** — `tsc --noEmit` y el tipado no cubren `e2e/` ni `tools/` · *Esfuerzo: 2 h* — hecho el 2026-10-06
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-31.
-  - [ ] `QA-31` (Bajo) `tsc --noEmit` y el tipado no cubren `e2e/` ni `tools/`
+  - [x] `QA-31` (Bajo) `tsc --noEmit` y el tipado no cubren `e2e/` ni `tools/` — hecho el 2026-10-06
 - [ ] **RV94** — **Cargar** — El saneado de rutas en errores de tareas no cubre rutas UNC y borra el motivo del error (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de SEG-07, TXT-04, TXT-13, PROD-07, COD-10, LIM-03.
   - [ ] `SEG-07` (Bajo) El saneado de rutas en errores de tareas no cubre rutas UNC y borra el motivo del error

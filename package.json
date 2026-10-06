@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "vite",
     "preview": "vite preview",
-    "build": "tsc -p tsconfig.app.json && tsc --noEmit && vite build",
+    "build": "tsc -p tsconfig.app.json && tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json && vite build",
     "brand:check": "node tools/check-retired-brand.mjs",
     "test": "vitest run",
     "lint": "oxlint -c .oxlintrc.json --deny-warnings src e2e tools",
