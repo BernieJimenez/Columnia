@@ -800,7 +800,7 @@ function summarizePersonalPrivacySignals(columns: Array<{ privacySignal: string 
 }
 
 /** The sentence that says whether a change can be undone (TXT-01). */
-export function undoAvailabilityNote(snapshotsEnabled: boolean): string {
+function undoAvailabilityNote(snapshotsEnabled: boolean): string {
   return snapshotsEnabled
     ? " Podrás deshacerlo desde el historial."
     : " El historial reversible está desactivado: este cambio no se podrá deshacer.";

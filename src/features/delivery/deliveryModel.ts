@@ -26,8 +26,8 @@ export function personalDataColumnNames(columns: readonly ColumnProfile[] | null
     .map((column) => column.name);
 }
 /** Excel limits (RV19 / FUN-05); export_io.rs rejects the same cases when exporting. */
-export const EXCEL_MAX_DATA_ROWS = 1_048_575;
-export const EXCEL_MAX_CELL_CHARS = 32_767;
+const EXCEL_MAX_DATA_ROWS = 1_048_575;
+const EXCEL_MAX_CELL_CHARS = 32_767;
 
 /** Why this dataset would not open in Excel, known before exporting. */
 export function excelLimitIssues(rowCount: number, columns: readonly ColumnProfile[] | null): string[] {
@@ -206,7 +206,7 @@ function supportsQualityAggregate(dataType: string): boolean {
     || normalized.includes("number");
 }
 
-export type QualityGateState =
+type QualityGateState =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "ready"; result: QualityValidationResult }

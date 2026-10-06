@@ -24,23 +24,18 @@ export type ExtractionKind =
   | "first_token" | "last_token" | "digits" | "letters" | "before" | "after";
 
 // Alias públicos históricos. Mantenerlos evita romper consumidores existentes.
-export type TransformTarget = RecipeCastTarget;
-export type DateInputFormat = RecipeDateFormat;
-export type DateTarget = RecipeDateTarget;
-export type FilterOperator = RecipeFilterOperator;
-export type CalculationOperation = CalculatedOperation;
 
-export interface RecipeRename {
+interface RecipeRename {
   from: string;
   to: string;
 }
 
-export interface RecipeCast {
+interface RecipeCast {
   column: string;
   target: RecipeCastTarget;
 }
 
-export interface RecipeDateParse {
+interface RecipeDateParse {
   column: string;
   format: RecipeDateFormat;
   target: RecipeDateTarget;
@@ -52,21 +47,20 @@ export interface RecipeFilter {
   value: string | null;
 }
 
-export interface CalculatedOperand {
+interface CalculatedOperand {
   kind: CalculatedOperandKind;
   value: string;
 }
 
-export type CalculationOperand = CalculatedOperand;
 
-export interface CalculatedColumnRecipe {
+interface CalculatedColumnRecipe {
   name: string;
   source: string;
   operation: CalculatedOperation;
   operand: CalculatedOperand | null;
 }
 
-export interface FindReplaceRecipe {
+interface FindReplaceRecipe {
   scope: FindReplaceScope;
   column: string | null;
   find: string;
@@ -74,41 +68,41 @@ export interface FindReplaceRecipe {
   regex: boolean;
 }
 
-export interface SplitColumnRecipe {
+interface SplitColumnRecipe {
   source: string;
   delimiter: string;
   names: string[];
   dropSource: boolean;
 }
 
-export interface MergeColumnsRecipe {
+interface MergeColumnsRecipe {
   sources: string[];
   name: string;
   separator: string;
   dropSources: boolean;
 }
 
-export interface OutlierTreatment {
+interface OutlierTreatment {
   column: string;
   action: OutlierAction;
 }
 
-export interface SummaryAggregation {
+interface SummaryAggregation {
   column: string;
   operation: SummaryOperation;
 }
 
-export interface GroupSummaryRecipe {
+interface GroupSummaryRecipe {
   groupBy: string[];
   aggregations: SummaryAggregation[];
 }
 
-export interface ContactNormalization {
+interface ContactNormalization {
   column: string;
   kind: ContactKind;
 }
 
-export interface TextExtraction {
+interface TextExtraction {
   source: string;
   kind: ExtractionKind;
   name: string;
@@ -140,7 +134,7 @@ export interface SavedRecipe {
   exportOptions?: RecipeExportOptions;
 }
 
-export interface RecipeSourceColumn {
+interface RecipeSourceColumn {
   name: string;
   dataType: string;
 }

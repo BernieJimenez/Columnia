@@ -280,11 +280,6 @@ export function setLoadInspectionError(
     : { kind: "error", message };
 }
 
-export function clearLoadInspectionError(current: LoadInspectionState): LoadInspectionState {
-  if (current.kind === "sheet") return { ...current, error: null };
-  return current.kind === "error" ? { kind: "idle" } : current;
-}
-
 /** Mirrors LEGACY_ENCODING_PREFIX in Rust: a delimited file that reads as Windows-1252. */
 export const LEGACY_ENCODING_PREFIX = "__columnia_legacy_encoding__:windows-1252:";
 

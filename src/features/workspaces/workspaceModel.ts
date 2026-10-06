@@ -33,7 +33,7 @@ export const workspaces = [
   },
 ] as const;
 
-export type WorkspaceId = (typeof workspaces)[number]["id"];
+type WorkspaceId = (typeof workspaces)[number]["id"];
 
 export const workspaceByPhase = {
   load: "analyze",

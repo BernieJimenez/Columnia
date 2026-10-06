@@ -4,7 +4,7 @@ import { isDateType, isDatetimeType, isNumericType, isTextType } from "../../dat
 // "parseable": text or date before any date parse of the recipe (COD-09).
 type RequiredColumnKind = "text" | "numeric" | "date" | "parseable";
 
-export interface RecipeSchemaIssue {
+interface RecipeSchemaIssue {
   column: string;
   kind: "missing" | "incompatible";
   reasons: string[];

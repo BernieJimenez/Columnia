@@ -1,6 +1,6 @@
 import type { DatasetPreview, RecipeFilter, TransformRecipe } from "../../bridge";
 
-export type TransformRisk = "low" | "medium" | "high";
+type TransformRisk = "low" | "medium" | "high";
 
 export interface TransformPreview {
   beforeRows: number;
@@ -144,7 +144,7 @@ function previewColumnNames(dataset: DatasetPreview, recipe: TransformRecipe): {
 }
 
 /** Whether the recipe converts or rewrites cell values. */
-export function changesValues(recipe: TransformRecipe): boolean {
+function changesValues(recipe: TransformRecipe): boolean {
   return recipe.casts.length > 0 || recipe.dateParses.length > 0 || recipe.findReplace !== null;
 }
 

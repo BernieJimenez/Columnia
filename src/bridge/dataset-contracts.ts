@@ -5,13 +5,13 @@ export interface DatasetColumn {
   dataType: string;
 }
 
-export interface DatasetConflictCell {
+interface DatasetConflictCell {
   column: string;
   current: string | null;
   compared: string | null;
 }
 
-export interface DatasetConflict {
+interface DatasetConflict {
   key: Array<string | null>;
   cells: DatasetConflictCell[];
 }
@@ -47,7 +47,7 @@ export interface DatasetImportSchemaPreview {
   unconvertedColumns?: UnconvertedColumn[];
 }
 
-export interface UnconvertedColumn {
+interface UnconvertedColumn {
   column: string;
   convention: "date" | "number";
   /** Non-empty values that do not follow the convention. */
@@ -112,10 +112,12 @@ export interface DatasetSourceInspection {
 
 export type DatasetLoadPath = "inMemory" | "sourceBacked";
 
-export interface DatasetResourceEstimate {
+interface DatasetResourceEstimate {
   processingPath: DatasetLoadPath;
   estimatedMaterializationRamBytes: number;
   estimatedTemporaryDiskBytes: number | null;
+  /** TXT-13: files from this size on are read by blocks, with fewer options. */
+  inMemoryLimitBytes?: number;
 }
 
 export interface SampleDatasetDescriptor {
@@ -182,13 +184,13 @@ export interface DatasetQueryResult {
 
 export type DatasetQueryEngine = "polars" | "duckdb";
 
-export interface HistogramBucket {
+interface HistogramBucket {
   lower: number;
   upper: number;
   count: number;
 }
 
-export interface NumericCorrelation {
+interface NumericCorrelation {
   firstColumn: string;
   secondColumn: string;
   coefficient: number | null;
@@ -202,7 +204,7 @@ export interface NumericCorrelationMatrix {
   truncated: boolean;
 }
 
-export interface CategoricalGroup {
+interface CategoricalGroup {
   label: string;
   rowCount: number;
   percentage: number;
@@ -233,7 +235,7 @@ export interface TemporalSeriesSummary {
 
 export type TemporalAggregationKind = "sum" | "mean";
 
-export interface TemporalAggregationPeriod {
+interface TemporalAggregationPeriod {
   period: string;
   rowCount: number;
   valueCount: number;
@@ -311,7 +313,7 @@ export interface ColumnRemovalResult {
   thresholdPercentage?: number;
 }
 
-export interface ColumnRename {
+interface ColumnRename {
   from: string;
   to: string;
 }
@@ -342,7 +344,7 @@ export interface PersonalDataMaskResult {
   changedColumnCount: number;
 }
 
-export interface HistoryEntryState {
+interface HistoryEntryState {
   id: string | null;
   index: number;
   label: string;
@@ -380,7 +382,7 @@ export interface SnapshotRevisionComparison {
   quality: SnapshotQualityComparison;
 }
 
-export interface SnapshotRevisionSummary {
+interface SnapshotRevisionSummary {
   rowCount: number;
   columnCount: number;
   nullCount: number;
@@ -388,7 +390,7 @@ export interface SnapshotRevisionSummary {
   duplicateRowCount: number;
 }
 
-export interface SnapshotRevisionDeltas {
+interface SnapshotRevisionDeltas {
   rowCount: number | null;
   columnCount: number | null;
   nullCount: number | null;
@@ -396,7 +398,7 @@ export interface SnapshotRevisionDeltas {
   duplicateRowCount: number | null;
 }
 
-export interface SnapshotColumnComparison {
+interface SnapshotColumnComparison {
   name: string;
   comparable: boolean;
   reason: string | null;
@@ -407,13 +409,13 @@ export interface SnapshotColumnComparison {
   invalidTypeCountDelta: number | null;
 }
 
-export interface SnapshotColumnSummary {
+interface SnapshotColumnSummary {
   dataType: string;
   nullCount: number;
   invalidTypeCount: number;
 }
 
-export interface SnapshotQualityComparison {
+interface SnapshotQualityComparison {
   configuredRuleCount: number;
   comparableRuleCount: number;
   nonComparableRuleCount: number;
@@ -424,7 +426,7 @@ export interface SnapshotQualityComparison {
   rules: SnapshotQualityRuleComparison[];
 }
 
-export interface SnapshotQualityRuleComparison {
+interface SnapshotQualityRuleComparison {
   ruleIndex: number;
   kind: QualityRuleKind;
   column: string;
@@ -460,7 +462,7 @@ export interface DateColumnPlan {
 }
 
 /** One column the plan fills, with the value it receives (RV17). */
-export interface ImputationPreview {
+interface ImputationPreview {
   column: string;
   value: string;
   cellCount: number;
@@ -507,7 +509,7 @@ export interface ExploreLayout {
 }
 
 /** The columns each kind of chart accepts. */
-export interface ExploreOptions {
+interface ExploreOptions {
   categories: string[];
   measures: string[];
   dates: string[];
@@ -515,7 +517,7 @@ export interface ExploreOptions {
   textDates: string[];
 }
 
-export interface ExploreRange {
+interface ExploreRange {
   min: number;
   max: number;
   /** `[min, max)`: every histogram bin but the last one. */
@@ -540,19 +542,19 @@ export interface ExploreKpi {
   ignoredCount?: number;
 }
 
-export interface ExploreCategoryChart {
+interface ExploreCategoryChart {
   column: string;
   bars: ExploreBar[];
   otherCount: number;
   distinctCount: number;
 }
 
-export interface ExploreBar {
+interface ExploreBar {
   value: string | null;
   count: number;
 }
 
-export interface ExploreHistogram {
+interface ExploreHistogram {
   column: string;
   bins: ExploreBin[];
   /** FUN-78: filtered rows without a usable number, in no bin. */
@@ -561,19 +563,19 @@ export interface ExploreHistogram {
   integer: boolean;
 }
 
-export interface ExploreBin {
+interface ExploreBin {
   lower: number;
   upper: number;
   count: number;
 }
 
-export interface ExploreTrend {
+interface ExploreTrend {
   column: string;
   granularity: "day" | "month" | "year";
   points: ExplorePoint[];
 }
 
-export interface ExplorePoint {
+interface ExplorePoint {
   period: string;
   count: number;
 }

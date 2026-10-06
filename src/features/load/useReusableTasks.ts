@@ -16,15 +16,15 @@ import {
   type ReusableTaskSummary,
 } from "../../bridge";
 
-export type ReusableTaskCatalogState = "unavailable" | "loading" | "ready" | "error" | "cancelled";
-export type ReusableTaskOperation = "open" | "save" | "delete" | "check_schema";
+type ReusableTaskCatalogState = "unavailable" | "loading" | "ready" | "error" | "cancelled";
+type ReusableTaskOperation = "open" | "save" | "delete" | "check_schema";
 
-export interface OpenedReusableTask {
+interface OpenedReusableTask {
   id: string;
   task: ReusableTask;
 }
 
-export interface ReusableTaskSchemaCheck {
+interface ReusableTaskSchemaCheck {
   taskId: string;
   compatibility: ReusableTaskSchemaCompatibility;
 }
@@ -34,7 +34,7 @@ interface UseReusableTasksOptions {
   blocked?: boolean;
 }
 
-export interface ReusableTasksController {
+interface ReusableTasksController {
   catalogState: ReusableTaskCatalogState;
   tasks: ReusableTaskSummary[];
   workingAction: ReusableTaskOperation | null;

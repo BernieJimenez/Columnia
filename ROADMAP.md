@@ -473,14 +473,14 @@ medio = 1 día; agregado por suma.
 - [x] **RV93** — **App y puente** — `tsc --noEmit` y el tipado no cubren `e2e/` ni `tools/` · *Esfuerzo: 2 h* — hecho el 2026-10-06
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-31.
   - [x] `QA-31` (Bajo) `tsc --noEmit` y el tipado no cubren `e2e/` ni `tools/` — hecho el 2026-10-06
-- [ ] **RV94** — **Cargar** — El saneado de rutas en errores de tareas no cubre rutas UNC y borra el motivo del error (y 5 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV94** — **Cargar** — El saneado de rutas en errores de tareas no cubre rutas UNC y borra el motivo del error (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-06
   - Criterio de cierre: Se cumplen los criterios de aceptación de SEG-07, TXT-04, TXT-13, PROD-07, COD-10, LIM-03.
-  - [ ] `SEG-07` (Bajo) El saneado de rutas en errores de tareas no cubre rutas UNC y borra el motivo del error
-  - [ ] `TXT-04` (Bajo) «privacidad none»: valor interno visible en el resumen de la tarea reutilizable
-  - [ ] `TXT-13` (Bajo) El texto «sin límite fijo de tamaño» contradice el límite de carga en memoria que el propio diálogo menciona
-  - [ ] `PROD-07` (Bajo) Las tareas reutilizables no se pueden borrar ni renombrar desde la interfaz
-  - [ ] `COD-10` (Bajo) Claves de React duplicadas en la vista previa si el archivo trae encabezados repetidos
-  - [ ] `LIM-03` (Bajo) Exportaciones sin uso en el frontend
+  - [x] `SEG-07` (Bajo) El saneado de rutas en errores de tareas no cubre rutas UNC y borra el motivo del error — hecho el 2026-10-06
+  - [x] `TXT-04` (Bajo) «privacidad none»: valor interno visible en el resumen de la tarea reutilizable — hecho el 2026-10-06
+  - [x] `TXT-13` (Bajo) El texto «sin límite fijo de tamaño» contradice el límite de carga en memoria que el propio diálogo menciona — hecho el 2026-10-06
+  - [x] `PROD-07` (Bajo) Las tareas reutilizables no se pueden borrar ni renombrar desde la interfaz — hecho el 2026-10-06
+  - [x] `COD-10` (Bajo) Claves de React duplicadas en la vista previa si el archivo trae encabezados repetidos — hecho el 2026-10-06
+  - [x] `LIM-03` (Bajo) Exportaciones sin uso en el frontend — hecho el 2026-10-06
 - [ ] **RV95** — **Cargar** — Tres pruebas de LoadPhase quedaron fuera del `describe` por una llave mal colocada (y 1 problemas más) · *Esfuerzo: 4 h*
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-37, QA-38.
   - [ ] `QA-37` (Bajo) Tres pruebas de LoadPhase quedaron fuera del `describe` por una llave mal colocada

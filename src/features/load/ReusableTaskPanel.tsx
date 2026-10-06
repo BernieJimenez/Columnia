@@ -16,6 +16,13 @@ interface ReusableTaskPanelProps {
   onClearPendingImport?: () => void;
 }
 
+/** TXT-04: the privacy of a task in words, as Entregar names it. */
+const PRIVACY_MODE_TEXT: Record<string, string> = {
+  none: "sin protección adicional",
+  mask: "columnas personales enmascaradas",
+  hash: "columnas personales seudonimizadas (hash con sal)",
+};
+
 export function ReusableTaskPanel({
   connected,
   blocked,
@@ -33,6 +40,9 @@ export function ReusableTaskPanel({
   const [exceptionPolicyDraft, setExceptionPolicyDraft] = useState<ReusableTaskExceptionPolicy | null>(null);
   const [reviewedSchema, setReviewedSchema] = useState<{ taskId: string; fingerprint: string } | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  // PROD-07: deleting a task asks once, inline, before it is gone.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deletedTaskName, setDeletedTaskName] = useState<string | null>(null);
   const schemaFingerprint = useMemo(() => schema === null ? null : JSON.stringify(schema), [schema]);
   const openedTask = reusableTasks.openedTask?.id === selectedTaskId
     ? reusableTasks.openedTask.task
@@ -172,6 +182,8 @@ export function ReusableTaskPanel({
                   onChange={(event) => {
                     const taskId = event.target.value;
                     setSelectedTaskId(taskId);
+                    setConfirmingDelete(false);
+                    setDeletedTaskName(null);
                     setReviewedSchema(null);
                     setExceptionPolicyDraft(null);
                     setSaveMessage(null);
@@ -185,8 +197,46 @@ export function ReusableTaskPanel({
                     <option key={task.id} value={task.id}>{task.name}</option>
                   ))}
                 </select>
+                {selectedTaskId && !confirmingDelete && (
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    onClick={() => setConfirmingDelete(true)}
+                    disabled={blocked || reusableTasks.isBusy}
+                  >
+                    Eliminar tarea
+                  </button>
+                )}
               </div>
             )}
+            {selectedTaskId && confirmingDelete && (() => {
+              const deletingName = reusableTasks.tasks.find((task) => task.id === selectedTaskId)?.name ?? "la tarea";
+              return (
+                <div className="notice notice--warning" role="alertdialog" aria-label={`Eliminar ${deletingName}`}>
+                  <p>¿Eliminar «{deletingName}»? Se borra de este equipo y no se puede deshacer; tus datasets y proyectos no cambian.</p>
+                  <button
+                    type="button"
+                    className="danger-action"
+                    disabled={blocked || reusableTasks.isBusy}
+                    onClick={async () => {
+                      const removed = await reusableTasks.remove(selectedTaskId);
+                      setConfirmingDelete(false);
+                      if (!removed) return;
+                      setDeletedTaskName(deletingName);
+                      setSelectedTaskId("");
+                      setReviewedSchema(null);
+                      setExceptionPolicyDraft(null);
+                    }}
+                  >
+                    Eliminar definitivamente
+                  </button>
+                  <button type="button" className="secondary-action" onClick={() => setConfirmingDelete(false)}>
+                    Conservar
+                  </button>
+                </div>
+              );
+            })()}
+            {deletedTaskName && <p className="notice notice--success" role="status">Se eliminó la tarea «{deletedTaskName}».</p>}
 
             {selectedTaskId && reusableTasks.workingAction === "open" && (
               <p className="recipe-hint" role="status">Abriendo y revisando la tarea guardada…</p>
@@ -225,7 +275,7 @@ export function ReusableTaskPanel({
                   <div>
                     <dt>Validación y salida</dt>
                     <dd>
-                      {openedTask.qualityRules.length} reglas · {openedTask.outputFormat.toUpperCase()} · privacidad {openedTask.privacyMode}
+                      {openedTask.qualityRules.length} reglas · {openedTask.outputFormat.toUpperCase()} · {PRIVACY_MODE_TEXT[openedTask.privacyMode] ?? "protección desconocida"}
                     </dd>
                   </div>
                 </dl>

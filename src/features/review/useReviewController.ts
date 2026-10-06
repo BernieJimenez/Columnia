@@ -69,7 +69,7 @@ export interface ReviewComparison {
 }
 
 /** Review settings a project stores and restores. */
-export interface ReviewWorkspace {
+interface ReviewWorkspace {
   reviewTab?: ReviewTab;
   sqlHistory?: SqlQueryHistoryEntry[];
   queryEngine?: DatasetQueryEngine;
@@ -519,4 +519,3 @@ export function useReviewController({
   };
 }
 
-export type ReviewController = ReturnType<typeof useReviewController>;

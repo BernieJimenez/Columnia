@@ -18,7 +18,6 @@ export type {
 } from "../../bridge/diagnostics-contracts";
 
 export const DIAGNOSTIC_PHASES: readonly DiagnosticPhase[] = ["load", "review", "prepare", "explore", "deliver"];
-export const DIAGNOSTIC_STATUSES: readonly DiagnosticStatus[] = ["ready", "working", "issue_reported", "no_dataset"];
 export const DIAGNOSTIC_ERROR_CODES: readonly DiagnosticErrorCode[] = [
   "DATASET_LOAD_FAILED",
   "DATASET_PROFILE_FAILED",
@@ -85,7 +84,7 @@ export function bucketDatasetMetrics(dataset: DatasetMetricInput | null): Diagno
   };
 }
 
-export interface DiagnosticReportInput {
+interface DiagnosticReportInput {
   appVersion: string;
   phase: DiagnosticPhase;
   status: DiagnosticStatus;

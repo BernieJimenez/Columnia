@@ -38,7 +38,7 @@ function listFromText(text: string, trim: boolean): string[] {
  * A one-value-per-line list. The typed text stays as written, so Intro and
  * spaces survive while typing (FUN-04); only the list sent upward is cleaned.
  */
-export function ListTextarea({ values, trim = false, onValuesChange, ...props }: ListTextareaProps) {
+function ListTextarea({ values, trim = false, onValuesChange, ...props }: ListTextareaProps) {
   const [text, setText] = useState(() => values.join("\n"));
   const key = values.join("\n");
   useEffect(() => {

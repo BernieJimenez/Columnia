@@ -11,7 +11,7 @@ const THEME_PREFERENCES: readonly ThemePreference[] = [
   "slate",
 ];
 
-export function isThemePreference(value: string | null | undefined): value is ThemePreference {
+function isThemePreference(value: string | null | undefined): value is ThemePreference {
   return value != null && THEME_PREFERENCES.includes(value as ThemePreference);
 }
 
@@ -56,7 +56,7 @@ function systemPrefersDark(): boolean {
 }
 
 /** "system" becomes light or dark; every other theme keeps its name. */
-export function resolveThemePreference(
+function resolveThemePreference(
   preference: ThemePreference,
   prefersDark: boolean = systemPrefersDark(),
 ): Exclude<ThemePreference, "system"> {

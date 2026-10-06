@@ -211,6 +211,8 @@ try {
     # test command remains configurable; this profile avoids worker fan-out
     # that can leave orphaned Vitest processes after a cancelled run.
     Invoke-Checked "Frontend lint" $ProjectRoot { npm run lint }
+    # LIM-03: no export that nothing uses.
+    Invoke-Checked "Frontend unused exports" $ProjectRoot { node tools/check-unused-exports.mjs }
     Invoke-Checked "Frontend tests" $ProjectRoot { npm test -- --run --maxWorkers=1 }
     # QA-34: the same suite with a decimal-comma regional setting.
     Invoke-Checked "Frontend tests (es-ES)" $ProjectRoot { npm run test:locale }

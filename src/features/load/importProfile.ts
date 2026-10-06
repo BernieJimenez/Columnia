@@ -8,9 +8,9 @@ import type {
   SpreadsheetHeaderMode,
 } from "../../bridge";
 
-export const IMPORT_PROFILE_MISMATCH_PREFIX = "__columnia_import_profile_mismatch__:";
+const IMPORT_PROFILE_MISMATCH_PREFIX = "__columnia_import_profile_mismatch__:";
 
-export type ImportProfileApplicability =
+type ImportProfileApplicability =
   | { kind: "applicable"; sheetId: string | null; headerMode: SpreadsheetHeaderMode | null }
   | { kind: "format_mismatch" }
   | { kind: "sheet_missing" };

@@ -203,6 +203,14 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Cargar: una tarea reutilizable se puede eliminar desde el panel tras
+  confirmarlo; su privacidad se lee en palabras («columnas personales
+  enmascaradas»); la vista previa con encabezados repetidos ya no duplica claves
+  de React; el texto de formatos y el aviso de lectura por bloques citan el
+  umbral real de carga en memoria; los errores de tareas ocultan rutas UNC y
+  conservan el motivo (ya cubierto por TXT-02); se quitan 92 exportaciones sin
+  uso y un paso del check las vigila (COD-10, LIM-03, PROD-07, SEG-07, TXT-04,
+  TXT-13).
 - `npm run build` comprueba también los tipos de los E2E y de
   `playwright.config.ts`: un error de tipos en un spec rompe el build (QA-31).
 - Calidad del frontend: el indicador dice «Motor local listo» solo cuando el

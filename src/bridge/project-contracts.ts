@@ -75,5 +75,5 @@ export interface ProjectVersionSummary {
   storageBytes: number;
 }
 
-export type ProjectReviewTab = "diagnosis" | "preview";
+type ProjectReviewTab = "diagnosis" | "preview";
 export type ProjectActivePhase = "load" | "review" | "prepare" | "explore" | "deliver";

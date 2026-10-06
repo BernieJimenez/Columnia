@@ -19,21 +19,21 @@ export type ProposalItemId = "sentinels" | "trim" | "types" | "dates" | "duplica
 export type DateOrder = DateColumnPlan["order"];
 
 /** A column the proposal types as a date; `order` is null while its values are ambiguous. */
-export interface ProposalDateColumn {
+interface ProposalDateColumn {
   name: string;
   order: DateOrder | null;
   /** A real value of the column, to show before and after. */
   sample: string | null;
 }
 
-export interface ProposalExample {
+interface ProposalExample {
   column: string;
   before: string | null;
   after: string;
 }
 
 /** A column the imputation will fill: its gaps and the «sin dato» markers that become gaps. */
-export interface ProposalColumn {
+interface ProposalColumn {
   name: string;
   missing: number;
   sentinels: number;
@@ -356,7 +356,7 @@ export function defaultProposalSelection(items: ProposalItem[]): ProposalSelecti
  * The columns «Convertir a número» types with this selection: one that holds
  * «sin dato» markers only types when those markers are converted first.
  */
-export function typedColumns(item: ProposalItem, selection: ProposalSelection): string[] {
+function typedColumns(item: ProposalItem, selection: ProposalSelection): string[] {
   return (item.columns ?? [])
     .filter((column) => selection.sentinels || column.sentinels === 0)
     .map((column) => column.name);

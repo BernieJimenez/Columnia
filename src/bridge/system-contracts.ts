@@ -51,7 +51,7 @@ export interface PerformanceSettings {
   reason: string | null;
 }
 
-export interface GpuUsage {
+interface GpuUsage {
   status: "available" | "unavailable";
   usagePercentage: number | null;
   memoryUsedBytes: number | null;

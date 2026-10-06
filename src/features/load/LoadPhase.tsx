@@ -206,7 +206,7 @@ export function LoadPhase({
               <h3 id="load-brief-title">Trae tus datos a un espacio de trabajo local.</h3>
               <p>Selecciona un archivo{runtime.kind === "connected" ? " o arrástralo a esta ventana" : " desde la aplicación de escritorio"}. Conservamos el original mientras trabajas.</p>
               {selectionAction}
-              <p className="load-brief__formats">CSV · TSV · TXT · JSON · Parquet · Excel · ODS · sin límite fijo de tamaño</p>
+              <p className="load-brief__formats">CSV · TSV · TXT · JSON · Parquet · Excel · ODS · los archivos grandes se leen por bloques, con menos opciones</p>
             </div>
           </div>
         </section>
@@ -641,7 +641,7 @@ export function LoadPhase({
               <p role="note">
                 “Sin definir” conserva el texto. Una convención convierte una columna solo si todos sus valores no nulos cumplen; si alguno no cumple, se conserva la columna completa como texto.
                 {sheetSelection.source.resourceEstimate.processingPath === "sourceBacked"
-                  ? " Esta fuente requiere lectura por bloques; para aplicar conversiones, usa un archivo dentro del límite de carga en memoria."
+                  ? ` Esta fuente se lee por bloques; las conversiones de fecha y número solo se aplican a archivos de menos de ${formatFileSize(sheetSelection.source.resourceEstimate.inMemoryLimitBytes ?? 512 * 1024 * 1024)}, que se cargan en memoria.`
                   : ""}
               </p>
               <label htmlFor="delimited-date-convention">Fechas</label>
@@ -787,7 +787,8 @@ function HeaderInterpretationPreview({ preview }: { preview: DelimitedHeaderMode
         <div className="table-region" tabIndex={0} aria-label="Muestra importada">
           <table>
             <thead>
-              <tr>{preview.columns.map((column) => <th key={column.name} scope="col">{column.name}</th>)}</tr>
+              {/* COD-10: a header may repeat a name (`id,id`); the position keeps keys unique. */}
+              <tr>{preview.columns.map((column, columnIndex) => <th key={`${column.name}:${columnIndex}`} scope="col">{column.name}</th>)}</tr>
             </thead>
             <tbody>
               {preview.rows.map((row, rowIndex) => (

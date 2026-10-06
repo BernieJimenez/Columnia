@@ -242,6 +242,7 @@ pub(super) fn dataset_resource_estimate(
             .saturating_mul(MATERIALIZATION_ESTIMATE_MULTIPLIER)
             .saturating_add(MATERIALIZATION_RESERVE_BYTES),
         estimated_temporary_disk_bytes: needs_temporary_snapshot.then_some(file_size_bytes),
+        in_memory_limit_bytes: Some(SOURCE_BACKED_LOAD_THRESHOLD_BYTES),
     }
 }
 

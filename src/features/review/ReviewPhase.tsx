@@ -298,7 +298,7 @@ function QualitySection({
 const NO_SQL_HISTORY: SqlQueryHistoryEntry[] = [];
 
 /** The SQL being written and its last result, kept while Review stays open (FUN-27). */
-export type SqlQueryDraft = {
+type SqlQueryDraft = {
   text: string;
   open: boolean;
   result: DatasetQueryResult | null;

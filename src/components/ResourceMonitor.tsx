@@ -22,7 +22,7 @@ type ResourceMonitorState =
   | { kind: "ready"; usage: ResourceUsage }
   | { kind: "error" };
 
-export interface ResourceMonitorProps {
+interface ResourceMonitorProps {
   enabled: boolean;
   /** Keeps the native configuration alive while avoiding hidden UI allocations. */
   visible?: boolean;

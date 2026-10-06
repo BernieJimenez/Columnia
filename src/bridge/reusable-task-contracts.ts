@@ -8,10 +8,10 @@ import type {
 import type { QualityRule } from "./delivery-contracts";
 
 export type ReusableTaskOutputFormat = "csv" | "csv_excel" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
-export type ReusableTaskPrivacyMode = "none" | "mask" | "hash";
-export type ReusableTaskInvalidConversionAction = "review" | "nullify" | "excludeRow";
+type ReusableTaskPrivacyMode = "none" | "mask" | "hash";
+type ReusableTaskInvalidConversionAction = "review" | "nullify" | "excludeRow";
 
-export type ReusableTaskConversionDecision =
+type ReusableTaskConversionDecision =
   | {
       kind: "cast";
       column: string;
@@ -27,7 +27,7 @@ export type ReusableTaskConversionDecision =
     };
 
 /** Conversion choices contain column metadata only and are valid for one exact input schema. */
-export interface ImportExceptionPolicy {
+interface ImportExceptionPolicy {
   version: 1;
   baseline: "lexical";
   schema: ImportProfileColumn[];

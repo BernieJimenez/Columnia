@@ -25,7 +25,7 @@ import {
 } from "./deliveryModel";
 
 /** Delivery settings a project or a reusable task stores and restores. */
-export interface DeliverySettings {
+interface DeliverySettings {
   qualityRules?: QualityRule[];
   exportFormat?: ExportFormat;
   privacyMode?: PrivacyMode;
@@ -228,4 +228,3 @@ export function useDeliveryController({
   };
 }
 
-export type DeliveryController = ReturnType<typeof useDeliveryController>;

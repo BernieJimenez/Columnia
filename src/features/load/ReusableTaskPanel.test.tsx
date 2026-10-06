@@ -284,10 +284,37 @@ describe("ReusableTaskPanel", () => {
     await waitFor(() => expect(onApply).toHaveBeenCalledWith({ ...draft, name: "Cierre semanal" }));
 
     expect(screen.getByRole("button", { name: "Preparar próxima importación" })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: /eliminar/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));
 
     await waitFor(() => expect(onPrepareImport).toHaveBeenCalledWith("task-2", { ...draft, name: "Cierre semanal" }));
+  });
+
+  it("borra una tarea tras confirmarlo y la quita de la lista (PROD-07)", async () => {
+    bridge.deleteReusableTask.mockResolvedValue(undefined);
+    render(<ReusableTaskPanel connected blocked={false} schema={schema} draft={draft} onApply={vi.fn()} />);
+    await waitFor(() => expect(bridge.listReusableTasks).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByText("Reutilizar una tarea"));
+    fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("El esquema es compatible"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar tarea" }));
+    const confirmation = screen.getByRole("alertdialog", { name: "Eliminar Cierre mensual" });
+    expect(confirmation).toHaveTextContent("no se puede deshacer");
+    expect(bridge.deleteReusableTask).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar definitivamente" }));
+
+    await waitFor(() => expect(bridge.deleteReusableTask).toHaveBeenCalledWith(taskSummary.id));
+    expect(await screen.findByText("Se eliminó la tarea «Cierre mensual».")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Cierre mensual" })).not.toBeInTheDocument();
+  });
+
+  it("ve la privacidad de la tarea en palabras (TXT-04)", async () => {
+    render(<ReusableTaskPanel connected blocked={false} schema={schema} draft={draft} onApply={vi.fn()} />);
+    await waitFor(() => expect(bridge.listReusableTasks).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByText("Reutilizar una tarea"));
+    fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
+    expect(await screen.findByText(/columnas personales enmascaradas/)).toBeInTheDocument();
+    expect(screen.queryByText(/privacidad mask/)).not.toBeInTheDocument();
   });
 
   it("bloquea los controles de tarea mientras el flujo externo está ocupado", async () => {

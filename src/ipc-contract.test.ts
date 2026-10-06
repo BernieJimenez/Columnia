@@ -366,7 +366,7 @@ function typescriptInterfaceFields(
   visited.add(interfaceName);
 
   const declaration = new RegExp(
-    `export\\s+interface\\s+${interfaceName}(?:\\s+extends\\s+([^\\{]+))?\\s*\\{`,
+    `(?:export\\s+)?interface\\s+${interfaceName}(?:\\s+extends\\s+([^\\{]+))?\\s*\\{`,
   ).exec(source);
   if (!declaration) throw new Error(`No se encontró la interfaz TypeScript ${interfaceName}.`);
 
@@ -388,7 +388,7 @@ function typescriptInterfaceFields(
 
 function typescriptTypeAliases(source: string): Record<string, string> {
   return Object.fromEntries(
-    [...source.matchAll(/export\s+type\s+(\w+)\s*=\s*([\s\S]*?);/g)].map((match) => [
+    [...source.matchAll(/(?:export\s+)?type\s+(\w+)\s*=\s*([\s\S]*?);/g)].map((match) => [
       match[1],
       match[2].trim(),
     ]),
@@ -449,7 +449,7 @@ function typescriptInterfaceFieldTypes(
   visited.add(interfaceName);
 
   const declaration = new RegExp(
-    `export\\s+interface\\s+${interfaceName}(?:\\s+extends\\s+([^\\{]+))?\\s*\\{`,
+    `(?:export\\s+)?interface\\s+${interfaceName}(?:\\s+extends\\s+([^\\{]+))?\\s*\\{`,
   ).exec(source);
   if (!declaration) throw new Error(`No se encontró la interfaz TypeScript ${interfaceName}.`);
 
@@ -527,7 +527,7 @@ function rustEnumVariants(source: string, enumName: string): string[] | null {
 }
 
 function typescriptLiteralUnion(source: string, typeName: string): string[] | null {
-  const match = new RegExp(String.raw`export type ${typeName}\s*=([^;]+);`).exec(source);
+  const match = new RegExp(String.raw`(?:export )?type ${typeName}\s*=([^;]+);`).exec(source);
   if (!match) return null;
   const literals = [...match[1]!.matchAll(/"([^"]+)"/g)].map((literal) => literal[1]!);
   return literals.length > 0 ? literals : null;

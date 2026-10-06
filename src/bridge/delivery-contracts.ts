@@ -29,7 +29,7 @@ export type ExportFormat = LocalExportFormat | "postgresql" | "mysql" | "sqlserv
 export type PrivacyMode = "none" | "mask" | "hash";
 export type ConflictSource = "current" | "compared";
 export type DatabaseKind = "postgresql" | "mysql" | "sqlserver";
-export type DatabaseTablePolicy = "append" | "create_only" | "replace";
+type DatabaseTablePolicy = "append" | "create_only" | "replace";
 
 /** Credentials remain in the current React/Tauri call and are never persisted. */
 export interface DatabaseTarget {
@@ -76,7 +76,7 @@ export type QualityComparison = "eq" | "ne" | "lt" | "lte" | "gt" | "gte";
 export type QualityMonotonicDirection = "increasing" | "decreasing";
 export type QualityAggregate = "count" | "sum" | "min" | "max";
 
-export interface QualityCondition {
+interface QualityCondition {
   column: string;
   operator?: QualityComparison;
   value?: string;
@@ -110,7 +110,7 @@ export interface QualityRule {
   requiredOrder?: string[];
 }
 
-export interface QualityRuleResult extends QualityRule {
+interface QualityRuleResult extends QualityRule {
   checkedCount: number;
   invalidCount: number;
   invalidPct: number;
@@ -125,14 +125,14 @@ export interface QualityValidationResult {
   rules: QualityRuleResult[];
 }
 
-export interface QualityMigrationWarning {
+interface QualityMigrationWarning {
   ruleIndex: number;
   sourceKind: string;
   severity: "warning" | "omitted";
   message: string;
 }
 
-export interface QualityMigrationReport {
+interface QualityMigrationReport {
   artifactSha256: string | null;
   totalItems: number;
   convertedItems: number;
@@ -171,7 +171,7 @@ export interface DatabaseConnectionResult {
   message: string;
 }
 
-export interface RemotePreflightIssue {
+interface RemotePreflightIssue {
   severity: "info" | "warning" | "blocking";
   category: "policy" | "type" | "nullability" | "length" | "value";
   column: string | null;
@@ -189,7 +189,7 @@ export interface RemoteExportPreflight {
 }
 
 /** Local preset: destination credentials and current-session overwrite approval are excluded. */
-export interface DeliveryPresetDatabaseTarget {
+interface DeliveryPresetDatabaseTarget {
   kind: DatabaseKind;
   schema: string;
   table: string;

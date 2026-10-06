@@ -204,7 +204,7 @@ describe("LoadPhase", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Trae tus datos a un espacio de trabajo local." })).toBeInTheDocument();
-    expect(screen.getByText(/sin límite fijo de tamaño/)).toBeInTheDocument();
+    expect(screen.getByText(/los archivos grandes se leen por bloques/)).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Elegir hoja de libro.xlsx" })).toHaveAttribute(
       "aria-describedby",
       "sheet-description",
@@ -576,6 +576,24 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
     expect(onSheetAction).toHaveBeenCalledWith({ kind: "cancelled" });
   });
 
+  it("muestra cabeceras repetidas sin claves duplicadas de React (COD-10)", () => {
+    const keyWarnings = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const repeated = {
+      ...delimitedHeaderReview,
+      firstRow: {
+        ...delimitedHeaderReview.firstRow,
+        columns: [{ name: "id", dataType: "String" }, { name: "id", dataType: "String" }],
+        rows: [["1", "2"]],
+      },
+    };
+    const ready = completeDelimitedHeaderReview(delimitedHeaderInspection(delimitedSource), repeated);
+    render(<LoadPhase {...loadPhaseProps()} inspection={ready} />);
+    const sample = screen.getByLabelText("Muestra importada");
+    expect(within(sample).getAllByRole("columnheader", { name: "id" })).toHaveLength(2);
+    expect(keyWarnings.mock.calls.flat().join(" ")).not.toMatch(/same key/);
+    keyWarnings.mockRestore();
+  });
+
   it("emite las convenciones y el perfil guardado, y las desactiva en lectura por bloques", () => {
     const onSheetAction = vi.fn();
     const ready = completeDelimitedHeaderReview(delimitedHeaderInspection(delimitedSource, profile), delimitedHeaderReview);
@@ -596,7 +614,7 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
       resourceEstimate: { ...delimitedSource.resourceEstimate, processingPath: "sourceBacked" as const },
     };
     view.rerender(<LoadPhase {...loadPhaseProps({ onSheetAction })} inspection={{ ...ready, source: sourceBacked }} />);
-    expect(screen.getByText(/Esta fuente requiere lectura por bloques/)).toBeInTheDocument();
+    expect(screen.getByText(/Esta fuente se lee por bloques; las conversiones de fecha y número solo se aplican a archivos de menos de 512/)).toBeInTheDocument();
   });
 
   it("no falla cuando una acción opcional no recibe manejador", () => {

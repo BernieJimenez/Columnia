@@ -764,6 +764,9 @@ pub struct DatasetResourceEstimate {
     processing_path: DatasetLoadPath,
     estimated_materialization_ram_bytes: u64,
     estimated_temporary_disk_bytes: Option<u64>,
+    /// TXT-13: files from this size on are read by blocks, with fewer options.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    in_memory_limit_bytes: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

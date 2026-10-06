@@ -1,13 +1,13 @@
 export type QualityActionTarget = "missingValues" | "duplicates" | "incompatibleTypes";
 
-export interface QualityActionCounts {
+interface QualityActionCounts {
   nullCount: number;
   nullColumnCount: number;
   duplicateCount: number;
   invalidTypeCount: number;
 }
 
-export interface QualityActionRecommendation {
+interface QualityActionRecommendation {
   target: QualityActionTarget;
   title: string;
   explanation: string;

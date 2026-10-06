@@ -12,7 +12,7 @@ export interface RecentDataset {
   lastOpenedAt: number;
 }
 
-export interface RecentDatasetInput {
+interface RecentDatasetInput {
   fileName: string;
   format: DatasetFormat;
 }
