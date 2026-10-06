@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { expectShape } from "./shape";
 import type {
   DatasetMutation,
   ColumnRemovalResult,
@@ -169,7 +170,9 @@ export function saveTransformRecipe(
 }
 
 export function pickTransformRecipe(): Promise<LoadedRecipe | null> {
-  return invoke<LoadedRecipe | null>("pick_transform_recipe");
+  return invoke<LoadedRecipe | null>("pick_transform_recipe").then((recipe) => recipe === null
+    ? null
+    : expectShape<LoadedRecipe>(recipe, "la receta", { version: "number", name: "string", savedAt: "string", recipe: "object" }));
 }
 
 export function undoLastChange(): Promise<HistoryResult> {

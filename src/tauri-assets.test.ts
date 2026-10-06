@@ -84,6 +84,23 @@ describe("Tauri desktop assets", () => {
 });
 
 describe("Tauri desktop security boundary", () => {
+  it("never exposes the updater signing secrets to the bundle (SEG-06)", async () => {
+    const { loadEnv } = await import("vite");
+    const viteConfig = readFileSync(resolve(projectRoot, "vite.config.ts"), "utf8");
+    const prefixes = JSON.parse(viteConfig.match(/envPrefix: (\[[^\]]*\])/)?.[1] ?? "[]") as string[];
+    expect(prefixes).toContain("TAURI_ENV_");
+    process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "secreto-de-prueba";
+    process.env.TAURI_ENV_PLATFORM = process.env.TAURI_ENV_PLATFORM ?? "windows";
+    try {
+      const exposed = loadEnv("production", projectRoot, prefixes);
+      expect(Object.keys(exposed)).not.toContain("TAURI_SIGNING_PRIVATE_KEY_PASSWORD");
+      expect(Object.values(exposed)).not.toContain("secreto-de-prueba");
+      expect(Object.keys(exposed)).toContain("TAURI_ENV_PLATFORM");
+    } finally {
+      delete process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+    }
+  });
+
   it("keeps production CSP restrictive and free of remote web origins", () => {
     const config = readJson<TauriConfig>("src-tauri/tauri.conf.json");
     const csp = config.app.security.csp;

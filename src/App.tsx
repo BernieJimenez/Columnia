@@ -1211,10 +1211,13 @@ export function App() {
       <p className="visually-hidden" aria-live="polite" aria-atomic="true">
         Etapa activa: {activePhaseMeta.label}.
       </p>
-      <p id="dataset-required-hint" className="visually-hidden">
-        Carga un dataset para habilitar las etapas Revisar, Preparar, Explorar y Entregar.
-      </p>
       <aside className="sidebar" aria-label="Navegación principal">
+        {/* ACC-11: inside the navigation landmark, and only while it applies. */}
+        {!activeDataset && (
+          <p id="dataset-required-hint" className="visually-hidden">
+            Carga un dataset para habilitar las etapas Revisar, Preparar, Explorar y Entregar.
+          </p>
+        )}
         <div className="brand">
           <p className="eyebrow">Estación local de datos</p>
           <h1 id="app-title"><svg className="brand__mark" viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="2" y="4" width="7" height="24" rx="2" fill="currentColor" /><rect x="12" y="10" width="7" height="18" rx="2" fill="currentColor" opacity=".7" /><rect x="22" y="16" width="7" height="12" rx="2" fill="currentColor" opacity=".45" /></svg>Columnia</h1>
@@ -1352,7 +1355,6 @@ export function App() {
             <p>Los archivos seleccionados, proyectos, perfiles y artefactos temporales permanecen en el dispositivo, salvo las filas que el usuario elija enviar mediante una exportación ODBC explícita. La cadena de conexión y la contraseña solo viven durante esa sesión. No se usan telemetría, cuentas ni analítica remota.</p>
             <h2>Retención y borrado</h2>
             <p>El usuario controla la carpeta de proyectos y puede eliminar proyectos desde la aplicación o borrar sus archivos locales. Los snapshots huérfanos se limpian de forma oportunista después de una hora de gracia.</p>
-            <p className="sidebar__legal-note">Responsable y canal de contacto: deben definirse para la jurisdicción de publicación antes de distribuir.</p>
           </div>
           </details>
         </div>

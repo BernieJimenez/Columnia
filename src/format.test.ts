@@ -22,6 +22,11 @@ describe("formateo visible", () => {
     expect(formatBytes(1024)).toBe(`1${decimalSeparator}0 KiB`);
     expect(formatBytes(1024 ** 2 * 150)).toBe("150 MiB");
     expect(formatBytes(1024 ** 3)).toBe(`1${decimalSeparator}0 GiB`);
+    // TXT-09: rounding never leaves «1024 KiB» or «NaN B».
+    expect(formatBytes(1_048_575)).toBe(`1${decimalSeparator}0 MiB`);
+    expect(formatBytes(1023.6)).toBe(`1${decimalSeparator}0 KiB`);
+    expect(formatBytes(Number.NaN)).toBe("—");
+    expect(formatBytes(Number.POSITIVE_INFINITY)).toBe("—");
   });
 
   it("traduce los tipos del motor y conserva los desconocidos", () => {
@@ -34,6 +39,11 @@ describe("formateo visible", () => {
     expect(formatDataType("Float64")).toBe("Decimal");
     expect(formatDataType("String")).toBe("Texto");
     expect(formatDataType("Datetime(Microseconds, None)")).toBe("Fecha y hora");
-    expect(formatDataType("Categorical")).toBe("Categorical");
+    // TXT-08: categories and binary data read in Spanish.
+    expect(formatDataType("Categorical")).toBe("Categoría");
+    expect(formatDataType("cat")).toBe("Categoría");
+    expect(formatDataType("enum")).toBe("Categoría");
+    expect(formatDataType("binary")).toBe("Binario");
+    expect(formatDataType("MiTipoRaro")).toBe("MiTipoRaro");
   });
 });

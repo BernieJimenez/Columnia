@@ -18,6 +18,10 @@ test.describe("shell web de Columnia", () => {
     await expect(workflow.getByRole("button", { name: "Entregar", exact: true })).toHaveAttribute("aria-disabled", "true");
     await expect(page.getByText("Vista web · motor no conectado")).toBeVisible();
     await expect(page.getByRole("button", { name: "Seleccionar dataset" })).toBeVisible();
+    // ACC-11: the hint of the locked phases lives inside the navigation landmark.
+    const hintLandmark = await page.locator("#dataset-required-hint").evaluate((hint) =>
+      hint.closest("aside, nav, main, header, footer, [role='region'], [role='complementary']")?.tagName ?? null);
+    expect(hintLandmark).toBe("ASIDE");
   });
 
   test("permite saltar al contenido con el teclado", async ({ page }) => {

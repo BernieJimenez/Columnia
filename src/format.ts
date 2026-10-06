@@ -32,14 +32,19 @@ export function formatPercent(value: number, fractionDigits = 1): string {
 
 /** Sizes are computed in powers of 1024, so they use binary units. */
 export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 1024) return `${Math.max(Math.round(bytes), 0)} B`;
-  let value = bytes;
+  // TXT-09: no «NaN B»; the unit is chosen after rounding, so 1 048 575
+  // bytes read «1,0 MiB» and never «1024 KiB».
+  if (!Number.isFinite(bytes)) return "—";
+  const whole = Math.max(Math.round(bytes), 0);
+  if (whole < 1024) return `${whole} B`;
+  const shown = (value: number) => value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
+  let value = whole;
   let unitIndex = -1;
   do {
     value /= 1024;
     unitIndex += 1;
-  } while (value >= 1024 && unitIndex < BINARY_UNITS.length - 1);
-  return `${formatDecimal(value, value >= 100 ? 0 : 1)} ${BINARY_UNITS[unitIndex]}`;
+  } while (shown(value) >= 1024 && unitIndex < BINARY_UNITS.length - 1);
+  return `${formatDecimal(value, shown(value) >= 100 ? 0 : 1)} ${BINARY_UNITS[unitIndex]}`;
 }
 
 const DATA_TYPE_LABELS: Record<string, string> = {
@@ -52,6 +57,13 @@ const DATA_TYPE_LABELS: Record<string, string> = {
   date: "Fecha",
   time: "Hora",
   null: "Vacío",
+  // TXT-08: categorical and enum columns are categories, not English names.
+  cat: "Categoría",
+  categorical: "Categoría",
+  enum: "Categoría",
+  binary: "Binario",
+  binaryoffset: "Binario",
+  blob: "Binario",
 };
 
 /** Spanish label for an engine data type (Polars/DuckDB), keeping unknown names. */
@@ -64,5 +76,6 @@ export function formatDataType(dataType: string): string {
   if (normalized.startsWith("duration")) return "Duración";
   if (normalized.startsWith("list") || normalized.startsWith("array")) return "Lista";
   if (normalized.startsWith("struct")) return "Estructura";
+  if (normalized.startsWith("enum") || normalized.startsWith("categorical")) return "Categoría";
   return dataType;
 }

@@ -36,7 +36,9 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
   },
-  envPrefix: ["VITE_", "TAURI_"],
+  // SEG-06: `TAURI_` would also expose TAURI_SIGNING_PRIVATE_KEY_PASSWORD to
+  // the bundle; Tauri only needs TAURI_ENV_*.
+  envPrefix: ["VITE_", "TAURI_ENV_"],
   build: {
     target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari13",
     minify: process.env.TAURI_ENV_DEBUG ? false : "oxc",

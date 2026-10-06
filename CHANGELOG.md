@@ -203,6 +203,14 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- App y puente: Vite solo expone al código de la interfaz las variables `VITE_`
+  y `TAURI_ENV_`, así que la contraseña de firma del updater nunca puede acabar
+  en el bundle; abrir un proyecto, una receta o una tarea reutilizable con un
+  campo ausente da un error que lo nombra; el aviso «Carga un dataset…» vive
+  dentro de la navegación y solo cuando aplica; el panel legal ya no muestra una
+  nota interna y una prueba impide usar tokens CSS no definidos; los tipos
+  categóricos y binarios se ven en español y los tamaños no muestran «NaN B» ni
+  «1024 KiB» (ACC-11, COD-04, SEG-06, TXT-03, TXT-08, TXT-09).
 - Proyectos: una versión de respaldo ilegible ya no oculta las demás; una página
   de vista previa obsoleta vuelve a la primera en vez de hacer fallar el
   guardado o el autoguardado; en Windows el directorio de cada generación se

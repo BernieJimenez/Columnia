@@ -454,14 +454,14 @@ medio = 1 día; agregado por suma.
   - [x] `REN-10` (Bajo) Cada autoguardado reescribe una generación completa (dataset + hasta 12 snapshots de historial) con el mutex de operaciones de proyecto tomado (candidato a medir) — hecho el 2026-10-06
   - [x] `COD-12` (Bajo) `queue_dropped_path` y `remember_last_export` ignoran en silencio un mutex envenenado — hecho el 2026-10-06
   - [x] `QA-46` (Bajo) Huecos de prueba en la persistencia: migraciones v3/v4/v5/v12/v14, borrado con generación ausente, staging huérfano; tests de reparse point que pasan en silencio sin privilegios — hecho el 2026-10-06
-- [ ] **RV91** — **App y puente** — `envPrefix: ["VITE_", "TAURI_"]` permitiría incrustar en el bundle las variables de firma… (y 5 problemas más) · *Esfuerzo: 2,2 días*
+- [x] **RV91** — **App y puente** — `envPrefix: ["VITE_", "TAURI_"]` permitiría incrustar en el bundle las variables de firma… (y 5 problemas más) · *Esfuerzo: 2,2 días* — hecho el 2026-10-06
   - Criterio de cierre: Se cumplen los criterios de aceptación de SEG-06, ACC-11, TXT-03, TXT-08, TXT-09, COD-04.
-  - [ ] `SEG-06` (Bajo) `envPrefix: ["VITE_", "TAURI_"]` permitiría incrustar en el bundle las variables de firma del updater
-  - [ ] `ACC-11` (Bajo) Texto oculto «Carga un dataset…» fuera de cualquier landmark (axe `region`)
-  - [ ] `TXT-03` (Bajo) El texto legal visible aún lleva un recordatorio interno: «deben definirse… antes de distribuir»
-  - [ ] `TXT-08` (Bajo) `formatDataType` deja en inglés `Categorical`/`Binary`/`Enum`; `isTextType` no reconoce `categorical`
-  - [ ] `TXT-09` (Bajo) `formatBytes` produce «NaN B»/«Infinity B» y «1024 KiB»
-  - [ ] `COD-04` (Bajo) El puente no valida en ejecución ninguna respuesta de Rust
+  - [x] `SEG-06` (Bajo) `envPrefix: ["VITE_", "TAURI_"]` permitiría incrustar en el bundle las variables de firma del updater — hecho el 2026-10-06
+  - [x] `ACC-11` (Bajo) Texto oculto «Carga un dataset…» fuera de cualquier landmark (axe `region`) — hecho el 2026-10-06
+  - [x] `TXT-03` (Bajo) El texto legal visible aún lleva un recordatorio interno: «deben definirse… antes de distribuir» — hecho el 2026-10-06
+  - [x] `TXT-08` (Bajo) `formatDataType` deja en inglés `Categorical`/`Binary`/`Enum`; `isTextType` no reconoce `categorical` — hecho el 2026-10-06
+  - [x] `TXT-09` (Bajo) `formatBytes` produce «NaN B»/«Infinity B» y «1024 KiB» — hecho el 2026-10-06
+  - [x] `COD-04` (Bajo) El puente no valida en ejecución ninguna respuesta de Rust — hecho el 2026-10-06
 - [ ] **RV92** — **App y puente** — Estado `loading` del motor inalcanzable y «Motor local listo» antes de confirmar (y 5 problemas más) · *Esfuerzo: 3 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de COD-05, COD-06, COD-07, LIM-04, QA-29, QA-30.
   - [ ] `COD-05` (Bajo) Estado `loading` del motor inalcanzable y «Motor local listo» antes de confirmar

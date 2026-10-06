@@ -40,6 +40,7 @@ import {
   openLastExport,
   openLastExportInPowerBi,
   openProject,
+  pickTransformRecipe,
   listProjectVersions,
   autosaveProject,
   restoreProjectVersion,
@@ -714,6 +715,19 @@ describe("desktop bridge", () => {
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
   });
 
+  it("rechaza con un mensaje legible una respuesta de disco incompleta (COD-04)", async () => {
+    vi.mocked(invoke).mockResolvedValue({ project: { id: "p" }, dataset: {}, profile: null });
+    await expect(openProject("p")).rejects.toThrow("Columnia recibió el proyecto incompleto: falta o no es válido «workspace»");
+    vi.mocked(invoke).mockResolvedValue({ project: {}, dataset: {}, workspace: { recipeDraft: null }, profile: null });
+    await expect(openProject("p")).rejects.toThrow("«qualityRules»");
+    vi.mocked(invoke).mockResolvedValue({ version: 2, name: "Receta", recipe: {} });
+    await expect(pickTransformRecipe()).rejects.toThrow("«savedAt»");
+    vi.mocked(invoke).mockResolvedValue(null);
+    await expect(pickTransformRecipe()).resolves.toBeNull();
+    vi.mocked(invoke).mockResolvedValue({ version: 1, name: "Tarea", importProfile: {}, recipe: null, outputFormat: "csv", privacyMode: "none" });
+    await expect(openReusableTask("t")).rejects.toThrow("«qualityRules»");
+  });
+
   it("abre un proyecto con perfil durable opcional sin exponer rutas", async () => {
     const result = {
       project: { id: "project-1", name: "Ventas" },
@@ -743,6 +757,7 @@ describe("desktop bridge", () => {
       workspace,
     });
 
+    vi.mocked(invoke).mockResolvedValue({ project: {}, dataset: {}, workspace: { qualityRules: [] }, profile: null });
     await restoreProjectVersion("project-1", 3);
     expect(invoke).toHaveBeenLastCalledWith("restore_project_version", {
       projectId: "project-1",

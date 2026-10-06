@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { expectShape } from "./shape";
 import type {
   ProjectCatalogSnapshot,
   ProjectSummary,
@@ -35,11 +36,18 @@ export function restoreProjectVersion(
   projectId: string,
   versionId: number,
 ): Promise<ProjectOpenResult> {
-  return invoke<ProjectOpenResult>("restore_project_version", { projectId, versionId });
+  return invoke<ProjectOpenResult>("restore_project_version", { projectId, versionId })
+    .then((result) => checkedProjectOpenResult(result));
 }
 
 export function openProject(projectId: string): Promise<ProjectOpenResult> {
-  return invoke<ProjectOpenResult>("open_project", { projectId });
+  return invoke<ProjectOpenResult>("open_project", { projectId }).then((result) => checkedProjectOpenResult(result));
+}
+
+function checkedProjectOpenResult(result: unknown): ProjectOpenResult {
+  const opened = expectShape<ProjectOpenResult>(result, "el proyecto", { project: "object", dataset: "object", workspace: "object", profile: "object-or-null" });
+  expectShape(opened.workspace, "la configuración del proyecto", { qualityRules: "array" });
+  return opened;
 }
 
 export function deleteProject(projectId: string): Promise<void> {

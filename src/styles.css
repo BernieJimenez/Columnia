@@ -1478,7 +1478,6 @@ body { color: var(--text-primary); background: var(--canvas); }
 .sidebar__legal-content p { margin: 0 0 9px; }
 .sidebar__legal-content h2 { margin: 12px 0 4px; color: var(--text-primary); font-size: .75rem; }
 .sidebar__legal-content code { overflow-wrap: anywhere; }
-.sidebar__legal-note { color: var(--text-secondary); }
 
 @media (min-width: 901px) {
   html:has(.sidebar__tools > details[open]),

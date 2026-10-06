@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { expectShape } from "./shape";
 
 import type {
   ReusableTask,
@@ -19,7 +20,15 @@ export function saveReusableTask(
 }
 
 export function openReusableTask(taskId: string): Promise<ReusableTask> {
-  return invoke<ReusableTask>("open_reusable_task", { taskId });
+  return invoke<ReusableTask>("open_reusable_task", { taskId }).then((task) => expectShape<ReusableTask>(task, "la tarea reutilizable", {
+    version: "number",
+    name: "string",
+    importProfile: "object",
+    recipe: "object-or-null",
+    qualityRules: "array",
+    outputFormat: "string",
+    privacyMode: "string",
+  }));
 }
 
 export function deleteReusableTask(taskId: string): Promise<void> {
