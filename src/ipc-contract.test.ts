@@ -479,6 +479,60 @@ function typescriptInterfaceFieldTypes(
   return { ...inheritedFields, ...ownFields };
 }
 
+/** QA-29: the enums that cross the bridge as strings, compared by variant. */
+const SHARED_ENUMS = [
+  "QualityRuleKind", "QualityComparison", "QualityMonotonicDirection", "QualityAggregate",
+  "RecipeCastTarget", "RecipeDateFormat", "RecipeDateTarget", "RecipeFilterOperator",
+  "CalculatedOperation", "CalculatedOperandKind", "FindReplaceScope", "OutlierAction",
+  "SummaryOperation", "ContactKind", "ExtractionKind", "PerformanceProfile", "DatasetLoadPath",
+  "TemporalAggregationKind", "DiagnosticContract", "DiagnosticPhase", "DiagnosticStatus",
+  "DiagnosticErrorCode", "DiagnosticRowBucket", "DiagnosticColumnBucket", "DiagnosticSizeBucket",
+  "ExportFormat", "PrivacyMode", "DatabaseKind",
+];
+
+function renameVariant(variant: string, rule: string | undefined): string {
+  const words = variant.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(" ");
+  switch (rule) {
+    case "snake_case": return words.join("_").toLowerCase();
+    case "kebab-case": return words.join("-").toLowerCase();
+    case "SCREAMING_SNAKE_CASE": return words.join("_").toUpperCase();
+    case "lowercase": return variant.toLowerCase();
+    case "camelCase": return variant.charAt(0).toLowerCase() + variant.slice(1);
+    default: return variant;
+  }
+}
+
+/** The serialized names of a unit-only Rust enum, with `rename_all` and `rename`. */
+function rustEnumVariants(source: string, enumName: string): string[] | null {
+  const match = new RegExp(String.raw`((?:#\[[^\]]*\]\s*)*)(?:pub(?:\([a-z]+\))?\s+)?enum\s+${enumName}\s*\{`).exec(source);
+  if (!match) return null;
+  const attributes = match[1] ?? "";
+  const renameAll = /rename_all\s*=\s*"([^"]+)"/.exec(attributes)?.[1];
+  const body = balancedBraces(source, match.index + match[0].length - 1);
+  const variants: string[] = [];
+  let pendingRename: string | undefined;
+  for (const rawLine of body.split("\n")) {
+    const line = rawLine.replace(/\/\/.*$/, "").trim();
+    if (!line) continue;
+    if (line.startsWith("#[")) {
+      pendingRename = /rename\s*=\s*"([^"]+)"/.exec(line)?.[1] ?? pendingRename;
+      continue;
+    }
+    const variant = /^([A-Z][A-Za-z0-9]*)\s*(,|$)/.exec(line);
+    if (!variant) return null;
+    variants.push(pendingRename ?? renameVariant(variant[1]!, renameAll));
+    pendingRename = undefined;
+  }
+  return variants;
+}
+
+function typescriptLiteralUnion(source: string, typeName: string): string[] | null {
+  const match = new RegExp(String.raw`export type ${typeName}\s*=([^;]+);`).exec(source);
+  if (!match) return null;
+  const literals = [...match[1]!.matchAll(/"([^"]+)"/g)].map((literal) => literal[1]!);
+  return literals.length > 0 ? literals : null;
+}
+
 function duplicates(values: string[]): string[] {
   return values.filter((value, index) => values.indexOf(value) !== index);
 }
@@ -529,6 +583,23 @@ describe("contrato IPC", () => {
     for (const [name, fields] of Object.entries(contracts)) {
       expect(fields.typescript, `campos incompatibles en ${name}`).toEqual(fields.rust);
     }
+  });
+
+  it("mantiene en paridad las variantes de los enums compartidos (QA-29)", () => {
+    const allRust = rustIpcSource;
+    const mismatches = SHARED_ENUMS.flatMap((name) => {
+      const rust = rustEnumVariants(allRust, name);
+      // The bridge adds the database targets to the file formats Rust exports.
+      const typescriptName = name === "ExportFormat" ? "LocalExportFormat" : name;
+      const typescript = typescriptLiteralUnion(bridgeContractsSource, typescriptName);
+      if (!rust || !typescript) return [`${name}: no se pudo leer (${rust ? "TS" : "Rust"})`];
+      const onlyRust = rust.filter((variant) => !typescript.includes(variant));
+      const onlyTypescript = typescript.filter((variant) => !rust.includes(variant));
+      return onlyRust.length + onlyTypescript.length === 0
+        ? []
+        : [`${name}: solo Rust [${onlyRust.join(", ")}], solo TS [${onlyTypescript.join(", ")}]`];
+    });
+    expect(mismatches).toEqual([]);
   });
 
   it("mantiene en paridad los tipos concretos de los campos compartidos", () => {

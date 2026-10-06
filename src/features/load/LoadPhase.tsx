@@ -594,6 +594,8 @@ export function LoadPhase({
                       <p>Tipos distintos: {sheetSelection.schemaPreview.schemaMismatch.changedTypes.map((item) => `${item.column} (${item.expected} → ${item.actual})`).join("; ")}</p>
                     )}
                   </div>
+                // `useSavedProfile` is a field, not a hook.
+                // oxlint-disable-next-line react-hooks/rules-of-hooks
                 ) : sheetSelection.useSavedProfile ? (
                   <p role="status">El esquema coincide con el perfil guardado; se aplicará al importar.</p>
                 ) : null}
@@ -696,6 +698,8 @@ export function LoadPhase({
                   <label>
                     <input
                       type="checkbox"
+                      // `useSavedProfile` is a field, not a hook.
+                      // oxlint-disable-next-line react-hooks/rules-of-hooks
                       checked={sheetSelection.useSavedProfile}
                       onChange={(event) => onSheetAction({ kind: "profile_toggled", useProfile: event.target.checked })}
                       disabled={sheetSelection.schemaPreviewLoading === true}

@@ -32,15 +32,13 @@ export function ReviewTabList({ activeTab, onTabChange }: ReviewTabListProps) {
           onKeyDown={(event) => {
             if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) return;
             event.preventDefault();
-            if (event.key === "Home") {
-              activate(tabs[0].id);
-            } else if (event.key === "End") {
-              activate(tabs.at(-1)?.id ?? tabs[0].id);
-            } else {
-              const direction = event.key === "ArrowRight" ? 1 : -1;
-              const nextIndex = (index + direction + tabs.length) % tabs.length;
-              activate(tabs[nextIndex].id);
-            }
+            const direction = event.key === "ArrowRight" ? 1 : -1;
+            const target = event.key === "Home"
+              ? tabs[0]
+              : event.key === "End"
+                ? tabs.at(-1)
+                : tabs[(index + direction + tabs.length) % tabs.length];
+            if (target) activate(target.id);
           }}
         >
           {tab.label}

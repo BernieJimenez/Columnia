@@ -812,6 +812,8 @@ async function runPrepareFlowSteps(page) {
   const samples = [];
   let sampling = true;
   const sampler = (async () => {
+    // `sampling` is set to false after the plan finishes, outside this loop.
+    // oxlint-disable-next-line no-unmodified-loop-condition
     while (sampling) {
       const sampleStartedAt = performance.now();
       await invoke(page, "get_app_info");

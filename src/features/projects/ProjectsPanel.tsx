@@ -95,6 +95,8 @@ export function ProjectsPanel({
 
   useEffect(() => {
     setName(activeProject?.name ?? suggestedProjectName(datasetFileName));
+    // Another project (`id`) resets the name even when it is the same text.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProject?.id, activeProject?.name, datasetFileName]);
 
   // ACC-05: after saving or deleting, the button that had the focus may be

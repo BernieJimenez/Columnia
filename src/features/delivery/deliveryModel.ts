@@ -157,7 +157,7 @@ const QUALITY_AGGREGATES = new Set(["count", "sum", "min", "max"]);
  */
 export function parseQualityDateBound(value: string): number | null {
   const normalized = value.trim();
-  const utcDay = (year: string, month: string, day: string) => {
+  const utcDay = (year = "", month = "", day = "") => {
     const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
     return date.getUTCFullYear() === Number(year) && date.getUTCMonth() === Number(month) - 1
       && date.getUTCDate() === Number(day) ? date.getTime() : null;
@@ -401,8 +401,8 @@ export function validateQualityRuleDraft(
       if (compareColumns[0] === compareColumns[1]) {
         return `${label}: selecciona dos columnas distintas para comparar.`;
       }
-      const left = columns.get(compareColumns[0]);
-      const right = columns.get(compareColumns[1]);
+      const left = columns.get(compareColumns[0] ?? "");
+      const right = columns.get(compareColumns[1] ?? "");
       if (!left || !right) return `${label}: ambas columnas comparadas deben existir.`;
       if (left.dataType !== right.dataType) {
         return `${label}: las columnas comparadas deben compartir tipo físico.`;
@@ -424,8 +424,8 @@ export function validateQualityRuleDraft(
       if (aggregateColumns[0] === aggregateColumns[1]) {
         return `${label}: selecciona dos columnas distintas para reconciliar.`;
       }
-      const left = columns.get(aggregateColumns[0]);
-      const right = columns.get(aggregateColumns[1]);
+      const left = columns.get(aggregateColumns[0] ?? "");
+      const right = columns.get(aggregateColumns[1] ?? "");
       if (!left || !right) return `${label}: ambas columnas reconciliadas deben existir.`;
       if (!supportsQualityAggregate(left.dataType) || !supportsQualityAggregate(right.dataType)) {
         return `${label}: las columnas reconciliadas deben ser texto numérico, booleanas o numéricas.`;
@@ -687,7 +687,7 @@ export function validateQualityRuleDraft(
     if (rule.kind === "regex") {
       if (!rule.pattern) return `${label}: indica un patrón regular.`;
       try {
-        new RegExp(rule.pattern);
+        RegExp(rule.pattern);
       } catch {
         return `${label}: el patrón regular no es válido.`;
       }

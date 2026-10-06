@@ -149,12 +149,12 @@ function sampleValue(dataset: DatasetPreview, name: string): string | null {
 
 /** How a date value reads once typed, in an order nobody can misread: 2010-12-01 08:26. */
 export function dateExample(value: string, order: DateOrder): string | null {
-  const [datePart, timePart] = value.trim().split(/[T ]/, 2);
+  const [datePart = "", timePart] = value.trim().split(/[T ]/, 2);
   const separator = datePart.match(/[/.-]/)?.[0];
   if (!separator) return null;
   const parts = datePart.split(separator);
   if (parts.length !== 3) return null;
-  const [year, month, day] = order === "iso"
+  const [year = "", month = "", day = ""] = order === "iso"
     ? [parts[0], parts[1], parts[2]]
     : order === "dmy" ? [parts[2], parts[1], parts[0]] : [parts[2], parts[0], parts[1]];
   const pad = (text: string) => text.padStart(2, "0");
@@ -162,7 +162,7 @@ export function dateExample(value: string, order: DateOrder): string | null {
   const fullYear = year.length === 2 ? `${Number(year) < 30 ? "20" : "19"}${year}` : year;
   const date = `${fullYear}-${pad(month)}-${pad(day)}`;
   if (!timePart) return date;
-  const [hours, minutes] = timePart.split(":");
+  const [hours = "00", minutes] = timePart.split(":");
   return `${date} ${pad(hours)}:${pad(minutes ?? "00")}`;
 }
 
@@ -321,7 +321,8 @@ export function buildPrepareProposal(profile: DatasetProfile, dataset: DatasetPr
       hint: "Solo huecos pequeños en números y categorías; nunca identificadores, nombres, fechas ni texto libre.",
       columns: imputeColumns,
       examples: imputable.slice(0, MAX_EXAMPLES).map((column, index) => {
-        const cells = plural(filledCells(imputeColumns[index], convertsSentinels), "celda", "celdas");
+        const imputed = imputeColumns[index];
+        const cells = plural(imputed ? filledCells(imputed, convertsSentinels) : 0, "celda", "celdas");
         return {
           column: column.name,
           before: null,

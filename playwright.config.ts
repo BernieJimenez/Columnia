@@ -5,7 +5,8 @@ export default defineConfig({
   fullyParallel: true,
   // A local gate must never silently run a subset of the suite.
   forbidOnly: true,
-  retries: process.env.CI ? 2 : 0,
+  // LIM-04: no CI runs this suite; a failure is never retried away.
+  retries: 0,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: "http://127.0.0.1:4173",
@@ -15,7 +16,9 @@ export default defineConfig({
     launchOptions: {
       args: ["--no-proxy-server", "--disable-gpu", "--disable-dev-shm-usage"],
     },
-    channel: process.platform === "win32" ? "msedge" : undefined,
+    // LIM-04: Edge, the engine of WebView2 that runs the real app; it is the
+    // only browser `npm run test:e2e:install` sets up.
+    channel: "msedge",
     ...devices["Desktop Chrome"],
   },
   webServer: {

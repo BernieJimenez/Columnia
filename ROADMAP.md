@@ -462,14 +462,14 @@ medio = 1 día; agregado por suma.
   - [x] `TXT-08` (Bajo) `formatDataType` deja en inglés `Categorical`/`Binary`/`Enum`; `isTextType` no reconoce `categorical` — hecho el 2026-10-06
   - [x] `TXT-09` (Bajo) `formatBytes` produce «NaN B»/«Infinity B» y «1024 KiB» — hecho el 2026-10-06
   - [x] `COD-04` (Bajo) El puente no valida en ejecución ninguna respuesta de Rust — hecho el 2026-10-06
-- [ ] **RV92** — **App y puente** — Estado `loading` del motor inalcanzable y «Motor local listo» antes de confirmar (y 5 problemas más) · *Esfuerzo: 3 días*
+- [x] **RV92** — **App y puente** — Estado `loading` del motor inalcanzable y «Motor local listo» antes de confirmar (y 5 problemas más) · *Esfuerzo: 3 días* — hecho el 2026-10-06
   - Criterio de cierre: Se cumplen los criterios de aceptación de COD-05, COD-06, COD-07, LIM-04, QA-29, QA-30.
-  - [ ] `COD-05` (Bajo) Estado `loading` del motor inalcanzable y «Motor local listo» antes de confirmar
-  - [ ] `COD-06` (Bajo) oxlint solo con la categoría `correctness`, reglas de React clave desactivadas y avisos que no rompen `npm run lint`
-  - [ ] `COD-07` (Bajo) `tsconfig` sin `noUncheckedIndexedAccess` ni `noUnused*`
-  - [ ] `LIM-04` (Bajo) Configuración de E2E incoherente (Edge frente a Chromium instalado; reintentos solo en CI inexistente)
-  - [ ] `QA-29` (Bajo) El test de paridad IPC compara nombres de campos y formas, no variantes de enums ni la constante de cancelación
-  - [ ] `QA-30` (Bajo) `src/bridge.test.ts` prueba sobre todo que el mock devuelve lo que se le dijo; 14 funciones del puente sin test
+  - [x] `COD-05` (Bajo) Estado `loading` del motor inalcanzable y «Motor local listo» antes de confirmar — hecho el 2026-10-06
+  - [x] `COD-06` (Bajo) oxlint solo con la categoría `correctness`, reglas de React clave desactivadas y avisos que no rompen `npm run lint` — hecho el 2026-10-06
+  - [x] `COD-07` (Bajo) `tsconfig` sin `noUncheckedIndexedAccess` ni `noUnused*` — hecho el 2026-10-06
+  - [x] `LIM-04` (Bajo) Configuración de E2E incoherente (Edge frente a Chromium instalado; reintentos solo en CI inexistente) — hecho el 2026-10-06
+  - [x] `QA-29` (Bajo) El test de paridad IPC compara nombres de campos y formas, no variantes de enums ni la constante de cancelación — hecho el 2026-10-06
+  - [x] `QA-30` (Bajo) `src/bridge.test.ts` prueba sobre todo que el mock devuelve lo que se le dijo; 14 funciones del puente sin test — hecho el 2026-10-06
 - [ ] **RV93** — **App y puente** — `tsc --noEmit` y el tipado no cubren `e2e/` ni `tools/` · *Esfuerzo: 2 h*
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-31.
   - [ ] `QA-31` (Bajo) `tsc --noEmit` y el tipado no cubren `e2e/` ni `tools/`

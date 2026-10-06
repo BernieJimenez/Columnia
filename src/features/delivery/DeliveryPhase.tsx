@@ -1,4 +1,5 @@
 import { isCancellationError } from "../../bridge/cancellation";
+import { useLatest } from "../../useLatest";
 import {
   useEffect,
   useEffectEvent,
@@ -227,8 +228,7 @@ export function DeliveryPhase({
     dataset: [dataset.fileName, dataset.fileSizeBytes, dataset.rowCount,
       dataset.columns.map((column) => [column.name, column.dataType])],
   });
-  const databaseTargetFingerprintRef = useRef(databaseTargetFingerprint);
-  databaseTargetFingerprintRef.current = databaseTargetFingerprint;
+  const databaseTargetFingerprintRef = useLatest(databaseTargetFingerprint);
   // A new dataset resets the remote target for the format chosen at that moment.
   const resetDatabaseTarget = useEffectEvent(() => {
     exportRequestGeneration.current += 1;
@@ -239,6 +239,8 @@ export function DeliveryPhase({
   });
   useEffect(() => {
     resetDatabaseTarget();
+    // A new dataset (name, size or rows) resets the remote target.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataset.fileName, dataset.fileSizeBytes, dataset.rowCount]);
   useEffect(() => {
     const kind = databaseKindForExportFormat(selectedExportFormat);

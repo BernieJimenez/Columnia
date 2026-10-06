@@ -199,14 +199,14 @@ for (const theme of themes) {
 /** Colors of every visible element in document order, for theme parity checks. */
 async function colorSnapshot(page: Page) {
   return page.evaluate(() => {
-    const rows: string[] = [];
+    const colors: string[] = [];
     for (const element of document.querySelectorAll("body *")) {
       if (!element.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true })) continue;
       const style = getComputedStyle(element);
       const label = `${element.tagName.toLowerCase()}.${[...element.classList].join(".")}`;
-      rows.push(`${label}|${style.color}|${style.backgroundColor}|${style.borderTopColor}|${style.borderLeftColor}|${style.boxShadow}`);
+      colors.push(`${label}|${style.color}|${style.backgroundColor}|${style.borderTopColor}|${style.borderLeftColor}|${style.boxShadow}`);
     }
-    return rows;
+    return colors;
   });
 }
 

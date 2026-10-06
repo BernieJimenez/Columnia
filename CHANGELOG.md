@@ -203,6 +203,15 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Calidad del frontend: el indicador dice «Motor local listo» solo cuando el
+  motor respondió y los catálogos esperan a esa respuesta; `npm run lint` falla
+  con cualquier aviso, revisa dependencias de efectos, refs leídos al renderizar
+  y la categoría `suspicious` (los casos intencionados quedan justificados en
+  línea y los valores «último» usan `useLatest`); el código de la app compila
+  con `noUncheckedIndexedAccess`; los E2E y su instalador declaran el mismo
+  navegador (Edge, el motor de WebView2) sin rama de CI; el contrato IPC compara
+  las variantes de los enums compartidos y el puente de datasets tiene el 100 %
+  de cobertura (COD-05, COD-06, COD-07, LIM-04, QA-29, QA-30).
 - App y puente: Vite solo expone al código de la interfaz las variables `VITE_`
   y `TAURI_ENV_`, así que la contraseña de firma del updater nunca puede acabar
   en el bundle; abrir un proyecto, una receta o una tarea reutilizable con un

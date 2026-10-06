@@ -158,7 +158,7 @@ export function ModalDialog({
       ? 0
       : (activeIndex + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length;
     event.preventDefault();
-    focusable[nextIndex].focus();
+    focusable[nextIndex]?.focus();
   }
 
   return (

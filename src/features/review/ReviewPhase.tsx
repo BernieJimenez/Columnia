@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { useLatest } from "../../useLatest";
+
 import { renderCellValue } from "../../components/CellText";
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ReviewTabList, type ReviewTab } from "../../components/ReviewTabList";
@@ -388,11 +390,10 @@ function LocalQueryPanel({
   }, [query, queryOpen, state, datasetRevision, onDraftChange]);
 
   // A query still running when the panel goes away is cancelled (FUN-27).
-  const runningRef = useRef(false);
-  runningRef.current = state.kind === "loading";
+  const runningRef = useLatest(state.kind === "loading");
   useEffect(() => () => {
     if (runningRef.current) void cancelOperation("query").catch(() => undefined);
-  }, []);
+  }, [runningRef]);
 
   function recordQueryHistory(
     requestId: number,

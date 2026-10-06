@@ -26,10 +26,14 @@ if (forcedLocale) {
     NativeDateTimeFormat,
   ) as typeof Intl.DateTimeFormat;
   const nativeNumberToLocale = Number.prototype.toLocaleString;
+  // QA-05: the suite runs as on a machine with another locale; only the
+  // default locale changes, the formatting stays native.
+  // oxlint-disable-next-line no-extend-native
   Number.prototype.toLocaleString = function toLocaleString(locales?: Intl.LocalesArgument, options?: Intl.NumberFormatOptions) {
     return nativeNumberToLocale.call(this, withLocale(locales), options);
   };
   const nativeDateToLocale = Date.prototype.toLocaleString;
+  // oxlint-disable-next-line no-extend-native
   Date.prototype.toLocaleString = function toLocaleString(locales?: Intl.LocalesArgument, options?: Intl.DateTimeFormatOptions) {
     return nativeDateToLocale.call(this, withLocale(locales), options);
   };

@@ -296,9 +296,9 @@ function validateSession(session, index, candidate, errors) {
   const findingSection = section(markdown, "Hallazgos");
   const findingHeadings = [...findingSection.matchAll(/^###\s+(.+)$/gm)];
   const actualFindingCounts = { P0: 0, P1: 0, P2: 0, P3: 0 };
-  for (const [index, match] of findingHeadings.entries()) {
+  for (const [findingIndex, match] of findingHeadings.entries()) {
     const start = match.index + match[0].length;
-    const end = findingHeadings[index + 1]?.index ?? findingSection.length;
+    const end = findingHeadings[findingIndex + 1]?.index ?? findingSection.length;
     const finding = findingSection.slice(start, end);
     const title = match[1].trim();
     const severity = bulletValue(finding, "Severidad");
@@ -468,7 +468,7 @@ async function readEvidenceFile(path, label) {
   } catch (error) {
     if (error?.code === "ENOENT") {
       const relativePath = relative(projectRoot, path).replaceAll("\\", "/");
-      throw new Error(`falta ${label} (${relativePath}); completa y revisa Gate 1 antes de preparar Gate 2.`);
+      throw new Error(`falta ${label} (${relativePath}); completa y revisa Gate 1 antes de preparar Gate 2.`, { cause: error });
     }
     throw error;
   }

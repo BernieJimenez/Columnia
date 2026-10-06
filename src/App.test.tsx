@@ -223,6 +223,20 @@ function applyProposalWithColumnNames() {
 }
 
 describe("App", () => {
+  it("solo dice «Motor local listo» cuando el motor respondió (COD-05)", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    let answer!: (info: { name: string; version: string; platform: string }) => void;
+    vi.spyOn(bridge, "getAppInfo").mockReturnValue(new Promise((resolve) => { answer = resolve; }));
+    const listProjects = vi.spyOn(bridge, "listProjects").mockResolvedValue({ projects: [] } as never);
+    render(<App />);
+    expect(screen.getByText("Conectando con el motor local…")).toBeInTheDocument();
+    expect(screen.queryByText("Motor local listo")).not.toBeInTheDocument();
+    // The project catalog waits for the engine too.
+    expect(listProjects).not.toHaveBeenCalled();
+    await act(async () => answer({ name: "Columnia", version: "0.26.0", platform: "windows" }));
+    expect(await screen.findByText("Motor local listo")).toBeInTheDocument();
+  });
+
   it("usa la acción contextual de Review y marca Review como hecha al continuar explícitamente", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({

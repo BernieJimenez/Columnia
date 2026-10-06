@@ -263,8 +263,8 @@ async function inspectNativeProjectIpc(page) {
               && forbiddenFields(opened).length === 0;
             if (!openedValid) throw new Error("open_after_restart_invalid");
 
-            const page = await invoke("get_dataset_page", { offset: 0, limit: 10 });
-            if (!(page?.offset === 0 && Array.isArray(page.rows) && page.rows.length === 2)) {
+            const datasetPage = await invoke("get_dataset_page", { offset: 0, limit: 10 });
+            if (!(datasetPage?.offset === 0 && Array.isArray(datasetPage.rows) && datasetPage.rows.length === 2)) {
               throw new Error("page_after_restart_invalid");
             }
 
@@ -561,8 +561,8 @@ async function inspectNativeProjectIpc(page) {
             && forbiddenFields(opened).length === 0;
           if (!openedValid) throw new Error("open_invalid");
 
-          const page = await invoke("get_dataset_page", { offset: 0, limit: 10 });
-          const pageValid = page?.offset === 0 && Array.isArray(page.rows) && page.rows.length === 2;
+          const datasetPage = await invoke("get_dataset_page", { offset: 0, limit: 10 });
+          const pageValid = datasetPage?.offset === 0 && Array.isArray(datasetPage.rows) && datasetPage.rows.length === 2;
           if (!pageValid) throw new Error("page_invalid");
 
           await invoke("delete_project", { projectId });

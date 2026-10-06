@@ -42,7 +42,7 @@ async function readEvidence(path, label) {
   try {
     return await readFile(path, "utf8");
   } catch (error) {
-    if (error?.code === "ENOENT") throw new Error(`falta ${label} (${path.replace(`${projectRoot}\\`, "").replaceAll("\\", "/")})`);
+    if (error?.code === "ENOENT") throw new Error(`falta ${label} (${path.replace(`${projectRoot}\\`, "").replaceAll("\\", "/")})`, { cause: error });
     throw error;
   }
 }

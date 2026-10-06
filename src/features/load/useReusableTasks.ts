@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import { useLatest } from "../../useLatest";
 import { userErrorMessage as errorMessage } from "../../errorText";
 
 import {
@@ -69,8 +71,7 @@ export function useReusableTasks({
   const [openedTask, setOpenedTask] = useState<OpenedReusableTask | null>(null);
   const [schemaCheck, setSchemaCheck] = useState<ReusableTaskSchemaCheck | null>(null);
 
-  const optionsRef = useRef({ connected, blocked });
-  optionsRef.current = { connected, blocked };
+  const optionsRef = useLatest({ connected, blocked });
   const mountedRef = useRef(true);
   const operationLock = useRef(false);
   const operationGeneration = useRef(0);
@@ -105,7 +106,7 @@ export function useReusableTasks({
       changeCatalogState("error");
       setError(errorMessage(cause));
     }
-  }, [changeCatalogState]);
+  }, [changeCatalogState, optionsRef]);
 
   const cancelRefresh = useCallback(async () => {
     if (!optionsRef.current.connected || catalogStateRef.current !== "loading") return;
@@ -120,7 +121,7 @@ export function useReusableTasks({
         setError(errorMessage(cause));
       }
     }
-  }, [changeCatalogState]);
+  }, [changeCatalogState, optionsRef]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -183,6 +184,8 @@ export function useReusableTasks({
         if (refreshCatalogAfter) void refresh();
       }
     }
+    // `refresh` is stable; listing it keeps the callback honest if it is not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refresh]);
 
   const open = useCallback((taskId: string) => runExclusive(

@@ -157,10 +157,10 @@ function preloadPhase(phase: WorkflowPhase): void {
   if (phase === "deliver") void loadDeliveryPhase();
 }
 
+/** COD-05: «listo» only once `get_app_info` answered; until then the
+ * catalogs and listeners that need the engine wait. */
 function initialAppStatus(): AppStatus {
-  return isTauriRuntime()
-    ? { kind: "ready", info: null }
-    : { kind: "browser" };
+  return isTauriRuntime() ? { kind: "loading" } : { kind: "browser" };
 }
 
 function isTauriRuntime(): boolean {
@@ -1102,7 +1102,8 @@ export function App() {
     projects.autoSave.kind === "saving" && "autosave",
   ].filter(Boolean).join(",");
   const activePhaseIndex = Math.max(0, workflowPhases.findIndex((phase) => phase.id === activePhase));
-  const activePhaseMeta = workflowPhases[activePhaseIndex];
+  // The active phase is always one of the workflow phases.
+  const activePhaseMeta = workflowPhases[activePhaseIndex] ?? workflowPhases[0]!;
   const previousPhase = workflowPhases[activePhaseIndex - 1];
   const nextPhase = workflowPhases[activePhaseIndex + 1];
   const profileGatedPhase = activePhase === "review" || activePhase === "prepare";
@@ -1187,9 +1188,9 @@ export function App() {
   }
 
   function applyReviewedReusableTask() {
-    const review = reusableTaskApplicationReview;
-    if (!review) return;
-    applyReusableTask(review.task, true);
+    const pendingReview = reusableTaskApplicationReview;
+    if (!pendingReview) return;
+    applyReusableTask(pendingReview.task, true);
   }
 
   function dismissReusableTaskApplicationReview() {
@@ -1369,7 +1370,7 @@ export function App() {
             aria-live={status.kind === "error" ? "assertive" : "polite"}
             aria-atomic="true"
           >
-            {status.kind === "loading" && "Conectando con Rust…"}
+            {status.kind === "loading" && "Conectando con el motor local…"}
             {status.kind === "browser" && "Vista web · motor no conectado"}
             {status.kind === "ready" && "Motor local listo"}
             {status.kind === "error" && `Error del motor: ${status.message}`}

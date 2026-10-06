@@ -64,6 +64,8 @@ export function DatasetComparisonSection({
   useEffect(() => {
     setConflictChoices({});
     setExcludedConflictIndexes({});
+    // Any of these makes the choices on screen belong to another comparison.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status.kind, comparedFileName, comparisonKeyColumnsKey, datasetRevision]);
 
   function conflictChoiceKey(conflictIndex: number, column: string): string {

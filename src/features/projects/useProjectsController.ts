@@ -1,5 +1,7 @@
 import { isCancellationError } from "../../bridge/cancellation";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import { useLatest } from "../../useLatest";
 import { userErrorMessage as errorMessage } from "../../errorText";
 
 import {
@@ -98,8 +100,7 @@ export function useProjectsController({
   const lastAutoSaveSignature = useRef<string | null>(null);
   const failedAutoSaveSignature = useRef<string | null>(null);
   const skipAutoSaveForProject = useRef<string | null>(null);
-  const workspaceRef = useRef(workspace);
-  workspaceRef.current = workspace;
+  const workspaceRef = useLatest(workspace);
   const workspaceSignature = JSON.stringify(workspace);
   const autoSaveEnabled = Boolean(
     activeProject && autoSavePreference.projectId === activeProject.id && autoSavePreference.enabled,
@@ -214,6 +215,8 @@ export function useProjectsController({
     return () => {
       versionsRequestGeneration.current += 1;
     };
+    // A new save (`updatedAt`) has new versions to list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProject?.id, activeProject?.updatedAt, connected, refreshVersions]);
 
   useEffect(() => {
@@ -456,6 +459,7 @@ export function useProjectsController({
     hasDataset,
     operation.kind,
     refresh,
+    workspaceRef,
     workspaceSignature,
   ]);
 
@@ -530,8 +534,11 @@ export function useProjectsController({
     }
   }, [deleteCancellationPending, operation]);
 
+  // The versions shown belong to the project they were listed for; the ref
+  // changes together with `versions`, which re-renders.
   const visibleVersions: ProjectVersionsState = !connected || !activeProject
     ? { kind: "ready", versions: [] }
+    // eslint-disable-next-line react/refs
     : versionsProjectId.current === activeProject.id
       ? versions
       : { kind: "loading" };

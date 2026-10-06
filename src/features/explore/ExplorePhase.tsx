@@ -76,6 +76,8 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
       },
     );
     return () => { current = false; };
+    // New data (`datasetRevision`) or a retry (`attempt`) asks for the panel again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, layout, datasetRevision, profileReady, attempt]);
 
   const panel = state.kind === "ready" ? state.panel : state.previous;
@@ -322,7 +324,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                     ))}
                   </div>
                   <p className="explore__axis">
-                    <span>{trend.points[0].period}</span>
+                    <span>{trend.points[0]?.period}</span>
                     <span>{trend.points.at(-1)?.period}</span>
                   </p>
                 </section>

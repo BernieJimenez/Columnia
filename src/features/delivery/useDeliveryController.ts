@@ -1,5 +1,5 @@
 import { isCancellationError } from "../../bridge/cancellation";
-import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type MutableRefObject } from "react";
 
 import {
   cancelOperation,
@@ -71,11 +71,13 @@ export function useDeliveryController({
     setExportStatus({ kind: "idle" });
   }
 
+  // COD-06: the effect runs on a new fingerprint, not on a new function.
+  const onDatasetChanged = useEffectEvent(() => invalidateGate());
   useEffect(() => {
     if (datasetFingerprint === null) return;
     if (previousFingerprintRef.current !== null &&
         previousFingerprintRef.current !== datasetFingerprint) {
-      invalidateGate();
+      onDatasetChanged();
     }
     previousFingerprintRef.current = datasetFingerprint;
   }, [datasetFingerprint]);

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useLatest } from "../../useLatest";
+
 import {
   cancelOperation,
   compareHistorySnapshots,
@@ -53,8 +55,7 @@ export function RevisionComparison({
   const [afterId, setAfterId] = useState(availableEntries.at(-1)?.id ?? "");
   const [comparison, setComparison] = useState<ComparisonState>({ kind: "idle" });
   const requestGeneration = useRef(0);
-  const currentInputs = useRef({ datasetRevision, revisionIdsKey, rulesKey, historyStatus });
-  currentInputs.current = { datasetRevision, revisionIdsKey, rulesKey, historyStatus };
+  const currentInputs = useLatest({ datasetRevision, revisionIdsKey, rulesKey, historyStatus });
 
   useEffect(() => {
     requestGeneration.current += 1;
@@ -62,6 +63,8 @@ export function RevisionComparison({
     setBeforeId(ids[0] ?? "");
     setAfterId(ids.at(-1) ?? "");
     setComparison({ kind: "idle" });
+    // Any of these makes a comparison on screen stale.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetRevision, revisionIdsKey, rulesKey, historyStatus.snapshotsEnabled]);
 
   async function runComparison() {

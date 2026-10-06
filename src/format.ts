@@ -69,7 +69,8 @@ const DATA_TYPE_LABELS: Record<string, string> = {
 /** Spanish label for an engine data type (Polars/DuckDB), keeping unknown names. */
 export function formatDataType(dataType: string): string {
   const normalized = dataType.trim().toLowerCase();
-  if (normalized in DATA_TYPE_LABELS) return DATA_TYPE_LABELS[normalized];
+  const label = DATA_TYPE_LABELS[normalized];
+  if (label) return label;
   if (isIntegerType(normalized)) return "Entero";
   if (isDecimalType(normalized)) return "Decimal";
   if (isDatetimeType(normalized)) return "Fecha y hora";

@@ -15,6 +15,8 @@ const fixtures = {
   "openai.py": `KEY = "${"sk"}-proj-${"b".repeat(24)}"`,
   "github.txt": `${"ghp"}_${"c".repeat(36)}`,
   "minisign.key": `untrusted comment: ${"rsign"} encrypted secret key\nRWRTY0Iy`,
+  // The literal is split so this file is not itself a signing key to scanners.
+  // oxlint-disable-next-line no-useless-concat
   "tauri.conf.txt": `TAURI_SIGNING_PRIVATE_KEY=dW50cnVzdGVkIGNvbW1lbnQ6${"IHJzaWduIGVuY3J5cHRl" + "ZCBzZWNyZXQga2V5"}Cg==`,
   ".env": `DATABASE_PASSWORD=${"hunter2hunter2"}`,
   "server.pem": `-----BEGIN ${"ENCRYPTED"} PRIVATE KEY-----\nMIIE`,

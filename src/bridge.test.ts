@@ -85,6 +85,14 @@ import {
   type DatabaseTarget,
   type ReusableTask,
   type DeliveryPreset,
+  listSampleDatasets,
+  inspectSampleDataset,
+  inspectWorkbookSheets,
+  convertDatasetSelectionEncoding,
+  reinterpretDatasetSelection,
+  previewDatasetSelection,
+  compareHistorySnapshots,
+  getExplorePanel,
 } from "./bridge";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -713,6 +721,33 @@ describe("desktop bridge", () => {
 
     expect(invoke).toHaveBeenCalledWith("save_project", { projectId: null, name: "Ventas", workspace });
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
+  });
+
+  // QA-30: the wrappers with no other test send exactly these arguments.
+  it.each([
+    ["list_sample_datasets", () => listSampleDatasets(), undefined],
+    ["inspect_sample_dataset", () => inspectSampleDataset("ventas"), { sampleId: "ventas" }],
+    ["inspect_workbook_sheets", () => inspectWorkbookSheets("s1"), { selectionId: "s1" }],
+    ["convert_dataset_selection_encoding", () => convertDatasetSelectionEncoding("s1"), { selectionId: "s1" }],
+    ["reinterpret_dataset_selection", () => reinterpretDatasetSelection("s1", ";", "windows-1252"),
+      { selectionId: "s1", delimiter: ";", encoding: "windows-1252" }],
+    ["preview_dataset_selection", () => previewDatasetSelection("s1", "Hoja1", "firstRow", null, "dmy", null),
+      { selectionId: "s1", sheetId: "Hoja1", headerMode: "firstRow", expectedProfile: null, dateConvention: "dmy", numberConvention: null }],
+    ["get_explore_panel", () => getExplorePanel([{ column: "estado", values: ["FL"] }]),
+      { filters: [{ column: "estado", values: ["FL"] }], layout: {} }],
+  ] as const)("envía %s con sus argumentos", async (command, call, args) => {
+    vi.mocked(invoke).mockResolvedValue([]);
+    await call();
+    if (args === undefined) expect(invoke).toHaveBeenCalledWith(command);
+    else expect(invoke).toHaveBeenCalledWith(command, args);
+  });
+
+  it("compara revisiones con su canal de progreso (QA-30)", async () => {
+    vi.mocked(invoke).mockResolvedValue({});
+    await compareHistorySnapshots("a", "b", [], () => undefined);
+    expect(invoke).toHaveBeenLastCalledWith("compare_history_snapshots", {
+      beforeSnapshotId: "a", afterSnapshotId: "b", qualityRules: [], onProgress: expect.any(Channel),
+    });
   });
 
   it("rechaza con un mensaje legible una respuesta de disco incompleta (COD-04)", async () => {

@@ -485,6 +485,8 @@ export function useReviewController({
   });
   useEffect(() => {
     reanalyzeForSample();
+    // A new sample size is what triggers the new analysis.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysisSampleRows]);
 
   return {

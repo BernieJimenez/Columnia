@@ -19,9 +19,9 @@ import { buildTransformPreview, visibleColumnNames, type TransformPreview } from
 import { isDateType, isDatetimeType, isNumericType, isTextType } from "../../dataTypes";
 import { plural } from "../../plural";
 
-function operationGroupStatus(count: number, singular: string, plural: string) {
+function operationGroupStatus(count: number, singular: string, pluralLabel: string) {
   if (count === 0) return "Sin cambios";
-  return `${count} ${count === 1 ? singular : plural}`;
+  return `${count} ${count === 1 ? singular : pluralLabel}`;
 }
 
 function readableCopy(text: string) {
@@ -214,7 +214,8 @@ export function TransformRecipeEditor({
   const [recipeName, setRecipeName] = useState(initialDraft?.name ?? "Mi receta");
   const [exportOptions, setExportOptions] = useState(initialDraft?.exportOptions ?? null);
   const [recipeFileStatus, setRecipeFileStatus] = useState<RecipeFileStatus>({ kind: "idle" });
-  const draftSavedAt = useRef(initialDraft?.savedAt ?? new Date().toISOString());
+  // COD-06: read while rendering, so it is state, not a ref.
+  const [draftSavedAt, setDraftSavedAt] = useState(() => initialDraft?.savedAt ?? new Date().toISOString());
   const acknowledgedRecipeFingerprint = useRef<string | null>(null);
   const recipeBusy = busy || recipeFileStatus.kind === "working";
 
@@ -298,7 +299,7 @@ export function TransformRecipeEditor({
   const currentRecipeForSchema = buildRecipe();
   const currentSchemaIssues = inspectRecipeSchema(currentRecipeForSchema, dataset, referenceSchema);
   const schemaReviewRecipe = pendingSchemaReview ?? (!schemaReviewDismissed && currentSchemaIssues.length > 0
-    ? { version: 2 as const, name: recipeName, savedAt: draftSavedAt.current, recipe: currentRecipeForSchema, sourceSchema: referenceSchema }
+    ? { version: 2 as const, name: recipeName, savedAt: draftSavedAt, recipe: currentRecipeForSchema, sourceSchema: referenceSchema }
     : null);
   useEffect(() => {
     if (currentSchemaIssues.length === 0) setSchemaReviewDismissed(false);
@@ -372,7 +373,7 @@ export function TransformRecipeEditor({
     const nextDraft: SavedRecipe = {
       version: 2,
       name: recipeName.trim() || "Mi receta",
-      savedAt: draftSavedAt.current,
+      savedAt: draftSavedAt,
       recipe: buildRecipe(),
       sourceSchema: recipeSourceSchema(buildRecipe(), dataset),
     };
@@ -388,6 +389,8 @@ export function TransformRecipeEditor({
     if (lastWorkspaceDraftFingerprint.current === workspaceDraftFingerprint) return;
     lastWorkspaceDraftFingerprint.current = workspaceDraftFingerprint;
     publishDraft();
+    // `invalid` republishes the draft as finished or unfinished when it flips.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invalid, workspaceDraftFingerprint]);
 
   useEffect(() => {
@@ -399,6 +402,8 @@ export function TransformRecipeEditor({
     if (acknowledgedRecipeFingerprint.current !== draftFingerprint) {
       setRecipeFileStatus({ kind: "idle" });
     }
+    // Only the kind of the status matters, not its message.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftFingerprint, recipeFileStatus.kind]);
 
   function submitRecipe() {
@@ -417,7 +422,7 @@ export function TransformRecipeEditor({
       const saved = await saveTransformRecipe(recipe, recipeName.trim(), recipeSourceSchema(recipe, dataset), exportOptions);
       if (saved) {
         acknowledgedRecipeFingerprint.current = draftFingerprint;
-        draftSavedAt.current = saved.savedAt;
+        setDraftSavedAt(saved.savedAt);
         lastWorkspaceDraftFingerprint.current = `${saved.name}\u0000${JSON.stringify(saved.recipe)}`;
         const persisted: SavedRecipe = { ...saved };
         if (!persisted.exportOptions && exportOptions) persisted.exportOptions = exportOptions;
@@ -459,7 +464,7 @@ export function TransformRecipeEditor({
     setRecipeName(loaded.name);
     setExportOptions(loaded.exportOptions ?? null);
     setOperationsOpen(true);
-    draftSavedAt.current = loaded.savedAt;
+    setDraftSavedAt(loaded.savedAt);
   }
 
   async function loadRecipeDraft() {

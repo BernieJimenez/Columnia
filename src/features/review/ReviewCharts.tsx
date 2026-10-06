@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 
 import { cancelOperation, getTemporalAggregation } from "../../bridge";
 import type {
@@ -455,7 +455,9 @@ function TemporalTrendChart({
   const requestPendingRef = useRef(false);
   const requestOwnerRef = useRef<TemporalAggregationOwner | null>(null);
   const cancellationPendingRef = useRef<Promise<void> | null>(null);
+  // The owner ref changes together with `activeAggregation`, which re-renders.
   const anotherAggregationBusy = activeAggregation !== null
+    // eslint-disable-next-line react/refs
     && requestOwnerRef.current?.token !== activeAggregation.token;
   const metricId = `quality-temporal-metric-${summaryIndex}`;
   const valueColumnId = `quality-temporal-value-${summaryIndex}`;
@@ -477,22 +479,31 @@ function TemporalTrendChart({
     return trackedCancellation;
   }
 
-  useEffect(() => () => {
+  // COD-06: the cleanup cancels the request of the previous data or column.
+  const cancelPendingAggregation = useEffectEvent(() => {
     requestIdRef.current += 1;
     if (requestPendingRef.current && requestOwnerRef.current !== null) {
       void requestTemporalCancellation().catch(() => undefined);
     }
-  }, [datasetRevision, summary.column]);
+  });
+  useEffect(() => () => cancelPendingAggregation(),
+    // A new dataset or column ends the aggregation in progress.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [datasetRevision, summary.column]);
 
   useEffect(() => {
     setAggregationSeries(null);
     setAggregationStatus("idle");
     setAggregationError(null);
+    // A new dataset or column clears the aggregation on screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetRevision, summary.column]);
 
   useEffect(() => {
     if (numericColumns.some((column) => column.name === valueColumn)) return;
     setValueColumn(numericColumns[0]?.name ?? "");
+    // New data re-checks the chosen column.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetRevision, numericColumns, valueColumn]);
 
   function calculateAggregation() {
@@ -615,6 +626,8 @@ function TemporalTrendChart({
                   className="secondary-action"
                   type="button"
                   onClick={calculateAggregation}
+                  // The pending ref flips together with `aggregationStatus`.
+                  // eslint-disable-next-line react/refs
                   disabled={!valueColumn || anotherAggregationBusy || requestPendingRef.current || aggregationStatus === "loading" || aggregationStatus === "cancelling"}
                 >
                   {aggregationStatus === "loading" ? "Calculando…" : anotherAggregationBusy ? "Esperando…" : "Calcular tendencia"}
@@ -864,17 +877,21 @@ function TemporalAggregationChart({
               <title>{`${period.period}: ${formatTemporalAggregate(period.value)}`}</title>
             </circle>
           ))}
-          {labelIndexes.map((index) => (
-            <text
-              className="quality-temporal-line__label"
-              key={series.periods[index].period}
-              x={points[index].x}
-              y={chartHeight - 8}
-              textAnchor={index === 0 ? "start" : index === series.periods.length - 1 ? "end" : "middle"}
-            >
-              {formatTemporalAxisLabel(series.periods[index].period, summary.granularity)}
-            </text>
-          ))}
+          {labelIndexes.map((index) => {
+            const period = series.periods[index];
+            const point = points[index];
+            return period && point ? (
+              <text
+                className="quality-temporal-line__label"
+                key={period.period}
+                x={point.x}
+                y={chartHeight - 8}
+                textAnchor={index === 0 ? "start" : index === series.periods.length - 1 ? "end" : "middle"}
+              >
+                {formatTemporalAxisLabel(period.period, summary.granularity)}
+              </text>
+            ) : null;
+          })}
         </svg>
       </div>
     </div>
@@ -917,13 +934,13 @@ function TemporalLineChart({
     const x = summary.periods.length === 1
       ? padding.left + plotWidth / 2
       : padding.left + (index / (summary.periods.length - 1)) * plotWidth;
-    const y = padding.top + plotHeight - (values[index] / maximumValue) * plotHeight;
+    const y = padding.top + plotHeight - ((values[index] ?? 0) / maximumValue) * plotHeight;
     return { x, y, period };
   });
   const pointList = points.map(({ x, y }) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
   const baseline = padding.top + plotHeight;
   const areaPath = points.length > 0
-    ? `M ${points[0].x.toFixed(2)} ${baseline.toFixed(2)} L ${points.map(({ x, y }) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(" L ")} L ${points.at(-1)!.x.toFixed(2)} ${baseline.toFixed(2)} Z`
+    ? `M ${points[0]!.x.toFixed(2)} ${baseline.toFixed(2)} L ${points.map(({ x, y }) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(" L ")} L ${points.at(-1)!.x.toFixed(2)} ${baseline.toFixed(2)} Z`
     : "";
   const labelIndexes = temporalAxisIndexes(summary.periods.length);
   const descriptionId = `${titleId}-description`;
@@ -989,17 +1006,21 @@ function TemporalLineChart({
               <title>{`${period.period}: ${temporalMetricDisplay(temporalMetricValue(period, metric), metric)}`}</title>
             </circle>
           ))}
-          {labelIndexes.map((index) => (
-            <text
-              className="quality-temporal-line__label"
-              key={summary.periods[index].period}
-              x={points[index].x}
-              y={chartHeight - 8}
-              textAnchor={index === 0 ? "start" : index === summary.periods.length - 1 ? "end" : "middle"}
-            >
-              {formatTemporalAxisLabel(summary.periods[index].period, summary.granularity)}
-            </text>
-          ))}
+          {labelIndexes.map((index) => {
+            const period = summary.periods[index];
+            const point = points[index];
+            return period && point ? (
+              <text
+                className="quality-temporal-line__label"
+                key={period.period}
+                x={point.x}
+                y={chartHeight - 8}
+                textAnchor={index === 0 ? "start" : index === summary.periods.length - 1 ? "end" : "middle"}
+              >
+                {formatTemporalAxisLabel(period.period, summary.granularity)}
+              </text>
+            ) : null;
+          })}
         </svg>
       </div>
     </div>
@@ -1019,8 +1040,9 @@ export function contiguousCalendarDays(periods: TemporalPeriod[]): TemporalPerio
   const others = periods.filter((period) => parseTemporalDay(period.period) === null);
   if (days.length < 2) return [...days, ...others];
   const byDay = new Map(days.map((period) => [period.period, period]));
-  const first = parseTemporalDay(days[0].period)!;
-  const last = parseTemporalDay(days[days.length - 1].period)!;
+  // `days` has at least two entries here.
+  const first = parseTemporalDay(days[0]!.period)!;
+  const last = parseTemporalDay(days[days.length - 1]!.period)!;
   const span = Math.round((last.getTime() - first.getTime()) / 86_400_000) + 1;
   if (span <= days.length || span > MAX_CALENDAR_DAYS) return [...days, ...others];
   const filled: TemporalPeriod[] = [];

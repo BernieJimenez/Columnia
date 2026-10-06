@@ -1,14 +1,32 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript"],
+  "plugins": [
+    "react",
+    "typescript"
+  ],
   "categories": {
-    "correctness": "error"
+    "correctness": "error",
+    "suspicious": "error"
   },
   "rules": {
     "react-hooks/rules-of-hooks": "error",
-    "react-hooks/exhaustive-deps": "warn",
+    "react-hooks/exhaustive-deps": "error",
     "react/set-state-in-effect": "off",
-    "react/refs": "off"
+    "react/refs": "error",
+    "react/react-in-jsx-scope": "off",
+    "no-underscore-dangle": "off",
+    "react/no-unstable-nested-components": [
+      "error",
+      {
+        "allowAsProps": true
+      }
+    ]
   },
-  "ignorePatterns": ["dist/**", "coverage/**", "src-tauri/**", ".local/**", "node_modules/**"]
+  "ignorePatterns": [
+    "dist/**",
+    "coverage/**",
+    "src-tauri/**",
+    ".local/**",
+    "node_modules/**"
+  ]
 }

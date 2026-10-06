@@ -56,6 +56,8 @@ export function OperationProgressView({
       setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
     }, 1000);
     return () => window.clearInterval(timer);
+    // A new operation restarts the elapsed time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress.operation]);
 
   return (

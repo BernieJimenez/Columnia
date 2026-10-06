@@ -58,8 +58,9 @@ export function ListTextarea({ values, trim = false, onValuesChange, ...props }:
 
 /** The rules with a new «not null» rule on the first column, or null when full. */
 export function withAddedRule(rules: QualityRule[], dataset: DatasetPreview): QualityRule[] | null {
-  if (rules.length >= MAX_QUALITY_RULES || dataset.columns.length === 0) return null;
-  return [...rules, { column: dataset.columns[0].name, kind: "not_null", maxInvalid: 0 }];
+  const firstColumn = dataset.columns[0];
+  if (rules.length >= MAX_QUALITY_RULES || !firstColumn) return null;
+  return [...rules, { column: firstColumn.name, kind: "not_null", maxInvalid: 0 }];
 }
 
 /** The editable list of quality rules in Entregar; the contract state stays in DeliveryPhase. */
@@ -78,6 +79,7 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
 
   function changeRuleKind(index: number, kind: QualityRuleKind) {
     const rule = rules[index];
+    if (!rule) return;
     const firstColumn = dataset.columns[0]?.name ?? "";
     const isSchemaRule = kind === "schema_contract";
     const isReferentialRule = kind === "referential_integrity";
@@ -145,6 +147,7 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
 
   function updateConditionalThen(index: number, update: Partial<QualityRule>) {
     const rule = rules[index];
+    if (!rule) return;
     const fallbackColumn = rule.column === QUALITY_DATASET_COLUMN
       ? dataset.columns[0]?.name ?? ""
       : rule.column;
@@ -153,7 +156,7 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
   }
 
   function updateTogetherColumns(index: number, name: string, checked: boolean) {
-    const current = rules[index].columns ?? [];
+    const current = rules[index]?.columns ?? [];
     const next = checked
       ? [...current, name]
       : current.filter((column) => column !== name);
@@ -162,6 +165,7 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
 
   function updateComparisonColumn(index: number, position: 0 | 1, name: string) {
     const rule = rules[index];
+    if (!rule) return;
     const current = rule.columns ?? dataset.columns.slice(0, 2).map((column) => column.name);
     const next = [...current];
     next[position] = name;
@@ -173,6 +177,7 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
 
   function updateAggregateColumn(index: number, position: 0 | 1, name: string) {
     const rule = rules[index];
+    if (!rule) return;
     const current = rule.columns ?? dataset.columns.slice(0, 2).map((column) => column.name);
     const next = [...current];
     next[position] = name;
