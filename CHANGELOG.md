@@ -203,6 +203,16 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Proyectos: una versión de respaldo ilegible ya no oculta las demás; una página
+  de vista previa obsoleta vuelve a la primera en vez de hacer fallar el
+  guardado o el autoguardado; en Windows el directorio de cada generación se
+  sincroniza de verdad antes de confirmar el catálogo; listar proyectos y
+  versiones ya no espera a un autoguardado (medido: 443 listados durante un
+  autoguardado de 4 M filas, el más lento 19 ms); el archivo arrastrado y la
+  última exportación se guardan aunque su lock esté envenenado; nuevas pruebas
+  de migración desde v3, v4, v5, v12, v14 y v15, y los tests de enlaces usan
+  uniones de directorio para comprobar siempre (DAT-15, DAT-16, DAT-17, REN-10,
+  COD-12, QA-46).
 - Comparación: el resumen cuenta las filas que una clave repetida deja sin
   comparar y lo explica; una clave inexistente da su mensaje sin repetir la
   comparación en memoria, y si el reintento falla se ven las dos causas; «Elegir

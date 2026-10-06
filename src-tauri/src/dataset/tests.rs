@@ -19146,6 +19146,28 @@ fn explore_panel_chooses_charts_from_the_profile_and_counts_every_row() {
 }
 
 #[test]
+fn a_poisoned_lock_still_keeps_the_dropped_file_and_the_last_export() {
+    // COD-12: the writers used `lock().ok()` and dropped the value.
+    let state = std::sync::Arc::new(DatasetState::default());
+    let poisoner = std::sync::Arc::clone(&state);
+    let _ = std::thread::spawn(move || {
+        let _drop = poisoner.pending_drop.lock().unwrap();
+        let _export = poisoner.last_export_path.lock().unwrap();
+        panic!("pánico de prueba con los locks tomados");
+    })
+    .join();
+    assert!(state.pending_drop.is_poisoned() && state.last_export_path.is_poisoned());
+
+    state.queue_dropped_path(PathBuf::from("arrastrado.csv"));
+    state.remember_last_export(PathBuf::from("salida.csv"));
+    assert_eq!(
+        state.take_dropped_path().unwrap(),
+        Some(PathBuf::from("arrastrado.csv"))
+    );
+    assert_eq!(state.last_export().unwrap(), PathBuf::from("salida.csv"));
+}
+
+#[test]
 fn a_page_from_a_changed_source_says_so_instead_of_materializing() {
     // ARQ-07: the error was dropped and the whole file was loaded instead.
     let path = temporary_csv("id\n1\n2\n3\n");

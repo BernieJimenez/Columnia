@@ -3,9 +3,8 @@ use crate::crash_report::LockRecovering;
 
 impl DatasetState {
     pub(crate) fn queue_dropped_path(&self, path: PathBuf) {
-        if let Ok(mut pending) = self.pending_drop.lock() {
-            *pending = Some(path);
-        }
+        // COD-12: written as it is read; a poisoned lock no longer drops it.
+        *self.pending_drop.lock_recovering() = Some(path);
     }
 
     pub(crate) fn take_dropped_path(&self) -> Result<Option<PathBuf>, String> {
@@ -159,9 +158,8 @@ impl DatasetState {
     }
 
     pub(super) fn remember_last_export(&self, path: PathBuf) {
-        if let Ok(mut last_export_path) = self.last_export_path.lock() {
-            *last_export_path = Some(path);
-        }
+        // COD-12: written as it is read; a poisoned lock no longer drops it.
+        *self.last_export_path.lock_recovering() = Some(path);
     }
 
     pub(super) fn last_export(&self) -> Result<PathBuf, String> {

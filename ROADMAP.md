@@ -446,14 +446,14 @@ medio = 1 día; agregado por suma.
   - [x] `TXT-12` (Bajo) Textos de conflictos: «Esta página está completa» siempre, y `null` indistinguible del texto «null» — hecho el 2026-10-05
   - [x] `LIM-11` (Bajo) Los archivos `.jsonl`/`.ndjson` comparados van por la ruta en memoria, distinta de la de `.json` — hecho el 2026-10-05
   - [x] `QA-45` (Bajo) El test de comparación de revisiones manipula `history.cursor` directamente y las aserciones de privacidad usan `contains` de cadenas — hecho el 2026-10-05
-- [ ] **RV90** — **Proyectos e historial (motor)** — Un único respaldo de versión ilegible hace fallar el listado completo de versiones (y 5 problemas más) · *Esfuerzo: 3 días*
+- [x] **RV90** — **Proyectos e historial (motor)** — Un único respaldo de versión ilegible hace fallar el listado completo de versiones (y 5 problemas más) · *Esfuerzo: 3 días* — hecho el 2026-10-06
   - Criterio de cierre: Se cumplen los criterios de aceptación de DAT-15, DAT-16, DAT-17, REN-10, COD-12, QA-46.
-  - [ ] `DAT-15` (Bajo) Un único respaldo de versión ilegible hace fallar el listado completo de versiones
-  - [ ] `DAT-16` (Bajo) El guardado valida estrictamente campos de vista (p. ej. `previewOffset`) y puede rechazar guardar el dataset por un dato cosmético
-  - [ ] `DAT-17` (Bajo) `sync_directory` es un no-op fuera de Unix: en Windows la durabilidad del renombrado de la generación no se garantiza antes de confirmar el catálogo
-  - [ ] `REN-10` (Bajo) Cada autoguardado reescribe una generación completa (dataset + hasta 12 snapshots de historial) con el mutex de operaciones de proyecto tomado (candidato a medir)
-  - [ ] `COD-12` (Bajo) `queue_dropped_path` y `remember_last_export` ignoran en silencio un mutex envenenado
-  - [ ] `QA-46` (Bajo) Huecos de prueba en la persistencia: migraciones v3/v4/v5/v12/v14, borrado con generación ausente, staging huérfano; tests de reparse point que pasan en silencio sin privilegios
+  - [x] `DAT-15` (Bajo) Un único respaldo de versión ilegible hace fallar el listado completo de versiones — hecho el 2026-10-06
+  - [x] `DAT-16` (Bajo) El guardado valida estrictamente campos de vista (p. ej. `previewOffset`) y puede rechazar guardar el dataset por un dato cosmético — hecho el 2026-10-06
+  - [x] `DAT-17` (Bajo) `sync_directory` es un no-op fuera de Unix: en Windows la durabilidad del renombrado de la generación no se garantiza antes de confirmar el catálogo — hecho el 2026-10-06
+  - [x] `REN-10` (Bajo) Cada autoguardado reescribe una generación completa (dataset + hasta 12 snapshots de historial) con el mutex de operaciones de proyecto tomado (candidato a medir) — hecho el 2026-10-06
+  - [x] `COD-12` (Bajo) `queue_dropped_path` y `remember_last_export` ignoran en silencio un mutex envenenado — hecho el 2026-10-06
+  - [x] `QA-46` (Bajo) Huecos de prueba en la persistencia: migraciones v3/v4/v5/v12/v14, borrado con generación ausente, staging huérfano; tests de reparse point que pasan en silencio sin privilegios — hecho el 2026-10-06
 - [ ] **RV91** — **App y puente** — `envPrefix: ["VITE_", "TAURI_"]` permitiría incrustar en el bundle las variables de firma… (y 5 problemas más) · *Esfuerzo: 2,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de SEG-06, ACC-11, TXT-03, TXT-08, TXT-09, COD-04.
   - [ ] `SEG-06` (Bajo) `envPrefix: ["VITE_", "TAURI_"]` permitiría incrustar en el bundle las variables de firma del updater

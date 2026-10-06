@@ -921,9 +921,13 @@ impl ProjectStore {
             let payload_json = row.get::<_, String>(2).map_err(|_| storage_error())?;
             let storage_bytes = row.get::<_, i64>(3).map_err(|_| storage_error())?;
             ensure_project_operation_not_cancelled(is_cancelled())?;
-            let stored = decode_project_version(&payload_json)?;
+            // DAT-15: one unreadable backup (damaged, or from a newer version)
+            // is left out; it used to hide the healthy ones too.
+            let Ok(stored) = decode_project_version(&payload_json) else {
+                continue;
+            };
             if stored.summary.id != project_id {
-                return Err(storage_error());
+                continue;
             }
             versions.push(ProjectVersionSummary {
                 id,
@@ -1351,10 +1355,11 @@ impl ProjectStore {
         let sql_history_json = serde_json::to_string(&workspace.sql_history)
             .map_err(|_| "No se pudo validar la actividad SQL del proyecto.".to_owned())?;
         let review_tab = review_tab_label(workspace.review_tab.as_deref())?.to_owned();
-        let preview_offset = usize_to_i64(validate_preview_offset(
-            workspace.preview_offset,
-            active.row_count,
-        )?)?;
+        // DAT-16: a stale page of the preview is a view detail; it goes back
+        // to the first page instead of failing the save (or the autosave).
+        let preview_offset = usize_to_i64(
+            validate_preview_offset(workspace.preview_offset, active.row_count).unwrap_or(0),
+        )?;
         let active_phase = active_phase_label(workspace.active_phase.as_deref())?.to_owned();
         let query_engine =
             validate_query_engine(workspace.query_engine.as_deref())?.map(str::to_owned);
@@ -2898,7 +2903,22 @@ fn sync_directory(path: &Path) -> Result<(), String> {
         .map_err(|_| storage_error())
 }
 
-#[cfg(not(unix))]
+/// DAT-17: Windows flushes a directory through a handle opened with backup
+/// semantics; `sync_all` is `FlushFileBuffers`. It used to be a no-op, so a
+/// power cut could leave the catalog pointing at a generation not on disk.
+#[cfg(windows)]
+fn sync_directory(path: &Path) -> Result<(), String> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| storage_error())
+}
+
+#[cfg(not(any(unix, windows)))]
 fn sync_directory(_path: &Path) -> Result<(), String> {
     Ok(())
 }
@@ -2938,13 +2958,26 @@ where
     .map_err(|_| "La operación de proyectos se interrumpió.".to_owned())?
 }
 
+/// REN-10: listings only read the catalog (SQLite in WAL mode gives each
+/// reader a consistent view while a save writes), so they do not wait for the
+/// operation lock that a large autosave holds for seconds.
+async fn run_project_read<T, F>(app: AppHandle, read: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&ProjectStore) -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || read(&app.state::<ProjectState>().store))
+        .await
+        .map_err(|_| "La operación de proyectos se interrumpió.".to_owned())?
+}
+
 #[tauri::command]
 pub async fn list_projects(app: AppHandle) -> Result<ProjectCatalogSnapshot, String> {
     let generation = app.state::<DatasetState>().begin_project_catalog()?;
     let cancellation = app
         .state::<DatasetState>()
         .project_catalog_cancellation(generation);
-    run_project_operation(app, move |store, _| {
+    run_project_read(app, move |store| {
         store.list_catalog_with_cancel(move || cancellation())
     })
     .await
@@ -2959,7 +2992,7 @@ pub async fn list_project_versions(
     let cancellation = app
         .state::<DatasetState>()
         .project_versions_cancellation(generation);
-    run_project_operation(app, move |store, _| {
+    run_project_read(app, move |store| {
         store.list_versions_with_cancel(&project_id, move || cancellation())
     })
     .await
@@ -4045,6 +4078,203 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "medición: cargo test --lib list_during_autosave -- --ignored --nocapture"]
+    fn list_during_autosave_benchmark() {
+        // REN-10: the catalog is listed while a large autosave runs.
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let values = (0..4_000_000_i64).collect::<Vec<_>>();
+        let (state, _) = active_state(directory.path(), &values, "grande.csv");
+        let project = store
+            .save(
+                &state,
+                None,
+                "Grande".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let saving = std::sync::atomic::AtomicBool::new(true);
+        let (autosave, slowest, listed) = std::thread::scope(|scope| {
+            let writer = scope.spawn(|| {
+                let started = std::time::Instant::now();
+                store
+                    .autosave(
+                        &state,
+                        project.id.clone(),
+                        "Grande".to_owned(),
+                        ProjectWorkspace::default(),
+                    )
+                    .unwrap();
+                saving.store(false, std::sync::atomic::Ordering::SeqCst);
+                started.elapsed()
+            });
+            let mut slowest = std::time::Duration::ZERO;
+            let mut listed = 0;
+            while saving.load(std::sync::atomic::Ordering::SeqCst) {
+                let started = std::time::Instant::now();
+                store.list_catalog_with_cancel(|| false).unwrap();
+                slowest = slowest.max(started.elapsed());
+                listed += 1;
+            }
+            (writer.join().unwrap(), slowest, listed)
+        });
+        println!(
+            "REN-10 autosave {:.2} s; {listed} listados durante él, el más lento {:.0} ms",
+            autosave.as_secs_f64(),
+            slowest.as_secs_f64() * 1000.0
+        );
+        assert!(listed > 0 && slowest < std::time::Duration::from_millis(300));
+    }
+
+    /// QA-46: what each migration step adds, so a real catalog can be taken
+    /// back to that version and migrated again.
+    fn columns_added_from(version: i64) -> &'static [&'static str] {
+        const FROM_3: &[&str] = &[
+            "sql_history_json",
+            "profile_cache_sha256",
+            "review_tab",
+            "preview_offset",
+            "active_phase",
+            "query_engine",
+            "analysis_sample_rows",
+            "performance_profile",
+            "export_format",
+            "privacy_mode",
+            "comparison_key_columns_json",
+            "join_type",
+            "import_profile_json",
+        ];
+        match version {
+            3 => FROM_3,
+            4 => &FROM_3[1..],
+            5 => &FROM_3[2..],
+            12 => &["import_profile_json"],
+            _ => &[],
+        }
+    }
+
+    #[test]
+    fn every_intermediate_catalog_version_migrates_and_still_opens() {
+        // QA-46: v3, v4, v5, v12, v14 and v15 had no migration test.
+        for version in [3_i64, 4, 5, 12, 14, 15] {
+            let directory = tempfile::tempdir().unwrap();
+            let root = directory.path().join("data");
+            let store = ProjectStore::initialize(root.clone()).unwrap();
+            let (state, _) = active_state(directory.path(), &[1, 2, 3], "input.csv");
+            let project = store
+                .save(
+                    &state,
+                    None,
+                    "Antiguo".to_owned(),
+                    ProjectWorkspace::default(),
+                )
+                .unwrap();
+            drop(store);
+
+            let mut downgrade = columns_added_from(version)
+                .iter()
+                .map(|column| format!("ALTER TABLE projects DROP COLUMN {column};"))
+                .collect::<Vec<_>>();
+            downgrade.push("ALTER TABLE projects DROP COLUMN explore_filters_json;".to_owned());
+            if version < 15 {
+                downgrade.push("DROP INDEX IF EXISTS projects_recovery_candidate;".to_owned());
+            }
+            if version < 14 {
+                downgrade.push("DROP TABLE project_versions;".to_owned());
+            }
+            downgrade.push(format!("PRAGMA user_version = {version};"));
+            Connection::open(root.join("projects.sqlite3"))
+                .unwrap()
+                .execute_batch(&downgrade.join("\n"))
+                .unwrap_or_else(|error| panic!("v{version}: {error}"));
+
+            let migrated = ProjectStore::initialize(root).unwrap();
+            let current: i64 = migrated
+                .connection()
+                .unwrap()
+                .pragma_query_value(None, "user_version", |row| row.get(0))
+                .unwrap();
+            assert_eq!(current, SCHEMA_VERSION, "v{version}");
+            let opened = migrated
+                .open(&DatasetState::default(), project.id.clone())
+                .unwrap_or_else(|error| panic!("v{version}: {error}"));
+            assert_eq!(opened.dataset.row_count, 3, "v{version}");
+            assert!(migrated.list_versions(&project.id).is_ok(), "v{version}");
+        }
+    }
+
+    #[test]
+    fn syncing_a_directory_really_flushes_it() {
+        // DAT-17: on Windows this returned Ok without touching the disk.
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("generacion.parquet"), b"x").unwrap();
+        sync_directory(directory.path()).expect("el directorio se sincroniza");
+        assert!(sync_directory(&directory.path().join("no-existe")).is_err());
+    }
+
+    #[test]
+    fn a_stale_preview_page_is_reset_instead_of_failing_the_save() {
+        // DAT-16: page 50 of a 2-row dataset used to abort the save.
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[1, 2], "input.csv");
+        let project = store
+            .save(
+                &state,
+                None,
+                "Proyecto".to_owned(),
+                ProjectWorkspace {
+                    preview_offset: Some(50),
+                    ..ProjectWorkspace::default()
+                },
+            )
+            .expect("una página obsoleta no impide guardar");
+        let opened = store.open(&DatasetState::default(), project.id).unwrap();
+        assert_eq!(opened.workspace.preview_offset, None);
+    }
+
+    #[test]
+    fn one_unreadable_backup_does_not_hide_the_healthy_ones() {
+        // DAT-15: one damaged row used to fail the whole list.
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[1], "input.csv");
+        let project = store
+            .save(
+                &state,
+                None,
+                "Proyecto".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        for value in 2..=6 {
+            let (updated, _) = active_state(directory.path(), &[value], "input.csv");
+            store
+                .autosave(
+                    &updated,
+                    project.id.clone(),
+                    "Proyecto".to_owned(),
+                    ProjectWorkspace::default(),
+                )
+                .unwrap();
+        }
+        let versions = store.list_versions(&project.id).unwrap();
+        assert_eq!(versions.len(), MAX_PROJECT_VERSIONS);
+        store
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE project_versions SET payload_json = '{no es json' WHERE id = ?1",
+                params![versions[2].id],
+            )
+            .unwrap();
+        let readable = store.list_versions(&project.id).unwrap();
+        assert_eq!(readable.len(), MAX_PROJECT_VERSIONS - 1);
+        assert!(readable.iter().all(|version| version.id != versions[2].id));
+        store.restore_version(&project.id, readable[0].id).unwrap();
+    }
+
+    #[test]
     fn version_retention_obeys_count_quota_but_keeps_the_last_valid_copy() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
@@ -4324,18 +4554,6 @@ mod tests {
                 Some(created.id.clone()),
                 "No publicado".to_owned(),
                 invalid_review_tab,
-            )
-            .is_err());
-        let invalid_preview_offset = ProjectWorkspace {
-            preview_offset: Some(50),
-            ..ProjectWorkspace::default()
-        };
-        assert!(store
-            .save(
-                &state,
-                Some(created.id.clone()),
-                "No publicado".to_owned(),
-                invalid_preview_offset,
             )
             .is_err());
         let invalid_active_phase: ProjectWorkspace = serde_json::from_value(serde_json::json!({
@@ -4894,29 +5112,64 @@ mod tests {
         assert!(store.open(&DatasetState::default(), project.id).is_err());
     }
 
+    /// QA-46: a directory junction needs no privilege, so these checks run on
+    /// every machine instead of passing in silence without symlink rights.
     #[cfg(windows)]
-    #[test]
-    fn automation_store_rejects_windows_root_reparse_points_when_supported() {
-        use std::{io::ErrorKind, os::windows::fs::symlink_dir};
-
-        let directory = tempfile::tempdir().unwrap();
-        let outside = directory.path().join("outside");
-        fs::create_dir(&outside).unwrap();
-        let link = directory.path().join("linked");
-        match symlink_dir(&outside, &link) {
-            Ok(()) => {
-                let error = automation_list_projects(&link.join("projects")).unwrap_err();
-                assert!(!error.contains(directory.path().to_string_lossy().as_ref()));
-            }
-            Err(error) if error.kind() == ErrorKind::PermissionDenied => {}
-            Err(error) => panic!("no se pudo crear el reparse point de prueba: {error}"),
-        }
+    fn junction(link: &Path, target: &Path) {
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .stdout(std::process::Stdio::null())
+            .status()
+            .expect("cmd debe ejecutarse");
+        assert!(status.success(), "no se pudo crear la unión de prueba");
     }
 
     #[cfg(windows)]
     #[test]
-    fn open_rejects_windows_snapshot_reparse_points_when_supported() {
-        use std::{io::ErrorKind, os::windows::fs::symlink_file};
+    fn automation_store_rejects_windows_root_reparse_points() {
+        let directory = tempfile::tempdir().unwrap();
+        let outside = directory.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        let link = directory.path().join("linked");
+        junction(&link, &outside);
+        let error = automation_list_projects(&link.join("projects")).unwrap_err();
+        assert!(!error.contains(directory.path().to_string_lossy().as_ref()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn open_rejects_a_generation_folder_replaced_by_a_junction() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[1], "input.csv");
+        let project = store
+            .save(
+                &state,
+                None,
+                "Proyecto".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let stored = store
+            .stored_project(&store.connection().unwrap(), &project.id)
+            .unwrap()
+            .unwrap();
+        let generation = store
+            .generation_path(&project.id, stored.generation_name.as_deref().unwrap())
+            .unwrap();
+        let outside = directory.path().join("outside-generation");
+        fs::rename(&generation, &outside).unwrap();
+        junction(&generation, &outside);
+        assert!(store.open(&DatasetState::default(), project.id).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "necesita permiso para crear enlaces simbólicos de archivo (modo desarrollador o administrador)"]
+    fn open_rejects_windows_snapshot_reparse_points() {
+        use std::os::windows::fs::symlink_file;
 
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
@@ -4941,10 +5194,9 @@ mod tests {
             .unwrap();
         let outside = directory.path().join("outside.parquet");
         fs::rename(&snapshot, &outside).unwrap();
-        match symlink_file(&outside, &snapshot) {
-            Ok(()) => assert!(store.open(&DatasetState::default(), project.id).is_err()),
-            Err(error) if error.kind() == ErrorKind::PermissionDenied => {}
-            Err(error) => panic!("no se pudo crear el reparse point de prueba: {error}"),
-        }
+        // QA-46: without the right it fails, never passes without checking.
+        symlink_file(&outside, &snapshot)
+            .unwrap_or_else(|error| panic!("no se pudo crear el enlace de prueba: {error}"));
+        assert!(store.open(&DatasetState::default(), project.id).is_err());
     }
 }
