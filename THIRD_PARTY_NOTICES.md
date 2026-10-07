@@ -563,7 +563,7 @@ Las licencias se toman de los metadatos de distribución y se conservan como exp
 | npm | tough-cookie | 6.0.2 | BSD-3-Clause | https://registry.npmjs.org/tough-cookie/-/tough-cookie-6.0.2.tgz |
 | npm | tldts-core | 7.4.13 | MIT | https://registry.npmjs.org/tldts-core/-/tldts-core-7.4.13.tgz |
 | npm | stackback | 0.0.2 | MIT | https://registry.npmjs.org/stackback/-/stackback-0.0.2.tgz |
-| npm | source-map-js | 1.2.1 | BSD-3-Clause | https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.1.tgz |
+| npm | source-map-js | 1.2.2 | BSD-3-Clause | https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.2.tgz |
 | npm | siginfo | 2.0.0 | ISC | https://registry.npmjs.org/siginfo/-/siginfo-2.0.0.tgz |
 | npm | std-env | 4.2.0 | MIT | https://registry.npmjs.org/std-env/-/std-env-4.2.0.tgz |
 | npm | tinybench | 6.1.4 | MIT | https://registry.npmjs.org/tinybench/-/tinybench-6.1.4.tgz |
