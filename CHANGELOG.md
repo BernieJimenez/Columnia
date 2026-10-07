@@ -123,6 +123,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Seguridad
 
+- source-map-js 1.2.2 en el lockfile (GHSA-68fv-2mgg-jv7q, solo herramientas
+  de desarrollo: Vite, jsdom y la cobertura; no llega al instalador).
 - El escaneo de secretos falla si git no puede listar los archivos (en vez de
   aprobar con cero archivos) y revisa los archivos con tildes en el nombre.
 - La política «sin red oculta» detecta más vías de salida (sendBeacon,
