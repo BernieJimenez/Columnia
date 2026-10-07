@@ -20,7 +20,59 @@ fn unique_test_nonce() -> String {
     format!("{nanos}-{sequence}")
 }
 
-fn temporary_csv(contents: &str) -> PathBuf {
+/// QA-39 / QA-41: a temporary fixture file that removes itself (and its
+/// folder, when it has one) when dropped, also when an assertion fails first.
+pub(super) struct TempFixture {
+    path: PathBuf,
+    _directory: Option<tempfile::TempDir>,
+}
+
+impl TempFixture {
+    fn file(path: PathBuf) -> Self {
+        Self {
+            path,
+            _directory: None,
+        }
+    }
+
+    fn in_directory(directory: tempfile::TempDir, name: &str) -> Self {
+        Self {
+            path: directory.path().join(name),
+            _directory: Some(directory),
+        }
+    }
+
+    pub(super) fn path_buf(&self) -> PathBuf {
+        self.path.clone()
+    }
+
+    pub(super) fn as_path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+impl std::ops::Deref for TempFixture {
+    type Target = std::path::Path;
+
+    fn deref(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+impl AsRef<std::path::Path> for TempFixture {
+    fn as_ref(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+impl Drop for TempFixture {
+    fn drop(&mut self) {
+        // A file locked by an antivirus must not fail the test.
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn temporary_csv(contents: &str) -> TempFixture {
     let nonce = unique_test_nonce();
     let path = std::env::temp_dir().join(format!(
         "columnia-dataset-test-{}-{nonce}.csv",
@@ -29,7 +81,7 @@ fn temporary_csv(contents: &str) -> PathBuf {
     let mut file = File::create(&path).expect("se debe poder crear el CSV temporal");
     file.write_all(contents.as_bytes())
         .expect("se debe poder escribir el CSV temporal");
-    path
+    TempFixture::file(path)
 }
 
 fn directory_entries(directory: &std::path::Path) -> Vec<PathBuf> {
@@ -96,8 +148,6 @@ fn delimited_header_review_compares_first_row_and_generated_interpretations() {
     );
     assert!(!review.first_row.sample_truncated);
     assert!(!review.generated.sample_truncated);
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -109,7 +159,6 @@ fn a_semicolon_file_with_a_short_row_keeps_its_columns_and_fills_nulls() {
     assert_eq!(frame.get_column_names(), ["a", "b", "c"]);
     assert_eq!(frame.height(), 3);
     assert_eq!(frame.column("c").unwrap().null_count(), 1);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -142,7 +191,6 @@ fn a_row_with_more_fields_than_the_header_is_not_called_an_encoding_problem() {
     assert!(!error.starts_with(LEGACY_ENCODING_PREFIX), "{error}");
     assert!(error.contains("más campos que el encabezado"), "{error}");
     assert!(!error.contains("Schema"), "{error}");
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -184,7 +232,26 @@ fn a_semicolon_file_with_comma_decimals_converts_only_when_every_value_reads_as_
     let amounts = converted.column("importe").unwrap().f64().unwrap();
     assert_eq!(amounts.get(0), Some(0.5));
     assert_eq!(amounts.get(98), Some(98.5));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn a_history_folder_abandoned_by_an_error_is_removed_with_its_copies() {
+    // QA-39: a failed project open left its history folder, with the
+    // snapshots it had copied, in %TEMP% until the next start.
+    fn fails_after_copying() -> Result<(), String> {
+        let folder = history::history_directory()?;
+        fs::write(
+            folder
+                .directory
+                .path()
+                .join("snapshot-00000000000000000000.parquet"),
+            b"datos",
+        )
+        .unwrap();
+        Err(folder.directory.path().display().to_string())
+    }
+    let abandoned = PathBuf::from(fails_after_copying().unwrap_err());
+    assert!(!abandoned.exists(), "{}", abandoned.display());
 }
 
 #[test]
@@ -219,7 +286,6 @@ fn an_empty_csv_is_reported_in_spanish() {
         let load = load_dataset_for_automation(&path, None, None).expect_err("ni se carga");
         assert!(load.contains("está vacío"), "{load}");
         assert!(!load.contains("empty"), "{load}");
-        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 }
 
@@ -236,7 +302,6 @@ fn a_small_file_with_more_rows_than_the_preview_is_not_called_truncated() {
     assert_eq!(review.first_row.rows.len(), HEADER_REVIEW_ROW_LIMIT);
     assert!(!review.first_row.sample_truncated);
     assert!(!review.generated.sample_truncated);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -248,14 +313,12 @@ fn delimited_header_review_caps_the_sample_and_rejects_an_oversized_first_row() 
     assert!(review.first_row.sample_truncated);
     assert!(review.generated.sample_truncated);
     assert!(review.first_row.rows.len() <= HEADER_REVIEW_ROW_LIMIT);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 
     let oversized_header =
         temporary_delimited_bytes("csv", &vec![b'x'; DELIMITED_SAMPLE_BYTES as usize + 1]);
     let error = delimited_header_review(&oversized_header, "csv")
         .expect_err("una primera fila mayor al límite no debe leerse completa");
     assert!(error.contains("64 KiB"));
-    fs::remove_file(oversized_header).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -353,7 +416,6 @@ fn generated_header_csv_profile_reloads_without_consuming_the_first_row() {
         preview.rows[1],
         vec![Some("001".to_owned()), Some("first".to_owned())]
     );
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -379,7 +441,6 @@ fn source_backed_delimited_load_preserves_generated_header_semantics() {
         preview.rows[0],
         vec![Some("id".to_owned()), Some("name".to_owned())]
     );
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -392,7 +453,7 @@ fn duckdb_source_backed_query_uses_generated_polars_column_names() {
         .expect("la fuente debe abrirse sin tratar la primera fila como encabezado");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "generated-columns.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -441,7 +502,6 @@ fn duckdb_source_backed_query_uses_generated_polars_column_names() {
     .expect("la exportación source-backed debe conservar los nombres visibles");
     let exported = fs::read_to_string(&csv_export).expect("el CSV exportado debe poder leerse");
     assert_eq!(exported.lines().next(), Some("column_1,column_2"));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -752,15 +812,14 @@ fn recipe_semantic_budget_accepts_boundaries_and_rejects_large_apply_and_save_pa
     };
     let path = temporary_csv("value\n1\n");
     let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let mut dataset = loaded_dataset(path.clone(), frame);
+    let mut dataset = loaded_dataset(path.path_buf(), frame);
     let apply_error = apply_recipe_to_dataset(&mut dataset, &oversized_total)
         .expect_err("aplicar debe rechazar el presupuesto total excedido");
     assert!(apply_error.contains(&MAX_RECIPE_TOTAL_TEXT_CHARS.to_string()));
     assert!(!apply_error.contains(&"x".repeat(32)));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
-fn temporary_delimited(extension: &str, contents: &str) -> PathBuf {
+fn temporary_delimited(extension: &str, contents: &str) -> TempFixture {
     temporary_delimited_bytes(extension, contents.as_bytes())
 }
 
@@ -783,7 +842,7 @@ fn loaded_dataset(path: PathBuf, frame: DataFrame) -> LoadedDataset {
     }
 }
 
-fn temporary_delimited_bytes(extension: &str, contents: &[u8]) -> PathBuf {
+fn temporary_delimited_bytes(extension: &str, contents: &[u8]) -> TempFixture {
     let nonce = unique_test_nonce();
     let path = std::env::temp_dir().join(format!(
         "columnia-delimited-test-{}-{nonce}.{extension}",
@@ -792,10 +851,10 @@ fn temporary_delimited_bytes(extension: &str, contents: &[u8]) -> PathBuf {
     let mut file = File::create(&path).expect("se debe crear el archivo temporal");
     file.write_all(contents)
         .expect("se debe escribir el archivo temporal");
-    path
+    TempFixture::file(path)
 }
 
-fn temporary_xlsx_with_worksheet(worksheet: &str) -> PathBuf {
+fn temporary_xlsx_with_worksheet(worksheet: &str) -> TempFixture {
     const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>"#;
     const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
     const WORKBOOK: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="dataset" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
@@ -840,7 +899,6 @@ fn loads_schema_and_rows_from_a_csv() {
     assert_eq!(preview.columns[0].name, "city");
     assert!(frame.dtypes().iter().all(|kind| *kind == DataType::String));
     assert_eq!(preview.rows[0][0].as_deref(), Some("Santo Domingo"));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -878,18 +936,16 @@ fn csv_with_carriage_return_line_endings_loads_like_its_lf_equivalent() {
         exported.equals(&lf_frame),
         "la copia exportada conserva las 3 filas"
     );
-    fs::remove_file(cr_path).ok();
-    fs::remove_file(lf_path).ok();
 }
 
-fn windows_1252_csv() -> PathBuf {
+fn windows_1252_csv() -> TempFixture {
     // «Provincia;Población;Año;Importe (€)» as Excel for Windows saves it.
     let mut bytes = b"Provincia;Poblaci\xf3n;A\xf1o;Importe (\x80)\r\n".to_vec();
     bytes.extend_from_slice(
         b"San Jos\xe9 de Ocoa;59.544;2022;98,10\r\nSantiago;1.074.684;2022;1.234,50\r\n",
     );
-    let directory = tempfile::tempdir().unwrap().keep();
-    let path = directory.join("excel_es_ansi.csv");
+    // QA-39: the folder goes with the fixture; `.keep()` left it behind.
+    let path = TempFixture::in_directory(tempfile::tempdir().unwrap(), "excel_es_ansi.csv");
     fs::write(&path, bytes).unwrap();
     path
 }
@@ -987,7 +1043,6 @@ fn source_backed_load_keeps_only_schema_while_preparing_the_preview() {
     assert_eq!(preview.row_count, 2);
     assert_eq!(preview.rows[0][0].as_deref(), Some("Santo Domingo"));
     assert_eq!(preview.rows[1][1].as_deref(), Some("28"));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -1262,7 +1317,7 @@ fn source_backed_near_duplicate_cleanup_matches_eager_and_preserves_exact_repeat
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let history = HistoryManager::deferred().expect("el historial debe inicializarse");
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "near-duplicates.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -1293,7 +1348,6 @@ fn source_backed_near_duplicate_cleanup_matches_eager_and_preserves_exact_repeat
         output.column("name").unwrap().str().unwrap().get(2),
         Some("Luis")
     );
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -1305,7 +1359,7 @@ fn source_backed_safe_corrections_combine_trim_and_renames() {
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let history = HistoryManager::deferred().expect("el historial debe inicializarse");
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "safe-corrections.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -1339,7 +1393,6 @@ fn source_backed_safe_corrections_combine_trim_and_renames() {
         output.column("city").unwrap().str().unwrap().get(0),
         Some("Bogotá")
     );
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -1349,7 +1402,7 @@ fn source_backed_safe_corrections_respect_options_and_skip_an_empty_plan() {
         source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let new_dataset = || LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "safe-corrections.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -1430,8 +1483,6 @@ fn source_backed_safe_corrections_respect_options_and_skip_an_empty_plan() {
     assert_eq!(empty_plan.row_count, row_count);
     assert_eq!(empty_plan.source_path.as_deref(), Some(path.as_path()));
     assert!(empty_plan.source_backed);
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -1442,7 +1493,7 @@ fn source_backed_safe_plan_trims_then_removes_exact_duplicates_in_one_revision()
         source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "safe-plan-duplicates.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -1483,7 +1534,6 @@ fn source_backed_safe_plan_trims_then_removes_exact_duplicates_in_one_revision()
         output.column("city").unwrap().str().unwrap().get(1),
         Some("Luis")
     );
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -1494,7 +1544,7 @@ fn source_backed_safe_corrections_count_trim_and_sentinels_once_per_source_cell(
         source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "safe-corrections-sentinels.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -1531,7 +1581,7 @@ fn source_backed_safe_corrections_count_trim_and_sentinels_once_per_source_cell(
     assert_eq!(output.column("notes").unwrap().str().unwrap().get(2), None);
 
     let mut no_op = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "safe-corrections-sentinels.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -1550,8 +1600,6 @@ fn source_backed_safe_corrections_count_trim_and_sentinels_once_per_source_cell(
     assert_eq!(no_op.history.entries.len(), 0);
     assert_eq!(no_op.history.cursor, 0);
     assert_eq!(no_op.source_path.as_deref(), Some(path.as_path()));
-
-    fs::remove_file(path).expect("se debe limpiar la fuente temporal");
 }
 
 #[test]
@@ -1700,7 +1748,7 @@ fn source_backed_schema_changes_normalize_names_and_enable_audit_reversibly() {
     let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
     let history = HistoryManager::deferred().expect("el historial debe inicializarse");
     let mut dataset = LoadedDataset {
-        source_path: Some(source),
+        source_path: Some(source.path_buf()),
         file_name: "headers.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -1771,7 +1819,7 @@ fn source_backed_text_cleaning_streams_trim_sentinels_and_normalization() {
     let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
     let history = HistoryManager::deferred().expect("el historial debe inicializarse");
     let mut dataset = LoadedDataset {
-        source_path: Some(source),
+        source_path: Some(source.path_buf()),
         file_name: "text.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -1863,7 +1911,7 @@ fn source_backed_boolean_normalization_preserves_the_candidate_threshold() {
     let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
     let history = HistoryManager::deferred().expect("el historial debe inicializarse");
     let mut dataset = LoadedDataset {
-        source_path: Some(source),
+        source_path: Some(source.path_buf()),
         file_name: "boolean.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -1904,7 +1952,7 @@ fn source_backed_invalid_type_cleanup_matches_eager_inference_without_rows_in_me
     let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
     let history = HistoryManager::deferred().expect("el historial debe inicializarse");
     let mut dataset = LoadedDataset {
-        source_path: Some(source),
+        source_path: Some(source.path_buf()),
         file_name: "invalid-types.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -1958,7 +2006,7 @@ fn source_backed_encoding_fix_handles_safe_mojibake_without_rows_in_memory() {
     let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
     let history = HistoryManager::deferred().expect("el historial debe inicializarse");
     let mut dataset = LoadedDataset {
-        source_path: Some(source),
+        source_path: Some(source.path_buf()),
         file_name: "encoding.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -1999,7 +2047,7 @@ fn source_backed_encoding_fix_falls_back_for_unsafe_values() {
     let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
     let history = HistoryManager::deferred().expect("el historial debe inicializarse");
     let mut dataset = LoadedDataset {
-        source_path: Some(source),
+        source_path: Some(source.path_buf()),
         file_name: "unsafe-encoding.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -2029,7 +2077,7 @@ fn source_backed_inferred_numeric_and_date_casts_keep_safe_columns_lazy() {
     let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
     let history = HistoryManager::deferred().expect("el historial debe inicializarse");
     let mut dataset = LoadedDataset {
-        source_path: Some(source),
+        source_path: Some(source.path_buf()),
         file_name: "inferred.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -2105,7 +2153,7 @@ fn numeric_cast_counts_the_cells_it_leaves_empty_in_both_engines() {
         .expect("la fuente debe inspeccionarse en disco");
     let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(source),
+        source_path: Some(source.path_buf()),
         file_name: "importe.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -2142,7 +2190,6 @@ fn date_parsing_counts_the_cells_it_leaves_empty() {
         parse_inferred_date_columns(&frame).expect("la interpretación debe completarse");
     assert_eq!(changed_cells, 336);
     assert_eq!(changed_columns[0].nullified_cell_count, 1);
-    let _ = fs::remove_file(source);
 }
 
 #[test]
@@ -2153,7 +2200,7 @@ fn source_backed_imputation_matches_eager_replacements_without_rows_in_memory() 
     let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
     let history = HistoryManager::deferred().expect("el historial debe inicializarse");
     let mut dataset = LoadedDataset {
-        source_path: Some(source),
+        source_path: Some(source.path_buf()),
         file_name: "imputation.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -2219,7 +2266,7 @@ fn source_backed_direct_outlier_modes_match_eager_without_rows_in_memory() {
         let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
         let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
         let mut dataset = LoadedDataset {
-            source_path: Some(path.clone()),
+            source_path: Some(path.path_buf()),
             file_name: "direct-outliers.csv".to_owned(),
             file_size_bytes,
             row_count,
@@ -2275,7 +2322,6 @@ fn source_backed_direct_outlier_modes_match_eager_without_rows_in_memory() {
             .expect("el resultado debe conservar un snapshot actual");
         let output = read_parquet_frame(output_path).expect("el resultado debe ser legible");
         assert!(output.equals_missing(&expected));
-        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 }
 
@@ -2288,7 +2334,7 @@ fn source_backed_project_snapshot_streams_to_parquet_without_materializing_state
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let state = DatasetState {
         current: Mutex::new(Some(LoadedDataset {
-            source_path: Some(path.clone()),
+            source_path: Some(path.path_buf()),
             file_name: "dataset.csv".to_owned(),
             file_size_bytes,
             row_count,
@@ -2335,7 +2381,6 @@ fn source_backed_project_snapshot_streams_to_parquet_without_materializing_state
     drop(current);
     drop(second_snapshot);
     drop(snapshot);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -2357,7 +2402,7 @@ fn source_backed_history_initialization_preserves_prior_state_when_snapshot_copy
     history.source_snapshot_path = Some(path.with_extension("missing.parquet"));
 
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "history-init.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -2407,8 +2452,6 @@ fn source_backed_history_initialization_preserves_prior_state_when_snapshot_copy
     assert_ne!(dataset.history.entries[0].path, prior_entry_path);
     assert!(dataset.history.entries[0].path.exists());
     assert!(!prior_entry_path.exists());
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -2428,7 +2471,7 @@ fn source_backed_history_snapshot_staging_cancels_without_mutating_dataset() {
     fs::write(&candidate_path, vec![0x5a; 512 * 1024])
         .expect("el snapshot de prueba debe ser suficientemente grande");
     let dataset = LoadedDataset {
-        source_path: Some(source.clone()),
+        source_path: Some(source.path_buf()),
         file_name: "cancellation.csv".to_owned(),
         file_size_bytes: source_bytes.len() as u64,
         row_count: frame.height(),
@@ -2502,8 +2545,6 @@ fn source_backed_history_snapshot_staging_cancels_without_mutating_dataset() {
         .map(|entry| entry.unwrap().file_name())
         .collect::<HashSet<_>>();
     assert_eq!(after_frame_cancel_entries, initial_directory_entries);
-
-    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -2524,7 +2565,7 @@ fn staged_recipe_cancel_before_commit_preserves_dataset_and_cleans_candidates() 
     fs::write(output_source.path(), b"recipe candidate")
         .expect("la salida de prueba debe escribirse");
     let mut dataset = LoadedDataset {
-        source_path: Some(source.clone()),
+        source_path: Some(source.path_buf()),
         file_name: "cancelled-recipe.csv".to_owned(),
         file_size_bytes: fs::metadata(&source).unwrap().len(),
         row_count: frame.height(),
@@ -2578,8 +2619,6 @@ fn staged_recipe_cancel_before_commit_preserves_dataset_and_cleans_candidates() 
         .map(|entry| entry.unwrap().file_name())
         .collect::<HashSet<_>>();
     assert_eq!(remaining_directory_entries, initial_directory_entries);
-
-    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -2646,8 +2685,6 @@ fn staged_recipe_second_publish_failure_rolls_back_first_snapshot_file() {
         .map(|entry| entry.unwrap().file_name())
         .collect::<HashSet<_>>();
     assert_eq!(remaining_files, prior_files);
-
-    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -2689,8 +2726,6 @@ fn failed_staged_single_snapshot_publish_preserves_history_label_and_cursor() {
         .map(|entry| entry.unwrap().file_name())
         .collect::<HashSet<_>>();
     assert_eq!(remaining_files, prior_files);
-
-    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -2725,8 +2760,6 @@ fn eager_publication_removes_unreferenced_temporary_source_after_degraded_histor
     assert!(!previous_source_path.exists());
     assert_eq!(dataset.row_count, frame.height());
     assert!(dataset.frame.equals_missing(&frame));
-
-    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -2737,7 +2770,7 @@ fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -2777,7 +2810,7 @@ fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
     };
     let expected = expected_recipe_outcome(&expected_cleanup, &recipe)
         .expect("la receta de proyección debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("la receta source-backed debe publicarse");
@@ -2856,8 +2889,6 @@ fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
         .entries
         .iter()
         .all(|entry| entry.path.exists()));
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -2881,15 +2912,20 @@ fn replaced_cells_count_only_the_columns_kept_in_every_path() {
     assert_eq!(
         apply_eager_recipe_to_frame(&source_frame, &recipe)
             .unwrap()
-            .6,
+            .replaced_cell_count,
         3
     );
-    assert_eq!(apply_recipe_to_frame(&source_frame, &recipe).unwrap().6, 3);
+    assert_eq!(
+        apply_recipe_to_frame(&source_frame, &recipe)
+            .unwrap()
+            .replaced_cell_count,
+        3
+    );
 
     let (schema, _, row_count) =
         source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes: fs::metadata(&path).unwrap().len(),
         row_count,
@@ -2994,7 +3030,7 @@ fn source_backed_group_summary_keeps_first_appearance_order_on_a_large_file() {
     let expected = dataset_page(
         &apply_eager_recipe_to_frame(&source_frame, &recipe)
             .unwrap()
-            .0,
+            .frame,
         0,
         20,
     )
@@ -3022,7 +3058,7 @@ fn source_backed_regex_replacement_matches_eager_and_counts_cells() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -3048,7 +3084,7 @@ fn source_backed_regex_replacement_matches_eager_and_counts_cells() {
     ));
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("la receta regex source-backed debe publicarse");
@@ -3066,7 +3102,6 @@ fn source_backed_regex_replacement_matches_eager_and_counts_cells() {
     );
     assert!(dataset.source_backed);
     assert_eq!(dataset.frame.height(), 0);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -3078,7 +3113,7 @@ fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -3106,7 +3141,7 @@ fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
     ));
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la división eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("la división source-backed debe publicarse");
@@ -3124,7 +3159,6 @@ fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
     );
     assert!(dataset.source_backed);
     assert_eq!(dataset.frame.height(), 0);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 
     let invalid_path = temporary_csv("left,right\n10,0\n");
     let (invalid_schema, _, invalid_row_count) = source_backed_load(&invalid_path, "csv", || false)
@@ -3135,7 +3169,7 @@ fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
         .expect("la fuente inválida debe existir")
         .len();
     let mut invalid_dataset = LoadedDataset {
-        source_path: Some(invalid_path.clone()),
+        source_path: Some(invalid_path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes: invalid_size,
         row_count: invalid_row_count,
@@ -3154,7 +3188,6 @@ fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
         invalid_dataset.source_path.as_deref(),
         Some(invalid_path.as_path())
     );
-    fs::remove_file(invalid_path).expect("se debe limpiar el CSV inválido");
 }
 
 #[test]
@@ -3166,7 +3199,7 @@ fn source_backed_date_parts_after_filters_match_eager() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -3201,7 +3234,7 @@ fn source_backed_date_parts_after_filters_match_eager() {
     ));
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("las partes de fecha source-backed deben publicarse");
@@ -3223,7 +3256,6 @@ fn source_backed_date_parts_after_filters_match_eager() {
     );
     assert!(dataset.source_backed);
     assert_eq!(dataset.frame.height(), 0);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -3236,7 +3268,7 @@ fn source_backed_date_range_filters_match_eager() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -3272,7 +3304,7 @@ fn source_backed_date_range_filters_match_eager() {
     ));
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("el filtro de fechas eager debe ser válido")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("el filtro de fechas source-backed debe publicarse");
@@ -3288,7 +3320,6 @@ fn source_backed_date_range_filters_match_eager() {
     assert_eq!(output.column("day").unwrap().dtype(), &DataType::Date);
     assert!(dataset.source_backed);
     assert_eq!(dataset.frame.height(), 0);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -3301,7 +3332,7 @@ fn source_backed_date_equality_filters_match_eager() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -3337,7 +3368,7 @@ fn source_backed_date_equality_filters_match_eager() {
     ));
     let expected = apply_eager_recipe_to_frame(&source_frame, &recipe)
         .expect("la igualdad de fecha eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("la igualdad de fecha source-backed debe publicarse");
@@ -3355,7 +3386,6 @@ fn source_backed_date_equality_filters_match_eager() {
     ));
     assert!(dataset.source_backed);
     assert_eq!(dataset.frame.height(), 0);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -3367,7 +3397,7 @@ fn source_backed_filters_execute_on_disk_and_match_the_eager_recipe() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -3399,7 +3429,7 @@ fn source_backed_filters_execute_on_disk_and_match_the_eager_recipe() {
     };
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("la receta source-backed debe publicarse");
@@ -3422,7 +3452,6 @@ fn source_backed_filters_execute_on_disk_and_match_the_eager_recipe() {
     assert!(output.equals_missing(&expected));
     assert_eq!(result.dataset.row_count, 1);
     assert_eq!(result.dataset.rows[0][0].as_deref(), Some("Santo Domingo"));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -3434,7 +3463,7 @@ fn source_backed_group_summary_preserves_stable_groups_nulls_and_counters() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -3482,7 +3511,7 @@ fn source_backed_group_summary_preserves_stable_groups_nulls_and_counters() {
     };
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("el resumen source-backed debe publicarse");
@@ -3502,8 +3531,6 @@ fn source_backed_group_summary_preserves_stable_groups_nulls_and_counters() {
     assert!(output.equals_missing(&expected));
     assert_eq!(result.dataset.rows[0][0].as_deref(), Some("A"));
     assert_eq!(result.dataset.rows[2][0], None);
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -3520,7 +3547,7 @@ fn source_backed_iqr_modes_match_eager_and_keep_separate_counts() {
         let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
         let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
         let mut dataset = LoadedDataset {
-            source_path: Some(path.clone()),
+            source_path: Some(path.path_buf()),
             file_name: "dataset.csv".to_owned(),
             file_size_bytes,
             row_count,
@@ -3543,7 +3570,7 @@ fn source_backed_iqr_modes_match_eager_and_keep_separate_counts() {
         };
         let expected = expected_recipe_outcome(&source_frame, &recipe)
             .expect("la receta eager debe ser válida")
-            .0;
+            .frame;
 
         let result = apply_recipe_to_dataset(&mut dataset, &recipe)
             .expect("el tratamiento IQR source-backed debe publicarse");
@@ -3558,8 +3585,6 @@ fn source_backed_iqr_modes_match_eager_and_keep_separate_counts() {
             .expect("el resultado debe conservar una fuente Parquet");
         let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
         assert!(output.equals_missing(&expected));
-
-        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 }
 
@@ -3572,7 +3597,7 @@ fn source_backed_iqr_uses_filtered_baseline_and_separates_removed_rows() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -3600,7 +3625,7 @@ fn source_backed_iqr_uses_filtered_baseline_and_separates_removed_rows() {
     };
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("el tratamiento IQR source-backed debe respetar filtros");
@@ -3614,8 +3639,6 @@ fn source_backed_iqr_uses_filtered_baseline_and_separates_removed_rows() {
         .expect("el resultado debe conservar una fuente Parquet");
     let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
     assert!(output.equals_missing(&expected));
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -3628,7 +3651,7 @@ fn source_backed_cast_dates_and_calculations_match_the_eager_recipe() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -3676,7 +3699,7 @@ fn source_backed_cast_dates_and_calculations_match_the_eager_recipe() {
     };
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("la receta source-backed debe publicarse");
@@ -3697,8 +3720,6 @@ fn source_backed_cast_dates_and_calculations_match_the_eager_recipe() {
         .expect("el resultado debe conservar una fuente Parquet");
     let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
     assert!(output.equals_missing(&expected));
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -3715,7 +3736,7 @@ fn source_backed_date_parts_match_the_eager_recipe_after_date_parse() {
         let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
         let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
         let mut dataset = LoadedDataset {
-            source_path: Some(path.clone()),
+            source_path: Some(path.path_buf()),
             file_name: "dataset.csv".to_owned(),
             file_size_bytes,
             row_count,
@@ -3741,7 +3762,7 @@ fn source_backed_date_parts_match_the_eager_recipe_after_date_parse() {
         };
         let expected = expected_recipe_outcome(&source_frame, &recipe)
             .expect("la receta eager debe ser válida")
-            .0;
+            .frame;
 
         let result = apply_recipe_to_dataset(&mut dataset, &recipe)
             .expect("la receta source-backed debe publicar partes de fecha");
@@ -3757,8 +3778,6 @@ fn source_backed_date_parts_match_the_eager_recipe_after_date_parse() {
         let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
         assert!(output.equals_missing(&expected));
         assert_eq!(result.dataset.rows[0][1].as_deref(), Some(expected_value));
-
-        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 }
 
@@ -3773,7 +3792,7 @@ fn source_backed_iso8601_matches_eager_for_naive_and_utc_values() {
         let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
         let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
         let mut dataset = LoadedDataset {
-            source_path: Some(path.clone()),
+            source_path: Some(path.path_buf()),
             file_name: "dataset.csv".to_owned(),
             file_size_bytes,
             row_count,
@@ -3793,7 +3812,7 @@ fn source_backed_iso8601_matches_eager_for_naive_and_utc_values() {
         };
         let expected = expected_recipe_outcome(&source_frame, &recipe)
             .expect("la receta eager ISO debe ser válida")
-            .0;
+            .frame;
 
         let result = apply_recipe_to_dataset(&mut dataset, &recipe)
             .expect("la receta ISO source-backed debe publicarse");
@@ -3806,8 +3825,6 @@ fn source_backed_iso8601_matches_eager_for_naive_and_utc_values() {
             .expect("el resultado debe conservar una fuente Parquet");
         let output = read_parquet_frame(output_path).expect("el Parquet ISO debe leerse");
         assert!(output.equals_missing(&expected));
-
-        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 }
 
@@ -3828,7 +3845,7 @@ fn source_backed_iso8601_validates_the_current_private_snapshot() {
     drop(snapshot_file);
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count: filtered_frame.height(),
@@ -3849,7 +3866,7 @@ fn source_backed_iso8601_validates_the_current_private_snapshot() {
     };
     let expected = expected_recipe_outcome(&filtered_frame, &recipe)
         .expect("la receta eager ISO debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("la receta ISO debe usar el snapshot vigente");
@@ -3863,8 +3880,6 @@ fn source_backed_iso8601_validates_the_current_private_snapshot() {
     let output = read_parquet_frame(output_path).expect("el Parquet ISO debe leerse");
     assert!(output.equals_missing(&expected));
     assert_eq!(dataset.row_count, 1);
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -3876,7 +3891,7 @@ fn source_backed_iso8601_falls_back_for_non_utc_offsets() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -3896,7 +3911,7 @@ fn source_backed_iso8601_falls_back_for_non_utc_offsets() {
     };
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager con offset debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("el fallback eager ISO debe publicarse");
@@ -3904,8 +3919,6 @@ fn source_backed_iso8601_falls_back_for_non_utc_offsets() {
     assert!(!dataset.source_backed);
     assert_eq!(result.parsed_date_column_count, 1);
     assert!(dataset.frame.equals_missing(&expected));
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -3918,7 +3931,7 @@ fn source_backed_literal_replacement_matches_eager_order_and_counts_cells() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -3950,7 +3963,7 @@ fn source_backed_literal_replacement_matches_eager_order_and_counts_cells() {
     };
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("la receta source-backed debe publicar el reemplazo");
@@ -3967,8 +3980,6 @@ fn source_backed_literal_replacement_matches_eager_order_and_counts_cells() {
     let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
     assert!(output.equals_missing(&expected));
     assert_eq!(result.dataset.rows[0][0].as_deref(), Some("Xmar"));
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -4030,7 +4041,7 @@ fn source_backed_merge_matches_eager_order_nulls_empty_strings_and_casts() {
     };
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("la receta source-backed debe publicar la unión");
@@ -4135,7 +4146,7 @@ fn source_backed_split_matches_eager_remainder_nulls_empty_segments_and_drop_sou
     };
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("la receta source-backed debe publicar la división");
@@ -4270,7 +4281,7 @@ fn source_backed_text_extractions_match_eager_unicode_nulls_and_empty_segments()
     };
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("la receta source-backed debe publicar las extracciones");
@@ -4311,8 +4322,6 @@ fn source_backed_text_extractions_match_eager_unicode_nulls_and_empty_segments()
     assert_eq!(rows[2][7].as_deref(), Some(""));
     assert_eq!(rows[3][2], None);
     assert_eq!(rows[3][8], None);
-
-    fs::remove_file(path).expect("se debe limpiar el Parquet temporal");
 }
 
 #[test]
@@ -4409,7 +4418,7 @@ fn source_backed_contact_normalizations_match_eager_and_feed_extractions() {
     };
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("la receta source-backed debe publicar los contactos");
@@ -4444,8 +4453,6 @@ fn source_backed_contact_normalizations_match_eager_and_feed_extractions() {
     assert_eq!(rows[2][3].as_deref(), Some("i\u{307}"));
     assert_eq!(rows[3][0].as_deref(), Some("ok@example.com"));
     assert_eq!(rows[3][1].as_deref(), Some("+"));
-
-    fs::remove_file(path).expect("se debe limpiar el Parquet temporal");
 }
 
 #[test]
@@ -4457,7 +4464,7 @@ fn source_backed_text_and_null_filters_keep_eager_semantics() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -4485,7 +4492,7 @@ fn source_backed_text_and_null_filters_keep_eager_semantics() {
     };
     let expected = expected_recipe_outcome(&source_frame, &recipe)
         .expect("la receta eager debe ser válida")
-        .0;
+        .frame;
 
     let result = apply_recipe_to_dataset(&mut dataset, &recipe)
         .expect("la receta source-backed debe publicarse");
@@ -4498,7 +4505,6 @@ fn source_backed_text_and_null_filters_keep_eager_semantics() {
     assert!(output.equals_missing(&expected));
     assert_eq!(result.removed_row_count, 1);
     assert_eq!(result.dataset.rows[0][0].as_deref(), Some("O'Reilly"));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -4509,7 +4515,7 @@ fn materializes_a_deferred_dataset_only_when_an_operation_requires_rows() {
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -4530,7 +4536,6 @@ fn materializes_a_deferred_dataset_only_when_an_operation_requires_rows() {
         preview_value(dataset.frame.column("city").unwrap().get(0).unwrap()),
         Some("Santo Domingo".to_owned())
     );
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -4609,7 +4614,6 @@ fn source_backed_profile_matches_the_in_memory_profile_without_retaining_rows() 
         .iter()
         .any(|(stage, _)| *stage == "Analizando filas y columnas"));
     assert!(updates.windows(2).all(|pair| pair[0].1 <= pair[1].1));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -4755,7 +4759,6 @@ fn source_backed_quality_validation_matches_the_in_memory_contract() {
         "code",
         QualityRuleKind::Unique,
     )));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -4782,7 +4785,6 @@ fn source_backed_parquet_export_streams_through_a_private_snapshot() {
     assert_eq!(exported, 2);
     assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
     assert_eq!(directory.path().read_dir().unwrap().count(), 1);
-    fs::remove_file(source).expect("se debe limpiar la fuente temporal");
 }
 
 #[test]
@@ -4878,7 +4880,6 @@ fn source_backed_xlsx_export_streams_rows_without_materializing_the_active_frame
     assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
     assert!(source.is_file());
     assert_eq!(directory.path().read_dir().unwrap().count(), 1);
-    fs::remove_file(source).expect("se debe limpiar la fuente temporal");
 }
 
 #[test]
@@ -4914,7 +4915,6 @@ fn source_backed_sqlite_export_streams_rows_without_materializing_the_active_fra
     assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
     assert!(source.is_file());
     assert_eq!(directory.path().read_dir().unwrap().count(), 1);
-    fs::remove_file(source).expect("se debe limpiar la fuente temporal");
 }
 
 #[test]
@@ -4999,7 +4999,6 @@ fn source_backed_global_quality_rules_count_duplicates_across_blocks() {
             .collect::<Vec<_>>(),
         vec![1, 1, 1, 0]
     );
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -5030,7 +5029,6 @@ fn source_backed_json_export_streams_without_leaving_private_artifacts() {
     );
     assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
     assert_eq!(directory.path().read_dir().unwrap().count(), 1);
-    fs::remove_file(source).expect("se debe limpiar la fuente temporal");
 }
 
 #[test]
@@ -5073,7 +5071,6 @@ fn source_backed_bundle_streams_dataset_and_builds_dictionary_without_rows_in_me
     assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
     assert!(source.is_file());
     assert_eq!(directory.path().read_dir().unwrap().count(), 1);
-    fs::remove_file(source).expect("se debe limpiar la fuente temporal");
 }
 
 #[test]
@@ -5122,7 +5119,6 @@ fn source_backed_bundle_includes_validated_recipe_without_materializing_rows() {
         .iter()
         .any(|file| file["path"] == "recipe.json" && file["sha256"] == expected_hash));
     assert!(source.is_file());
-    fs::remove_file(source).expect("se debe limpiar la fuente temporal");
 }
 
 #[test]
@@ -5146,19 +5142,22 @@ fn reports_ordered_csv_loading_phases() {
             ("Preparando sesión", 95),
         ]
     );
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
 fn rejects_unsupported_dataset_files() {
-    let path = std::env::temp_dir().join("columnia-invalid-dataset.bin");
-    File::create(&path).expect("se debe poder crear el archivo temporal");
+    // QA-39: a unique name; the fixed one could collide between runs.
+    let file = tempfile::Builder::new()
+        .prefix("columnia-invalid-dataset-")
+        .suffix(".bin")
+        .tempfile()
+        .expect("se debe poder crear el archivo temporal");
+    let path = file.path().to_path_buf();
 
     let error = validate_dataset_file(&path)
         .expect_err("un archivo que no es un dataset compatible debe rechazarse");
 
     assert!(error.contains("admite CSV, TSV, TXT delimitado, JSON, Parquet y libros Excel/ODS"));
-    fs::remove_file(path).expect("se debe limpiar el archivo temporal");
 }
 
 #[test]
@@ -5312,7 +5311,6 @@ fn accepts_a_dataset_above_the_previous_500_mebibyte_threshold() {
 
     assert_eq!(size, previous_limit + 1);
     assert_eq!(extension, "csv");
-    fs::remove_file(path).expect("se debe eliminar el CSV temporal");
 }
 
 #[test]
@@ -5326,7 +5324,6 @@ fn returns_a_bounded_page_from_an_offset() {
     assert_eq!(page.rows.len(), 2);
     assert_eq!(page.rows[0][0].as_deref(), Some("third"));
     assert_eq!(page.rows[1][0].as_deref(), Some("fourth"));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -5385,7 +5382,6 @@ fn reads_a_page_from_an_unchanged_delimited_source() {
             vec![Some("third".to_owned())],
         ]
     );
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -5551,7 +5547,7 @@ fn duckdb_join_can_read_the_original_file_when_history_is_degraded() {
         .expect("el dataset comparado debe construirse");
     let (compared_directory, compared_path) =
         persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
-    let mut dataset = loaded_dataset(current_path.clone(), current.clone());
+    let mut dataset = loaded_dataset(current_path.path_buf(), current.clone());
     dataset.history = HistoryManager::with_limits(&current, HISTORY_MAX_ENTRIES, 0)
         .expect("el historial degradado debe inicializarse");
     let (source_path, source_format) = current_duckdb_file_source(&dataset)
@@ -5580,14 +5576,13 @@ fn duckdb_join_can_read_the_original_file_when_history_is_degraded() {
     );
     assert!(current_path.is_file());
     drop(compared_directory);
-    fs::remove_file(current_path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
 fn degraded_file_query_matches_the_materialized_query() {
     let current_path = temporary_csv("id,name\n1,A\n2,B\n3,C\n");
     let (current, _) = load_csv(&current_path).expect("el CSV debe cargar");
-    let mut dataset = loaded_dataset(current_path.clone(), current.clone());
+    let mut dataset = loaded_dataset(current_path.path_buf(), current.clone());
     dataset.history = HistoryManager::with_limits(&current, HISTORY_MAX_ENTRIES, 0)
         .expect("el historial degradado debe inicializarse");
     let (source_path, source_format) = current_duckdb_file_source(&dataset)
@@ -5623,7 +5618,6 @@ fn degraded_file_query_matches_the_materialized_query() {
     );
     assert_eq!(disk_result.truncated, materialized_result.truncated);
     assert!(!dataset.history.snapshots_enabled);
-    fs::remove_file(current_path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -5776,7 +5770,7 @@ fn source_backed_file_queries_support_all_join_types_without_a_snapshot() {
         )
         .expect("la consulta debe validarse");
         let (source_path, source_format) = current_duckdb_file_source(&LoadedDataset {
-            source_path: Some(source.clone()),
+            source_path: Some(source.path_buf()),
             file_name: "source.csv".to_owned(),
             file_size_bytes: fs::metadata(&source).unwrap().len(),
             row_count,
@@ -5803,7 +5797,6 @@ fn source_backed_file_queries_support_all_join_types_without_a_snapshot() {
     assert!(source.is_file());
     assert!(!source.with_file_name("source.parquet").exists());
     drop(compared_directory);
-    fs::remove_file(source).expect("se debe limpiar la fuente temporal");
 }
 
 #[test]
@@ -5910,8 +5903,6 @@ fn source_backed_join_materializes_only_the_result_for_all_join_types() {
         fs::read_to_string(&compared_path).expect("la fuente comparada debe permanecer intacta"),
         "id,segment\n2,B\n3,C\n"
     );
-    fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
-    fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
 }
 
 #[test]
@@ -5955,8 +5946,6 @@ fn source_backed_join_rejects_an_oversized_result_before_writing_it() {
 
     assert!(error.contains("supera el límite local de 3"));
     assert!(!output_path.exists());
-    fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
-    fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
 }
 
 #[test]
@@ -5972,7 +5961,7 @@ fn source_backed_join_publishes_a_reversible_parquet_cursor() {
         .expect("la fuente activa debe conservar sus metadatos")
         .len();
     let mut dataset = LoadedDataset {
-        source_path: Some(current_path.clone()),
+        source_path: Some(current_path.path_buf()),
         file_name: "current.csv".to_owned(),
         file_size_bytes: current_size_bytes,
         row_count: current_row_count,
@@ -6054,8 +6043,6 @@ fn source_backed_join_publishes_a_reversible_parquet_cursor() {
         .expect("el dataset original debe poder restaurarse");
     assert_eq!(restored.height(), 2);
     assert!(!output_path.exists());
-    fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
-    fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
 }
 
 #[test]
@@ -6075,7 +6062,7 @@ fn review_source_backed_join_publishes_atomically_and_can_undo() {
         .current
         .lock()
         .expect("el dataset debe estar disponible") = Some(LoadedDataset {
-        source_path: Some(current_path.clone()),
+        source_path: Some(current_path.path_buf()),
         file_name: "current.csv".to_owned(),
         file_size_bytes: current_size_bytes,
         row_count: current_row_count,
@@ -6108,7 +6095,7 @@ fn review_source_backed_join_publishes_atomically_and_can_undo() {
                 source_backed_join_context(current.as_ref().expect("el dataset debe existir"))
                     .expect("el contexto source-backed debe conservarse")
             },
-            compared_path: compared_path.clone(),
+            compared_path: compared_path.path_buf(),
             compared_format,
             compared_schema,
             compared_file_name: "compared.csv".to_owned(),
@@ -6146,8 +6133,6 @@ fn review_source_backed_join_publishes_atomically_and_can_undo() {
         .lock()
         .expect("la comparación debe estar disponible")
         .is_none());
-    fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
-    fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
 }
 
 #[test]
@@ -6163,7 +6148,7 @@ fn cancelled_review_source_backed_publication_keeps_history_and_cleans_output() 
         .expect("la fuente debe conservar sus metadatos")
         .len();
     let mut dataset = LoadedDataset {
-        source_path: Some(current_path.clone()),
+        source_path: Some(current_path.path_buf()),
         file_name: "current.csv".to_owned(),
         file_size_bytes: current_size_bytes,
         row_count,
@@ -6259,7 +6244,7 @@ fn cancelled_source_backed_conflict_resolution_keeps_history_and_comparison() {
         .current
         .lock()
         .expect("el dataset debe estar disponible") = Some(LoadedDataset {
-        source_path: Some(current_path.clone()),
+        source_path: Some(current_path.path_buf()),
         file_name: "current.csv".to_owned(),
         file_size_bytes: current_size_bytes,
         row_count,
@@ -6740,7 +6725,6 @@ fn snapshot_backed_join_uses_the_current_history_cursor_without_materializing_ac
         2
     );
     assert!(!output_path.exists());
-    fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
 }
 
 #[test]
@@ -6811,8 +6795,6 @@ fn source_backed_consolidation_materializes_only_new_keys() {
         fs::read_to_string(&compared_path).expect("la fuente comparada debe permanecer intacta"),
         "id,city\n2,Santiago\n3,La Vega\n"
     );
-    fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
-    fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
 }
 
 #[test]
@@ -6863,11 +6845,6 @@ fn source_backed_consolidation_rejects_duplicate_and_conflicting_keys() {
     )
     .expect_err("las claves con payload distinto deben rechazarse");
     assert!(conflict_error.contains("conflictos o duplicados"));
-
-    fs::remove_file(duplicate_current_path).expect("se debe limpiar la fuente duplicada");
-    fs::remove_file(duplicate_compared_path).expect("se debe limpiar la comparación duplicada");
-    fs::remove_file(conflict_current_path).expect("se debe limpiar la fuente en conflicto");
-    fs::remove_file(conflict_compared_path).expect("se debe limpiar la comparación en conflicto");
 }
 
 #[test]
@@ -6883,7 +6860,7 @@ fn source_backed_consolidation_publishes_a_reversible_parquet_cursor() {
         .expect("la fuente activa debe conservar sus metadatos")
         .len();
     let mut dataset = LoadedDataset {
-        source_path: Some(current_path.clone()),
+        source_path: Some(current_path.path_buf()),
         file_name: "current.csv".to_owned(),
         file_size_bytes: current_size_bytes,
         row_count: current_row_count,
@@ -6972,8 +6949,6 @@ fn source_backed_consolidation_publishes_a_reversible_parquet_cursor() {
         .expect("el dataset original debe poder restaurarse");
     assert_eq!(restored.height(), 2);
     assert!(!output_path.exists());
-    fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
-    fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
 }
 
 #[test]
@@ -6996,7 +6971,7 @@ fn disk_backed_conflict_page_keeps_source_active_frame_deferred() {
         .current
         .lock()
         .expect("el estado activo debe estar disponible") = Some(LoadedDataset {
-        source_path: Some(current_path.clone()),
+        source_path: Some(current_path.path_buf()),
         file_name: "current.csv".to_owned(),
         file_size_bytes: current_size_bytes,
         row_count: current_row_count,
@@ -7042,7 +7017,6 @@ fn disk_backed_conflict_page_keeps_source_active_frame_deferred() {
     assert!(current_path.is_file());
     drop(active);
     drop(compared_directory);
-    fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
 }
 
 #[test]
@@ -7399,7 +7373,7 @@ fn source_backed_conflict_exclusion_and_resolution_match_eager_and_publish_rever
         .current
         .lock()
         .expect("el estado activo debe estar disponible") = Some(LoadedDataset {
-        source_path: Some(current_path.clone()),
+        source_path: Some(current_path.path_buf()),
         file_name: "current.csv".to_owned(),
         file_size_bytes: current_size_bytes,
         row_count: current_row_count,
@@ -7549,7 +7523,6 @@ fn source_backed_conflict_exclusion_and_resolution_match_eager_and_publish_rever
     drop(active);
     assert!(current_path.is_file());
     assert!(!compared_path.exists());
-    fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
 }
 
 #[test]
@@ -8298,11 +8271,8 @@ fn recipe_errors_speak_the_language_of_the_app() {
     };
     for error in [
         apply_eager_recipe_to_frame(&frame, &recipe)
-            .err()
-            .expect("la columna dividida no se conserva"),
-        apply_recipe_to_frame(&frame, &recipe)
-            .err()
-            .expect("la columna dividida no se conserva"),
+            .expect_err("la columna dividida no se conserva"),
+        apply_recipe_to_frame(&frame, &recipe).expect_err("la columna dividida no se conserva"),
     ] {
         assert!(error.contains("columnas conservadas"), "{error}");
         for jargon in ["keepColumns", "split", "source-backed"] {
@@ -9042,8 +9012,6 @@ fn profiles_nulls_uniques_and_numeric_statistics() {
     );
     assert_eq!(histogram.first().map(|bucket| bucket.lower), Some(25.0));
     assert_eq!(histogram.last().map(|bucket| bucket.upper), Some(30.0));
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -9069,8 +9037,6 @@ fn csv_preserves_lexical_values_and_does_not_profile_identifiers_as_numbers() {
     assert!((profile.columns[1].mean.unwrap() - 2.166_666).abs() < 0.001);
     assert_eq!(profile.columns[2].suggested_type, None);
     assert_eq!(profile.columns[2].mean, None);
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -9100,8 +9066,6 @@ fn csv_import_keeps_zero_padded_values_and_all_duplicate_header_columns() {
         ]
     );
     assert_eq!(fs::read(&path).unwrap(), original_bytes);
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -9126,7 +9090,6 @@ fn eager_delimited_reader_observes_cancellation_during_batched_collection() {
     );
 
     assert_eq!(result.unwrap_err(), OPERATION_CANCELLED_MESSAGE);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -9169,7 +9132,6 @@ fn eager_xlsx_reader_observes_cancellation_between_cells() {
     .expect_err("la lectura XLSX debe detenerse entre celdas");
 
     assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
-    fs::remove_file(path).expect("se debe limpiar el libro temporal");
 }
 
 #[test]
@@ -9253,8 +9215,6 @@ fn profiles_bounded_numeric_correlations_without_exposing_cells() {
         .columns
         .iter()
         .all(|column| { column.name != "identifier" || column.mean.is_none() }));
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -9270,8 +9230,6 @@ fn numeric_correlations_honor_the_requested_sample_limit() {
     assert_eq!(correlations.sampled_row_count, 2);
     assert_eq!(correlations.pairs[0].sample_count, 2);
     assert_eq!(correlations.pairs[0].coefficient, Some(1.0));
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -9315,8 +9273,6 @@ fn profiles_bounded_categorical_groups_and_keeps_private_columns_out() {
     let serialized = serde_json::to_string(&profile).expect("el perfil debe serializar");
     assert!(!serialized.contains("ana@example.com"));
     assert!(!serialized.contains("francisco@example.com"));
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -9642,7 +9598,6 @@ fn source_temporal_aggregation_matches_materialized_csv_aggregation() {
     }
 
     drop(snapshot_directory);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -9704,7 +9659,6 @@ fn temporal_projection_snapshot_preserves_quoted_column_order_and_aggregation() 
     }
 
     drop(projection_directory);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -9819,7 +9773,6 @@ fn reports_profile_progress_per_column() {
         .iter()
         .any(|(stage, _)| *stage == "Calculando estadísticas numéricas"));
     assert!(updates.windows(2).all(|pair| pair[0].1 <= pair[1].1));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -9845,7 +9798,6 @@ fn stops_profile_at_a_cooperative_cancellation_point() {
     // Duplicate rows and columns run side by side (REN-01): the other thread
     // may pass a check point before it sees the cancellation.
     assert!(checks.load(Ordering::SeqCst) >= 2);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -9925,7 +9877,6 @@ fn exports_csv_by_atomically_replacing_the_destination() {
     assert_eq!(result.file_name, "resultado.csv");
     assert_eq!(result.format, "CSV");
     assert_eq!(updates.last(), Some(&("Exportación lista", 100)));
-    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -10055,7 +10006,6 @@ fn exports_a_valid_parquet_file() {
     let bytes = fs::read(destination).expect("se debe leer Parquet");
     assert!(bytes.starts_with(b"PAR1"));
     assert!(bytes.ends_with(b"PAR1"));
-    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -10080,7 +10030,6 @@ fn exports_a_valid_json_array() {
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0]["city"], "Santo Domingo");
     assert_eq!(rows[1]["city"], "Santiago");
-    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -10478,7 +10427,6 @@ fn privacy_modes_protect_final_csv_artifact_and_preserve_source_bytes() {
         original_source,
         "enmascarar y exportar no debe modificar ni un byte de la fuente",
     );
-    fs::remove_file(source).expect("se debe limpiar la fuente temporal");
 }
 
 #[test]
@@ -10613,7 +10561,6 @@ fn source_backed_privacy_snapshot_masks_and_hashes_without_materializing_rows() 
         original_source,
         "crear snapshots de privacidad no debe modificar la fuente",
     );
-    fs::remove_file(source).expect("se debe limpiar la fuente temporal");
 }
 
 #[test]
@@ -10638,9 +10585,6 @@ fn compares_multiset_rows_and_reports_schema_differences_before_consolidation() 
         .vstack_mut(&compared)
         .expect("los esquemas compatibles deben consolidarse");
     assert_eq!(consolidated.height(), 4);
-
-    fs::remove_file(current_path).expect("se debe limpiar el CSV activo");
-    fs::remove_file(compared_path).expect("se debe limpiar el CSV comparado");
 }
 
 #[test]
@@ -10734,10 +10678,6 @@ fn compares_explicit_keys_and_reports_conflicts_and_duplicate_keys() {
     assert_eq!(result.conflicts[0].cells[0].column, "total");
     assert_eq!(result.conflicts[0].cells[0].current, Some("20".to_owned()));
     assert_eq!(result.conflicts[0].cells[0].compared, Some("25".to_owned()));
-
-    fs::remove_file(current_path).expect("se debe limpiar el CSV activo");
-    fs::remove_file(compared_path).expect("se debe limpiar el CSV comparado");
-    fs::remove_file(duplicate_path).expect("se debe limpiar el CSV duplicado");
 }
 
 #[test]
@@ -10896,8 +10836,6 @@ fn compares_delimited_source_through_a_parquet_snapshot_without_changing_values(
     assert_eq!(actual, expected);
 
     drop(directory);
-    fs::remove_file(current_path).expect("se debe limpiar el CSV activo");
-    fs::remove_file(compared_path).expect("se debe limpiar el CSV comparado");
 }
 
 #[test]
@@ -11623,7 +11561,6 @@ fn cancellation_keeps_the_previous_export_untouched() {
         fs::read_to_string(destination).expect("el destino debe conservarse"),
         "exportación anterior"
     );
-    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -11831,8 +11768,6 @@ fn counts_blank_text_and_unicode_characters() {
     assert_eq!(text.maximum_length, Some(9));
     assert_eq!(text.average_length, Some(5.0));
     assert_eq!(text.suggested_type, None);
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -11857,8 +11792,6 @@ fn suggests_dates_and_reports_values_that_do_not_match() {
         .expect("debe construir una tendencia con fechas sugeridas");
     assert_eq!(temporal.parsed_row_count, 9);
     assert_eq!(temporal.unparsed_row_count, 1);
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -11873,8 +11806,6 @@ fn detects_numeric_outliers_with_the_iqr_rule() {
     assert_eq!(value.median, Some(12.0));
     assert_eq!(value.third_quartile, Some(13.0));
     assert_eq!(value.outlier_count, Some(1));
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -11890,8 +11821,6 @@ fn removes_only_additional_duplicate_rows_and_preserves_order() {
     assert_eq!(cleaned.height(), 2);
     assert_eq!(page.rows[0][0].as_deref(), Some("Santo Domingo"));
     assert_eq!(page.rows[1][0].as_deref(), Some("Santiago"));
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -11935,7 +11864,7 @@ fn near_duplicate_removal_publishes_a_reversible_history_entry() {
         .expect("los duplicados parecidos deben poder eliminarse");
     assert_eq!(affected_row_count, 2);
 
-    let mut dataset = loaded_dataset(path.clone(), original);
+    let mut dataset = loaded_dataset(path.path_buf(), original);
     let preview = publish_candidate(&mut dataset, cleaned, "Eliminar filas duplicadas parecidas")
         .expect("la mutación debe publicarse");
 
@@ -11946,8 +11875,6 @@ fn near_duplicate_removal_publishes_a_reversible_history_entry() {
     );
     let undone = undo_dataset(&mut dataset).expect("la mutación debe poder deshacerse");
     assert_eq!(undone.dataset.row_count, 5);
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -12412,7 +12339,7 @@ fn normalizes_boolean_aliases_and_profiles_privacy_signals() {
 fn activates_row_audit_and_appends_future_change_labels() {
     let path = temporary_csv("value\n1\n2\n");
     let (original, _) = load_csv(&path).expect("el CSV debe cargar");
-    let mut dataset = loaded_dataset(path.clone(), original);
+    let mut dataset = loaded_dataset(path.path_buf(), original);
     let (audited, added) = add_audit_column_to_frame(&dataset.frame)
         .expect("la columna de auditoría debe poder añadirse");
     assert!(added);
@@ -12438,8 +12365,6 @@ fn activates_row_audit_and_appends_future_change_labels() {
     let audit = dataset.frame.column("_cambios").unwrap().str().unwrap();
     assert_eq!(audit.get(0), Some("Normalizar booleanos"));
     assert_eq!(audit.get(1), Some("Normalizar booleanos"));
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -12457,8 +12382,6 @@ fn normalizes_column_names_and_resolves_collisions_deterministically() {
     assert_eq!(renames[0].from, "Año Venta");
     assert_eq!(renames[0].to, "ano_venta");
     assert_eq!(renames[1].to, "ano_venta_2");
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -12477,8 +12400,6 @@ fn trims_text_without_changing_internal_spaces_case_accents_or_nulls() {
     assert_eq!(cells, 1);
     assert_eq!(columns[0].name, "city");
     assert_eq!(columns[0].changed_cell_count, 1);
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -12502,8 +12423,6 @@ fn normalizes_selected_text_and_preserves_unselected_columns() {
     assert_eq!(rows, 1);
     assert_eq!(cells, 1);
     assert_eq!(columns.len(), 1);
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -12511,7 +12430,7 @@ fn undo_and_redo_restore_disk_backed_revisions() {
     let path = temporary_csv("city\nSanto Domingo\nSantiago\nSantiago\n");
     let (original, _) = load_csv(&path).expect("el CSV debe cargar");
     let (cleaned, _) = remove_duplicate_rows(&original).expect("los duplicados deben eliminarse");
-    let mut dataset = loaded_dataset(path.clone(), original.clone());
+    let mut dataset = loaded_dataset(path.path_buf(), original.clone());
     publish_candidate(&mut dataset, cleaned, "Eliminar filas duplicadas").unwrap();
     assert!(dataset.source_path.is_none());
     dataset.profile = Some(profile_dataset(&original).expect("el perfil debe existir"));
@@ -12527,8 +12446,6 @@ fn undo_and_redo_restore_disk_backed_revisions() {
     assert!(redone.history.can_undo);
     assert!(!redone.history.can_redo);
     assert!(redo_dataset(&mut dataset).is_err());
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -12539,7 +12456,7 @@ fn source_backed_undo_and_redo_restore_schema_and_page_without_materializing_row
     let file_size_bytes = fs::metadata(&path).unwrap().len();
     let history = HistoryManager::deferred().unwrap();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -12573,8 +12490,6 @@ fn source_backed_undo_and_redo_restore_schema_and_page_without_materializing_row
     assert_eq!(dataset.row_count, 2);
     assert_eq!(redone.dataset.rows[1][0].as_deref(), Some("Santiago"));
     assert!(!redone.history.can_redo);
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -12582,10 +12497,9 @@ fn restored_project_keeps_original_file_name_across_changes_and_history() {
     let path = temporary_csv("city\nSanto Domingo\nSantiago\nSantiago\n");
     let (original, _) = load_csv(&path).expect("el CSV debe cargar");
     let (cleaned, _) = remove_duplicate_rows(&original).unwrap();
-    let mut dataset = loaded_dataset(path.clone(), original);
+    let mut dataset = loaded_dataset(path.path_buf(), original);
     dataset.source_path = None;
     dataset.file_name = "ventas originales.xlsx".to_owned();
-    fs::remove_file(&path).expect("el snapshot persistente puede eliminarse del catálogo");
 
     let changed = publish_candidate(&mut dataset, cleaned, "Eliminar duplicados").unwrap();
     let undone = undo_dataset(&mut dataset).unwrap();
@@ -12600,7 +12514,7 @@ fn restored_project_keeps_original_file_name_across_changes_and_history() {
 fn history_supports_multiple_steps_and_truncates_redo_only_on_real_branch() {
     let path = temporary_csv("value\n1\n");
     let (original, _) = load_csv(&path).unwrap();
-    let mut dataset = loaded_dataset(path.clone(), original);
+    let mut dataset = loaded_dataset(path.path_buf(), original);
     for (value, label) in [(2_i64, "Paso dos"), (3, "Paso tres")] {
         let candidate =
             DataFrame::new(1, vec![Series::new("value".into(), [value]).into()]).unwrap();
@@ -12623,7 +12537,6 @@ fn history_supports_multiple_steps_and_truncates_redo_only_on_real_branch() {
     assert_eq!(state.current_index, 2);
     assert!(!state.can_redo);
     assert_eq!(state.entries[2].label, "Rama nueva");
-    fs::remove_file(path).unwrap();
 }
 
 #[test]
@@ -12665,7 +12578,7 @@ fn history_evicts_old_snapshots_by_count_and_disables_an_oversize_snapshot() {
 fn corrupt_restore_and_snapshot_io_failure_leave_dataset_and_cursor_unchanged() {
     let path = temporary_csv("value\n1\n");
     let (original, _) = load_csv(&path).unwrap();
-    let mut dataset = loaded_dataset(path.clone(), original.clone());
+    let mut dataset = loaded_dataset(path.path_buf(), original.clone());
     let changed = DataFrame::new(1, vec![Series::new("value".into(), [2_i64]).into()]).unwrap();
     publish_candidate(&mut dataset, changed, "Cambio").unwrap();
     let before = dataset.frame.clone();
@@ -12677,7 +12590,7 @@ fn corrupt_restore_and_snapshot_io_failure_leave_dataset_and_cursor_unchanged() 
 
     let fresh_path = temporary_csv("value\n1\n");
     let (fresh, _) = load_csv(&fresh_path).unwrap();
-    let mut io_failure = loaded_dataset(fresh_path.clone(), fresh.clone());
+    let mut io_failure = loaded_dataset(fresh_path.path_buf(), fresh.clone());
     // Release the session lock (DAT-04) so the folder can disappear.
     io_failure.history._lock = tempfile::tempfile().unwrap();
     fs::remove_dir_all(io_failure.history.directory.path()).unwrap();
@@ -12685,8 +12598,6 @@ fn corrupt_restore_and_snapshot_io_failure_leave_dataset_and_cursor_unchanged() 
     assert!(publish_candidate(&mut io_failure, candidate, "No publicable").is_err());
     assert!(io_failure.frame.equals_missing(&fresh));
     assert_eq!(io_failure.history.cursor, 0);
-    fs::remove_file(path).unwrap();
-    fs::remove_file(fresh_path).unwrap();
 }
 
 #[test]
@@ -12695,7 +12606,7 @@ fn replacing_a_loaded_dataset_removes_the_previous_snapshot_directory() {
     let second_path = temporary_csv("value\n2\n");
     let (first, _) = load_csv(&first_path).unwrap();
     let (second, _) = load_csv(&second_path).unwrap();
-    let mut current = Some(loaded_dataset(first_path.clone(), first));
+    let mut current = Some(loaded_dataset(first_path.path_buf(), first));
     let old_directory = current
         .as_ref()
         .unwrap()
@@ -12704,11 +12615,9 @@ fn replacing_a_loaded_dataset_removes_the_previous_snapshot_directory() {
         .path()
         .to_path_buf();
     assert!(old_directory.exists());
-    current = Some(loaded_dataset(second_path.clone(), second));
+    current = Some(loaded_dataset(second_path.path_buf(), second));
     assert!(!old_directory.exists());
     drop(current);
-    fs::remove_file(first_path).unwrap();
-    fs::remove_file(second_path).unwrap();
 }
 
 #[test]
@@ -12737,13 +12646,11 @@ fn applies_safe_corrections_in_one_candidate_frame() {
     assert_eq!(renames[0].to, "ano_venta");
     assert_eq!(page.rows[0][0].as_deref(), Some("uno"));
 
-    let mut dataset = loaded_dataset(path.clone(), frame);
+    let mut dataset = loaded_dataset(path.path_buf(), frame);
     publish_candidate(&mut dataset, corrected, "Aplicar correcciones recomendadas")
         .expect("la candidata combinada debe publicarse una sola vez");
     assert_eq!(dataset.history.cursor, 1);
     assert_eq!(dataset.history.entries.len(), 2);
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -12799,8 +12706,6 @@ fn safe_correction_options_apply_individually_or_not_at_all() {
     assert_eq!(no_op_cells, 0);
     assert_eq!(no_op_removed, 0);
     assert!(no_op_renames.is_empty());
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -12860,7 +12765,7 @@ fn safe_corrections_count_trim_and_sentinels_once_per_source_cell() {
         None
     );
 
-    let mut dataset = loaded_dataset(path.clone(), frame.clone());
+    let mut dataset = loaded_dataset(path.path_buf(), frame.clone());
     publish_candidate(&mut dataset, corrected, "Aplicar correcciones recomendadas")
         .expect("la candidata completa debe publicarse de una vez");
     assert_eq!(dataset.history.entries.len(), 2);
@@ -12878,8 +12783,6 @@ fn safe_corrections_count_trim_and_sentinels_once_per_source_cell() {
         unchanged.column("notes").unwrap().str().unwrap().get(0),
         Some(" N/A ")
     );
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -12906,8 +12809,6 @@ fn loads_parquet_preserving_schema_nulls_and_unicode() {
     assert_eq!(preview.rows[1][1], None);
     assert_eq!(updates.first(), Some(&("Validando archivo", 10)));
     assert_eq!(updates.last(), Some(&("Preparando sesión", 95)));
-
-    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -12929,8 +12830,6 @@ fn loads_tsv_with_tabs_and_preserves_lexical_values() {
     assert_eq!(preview.rows[0][2].as_deref(), Some("1.00"));
     assert_eq!(preview.rows[1][0].as_deref(), Some("18446744073709551616"));
     assert_eq!(preview.rows[1][2], None);
-
-    fs::remove_file(path).expect("se debe limpiar el TSV temporal");
 }
 
 #[test]
@@ -12948,7 +12847,6 @@ fn detects_semicolon_csv_and_ignores_delimiters_inside_quotes() {
     assert_eq!(preview.rows[0][0].as_deref(), Some("00123"));
     assert_eq!(preview.rows[0][1].as_deref(), Some("Santo Domingo, RD"));
     assert_eq!(preview.rows[0][2].as_deref(), Some("1.00"));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -12960,7 +12858,6 @@ fn accepts_utf8_bom_without_including_it_in_the_header() {
 
     assert_eq!(frame.get_column_names()[0].as_str(), "id");
     assert_eq!(preview.rows[0][0].as_deref(), Some("001"));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -12999,7 +12896,6 @@ fn preserves_bom_quoted_record_newlines_delimiters_and_lexical_values() {
             ],
         ]
     );
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -13016,7 +12912,6 @@ fn detects_pipe_delimited_txt_without_numeric_inference() {
     assert_eq!(preview.column_count, 3);
     assert_eq!(preview.rows[0][0].as_deref(), Some("0001"));
     assert_eq!(preview.rows[0][2].as_deref(), Some("1.00"));
-    fs::remove_file(path).expect("se debe limpiar el TXT temporal");
 }
 
 #[test]
@@ -13033,7 +12928,6 @@ fn rejects_invalid_utf8_instead_of_replacing_characters() {
         Some("002,Bogotá"),
         "{error}"
     );
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -13167,7 +13061,6 @@ fn reads_cached_xlsx_formula_result_from_the_selected_dataset() {
         // QA-16: a whole number stays an integer, as Excel shows it.
         vec![vec![Some("1".to_owned()), Some("3".to_owned())]]
     );
-    fs::remove_file(path).expect("se debe limpiar el libro temporal");
 }
 
 #[test]
@@ -13180,7 +13073,6 @@ fn rejects_an_empty_xlsx_worksheet_with_a_clear_error() {
         .expect_err("una hoja XLSX sin celdas debe rechazarse");
 
     assert_eq!(error, "La hoja seleccionada está vacía.");
-    fs::remove_file(path).expect("se debe limpiar el libro temporal");
 }
 
 #[test]
@@ -13339,7 +13231,6 @@ fn loads_xlsx_through_a_source_backed_parquet_snapshot() {
     assert!(!dataset.source_backed);
     assert!(dataset.frame.equals_missing(&expected));
     assert_eq!(fs::metadata(&source).unwrap().len(), expected_size);
-    fs::remove_file(source).expect("se debe limpiar el libro Excel");
 }
 
 #[test]
@@ -13491,8 +13382,6 @@ fn loads_json_record_array_with_union_of_fields_and_nested_values() {
         Some(r#"{"city":"Santo Domingo"}"#)
     );
     assert_eq!(preview.rows[0][3], None);
-
-    fs::remove_file(path).expect("se debe limpiar el JSON temporal");
 }
 
 #[test]
@@ -13504,13 +13393,11 @@ fn loads_json_lines_and_rejects_non_object_records() {
     let (_, preview) =
         load_dataset_with_progress(&valid, |_, _| {}, || false).expect("JSON Lines debe cargar");
     assert_eq!(preview.rows[0][0].as_deref(), Some("001"));
-    fs::remove_file(valid).expect("se debe limpiar JSON Lines");
 
     let invalid = temporary_delimited("json", "[{\"id\":1}, 2]");
     let error = load_dataset_with_progress(&invalid, |_, _| {}, || false)
         .expect_err("los registros escalares deben rechazarse");
     assert!(error.contains("registro JSON 2 no es un objeto"));
-    fs::remove_file(invalid).expect("se debe limpiar el JSON inválido");
 }
 
 #[test]
@@ -13526,7 +13413,6 @@ fn preserves_json_integers_larger_than_u64_as_text() {
     assert_eq!(frame.dtypes()[0], polars::prelude::DataType::String);
     assert_eq!(preview.rows[0][0].as_deref(), Some("184467440737095516160"));
     assert_eq!(preview.rows[1][0].as_deref(), Some("1"));
-    fs::remove_file(path).expect("se debe limpiar el JSON temporal");
 }
 
 #[test]
@@ -13582,29 +13468,15 @@ fn structural_recipe_applies_swapped_renames_strict_casts_and_dates_in_order() {
     };
 
     assert!(!lazy_recipe_supported(&frame, &recipe));
-    let (
-        result,
-        renamed,
-        converted,
-        dates,
-        removed,
-        calculated,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-    ) = apply_recipe_to_frame(&frame, &recipe).expect("la receta debe ser atómica y válida");
+    let RecipeFrameOutcome {
+        frame: result,
+        renamed_column_count: renamed,
+        converted_column_count: converted,
+        parsed_date_column_count: dates,
+        removed_row_count: removed,
+        calculated_column_count: calculated,
+        ..
+    } = apply_recipe_to_frame(&frame, &recipe).expect("la receta debe ser atómica y válida");
     assert_eq!((renamed, converted, dates), (3, 3, 1));
     assert_eq!((removed, calculated), (0, 0));
     assert_eq!(
@@ -13657,14 +13529,17 @@ fn lazy_recipe_parses_fixed_date_formats_with_streaming_plan() {
     let outcome = apply_lazy_recipe_to_frame(&frame, &recipe)
         .expect("el parseo lazy de fechas debe completarse");
 
-    assert_eq!(outcome.3, 1);
-    assert_eq!(outcome.0.column("when").unwrap().dtype(), &DataType::Date);
+    assert_eq!(outcome.parsed_date_column_count, 1);
+    assert_eq!(
+        outcome.frame.column("when").unwrap().dtype(),
+        &DataType::Date
+    );
     assert!(matches!(
-        outcome.0.column("when").unwrap().get(0),
+        outcome.frame.column("when").unwrap().get(0),
         Ok(AnyValue::Date(_))
     ));
     assert!(matches!(
-        outcome.0.column("when").unwrap().get(2),
+        outcome.frame.column("when").unwrap().get(2),
         Ok(AnyValue::Null)
     ));
 }
@@ -13719,11 +13594,24 @@ fn lazy_recipe_filters_parsed_dates_before_extracting_year() {
     let outcome = apply_recipe_to_frame(&frame, &recipe)
         .expect("el filtro temporal y la extracción deben compartir el plan lazy");
 
-    assert_eq!((outcome.3, outcome.4, outcome.5), (1, 2, 1));
-    assert_eq!(outcome.0.height(), 2);
-    assert_eq!(outcome.0.column("when").unwrap().dtype(), &DataType::Date);
-    assert_eq!(outcome.0.column("year").unwrap().dtype(), &DataType::Int32);
-    let rows = dataset_page(&outcome.0, 0, 10)
+    assert_eq!(
+        (
+            outcome.parsed_date_column_count,
+            outcome.removed_row_count,
+            outcome.calculated_column_count
+        ),
+        (1, 2, 1)
+    );
+    assert_eq!(outcome.frame.height(), 2);
+    assert_eq!(
+        outcome.frame.column("when").unwrap().dtype(),
+        &DataType::Date
+    );
+    assert_eq!(
+        outcome.frame.column("year").unwrap().dtype(),
+        &DataType::Int32
+    );
+    let rows = dataset_page(&outcome.frame, 0, 10)
         .expect("la página filtrada debe ser válida")
         .rows;
     assert_eq!(rows[0][0].as_deref(), Some("2026-01-01"));
@@ -13760,8 +13648,8 @@ fn lazy_recipe_parses_iso8601_dates_and_utc_values_without_offset_materializatio
     assert!(lazy_recipe_supported(&frame, &recipe));
     let outcome = apply_recipe_to_frame(&frame, &recipe)
         .expect("los valores ISO sin offset y UTC deben usar streaming");
-    assert_eq!(outcome.3, 1);
-    let column = outcome.0.column("when").unwrap();
+    assert_eq!(outcome.parsed_date_column_count, 1);
+    let column = outcome.frame.column("when").unwrap();
     assert_eq!(
         column.dtype(),
         &DataType::Datetime(TimeUnit::Milliseconds, None)
@@ -13794,11 +13682,11 @@ fn lazy_recipe_parses_iso8601_dates_and_utc_values_without_offset_materializatio
     let date_outcome = apply_recipe_to_frame(&frame, &date_recipe)
         .expect("el objetivo Date ISO también debe usar streaming");
     assert_eq!(
-        date_outcome.0.column("when").unwrap().dtype(),
+        date_outcome.frame.column("when").unwrap().dtype(),
         &DataType::Date
     );
     assert!(matches!(
-        date_outcome.0.column("when").unwrap().get(1),
+        date_outcome.frame.column("when").unwrap().get(1),
         Ok(AnyValue::Date(value)) if value == 20_453
     ));
 }
@@ -13823,7 +13711,7 @@ fn lazy_recipe_keeps_non_utc_iso_offsets_on_the_strict_eager_path() {
     let outcome = apply_recipe_to_frame(&frame, &recipe)
         .expect("el fallback eager debe conservar la conversión UTC");
     assert!(matches!(
-        outcome.0.column("when").unwrap().get(0),
+        outcome.frame.column("when").unwrap().get(0),
         Ok(AnyValue::DatetimeOwned(value, TimeUnit::Milliseconds, None))
             if value == 1_767_215_730_000
     ));
@@ -13856,11 +13744,14 @@ fn lazy_recipe_combines_date_parsing_and_casts_on_separate_columns() {
     let outcome = apply_recipe_to_frame(&frame, &recipe)
         .expect("las etapas independientes deben compartir el plan lazy");
 
-    assert_eq!(outcome.2, 1);
-    assert_eq!(outcome.3, 1);
-    assert_eq!(outcome.0.column("when").unwrap().dtype(), &DataType::Date);
+    assert_eq!(outcome.converted_column_count, 1);
+    assert_eq!(outcome.parsed_date_column_count, 1);
     assert_eq!(
-        outcome.0.column("amount").unwrap().dtype(),
+        outcome.frame.column("when").unwrap().dtype(),
+        &DataType::Date
+    );
+    assert_eq!(
+        outcome.frame.column("amount").unwrap().dtype(),
         &DataType::Float64
     );
 }
@@ -13941,7 +13832,7 @@ fn reusable_conversion_policy_nullifies_invalid_casts_and_dates_but_preserves_re
         InvalidConversionAction::Nullify,
     );
     let path = temporary_csv("amount,when\n10,2024-01-01\ninvalid,2024-02-30\n,\n5,2024-03-01\n");
-    let mut dataset = loaded_dataset(path.clone(), frame.clone());
+    let mut dataset = loaded_dataset(path.path_buf(), frame.clone());
 
     let result = apply_recipe_to_dataset_with_policy_and_cancellation(
         &mut dataset,
@@ -13969,7 +13860,6 @@ fn reusable_conversion_policy_nullifies_invalid_casts_and_dates_but_preserves_re
 
     undo_dataset(&mut dataset).expect("la revisión convertida debe poder deshacerse");
     assert!(dataset.frame.equals_missing(&frame));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -14014,7 +13904,7 @@ fn reusable_conversion_policy_excludes_rows_only_for_invalid_values_and_counts_t
         InvalidConversionAction::ExcludeRow,
     );
     let path = temporary_csv("amount,when\n1,2024-01-01\ninvalid,2024-02-02\n3,invalid\n4,\n");
-    let mut dataset = loaded_dataset(path.clone(), frame.clone());
+    let mut dataset = loaded_dataset(path.path_buf(), frame.clone());
 
     let result = apply_recipe_to_dataset_with_policy_and_cancellation(
         &mut dataset,
@@ -14036,7 +13926,6 @@ fn reusable_conversion_policy_excludes_rows_only_for_invalid_values_and_counts_t
 
     undo_dataset(&mut dataset).expect("la exclusión debe poder deshacerse");
     assert!(dataset.frame.equals_missing(&frame));
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -14060,7 +13949,7 @@ fn reusable_conversion_policy_review_and_schema_or_recipe_mismatch_fail_before_p
         InvalidConversionAction::Review,
     );
     let path = temporary_csv("amount\ninvalid\n5\n");
-    let mut dataset = loaded_dataset(path.clone(), frame.clone());
+    let mut dataset = loaded_dataset(path.path_buf(), frame.clone());
     let original_history = dataset.history.state();
 
     let review_error = apply_recipe_to_dataset_with_policy_and_cancellation(
@@ -14099,7 +13988,6 @@ fn reusable_conversion_policy_review_and_schema_or_recipe_mismatch_fail_before_p
     assert!(recipe_error.contains("destino o formato"));
     assert!(dataset.frame.equals_missing(&frame));
     assert_eq!(dataset.history.state(), original_history);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -14123,9 +14011,16 @@ fn lazy_recipe_applies_isolated_outlier_treatments_with_exact_counts() {
     };
     assert!(lazy_recipe_supported(&frame, &cap));
     let capped = apply_recipe_to_frame(&frame, &cap).expect("el cap lazy debe completarse");
-    assert_eq!((capped.12, capped.13, capped.14), (1, 0, 1));
+    assert_eq!(
+        (
+            capped.adjusted_outlier_cell_count,
+            capped.outlier_removed_row_count,
+            capped.outlier_column_count
+        ),
+        (1, 0, 1)
+    );
     assert!(matches!(
-        capped.0.column("value").unwrap().get(4),
+        capped.frame.column("value").unwrap().get(4),
         Ok(AnyValue::Float64(7.0))
     ));
 
@@ -14139,9 +14034,16 @@ fn lazy_recipe_applies_isolated_outlier_treatments_with_exact_counts() {
     assert!(lazy_recipe_supported(&frame, &impute));
     let imputed =
         apply_recipe_to_frame(&frame, &impute).expect("la imputación lazy debe completarse");
-    assert_eq!((imputed.12, imputed.13, imputed.14), (1, 0, 1));
+    assert_eq!(
+        (
+            imputed.adjusted_outlier_cell_count,
+            imputed.outlier_removed_row_count,
+            imputed.outlier_column_count
+        ),
+        (1, 0, 1)
+    );
     assert!(matches!(
-        imputed.0.column("value").unwrap().get(4),
+        imputed.frame.column("value").unwrap().get(4),
         Ok(AnyValue::Int64(3))
     ));
 
@@ -14155,12 +14057,17 @@ fn lazy_recipe_applies_isolated_outlier_treatments_with_exact_counts() {
     assert!(lazy_recipe_supported(&frame, &drop));
     let dropped = apply_recipe_to_frame(&frame, &drop).expect("el drop lazy debe completarse");
     assert_eq!(
-        (dropped.4, dropped.12, dropped.13, dropped.14),
+        (
+            dropped.removed_row_count,
+            dropped.adjusted_outlier_cell_count,
+            dropped.outlier_removed_row_count,
+            dropped.outlier_column_count
+        ),
         (0, 0, 1, 1)
     );
-    assert_eq!(dropped.0.height(), 5);
+    assert_eq!(dropped.frame.height(), 5);
     assert!(matches!(
-        dropped.0.column("value").unwrap().get(4),
+        dropped.frame.column("value").unwrap().get(4),
         Ok(AnyValue::Null)
     ));
 }
@@ -14191,21 +14098,26 @@ fn lazy_recipe_keeps_outlier_dependencies_when_projection_precedes_iqr() {
         .expect("la proyección que conserva la dependencia debe seguir en lazy");
 
     assert_eq!(
-        (outcome.4, outcome.12, outcome.13, outcome.14),
+        (
+            outcome.removed_row_count,
+            outcome.adjusted_outlier_cell_count,
+            outcome.outlier_removed_row_count,
+            outcome.outlier_column_count
+        ),
         (1, 1, 0, 1)
     );
     assert_eq!(
         outcome
-            .0
+            .frame
             .get_column_names()
             .iter()
             .map(|name| name.as_str())
             .collect::<Vec<_>>(),
         vec!["group", "value"]
     );
-    assert_eq!(outcome.0.height(), 5);
+    assert_eq!(outcome.frame.height(), 5);
     assert!(matches!(
-        outcome.0.column("value").unwrap().get(4),
+        outcome.frame.column("value").unwrap().get(4),
         Ok(AnyValue::Float64(7.0))
     ));
 
@@ -14239,12 +14151,12 @@ fn lazy_recipe_calculates_outlier_thresholds_after_filters() {
     let outcome = apply_recipe_to_frame(&frame, &recipe)
         .expect("el IQR posterior al filtro debe completarse en lazy");
 
-    assert_eq!(outcome.4, 1);
-    assert_eq!(outcome.12, 1);
-    assert_eq!(outcome.13, 0);
-    assert_eq!(outcome.0.height(), 5);
+    assert_eq!(outcome.removed_row_count, 1);
+    assert_eq!(outcome.adjusted_outlier_cell_count, 1);
+    assert_eq!(outcome.outlier_removed_row_count, 0);
+    assert_eq!(outcome.frame.height(), 5);
     assert_eq!(
-        dataset_page(&outcome.0, 0, 10).unwrap().rows[4][0].as_deref(),
+        dataset_page(&outcome.frame, 0, 10).unwrap().rows[4][0].as_deref(),
         Some("7.0")
     );
 
@@ -14259,10 +14171,10 @@ fn lazy_recipe_calculates_outlier_thresholds_after_filters() {
     let dropped = apply_recipe_to_frame(&frame, &drop_recipe)
         .expect("el drop posterior al filtro debe conservar el conteo real");
     // FUN-17: one filtered row; the dropped outlier is counted apart.
-    assert_eq!(dropped.4, 1);
-    assert_eq!(dropped.12, 0);
-    assert_eq!(dropped.13, 1);
-    assert_eq!(dropped.0.height(), 4);
+    assert_eq!(dropped.removed_row_count, 1);
+    assert_eq!(dropped.adjusted_outlier_cell_count, 0);
+    assert_eq!(dropped.outlier_removed_row_count, 1);
+    assert_eq!(dropped.frame.height(), 4);
 }
 
 #[test]
@@ -14292,9 +14204,9 @@ fn lazy_recipe_combines_split_and_merge_columns() {
     let outcome =
         apply_recipe_to_frame(&frame, &recipe).expect("split y merge deben compartir el plan lazy");
 
-    assert_eq!(outcome.9, 2);
-    assert_eq!(outcome.10, 1);
-    let page = dataset_page(&outcome.0, 0, 10).expect("la página debe ser válida");
+    assert_eq!(outcome.split_column_count, 2);
+    assert_eq!(outcome.merged_column_count, 1);
+    let page = dataset_page(&outcome.frame, 0, 10).expect("la página debe ser válida");
     assert_eq!(page.rows[0][2].as_deref(), Some("Ada"));
     assert_eq!(page.rows[0][3].as_deref(), Some("Lovelace"));
     assert_eq!(page.rows[0][4].as_deref(), Some("Ada Lovelace — Math"));
@@ -14315,6 +14227,25 @@ fn structural_recipe_supports_all_explicit_date_formats_and_datetime_targets() {
             converted.dtype(),
             polars::prelude::DataType::Datetime(_, _)
         ));
+        // QA-42: the value, not only the type, so a day/month swap fails.
+        let day = converted
+            .cast(&DataType::Date)
+            .expect("la fecha debe poder leerse como día")
+            .get(0)
+            .expect("hay un valor")
+            .to_string();
+        assert_eq!(day, "2025-12-31", "{format:?}");
+    }
+    // The ambiguous 03/04/2025 is 3 April with Dmy and 4 March with Mdy.
+    for (format, expected) in [
+        (RecipeDateFormat::Dmy, "2025-04-03"),
+        (RecipeDateFormat::Mdy, "2025-03-04"),
+    ] {
+        let column = Series::new("when".into(), ["03/04/2025"]).into_column();
+        let converted = strict_date_column(&column, format, RecipeDateTarget::Date)
+            .expect("el formato explícito debe aceptarse");
+        let day = converted.get(0).expect("hay un valor").to_string();
+        assert_eq!(day, expected, "{format:?}");
     }
 }
 
@@ -14372,7 +14303,7 @@ fn structural_recipe_rolls_back_fully_on_invalid_value_and_does_not_create_undo(
     let path = temporary_csv("count\n1\nnot-an-integer\n");
     let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
     let original = frame.clone();
-    let mut dataset = loaded_dataset(path.clone(), frame);
+    let mut dataset = loaded_dataset(path.path_buf(), frame);
     let recipe = TransformRecipe {
         renames: vec![RecipeRename {
             from: "count".into(),
@@ -14413,13 +14344,17 @@ fn structural_recipe_rolls_back_fully_on_invalid_value_and_does_not_create_undo(
         },
     )
     .expect_err("el cálculo inválido debe abortar también el renombrado");
+    // QA-42: one cause, not «either message»: the text row stops the
+    // calculation before the division by zero is reached.
     assert!(
-        calculation_error.contains("División por cero") || calculation_error.contains("número")
+        calculation_error.contains("La fila 2 de 'count' debe ser un número finito"),
+        "{calculation_error}"
     );
     assert!(dataset.frame.equals_missing(&original));
     assert!(!dataset.history.state().can_undo);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 
+    // Without its source file, preparing the response fails.
+    drop(path);
     let metadata_error = apply_recipe_to_dataset(
         &mut dataset,
         &TransformRecipe {
@@ -14442,7 +14377,7 @@ fn structural_recipe_rolls_back_fully_on_invalid_value_and_does_not_create_undo(
 fn empty_or_already_satisfied_recipe_is_a_noop_without_history() {
     let path = temporary_csv("value\n1\n");
     let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let mut dataset = loaded_dataset(path.clone(), frame);
+    let mut dataset = loaded_dataset(path.path_buf(), frame);
     let result = apply_recipe_to_dataset(
         &mut dataset,
         &TransformRecipe {
@@ -14458,7 +14393,6 @@ fn empty_or_already_satisfied_recipe_is_a_noop_without_history() {
     .expect("una receta ya satisfecha debe ser válida");
     assert!(!result.changed);
     assert!(!dataset.history.state().can_undo);
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -14539,8 +14473,11 @@ fn recipe_filters_use_stable_and_null_safe_semantics() {
         ],
         ..Default::default()
     };
-    let (result, _, _, _, removed, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
-        apply_recipe_to_frame(&frame, &recipe).unwrap();
+    let RecipeFrameOutcome {
+        frame: result,
+        removed_row_count: removed,
+        ..
+    } = apply_recipe_to_frame(&frame, &recipe).unwrap();
     assert_eq!(removed, 3);
     assert_eq!(
         dataset_page(&result, 0, 10).unwrap().rows[0][0].as_deref(),
@@ -14558,7 +14495,7 @@ fn recipe_filters_use_stable_and_null_safe_semantics() {
     assert_eq!(
         apply_recipe_to_frame(&frame, &null_filter)
             .unwrap()
-            .0
+            .frame
             .height(),
         1
     );
@@ -14596,8 +14533,13 @@ fn lazy_recipe_casts_filters_and_calculates_in_one_plan() {
         ..Default::default()
     };
 
-    let (result, _, converted, _, removed, calculated, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
-        apply_recipe_to_frame(&frame, &recipe).expect("la receta simple debe usar lazy");
+    let RecipeFrameOutcome {
+        frame: result,
+        converted_column_count: converted,
+        removed_row_count: removed,
+        calculated_column_count: calculated,
+        ..
+    } = apply_recipe_to_frame(&frame, &recipe).expect("la receta simple debe usar lazy");
     assert_eq!(converted, 1);
     assert_eq!(removed, 1);
     assert_eq!(calculated, 1);
@@ -14667,29 +14609,15 @@ fn lazy_group_summary_preserves_stable_groups_nulls_and_counts() {
         }),
         ..Default::default()
     };
-    let (
-        result,
-        _,
-        cast_count,
-        _,
-        removed,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        groups,
-        aggregations,
-        collapsed,
-        _,
-        _,
-        _,
-    ) = apply_recipe_to_frame(&frame, &recipe).unwrap();
+    let RecipeFrameOutcome {
+        frame: result,
+        converted_column_count: cast_count,
+        removed_row_count: removed,
+        group_count: groups,
+        aggregated_column_count: aggregations,
+        collapsed_row_count: collapsed,
+        ..
+    } = apply_recipe_to_frame(&frame, &recipe).unwrap();
     assert_eq!(
         (cast_count, removed, groups, aggregations, collapsed),
         (1, 0, 3, 5, 2)
@@ -14730,15 +14658,19 @@ fn text_minimum_and_maximum_match_between_eager_and_lazy() {
         ..Default::default()
     };
     let eager = dataset_page(
-        &apply_eager_recipe_to_frame(&frame, &recipe).unwrap().0,
+        &apply_eager_recipe_to_frame(&frame, &recipe).unwrap().frame,
         0,
         10,
     )
     .unwrap()
     .rows;
-    let lazy = dataset_page(&apply_recipe_to_frame(&frame, &recipe).unwrap().0, 0, 10)
-        .unwrap()
-        .rows;
+    let lazy = dataset_page(
+        &apply_recipe_to_frame(&frame, &recipe).unwrap().frame,
+        0,
+        10,
+    )
+    .unwrap()
+    .rows;
     assert_eq!(eager, lazy);
     let min_max = eager
         .iter()
@@ -14783,8 +14715,15 @@ fn lazy_group_summary_applies_literal_replacement_before_grouping() {
     };
     assert!(lazy_recipe_supported(&frame, &recipe));
     let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
-    assert_eq!((outcome.6, outcome.15, outcome.17), (2, 1, 3));
-    let rows = dataset_page(&outcome.0, 0, 10).unwrap().rows;
+    assert_eq!(
+        (
+            outcome.replaced_cell_count,
+            outcome.group_count,
+            outcome.collapsed_row_count
+        ),
+        (2, 1, 3)
+    );
+    let rows = dataset_page(&outcome.frame, 0, 10).unwrap().rows;
     assert_eq!(rows[0][0].as_deref(), Some("B"));
     assert_eq!(rows[0][1].as_deref(), Some("10"));
     assert_eq!(rows[0][2].as_deref(), Some("2"));
@@ -14818,8 +14757,15 @@ fn lazy_group_summary_filters_before_grouping_and_validates_surviving_rows() {
     };
     assert!(lazy_recipe_supported(&frame, &recipe));
     let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
-    assert_eq!((outcome.4, outcome.15, outcome.17), (2, 2, 0));
-    let rows = dataset_page(&outcome.0, 0, 10).unwrap().rows;
+    assert_eq!(
+        (
+            outcome.removed_row_count,
+            outcome.group_count,
+            outcome.collapsed_row_count
+        ),
+        (2, 2, 0)
+    );
+    let rows = dataset_page(&outcome.frame, 0, 10).unwrap().rows;
     assert_eq!(rows[0][0].as_deref(), Some("A"));
     assert_eq!(rows[0][1].as_deref(), Some("9223372036854775807"));
     assert_eq!(rows[1][0].as_deref(), Some("B"));
@@ -14862,10 +14808,15 @@ fn lazy_group_summary_uses_normalized_contacts_before_grouping() {
     assert!(lazy_recipe_supported(&frame, &recipe));
     let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
     assert_eq!(
-        (outcome.15, outcome.17, outcome.18, outcome.19),
+        (
+            outcome.group_count,
+            outcome.collapsed_row_count,
+            outcome.normalized_contact_cell_count,
+            outcome.normalized_contact_column_count
+        ),
         (3, 1, 1, 1)
     );
-    let rows = dataset_page(&outcome.0, 0, 10).unwrap().rows;
+    let rows = dataset_page(&outcome.frame, 0, 10).unwrap().rows;
     assert_eq!(rows[0][0].as_deref(), Some("a@example.com"));
     assert_eq!(rows[0][1].as_deref(), Some("3"));
     assert_eq!(rows[1][0], None);
@@ -14928,7 +14879,12 @@ fn lazy_group_summary_uses_text_extractions_before_grouping() {
         assert!(lazy_recipe_supported(&frame, &recipe));
         let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(
-            (outcome.15, outcome.16, outcome.17, outcome.20),
+            (
+                outcome.group_count,
+                outcome.aggregated_column_count,
+                outcome.collapsed_row_count,
+                outcome.extracted_column_count
+            ),
             (expected_groups, 2, 5 - expected_groups, 1)
         );
     }
@@ -14968,14 +14924,14 @@ fn lazy_group_summary_uses_calculated_columns_before_grouping() {
     let numeric_outcome = apply_recipe_to_frame(&numeric_frame, &numeric_recipe).unwrap();
     assert_eq!(
         (
-            numeric_outcome.5,
-            numeric_outcome.15,
-            numeric_outcome.16,
-            numeric_outcome.17
+            numeric_outcome.calculated_column_count,
+            numeric_outcome.group_count,
+            numeric_outcome.aggregated_column_count,
+            numeric_outcome.collapsed_row_count
         ),
         (1, 2, 1, 2)
     );
-    let numeric_rows = dataset_page(&numeric_outcome.0, 0, 10).unwrap().rows;
+    let numeric_rows = dataset_page(&numeric_outcome.frame, 0, 10).unwrap().rows;
     assert_eq!(numeric_rows[0][0].as_deref(), Some("A"));
     assert_eq!(numeric_rows[0][1].as_deref(), Some("33.0"));
     assert_eq!(numeric_rows[1][0].as_deref(), Some("B"));
@@ -15016,7 +14972,11 @@ fn lazy_group_summary_uses_calculated_columns_before_grouping() {
     assert!(lazy_recipe_supported(&text_frame, &text_recipe));
     let text_outcome = apply_recipe_to_frame(&text_frame, &text_recipe).unwrap();
     assert_eq!(
-        (text_outcome.5, text_outcome.15, text_outcome.17),
+        (
+            text_outcome.calculated_column_count,
+            text_outcome.group_count,
+            text_outcome.collapsed_row_count
+        ),
         (1, 4, 0)
     );
 }
@@ -15061,15 +15021,15 @@ fn lazy_group_summary_uses_split_and_merge_columns_before_grouping() {
     let split_outcome = apply_recipe_to_frame(&split_frame, &split_recipe).unwrap();
     assert_eq!(
         (
-            split_outcome.9,
-            split_outcome.11,
-            split_outcome.15,
-            split_outcome.16,
-            split_outcome.17
+            split_outcome.split_column_count,
+            split_outcome.dropped_source_column_count,
+            split_outcome.group_count,
+            split_outcome.aggregated_column_count,
+            split_outcome.collapsed_row_count
         ),
         (2, 1, 3, 1, 2)
     );
-    let split_rows = dataset_page(&split_outcome.0, 0, 10).unwrap().rows;
+    let split_rows = dataset_page(&split_outcome.frame, 0, 10).unwrap().rows;
     assert_eq!(split_rows[0][0].as_deref(), Some("north"));
     assert_eq!(split_rows[0][1].as_deref(), Some("3"));
     assert_eq!(split_rows[1][0].as_deref(), Some("south"));
@@ -15080,11 +15040,11 @@ fn lazy_group_summary_uses_split_and_merge_columns_before_grouping() {
     let eager_outcome = apply_eager_recipe_to_frame(&split_frame, &split_recipe).unwrap();
     assert_eq!(
         (
-            eager_outcome.9,
-            eager_outcome.11,
-            eager_outcome.15,
-            eager_outcome.16,
-            eager_outcome.17
+            eager_outcome.split_column_count,
+            eager_outcome.dropped_source_column_count,
+            eager_outcome.group_count,
+            eager_outcome.aggregated_column_count,
+            eager_outcome.collapsed_row_count
         ),
         (2, 1, 3, 1, 2)
     );
@@ -15118,15 +15078,15 @@ fn lazy_group_summary_uses_split_and_merge_columns_before_grouping() {
     let merge_outcome = apply_recipe_to_frame(&merge_frame, &merge_recipe).unwrap();
     assert_eq!(
         (
-            merge_outcome.10,
-            merge_outcome.11,
-            merge_outcome.15,
-            merge_outcome.16,
-            merge_outcome.17
+            merge_outcome.merged_column_count,
+            merge_outcome.dropped_source_column_count,
+            merge_outcome.group_count,
+            merge_outcome.aggregated_column_count,
+            merge_outcome.collapsed_row_count
         ),
         (1, 2, 3, 1, 1)
     );
-    let merge_rows = dataset_page(&merge_outcome.0, 0, 10).unwrap().rows;
+    let merge_rows = dataset_page(&merge_outcome.frame, 0, 10).unwrap().rows;
     assert_eq!(merge_rows[0][0].as_deref(), Some("A x"));
     assert_eq!(merge_rows[0][1].as_deref(), Some("3"));
     assert_eq!(merge_rows[1][0].as_deref(), Some("z"));
@@ -15199,14 +15159,14 @@ fn lazy_group_summary_uses_date_parts_before_grouping() {
     let year_outcome = apply_recipe_to_frame(&frame, &year_recipe).unwrap();
     assert_eq!(
         (
-            year_outcome.5,
-            year_outcome.15,
-            year_outcome.16,
-            year_outcome.17
+            year_outcome.calculated_column_count,
+            year_outcome.group_count,
+            year_outcome.aggregated_column_count,
+            year_outcome.collapsed_row_count
         ),
         (1, 3, 1, 1)
     );
-    let year_rows = dataset_page(&year_outcome.0, 0, 10).unwrap().rows;
+    let year_rows = dataset_page(&year_outcome.frame, 0, 10).unwrap().rows;
     assert_eq!(year_rows[0][0].as_deref(), Some("2024"));
     assert_eq!(year_rows[0][1].as_deref(), Some("3"));
     assert_eq!(year_rows[1][0].as_deref(), Some("2025"));
@@ -15233,10 +15193,14 @@ fn lazy_group_summary_uses_date_parts_before_grouping() {
     assert!(lazy_recipe_supported(&frame, &month_recipe));
     let month_outcome = apply_recipe_to_frame(&frame, &month_recipe).unwrap();
     assert_eq!(
-        (month_outcome.5, month_outcome.15, month_outcome.17),
+        (
+            month_outcome.calculated_column_count,
+            month_outcome.group_count,
+            month_outcome.collapsed_row_count
+        ),
         (1, 3, 1)
     );
-    let month_rows = dataset_page(&month_outcome.0, 0, 10).unwrap().rows;
+    let month_rows = dataset_page(&month_outcome.frame, 0, 10).unwrap().rows;
     assert_eq!(month_rows[0][0].as_deref(), Some("1"));
     assert_eq!(month_rows[0][1].as_deref(), Some("4"));
     assert_eq!(month_rows[1][0].as_deref(), Some("2"));
@@ -15273,8 +15237,12 @@ fn lazy_contact_normalization_preserves_nulls_and_counts_changes() {
         ],
         ..Default::default()
     };
-    let (result, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, changed, columns, _) =
-        apply_recipe_to_frame(&frame, &recipe).unwrap();
+    let RecipeFrameOutcome {
+        frame: result,
+        normalized_contact_cell_count: changed,
+        normalized_contact_column_count: columns,
+        ..
+    } = apply_recipe_to_frame(&frame, &recipe).unwrap();
     assert_eq!((changed, columns), (4, 3));
     let rows = dataset_page(&result, 0, 10).unwrap().rows;
     assert_eq!(rows[0][0].as_deref(), Some("i\u{307}@example.com"));
@@ -15342,8 +15310,11 @@ fn lazy_text_extraction_preserves_unicode_tokens_runs_and_missing_matches() {
         ],
         ..Default::default()
     };
-    let (result, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, extracted) =
-        apply_recipe_to_frame(&frame, &recipe).unwrap();
+    let RecipeFrameOutcome {
+        frame: result,
+        extracted_column_count: extracted,
+        ..
+    } = apply_recipe_to_frame(&frame, &recipe).unwrap();
     assert_eq!(extracted, 7);
     let rows = dataset_page(&result, 0, 10).unwrap().rows;
     assert_eq!(rows[0][2].as_deref(), Some("José"));
@@ -15376,8 +15347,11 @@ fn lazy_calculated_division_and_concat_preserve_nulls_and_validate_results() {
         }),
         ..Default::default()
     };
-    let (result, _, _, _, _, calculated, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
-        apply_recipe_to_frame(&frame, &concat).unwrap();
+    let RecipeFrameOutcome {
+        frame: result,
+        calculated_column_count: calculated,
+        ..
+    } = apply_recipe_to_frame(&frame, &concat).unwrap();
     assert_eq!(calculated, 1);
     let rows = dataset_page(&result, 0, 10).unwrap().rows;
     assert_eq!(rows[0][2].as_deref(), Some("10A"));
@@ -15395,7 +15369,7 @@ fn lazy_calculated_division_and_concat_preserve_nulls_and_validate_results() {
         }),
         ..Default::default()
     };
-    let result = apply_recipe_to_frame(&frame, &divide).unwrap().0;
+    let result = apply_recipe_to_frame(&frame, &divide).unwrap().frame;
     let rows = dataset_page(&result, 0, 10).unwrap().rows;
     assert_eq!(rows[0][2].as_deref(), Some("5.0"));
     assert_eq!(rows[1][2], None);
@@ -15434,8 +15408,7 @@ fn recipe_filters_validate_the_same_input_independent_of_order() {
                 ..Default::default()
             },
         )
-        .err()
-        .expect("el valor inválido debe rechazarse sin importar el orden");
+        .expect_err("el valor inválido debe rechazarse sin importar el orden");
         assert!(error.contains("fila 2"));
     }
 }
@@ -15466,8 +15439,11 @@ fn recipe_calculation_remaps_column_operands_and_preserves_nulls() {
         }),
         ..Default::default()
     };
-    let (result, _, _, _, _, calculated, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
-        apply_recipe_to_frame(&frame, &recipe).unwrap();
+    let RecipeFrameOutcome {
+        frame: result,
+        calculated_column_count: calculated,
+        ..
+    } = apply_recipe_to_frame(&frame, &recipe).unwrap();
     assert_eq!(calculated, 1);
     let rows = dataset_page(&result, 0, 10).unwrap().rows;
     assert_eq!(rows[0][2].as_deref(), Some("20.0"));
@@ -15540,7 +15516,7 @@ fn calculated_datetime_parts_support_values_before_unix_epoch() {
         ..Default::default()
     };
     assert!(lazy_recipe_supported(&frame, &recipe));
-    let result = apply_recipe_to_frame(&frame, &recipe).unwrap().0;
+    let result = apply_recipe_to_frame(&frame, &recipe).unwrap().frame;
     assert_eq!(
         dataset_page(&result, 0, 1).unwrap().rows[0][1].as_deref(),
         Some("1969")
@@ -15560,7 +15536,7 @@ fn calculated_datetime_parts_support_values_before_unix_epoch() {
             ..Default::default()
         };
         assert!(lazy_recipe_supported(&frame, &recipe));
-        let result = apply_recipe_to_frame(&frame, &recipe).unwrap().0;
+        let result = apply_recipe_to_frame(&frame, &recipe).unwrap().frame;
         assert_eq!(
             dataset_page(&result, 0, 1).unwrap().rows[0][1].as_deref(),
             Some(expected)
@@ -15582,7 +15558,9 @@ fn calculated_datetime_parts_support_values_before_unix_epoch() {
         ..Default::default()
     };
     assert!(lazy_recipe_supported(&date_frame, &date_recipe));
-    let result = apply_recipe_to_frame(&date_frame, &date_recipe).unwrap().0;
+    let result = apply_recipe_to_frame(&date_frame, &date_recipe)
+        .unwrap()
+        .frame;
     let rows = dataset_page(&result, 0, 3).unwrap().rows;
     assert_eq!(rows[0][1].as_deref(), Some("1"));
     assert_eq!(rows[1][1], None);
@@ -15622,8 +15600,11 @@ fn find_replace_is_literal_unicode_null_safe_and_counts_cells() {
         }),
         ..Default::default()
     };
-    let (result, _, _, _, _, _, replaced, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
-        apply_recipe_to_frame(&frame, &recipe).unwrap();
+    let RecipeFrameOutcome {
+        frame: result,
+        replaced_cell_count: replaced,
+        ..
+    } = apply_recipe_to_frame(&frame, &recipe).unwrap();
     assert_eq!(replaced, 2);
     let rows = dataset_page(&result, 0, 10).unwrap().rows;
     assert_eq!(rows[0][0].as_deref(), Some("🙂-🙂"));
@@ -15642,7 +15623,12 @@ fn find_replace_is_literal_unicode_null_safe_and_counts_cells() {
         }),
         ..Default::default()
     };
-    assert_eq!(apply_recipe_to_frame(&frame, &identical).unwrap().6, 0);
+    assert_eq!(
+        apply_recipe_to_frame(&frame, &identical)
+            .unwrap()
+            .replaced_cell_count,
+        0
+    );
 }
 
 #[test]
@@ -15664,9 +15650,9 @@ fn eager_find_replace_regex_supports_captures_and_counts_changed_cells() {
     };
 
     let outcome = apply_eager_recipe_to_frame(&frame, &recipe).unwrap();
-    assert_eq!(outcome.6, 2);
+    assert_eq!(outcome.replaced_cell_count, 2);
     assert_eq!(
-        dataset_page(&outcome.0, 0, 10).unwrap().rows,
+        dataset_page(&outcome.frame, 0, 10).unwrap().rows,
         vec![
             vec![Some("01:Ana".into())],
             vec![Some("02:Luis".into())],
@@ -15695,9 +15681,9 @@ fn lazy_find_replace_regex_supports_captures_and_counts_changed_cells() {
 
     assert!(lazy_recipe_supported(&frame, &recipe));
     let outcome = apply_lazy_recipe_to_frame(&frame, &recipe).unwrap();
-    assert_eq!(outcome.6, 2);
+    assert_eq!(outcome.replaced_cell_count, 2);
     assert_eq!(
-        dataset_page(&outcome.0, 0, 10).unwrap().rows,
+        dataset_page(&outcome.frame, 0, 10).unwrap().rows,
         vec![
             vec![Some("01:Ana".into())],
             vec![Some("02:Luis".into())],
@@ -15725,12 +15711,10 @@ fn invalid_find_replace_regex_is_rejected_before_eager_or_lazy_execution() {
     };
 
     assert!(apply_eager_recipe_to_frame(&frame, &recipe)
-        .err()
-        .expect("el patrón eager debe fallar")
+        .expect_err("el patrón eager debe fallar")
         .contains("expresión regular válida"));
     assert!(apply_lazy_recipe_to_frame(&frame, &recipe)
-        .err()
-        .expect("el patrón lazy debe fallar")
+        .expect_err("el patrón lazy debe fallar")
         .contains("expresión regular válida"));
 }
 
@@ -15755,7 +15739,12 @@ fn find_replace_all_text_columns_skips_physical_non_text_and_remaps_rename() {
         }),
         ..Default::default()
     };
-    assert_eq!(apply_recipe_to_frame(&frame, &all).unwrap().6, 2);
+    assert_eq!(
+        apply_recipe_to_frame(&frame, &all)
+            .unwrap()
+            .replaced_cell_count,
+        2
+    );
 
     let renamed = TransformRecipe {
         renames: vec![RecipeRename {
@@ -15771,7 +15760,7 @@ fn find_replace_all_text_columns_skips_physical_non_text_and_remaps_rename() {
         }),
         ..Default::default()
     };
-    let result = apply_recipe_to_frame(&frame, &renamed).unwrap().0;
+    let result = apply_recipe_to_frame(&frame, &renamed).unwrap().frame;
     assert_eq!(
         dataset_page(&result, 0, 1).unwrap().rows[0][0].as_deref(),
         Some("z value")
@@ -15803,8 +15792,12 @@ fn lazy_find_replace_counts_after_string_cast_and_preserves_nulls() {
         ..Default::default()
     };
 
-    let (result, _, converted, _, _, _, replaced, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
-        apply_recipe_to_frame(&frame, &recipe).unwrap();
+    let RecipeFrameOutcome {
+        frame: result,
+        converted_column_count: converted,
+        replaced_cell_count: replaced,
+        ..
+    } = apply_recipe_to_frame(&frame, &recipe).unwrap();
     assert_eq!(converted, 1);
     assert_eq!(replaced, 2);
     assert_eq!(result.column("code").unwrap().dtype(), &DataType::String);
@@ -15837,8 +15830,11 @@ fn keep_columns_remaps_reorders_and_reports_drops() {
         keep_columns: Some(vec!["c".into(), "a".into()]),
         ..Default::default()
     };
-    let (result, _, _, _, _, _, _, dropped, _, _, _, _, _, _, _, _, _, _, _, _, _) =
-        apply_recipe_to_frame(&frame, &recipe).unwrap();
+    let RecipeFrameOutcome {
+        frame: result,
+        dropped_column_count: dropped,
+        ..
+    } = apply_recipe_to_frame(&frame, &recipe).unwrap();
     assert_eq!(dropped, 1);
     assert_eq!(
         result
@@ -15905,7 +15901,9 @@ fn keep_columns_rejects_empty_duplicate_missing_and_dropped_calculation_source()
         }),
         ..Default::default()
     };
-    let result = apply_recipe_to_frame(&frame, &renamed_success).unwrap().0;
+    let result = apply_recipe_to_frame(&frame, &renamed_success)
+        .unwrap()
+        .frame;
     assert_eq!(
         result
             .get_column_names()
@@ -15920,7 +15918,7 @@ fn keep_columns_rejects_empty_duplicate_missing_and_dropped_calculation_source()
 fn reorder_only_keep_columns_publishes_one_undo_revision() {
     let path = temporary_csv("a,b\nA,B\n");
     let (frame, _) = load_csv(&path).unwrap();
-    let mut dataset = loaded_dataset(path.clone(), frame);
+    let mut dataset = loaded_dataset(path.path_buf(), frame);
     let result = apply_recipe_to_dataset(
         &mut dataset,
         &TransformRecipe {
@@ -15951,7 +15949,6 @@ fn reorder_only_keep_columns_publishes_one_undo_revision() {
             .collect::<Vec<_>>(),
         vec!["a", "b"]
     );
-    fs::remove_file(path).unwrap();
 }
 
 #[test]
@@ -15980,8 +15977,8 @@ fn split_is_literal_unicode_uses_remainder_and_preserves_missing_null_and_empty(
         ..Default::default()
     };
     let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
-    assert_eq!(outcome.9, 3);
-    let rows = dataset_page(&outcome.0, 0, 10).unwrap().rows;
+    assert_eq!(outcome.split_column_count, 3);
+    let rows = dataset_page(&outcome.frame, 0, 10).unwrap().rows;
     assert_eq!(rows[0][3].as_deref(), Some("tres🙂resto"));
     assert_eq!(rows[1][1].as_deref(), Some("solo"));
     assert_eq!(rows[1][2], None);
@@ -16010,8 +16007,14 @@ fn merge_preserves_source_order_nulls_empty_strings_and_separator() {
         ..Default::default()
     };
     let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
-    assert_eq!((outcome.10, outcome.11), (1, 2));
-    let rows = dataset_page(&outcome.0, 0, 10).unwrap().rows;
+    assert_eq!(
+        (
+            outcome.merged_column_count,
+            outcome.dropped_source_column_count
+        ),
+        (1, 2)
+    );
+    let rows = dataset_page(&outcome.frame, 0, 10).unwrap().rows;
     assert_eq!(rows[0][0].as_deref(), Some("A🙂"));
     assert_eq!(rows[1][0].as_deref(), Some("B"));
     assert_eq!(rows[2][0], None);
@@ -16041,8 +16044,13 @@ fn lazy_merge_accepts_numeric_source_cast_to_text() {
         ..Default::default()
     };
 
-    let (result, _, converted, _, _, _, _, _, _, _, merged, dropped, _, _, _, _, _, _, _, _, _) =
-        apply_recipe_to_frame(&frame, &recipe).unwrap();
+    let RecipeFrameOutcome {
+        frame: result,
+        converted_column_count: converted,
+        merged_column_count: merged,
+        dropped_source_column_count: dropped,
+        ..
+    } = apply_recipe_to_frame(&frame, &recipe).unwrap();
     assert_eq!((converted, merged, dropped), (1, 1, 2));
     assert_eq!(
         dataset_page(&result, 0, 2).unwrap().rows,
@@ -16080,7 +16088,7 @@ fn split_merge_remap_renames_and_validate_keep_and_drop_dependencies() {
         }),
         ..Default::default()
     };
-    let result = apply_recipe_to_frame(&frame, &success).unwrap().0;
+    let result = apply_recipe_to_frame(&frame, &success).unwrap().frame;
     assert_eq!(
         dataset_page(&result, 0, 1).unwrap().rows[0][4].as_deref(),
         Some("A-B:C")
@@ -16114,7 +16122,7 @@ fn invalid_split_collision_rolls_back_combined_recipe_without_undo() {
     let path = temporary_csv("full,existing\nA-B,x\n");
     let (frame, _) = load_csv(&path).unwrap();
     let original = frame.clone();
-    let mut dataset = loaded_dataset(path.clone(), frame);
+    let mut dataset = loaded_dataset(path.path_buf(), frame);
     let recipe = TransformRecipe {
         find_replace: Some(FindReplaceRecipe {
             scope: FindReplaceScope::Column,
@@ -16134,7 +16142,6 @@ fn invalid_split_collision_rolls_back_combined_recipe_without_undo() {
     assert!(apply_recipe_to_dataset(&mut dataset, &recipe).is_err());
     assert!(dataset.frame.equals_missing(&original));
     assert!(!dataset.history.state().can_undo);
-    fs::remove_file(path).unwrap();
 }
 
 #[test]
@@ -16160,7 +16167,12 @@ fn split_and_merge_observe_casts_but_reject_non_text_physical_columns() {
         }),
         ..Default::default()
     };
-    assert_eq!(apply_recipe_to_frame(&frame, &cast_to_text).unwrap().9, 2);
+    assert_eq!(
+        apply_recipe_to_frame(&frame, &cast_to_text)
+            .unwrap()
+            .split_column_count,
+        2
+    );
 
     let cast_away = TransformRecipe {
         casts: vec![RecipeCast {
@@ -16182,7 +16194,7 @@ fn split_and_merge_observe_casts_but_reject_non_text_physical_columns() {
 fn split_and_merge_commit_as_one_undo_revision_with_metadata() {
     let path = temporary_csv("full,other\nA-B,C\n");
     let (frame, _) = load_csv(&path).unwrap();
-    let mut dataset = loaded_dataset(path.clone(), frame);
+    let mut dataset = loaded_dataset(path.path_buf(), frame);
     let result = apply_recipe_to_dataset(
         &mut dataset,
         &TransformRecipe {
@@ -16237,7 +16249,6 @@ fn split_and_merge_commit_as_one_undo_revision_with_metadata() {
             .collect::<Vec<_>>(),
         vec!["full", "other"]
     );
-    fs::remove_file(path).unwrap();
 }
 
 #[test]
@@ -16259,12 +16270,19 @@ fn iqr_cap_uses_linear_quantiles_preserves_nulls_and_strict_boundaries() {
         ..Default::default()
     };
     let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
-    assert_eq!((outcome.12, outcome.13, outcome.14), (1, 0, 1));
     assert_eq!(
-        outcome.0.column("value").unwrap().dtype(),
+        (
+            outcome.adjusted_outlier_cell_count,
+            outcome.outlier_removed_row_count,
+            outcome.outlier_column_count
+        ),
+        (1, 0, 1)
+    );
+    assert_eq!(
+        outcome.frame.column("value").unwrap().dtype(),
         &polars::prelude::DataType::Float64
     );
-    let rows = dataset_page(&outcome.0, 0, 10).unwrap().rows;
+    let rows = dataset_page(&outcome.frame, 0, 10).unwrap().rows;
     assert_eq!(rows[4][0].as_deref(), Some("7.0"));
     assert_eq!(rows[5][0], None);
 
@@ -16274,9 +16292,9 @@ fn iqr_cap_uses_linear_quantiles_preserves_nulls_and_strict_boundaries() {
     )
     .unwrap();
     let no_op = apply_recipe_to_frame(&boundary, &recipe).unwrap();
-    assert_eq!(no_op.12, 0);
+    assert_eq!(no_op.adjusted_outlier_cell_count, 0);
     assert_eq!(
-        no_op.0.column("value").unwrap().dtype(),
+        no_op.frame.column("value").unwrap().dtype(),
         &polars::prelude::DataType::Int64
     );
     let zero_iqr = DataFrame::new(
@@ -16284,7 +16302,12 @@ fn iqr_cap_uses_linear_quantiles_preserves_nulls_and_strict_boundaries() {
         vec![Series::new("value".into(), [5_i64; 4]).into_column()],
     )
     .unwrap();
-    assert_eq!(apply_recipe_to_frame(&zero_iqr, &recipe).unwrap().12, 0);
+    assert_eq!(
+        apply_recipe_to_frame(&zero_iqr, &recipe)
+            .unwrap()
+            .adjusted_outlier_cell_count,
+        0
+    );
 
     let imputed = apply_recipe_to_frame(
         &frame,
@@ -16297,17 +16320,24 @@ fn iqr_cap_uses_linear_quantiles_preserves_nulls_and_strict_boundaries() {
         },
     )
     .unwrap();
-    assert_eq!((imputed.12, imputed.13, imputed.14), (1, 0, 1));
     assert_eq!(
-        imputed.0.column("value").unwrap().dtype(),
+        (
+            imputed.adjusted_outlier_cell_count,
+            imputed.outlier_removed_row_count,
+            imputed.outlier_column_count
+        ),
+        (1, 0, 1)
+    );
+    assert_eq!(
+        imputed.frame.column("value").unwrap().dtype(),
         &polars::prelude::DataType::Int64
     );
     assert_eq!(
-        imputed.0.column("value").unwrap().i64().unwrap().get(4),
+        imputed.frame.column("value").unwrap().i64().unwrap().get(4),
         Some(3)
     );
     assert_eq!(
-        imputed.0.column("value").unwrap().i64().unwrap().get(5),
+        imputed.frame.column("value").unwrap().i64().unwrap().get(5),
         None
     );
 }
@@ -16475,8 +16505,11 @@ fn iqr_drop_treatments_are_order_independent_and_share_one_baseline() {
         },
     )
     .unwrap();
-    assert_eq!((first.13, first.14), (2, 2));
-    assert!(first.0.equals_missing(&second.0));
+    assert_eq!(
+        (first.outlier_removed_row_count, first.outlier_column_count),
+        (2, 2)
+    );
+    assert!(first.frame.equals_missing(&second.frame));
 
     let mixed = apply_recipe_to_frame(
         &frame,
@@ -16495,7 +16528,13 @@ fn iqr_drop_treatments_are_order_independent_and_share_one_baseline() {
         },
     )
     .unwrap();
-    assert_eq!((mixed.12, mixed.13), (1, 1));
+    assert_eq!(
+        (
+            mixed.adjusted_outlier_cell_count,
+            mixed.outlier_removed_row_count
+        ),
+        (1, 1)
+    );
 }
 
 #[test]
@@ -16588,7 +16627,7 @@ fn iqr_validates_minimum_duplicates_limits_nonfinite_and_precision() {
 fn iqr_remaps_rename_observes_cast_and_keep_and_commits_one_undo() {
     let path = temporary_csv("value,other\n1,a\n2,b\n3,c\n4,d\n100,e\n");
     let (frame, _) = load_csv(&path).unwrap();
-    let mut dataset = loaded_dataset(path.clone(), frame);
+    let mut dataset = loaded_dataset(path.path_buf(), frame);
     let result = apply_recipe_to_dataset(
         &mut dataset,
         &TransformRecipe {
@@ -16619,7 +16658,6 @@ fn iqr_remaps_rename_observes_cast_and_keep_and_commits_one_undo() {
     assert!(dataset.history.state().can_undo);
     undo_dataset(&mut dataset).unwrap();
     assert_eq!(dataset.frame.width(), 2);
-    fs::remove_file(path).unwrap();
 }
 
 #[test]
@@ -16838,7 +16876,7 @@ fn group_summary_rejects_overflow_precision_nonfinite_duplicates_and_missing_dep
 fn group_summary_runs_after_outliers_and_commits_one_undo_revision() {
     let path = temporary_csv("g,v\na,1\na,2\na,3\na,4\na,100\n");
     let (frame, _) = load_csv(&path).unwrap();
-    let mut dataset = loaded_dataset(path.clone(), frame);
+    let mut dataset = loaded_dataset(path.path_buf(), frame);
     let result = apply_recipe_to_dataset(
         &mut dataset,
         &TransformRecipe {
@@ -16876,7 +16914,6 @@ fn group_summary_runs_after_outliers_and_commits_one_undo_revision() {
     assert!(dataset.history.state().can_undo);
     undo_dataset(&mut dataset).unwrap();
     assert_eq!(dataset.frame.height(), 5);
-    fs::remove_file(path).unwrap();
 }
 
 #[test]
@@ -16995,7 +17032,7 @@ fn contacts_and_extractions_validate_remap_keep_group_and_rollback() {
     let path = temporary_csv("contact,other\n A@B.COM ,x\n");
     let (frame, _) = load_csv(&path).unwrap();
     let original = frame.clone();
-    let mut dataset = loaded_dataset(path.clone(), frame);
+    let mut dataset = loaded_dataset(path.path_buf(), frame);
     let success = apply_recipe_to_dataset(
         &mut dataset,
         &TransformRecipe {
@@ -17056,7 +17093,6 @@ fn contacts_and_extractions_validate_remap_keep_group_and_rollback() {
         (1, 1, 1)
     );
     assert!(dataset.history.state().can_undo);
-    fs::remove_file(path).unwrap();
 }
 
 fn quality_rule(column: &str, kind: QualityRuleKind) -> QualityRule {
@@ -18382,7 +18418,6 @@ fn automation_source_backed_transform_and_quality_validation_stream_the_source()
     assert!(result.passed);
     assert_eq!(result.row_count, 3);
 
-    let _ = fs::remove_file(input);
     let _ = fs::remove_file(output);
 }
 
@@ -18405,8 +18440,6 @@ fn source_backed_project_import_profiles_and_snapshots_without_materializing_row
     assert_eq!(active.row_count, 3);
     assert_eq!(active.column_count, 2);
     assert!(active.current_snapshot_path.is_some());
-
-    let _ = fs::remove_file(input);
 }
 
 #[test]
@@ -18989,7 +19022,6 @@ fn full_proposal_plan_on_a_streamed_csv_publishes_a_writable_snapshot() {
     history
         .prepare_frame_snapshot(&plan.frame, || false)
         .expect("el snapshot del plan completo debe escribirse");
-    let _ = fs::remove_file(path);
 }
 
 #[test]
@@ -19190,7 +19222,6 @@ fn sin_dato_markers_do_not_hide_a_numeric_column_from_the_first_proposal() {
     let lat1 = &profile.columns[0];
     assert_eq!(lat1.suggested_type.as_deref(), Some("decimal"));
     assert_eq!(lat1.invalid_type_count, Some(0));
-    fs::remove_file(path).ok();
 
     let cast = ["lat1".to_owned()];
     let plan = safe_corrected_plan_frame(
@@ -19561,7 +19592,6 @@ fn free_text_keeps_its_statistics_without_being_parsed_as_data() {
         MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
     )
     .expect("perfil desde disco");
-    fs::remove_file(path).ok();
     assert_eq!(
         serde_json::to_value(&in_memory.columns[0]).unwrap(),
         serde_json::to_value(&from_disk.columns[0]).unwrap()
@@ -19736,13 +19766,14 @@ fn recipe_dates_need_a_four_digit_year_in_every_engine() {
     ] {
         let path = temporary_csv(contents);
         let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-        let eager = apply_eager_recipe_to_frame(&source_frame, &recipe).map(|outcome| outcome.0);
-        let lazy = apply_lazy_recipe_to_frame(&source_frame, &recipe).map(|outcome| outcome.0);
+        let eager =
+            apply_eager_recipe_to_frame(&source_frame, &recipe).map(|outcome| outcome.frame);
+        let lazy = apply_lazy_recipe_to_frame(&source_frame, &recipe).map(|outcome| outcome.frame);
         let (schema, _, row_count) =
             source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse");
         let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
         let mut dataset = LoadedDataset {
-            source_path: Some(path.clone()),
+            source_path: Some(path.path_buf()),
             file_name: "fechas.csv".to_owned(),
             file_size_bytes,
             row_count,
@@ -19778,7 +19809,6 @@ fn recipe_dates_need_a_four_digit_year_in_every_engine() {
             assert!(lazy.unwrap_err().contains("cuatro cifras"));
             assert!(source_backed.unwrap_err().contains("cuatro cifras"));
         }
-        let _ = fs::remove_file(path);
     }
 }
 
@@ -19810,7 +19840,6 @@ fn large_file_exports_match_the_in_memory_path_value_for_value() {
             assert!(large.contains(kept), "{extension}: {kept}");
         }
     }
-    let _ = fs::remove_file(source);
 }
 
 /// ARQ-01: a 5 KB workbook that declares `A1:XFD1048576` opens with the size
@@ -19836,7 +19865,6 @@ fn inflated_workbook_dimension_does_not_reserve_the_declared_range() {
     .expect("la ruta de archivos grandes también debe abrirlo");
     assert_eq!((preview.row_count, preview.column_count), (2, 2));
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
-    fs::remove_file(path).expect("se debe limpiar el libro temporal");
 }
 
 /// FUN-05 and FUN-13: the Polars and DuckDB engines of the SQL console give
@@ -19875,7 +19903,6 @@ fn both_query_engines_agree_on_text_and_number_comparisons() {
     )
     .expect_err("OR no existe");
     assert!(error.contains("OR"), "{error}");
-    let _ = fs::remove_file(path);
 }
 
 /// DAT-08: a quoted empty cell (`""`) stays an empty text and an unquoted
@@ -19916,7 +19943,6 @@ fn empty_and_missing_cells_keep_the_same_meaning_in_both_paths() {
         text(&small),
         vec![Some(String::new()), None, Some("x".to_owned())]
     );
-    let _ = fs::remove_file(source);
 }
 
 /// REN-05: paging a DuckDB query over an in-memory dataset writes its Parquet
@@ -19925,7 +19951,7 @@ fn empty_and_missing_cells_keep_the_same_meaning_in_both_paths() {
 fn query_frame_snapshot_is_written_once_per_dataset_version() {
     let path = temporary_csv("id,name\n1,A\n2,B\n");
     let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let mut dataset = loaded_dataset(path.clone(), frame.clone());
+    let mut dataset = loaded_dataset(path.path_buf(), frame.clone());
     let cache = Mutex::new(None);
     let first = query_frame_snapshot_path(&cache, &dataset).expect("primera copia");
     let modified = fs::metadata(&first).unwrap().modified().unwrap();
@@ -19940,7 +19966,6 @@ fn query_frame_snapshot_is_written_once_per_dataset_version() {
     assert!(!first.exists());
     assert_eq!(read_parquet_frame(&third).unwrap().height(), 1);
     drop(cache);
-    let _ = fs::remove_file(path);
 }
 
 /// FUN-06: for every histogram bar, its count is the row count after
@@ -20016,7 +20041,6 @@ fn csv_formula_protection_keeps_data_and_covers_headers_in_both_paths() {
     for protected in ["'@ana", "'=SUM(A1)", "'+1-800-555"] {
         assert!(small.contains(protected), "{protected}: {small}");
     }
-    let _ = fs::remove_file(source);
 }
 
 /// FUN-15: a repeated header never takes the name of another header.
@@ -20145,7 +20169,6 @@ fn source_backed_exports_keep_zeros_refuse_the_source_and_protect_formulas() {
         .expect_err("el origen no se sobrescribe");
     assert!(error.contains("archivo de origen"), "{error}");
     assert_eq!(fs::read(&source).unwrap(), original);
-    let _ = fs::remove_file(source);
 }
 
 /// FUN-08: one pass removes every variant of a near-duplicate group, also
@@ -20167,7 +20190,7 @@ fn one_near_duplicate_pass_leaves_no_near_duplicate_behind() {
     let (schema, _, row_count) = source_backed_load(&path, "csv", || false).expect("fuente");
     let file_size_bytes = fs::metadata(&path).unwrap().len();
     let mut dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "parecidos.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -20183,7 +20206,6 @@ fn one_near_duplicate_pass_leaves_no_near_duplicate_behind() {
     assert_eq!(mutation.affected_row_count, 2);
     let output = read_parquet_frame(dataset.source_path.as_deref().unwrap()).unwrap();
     assert!(output.equals_missing(&cleaned));
-    let _ = fs::remove_file(path);
 }
 
 /// FUN-16: capping keeps an integer column integer, and imputing a column of
@@ -20546,14 +20568,14 @@ fn reinterpreting_a_selection_rewrites_separator_and_encoding() {
 }
 
 /// A recipe dataset backed by `csv` on disk, as the large-file path sees it.
-fn source_backed_csv_dataset(csv: &str) -> (PathBuf, DataFrame, LoadedDataset) {
+fn source_backed_csv_dataset(csv: &str) -> (TempFixture, DataFrame, LoadedDataset) {
     let path = temporary_csv(csv);
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
     let (schema, _, row_count) =
         source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let dataset = LoadedDataset {
-        source_path: Some(path.clone()),
+        source_path: Some(path.path_buf()),
         file_name: "dataset.csv".to_owned(),
         file_size_bytes,
         row_count,
@@ -20590,20 +20612,14 @@ fn calculated_column_named_like_a_renamed_column_fails_in_every_path() {
     let expected = "La columna calculada 'total' ya existe.";
 
     assert!(lazy_recipe_supported(&frame, &recipe));
-    let lazy = apply_recipe_to_frame(&frame, &recipe)
-        .err()
-        .expect("lazy debe rechazarla");
+    let lazy = apply_recipe_to_frame(&frame, &recipe).expect_err("lazy debe rechazarla");
     assert_eq!(lazy, expected);
-    let eager = apply_eager_recipe_to_frame(&frame, &recipe)
-        .err()
-        .expect("eager debe rechazarla");
+    let eager = apply_eager_recipe_to_frame(&frame, &recipe).expect_err("eager debe rechazarla");
     assert_eq!(eager, expected);
     let large =
         apply_recipe_to_dataset(&mut dataset, &recipe).expect_err("source-backed debe rechazarla");
     assert!(large.contains(expected), "{large}");
     assert_eq!(dataset.source_path.as_deref(), Some(path.as_path()));
-
-    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 /// FUN-17: «filas filtradas» does not include the outlier rows, which are
@@ -20621,9 +20637,17 @@ fn removed_row_count_leaves_out_dropped_outliers_in_every_path() {
         .expect("columna numérica");
     assert!(lazy_recipe_supported(&numbers, &recipe));
     let lazy = apply_recipe_to_frame(&numbers, &recipe).expect("lazy");
-    assert_eq!((lazy.4, lazy.13), (0, 1), "lazy");
+    assert_eq!(
+        (lazy.removed_row_count, lazy.outlier_removed_row_count),
+        (0, 1),
+        "lazy"
+    );
     let eager = apply_eager_recipe_to_frame(&numbers, &recipe).expect("eager");
-    assert_eq!((eager.4, eager.13), (0, 1), "eager");
+    assert_eq!(
+        (eager.removed_row_count, eager.outlier_removed_row_count),
+        (0, 1),
+        "eager"
+    );
     let directory = tempfile::tempdir().expect("carpeta temporal");
     let path = directory.path().join("fuente.parquet");
     let mut written = numbers.clone();
@@ -20736,16 +20760,16 @@ fn lazy_and_eager_recipes_agree_on_boundary_inputs() {
         let eager = apply_eager_recipe_to_frame(&frame, &recipe);
         match (lazy, eager) {
             (Ok(lazy), Ok(eager)) => assert!(
-                lazy.0.equals_missing(&eager.0),
+                lazy.frame.equals_missing(&eager.frame),
                 "{name} (lazy: {lazy_supported})\nlazy: {:?}\neager: {:?}",
-                lazy.0,
-                eager.0
+                lazy.frame,
+                eager.frame
             ),
             (Err(lazy), Err(eager)) => assert_eq!(lazy, eager, "{name}"),
             (lazy, eager) => panic!(
                 "{name} (lazy: {lazy_supported}): lazy {:?} / eager {:?}",
-                lazy.map(|outcome| outcome.0),
-                eager.map(|outcome| outcome.0)
+                lazy.map(|outcome| outcome.frame),
+                eager.map(|outcome| outcome.frame)
             ),
         }
     }
@@ -20876,7 +20900,7 @@ fn eager_and_source_backed_recipes_agree_on_boundary_inputs() {
     for (name, frame, recipe) in cases {
         let directory = tempfile::tempdir().expect("carpeta temporal");
         let mut dataset = source_backed_parquet_dataset(directory.path(), &frame);
-        let eager = apply_eager_recipe_to_frame(&frame, &recipe).map(|outcome| outcome.0);
+        let eager = apply_eager_recipe_to_frame(&frame, &recipe).map(|outcome| outcome.frame);
         let large = apply_recipe_to_dataset(&mut dataset, &recipe).and_then(|_| {
             read_parquet_frame(dataset.source_path.as_deref().unwrap())
                 .map_err(|error| error.to_string())
@@ -20975,17 +20999,41 @@ fn expected_recipe_outcome(
         match (&eager, &lazy) {
             (Ok(eager), Ok(lazy)) => {
                 assert!(
-                    eager.0.equals_missing(&lazy.0),
+                    eager.frame.equals_missing(&lazy.frame),
                     "lazy y eager difieren\neager: {:?}\nlazy: {:?}",
-                    eager.0,
-                    lazy.0
+                    eager.frame,
+                    lazy.frame
                 );
                 let counts = |outcome: &RecipeFrameOutcome| {
                     (
-                        (outcome.1, outcome.2, outcome.3, outcome.4, outcome.5),
-                        (outcome.6, outcome.7, outcome.8, outcome.9, outcome.10),
-                        (outcome.11, outcome.12, outcome.13, outcome.14, outcome.15),
-                        (outcome.16, outcome.17, outcome.18, outcome.19, outcome.20),
+                        (
+                            outcome.renamed_column_count,
+                            outcome.converted_column_count,
+                            outcome.parsed_date_column_count,
+                            outcome.removed_row_count,
+                            outcome.calculated_column_count,
+                        ),
+                        (
+                            outcome.replaced_cell_count,
+                            outcome.dropped_column_count,
+                            outcome.kept_order_changed,
+                            outcome.split_column_count,
+                            outcome.merged_column_count,
+                        ),
+                        (
+                            outcome.dropped_source_column_count,
+                            outcome.adjusted_outlier_cell_count,
+                            outcome.outlier_removed_row_count,
+                            outcome.outlier_column_count,
+                            outcome.group_count,
+                        ),
+                        (
+                            outcome.aggregated_column_count,
+                            outcome.collapsed_row_count,
+                            outcome.normalized_contact_cell_count,
+                            outcome.normalized_contact_column_count,
+                            outcome.extracted_column_count,
+                        ),
                     )
                 };
                 assert_eq!(
@@ -20997,8 +21045,8 @@ fn expected_recipe_outcome(
             (Err(eager), Err(lazy)) => assert_eq!(eager, lazy),
             _ => panic!(
                 "un camino acepta la receta y el otro no: eager {:?} / lazy {:?}",
-                eager.as_ref().map(|outcome| &outcome.0),
-                lazy.as_ref().map(|outcome| &outcome.0)
+                eager.as_ref().map(|outcome| &outcome.frame),
+                lazy.as_ref().map(|outcome| &outcome.frame)
             ),
         }
     }
@@ -21219,10 +21267,10 @@ fn every_recipe_step_matches_between_eager_and_lazy_on_chunked_frames() {
                         .map_err(|error| error.to_string())
                 })
                 .unwrap_or_else(|error| panic!("{name} (grande): {error}"));
-            if !large.equals_missing(&eager.0) {
+            if !large.equals_missing(&eager.frame) {
                 large_differences.push(format!(
                     "{name}:\n  eager {:?}\n  grande {large:?}",
-                    eager.0
+                    eager.frame
                 ));
             }
         }
@@ -21280,7 +21328,6 @@ fn aggregate_rules_count_unreadable_cells_and_absorb_rounding_in_both_paths() {
         assert_eq!(actual_rule.invalid_count, expected_rule.invalid_count);
         assert_eq!(actual_rule.passed, expected_rule.passed);
     }
-    fs::remove_file(path).ok();
 }
 
 /// FUN-35: a condition value the `when` column cannot read is refused when
@@ -21460,7 +21507,7 @@ fn finished_history_folders_are_purged_and_live_ones_kept() {
 fn an_oversized_result_keeps_the_earlier_history() {
     let path = temporary_csv("value\n1\n");
     let (original, _) = load_csv(&path).unwrap();
-    let mut dataset = loaded_dataset(path.clone(), original.clone());
+    let mut dataset = loaded_dataset(path.path_buf(), original.clone());
     let step = DataFrame::new(1, vec![Series::new("value".into(), [2_i64]).into()]).unwrap();
     publish_candidate(&mut dataset, step.clone(), "Paso pequeño").unwrap();
     // A budget that fits the versions so far but not the next result.
@@ -21493,7 +21540,6 @@ fn an_oversized_result_keeps_the_earlier_history() {
     assert!(dataset.history.state().degraded_reason.is_none());
     undo_dataset(&mut dataset).unwrap();
     assert!(dataset.frame.equals_missing(&original));
-    fs::remove_file(path).ok();
 }
 
 /// RV48 (FUN-37, FUN-38, FUN-39): the in-memory profile and the large-file
@@ -21639,14 +21685,13 @@ fn a_same_size_edit_of_the_source_is_noticed() {
     };
     let error = apply_recipe_to_dataset(&mut dataset, &recipe).unwrap_err();
     assert!(error.contains("cambió"), "{error}");
-    fs::remove_file(path).ok();
 }
 
 /// DAT-09: a recipe without steps leaves a large file untouched and does not
 /// load it into memory.
 #[test]
 fn an_empty_recipe_keeps_a_large_file_on_disk() {
-    let (path, _, mut dataset) = source_backed_csv_dataset("nombre,valor\nAna,1\nLuis,2\n");
+    let (_source, _, mut dataset) = source_backed_csv_dataset("nombre,valor\nAna,1\nLuis,2\n");
     assert!(source_backed_projection_recipe_supported(
         &dataset.frame,
         &TransformRecipe::default()
@@ -21655,7 +21700,6 @@ fn an_empty_recipe_keeps_a_large_file_on_disk() {
         .expect("la receta vacía no cambia nada");
     assert!(!result.changed);
     assert!(dataset.source_backed, "el dataset sigue en disco");
-    fs::remove_file(path).ok();
 }
 
 /// FUN-42 / UX-06: a file compared with its own prepared copy has no

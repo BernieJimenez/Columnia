@@ -254,7 +254,7 @@ pub(crate) fn apply_recipe_for_automation(
 ) -> Result<(DataFrame, bool), String> {
     validate_recipe_structure(recipe)?;
     let outcome = apply_recipe_to_frame(source, recipe)?;
-    let candidate = outcome.0;
+    let candidate = outcome.frame;
     let changed = !candidate.equals_missing(source);
     Ok((candidate, changed))
 }

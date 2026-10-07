@@ -12605,8 +12605,8 @@ fn apply_recipe_to_dataset_with_policy_and_cancellation(
         cancellation.ensure()?;
     }
     let source = source_frame.as_ref().unwrap_or(&dataset.frame);
-    let (
-        candidate,
+    let RecipeFrameOutcome {
+        frame: candidate,
         renamed_column_count,
         converted_column_count,
         parsed_date_column_count,
@@ -12627,7 +12627,7 @@ fn apply_recipe_to_dataset_with_policy_and_cancellation(
         normalized_contact_cell_count,
         normalized_contact_column_count,
         extracted_column_count,
-    ) = if requires_eager_exception_handling {
+    } = if requires_eager_exception_handling {
         apply_eager_recipe_to_frame_with_exception_policy(source, recipe, exception_policy)?
     } else {
         apply_recipe_to_frame(source, recipe)?

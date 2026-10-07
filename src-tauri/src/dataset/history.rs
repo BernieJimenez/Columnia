@@ -76,14 +76,24 @@ const HISTORY_DIRECTORY_PREFIX: &str = "columnia-history-";
 const HISTORY_LOCK_FILE: &str = "en-uso.lock";
 
 /// A new history folder and its open lock (DAT-04).
-pub(super) fn history_directory() -> Result<(std::fs::File, tempfile::TempDir), String> {
+///
+/// QA-39: fields drop in declaration order, so a folder abandoned by an error
+/// releases its lock first and is then deleted. As a `(lock, directory)` pair
+/// bound to two locals, the folder dropped first while the lock still kept
+/// it, and it stayed in %TEMP% with the snapshots already copied into it.
+pub(super) struct HistoryDirectory {
+    pub(super) lock: std::fs::File,
+    pub(super) directory: tempfile::TempDir,
+}
+
+pub(super) fn history_directory() -> Result<HistoryDirectory, String> {
     let directory = tempfile::Builder::new()
         .prefix(HISTORY_DIRECTORY_PREFIX)
         .tempdir()
         .map_err(|error| format!("No se pudo crear el historial temporal: {error}"))?;
     let lock = open_history_lock(&directory.path().join(HISTORY_LOCK_FILE))
         .map_err(|error| format!("No se pudo crear el historial temporal: {error}"))?;
-    Ok((lock, directory))
+    Ok(HistoryDirectory { lock, directory })
 }
 
 #[cfg(windows)]
@@ -217,10 +227,10 @@ impl HistoryManager {
     pub(super) fn deferred() -> Result<Self, String> {
         #[cfg(test)]
         DEFERRED_HISTORIES_CREATED.with(|count| count.set(count.get() + 1));
-        let (lock, directory) = history_directory()?;
+        let folder = history_directory()?;
         Ok(Self {
-            _lock: lock,
-            directory,
+            _lock: folder.lock,
+            directory: folder.directory,
             source_snapshot_path: None,
             entries: Vec::new(),
             cursor: 0,
@@ -246,10 +256,10 @@ impl HistoryManager {
         max_entries: usize,
         disk_budget_bytes: u64,
     ) -> Result<Self, String> {
-        let (lock, directory) = history_directory()?;
+        let folder = history_directory()?;
         let mut manager = Self {
-            _lock: lock,
-            directory,
+            _lock: folder.lock,
+            directory: folder.directory,
             source_snapshot_path: None,
             entries: Vec::new(),
             cursor: 0,

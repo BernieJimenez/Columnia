@@ -2154,29 +2154,31 @@ pub(super) fn apply_text_extractions(
     Ok(extractions.len())
 }
 
-pub(super) type RecipeFrameOutcome = (
-    DataFrame,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    bool,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-);
+/// QA-42: what a recipe produced; a 21-field tuple was read by position.
+#[derive(Debug)]
+pub(super) struct RecipeFrameOutcome {
+    pub(super) frame: DataFrame,
+    pub(super) renamed_column_count: usize,
+    pub(super) converted_column_count: usize,
+    pub(super) parsed_date_column_count: usize,
+    pub(super) removed_row_count: usize,
+    pub(super) calculated_column_count: usize,
+    pub(super) replaced_cell_count: usize,
+    pub(super) dropped_column_count: usize,
+    pub(super) kept_order_changed: bool,
+    pub(super) split_column_count: usize,
+    pub(super) merged_column_count: usize,
+    pub(super) dropped_source_column_count: usize,
+    pub(super) adjusted_outlier_cell_count: usize,
+    pub(super) outlier_removed_row_count: usize,
+    pub(super) outlier_column_count: usize,
+    pub(super) group_count: usize,
+    pub(super) aggregated_column_count: usize,
+    pub(super) collapsed_row_count: usize,
+    pub(super) normalized_contact_cell_count: usize,
+    pub(super) normalized_contact_column_count: usize,
+    pub(super) extracted_column_count: usize,
+}
 
 pub(super) fn apply_eager_recipe_to_frame(
     source: &DataFrame,
@@ -2515,11 +2517,11 @@ pub(super) fn apply_eager_recipe_to_frame_with_exception_policy(
         (candidate, 0, 0, 0)
     };
 
-    Ok((
-        candidate,
-        renamed_count,
-        cast_count,
-        date_count,
+    Ok(RecipeFrameOutcome {
+        frame: candidate,
+        renamed_column_count: renamed_count,
+        converted_column_count: cast_count,
+        parsed_date_column_count: date_count,
         removed_row_count,
         calculated_column_count,
         replaced_cell_count,
@@ -2537,5 +2539,5 @@ pub(super) fn apply_eager_recipe_to_frame_with_exception_policy(
         normalized_contact_cell_count,
         normalized_contact_column_count,
         extracted_column_count,
-    ))
+    })
 }

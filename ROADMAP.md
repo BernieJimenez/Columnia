@@ -529,12 +529,12 @@ medio = 1 día; agregado por suma.
   - [x] `UX-08` (Bajo) Textos y detalles menores de Cargar/Revisar/Preparar — hecho el 2026-10-07
   - [x] `TXT-05` (Bajo) Plurales fijos en los mensajes («1 filas», «1 columnas», «1 outliers») — hecho el 2026-10-07
   - [x] `QA-43` (Bajo) Datos de prueba de la mitad 2: casi todo sintético y de unas pocas filas; solo 4 tests con volumen o varios chunks — hecho el 2026-10-07
-- [ ] **RV102** — **Pruebas del motor** — Fixtures temporales sin guardia RAII: se filtran carpetas y archivos si el test falla o c… (y 3 problemas más) · *Esfuerzo: 1 día*
+- [x] **RV102** — **Pruebas del motor** — Fixtures temporales sin guardia RAII: se filtran carpetas y archivos si el test falla o c… (y 3 problemas más) · *Esfuerzo: 1 día* — hecho el 2026-10-07
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-39, QA-40, QA-41, QA-42.
-  - [ ] `QA-39` (Bajo) Fixtures temporales sin guardia RAII: se filtran carpetas y archivos si el test falla o con `.keep()`
-  - [ ] `QA-40` (Bajo) Tests que construyen estructuras del tamaño de un límite (coste de memoria/tiempo no medido)
-  - [ ] `QA-41` (Bajo) Fixtures `temporary_csv` sueltos en `%TEMP%` y borrados solo en la última línea (se filtran si el test falla)
-  - [ ] `QA-42` (Bajo) Aserciones débiles: solo el tipo en formatos de fecha, `||` entre mensajes y tuplas posicionales de 21 campos
+  - [x] `QA-39` (Bajo) Fixtures temporales sin guardia RAII: se filtran carpetas y archivos si el test falla o con `.keep()` — hecho el 2026-10-07
+  - [x] `QA-40` (Bajo) Tests que construyen estructuras del tamaño de un límite (coste de memoria/tiempo no medido) — hecho el 2026-10-07
+  - [x] `QA-41` (Bajo) Fixtures `temporary_csv` sueltos en `%TEMP%` y borrados solo en la última línea (se filtran si el test falla) — hecho el 2026-10-07
+  - [x] `QA-42` (Bajo) Aserciones débiles: solo el tipo en formatos de fecha, `||` entre mensajes y tuplas posicionales de 21 campos — hecho el 2026-10-07
 - [ ] **RV103** — **Configuración de Rust y Tauri** — Ejecutables e instaladores sin firma Authenticode (y 2 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-13, OPS-15, OPS-16.
   - [ ] `OPS-13` (Bajo) Ejecutables e instaladores sin firma Authenticode

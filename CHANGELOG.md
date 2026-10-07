@@ -207,6 +207,14 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Pruebas del motor: los archivos temporales de las pruebas Rust se borran solos
+  aunque una aserción falle (ya no quedan miles de CSV en %TEMP%), y la carpeta
+  de historial que dejaba una apertura de proyecto fallida, con las copias de
+  sus versiones, se borra al instante; las seis pruebas con datos del tamaño de
+  un límite tardan menos de 0,05 s cada una (medido y documentado); las fechas
+  se comprueban por valor, incluida 03/04/2025 con día/mes y mes/día, y el
+  resultado de una receta tiene campos con nombre en lugar de una tupla de 21
+  posiciones.
 - Robustez y textos de Cargar, Revisar y Preparar: si el renderer de WebView2
   cae, Columnia deja un informe en crash-reports y vuelve a mostrar la interfaz;
   si cae el proceso del navegador, también deja el informe y cierra la

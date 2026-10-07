@@ -1761,10 +1761,10 @@ pub(super) fn apply_lazy_recipe_to_frame(
         .map_or(0, |_| candidate.height());
     let collapsed_row_count =
         group_summary_input_rows.map_or(0, |input_rows| input_rows.saturating_sub(group_count));
-    Ok((
-        candidate,
-        renamed_count,
-        cast_count,
+    Ok(RecipeFrameOutcome {
+        frame: candidate,
+        renamed_column_count: renamed_count,
+        converted_column_count: cast_count,
         parsed_date_column_count,
         removed_row_count,
         calculated_column_count,
@@ -1773,17 +1773,17 @@ pub(super) fn apply_lazy_recipe_to_frame(
         kept_order_changed,
         split_column_count,
         merged_column_count,
-        split_dropped_source_count + dropped_source_column_count,
+        dropped_source_column_count: split_dropped_source_count + dropped_source_column_count,
         adjusted_outlier_cell_count,
         outlier_removed_row_count,
         outlier_column_count,
         group_count,
-        summary_aggregations.as_ref().map_or(0, Vec::len),
+        aggregated_column_count: summary_aggregations.as_ref().map_or(0, Vec::len),
         collapsed_row_count,
         normalized_contact_cell_count,
         normalized_contact_column_count,
         extracted_column_count,
-    ))
+    })
 }
 
 pub(super) fn apply_recipe_to_frame(

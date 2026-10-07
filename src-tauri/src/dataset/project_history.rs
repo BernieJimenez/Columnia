@@ -273,7 +273,8 @@ where
         return Err("El historial degradado guardado no es válido.".to_owned());
     }
 
-    let (lock, directory) = super::history::history_directory()?;
+    // QA-39: one value, so an error below deletes the folder and its copies.
+    let folder = super::history::history_directory()?;
     let mut entries = Vec::with_capacity(history.entries.len());
     let mut cursor_matches = !history.snapshots_enabled;
     let mut total_bytes = 0_u64;
@@ -303,7 +304,8 @@ where
         if total_bytes > history.disk_budget_bytes {
             return Err("El historial guardado supera su presupuesto.".to_owned());
         }
-        let destination = directory
+        let destination = folder
+            .directory
             .path()
             .join(format!("snapshot-{index:020}.parquet"));
         let mut destination_file = File::create(&destination)
@@ -346,8 +348,8 @@ where
     ensure_not_cancelled(is_cancelled())?;
     let next_id = entries.len() as u64;
     Ok(HistoryManager {
-        _lock: lock,
-        directory,
+        _lock: folder.lock,
+        directory: folder.directory,
         source_snapshot_path: None,
         entries,
         cursor: history.cursor,
