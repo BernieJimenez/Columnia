@@ -10,6 +10,8 @@ import {
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { changelogSectionNotes } from "./changelog-notes.mjs";
+
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 function fail(message) {
@@ -98,13 +100,13 @@ function artifactUrl(baseUrl, artifact) {
 }
 
 function releaseNotes(options, version) {
-  const source = options["notes-file"]
-    ? readFileSync(resolve(projectRoot, options["notes-file"]), "utf8")
-    : readFileSync(resolve(projectRoot, "CHANGELOG.md"), "utf8");
-  const section = options["notes-file"]
-    ? source
-    : source.match(/^##\s+\[?[^\]\r\n]+\]?\s*$([\s\S]*?)(?=^##\s|(?![\s\S]))/m)?.[1] ?? "";
-  const notes = section.replace(/^###\s+/gm, "").trim();
+  if (options["notes-file"]) {
+    const notes = readFileSync(resolve(projectRoot, options["notes-file"]), "utf8").replace(/^###\s+/gm, "").trim();
+    return notes || `Actualización de Columnia ${version}.`;
+  }
+  // OPS-12: the notes of this version's own section, never [Unreleased].
+  const notes = changelogSectionNotes(readFileSync(resolve(projectRoot, "CHANGELOG.md"), "utf8"), version);
+  if (notes === null) fail(`CHANGELOG.md no tiene la sección ## [${version}]; créala o pasa --notes-file.`);
   return notes || `Actualización de Columnia ${version}.`;
 }
 

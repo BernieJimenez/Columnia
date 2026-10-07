@@ -193,7 +193,8 @@ function validDatasetPreview(preview, source) {
     && preview.rowCount > 0
     && (expectedRowCount === null || preview.rowCount === expectedRowCount)
     && Number.isInteger(preview.columnCount)
-    && preview.columnCount === 4
+    // QA-54: any dataset passed with --dataset-path, not only a 4-column one.
+    && preview.columnCount > 0
     && Array.isArray(preview.columns)
     && preview.columns.length === preview.columnCount
     && Array.isArray(preview.rows)
@@ -1030,7 +1031,9 @@ async function run() {
 try {
   const result = await run();
   console.log(JSON.stringify(result));
-  process.exitCode = 0;
+  // QA-54: a caller that only reads the exit code must not take a failed
+  // result (such as announced_differs_from_applied) as a pass.
+  process.exitCode = result?.status === "passed" ? 0 : 1;
 } catch (error) {
   console.log(JSON.stringify({
     status: "failed",

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateRange(512, 2048)]
     [int]$TargetMiB = 512,
     [ValidateRange(60, 3600)]
@@ -188,7 +188,7 @@ catch {
 }
 
 $Commit = (& git -C $ProjectRoot rev-parse HEAD 2>$null).Trim()
-$Version = ((Get-Content -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw) | ConvertFrom-Json).version
+$Version = ((Get-Content -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw) | ConvertFrom-Json).version
 $Summary = [ordered]@{
     schemaVersion = 1
     status = $Status

@@ -23,7 +23,7 @@
     "test:e2e": "playwright test",
     "typecheck:e2e": "tsc --noEmit -p tsconfig.e2e.json",
     "test:e2e:install": "playwright install msedge",
-    "beta:workflows:check": "node --test tools/check-beta-workflows.test.mjs",
+    "beta:fixtures:check": "node --test tools/beta-fixtures-integrity.test.mjs",
     "incremental:check": "node tools/check-incremental-matrix.mjs --run-native",
     "docs:check": "node tools/check-documentation.mjs && node --test tools/check-documentation.test.mjs",
     "beta:prepare": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/prepare-beta-gate.ps1",

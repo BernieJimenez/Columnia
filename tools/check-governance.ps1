@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param()
 
 $ErrorActionPreference = "Stop"
@@ -21,7 +21,7 @@ function Require-Text {
     )
 
     Require-File $RelativePath
-    $Contents = Get-Content -LiteralPath (Join-Path $ProjectRoot $RelativePath) -Raw
+    $Contents = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot $RelativePath) -Raw
     if ($Contents -notmatch $Pattern) {
         throw $Message
     }
@@ -42,8 +42,8 @@ foreach ($RelativePath in @(
     Require-File $RelativePath
 }
 
-$PackageManifest = Get-Content -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json
-$CargoManifest = Get-Content -LiteralPath (Join-Path $ProjectRoot "src-tauri\Cargo.toml") -Raw
+$PackageManifest = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json
+$CargoManifest = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "src-tauri\Cargo.toml") -Raw
 
 if ($PackageManifest.license -ne "MIT") {
     throw "package.json debe declarar license = MIT."
@@ -60,7 +60,7 @@ Require-Text "AUDITORIA.md" "npm outdated" "La auditoría consolidada debe conse
 Require-Text "AUDITORIA.md" "cargo audit" "La auditoría consolidada debe registrar la auditoría Cargo."
 Require-Text "docs\reference\fixtures-policy.md" "sint" "La política debe declarar que las fixtures son sintéticas."
 
-$Manifest = Get-Content -LiteralPath (Join-Path $ProjectRoot "fixtures\manifest.json") -Raw | ConvertFrom-Json
+$Manifest = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "fixtures\manifest.json") -Raw | ConvertFrom-Json
 if ($Manifest.version -ne 1 -or $Manifest.policy -ne "synthetic-only-no-pii") {
     throw "fixtures/manifest.json no cumple el contrato sintético v1."
 }

@@ -501,14 +501,14 @@ medio = 1 día; agregado por suma.
   - [x] `QA-48` (Bajo) verify-tier / prepare-beta-gate: pequeñeces de robustez — hecho el 2026-10-07
   - [x] `QA-49` (Bajo) El gate de documentación acopla CI local a prosa de Beta y a nombres de archivo — hecho el 2026-10-07
   - [x] `QA-50` (Bajo) `tools/test-updater-manifest.mjs` omite los casos de seguridad clave — hecho el 2026-10-07
-- [ ] **RV98** — **Gates y scripts** — Filtro de privacidad del resumen Beta: regex de ruta mal escrita y falsos positivos con U… (y 5 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV98** — **Gates y scripts** — Filtro de privacidad del resumen Beta: regex de ruta mal escrita y falsos positivos con U… (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-07
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-51, QA-52, QA-53, QA-54, OPS-11, OPS-12.
-  - [ ] `QA-51` (Bajo) Filtro de privacidad del resumen Beta: regex de ruta mal escrita y falsos positivos con URL
-  - [ ] `QA-52` (Bajo) `check-incremental-matrix --run-native` puede pasar sin ejecutar ninguna prueba
-  - [ ] `QA-53` (Bajo) `tools/check-beta-workflows.test.mjs` prueba las fixtures contra sí mismas, no flujos
-  - [ ] `QA-54` (Bajo) Rigidez y exit code de las sondas CDP
-  - [ ] `OPS-11` (Bajo) Los mensajes con tilde de los scripts salen ilegibles en Windows PowerShell 5.1
-  - [ ] `OPS-12` (Bajo) release.ps1 genera el manifiesto del updater con las notas de `## [Unreleased]` salvo que se pase `-UpdaterNotesPath`
+  - [x] `QA-51` (Bajo) Filtro de privacidad del resumen Beta: regex de ruta mal escrita y falsos positivos con URL — hecho el 2026-10-07
+  - [x] `QA-52` (Bajo) `check-incremental-matrix --run-native` puede pasar sin ejecutar ninguna prueba — hecho el 2026-10-07
+  - [x] `QA-53` (Bajo) `tools/check-beta-workflows.test.mjs` prueba las fixtures contra sí mismas, no flujos — hecho el 2026-10-07
+  - [x] `QA-54` (Bajo) Rigidez y exit code de las sondas CDP — hecho el 2026-10-07
+  - [x] `OPS-11` (Bajo) Los mensajes con tilde de los scripts salen ilegibles en Windows PowerShell 5.1 — hecho el 2026-10-07
+  - [x] `OPS-12` (Bajo) release.ps1 genera el manifiesto del updater con las notas de `## [Unreleased]` salvo que se pase `-UpdaterNotesPath` — hecho el 2026-10-07
 - [ ] **RV99** — **Gates y scripts** — El MSI es por máquina y solo en inglés, mientras el contrato del instalador solo vigila e… (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-14, OPS-17, OPS-18, OPS-19, OPS-20, OPS-21.
   - [ ] `OPS-14` (Bajo) El MSI es por máquina y solo en inglés, mientras el contrato del instalador solo vigila el NSIS por usuario

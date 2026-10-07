@@ -25,7 +25,7 @@ function Backup-ColumniaAppData {
     $source = Join-Path $env:APPDATA "app.columnia.desktop"
     $pointer = Get-ColumniaAppDataGuardPointer
     if (Test-Path -LiteralPath $pointer -PathType Leaf) {
-        $pending = Get-Content -LiteralPath $pointer -Raw | ConvertFrom-Json
+        $pending = Get-Content -Encoding UTF8 -LiteralPath $pointer -Raw | ConvertFrom-Json
         if ($pending.source -eq $source -and (-not $pending.existed -or (Test-Path -LiteralPath $pending.backup))) {
             $fix = if ($pending.existed) { "la copia original está en '$($pending.backup)': restáurala a mano en '$source'" } else { "'$source' no existía antes: bórrala" }
             throw "Una ejecución anterior no restauró los datos de Columnia; $fix y borra '$pointer'."

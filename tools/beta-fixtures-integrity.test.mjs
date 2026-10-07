@@ -1,3 +1,5 @@
+// QA-53: integrity of the synthetic files in fixtures/beta. It recomputes
+// their expected results in JS and does not run Columnia.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";

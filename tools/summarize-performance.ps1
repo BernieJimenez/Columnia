@@ -1,4 +1,4 @@
-param()
+﻿param()
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -118,7 +118,7 @@ function Get-Document {
     param([string]$Path)
 
     try {
-        return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        return Get-Content -Encoding UTF8 -LiteralPath $Path -Raw | ConvertFrom-Json
     }
     catch {
         return $null

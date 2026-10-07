@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$BaselinePath = "fixtures/performance/performance-baseline-v1.json",
     [switch]$SkipPackage,
     [string]$RequireEvidenceAfter
@@ -37,7 +37,7 @@ function Read-Json {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "No existe la evidencia requerida: $((Get-RelativePath $Path))."
     }
-    return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    return Get-Content -Encoding UTF8 -LiteralPath $Path -Raw | ConvertFrom-Json
 }
 
 function Get-RelativePath {
@@ -61,7 +61,7 @@ function Get-StaleEvidenceReason {
     if ([string]::IsNullOrWhiteSpace($HeadCommit)) {
         return $null
     }
-    $Document = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    $Document = Get-Content -Encoding UTF8 -LiteralPath $Path -Raw | ConvertFrom-Json
     $Commit = if ($null -ne $Document.git -and $null -ne $Document.git.commit) { [string]$Document.git.commit } elseif ($null -ne $Document.commit) { [string]$Document.commit } else { $null }
     if (-not [string]::IsNullOrWhiteSpace($Commit)) {
         if ($Commit -ne $HeadCommit) {

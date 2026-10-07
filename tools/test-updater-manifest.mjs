@@ -5,6 +5,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
+import { changelogSectionNotes } from "./changelog-notes.mjs";
+
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const generatorPath = join(projectRoot, "tools", "generate-updater-manifest.mjs");
 const checkerPath = join(projectRoot, "tools", "check-updater-manifest.mjs");
@@ -112,6 +114,10 @@ try {
   const generated = JSON.parse(readFileSync(manifestPath, "utf8"));
   if (generated.pub_date !== statSync(artifactPath).mtime.toISOString()) {
     fail(`pub_date ${generated.pub_date} no es la fecha del artefacto.`);
+  }
+  // OPS-12: the notes are exactly those of `## [0.57.0]`, not [Unreleased].
+  if (generated.notes !== changelogSectionNotes(readFileSync(join(projectRoot, "CHANGELOG.md"), "utf8"), "0.57.0")) {
+    fail("Las notas del manifiesto no son las de la sección ## [0.57.0] del CHANGELOG.");
   }
   if (process.platform === "win32") {
     // COD-19: Windows paths differ only in case still point inside the bundle.

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateRange(1024, 65535)]
     [int]$Port = 9222,
     [ValidateRange(15, 900)]
@@ -49,7 +49,7 @@ function Invoke-RestartPhase {
     if (-not (Test-Path -LiteralPath $PhaseSummaryPath -PathType Leaf)) {
         throw "La fase $Mode no produjo summary.json en su evidencia."
     }
-    $PhaseSummary = Get-Content -LiteralPath $PhaseSummaryPath -Raw | ConvertFrom-Json
+    $PhaseSummary = Get-Content -Encoding UTF8 -LiteralPath $PhaseSummaryPath -Raw | ConvertFrom-Json
     $NativeIpc = if ($null -eq $PhaseSummary.projects) { $null } else { @($PhaseSummary.projects.pages)[0].nativeIpc }
     [ordered]@{
         mode = $Mode

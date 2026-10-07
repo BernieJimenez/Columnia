@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("Fast", "Full", "Release", "Package")]
     [string]$Profile = "Fast",
 
@@ -19,7 +19,7 @@ $Commit = (git -C $ProjectRoot rev-parse HEAD).Trim()
 $ShortCommit = (git -C $ProjectRoot rev-parse --short HEAD).Trim()
 $Branch = (git -C $ProjectRoot branch --show-current).Trim()
 $TreeDirty = @(git -C $ProjectRoot status --porcelain).Count -gt 0
-$ProjectVersion = (Get-Content -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json).version
+$ProjectVersion = (Get-Content -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json).version
 $RunStamp = $StartedAt.ToString("yyyyMMddTHHmmssZ")
 $ReleaseLike = $Profile -in @("Release", "Package")
 $TauriConfigArguments = @()
@@ -239,11 +239,11 @@ try {
     Invoke-Checked "Frontend bundle budget" $ProjectRoot {
         node tools/check-bundle.mjs budget --dist dist --output $FrontendBundlePath
         if ($LASTEXITCODE -ne 0 -and (Test-Path -LiteralPath $FrontendBundlePath -PathType Leaf)) {
-            $FailedBundle = Get-Content -LiteralPath $FrontendBundlePath -Raw | ConvertFrom-Json
+            $FailedBundle = Get-Content -Encoding UTF8 -LiteralPath $FrontendBundlePath -Raw | ConvertFrom-Json
             throw "Presupuesto frontend excedido: $(@($FailedBundle.violations) -join ' ') Divide el bundle o revisa explícitamente los límites."
         }
     }
-    $FrontendBundleDocument = Get-Content -LiteralPath $FrontendBundlePath -Raw | ConvertFrom-Json
+    $FrontendBundleDocument = Get-Content -Encoding UTF8 -LiteralPath $FrontendBundlePath -Raw | ConvertFrom-Json
     $FrontendBundleEvidence.status = $FrontendBundleDocument.status
     $FrontendBundleEvidence.sha256 = Get-Sha256 $FrontendBundlePath
     $FrontendBundleEvidence.fileCount = @($FrontendBundleDocument.files).Count
@@ -307,7 +307,7 @@ try {
         Invoke-Checked "CycloneDX SBOM" $ProjectRoot {
             & (Join-Path $ProjectRoot "tools\generate-sbom.ps1") -OutputPath $SbomPath
         }
-        $SbomDocument = Get-Content -LiteralPath $SbomPath -Raw | ConvertFrom-Json
+        $SbomDocument = Get-Content -Encoding UTF8 -LiteralPath $SbomPath -Raw | ConvertFrom-Json
         $SbomEvidence.status = "available"
         $SbomEvidence.sha256 = Get-Sha256 $SbomPath
         $SbomEvidence.componentCount = @($SbomDocument.components).Count
@@ -339,7 +339,7 @@ try {
         Invoke-Checked "Bundle artifact inventory" $ProjectRoot {
             node tools/check-bundle.mjs artifacts --project-root $ProjectRoot --bundle-root (Join-Path $TauriRoot "target\release\bundle") --snapshot $PackageSnapshotPath --output $PackageArtifactsPath
         }
-        $PackageArtifactsDocument = Get-Content -LiteralPath $PackageArtifactsPath -Raw | ConvertFrom-Json
+        $PackageArtifactsDocument = Get-Content -Encoding UTF8 -LiteralPath $PackageArtifactsPath -Raw | ConvertFrom-Json
         $PackageArtifactsEvidence.status = $PackageArtifactsDocument.status
         $PackageArtifactsEvidence.sha256 = Get-Sha256 $PackageArtifactsPath
         $PackageArtifactsEvidence.artifactCount = @($PackageArtifactsDocument.artifacts).Count
@@ -363,7 +363,7 @@ catch {
     }
     if ($FrontendBundleEvidence.status -eq "pending" -and (Test-Path -LiteralPath $FrontendBundlePath -PathType Leaf)) {
         try {
-            $FailedBundleDocument = Get-Content -LiteralPath $FrontendBundlePath -Raw | ConvertFrom-Json
+            $FailedBundleDocument = Get-Content -Encoding UTF8 -LiteralPath $FrontendBundlePath -Raw | ConvertFrom-Json
             $FrontendBundleEvidence.status = $FailedBundleDocument.status
             $FrontendBundleEvidence.sha256 = Get-Sha256 $FrontendBundlePath
             $FrontendBundleEvidence.fileCount = @($FailedBundleDocument.files).Count
@@ -379,7 +379,7 @@ catch {
     }
     if ($Profile -eq "Package" -and $PackageArtifactsEvidence.status -eq "pending" -and (Test-Path -LiteralPath $PackageArtifactsPath -PathType Leaf)) {
         try {
-            $FailedArtifactsDocument = Get-Content -LiteralPath $PackageArtifactsPath -Raw | ConvertFrom-Json
+            $FailedArtifactsDocument = Get-Content -Encoding UTF8 -LiteralPath $PackageArtifactsPath -Raw | ConvertFrom-Json
             $PackageArtifactsEvidence.status = $FailedArtifactsDocument.status
             $PackageArtifactsEvidence.sha256 = Get-Sha256 $PackageArtifactsPath
             $PackageArtifactsEvidence.artifactCount = @($FailedArtifactsDocument.artifacts).Count

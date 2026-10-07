@@ -104,16 +104,23 @@ function requireYes(errors, value, label) {
   }
 }
 
-function validateSummaryPrivacy(markdown, errors) {
+/** The kinds of private data found in a sanitized Beta summary. */
+export function summaryPrivacyFindings(markdown) {
   const checks = [
     [/\bparticipante-\d{2,3}\b/i, "alias de participante"],
     [/\bdataset-[a-z0-9][a-z0-9.-]*\b/i, "alias de dataset"],
     [/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i, "correo electrónico"],
-    [/(?:[A-Za-z]:[\\/]|\\\\[^\\s]+[\\/])/i, "ruta local"],
+    // QA-51: a drive letter alone (not the «s:/» of «https://»), or a UNC
+    // share whose host may contain any letter but a separator or a space.
+    [/(?:(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\[^\\/\s]+[\\/])/, "ruta local"],
     [/(?:password|passwd|pwd|contraseña|cadena de conexión|connection string)\s*=/i, "credencial o cadena de conexión"],
   ];
-  for (const [pattern, label] of checks) {
-    if (pattern.test(markdown)) errors.push(`El resumen sanitizado contiene ${label}; elimina ese dato antes de versionarlo.`);
+  return checks.filter(([pattern]) => pattern.test(markdown)).map(([, label]) => label);
+}
+
+function validateSummaryPrivacy(markdown, errors) {
+  for (const label of summaryPrivacyFindings(markdown)) {
+    errors.push(`El resumen sanitizado contiene ${label}; elimina ese dato antes de versionarlo.`);
   }
 }
 

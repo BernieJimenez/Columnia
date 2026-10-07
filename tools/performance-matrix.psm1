@@ -1,10 +1,10 @@
-function Get-PerformanceScaleMatrixDefinition {
+﻿function Get-PerformanceScaleMatrixDefinition {
     param([string]$Path = (Join-Path (Split-Path -Parent $PSScriptRoot) "fixtures\performance\dataset-scale-matrix-v1.json"))
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "No existe la matriz de escala: $Path"
     }
-    return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    return Get-Content -Encoding UTF8 -LiteralPath $Path -Raw | ConvertFrom-Json
 }
 
 function Get-PerformanceScaleProfile {

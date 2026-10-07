@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $PSScriptRoot "performance-matrix.psm1") -Force
 $Definition = Get-PerformanceScaleMatrixDefinition -Path (Join-Path $ProjectRoot "fixtures\performance\dataset-scale-matrix-v1.json")
@@ -12,7 +12,7 @@ try {
     foreach ($Profile in $Definition.profiles) {
         $CsvPath = Join-Path $TestDirectory ($Profile.id + ".csv")
         $Info = Write-PerformanceScaleCsv -Destination $CsvPath -TargetBytes $TargetBytes -Profile $Profile
-        $Rows = @(Import-Csv -LiteralPath $CsvPath)
+        $Rows = @(Import-Csv -Encoding UTF8 -LiteralPath $CsvPath)
         $ActualColumnCount = if ($Rows.Count -eq 0) { 0 } else { @($Rows[0].PSObject.Properties.Name).Count }
         $UniqueIds = @($Rows.id | Sort-Object -Unique).Count
         $UniqueNames = @($Rows.name | Sort-Object -Unique).Count

@@ -1,4 +1,4 @@
-# RV21 / QA-02: drives each synthetic file in fixtures/roundtrip through the
+﻿# RV21 / QA-02: drives each synthetic file in fixtures/roundtrip through the
 # real app (load, Preparar proposal, apply) and fails if what the proposal
 # announced differs from what the resulting data shows. Columnia must be closed.
 param(

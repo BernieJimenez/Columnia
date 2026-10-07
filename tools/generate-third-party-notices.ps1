@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$OutputPath = "THIRD_PARTY_NOTICES.md",
     [switch]$Check
@@ -33,9 +33,9 @@ function Invoke-Captured {
     $StderrPath = Join-Path $env:TEMP "columnia-notices-$Token.err"
     try {
         $Process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -WorkingDirectory $WorkingDirectory -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $StdoutPath -RedirectStandardError $StderrPath
-        $Output = if (Test-Path -LiteralPath $StdoutPath) { Get-Content -LiteralPath $StdoutPath -Raw } else { "" }
+        $Output = if (Test-Path -LiteralPath $StdoutPath) { Get-Content -Encoding UTF8 -LiteralPath $StdoutPath -Raw } else { "" }
         if ($Process.ExitCode -ne 0 -and -not $AllowFailure) {
-            throw "$FilePath terminó con código $($Process.ExitCode): $((Get-Content -LiteralPath $StderrPath -Raw).Trim())"
+            throw "$FilePath terminó con código $($Process.ExitCode): $((Get-Content -Encoding UTF8 -LiteralPath $StderrPath -Raw).Trim())"
         }
         return $Output
     }

@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateRange(1024, 65535)]
     [int]$Port = 9230,
@@ -154,7 +154,7 @@ try {
         throw "No se encontró el binario release: $ReleaseExecutable"
     }
 
-    $package = Get-Content -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json
+    $package = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json
     $binary = Get-Item -LiteralPath $ReleaseExecutable
     $fixture = Get-Item -LiteralPath $FixturePath
     $binarySha256 = Get-Sha256 $ReleaseExecutable

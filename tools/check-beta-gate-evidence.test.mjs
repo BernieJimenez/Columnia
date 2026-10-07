@@ -6,7 +6,12 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { resolvePhysicalValidationReport, resolveValidationReportPath, validateGate1Evidence } from "./check-beta-gate-evidence.mjs";
+import {
+  resolvePhysicalValidationReport,
+  resolveValidationReportPath,
+  summaryPrivacyFindings,
+  validateGate1Evidence,
+} from "./check-beta-gate-evidence.mjs";
 
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const sessionTemplate = readFileSync(join(projectRoot, "docs", "templates", "beta-session.md"), "utf8");
@@ -315,5 +320,16 @@ describe("prerrequisitos de evidencia para Gate 2", () => {
     assert.equal(result.valid, false);
     assert.ok(result.errors.some((error) => error.includes("no coincide con Gate 1")));
     assert.ok(result.errors.some((error) => error.includes("evidencia Full original")));
+  });
+});
+
+describe("rutas locales en el resumen (QA-51)", () => {
+  it("detecta rutas de unidad y UNC con cualquier host, no las URL", () => {
+    const backslash = String.fromCharCode(92);
+    const unc = `${backslash}${backslash}servidor${backslash}datos`;
+    assert.deepEqual(summaryPrivacyFindings(`Origen: ${unc}`), ["ruta local"]);
+    assert.deepEqual(summaryPrivacyFindings(`Origen: ${backslash}${backslash}files${backslash}x`), ["ruta local"]);
+    assert.deepEqual(summaryPrivacyFindings(`Origen: D:${backslash}ventas.csv o D:/ventas.csv`), ["ruta local"]);
+    assert.deepEqual(summaryPrivacyFindings("Guía: https://x.example/beta y http://y.example"), []);
   });
 });

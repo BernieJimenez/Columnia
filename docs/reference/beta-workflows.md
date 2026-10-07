@@ -1,6 +1,6 @@
 # Recorridos candidatos para la beta
 
-Estos dos casos sintéticos hacen reproducibles las hipótesis de uso de la auditoría. No demuestran que esos flujos sean prioritarios: esa decisión requiere observar si las personas beta los reconocen como trabajo real y qué tareas actuales reemplazan. Las fixtures sirven de calentamiento y no cuentan como datasets reales para Gate 1. Ejecuta `npm run beta:workflows:check` para comprobar que sus resultados esperados sigan alineados con los archivos de ejemplo.
+Estos dos casos sintéticos hacen reproducibles las hipótesis de uso de la auditoría. No demuestran que esos flujos sean prioritarios: esa decisión requiere observar si las personas beta los reconocen como trabajo real y qué tareas actuales reemplazan. Las fixtures sirven de calentamiento y no cuentan como datasets reales para Gate 1. Ejecuta `npm run beta:fixtures:check` para comprobar que sus resultados esperados sigan alineados con los archivos de ejemplo; esa comprobación lee las CSV y no ejecuta Columnia.
 
 ## Preparar un reporte periódico para BI
 

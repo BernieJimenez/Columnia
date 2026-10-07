@@ -1,4 +1,4 @@
-param(
+﻿param(
     # Base64 of the UTF-8 text: Windows PowerShell 5.1 does not keep non-ASCII
     # characters such as "conexión" intact on its command line.
     [Parameter(Mandatory = $true)]

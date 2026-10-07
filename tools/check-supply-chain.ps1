@@ -36,8 +36,8 @@ function Run-JsonCommand {
     finally {
         Pop-Location
     }
-    $Stdout = if (Test-Path -LiteralPath $StdoutPath) { Get-Content -LiteralPath $StdoutPath -Raw } else { "" }
-    $Stderr = if (Test-Path -LiteralPath $StderrPath) { Get-Content -LiteralPath $StderrPath -Raw } else { "" }
+    $Stdout = if (Test-Path -LiteralPath $StdoutPath) { Get-Content -Encoding UTF8 -LiteralPath $StdoutPath -Raw } else { "" }
+    $Stderr = if (Test-Path -LiteralPath $StderrPath) { Get-Content -Encoding UTF8 -LiteralPath $StderrPath -Raw } else { "" }
     [System.IO.File]::WriteAllText($OutputPath, ($Stdout + $Stderr), [System.Text.UTF8Encoding]::new($false))
     [ordered]@{
         status = if ($ExitCode -eq 0) { "passed" } else { "failed" }
@@ -52,7 +52,7 @@ try {
     $NpmAuditPath = Join-Path $EvidenceDirectory "npm-audit.json"
     $Results.npmAudit = Run-JsonCommand "npm audit" "npm.cmd" @("audit", "--json", "--omit=optional") $ProjectRoot $NpmAuditPath
     try {
-        $NpmAudit = Get-Content -LiteralPath $NpmAuditPath -Raw | ConvertFrom-Json
+        $NpmAudit = Get-Content -Encoding UTF8 -LiteralPath $NpmAuditPath -Raw | ConvertFrom-Json
         $Vulnerabilities = $NpmAudit.metadata.vulnerabilities
         $TotalVulnerabilities = @($Vulnerabilities.PSObject.Properties | ForEach-Object { [int]$_.Value } | Measure-Object -Sum).Sum
         $Results.npmAudit.vulnerabilityCount = [int]$TotalVulnerabilities
@@ -83,7 +83,7 @@ try {
         if ($Results.cargoAudit.status -ne "passed") { throw "cargo audit falló. Evidencia: $(Relative-Path $CargoAuditPath)" }
         $CargoAuditStdoutPath = Join-Path $EvidenceDirectory "cargo-audit.stdout.txt"
         try {
-            $CargoAuditDocument = Get-Content -LiteralPath $CargoAuditStdoutPath -Raw | ConvertFrom-Json
+            $CargoAuditDocument = Get-Content -Encoding UTF8 -LiteralPath $CargoAuditStdoutPath -Raw | ConvertFrom-Json
             $Results.cargoAudit.vulnerabilityCount = @($CargoAuditDocument.vulnerabilities.list).Count
             $Results.cargoAudit.unmaintainedCount = @($CargoAuditDocument.warnings.unmaintained).Count
             $Results.cargoAudit.unsoundCount = @($CargoAuditDocument.warnings.unsound).Count

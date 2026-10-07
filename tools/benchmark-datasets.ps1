@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateRange(1, 500)]
     [int]$TargetMiB = 100,
     [ValidateSet("standard", "wide", "low-cardinality", "long-text")]

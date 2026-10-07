@@ -1,4 +1,4 @@
-param()
+﻿param()
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -180,7 +180,7 @@ function Read-JsonOutput {
 function Assert-JsonFixture {
     param($Actual, [string]$FixtureName)
 
-    $Expected = Get-Content -LiteralPath (Join-Path $FixturesRoot $FixtureName) -Raw | ConvertFrom-Json
+    $Expected = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $FixturesRoot $FixtureName) -Raw | ConvertFrom-Json
     Assert-DeepEqual -Expected $Expected -Actual $Actual
 }
 
@@ -295,8 +295,8 @@ try {
         -Expected (New-ExpectedTransform -OutputFileName "output.csv" -FileSizeBytes (Get-Item $CsvOutputPath).Length -Format "CSV") `
         -Actual $TransformCsv
 
-    $ExpectedCsv = (Get-Content -LiteralPath (Join-Path $FixturesRoot "expected-output.csv") -Raw) -replace "`r`n", "`n"
-    $ActualCsv = (Get-Content -LiteralPath $CsvOutputPath -Raw) -replace "`r`n", "`n"
+    $ExpectedCsv = (Get-Content -Encoding UTF8 -LiteralPath (Join-Path $FixturesRoot "expected-output.csv") -Raw) -replace "`r`n", "`n"
+    $ActualCsv = (Get-Content -Encoding UTF8 -LiteralPath $CsvOutputPath -Raw) -replace "`r`n", "`n"
     if ($ActualCsv -cne $ExpectedCsv) {
         throw "El CSV transformado no coincide con el fixture, incluida la neutralización de fórmula."
     }

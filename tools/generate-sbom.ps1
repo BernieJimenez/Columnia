@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$OutputPath
 )
 
@@ -120,7 +120,7 @@ function New-Component {
     $Component
 }
 
-$PackageManifest = Get-Content -LiteralPath $PackageManifestPath -Raw | ConvertFrom-Json
+$PackageManifest = Get-Content -Encoding UTF8 -LiteralPath $PackageManifestPath -Raw | ConvertFrom-Json
 $PackageLockEntriesJson = & node (Join-Path $PSScriptRoot "extract-package-lock-packages.mjs") $PackageLockPath
 if ($LASTEXITCODE -ne 0) {
     throw "No se pudo leer package-lock.json con el extractor Node.js."
@@ -129,8 +129,8 @@ if ($LASTEXITCODE -ne 0) {
 # array as one element, which left every npm package out of the SBOM.
 $ParsedPackageLockEntries = $PackageLockEntriesJson | ConvertFrom-Json
 $PackageLockEntries = @($ParsedPackageLockEntries)
-$CargoManifest = Get-Content -LiteralPath $CargoManifestPath -Raw
-$CargoLock = Get-Content -LiteralPath $CargoLockPath -Raw
+$CargoManifest = Get-Content -Encoding UTF8 -LiteralPath $CargoManifestPath -Raw
+$CargoLock = Get-Content -Encoding UTF8 -LiteralPath $CargoLockPath -Raw
 
 if ($CargoManifest -notmatch '(?ms)^\[package\]\s+.*?^name\s*=\s*"([^"]+)"') {
     throw "No se pudo leer el nombre del paquete Cargo."

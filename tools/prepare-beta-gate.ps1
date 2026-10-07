@@ -42,7 +42,7 @@ if ([string]::IsNullOrWhiteSpace($Branch)) {
     throw "La beta requiere una rama Git explicita; no se acepta HEAD separado."
 }
 
-$PackageManifest = Get-Content -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json
+$PackageManifest = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json
 $Version = [string]$PackageManifest.version
 $GateLabel = if ($Gate -eq "Gate1") { "Gate 1 - baseline V1" } else { "Gate 2 - shell de espacios" }
 $GateSlug = $Gate.ToLowerInvariant()
@@ -64,7 +64,7 @@ $FullReports = @(
 $AcceptedReport = $null
 foreach ($ReportFile in $FullReports) {
     try {
-        $Report = Get-Content -LiteralPath $ReportFile.FullName -Raw | ConvertFrom-Json
+        $Report = Get-Content -Encoding UTF8 -LiteralPath $ReportFile.FullName -Raw | ConvertFrom-Json
         if ($Report.schemaVersion -eq 1 -and
             $Report.profile -eq "Full" -and
             $Report.status -eq "passed" -and

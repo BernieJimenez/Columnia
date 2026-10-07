@@ -19,7 +19,7 @@ $Stamp = $StartedAt.ToString("yyyyMMddTHHmmssZ")
 # dry-run still verifies real artifacts), prints the plan first and marks the
 # report as a dry run. Use -SkipPackage to avoid building installers.
 $Profile = if ($SkipPackage) { "Release" } else { "Package" }
-$ProjectVersion = (Get-Content -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json).version
+$ProjectVersion = (Get-Content -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json).version
 $EvidenceRelativePath = ".local/validation/release-orchestration/$Stamp"
 $EvidenceDirectory = Join-Path $ProjectRoot ($EvidenceRelativePath -replace "/", "\")
 $SummaryPath = if ([string]::IsNullOrWhiteSpace($ReportPath)) {
@@ -142,9 +142,9 @@ $ForbiddenReleaseVariables = @(
 
 function Get-ReleaseVersionProblems {
     $problems = @()
-    $cargoVersion = (Select-String -LiteralPath (Join-Path $ProjectRoot "src-tauri\Cargo.toml") -Pattern '^version\s*=\s*"([^"]+)"' |
+    $cargoVersion = (Select-String -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "src-tauri\Cargo.toml") -Pattern '^version\s*=\s*"([^"]+)"' |
         Select-Object -First 1).Matches[0].Groups[1].Value
-    $tauriVersion = (Get-Content -LiteralPath (Join-Path $ProjectRoot "src-tauri	auri.conf.json") -Raw | ConvertFrom-Json).version
+    $tauriVersion = (Get-Content -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "src-tauri\tauri.conf.json") -Raw | ConvertFrom-Json).version
     if ($cargoVersion -ne $ProjectVersion) { $problems += "src-tauri/Cargo.toml tiene $cargoVersion" }
     if ($tauriVersion -and $tauriVersion -ne $ProjectVersion) { $problems += "src-tauri/tauri.conf.json tiene $tauriVersion" }
     return $problems
@@ -199,7 +199,7 @@ try {
         $UpdaterEvidence.endpoint = $UpdaterEndpoint
         $UpdaterEvidence.assetBaseUrl = $UpdaterAssetBaseUrl
         New-Item -ItemType Directory -Path $EvidenceDirectory -Force | Out-Null
-        $TauriConfig = Get-Content -LiteralPath (Join-Path $ProjectRoot "src-tauri\tauri.conf.json") -Raw | ConvertFrom-Json
+        $TauriConfig = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "src-tauri\tauri.conf.json") -Raw | ConvertFrom-Json
         $TauriConfig.bundle.createUpdaterArtifacts = $true
         $TauriConfig.plugins.updater.endpoints = @($UpdaterEndpoint)
         $TauriConfig | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $UpdaterConfigPath -Encoding utf8
@@ -271,7 +271,7 @@ try {
                 $ManifestArguments += @("--notes-file", $UpdaterNotesPath)
             }
             & node @ManifestArguments
-            $UpdaterInventory = Get-Content -LiteralPath $UpdaterInventoryPath -Raw | ConvertFrom-Json
+            $UpdaterInventory = Get-Content -Encoding UTF8 -LiteralPath $UpdaterInventoryPath -Raw | ConvertFrom-Json
             # SEG-04: the release version and the host of the asset base URL.
             & node tools/check-updater-manifest.mjs --manifest $UpdaterManifestPath --inventory $UpdaterInventoryPath --expected-version $ProjectVersion --allowed-host ([Uri]$UpdaterAssetBaseUrl).Authority
             $UpdaterEvidence.status = $UpdaterInventory.status

@@ -203,6 +203,17 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Sondas y scripts de publicación: el filtro de privacidad del resumen Beta
+  detecta rutas UNC con cualquier host y ya no confunde una URL con una ruta; la
+  matriz incremental solo acepta pruebas #[test] activas y ejecuta cada una por
+  su nombre exacto exigiendo «1 passed»; el test de fixtures Beta se llama por
+  lo que comprueba (npm run beta:fixtures:check); la sonda de selectores nativos
+  sale con código 1 si el resultado no es passed y admite datasets de cualquier
+  número de columnas; los scripts de PowerShell con tildes llevan BOM y leen sus
+  archivos como UTF-8, de modo que Windows PowerShell 5.1 muestra «está» en
+  lugar de «estÃ¡»; release.ps1 vuelve a leer tauri.conf.json (la ruta tenía un
+  tabulador); el manifiesto del updater toma las notas de la sección ##
+  [versión] del CHANGELOG y falla si no existe.
 - Gates y SBOM: el SBOM vuelve a incluir los paquetes npm (en Windows PowerShell
   5.1 el JSON del extractor llegaba anidado y se descartaban todos) y marca con
   scope required lo que lleva el instalador de Windows y con excluded lo de

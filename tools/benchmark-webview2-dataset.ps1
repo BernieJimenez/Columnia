@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateRange(1, 500)]
     [int]$TargetMiB = 100,
     [ValidateRange(120, 900)]
@@ -109,7 +109,7 @@ function Read-CdpSummaryFromOutput {
     if (-not (Test-Path -LiteralPath $SummaryFile -PathType Leaf)) {
         return $null
     }
-    return Get-Content -LiteralPath $SummaryFile -Raw | ConvertFrom-Json
+    return Get-Content -Encoding UTF8 -LiteralPath $SummaryFile -Raw | ConvertFrom-Json
 }
 
 function Assert-PositiveNumber {

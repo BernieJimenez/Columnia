@@ -12,3 +12,8 @@ test("el probe solo usa %TEMP% para su carpeta temporal, que borra al terminar (
   assert.match(source, /rmSync\(temporaryDirectory, \{ recursive: true, force: true \}\)/);
   assert.doesNotMatch(source, /columnia-prepare-[\w-]+\.png/);
 });
+
+test("el código de salida sigue al estado del resultado y no exige 4 columnas (QA-54)", () => {
+  assert.match(source, /process\.exitCode = result\?\.status === "passed" \? 0 : 1;/);
+  assert.doesNotMatch(source, /columnCount === 4/);
+});

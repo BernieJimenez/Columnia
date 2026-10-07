@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateRange(1024, 65535)]
     [int]$Port = 9222,
     [ValidateRange(15, 900)]
@@ -586,7 +586,7 @@ function Invoke-NativeSelectorsProbe {
                             Stop-Process -Id $DriverProcess.Id -Force -ErrorAction SilentlyContinue
                         }
                         if (-not $DriverTimedOut -and (Test-Path -LiteralPath $DriverOutputPath -PathType Leaf)) {
-                            $DriverOutput = @(Get-Content -LiteralPath $DriverOutputPath)
+                            $DriverOutput = @(Get-Content -Encoding UTF8 -LiteralPath $DriverOutputPath)
                         }
                     }
                     catch {
@@ -661,7 +661,7 @@ function Invoke-NativeSelectorsProbe {
 
         $Output = @()
         if (Test-Path -LiteralPath $RunnerStdoutPath -PathType Leaf) {
-            $Output = @(Get-Content -LiteralPath $RunnerStdoutPath)
+            $Output = @(Get-Content -Encoding UTF8 -LiteralPath $RunnerStdoutPath)
         }
         $LastJsonLine = @($Output | Where-Object { ([string]$_).TrimStart().StartsWith("{") } | Select-Object -Last 1)
         if ($LastJsonLine.Count -eq 0) {
@@ -970,7 +970,7 @@ finally {
     } | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
     # ConvertTo-Json silently stringifies anything deeper than -Depth; keep the
     # evidence re-verifiable by flagging PowerShell object representations.
-    if ((Get-Content -LiteralPath $SummaryPath -Raw) -match 'System\.Object\[\]|"@\{') {
+    if ((Get-Content -Encoding UTF8 -LiteralPath $SummaryPath -Raw) -match 'System\.Object\[\]|"@\{') {
         Write-Warning "La evidencia $SummaryPath contiene objetos de PowerShell sin serializar; aumenta la profundidad de ConvertTo-Json."
     }
 }
