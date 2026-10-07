@@ -22,7 +22,15 @@ function Get-GitOutput {
     return ([string]::Join([Environment]::NewLine, @($output))).Trim()
 }
 
-$DirtyFiles = Get-GitOutput -Arguments @("status", "--porcelain")
+# QA-48: Windows PowerShell 5.1 writes a BOM with -Encoding utf8, which the
+# .mjs readers of these files would see as part of the text.
+function Write-Utf8NoBom {
+    param([string]$Path, [string]$Text)
+    [System.IO.File]::WriteAllText($Path, $Text, [System.Text.UTF8Encoding]::new($false))
+}
+
+# QA-48: untracked files count as dirty whatever status.showUntrackedFiles says.
+$DirtyFiles = Get-GitOutput -Arguments @("status", "--porcelain", "--untracked-files=all")
 if (-not [string]::IsNullOrWhiteSpace($DirtyFiles)) {
     throw "La beta requiere un arbol Git limpio. Registra o descarta los cambios antes de crear la RC."
 }
@@ -91,12 +99,12 @@ for ($Index = 1; $Index -le 3; $Index++) {
     $Session = $Session -replace '(?m)^(\| Versi.n de Columnia \|) ___ (\|)$', "`$1 $Version `$2"
     $Session = $Session -replace '(?m)^(\| Ronda de medici.n \|) .+ (\|)$', "`$1 $GateLabel `$2"
     $Session = $Session.Replace("| Release candidate | rc-___ |", "| Release candidate | $CandidateId |")
-    Set-Content -LiteralPath (Join-Path $SessionDirectory "session.md") -Value $Session -Encoding utf8
+    Write-Utf8NoBom (Join-Path $SessionDirectory "session.md") $Session
 }
 
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "docs\templates\beta-summary.md") -Destination (Join-Path $CandidateRoot "summary-draft.md")
 $ReportRelativePath = $AcceptedReport.FullName.Substring($ProjectRoot.Length + 1).Replace("\", "/")
-[ordered]@{
+$CandidateManifest = [ordered]@{
     schemaVersion = 1
     candidateId = $CandidateId
     gate = $Gate
@@ -112,7 +120,8 @@ $ReportRelativePath = $AcceptedReport.FullName.Substring($ProjectRoot.Length + 1
     }
     sessions = @("beta-01/session.md", "beta-02/session.md", "beta-03/session.md")
     status = "awaiting-human-sessions"
-} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $CandidateRoot "manifest.json") -Encoding utf8
+}
+Write-Utf8NoBom (Join-Path $CandidateRoot "manifest.json") ("$($CandidateManifest | ConvertTo-Json -Depth 4)" + [Environment]::NewLine)
 
 Write-Host "RC creada: $CandidateId"
 Write-Host "Commit: $Commit"

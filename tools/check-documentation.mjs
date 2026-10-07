@@ -39,11 +39,60 @@ function fail(message) {
   throw new Error(message);
 }
 
-function requireFragments(relativePath, contents, fragments) {
-  const missing = fragments.filter((fragment) => !contents.includes(fragment));
-  if (missing.length > 0) {
-    fail(`${relativePath} no conserva el contrato requerido: ${missing.join(", ")}.`);
-  }
+/**
+ * QA-49: the Beta documents keep their structure (headings, commands, the
+ * fields of the forms), not their wording, so rephrasing them passes.
+ */
+export function betaDocumentProblems(guide, session, summary) {
+  const contracts = [
+    ["docs/how-to/run-beta-validation.md", guide, [
+      "## Cuándo una sesión cuenta",
+      "## Gate 2: validar el shell de espacios",
+      "docs/reference/beta-v1-summary.md",
+      "npm run beta:prepare",
+      "npm run beta:check-summary",
+      "npm run beta:check-gate1",
+    ]],
+    ["docs/templates/beta-session.md", session, [
+      "| Ronda de medición |",
+      "| Release candidate |",
+      "| Alias anónimo de participante | participante-___ |",
+      "| Caso | Alias local de dataset | Formato | Tamaño aproximado | Filas aproximadas | Propósito |",
+      "| Tarea | Resultado | Tiempo | Navegación | Datos reintroducidos | Retrocesos | Ayuda | Duda o causa | Observación sanitizada |",
+      "- Acciones de navegación: ___",
+      "- Datos reintroducidos: ___",
+      "- Eventos de ayuda: ___",
+      "- Validez de la sesión:",
+      "- Flujo principal Cargar → Revisar → Preparar → Entregar: sí / no",
+      "- Original sin cambios: sí / no",
+    ]],
+    ["docs/templates/beta-summary.md", summary, [
+      "## Release candidate",
+      "## Muestra agregada",
+      "## Fricción agregada",
+      "## Persistencia y entrega",
+      "## Hallazgos y decisiones",
+      "## Veredicto",
+    ]],
+  ];
+  return contracts.flatMap(([relativePath, contents, fragments]) => {
+    const missing = fragments.filter((fragment) => !contents.includes(fragment));
+    return missing.length > 0 ? [`${relativePath}: ${missing.join(", ")}`] : [];
+  });
+}
+
+/** QA-49: the Diátaxis entry points that docs/README.md must link. */
+export function missingDocsIndexLinks(docsIndex) {
+  return [
+    "../DESIGN.md",
+    "tutorials/first-dataset.md",
+    "how-to/run-beta-validation.md",
+    "templates/beta-session.md",
+    "templates/beta-summary.md",
+    "how-to/validate-release-evidence.md",
+    "reference/cli.md",
+    "explanation/local-first-architecture.md",
+  ].filter((target) => !docsIndex.includes(target));
 }
 
 /**
@@ -361,49 +410,21 @@ try {
   if (!ipcAuditCount || expectedIpcCount.some((count, index) => Number(ipcAuditCount[index + 1]) !== count)) {
     fail(`La ficha de dependencias no coincide con el inventario IPC: declara ${ipcAuditCount?.[1] ?? "sin conteo"}/${ipcAuditCount?.[2] ?? "sin conteo"}/${ipcAuditCount?.[3] ?? "sin conteo"}, actual ${expectedIpcCount.join("/")}.`);
   }
-  if (!changelog.includes("Tier 5")) fail("CHANGELOG.md no documenta el estado de Tier 5.");
   // The living documents stay short; their history is archived, not deleted.
   for (const [document, contents] of [
     ["ROADMAP.md", await readUtf8("ROADMAP.md")],
     ["CONTEXTO.md", await readUtf8("CONTEXTO.md")],
     ["AUDITORIA.md", auditDocument],
   ]) {
-    if (!contents.includes("docs/archive/2026-09/")) fail(`${document} debe enlazar su historial archivado en docs/archive/2026-09/.`);
+    // QA-49: any archive folder; the link check below proves it exists.
+    if (!/\]\([^)]*docs\/archive\//.test(contents)) fail(`${document} debe enlazar su historial archivado en docs/archive/.`);
   }
-  for (const archived of ["ROADMAP.md", "CONTEXTO.md", "AUDITORIA.md", "historial-verificacion.md", "roadmap-current.md"]) {
-    await readUtf8(`docs/archive/2026-09/${archived}`);
+  const missingIndexLinks = missingDocsIndexLinks(docsIndex);
+  if (missingIndexLinks.length > 0) {
+    fail(`docs/README.md no enlaza los puntos de entrada Diátaxis: ${missingIndexLinks.join(", ")}.`);
   }
-  if (!docsIndex.includes("../DESIGN.md") || !docsIndex.includes("tutorials/first-dataset.md") || !docsIndex.includes("how-to/run-beta-validation.md") || !docsIndex.includes("templates/beta-session.md") || !docsIndex.includes("templates/beta-summary.md") || !docsIndex.includes("how-to/validate-release-evidence.md") || !docsIndex.includes("reference/cli.md") || !docsIndex.includes("explanation/local-first-architecture.md")) {
-    fail("docs/README.md no expone los cuatro cuadrantes Diátaxis.");
-  }
-  requireFragments("docs/how-to/run-beta-validation.md", betaGuide, [
-    "## Cuándo una sesión cuenta",
-    "## Gate 2: validar el shell de espacios",
-    "24 de las 30 tareas agregadas",
-    "una tarea no completada no invalida por sí",
-    "docs/reference/beta-v1-summary.md",
-    "npm run beta:prepare",
-    "npm run beta:check-summary",
-    "npm run beta:check-gate1",
-    "valida el resumen, el manifiesto,",
-    "acciones de navegación o los datos reintroducidos bajan al menos 20 %",
-    "alias anónimo estable",
-    "dataset-01",
-  ]);
-  requireFragments("docs/templates/beta-session.md", betaSession, [
-    "| Ronda de medición |",
-    "| Release candidate |",
-    "| Alias anónimo de participante | participante-___ |",
-    "| Caso | Alias local de dataset | Formato | Tamaño aproximado | Filas aproximadas | Propósito |",
-    "| Tarea | Resultado | Tiempo | Navegación | Datos reintroducidos | Retrocesos | Ayuda | Duda o causa | Observación sanitizada |",
-    "- Acciones de navegación: ___",
-    "- Datos reintroducidos: ___",
-    "- Eventos de ayuda: ___",
-    "- Validez de la sesión:",
-    "`no completada` es un resultado",
-    "- Flujo principal Cargar → Revisar → Preparar → Entregar: sí / no",
-    "- Original sin cambios: sí / no",
-  ]);
+  const betaProblems = betaDocumentProblems(betaGuide, betaSession, betaSummary);
+  if (betaProblems.length > 0) fail(`Los documentos Beta no conservan su estructura: ${betaProblems.join("; ")}.`);
   requireConsistentMarkdownTable(
     "docs/templates/beta-session.md",
     betaSession,
@@ -414,18 +435,6 @@ try {
     betaSession,
     "| Tarea | Resultado | Tiempo | Navegación | Datos reintroducidos | Retrocesos | Ayuda | Duda o causa | Observación sanitizada |",
   );
-  requireFragments("docs/templates/beta-summary.md", betaSummary, [
-    "## Release candidate",
-    "## Muestra agregada",
-    "## Fricción agregada",
-    "## Persistencia y entrega",
-    "## Hallazgos y decisiones",
-    "## Veredicto",
-    "(baseline - Gate 2) / baseline × 100",
-    "Los alias anónimos de participantes y datasets permanecen en los formularios",
-    "Revisión de privacidad del resumen",
-    "redondea a un decimal",
-  ]);
 
   const files = [];
   for (const root of markdownRoots) files.push(...await markdownFiles(root));

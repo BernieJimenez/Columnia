@@ -203,6 +203,15 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Gates y SBOM: el SBOM vuelve a incluir los paquetes npm (en Windows PowerShell
+  5.1 el JSON del extractor llegaba anidado y se descartaban todos) y marca con
+  scope required lo que lleva el instalador de Windows y con excluded lo de
+  desarrollo y otras plataformas; la batería de ida y vuelta cuenta como fallida
+  una sonda que solo sale con código distinto de cero; la preparación de la RC
+  Beta escribe UTF-8 sin BOM y cuenta los archivos sin seguimiento; el gate de
+  documentación comprueba la estructura de los documentos Beta y no su
+  redacción; el contrato del updater cubre otra clave pública y un SHA distinto
+  con firma válida, y se ejecuta también con node --test.
 - Gates y herramientas más estrictos: el updater verifica la firma del
   comentario de confianza y la política de claves exige textos no vacíos; el
   probe de selectores ya no deja capturas ni Parquet con datos del usuario en

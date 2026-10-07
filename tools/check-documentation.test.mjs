@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import {
+  betaDocumentProblems,
+  missingDocsIndexLinks,
   parseCargoDependencies,
   validateChangelogVersion,
   validateDependencySnapshot,
@@ -141,4 +144,24 @@ test("lee tablas de dependencia, workspace y git/path, y descarta el workspace (
     polars: "0.55.2",
     windows: "0.61",
   });
+});
+
+const readDoc = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+
+test("reformular la prosa Beta no rompe el gate, quitar su estructura sí (QA-49)", () => {
+  const guide = readDoc("docs/how-to/run-beta-validation.md");
+  const session = readDoc("docs/templates/beta-session.md");
+  const summary = readDoc("docs/templates/beta-summary.md");
+  assert.deepEqual(betaDocumentProblems(guide, session, summary), []);
+  const rephrased = guide.replace("24 de las 30 tareas agregadas", "al menos el 80 % de las tareas").replace("dataset-01", "conjunto-a");
+  assert.deepEqual(betaDocumentProblems(rephrased, session, summary), []);
+  const problems = betaDocumentProblems(guide.replace("## Cuándo una sesión cuenta", "## Validez"), session, summary);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /run-beta-validation\.md: ## Cuándo una sesión cuenta/);
+});
+
+test("el índice de docs nombra el enlace Diátaxis que falta (QA-49)", () => {
+  const index = readDoc("docs/README.md");
+  assert.deepEqual(missingDocsIndexLinks(index), []);
+  assert.deepEqual(missingDocsIndexLinks(index.replaceAll("reference/cli.md", "reference/otro.md")), ["reference/cli.md"]);
 });

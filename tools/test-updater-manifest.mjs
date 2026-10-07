@@ -204,6 +204,20 @@ try {
   );
   writeFileSync(signaturePath, originalSignature, "utf8");
 
+  // QA-50: a valid signature from another key, and an inventory hash that
+  // does not match the artifact, both fail.
+  const otherKey = createEphemeralMinisignKey();
+  expectFailure(
+    runNode(checkerPath, checkerArgs().map((value) => value === signingFixture.encodedPublicKey ? otherKey.encodedPublicKey : value)),
+    "Clave pública distinta",
+  );
+  const shaInventory = JSON.parse(originalInventory);
+  shaInventory.artifact.sha256 = "0".repeat(64);
+  writeJson(inventoryPath, shaInventory);
+  expectFailure(runNode(checkerPath, checkerArgs()), "SHA del inventario distinto con firma válida");
+  writeFileSync(inventoryPath, originalInventory, "utf8");
+  expectSuccess(runNode(checkerPath, checkerArgs()), "Contrato restaurado");
+
   const incompleteManifest = JSON.parse(originalManifest);
   delete incompleteManifest.platforms;
   writeJson(manifestPath, incompleteManifest);
@@ -228,7 +242,7 @@ try {
     fail("El fixture generado no conserva el hash del artefacto.");
   }
 
-  console.log("Contrato updater aprobado: válido, versión distinta, host ajeno, clave sustituida, truncado, firma o comentario de confianza alterados, política de claves incompleta, manifiesto incompleto/corrupto y URL insegura.");
+  console.log("Contrato updater aprobado: válido, versión distinta, host ajeno, clave sustituida, truncado, firma o comentario de confianza alterados, otra clave, SHA distinto, política de claves incompleta, manifiesto incompleto/corrupto y URL insegura.");
 } finally {
   rmSync(fixtureRoot, { recursive: true, force: true });
 }

@@ -94,7 +94,9 @@ function New-Component {
         [string]$Ecosystem,
         [string]$Name,
         [string]$Version,
-        [object[]]$Hashes
+        [object[]]$Hashes,
+        [ValidateSet("required", "excluded")]
+        [string]$Scope
     )
 
     $Purl = Get-Purl $Ecosystem $Name $Version
@@ -103,6 +105,7 @@ function New-Component {
         "bom-ref" = $Purl
         name = $Name
         version = $Version
+        scope = $Scope
         purl = $Purl
         properties = @(
             [ordered]@{
@@ -122,7 +125,10 @@ $PackageLockEntriesJson = & node (Join-Path $PSScriptRoot "extract-package-lock-
 if ($LASTEXITCODE -ne 0) {
     throw "No se pudo leer package-lock.json con el extractor Node.js."
 }
-$PackageLockEntries = @($PackageLockEntriesJson | ConvertFrom-Json)
+# LIM-14: in Windows PowerShell 5.1, @(... | ConvertFrom-Json) wraps the whole
+# array as one element, which left every npm package out of the SBOM.
+$ParsedPackageLockEntries = $PackageLockEntriesJson | ConvertFrom-Json
+$PackageLockEntries = @($ParsedPackageLockEntries)
 $CargoManifest = Get-Content -LiteralPath $CargoManifestPath -Raw
 $CargoLock = Get-Content -LiteralPath $CargoLockPath -Raw
 
@@ -138,6 +144,20 @@ if ($PackageManifest.name -ne $CargoProjectName -or $PackageManifest.version -ne
     throw "Los manifiestos npm y Cargo no identifican la misma versión del proyecto."
 }
 
+# LIM-14: "required" is what the Windows installer carries: npm packages outside
+# development and the crates `cargo tree` builds for x86_64-pc-windows-msvc
+# with normal edges. Development tooling and other platforms are "excluded".
+$DistributedCrates = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+$CargoTree = & cargo tree --manifest-path $CargoManifestPath --locked --target x86_64-pc-windows-msvc -e normal --prefix none -f "{p}" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    throw "cargo tree no pudo listar las dependencias distribuidas."
+}
+foreach ($Line in $CargoTree) {
+    if ($Line -match '^(\S+) v(\S+)') {
+        [void]$DistributedCrates.Add("$($Matches[1])|$($Matches[2])")
+    }
+}
+
 $ComponentsByKey = @{}
 foreach ($Entry in $PackageLockEntries) {
     if ([string]::IsNullOrEmpty($Entry.path)) {
@@ -151,7 +171,11 @@ foreach ($Entry in $PackageLockEntries) {
     $Key = "npm|$Name|$Version"
     if (-not $ComponentsByKey.ContainsKey($Key)) {
         $Hashes = Convert-IntegrityHashes $Entry.integrity
-        $ComponentsByKey[$Key] = New-Component "npm" $Name $Version $Hashes
+        $Scope = if ($Entry.dev) { "excluded" } else { "required" }
+        $ComponentsByKey[$Key] = New-Component "npm" $Name $Version $Hashes $Scope
+    }
+    elseif (-not $Entry.dev) {
+        $ComponentsByKey[$Key].scope = "required"
     }
 }
 
@@ -180,7 +204,8 @@ foreach ($Block in ($CargoLock -split '(?m)^\[\[package\]\]\s*$')) {
             }
         )
     }
-    $ComponentsByKey[$Key] = New-Component "cargo" $Name $Version $Hashes
+    $Scope = if ($DistributedCrates.Contains("$Name|$Version")) { "required" } else { "excluded" }
+    $ComponentsByKey[$Key] = New-Component "cargo" $Name $Version $Hashes $Scope
 }
 
 $ComponentKeys = [string[]]@($ComponentsByKey.Keys)

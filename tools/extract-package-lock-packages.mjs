@@ -15,6 +15,9 @@ const packageNameFromLockPath = (path) => {
 const packages = Object.entries(lock.packages ?? {})
   .filter(([path, value]) => path && value && value.version)
   .map(([path, value]) => ({
+    // LIM-14: the SBOM needs the lock path and whether only development uses it.
+    path,
+    dev: value.dev === true || value.devOptional === true,
     name: packageNameFromLockPath(path),
     version: String(value.version),
     license: value.license ?? "UNKNOWN",

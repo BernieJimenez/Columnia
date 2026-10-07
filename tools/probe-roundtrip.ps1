@@ -3,21 +3,24 @@
 # announced differs from what the resulting data shows. Columnia must be closed.
 param(
     [ValidateRange(60, 900)]
-    [int]$TimeoutSeconds = 600
+    [int]$TimeoutSeconds = 600,
+    # QA-47: the contract test swaps in a stand-in probe and its own fixtures.
+    [string]$ProbePath = (Join-Path $PSScriptRoot "probe-webview2-cdp.ps1"),
+    [string]$FixtureDirectory = (Join-Path (Split-Path -Parent $PSScriptRoot) "fixtures\roundtrip")
 )
 
 $ErrorActionPreference = "Stop"
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
-$Probe = Join-Path $PSScriptRoot "probe-webview2-cdp.ps1"
-$Fixtures = Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "fixtures\roundtrip") -Filter "*.csv" | Sort-Object Name
+$Fixtures = @(Get-ChildItem -LiteralPath $FixtureDirectory -Filter "*.csv" | Sort-Object Name)
 $Failed = @()
 
 foreach ($Fixture in $Fixtures) {
     Write-Host "Ida y vuelta: $($Fixture.Name)"
     # One failing fixture must not hide the result of the others.
     try {
-        & $Probe -RunNativeSelectors -RunPrepareFlow -NativeDatasetPath $Fixture.FullName -TimeoutSeconds $TimeoutSeconds
-        if (-not $?) {
+        # QA-47: a probe that only sets its exit code also counts as failed.
+        $global:LASTEXITCODE = 0
+        & $ProbePath -RunNativeSelectors -RunPrepareFlow -NativeDatasetPath $Fixture.FullName -TimeoutSeconds $TimeoutSeconds
+        if (-not $? -or $LASTEXITCODE -ne 0) {
             $Failed += $Fixture.Name
         }
     }
