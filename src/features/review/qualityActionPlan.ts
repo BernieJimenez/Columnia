@@ -36,7 +36,7 @@ export function buildQualityActionPlan(counts: QualityActionCounts): QualityActi
     plan.push({
       target: "duplicates",
       title: "Filas duplicadas exactas",
-      explanation: `${counts.duplicateCount === 1 ? "1 fila adicional coincide" : `${counts.duplicateCount.toLocaleString()} filas adicionales coinciden`} con otra fila en todas las columnas.`,
+      explanation: `${plural(counts.duplicateCount, "fila adicional coincide", "filas adicionales coinciden")} con otra fila en todas las columnas.`,
       impact: "Retirarlas puede evitar doble conteo; confirma que las repeticiones no representen eventos distintos. La primera fila se conserva y el cambio se puede deshacer.",
       actionLabel: "Revisar duplicados exactos",
     });
@@ -45,7 +45,7 @@ export function buildQualityActionPlan(counts: QualityActionCounts): QualityActi
     plan.push({
       target: "incompatibleTypes",
       title: "Valores incompatibles con el tipo sugerido",
-      explanation: `${counts.invalidTypeCount === 1 ? "1 celda no coincide" : `${counts.invalidTypeCount.toLocaleString()} celdas no coinciden`} con un tipo sugerido por el perfil.`,
+      explanation: `${plural(counts.invalidTypeCount, "celda no coincide", "celdas no coinciden")} con un tipo sugerido por el perfil.`,
       impact: "Apartar valores como nulos puede ocultar códigos o excepciones válidas. Revisa la sugerencia y su confirmación antes de aplicar el cambio reversible.",
       actionLabel: "Revisar tipos incompatibles",
     });
