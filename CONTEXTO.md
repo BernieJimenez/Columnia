@@ -445,7 +445,7 @@ npm run verify:tier
 | Fast | `cargo fmt --check`, `cargo check`, Vitest, build TypeScript/Vite y presupuesto frontend |
 | Full | Fast + Clippy con warnings como errores + pruebas Rust de biblioteca |
 | Release | Full + SBOM CycloneDX reproducible + build Tauri optimizado sin bundle |
-| Package | Release + MSI/NSIS en Windows + inventario diferencial con tamaño y SHA-256 + smoke del instalador NSIS |
+| Package | Release + instalador NSIS por usuario en Windows + inventario diferencial con tamaño y SHA-256 + smoke del instalador NSIS |
 
 Después de generar evidencia, `npm run accessibility:check` valida el contrato
 visual versionado y el SHA-256 de cada captura. `npm run perf:check` compara la

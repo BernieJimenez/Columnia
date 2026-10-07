@@ -12,6 +12,7 @@
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "process-tree.psm1") -Force
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $PSScriptRoot "performance-matrix.psm1") -Force
 $TauriRoot = Join-Path $ProjectRoot "src-tauri"
@@ -180,7 +181,8 @@ function Invoke-MeasuredCli {
             $PeakWorkingSetBytes = [math]::Max($PeakWorkingSetBytes, [int64]$Process.WorkingSet64)
             $PeakCommandWorkspaceDiskBytes = [math]::Max($PeakCommandWorkspaceDiskBytes, (Get-WorkspaceDiskBytes))
             if ($Stopwatch.Elapsed.TotalSeconds -gt $TimeoutSeconds) {
-                try { $Process.Kill($true) } catch { $Process.Kill() }
+                # OPS-21: the whole tree, including the columnia_lib test binary.
+                Stop-ProcessTree $Process
                 throw "$Name excedió el timeout de $TimeoutSeconds segundos."
             }
             Start-Sleep -Milliseconds 25
@@ -284,7 +286,8 @@ function Invoke-CancellationBenchmark {
     try {
         while (-not $Process.HasExited) {
             if ($Stopwatch.Elapsed.TotalSeconds -gt $TimeoutSeconds) {
-                try { $Process.Kill($true) } catch { $Process.Kill() }
+                # OPS-21: the whole tree, including the columnia_lib test binary.
+                Stop-ProcessTree $Process
                 throw "La medición de cancelación excedió el timeout de $TimeoutSeconds segundos."
             }
             Start-Sleep -Milliseconds 25

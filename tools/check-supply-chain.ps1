@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "supply-chain.psm1") -Force
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $TauriRoot = Join-Path $ProjectRoot "src-tauri"
 $ProjectRootUri = [Uri]::new("$ProjectRoot\")
@@ -74,12 +75,13 @@ try {
     }
     else {
         $CargoAuditPath = Join-Path $EvidenceDirectory "cargo-audit.json"
-        $Results.cargoAudit = Run-JsonCommand "cargo audit" "cargo.exe" @(
-            "audit",
-            "--json",
-            "--ignore", "RUSTSEC-2026-0194",
-            "--ignore", "RUSTSEC-2026-0195"
-        ) $TauriRoot $CargoAuditPath
+        # OPS-17: the same exceptions, each with its reason, as deny.toml.
+        $DenyToml = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $TauriRoot "deny.toml") -Raw
+        $AuditArguments = @("audit", "--json")
+        foreach ($Advisory in (Get-DenyIgnoredAdvisories $DenyToml)) {
+            $AuditArguments += @("--ignore", $Advisory)
+        }
+        $Results.cargoAudit = Run-JsonCommand "cargo audit" "cargo.exe" $AuditArguments $TauriRoot $CargoAuditPath
         if ($Results.cargoAudit.status -ne "passed") { throw "cargo audit falló. Evidencia: $(Relative-Path $CargoAuditPath)" }
         $CargoAuditStdoutPath = Join-Path $EvidenceDirectory "cargo-audit.stdout.txt"
         try {
@@ -127,13 +129,15 @@ catch {
 
 # OPS-01: the overall status comes from the partial results, and the summary
 # is written whether the run passed or not.
-$FailedChecks = @($Results.Keys | Where-Object { $Results[$_].status -eq "failed" })
-$OverallStatus = if ($null -eq $FailureMessage -and $FailedChecks.Count -eq 0) { "passed" } else { "failed" }
+$Overall = Get-SupplyChainStatus $Results $FailureMessage
+$OverallStatus = $Overall.status
+$FailedChecks = $Overall.failedChecks
 
 $Document = [ordered]@{
     schemaVersion = 1
     status = $OverallStatus
     failedChecks = $FailedChecks
+    skippedChecks = $Overall.skippedChecks
     failure = $FailureMessage
     requireAuditTools = [bool]$RequireAuditTools
     generatedAt = [DateTimeOffset]::UtcNow.ToString("o")
@@ -142,6 +146,11 @@ $Document = [ordered]@{
 }
 $SummaryPath = Join-Path $EvidenceDirectory "summary.json"
 $Document | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
+if ($OverallStatus -eq "passed-with-skips") {
+    # OPS-17: not a failure without -RequireAuditTools, but never worded as a full pass.
+    Write-Host "Supply chain aprobado con omisiones: $($Overall.skippedChecks -join ', ') no se ejecutó. Evidencia: $(Relative-Path $SummaryPath)"
+    exit 0
+}
 if ($OverallStatus -ne "passed") {
     $Reason = if ($null -ne $FailureMessage) { $FailureMessage } else { "fallaron: $($FailedChecks -join ', ')" }
     Write-Error "Supply chain falló: $Reason Evidencia: $(Relative-Path $SummaryPath)" -ErrorAction Continue

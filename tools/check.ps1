@@ -8,6 +8,7 @@
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "git-state.psm1") -Force
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $TauriRoot = Join-Path $ProjectRoot "src-tauri"
 $StartedAt = [DateTimeOffset]::UtcNow
@@ -18,7 +19,7 @@ $FailureMessage = $null
 $Commit = (git -C $ProjectRoot rev-parse HEAD).Trim()
 $ShortCommit = (git -C $ProjectRoot rev-parse --short HEAD).Trim()
 $Branch = (git -C $ProjectRoot branch --show-current).Trim()
-$TreeDirty = @(git -C $ProjectRoot status --porcelain).Count -gt 0
+$TreeDirty = @(git -C $ProjectRoot status --porcelain --untracked-files=all).Count -gt 0
 $ProjectVersion = (Get-Content -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json).version
 $RunStamp = $StartedAt.ToString("yyyyMMddTHHmmssZ")
 $ReleaseLike = $Profile -in @("Release", "Package")
@@ -344,6 +345,9 @@ try {
         $PackageArtifactsEvidence.sha256 = Get-Sha256 $PackageArtifactsPath
         $PackageArtifactsEvidence.artifactCount = @($PackageArtifactsDocument.artifacts).Count
         $PackageArtifactsEvidence.artifacts = @($PackageArtifactsDocument.artifacts)
+        # OPS-20: this smoke installs Columnia for the current user, so it
+        # writes to this machine's HKCU and %LOCALAPPDATA% like a real install.
+        Write-Host "El smoke del instalador instala Columnia en este usuario (HKCU y %LOCALAPPDATA%)."
         Invoke-Checked "Installed artifact smoke" $ProjectRoot {
             $NsisInstallerPath = Join-Path $TauriRoot "target\release\bundle\nsis\Columnia_$($ProjectVersion)_x64-setup.exe"
             if (-not (Test-Path -LiteralPath $NsisInstallerPath -PathType Leaf)) {
@@ -407,11 +411,7 @@ finally {
         startedAt = $StartedAt.ToString("o")
         finishedAt = [DateTimeOffset]::UtcNow.ToString("o")
         durationMs = $RunTimer.ElapsedMilliseconds
-        git = [ordered]@{
-            commit = $Commit
-            branch = $Branch
-            dirty = $TreeDirty
-        }
+        git = Get-RunGitState -Root $ProjectRoot -StartCommit $Commit -Branch $Branch -StartDirty $TreeDirty
         tools = $ToolVersions
         environment = $RuntimeEnvironment
         lockfiles = $LockfileFingerprints

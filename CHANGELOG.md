@@ -205,6 +205,18 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Instalador y scripts de publicación: solo se genera el instalador NSIS por
+  usuario y en español (el MSI instalaba por máquina y en inglés), y el contrato
+  del instalador lo exige; las excepciones de cargo audit salen de deny.toml con
+  su motivo y el resumen de supply chain dice «aprobado con omisiones» cuando
+  falta una herramienta; release.ps1 documenta que -DryRun no es una simulación,
+  al fallar imprime «Reporte: …» y sale con 1, parte cada paso de un código de
+  salida limpio y comprueba el generador del manifiesto; el reporte de check.ps1
+  vuelve a leer git al terminar y marca dirty si el árbol o el commit cambiaron
+  durante el gate, y avisa de que el smoke del instalador escribe en HKCU; los
+  benchmarks terminan todo el árbol de procesos al vencer el tiempo, informan
+  primero del código de salida, leen las fechas sin desplazarlas en PowerShell 7
+  y nombran la evidencia ilegible.
 - Sondas y scripts de publicación: el filtro de privacidad del resumen Beta
   detecta rutas UNC con cualquier host y ya no confunde una URL con una ruta; la
   matriz incremental solo acepta pruebas #[test] activas y ejecuta cada una por

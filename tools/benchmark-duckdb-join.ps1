@@ -6,6 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "process-tree.psm1") -Force
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $StartedAt = [DateTimeOffset]::UtcNow
 $Timestamp = $StartedAt.ToString("yyyyMMddTHHmmssZ")
@@ -96,7 +97,8 @@ try {
                         )
                     }
                 if ($Stopwatch.Elapsed.TotalSeconds -gt $TimeoutSeconds) {
-                    try { $Process.Kill($true) } catch { $Process.Kill() }
+                    # OPS-21: the whole tree, including the columnia_lib test binary.
+                    Stop-ProcessTree $Process
                     throw "El benchmark DuckDB excedió el timeout de $TimeoutSeconds segundos."
                 }
                 Start-Sleep -Milliseconds 25
@@ -139,6 +141,11 @@ try {
         ($Stdout -split "\r?\n")
         ($Stderr -split "\r?\n")
     )
+    # OPS-21: a build error or a panic is reported as such, not as a missing metric.
+    if ($ExitCode -ne 0) {
+        $Tail = (@($Output | Where-Object { $_ }) | Select-Object -Last 15) -join [Environment]::NewLine
+        throw "El test de escala terminó con código $ExitCode.$([Environment]::NewLine)$Tail"
+    }
     $Marker = $Output |
         Where-Object { $_ -match '^DUCKDB_JOIN_BENCHMARK:(?<json>\{.*\})$' } |
         Select-Object -Last 1
@@ -146,9 +153,6 @@ try {
         throw "El benchmark no emitió la métrica DUCKDB_JOIN_BENCHMARK."
     }
     $Metrics = ($Marker -replace '^DUCKDB_JOIN_BENCHMARK:', '') | ConvertFrom-Json
-    if ($ExitCode -ne 0) {
-        throw "El test de escala terminó con código $ExitCode."
-    }
     if ([int64]$Metrics.fileSizeBytes -lt $TargetBytes) {
         throw "La fuente generada quedó por debajo de $TargetMiB MiB."
     }

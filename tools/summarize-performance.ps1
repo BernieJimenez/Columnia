@@ -36,7 +36,12 @@ function Get-ObservedAt {
 
     if ($null -ne $Document.startedAt) {
         try {
-            return [DateTimeOffset]::Parse([string]$Document.startedAt).ToUniversalTime()
+            # OPS-21: PowerShell 7 already turns the text into a DateTime, and
+            # [string] would drop its offset and read it as local time.
+            if ($Document.startedAt -is [DateTime]) {
+                return [DateTimeOffset]$Document.startedAt.ToUniversalTime()
+            }
+            return [DateTimeOffset]::Parse([string]$Document.startedAt, [Globalization.CultureInfo]::InvariantCulture).ToUniversalTime()
         }
         catch {
         }
@@ -282,9 +287,12 @@ $CategorySamples = [ordered]@{
 $EvidenceFiles = Get-ChildItem -LiteralPath $ValidationRoot -Recurse -File -Filter "summary.json" |
     Where-Object { $_.FullName -notlike "$OutputDirectory\*" }
 
+$UnreadableEvidence = @()
 foreach ($EvidenceFile in $EvidenceFiles) {
     $Document = Get-Document -Path $EvidenceFile.FullName
     if ($null -eq $Document) {
+        # OPS-21: said at the end instead of being dropped in silence.
+        $UnreadableEvidence += Get-RelativeEvidencePath -Path $EvidenceFile.FullName
         continue
     }
 
@@ -366,6 +374,9 @@ New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $Output | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $JsonPath -Encoding utf8
 @($CsvRows) | ConvertTo-Csv -NoTypeInformation | Set-Content -LiteralPath $CsvPath -Encoding utf8
 
+if ($UnreadableEvidence.Count -gt 0) {
+    Write-Host "Evidencia ilegible omitida ($($UnreadableEvidence.Count)): $($UnreadableEvidence -join ', ')"
+}
 Write-Host "Resumen de rendimiento generado: .local/validation/performance-summary/summary.json"
 Write-Host "CSV generado: .local/validation/performance-summary/summary.csv"
 foreach ($Category in @($CategoryOutput)) {

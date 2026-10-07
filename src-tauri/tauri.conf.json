@@ -49,7 +49,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": false,
-    "targets": ["msi", "nsis"],
+    "targets": ["nsis"],
     "resources": [
       "../LICENSE",
       "../THIRD_PARTY_NOTICES.md"
@@ -68,7 +68,8 @@
         "type": "downloadBootstrapper"
       },
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "languages": ["Spanish"]
       }
     }
   },

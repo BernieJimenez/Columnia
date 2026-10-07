@@ -204,7 +204,9 @@ try {
 }
 catch {
     $message = $_.Exception.Message
-    Write-Error $message
+    # OPS-18: Write-Error under Stop ended the script here, so the failed
+    # summary below was never written.
+    [Console]::Error.WriteLine($message)
     if (-not (Test-Path -LiteralPath $SummaryPath -PathType Leaf)) {
         [ordered]@{ schemaVersion = 1; captureVersion = 1; status = "failed"; source = "tauri-release-binary"; generatedAt = [DateTimeOffset]::UtcNow.ToString("o"); evidenceDirectory = $EvidenceRelativePath; error = $message } |
             ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $SummaryPath -Encoding utf8

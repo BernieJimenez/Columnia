@@ -53,7 +53,7 @@ try {
     Invoke-NpmStage "Benchmark WebView2 de dataset grande" @("run", "perf:webview2")
     Invoke-NpmStage "Resumen de rendimiento" @("run", "perf:summary")
 
-    # SkipPackage only skips the expensive MSI/NSIS bundling. Release still
+    # SkipPackage only skips the expensive NSIS bundling. Release still
     # executes Rust, coverage, Clippy, supply-chain, installer-contract and
     # the unbundled Tauri build.
     $CheckProfile = if ($SkipPackage) { "Release" } else { "Package" }
@@ -78,6 +78,7 @@ try {
     Write-Host "`nTier verificado correctamente en $Duration minutos."
 }
 catch {
-    Write-Error "Verificación del tier falló: $($_.Exception.Message)"
+    # OPS-18: Write-Error under Stop would end the script before `exit 1`.
+    [Console]::Error.WriteLine("Verificación del tier falló: $($_.Exception.Message)")
     exit 1
 }

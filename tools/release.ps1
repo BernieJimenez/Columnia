@@ -1,4 +1,17 @@
-﻿[CmdletBinding()]
+﻿<#
+.SYNOPSIS
+Runs the local release gates. It never creates tags or publishes anything.
+
+.PARAMETER DryRun
+Not side-effect free (OPS-18): it runs the same gates as a real run, builds
+the installers unless -SkipPackage is given, and its smokes open the app and
+write to the real local store (HKCU and %APPDATA%). It only marks the report
+as a dry run and prints the plan first.
+
+.PARAMETER SkipPackage
+Skips building installers (profile Release instead of Package).
+#>
+[CmdletBinding()]
 param(
     [switch]$DryRun,
     [switch]$SkipPackage,
@@ -71,6 +84,9 @@ function Invoke-ReleaseStep {
     try {
         Push-Location $ProjectRoot
         try {
+            # OPS-19: a block that does not end in a native command must not
+            # inherit the exit code of the previous step.
+            $global:LASTEXITCODE = 0
             & $Command
             if ($LASTEXITCODE -ne 0) {
                 throw "$Label terminó con código $LASTEXITCODE."
@@ -170,7 +186,7 @@ try {
         throw "El release requiere un árbol Git limpio; registra primero todos los cambios."
     }
     if ($DryRun) {
-        Write-Host "Plan de dry-run (sin tag ni publicación): Toolchains, Documentation, IPC inventory, perfil $Profile$(if ($Profile -eq 'Package') { ' con instaladores' } else { ' sin instaladores' }), smokes WebView2 y CLI, evidencia de accesibilidad, rendimiento$(if ($WithUpdater) { ' y manifiesto updater firmado' })."
+        Write-Host "Plan de dry-run (sin tag ni publicación): Toolchains, Documentation, IPC inventory, perfil $Profile$(if ($Profile -eq 'Package') { ' con instaladores' } else { ' sin instaladores' }), smokes WebView2 y CLI, evidencia de accesibilidad, rendimiento$(if ($WithUpdater) { ' y manifiesto updater firmado' }). No es una simulación: los smokes abren la app y escriben en el almacén local real."
     }
     if ($WithUpdater -and $SkipPackage) {
         throw "-WithUpdater requiere empaquetado; no puede combinarse con -SkipPackage."
@@ -271,9 +287,16 @@ try {
                 $ManifestArguments += @("--notes-file", $UpdaterNotesPath)
             }
             & node @ManifestArguments
+            # OPS-19: name the failing step instead of a missing inventory later.
+            if ($LASTEXITCODE -ne 0) {
+                throw "tools/generate-updater-manifest.mjs terminó con código $LASTEXITCODE."
+            }
             $UpdaterInventory = Get-Content -Encoding UTF8 -LiteralPath $UpdaterInventoryPath -Raw | ConvertFrom-Json
             # SEG-04: the release version and the host of the asset base URL.
             & node tools/check-updater-manifest.mjs --manifest $UpdaterManifestPath --inventory $UpdaterInventoryPath --expected-version $ProjectVersion --allowed-host ([Uri]$UpdaterAssetBaseUrl).Authority
+            if ($LASTEXITCODE -ne 0) {
+                throw "tools/check-updater-manifest.mjs terminó con código $LASTEXITCODE."
+            }
             $UpdaterEvidence.status = $UpdaterInventory.status
             $UpdaterEvidence.artifact = $UpdaterInventory.artifact
         }
@@ -292,7 +315,9 @@ catch {
     if ($WithUpdater -and $UpdaterEvidence.status -eq "pending") {
         $UpdaterEvidence.status = "failed"
     }
-    Write-Error "Orquestador de release: $FailureMessage"
+    # OPS-18: Write-Error under Stop would end the script here, before the
+    # report path and the explicit exit code below.
+    [Console]::Error.WriteLine("Orquestador de release: $FailureMessage")
 }
 finally {
     if ($null -eq $Git) {

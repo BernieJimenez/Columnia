@@ -56,7 +56,7 @@ npm run release:updater:dry-run
 ```
 
 `release:updater:dry-run` activa temporalmente `createUpdaterArtifacts`, ejecuta
-todos los gates de Package, produce MSI/NSIS y sus `.sig`, genera el manifiesto
+todos los gates de Package, produce el instalador NSIS y su `.sig`, genera el manifiesto
 estático y un inventario con SHA-256, y verifica el par instalador/firma. El
 reporte queda bajo `.local/validation/release-orchestration/`; no crea tags, no
 sube archivos y no contacta servicios de publicación. Para una actualización

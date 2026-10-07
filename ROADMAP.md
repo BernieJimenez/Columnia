@@ -509,14 +509,14 @@ medio = 1 día; agregado por suma.
   - [x] `QA-54` (Bajo) Rigidez y exit code de las sondas CDP — hecho el 2026-10-07
   - [x] `OPS-11` (Bajo) Los mensajes con tilde de los scripts salen ilegibles en Windows PowerShell 5.1 — hecho el 2026-10-07
   - [x] `OPS-12` (Bajo) release.ps1 genera el manifiesto del updater con las notas de `## [Unreleased]` salvo que se pase `-UpdaterNotesPath` — hecho el 2026-10-07
-- [ ] **RV99** — **Gates y scripts** — El MSI es por máquina y solo en inglés, mientras el contrato del instalador solo vigila e… (y 5 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV99** — **Gates y scripts** — El MSI es por máquina y solo en inglés, mientras el contrato del instalador solo vigila e… (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-07
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-14, OPS-17, OPS-18, OPS-19, OPS-20, OPS-21.
-  - [ ] `OPS-14` (Bajo) El MSI es por máquina y solo en inglés, mientras el contrato del instalador solo vigila el NSIS por usuario
-  - [ ] `OPS-17` (Bajo) check-supply-chain: avisos ignorados fijos en el script y herramientas «no disponibles» no bloquean fuera de release
-  - [ ] `OPS-18` (Bajo) release.ps1: `-DryRun` no se diferencia de una ejecución real y los fallos no imprimen la ruta del reporte
-  - [ ] `OPS-19` (Bajo) release.ps1: `$LASTEXITCODE` sin reiniciar y `node` del manifiesto sin comprobar
-  - [ ] `OPS-20` (Bajo) check.ps1: el reporte «passed» fija commit y árbol al inicio, y el perfil Package ejecuta el smoke del instalador sobre la máquina real
-  - [ ] `OPS-21` (Bajo) Benchmarks y resumen de rendimiento: cuatro fragilidades menores en 5.1 y en la evidencia acumulada
+  - [x] `OPS-14` (Bajo) El MSI es por máquina y solo en inglés, mientras el contrato del instalador solo vigila el NSIS por usuario — hecho el 2026-10-07
+  - [x] `OPS-17` (Bajo) check-supply-chain: avisos ignorados fijos en el script y herramientas «no disponibles» no bloquean fuera de release — hecho el 2026-10-07
+  - [x] `OPS-18` (Bajo) release.ps1: `-DryRun` no se diferencia de una ejecución real y los fallos no imprimen la ruta del reporte — hecho el 2026-10-07
+  - [x] `OPS-19` (Bajo) release.ps1: `$LASTEXITCODE` sin reiniciar y `node` del manifiesto sin comprobar — hecho el 2026-10-07
+  - [x] `OPS-20` (Bajo) check.ps1: el reporte «passed» fija commit y árbol al inicio, y el perfil Package ejecuta el smoke del instalador sobre la máquina real — hecho el 2026-10-07
+  - [x] `OPS-21` (Bajo) Benchmarks y resumen de rendimiento: cuatro fragilidades menores en 5.1 y en la evidencia acumulada — hecho el 2026-10-07
 - [ ] **RV100** — **Gates y scripts** — La sonda de proyectos en modo reinicio deja un proyecto y una tarea reutilizable en el al… (y 3 problemas más) · *Esfuerzo: 1 día*
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-22, DOC-11, DOC-13, LEG-02.
   - [ ] `OPS-22` (Bajo) La sonda de proyectos en modo reinicio deja un proyecto y una tarea reutilizable en el almacén real si no se completa la fase de verificación
