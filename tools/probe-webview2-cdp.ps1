@@ -62,6 +62,11 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot "app-data-guard.ps1")
 # Restart phases must share state across two launches; probe-webview2-restart.ps1
 # guards both phases, so only standalone runs guard the app data here.
+# OPS-22: a restart phase run on its own would leave its project and task in
+# the real store; it only runs while that wrapper's backup is pending.
+if ($ProjectProbeMode -ne "normal" -and -not (Test-Path -LiteralPath (Get-ColumniaAppDataGuardPointer) -PathType Leaf)) {
+    throw "Las fases $ProjectProbeMode se ejecutan con tools/probe-webview2-restart.ps1, que respalda y restaura los datos de Columnia."
+}
 $AppDataGuard = if ($ProjectProbeMode -eq "normal") { Backup-ColumniaAppData } else { $null }
 $AppDataRestored = $null
 $Timestamp = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssZ")

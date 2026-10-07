@@ -81,6 +81,16 @@ export function betaDocumentProblems(guide, session, summary) {
   });
 }
 
+/** DOC-11: README, CONTRIBUTING and SECURITY state the same contribution policy. */
+export const CONTRIBUTION_POLICY = "Columnia es un proyecto personal de su autor: se aceptan reportes de errores en los formularios del [repositorio](https://github.com/BernieJimenez/Columnia), no se aceptan pull requests externos";
+
+export function contributionPolicyProblems(documents) {
+  const flatten = (text) => text.replace(/\s+/g, " ");
+  return Object.entries(documents)
+    .filter(([, contents]) => !flatten(contents).includes(CONTRIBUTION_POLICY))
+    .map(([name]) => name);
+}
+
 /** QA-49: the Diátaxis entry points that docs/README.md must link. */
 export function missingDocsIndexLinks(docsIndex) {
   return [
@@ -419,6 +429,12 @@ try {
     // QA-49: any archive folder; the link check below proves it exists.
     if (!/\]\([^)]*docs\/archive\//.test(contents)) fail(`${document} debe enlazar su historial archivado en docs/archive/.`);
   }
+  const policyProblems = contributionPolicyProblems({
+    "README.md": readme,
+    "CONTRIBUTING.md": await readUtf8("CONTRIBUTING.md"),
+    "SECURITY.md": await readUtf8("SECURITY.md"),
+  });
+  if (policyProblems.length > 0) fail(`La política de contribución no coincide en: ${policyProblems.join(", ")}.`);
   const missingIndexLinks = missingDocsIndexLinks(docsIndex);
   if (missingIndexLinks.length > 0) {
     fail(`docs/README.md no enlaza los puntos de entrada Diátaxis: ${missingIndexLinks.join(", ")}.`);

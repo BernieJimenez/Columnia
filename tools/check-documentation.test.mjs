@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import {
   betaDocumentProblems,
+  contributionPolicyProblems,
   missingDocsIndexLinks,
   parseCargoDependencies,
   validateChangelogVersion,
@@ -164,4 +165,11 @@ test("el índice de docs nombra el enlace Diátaxis que falta (QA-49)", () => {
   const index = readDoc("docs/README.md");
   assert.deepEqual(missingDocsIndexLinks(index), []);
   assert.deepEqual(missingDocsIndexLinks(index.replaceAll("reference/cli.md", "reference/otro.md")), ["reference/cli.md"]);
+});
+
+test("README, CONTRIBUTING y SECURITY dicen lo mismo sobre contribuciones (DOC-11)", () => {
+  const documents = Object.fromEntries(["README.md", "CONTRIBUTING.md", "SECURITY.md"].map((name) => [name, readDoc(name)]));
+  assert.deepEqual(contributionPolicyProblems(documents), []);
+  const welcoming = { ...documents, "README.md": "Los reportes de errores y las mejoras son bienvenidos." };
+  assert.deepEqual(contributionPolicyProblems(welcoming), ["README.md"]);
 });

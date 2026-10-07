@@ -96,7 +96,7 @@ npm run legal:check
 
 ## Contribuir
 
-Los reportes de errores y las mejoras son bienvenidos. Lee [CONTRIBUTING.md](CONTRIBUTING.md) antes de enviar cambios y evita incluir datasets, rutas locales, credenciales o información personal.
+Columnia es un proyecto personal de su autor: se aceptan reportes de errores en los formularios del [repositorio](https://github.com/BernieJimenez/Columnia), no se aceptan pull requests externos y las vulnerabilidades se reportan por el canal privado de [SECURITY.md](SECURITY.md). Los detalles están en [CONTRIBUTING.md](CONTRIBUTING.md); no incluyas datasets, rutas locales, credenciales ni información personal en un reporte.
 
 ## Licencia
 

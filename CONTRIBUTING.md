@@ -1,8 +1,13 @@
 # Contribuir a Columnia
 
-Columnia se mantiene como un proyecto local-first: el trabajo con datasets no
-requiere red, el repositorio no usa CI y los gates se ejecutan en la máquina de
-desarrollo. Esta política hace explícito cómo proponer y validar cambios.
+Columnia es un proyecto personal de su autor: se aceptan reportes de errores en
+los formularios del [repositorio](https://github.com/BernieJimenez/Columnia),
+no se aceptan pull requests externos y las vulnerabilidades se reportan por el
+canal privado de [SECURITY.md](SECURITY.md).
+
+Es además un proyecto local-first: el trabajo con datasets no requiere red, el
+repositorio no usa CI y los gates se ejecutan en la máquina de desarrollo. Esta
+política describe cómo se preparan y validan los cambios.
 
 ## Ramas
 
@@ -90,8 +95,9 @@ corresponda. Los smokes de WebView2 y los recorridos que requieren un escritorio
 interactivo se documentan junto con su evidencia; no se sustituyen por una
 afirmación de que el gate pasó.
 
-Para reportar errores o proponer mejoras, usa los formularios de GitHub. No
-publiques vulnerabilidades en issues; sigue el canal privado indicado en
+Para reportar errores, usa los formularios del
+[repositorio](https://github.com/BernieJimenez/Columnia/issues). No publiques
+vulnerabilidades en issues; sigue el canal privado indicado en
 [SECURITY.md](SECURITY.md).
 
 ## Límites de alcance

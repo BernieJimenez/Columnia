@@ -8,6 +8,11 @@ canal de actualizaciones oficialmente soportados.
 
 ## Reportar una vulnerabilidad
 
+Columnia es un proyecto personal de su autor: se aceptan reportes de errores en
+los formularios del [repositorio](https://github.com/BernieJimenez/Columnia),
+no se aceptan pull requests externos y las vulnerabilidades se reportan por este
+canal privado.
+
 No publiques información sensible en un issue. Envía el reporte de forma privada
 a [berniejimenez493@gmail.com](mailto:berniejimenez493@gmail.com) e incluye:
 
@@ -16,8 +21,9 @@ a [berniejimenez493@gmail.com](mailto:berniejimenez493@gmail.com) e incluye:
 - pasos mínimos para reproducirlo;
 - cualquier mitigación temporal conocida.
 
-Se acusará recibo cuando sea posible y se coordinará la divulgación después de
-evaluar y corregir el problema. No incluyas datasets reales, credenciales, rutas
+Al ser un proyecto personal no hay un plazo de respuesta garantizado: se acusará
+recibo cuando sea posible y se coordinará la divulgación después de evaluar y
+corregir el problema. No incluyas datasets reales, credenciales, rutas
 privadas ni otra información personal en el reporte.
 
 ## Alcance

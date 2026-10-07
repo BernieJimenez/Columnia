@@ -517,12 +517,12 @@ medio = 1 día; agregado por suma.
   - [x] `OPS-19` (Bajo) release.ps1: `$LASTEXITCODE` sin reiniciar y `node` del manifiesto sin comprobar — hecho el 2026-10-07
   - [x] `OPS-20` (Bajo) check.ps1: el reporte «passed» fija commit y árbol al inicio, y el perfil Package ejecuta el smoke del instalador sobre la máquina real — hecho el 2026-10-07
   - [x] `OPS-21` (Bajo) Benchmarks y resumen de rendimiento: cuatro fragilidades menores en 5.1 y en la evidencia acumulada — hecho el 2026-10-07
-- [ ] **RV100** — **Gates y scripts** — La sonda de proyectos en modo reinicio deja un proyecto y una tarea reutilizable en el al… (y 3 problemas más) · *Esfuerzo: 1 día*
+- [x] **RV100** — **Gates y scripts** — La sonda de proyectos en modo reinicio deja un proyecto y una tarea reutilizable en el al… (y 3 problemas más) · *Esfuerzo: 1 día* — hecho el 2026-10-07
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-22, DOC-11, DOC-13, LEG-02.
-  - [ ] `OPS-22` (Bajo) La sonda de proyectos en modo reinicio deja un proyecto y una tarea reutilizable en el almacén real si no se completa la fase de verificación
-  - [ ] `DOC-11` (Bajo) CONTRIBUTING y SECURITY: invitan a contribuir a un proyecto personal, sin URL del repositorio, y SECURITY depende de un correo personal
-  - [ ] `DOC-13` (Bajo) CHANGELOG (tramo 2160-2917): sección 0.58.0 gigante, «sistema anterior» como marcador sin nombre y afirmaciones de release sin respaldo
-  - [ ] `LEG-02` (Bajo) `check-legal-distribution` acepta decisiones vacías en la práctica y usa rutas solo-Windows
+  - [x] `OPS-22` (Bajo) La sonda de proyectos en modo reinicio deja un proyecto y una tarea reutilizable en el almacén real si no se completa la fase de verificación — hecho el 2026-10-07
+  - [x] `DOC-11` (Bajo) CONTRIBUTING y SECURITY: invitan a contribuir a un proyecto personal, sin URL del repositorio, y SECURITY depende de un correo personal — hecho el 2026-10-07
+  - [x] `DOC-13` (Bajo) CHANGELOG (tramo 2160-2917): sección 0.58.0 gigante, «sistema anterior» como marcador sin nombre y afirmaciones de release sin respaldo — hecho el 2026-10-07
+  - [x] `LEG-02` (Bajo) `check-legal-distribution` acepta decisiones vacías en la práctica y usa rutas solo-Windows — hecho el 2026-10-07
 - [ ] **RV101** — **Varios** — Dos incidencias de arranque y ventana vistas una sola vez al conducir la app por CDP (no… (y 3 problemas más) · *Esfuerzo: 2,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de ARQ-06, UX-08, TXT-05, QA-43.
   - [ ] `ARQ-06` (Bajo) Dos incidencias de arranque y ventana vistas una sola vez al conducir la app por CDP (no reproducidas)

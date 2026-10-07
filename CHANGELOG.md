@@ -2,9 +2,11 @@
 
 Todos los cambios visibles de Columnia se registran aquí. Las versiones siguen
 SemVer y el estado real del prototipo se contrasta con el código, los tests y
-los artefactos de validación locales. La versión vigente del proyecto es
-1.26.0; sus cambios permanecen bajo `[Unreleased]` hasta el corte, y los
-perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
+los artefactos de validación locales. En las entradas antiguas, «sistema
+anterior» designa el nombre retirado del proyecto (ver 0.114.0). La versión
+vigente del proyecto es 1.26.0; sus cambios permanecen bajo `[Unreleased]`
+hasta el corte, y los perfiles de publicación exigen crear antes la sección
+`## [1.26.0]`.
 
 ## [Unreleased]
 
@@ -205,6 +207,16 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Documentación y gates de distribución: una fase de reinicio de la sonda de
+  proyectos ya no arranca sin el respaldo del appdata que hace
+  probe-webview2-restart.ps1; README, CONTRIBUTING y SECURITY dicen lo mismo
+  (proyecto personal, reportes en el repositorio, sin pull requests externos,
+  vulnerabilidades por el canal privado) y el gate de documentación lo
+  comprueba; el CHANGELOG explica qué es «sistema anterior», ya no afirma una
+  política de símbolos de release que no existe y sus dos líneas con barras
+  invertidas se leen bien; el gate legal trata «ninguno», «por definir», «-» y
+  listas como ["pending"] como decisiones sin resolver, exige una fecha de
+  revisión real y no futura, y funciona fuera de Windows.
 - Instalador y scripts de publicación: solo se genera el instalador NSIS por
   usuario y en español (el MSI instalaba por máquina y en inglés), y el contrato
   del instalador lo exige; las excepciones de cargo audit salen de deny.toml con
@@ -2685,7 +2697,7 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 - La exportación JSON de fuentes source-backed puede leer directamente CSV,
   TSV, TXT delimitado o Parquet desde disco cuando no se solicita receta,
-  privacidad ni reglas globales, sin materializar el \`DataFrame\` activo.
+  privacidad ni reglas globales, sin materializar el `DataFrame` activo.
 - La salida conserva la conversión controlada por DuckDB, el orden de origen,
   la publicación atómica, la validación de cambios y el cleanup de temporales.
 - La suite Rust queda en 361 pruebas aprobadas, incluida la regresión de
@@ -2697,7 +2709,7 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 - La exportación Parquet de fuentes source-backed puede leer directamente la
   fuente desde disco y publicar un archivo temporalmente aislado, sin
-  materializar el \`DataFrame\` activo, cuando no se solicita receta ni
+  materializar el `DataFrame` activo, cuando no se solicita receta ni
   protección adicional. La validación de calidad compatible se ejecuta antes
   por bloques y la conversión respeta la frontera de recursos de DuckDB.
 - Se conserva la publicación atómica, la comprobación de cambios de la fuente,
@@ -2829,8 +2841,8 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
   snapshots que cambien durante la lectura.
 - Los perfiles Cargo `dev` y `test` omiten símbolos de depuración para que
   `npm run tauri dev` y las pruebas nativas puedan enlazar de forma reproducible
-  en Windows sin alcanzar `LNK1140`; el perfil `release` conserva su política
-  independiente de símbolos.
+  en Windows sin alcanzar `LNK1140`; el perfil `release` usa los valores por
+  defecto de Cargo (sin `[profile.release]` propio).
 - Revisar permite elegir el límite de filas usado por la matriz de correlaciones
   numéricas (10.000, 50.000 o 100.000) y conserva la preferencia localmente;
   Rust valida el rango de 1.000 a 100.000, invalida cachés con una cobertura
