@@ -1,5 +1,5 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const generatorPath = join(projectRoot, "tools", "generate-updater-manifest.mjs");
 const checkerPath = join(projectRoot, "tools", "check-updater-manifest.mjs");
+const keyPolicyPath = join(projectRoot, "tools", "check-updater-key-policy.mjs");
 
 function fail(message) {
   throw new Error(message);
@@ -61,7 +62,11 @@ function createEphemeralMinisignKey() {
         sign(null, createHash("blake2b512").update(artifact).digest(), privateKey),
       ]);
       const trustedComment = "trusted comment: timestamp: 2026-08-28T00:00:00Z";
-      const trustedSignature = sign(null, Buffer.from(trustedComment, "utf8"), privateKey);
+      const trustedSignature = sign(
+        null,
+        Buffer.concat([primary.subarray(10), Buffer.from(trustedComment.slice("trusted comment: ".length), "utf8")]),
+        privateKey,
+      );
       return Buffer.from([
         "untrusted comment: signature from Columnia contract fixture",
         primary.toString("base64"),
@@ -103,6 +108,21 @@ try {
     "--artifact", artifactPath,
   ];
   expectSuccess(runNode(generatorPath, generatorArgs), "Generación del fixture");
+  // COD-19: pub_date is the artifact's build time, not the generation time.
+  const generated = JSON.parse(readFileSync(manifestPath, "utf8"));
+  if (generated.pub_date !== statSync(artifactPath).mtime.toISOString()) {
+    fail(`pub_date ${generated.pub_date} no es la fecha del artefacto.`);
+  }
+  if (process.platform === "win32") {
+    // COD-19: Windows paths differ only in case still point inside the bundle.
+    const upperArgs = [...generatorArgs];
+    upperArgs[upperArgs.indexOf("--artifact") + 1] = artifactPath.toUpperCase();
+    expectSuccess(runNode(generatorPath, upperArgs), "Artefacto con otras mayúsculas");
+    expectSuccess(runNode(generatorPath, generatorArgs), "Regeneración del fixture");
+  }
+  const outsideArgs = [...generatorArgs];
+  outsideArgs[outsideArgs.indexOf("--artifact") + 1] = join(fixtureRoot, "bundle-other", "x.exe");
+  expectFailure(runNode(generatorPath, outsideArgs), "Artefacto fuera del bundle");
   expectSuccess(
     runNode(checkerPath, checkerArgs()),
     "Contrato válido",
@@ -145,6 +165,34 @@ try {
   );
   writeFileSync(manifestPath, originalManifest, "utf8");
   writeFileSync(inventoryPath, originalInventory, "utf8");
+
+  // SEG-11: an edited trusted comment fails even with a valid primary signature.
+  const commentLines = Buffer.from(originalSignature, "base64").toString("utf8").split(/\r?\n/);
+  commentLines[2] = "trusted comment: timestamp: 2099-01-01T00:00:00Z";
+  const alteredComment = Buffer.from(commentLines.join("\n"), "utf8").toString("base64");
+  writeFileSync(signaturePath, alteredComment, "utf8");
+  const commentManifest = JSON.parse(originalManifest);
+  commentManifest.platforms["windows-x86_64"].signature = alteredComment;
+  writeJson(manifestPath, commentManifest);
+  const commentInventory = JSON.parse(originalInventory);
+  commentInventory.artifact.signatureSha256 = sha256(signaturePath);
+  commentInventory.manifest.sha256 = sha256(manifestPath);
+  writeJson(inventoryPath, commentInventory);
+  expectFailure(runNode(checkerPath, checkerArgs()), "Comentario de confianza alterado");
+  writeFileSync(manifestPath, originalManifest, "utf8");
+  writeFileSync(inventoryPath, originalInventory, "utf8");
+
+  // SEG-11: a policy missing a required text field does not pass.
+  const keyPolicy = JSON.parse(readFileSync(join(projectRoot, "fixtures", "updater", "key-policy-v1.json"), "utf8"));
+  const keyPolicyCopy = join(fixtureRoot, "key-policy.json");
+  expectSuccess(runNode(keyPolicyPath, []), "Política de claves versionada");
+  for (const [section, field] of [["rotation", "oldPrivateKeyRetirement"], ["recovery", "manualRecovery"]]) {
+    const altered = structuredClone(keyPolicy);
+    delete altered[section][field];
+    writeJson(keyPolicyCopy, altered);
+    expectFailure(runNode(keyPolicyPath, ["--policy", keyPolicyCopy]), `Política sin ${field}`);
+  }
+
   writeFileSync(
     signaturePath,
     Buffer.from("untrusted comment: altered signature fixture\n", "utf8").toString("base64"),
@@ -180,7 +228,7 @@ try {
     fail("El fixture generado no conserva el hash del artefacto.");
   }
 
-  console.log("Contrato updater aprobado: válido, versión distinta, host ajeno, clave sustituida, truncado, firma alterada, manifiesto incompleto/corrupto y URL insegura.");
+  console.log("Contrato updater aprobado: válido, versión distinta, host ajeno, clave sustituida, truncado, firma o comentario de confianza alterados, política de claves incompleta, manifiesto incompleto/corrupto y URL insegura.");
 } finally {
   rmSync(fixtureRoot, { recursive: true, force: true });
 }

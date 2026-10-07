@@ -66,16 +66,36 @@ export function validateChangelogVersion(changelog, version, { requireReleaseSec
 /** Declared Cargo dependencies (normal, target-specific and build) as name → version. */
 export function parseCargoDependencies(cargoToml) {
   const dependencies = new Map();
+  // COD-19: `[dependencies]`, `[build-dependencies]` and target tables count;
+  // `[dev-dependencies]` and `[workspace.dependencies]` do not. A
+  // `[dependencies.foo]` table declares `foo` through its own keys, and a
+  // dependency without a version is recorded by its source.
   let inDependencies = false;
+  let tableDependency = null;
+  const sourceOf = (body) => body.match(/version\s*=\s*"([^"]+)"/)?.[1]
+    ?? (/workspace\s*=\s*true/.test(body) ? "workspace" : null)
+    ?? (/\bgit\s*=/.test(body) ? "git" : null)
+    ?? (/\bpath\s*=/.test(body) ? "path" : null);
   for (const rawLine of cargoToml.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (line.startsWith("[")) {
-      inDependencies = /dependencies\]$/.test(line) && !line.includes("dev-dependencies");
+      const header = line.replace(/\s+/g, "");
+      const table = header.match(/^\[(?:target\..+\.)?(?:build-)?dependencies\.([A-Za-z0-9_-]+)\]$/);
+      tableDependency = table?.[1] ?? null;
+      inDependencies = !table && /^\[(?:target\..+\.)?(?:build-)?dependencies\]$/.test(header);
       continue;
     }
-    if (!inDependencies || !line || line.startsWith("#")) continue;
-    const match = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(?:"([^"]+)"|\{[^}]*version\s*=\s*"([^"]+)")/);
-    if (match) dependencies.set(match[1], match[2] ?? match[3]);
+    if (!line || line.startsWith("#")) continue;
+    if (tableDependency) {
+      const source = sourceOf(line);
+      if (source && (source !== "path" || !dependencies.has(tableDependency))) dependencies.set(tableDependency, source);
+      continue;
+    }
+    if (!inDependencies) continue;
+    const match = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(?:"([^"]+)"|(\{.*))/);
+    if (!match) continue;
+    const source = match[2] ?? sourceOf(match[3] ?? "");
+    if (source) dependencies.set(match[1], source);
   }
   return dependencies;
 }

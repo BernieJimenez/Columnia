@@ -65,4 +65,5 @@ if ($Manifest.version -ne 1 -or $Manifest.policy -ne "synthetic-only-no-pii") {
     throw "fixtures/manifest.json no cumple el contrato sintético v1."
 }
 
-Write-Host "Gobernanza I0 aprobada: licencia, ADR, workflow, inventario y fixtures verificables."
+# LIM-12: the message lists only what this script checks.
+Write-Host "Gobernanza aprobada: licencia MIT, archivos y ADR obligatorios, políticas de CONTRIBUTING, comandos de auditoría y fixtures sintéticas."

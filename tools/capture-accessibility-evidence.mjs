@@ -138,6 +138,9 @@ try {
     "127.0.0.1",
     "--port",
     String(port),
+    // COD-19: fail if the port is busy instead of serving on another port
+    // while the capture polls this one.
+    "--strictPort",
   ], {
     cwd: projectRoot,
     stdio: "ignore",

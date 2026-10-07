@@ -19,8 +19,16 @@ function decodeBase64(value, label) {
   return Buffer.from(value, "base64");
 }
 
+function requiredText(value) {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+// SEG-11: `--policy` lets the contract test check an altered policy.
+const policyArgument = process.argv.indexOf("--policy");
+const policyPath = policyArgument === -1 ? "fixtures/updater/key-policy-v1.json" : process.argv[policyArgument + 1];
+if (!policyPath) fail("--policy requiere una ruta.");
 const config = readJson("src-tauri/tauri.conf.json");
-const policy = readJson("fixtures/updater/key-policy-v1.json");
+const policy = readJson(policyPath);
 const configuredKey = config.plugins?.updater?.pubkey;
 const activeKey = policy.activeKey;
 
@@ -44,13 +52,13 @@ if (policy.rotation?.strategy !== "bridge-release-signed-by-previous-key") {
 if (policy.rotation?.dualKeySupport !== false) {
   fail("La implementación actual no soporta confianza dual; la política debe declararlo explícitamente.");
 }
-if (policy.rotation?.oldPrivateKeyRetirement?.trim() === "") {
+if (!requiredText(policy.rotation?.oldPrivateKeyRetirement)) {
   fail("La política debe impedir retirar la clave privada histórica demasiado pronto.");
 }
 if (!Array.isArray(policy.rotation?.requiredEvidence) || policy.rotation.requiredEvidence.length < 4) {
   fail("La política debe exigir evidencia de puente, descarga, verificación y rollback.");
 }
-if (policy.recovery?.preserveInstalledVersion !== true || policy.recovery?.manualRecovery?.trim() === "") {
+if (policy.recovery?.preserveInstalledVersion !== true || !requiredText(policy.recovery?.manualRecovery)) {
   fail("La recuperación updater debe preservar la versión instalada y definir recuperación manual.");
 }
 if (!Array.isArray(policy.recovery?.failClosedOn) || policy.recovery.failClosedOn.length < 5) {

@@ -46,10 +46,16 @@ export function verifyMinisign(artifact, encodedPublicKey, encodedSignature) {
   if (!verify(null, digest, publicKey.keyObject, signature.subarray(10))) {
     throw new Error("La firma minisign no valida el contenido descargado.");
   }
+  // SEG-11: minisign's global signature covers the primary signature plus
+  // the trusted comment, so an edited comment no longer passes.
+  const trustedComment = Buffer.from(signatureLines[2].slice("trusted comment: ".length), "utf8");
+  if (!verify(null, Buffer.concat([signature.subarray(10), trustedComment]), publicKey.keyObject, trustedSignature)) {
+    throw new Error("La firma minisign no valida el comentario de confianza.");
+  }
   return {
     algorithm: "Ed25519 over BLAKE2b-512",
     fingerprint: publicKey.bytes.subarray(2, 10).toString("hex").toUpperCase(),
-    trustedCommentPresent: true,
+    trustedCommentVerified: true,
     verified: true,
   };
 }

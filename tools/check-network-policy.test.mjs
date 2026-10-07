@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
-import { findCargoNetworkDependencies, findCspViolations, findPolicyViolations } from "./check-network-policy.mjs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  findCargoNetworkDependencies,
+  findCspViolations,
+  findPolicyViolations,
+  pruneEvidenceRuns,
+} from "./check-network-policy.mjs";
 
 const realConfig = () => JSON.parse(readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
 
@@ -106,4 +113,19 @@ test("solo admite 'unsafe-inline' en style-src (QA-24)", () => {
   const patterns = findCspViolations(config).map((violation) => violation.pattern);
   assert.ok(patterns.some((pattern) => pattern.includes("script-src 'unsafe-inline'")));
   assert.ok(!patterns.some((pattern) => pattern.includes("style-src")));
+});
+
+test("conserva solo las ejecuciones de evidencia más recientes (COD-19)", async () => {
+  const parent = mkdtempSync(join(tmpdir(), "columnia-network-evidence-"));
+  try {
+    const stamps = ["20260101T000000Z", "20260102T000000Z", "20260103T000000Z", "20260104T000000Z"];
+    for (const stamp of stamps) mkdirSync(join(parent, stamp));
+    mkdirSync(join(parent, "manual-notes"));
+    assert.deepEqual(await pruneEvidenceRuns(parent, 2), stamps.slice(0, 2));
+    assert.deepEqual(stamps.map((stamp) => existsSync(join(parent, stamp))), [false, false, true, true]);
+    assert.ok(existsSync(join(parent, "manual-notes")));
+    assert.deepEqual(await pruneEvidenceRuns(join(parent, "missing")), []);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
 });

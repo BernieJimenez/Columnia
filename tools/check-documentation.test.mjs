@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateChangelogVersion, validateDependencySnapshot, validateReadmeSetupContract } from "./check-documentation.mjs";
+import {
+  parseCargoDependencies,
+  validateChangelogVersion,
+  validateDependencySnapshot,
+  validateReadmeSetupContract,
+} from "./check-documentation.mjs";
 
 test("la ficha de dependencias debe coincidir con ambos manifiestos", () => {
   const manifest = { dependencies: { react: "^19.3.0" }, devDependencies: { vite: "^8.3.0" } };
@@ -111,4 +116,29 @@ test("los subcomandos de cli.md coinciden con la ayuda de la CLI (DOC-14)", asyn
   const source = 'const GENERAL_HELP: &str = "USO:\\n  columnia-cli inspect --input <ruta>\\n  columnia-cli batch --manifest <ruta>\\n";';
   assert.deepEqual(cliSubcommandProblems("### `inspect`\n\n### `batch`\n", source), []);
   assert.deepEqual(cliSubcommandProblems("### `inspect`\n\n### `viejo`\n", source), ["batch falta en cli.md", "viejo no existe en la CLI"]);
+});
+
+test("lee tablas de dependencia, workspace y git/path, y descarta el workspace (COD-19)", () => {
+  const cargo = [
+    "[workspace.dependencies]",
+    'shared = "9"',
+    "[dependencies]",
+    "local = { path = \"../local\" }",
+    "inherited = { workspace = true }",
+    "remote = { git = \"https://example.invalid/remote\" }",
+    "[dependencies.polars]",
+    'version = "0.55.2"',
+    'features = ["csv"]',
+    "[target.'cfg(windows)'.dependencies]",
+    'windows = "0.61"',
+    "[dev-dependencies]",
+    'proptest = "1"',
+  ].join("\n");
+  assert.deepEqual(Object.fromEntries(parseCargoDependencies(cargo)), {
+    local: "path",
+    inherited: "workspace",
+    remote: "git",
+    polars: "0.55.2",
+    windows: "0.61",
+  });
 });

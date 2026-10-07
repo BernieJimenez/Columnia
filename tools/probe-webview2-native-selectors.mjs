@@ -546,9 +546,11 @@ async function runPrepareFlow(page) {
   try {
     return await runPrepareFlowSteps(page);
   } catch (error) {
-    // Leave evidence of what the app showed; the temporary directory is removed.
-    const screenshot = join(tmpdir(), "columnia-prepare-flow-failure.png");
-    await page.screenshot({ path: screenshot, fullPage: true }).catch(() => {});
+    // SEG-12: the screenshot shows the user's cells, so it is only kept in the
+    // opt-in COLUMNIA_PROBE_SCREENSHOT_DIR, never left in %TEMP%.
+    const screenshotDirectory = process.env.COLUMNIA_PROBE_SCREENSHOT_DIR;
+    const screenshot = screenshotDirectory ? join(screenshotDirectory, "prepare-flow-failure.png") : "not-captured";
+    await capturePhase(page, "prepare-flow-failure");
     const headings = await page.getByRole("heading").allInnerTexts().catch(() => []);
     const alerts = await page.getByRole("alert").allInnerTexts().catch(() => []);
     const state = await page.evaluate(() => ({
@@ -587,7 +589,7 @@ async function readFillPreview(page) {
       if (!cells[0]?.startsWith("Rellenar")) continue;
       columns.push({ column: cells[1], cells: cells[3]?.split(" · ").at(-1) ?? null });
     }
-    await page.screenshot({ path: join(tmpdir(), "columnia-prepare-fill-preview.png"), fullPage: true }).catch(() => {});
+    await capturePhase(page, "prepare-fill-preview");
     await page.getByRole("button", { name: "Ocultar antes y después" }).click();
   }
   const announced = (await title.innerText()).trim();
@@ -726,7 +728,8 @@ async function readExcelCheck(page) {
   await format.selectOption("csv");
   // The prepared dataset exports to Parquet from its history snapshot; free
   // text used to exceed DuckDB's memory limit there.
-  const parquetPath = join(tmpdir(), "columnia-prepare-flow.parquet");
+  // SEG-12: inside the temporary directory that `run` removes.
+  const parquetPath = join(temporaryDirectory, "columnia-prepare-flow.parquet");
   const parquet = await invokeWithNativeDialog(
     page,
     "export_dataset",

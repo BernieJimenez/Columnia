@@ -1,5 +1,5 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 let projectRoot;
@@ -135,6 +135,25 @@ async function collectSources(root, output = []) {
   return output;
 }
 
+const KEPT_EVIDENCE_RUNS = 5;
+
+/** COD-19: keeps only the newest `keep` evidence folders (their names are UTC stamps). */
+export async function pruneEvidenceRuns(parent, keep = KEPT_EVIDENCE_RUNS) {
+  let entries;
+  try {
+    entries = await readdir(parent, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const stale = entries
+    .filter((entry) => entry.isDirectory() && /^\d{8}T\d{6}Z$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort()
+    .slice(0, -keep);
+  await Promise.all(stale.map((name) => rm(join(parent, name), { recursive: true, force: true })));
+  return stale;
+}
+
 export async function runNetworkPolicyCheck() {
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
   const evidenceDirectory = join(projectRoot, ".local", "validation", "network-policy", stamp);
@@ -183,6 +202,7 @@ export async function runNetworkPolicyCheck() {
     }, null, 2)}\n`,
     "utf8",
   );
+  await pruneEvidenceRuns(dirname(evidenceDirectory));
 
   return { status, evidencePath, violations };
 }

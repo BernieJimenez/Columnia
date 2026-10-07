@@ -7,7 +7,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, extname, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -74,7 +74,9 @@ function artifactCandidates(bundleRoot, kind) {
 function resolveArtifact(options, bundleRoot) {
   if (options.artifact) {
     const artifact = resolve(projectRoot, options.artifact);
-    if (!artifact.startsWith(`${bundleRoot}${sep}`) || !existsSync(artifact) || !statSync(artifact).isFile()) {
+    // COD-19: `relative` compares the paths as the platform does (case on Windows).
+    const inside = relative(bundleRoot, artifact);
+    if (!inside || inside.startsWith("..") || isAbsolute(inside) || !existsSync(artifact) || !statSync(artifact).isFile()) {
       fail(`El artefacto updater debe ser un archivo existente dentro de ${normalizedRelative(projectRoot, bundleRoot)}.`);
     }
     return artifact;
@@ -132,7 +134,8 @@ const artifactStats = statSync(artifact);
 const manifest = {
   version,
   notes: releaseNotes(options, version),
-  pub_date: new Date().toISOString(),
+  // COD-19: when the artifact was built, not when this manifest was generated.
+  pub_date: artifactStats.mtime.toISOString(),
   platforms: {
     [target]: {
       url: artifactUrl(baseUrl, artifact),

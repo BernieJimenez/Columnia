@@ -485,14 +485,14 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-37, QA-38.
   - [x] `QA-37` (Bajo) Tres pruebas de LoadPhase quedaron fuera del `describe` por una llave mal colocada — hecho el 2026-10-06
   - [x] `QA-38` (Bajo) Huecos de prueba en el modelo de Cargar y en el de reglas importadas — hecho el 2026-10-06
-- [ ] **RV96** — **Gates y scripts** — Verificaciones criptográficas parciales en el updater (comentario de confianza y política… (y 5 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV96** — **Gates y scripts** — Verificaciones criptográficas parciales en el updater (comentario de confianza y política… (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-07
   - Criterio de cierre: Se cumplen los criterios de aceptación de SEG-11, SEG-12, COD-19, COD-20, LIM-12, LIM-13.
-  - [ ] `SEG-11` (Bajo) Verificaciones criptográficas parciales en el updater (comentario de confianza y política de claves)
-  - [ ] `SEG-12` (Bajo) `probe-webview2-native-selectors --prepare-flow` deja copias del dataset del usuario en `%TEMP%` con nombres fijos
-  - [ ] `COD-19` (Bajo) Robustez menor de los gates (varios, causa común: validación de entrada débil)
-  - [ ] `COD-20` (Bajo) `check-retired-brand` divide por un regex con barras escapadas de más: siempre informa la línea 1
-  - [ ] `LIM-12` (Bajo) Código muerto y mensaje desfasado en los gates pequeños
-  - [ ] `LIM-13` (Bajo) Plantillas de GitHub desfasadas respecto al proyecto
+  - [x] `SEG-11` (Bajo) Verificaciones criptográficas parciales en el updater (comentario de confianza y política de claves) — hecho el 2026-10-07
+  - [x] `SEG-12` (Bajo) `probe-webview2-native-selectors --prepare-flow` deja copias del dataset del usuario en `%TEMP%` con nombres fijos — hecho el 2026-10-07
+  - [x] `COD-19` (Bajo) Robustez menor de los gates (varios, causa común: validación de entrada débil) — hecho el 2026-10-07
+  - [x] `COD-20` (Bajo) `check-retired-brand` divide por un regex con barras escapadas de más: siempre informa la línea 1 — hecho el 2026-10-07
+  - [x] `LIM-12` (Bajo) Código muerto y mensaje desfasado en los gates pequeños — hecho el 2026-10-07
+  - [x] `LIM-13` (Bajo) Plantillas de GitHub desfasadas respecto al proyecto — hecho el 2026-10-07
 - [ ] **RV97** — **Gates y scripts** — SBOM: mezcla dependencias de desarrollo/otras plataformas y no distingue alcance (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de LIM-14, LIM-15, QA-47, QA-48, QA-49, QA-50.
   - [ ] `LIM-14` (Bajo) SBOM: mezcla dependencias de desarrollo/otras plataformas y no distingue alcance

@@ -36,11 +36,6 @@ $Patterns = @(
     @{ name = "env_secret"; configOnly = $true; regex = '(?m)^\s*[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|API_KEY|PRIVATE_KEY)[A-Z0-9_]*\s*=\s*[^\s#"''$][^\s#]{7,}\s*$' }
 )
 
-function Relative-Path {
-    param([string]$Path)
-    $ProjectRootUri.MakeRelativeUri([Uri]$Path).ToString().Replace("%20", " ").Replace("/", "/")
-}
-
 $Hits = [System.Collections.Generic.List[object]]::new()
 if ([string]::IsNullOrWhiteSpace($ScanRoot)) {
     $ScanBase = if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) { $ProjectRoot } else { (Resolve-Path $RepositoryRoot).Path }

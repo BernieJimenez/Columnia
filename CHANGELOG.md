@@ -203,6 +203,17 @@ perfiles de publicación exigen crear antes la sección `## [1.26.0]`.
 
 ### Corregido
 
+- Gates y herramientas más estrictos: el updater verifica la firma del
+  comentario de confianza y la política de claves exige textos no vacíos; el
+  probe de selectores ya no deja capturas ni Parquet con datos del usuario en
+  %TEMP%; check-bundle mide todos los recursos, rechaza source maps, nombra la
+  opción que falta y no cuenta como producido un artefacto que solo cambió de
+  fecha; la cobertura Rust agrupa solo directorios que son módulos y distingue
+  un módulo sin líneas; la ficha de dependencias lee tablas, workspace y
+  git/path; la evidencia de red conserva las últimas cinco ejecuciones; la vista
+  previa de accesibilidad usa --strictPort; pub_date toma la fecha del
+  artefacto; check-retired-brand informa la línea real; mensaje de gobernanza y
+  plantillas de GitHub al día.
 - Pruebas de Cargar: las de LoadPhase vuelven a estar todas dentro de su
   `describe`; cada función exportada del modelo de Cargar tiene prueba propia,
   una de ellas fija que el prefijo de codificación heredada coincide con el de
