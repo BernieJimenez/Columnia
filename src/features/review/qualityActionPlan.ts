@@ -1,3 +1,5 @@
+import { plural } from "../../plural";
+
 export type QualityActionTarget = "missingValues" | "duplicates" | "incompatibleTypes";
 
 interface QualityActionCounts {
@@ -25,7 +27,7 @@ export function buildQualityActionPlan(counts: QualityActionCounts): QualityActi
     plan.push({
       target: "missingValues",
       title: "Valores sin dato",
-      explanation: `${counts.nullCount.toLocaleString()} celdas sin valor en ${counts.nullColumnCount.toLocaleString()} ${counts.nullColumnCount === 1 ? "columna" : "columnas"}. Un nulo puede ser válido; primero revisa por qué falta antes de completarlo o retirar una columna.`,
+      explanation: `${plural(counts.nullCount, "celda", "celdas")} sin valor en ${counts.nullColumnCount.toLocaleString()} ${counts.nullColumnCount === 1 ? "columna" : "columnas"}. Un nulo puede ser válido; primero revisa por qué falta antes de completarlo o retirar una columna.`,
       impact: "Rellenar puede cambiar la interpretación del dataset. Columnia conserva los nulos hasta que elijas una corrección reversible.",
       actionLabel: "Revisar opciones para nulos",
     });
@@ -34,7 +36,7 @@ export function buildQualityActionPlan(counts: QualityActionCounts): QualityActi
     plan.push({
       target: "duplicates",
       title: "Filas duplicadas exactas",
-      explanation: `${counts.duplicateCount.toLocaleString()} filas adicionales coinciden con otra fila en todas las columnas.`,
+      explanation: `${counts.duplicateCount === 1 ? "1 fila adicional coincide" : `${counts.duplicateCount.toLocaleString()} filas adicionales coinciden`} con otra fila en todas las columnas.`,
       impact: "Retirarlas puede evitar doble conteo; confirma que las repeticiones no representen eventos distintos. La primera fila se conserva y el cambio se puede deshacer.",
       actionLabel: "Revisar duplicados exactos",
     });
@@ -43,7 +45,7 @@ export function buildQualityActionPlan(counts: QualityActionCounts): QualityActi
     plan.push({
       target: "incompatibleTypes",
       title: "Valores incompatibles con el tipo sugerido",
-      explanation: `${counts.invalidTypeCount.toLocaleString()} celdas no coinciden con un tipo sugerido por el perfil.`,
+      explanation: `${counts.invalidTypeCount === 1 ? "1 celda no coincide" : `${counts.invalidTypeCount.toLocaleString()} celdas no coinciden`} con un tipo sugerido por el perfil.`,
       impact: "Apartar valores como nulos puede ocultar códigos o excepciones válidas. Revisa la sugerencia y su confirmación antes de aplicar el cambio reversible.",
       actionLabel: "Revisar tipos incompatibles",
     });

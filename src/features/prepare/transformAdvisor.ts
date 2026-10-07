@@ -1,4 +1,5 @@
 import type { DatasetPreview, RecipeFilter, TransformRecipe } from "../../bridge";
+import { plural } from "../../plural";
 
 type TransformRisk = "low" | "medium" | "high";
 
@@ -200,7 +201,7 @@ export function buildTransformPreview(dataset: DatasetPreview, recipe: Transform
       const matchingRows = outcomes.filter((row) => row.every(Boolean)).length;
       afterRows = sampleRows.length > 0 ? Math.round(dataset.rowCount * (matchingRows / sampleRows.length)) : null;
       confidence = sampleRows.length === 0 ? 20 : Math.min(78, 40 + sampleRows.length);
-      basis = `Estimación de filas basada en ${sampleRows.length.toLocaleString()} filas visibles; el resultado real puede variar.`;
+      basis = `Estimación de filas basada en ${plural(sampleRows.length, "fila visible", "filas visibles")}; el resultado real puede variar.`;
     }
   }
   if (recipe.groupSummary || recipe.outlierTreatments.some((item) => item.action === "drop")) {

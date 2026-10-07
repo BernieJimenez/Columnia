@@ -682,6 +682,41 @@ describe("App", () => {
     expect(loadSpy).toHaveBeenCalledOnce();
   });
 
+  it("un Parquet revisa su esquema solo y se carga con un clic (UX-08)", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    const loadSpy = mockDatasetLoad({
+      fileName: "ventas.parquet", fileSizeBytes: 64, rowCount: 1, columnCount: 1,
+      columns: [{ name: "value", dataType: "String" }], rows: [["ok"]],
+    });
+    vi.mocked(bridge.pickDatasetSource).mockResolvedValue({
+      selectionId: "selection-test",
+      fileName: "ventas.parquet",
+      fileSizeBytes: 64,
+      format: "parquet",
+      sheets: [],
+      defaultSheetId: null,
+      isCompressedContainer: false,
+      resourceEstimate: resourceEstimate(64),
+    });
+    vi.mocked(bridge.previewDatasetSelection).mockResolvedValue({
+      rowCount: 1,
+      columns: [{ name: "value", dataType: "String" }],
+      schemaMismatch: null,
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    const loadButton = await screen.findByRole("button", { name: "Cargar archivo" });
+    expect(bridge.previewDatasetSelection).toHaveBeenCalledOnce();
+    fireEvent.click(loadButton);
+
+    expect(await screen.findByRole("heading", { name: "ventas.parquet" })).toBeInTheDocument();
+    expect(loadSpy).toHaveBeenCalledOnce();
+  });
+
   it("recupera el selector tras un error nativo no tipado", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
@@ -3437,7 +3472,7 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     const dialog = await screen.findByRole("dialog", { name: "Revisar importación de ventas.json" });
     expect(within(dialog).getByText(/Lectura source-backed/)).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Revisar esquema" }));
+    // UX-08: the schema is reviewed on its own; one click loads it.
     fireEvent.click(await within(dialog).findByRole("button", { name: "Cargar archivo" }));
     expect(await screen.findByRole("heading", { name: "ventas.json" })).toBeInTheDocument();
     expect(load).toHaveBeenCalledWith("json-source", null, null, expect.any(Function), null, null, null);
@@ -3537,7 +3572,6 @@ describe("App", () => {
     const profileDialog = await screen.findByRole("dialog", { name: "Revisar importación de perfil.json" });
     expect(within(profileDialog).getByRole("heading", { name: "Perfil reutilizable del proyecto" }).parentElement)
       .toHaveTextContent("Se usará el perfil de “Cierre recurrente”");
-    fireEvent.click(within(profileDialog).getByRole("button", { name: "Revisar esquema" }));
     fireEvent.click(await within(profileDialog).findByRole("button", { name: "Cargar archivo" }));
     expect(await screen.findByRole("heading", { name: "Prepara datos consistentes" })).toBeInTheDocument();
     expect(bridge.loadDatasetSelection).toHaveBeenLastCalledWith(
@@ -3551,7 +3585,6 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
     const secondProfileDialog = await screen.findByRole("dialog", { name: "Revisar importación de perfil.json" });
-    fireEvent.click(within(secondProfileDialog).getByRole("button", { name: "Revisar esquema" }));
     fireEvent.click(await within(secondProfileDialog).findByRole("button", { name: "Cargar archivo" }));
     await waitFor(() => expect(bridge.loadDatasetSelection).toHaveBeenCalledTimes(2));
     await screen.findByRole("heading", { name: "Revisa antes de modificar" });

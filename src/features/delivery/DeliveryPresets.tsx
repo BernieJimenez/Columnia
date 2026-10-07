@@ -10,6 +10,7 @@ import {
   type DeliveryPreset,
   type DeliveryPresetSummary,
 } from "../../bridge";
+import { plural } from "../../plural";
 
 interface DeliveryPresetsProps {
   dataset: DatasetPreview;
@@ -268,7 +269,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
               <div className="delivery-presets__verification" role="status">
                 <p>
                   {openedPresetSchemaMatches
-                    ? `Esquema verificado: ${openedPreset.selectedColumns.length} columnas, mismo orden.`
+                    ? `Esquema verificado: ${plural(openedPreset.selectedColumns.length, "columna", "columnas")}, mismo orden.`
                     : "El esquema guardado no coincide exactamente con el dataset actual; revisa la diferencia antes de aplicar."}
                 </p>
                 {!openedPresetSchemaMatches && (

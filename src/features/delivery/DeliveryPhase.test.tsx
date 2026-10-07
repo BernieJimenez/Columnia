@@ -1346,7 +1346,7 @@ describe("DeliveryPhase", () => {
     expect(within(result).getByText(/^2[.,]0 KiB$/)).toBeInTheDocument();
     expect(within(result).getByText("Salida confirmada sin reglas de calidad")).toBeInTheDocument();
     expect(within(result).getByText("2 cambios del historial activo")).toBeInTheDocument();
-    expect(within(result).getByText("1 columnas: email")).toBeInTheDocument();
+    expect(within(result).getByText("1 columna: email")).toBeInTheDocument();
     expect(within(result).getByText("Incluye dataset.csv, dictionary.json, recipe.json, delivery-summary.md y manifest.json.")).toBeInTheDocument();
     expect(within(result).getByText("Esta copia no incluye una validación de calidad.")).toBeInTheDocument();
     fireEvent.click(within(result).getByText("Ver cambios incluidos (2)"));

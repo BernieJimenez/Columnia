@@ -11,7 +11,8 @@ import type {
   TemporalPeriod,
   TemporalSeriesSummary,
 } from "../../bridge";
-import { formatDecimal, formatPercent } from "../../format";
+import { formatDecimal, formatPercent, withoutNegativeZero } from "../../format";
+import { plural } from "../../plural";
 
 export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetProfile; datasetRevision: number }) {
   const [activeTemporalAggregation, setActiveTemporalAggregation] = useState<TemporalAggregationOwner | null>(null);
@@ -293,7 +294,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                             className="quality-histogram__bar"
                             key={`${bucket.lower}-${bucket.upper}-${bucketIndex}`}
                             style={{ height: `${percentage}%` }}
-                            title={`${interval}: ${bucket.count.toLocaleString()} filas`}
+                            title={`${interval}: ${plural(bucket.count, "fila", "filas")}`}
                           >
                             <span />
                           </div>
@@ -741,7 +742,7 @@ function TemporalTrendChart({
         {metric === "numeric" && seriesMatchesSelection
           ? "Nulos y valores no numéricos se excluyen del cálculo; cada periodo muestra cuántos valores válidos se usaron. Los periodos vacíos aparecen sin valor, no como cero. "
           : ""}
-        {summary.unparsedRowCount.toLocaleString()} filas sin periodo interpretable.
+        {plural(summary.unparsedRowCount, "fila", "filas")} sin periodo interpretable.
         {summary.truncated ? " Los periodos más antiguos se agruparon para mantener la lectura rápida." : ""}
       </p>
     </div>
@@ -1387,7 +1388,8 @@ export function formatStatistic(value: number | null, useGrouping = true): strin
   if (value !== 0 && Math.abs(value) < 0.001) {
     return value.toLocaleString(undefined, { maximumSignificantDigits: 3, useGrouping });
   }
-  return value.toLocaleString(undefined, { maximumFractionDigits: 3, useGrouping });
+  // UX-08: -0 (and -0.0001 rounded to three decimals) reads «0».
+  return withoutNegativeZero(value, 3).toLocaleString(undefined, { maximumFractionDigits: 3, useGrouping });
 }
 
 /**
@@ -1395,9 +1397,11 @@ export function formatStatistic(value: number | null, useGrouping = true): strin
  * thousands separator: «1925», not «1,925».
  */
 export function readsAsCode(name: string, minimum: number, maximum: number): boolean {
+  // UX-08: the name decides first; a year's histogram bounds or quartiles
+  // need not be whole numbers.
+  if (/(^|[_\s-])(id|cod|codigo|code|year|anio|año)([_\s-]|$)/i.test(name)) return true;
   if (!Number.isInteger(minimum) || !Number.isInteger(maximum)) return false;
-  return (minimum >= 1000 && maximum <= 2999)
-    || /(^|[_\s-])(id|cod|codigo|code|year|anio|año)([_\s-]|$)/i.test(name);
+  return minimum >= 1000 && maximum <= 2999;
 }
 
 function histogramIntervalLabel(lower: number, upper: number, includesMaximum: boolean, useGrouping = true): string {

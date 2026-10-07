@@ -907,6 +907,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "unicode-normalization",
+ "webview2-com",
  "xxhash-rust",
  "zip 8.6.0",
 ]

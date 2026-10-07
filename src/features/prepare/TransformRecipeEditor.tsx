@@ -54,7 +54,7 @@ function TransformAdvisor({ preview }: { preview: TransformPreview }) {
       : `${preview.rowsDelta > 0 ? "+" : ""}${preview.rowsDelta.toLocaleString()} ${Math.abs(preview.rowsDelta) === 1 ? "fila" : "filas"}`;
   const columnDelta = preview.columnsDelta === 0
     ? "Sin cambio"
-    : `${preview.columnsDelta > 0 ? "+" : ""}${preview.columnsDelta.toLocaleString()} columnas`;
+    : `${preview.columnsDelta > 0 ? "+" : ""}${preview.columnsDelta.toLocaleString()} ${Math.abs(preview.columnsDelta) === 1 ? "columna" : "columnas"}`;
 
   return (
     <section className={`transform-advisor transform-advisor--${preview.risk}`} aria-labelledby="transform-advisor-title">
@@ -826,7 +826,7 @@ export function TransformRecipeEditor({
         <RecipeOperationGroup
           title="Resumir filas por grupo"
           status={groupEnabled
-            ? `${groupSummary.groupBy.length} columnas de grupo, ${groupSummary.aggregations.length} cálculos`
+            ? `${plural(groupSummary.groupBy.length, "columna de grupo", "columnas de grupo")}, ${plural(groupSummary.aggregations.length, "cálculo", "cálculos")}`
             : "Inactivo"}
           active={groupEnabled}
         >

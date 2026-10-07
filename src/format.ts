@@ -13,9 +13,15 @@ export function formatDecimal(value: number, fractionDigits = 1): string {
   }).format(value);
 }
 
+/** UX-08: a value that rounds to zero at these decimals reads «0», never «-0». */
+export function withoutNegativeZero(value: number, maximumFractionDigits: number): number {
+  return Math.abs(value) < 0.5 * 10 ** -maximumFractionDigits ? 0 : value;
+}
+
 /** A number with up to `maximumFractionDigits` decimals, no trailing zeros. */
-export function formatNumber(value: number, maximumFractionDigits = 3): string {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits }).format(value);
+export function formatNumber(value: number, maximumFractionDigits = 3, useGrouping = true): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits, useGrouping })
+    .format(withoutNegativeZero(value, maximumFractionDigits));
 }
 
 /**

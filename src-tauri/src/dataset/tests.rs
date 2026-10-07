@@ -101,6 +101,145 @@ fn delimited_header_review_compares_first_row_and_generated_interpretations() {
 }
 
 #[test]
+fn a_semicolon_file_with_a_short_row_keeps_its_columns_and_fills_nulls() {
+    // QA-43: one ragged row in a small file made the detector fall back to a
+    // comma that did not split anything, and the file loaded as one column.
+    let path = temporary_delimited("csv", "a;b;c\n1;2;3\n4;5\n6;7;8\n");
+    let (frame, _) = load_dataset_for_automation(&path, None, None).expect("se carga");
+    assert_eq!(frame.get_column_names(), ["a", "b", "c"]);
+    assert_eq!(frame.height(), 3);
+    assert_eq!(frame.column("c").unwrap().null_count(), 1);
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn only_engine_utf8_failures_become_the_windows_1252_offer() {
+    // QA-43: any text with «UTF-8» used to become the conversion offer, so
+    // the UTF-16 message (FUN-59: no conversion) was relabeled too.
+    assert_eq!(
+        legacy_encoding_error(UNSUPPORTED_TEXT_ENCODING_MESSAGE.to_owned()),
+        UNSUPPORTED_TEXT_ENCODING_MESSAGE
+    );
+    for engine in [
+        "invalid utf-8 sequence of 1 bytes from index 3",
+        "Invalid Input Error: Invalid unicode (byte sequence mismatch) detected in CSV file",
+        "stream did not contain valid UTF-8",
+    ] {
+        assert_eq!(
+            legacy_encoding_error(engine.to_owned()),
+            LEGACY_ENCODING_PREFIX,
+            "{engine}"
+        );
+    }
+}
+
+#[test]
+fn a_row_with_more_fields_than_the_header_is_not_called_an_encoding_problem() {
+    // QA-43: the error said «como UTF-8» itself, so it was offered as a
+    // Windows-1252 conversion with an empty example.
+    let path = temporary_delimited("csv", "a;b;c\n1;2;3\n4;5;6;7\n8;9;10\n");
+    let error = load_dataset_for_automation(&path, None, None).expect_err("una fila sobra");
+    assert!(!error.starts_with(LEGACY_ENCODING_PREFIX), "{error}");
+    assert!(error.contains("más campos que el encabezado"), "{error}");
+    assert!(!error.contains("Schema"), "{error}");
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn a_semicolon_file_with_comma_decimals_converts_only_when_every_value_reads_as_a_number() {
+    // QA-43: «;» with a decimal comma, as Excel in Spanish saves it, and the
+    // 99 % / 100 % edge of a conversion.
+    let mut contents = String::from("producto;importe\n");
+    for index in 0..99 {
+        contents.push_str(&format!("p{index};{index},50\n"));
+    }
+    contents.push_str("p99;sin dato\n");
+    let path = temporary_delimited("csv", &contents);
+    let (frame, _) = load_dataset_for_automation(&path, None, None).expect("se carga");
+    assert_eq!(frame.get_column_names(), ["producto", "importe"]);
+    let converted = import_conventions::apply_import_conventions(
+        &frame,
+        None,
+        Some(ImportNumberConvention::CommaDecimalDotGrouping),
+        || false,
+    )
+    .expect("convenciones aplicadas");
+    let amounts = converted.column("importe").unwrap();
+    // One value in a hundred does not read as a number: the column stays text
+    // rather than losing it.
+    assert_eq!(amounts.dtype(), &DataType::String, "{amounts:?}");
+    let all_numbers = frame
+        .clone()
+        .lazy()
+        .filter(col("producto").neq(lit("p99")))
+        .collect()
+        .unwrap();
+    let converted = import_conventions::apply_import_conventions(
+        &all_numbers,
+        None,
+        Some(ImportNumberConvention::CommaDecimalDotGrouping),
+        || false,
+    )
+    .expect("convenciones aplicadas");
+    let amounts = converted.column("importe").unwrap().f64().unwrap();
+    assert_eq!(amounts.get(0), Some(0.5));
+    assert_eq!(amounts.get(98), Some(98.5));
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn decimals_keep_their_full_precision_in_previews_and_query_results() {
+    // UX-08: Polars' display rounded MIN(V1) = -56.407509631329 to -56.40751.
+    assert_eq!(
+        preview_value(AnyValue::Float64(-56.407509631329)).as_deref(),
+        Some("-56.407509631329")
+    );
+    assert_eq!(
+        preview_value(AnyValue::Float64(10.0)).as_deref(),
+        Some("10.0")
+    );
+    assert_eq!(
+        preview_value(AnyValue::Float32(0.1)).as_deref(),
+        Some("0.1")
+    );
+    let frame = df!("v" => [-56.407509631329_f64, 3.0]).expect("frame de prueba");
+    let result = execute_local_query(&frame, "SELECT MIN(v) AS minimo FROM dataset")
+        .expect("consulta agregada");
+    assert_eq!(result.rows[0][0].as_deref(), Some("-56.407509631329"));
+}
+
+#[test]
+fn an_empty_csv_is_reported_in_spanish() {
+    // UX-08: Polars' «no data: empty CSV» reached the interface as is.
+    for contents in ["", "\u{feff}", "  \r\n\n"] {
+        let path = temporary_delimited("csv", contents);
+        let review = delimited_header_review(&path, "csv").expect_err("un CSV vacío no se revisa");
+        assert!(review.contains("está vacío"), "{review}");
+        assert!(!review.contains("empty"), "{review}");
+        let load = load_dataset_for_automation(&path, None, None).expect_err("ni se carga");
+        assert!(load.contains("está vacío"), "{load}");
+        assert!(!load.contains("empty"), "{load}");
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+}
+
+#[test]
+fn a_small_file_with_more_rows_than_the_preview_is_not_called_truncated() {
+    // UX-08: a 2 KiB CSV fits in the 64 KiB sample; showing only its first
+    // rows does not mean the sample misses part of the file.
+    let mut contents = String::from("id,name\n");
+    for index in 0..(HEADER_REVIEW_ROW_LIMIT * 4) {
+        contents.push_str(&format!("{index},Ana\n"));
+    }
+    let path = temporary_delimited("csv", &contents);
+    let review = delimited_header_review(&path, "csv").expect("revisión de encabezados");
+    assert_eq!(review.first_row.rows.len(), HEADER_REVIEW_ROW_LIMIT);
+    assert!(!review.first_row.sample_truncated);
+    assert!(!review.generated.sample_truncated);
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
 fn delimited_header_review_caps_the_sample_and_rejects_an_oversized_first_row() {
     let contents = format!("id,name\n1,Ana\n{}", "x".repeat(70 * 1024));
     let path = temporary_delimited("csv", &contents);

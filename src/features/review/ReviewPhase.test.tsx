@@ -10,6 +10,7 @@ import type {
 } from "../../bridge";
 import * as bridge from "../../bridge";
 import { DatasetPreviewPanel, ReviewPhase } from "./ReviewPhase";
+import { formatNumber } from "../../format";
 import { formatStatistic, readsAsCode } from "./ReviewCharts";
 import { createReadyDatasetStatus } from "../load/loadModel";
 import type { QualityActionTarget } from "./qualityActionPlan";
@@ -360,6 +361,37 @@ describe("formatStatistic", () => {
     expect(readsAsCode("importe", 1001, 98_004)).toBe(false);
     expect(readsAsCode("precio", 1000.5, 2000)).toBe(false);
     expect(formatStatistic(1925, false)).toBe("1925");
+  });
+
+  it("un año con límites no enteros sigue sin separador y no hay «-0» (UX-08)", () => {
+    expect(readsAsCode("release_year", 1925.5, 2013.25)).toBe(true);
+    expect(formatStatistic(-0)).toBe("0");
+    expect(formatNumber(-1.5e-15, 3)).toBe("0");
+    expect(formatNumber(2013.4, 3, false)).toBe((2013.4).toLocaleString(undefined, { useGrouping: false }));
+  });
+
+  it("la tabla de perfil y la de estadísticas escriben el año como «2013» (UX-08)", () => {
+    const years = {
+      ...profile,
+      columns: [{
+        ...profile.columns[0]!,
+        name: "release_year",
+        dataType: "i64",
+        minimum: "1925",
+        maximum: "2021",
+        mean: 2013.4,
+        firstQuartile: 2013,
+        median: 2017,
+        thirdQuartile: 2019,
+        standardDeviation: 8.5,
+      }],
+    };
+    render(temporalTrendElement(years, 17, vi.fn()));
+    const grouped = (2013).toLocaleString();
+    for (const table of screen.getAllByRole("table")) {
+      if (grouped !== "2013") expect(table).not.toHaveTextContent(grouped);
+    }
+    expect(screen.getAllByRole("cell", { name: "2017" }).length).toBeGreaterThan(0);
   });
 });
 

@@ -44,9 +44,11 @@ import { isRowAuditColumn } from "../../rowAudit";
 import {
   QualityVisuals,
   formatStatistic,
+  readsAsCode,
   profileColumnTypeLabel,
   suggestedTypeLabel,
 } from "./ReviewCharts";
+import { plural } from "../../plural";
 
 interface ReviewPhaseProps {
   datasetStatus: ReadyDatasetStatus;
@@ -559,7 +561,7 @@ function LocalQueryPanel({
                         : "Error"}
                   </strong>
                   <span>{formatQueryDuration(entry.durationMs)}</span>
-                  <span>{entry.rowCount === null ? "Sin resultado" : `${entry.rowCount.toLocaleString()} filas`}</span>
+                  <span>{entry.rowCount === null ? "Sin resultado" : plural(entry.rowCount, "fila", "filas")}</span>
                 </li>
               ))}
             </ol>
@@ -854,7 +856,7 @@ function QualityProfile({
                 <td>
                   {column.mean === null
                     ? "—"
-                    : formatNumber(column.mean, 3)}
+                    : formatNumber(column.mean, 3, !readsAsCode(column.name, Number(column.minimum), Number(column.maximum)))}
                 </td>
               </tr>
             ))}
@@ -883,16 +885,20 @@ function QualityProfile({
                 </tr>
               </thead>
               <tbody>
-                {numericColumns.map((column) => (
-                  <tr key={column.name}>
-                    <th scope="row">{column.name}</th>
-                    <td>{formatStatistic(column.standardDeviation)}</td>
-                    <td>{formatStatistic(column.firstQuartile)}</td>
-                    <td>{formatStatistic(column.median)}</td>
-                    <td>{formatStatistic(column.thirdQuartile)}</td>
-                    <td>{column.outlierCount?.toLocaleString() ?? "—"}</td>
-                  </tr>
-                ))}
+                {numericColumns.map((column) => {
+                  // UX-08: a year's quartiles read «2013», not «2,013».
+                  const grouping = !readsAsCode(column.name, Number(column.minimum), Number(column.maximum));
+                  return (
+                    <tr key={column.name}>
+                      <th scope="row">{column.name}</th>
+                      <td>{formatStatistic(column.standardDeviation)}</td>
+                      <td>{formatStatistic(column.firstQuartile, grouping)}</td>
+                      <td>{formatStatistic(column.median, grouping)}</td>
+                      <td>{formatStatistic(column.thirdQuartile, grouping)}</td>
+                      <td>{column.outlierCount?.toLocaleString() ?? "—"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

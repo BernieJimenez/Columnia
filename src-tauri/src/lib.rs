@@ -20,6 +20,8 @@ mod reusable_tasks;
 mod session_guard;
 #[cfg(desktop)]
 mod updater;
+#[cfg(windows)]
+mod webview_watchdog;
 
 use resource::{PerformanceProfile, PerformanceSettings};
 
@@ -144,6 +146,8 @@ pub fn run() {
                 .app_data_dir()
                 .map_err(Box::<dyn std::error::Error>::from)?;
             crash_report::install(&app_data_dir);
+            #[cfg(windows)]
+            webview_watchdog::watch(app.handle(), app_data_dir.join("crash-reports"));
             // DAT-04: history folders of earlier sessions hold copies of the data.
             std::thread::spawn(dataset::purge_finished_history_directories);
             let mut session = session_guard::SessionGuard::begin(&app_data_dir);

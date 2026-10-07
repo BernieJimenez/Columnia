@@ -23,6 +23,7 @@ import {
   valueLabel,
 } from "./exploreModel";
 import "./explore.css";
+import { plural } from "../../plural";
 
 interface ExplorePhaseProps {
   dataset: DatasetPreview;
@@ -246,7 +247,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                   </div>
                   {(chart.otherCount > 0 || layout.expanded?.includes(chart.column)) && (
                     <p className="explore__note">
-                      {chart.otherCount > 0 && `Otros ${formatNumber(chart.distinctCount - chart.bars.length)} valores: ${formatNumber(chart.otherCount)} filas `}
+                      {chart.otherCount > 0 && `${chart.distinctCount - chart.bars.length === 1 ? "Otro" : "Otros"} ${plural(chart.distinctCount - chart.bars.length, "valor", "valores")}: ${plural(chart.otherCount, "fila", "filas")} `}
                       <button
                         type="button"
                         className="explore__clear"
@@ -279,7 +280,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                           type="button"
                           className="explore__column"
                           aria-pressed={selected}
-                          aria-label={`${histogram.column} de ${binLabel(bin.lower, bin.upper, histogram.integer, index === histogram.bins.length - 1, years)}: ${formatNumber(bin.count)} filas`}
+                          aria-label={`${histogram.column} de ${binLabel(bin.lower, bin.upper, histogram.integer, index === histogram.bins.length - 1, years)}: ${plural(bin.count, "fila", "filas")}`}
                           onClick={() => setFilters((current) =>
                             toggleRange(current, histogram.column, bin.lower, bin.upper, index === histogram.bins.length - 1))}
                         >
@@ -294,7 +295,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                     ))}
                   </p>
                   <p className="explore__note">
-                    Filas por tramo de {histogram.column}; el tramo más alto tiene {formatNumber(max)}.
+                    Filas por tramo de {histogram.column}; el tramo más alto tiene {plural(max, "fila", "filas")}.
                     {ignored ? ` ${ignored}: no aparece en ningún tramo.` : ""}
                   </p>
                 </section>
@@ -315,7 +316,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                         type="button"
                         className="explore__column"
                         aria-pressed={isPeriodSelected(filters, trend.column, point.period)}
-                        aria-label={`${point.period}: ${formatNumber(point.count)} filas`}
+                        aria-label={`${point.period}: ${plural(point.count, "fila", "filas")}`}
                         title={`${point.period}: ${formatNumber(point.count)}`}
                         onClick={() => setFilters((current) => togglePeriod(current, trend.column, point.period))}
                       >

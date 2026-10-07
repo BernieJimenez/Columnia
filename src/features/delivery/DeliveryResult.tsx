@@ -4,6 +4,7 @@ import { openLastExport, openLastExportInPowerBi } from "../../bridge";
 import type { SavedRecipe } from "../../bridge";
 import { formatFileSize } from "./DatasetMetrics";
 import { bundleFileNames, listFileNames, type DeliveryContractState, type DeliveryExportState } from "./deliveryModel";
+import { plural } from "../../plural";
 
 type ExportResult = Extract<DeliveryExportState, { kind: "success" }>["result"];
 
@@ -127,7 +128,7 @@ export function DeliveryResult({
             <div>
               <dt>Protección adicional</dt>
               <dd>{result.protectedColumnCount > 0
-                ? `${result.protectedColumnCount.toLocaleString()} columnas: ${result.protectedColumns?.join(", ")}`
+                ? `${plural(result.protectedColumnCount, "columna", "columnas")}: ${result.protectedColumns?.join(", ")}`
                 : "No aplicada"}</dd>
             </div>
           </dl>

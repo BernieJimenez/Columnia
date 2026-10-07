@@ -96,10 +96,83 @@ pub(crate) fn write_report(
         "source": source,
         "thread": thread.filter(|name| name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')),
     });
-    let path = directory.join(format!("panic-{created_at_ms}-{}.json", std::process::id()));
+    write_json_report(directory, "panic", created_at_ms, &report)
+}
+
+/// ARQ-06: what the app does when one of its WebView2 processes fails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WebviewFailureAction {
+    /// The browser process is gone: no window can come back, so the instance
+    /// exits and a new launch is not blocked by a windowless one.
+    Exit,
+    /// The page's renderer died or hangs: reloading brings the interface back
+    /// while the engine keeps its state.
+    Reload,
+    /// WebView2 restarts helper, GPU and frame processes by itself.
+    ReportOnly,
+}
+
+/// Maps `COREWEBVIEW2_PROCESS_FAILED_KIND` to the recovery.
+pub(crate) fn webview_failure_action(kind: i32) -> WebviewFailureAction {
+    match kind {
+        0 => WebviewFailureAction::Exit,
+        1 | 2 => WebviewFailureAction::Reload,
+        _ => WebviewFailureAction::ReportOnly,
+    }
+}
+
+fn webview_failure_kind_name(kind: i32) -> &'static str {
+    match kind {
+        0 => "browser-process-exited",
+        1 => "render-process-exited",
+        2 => "render-process-unresponsive",
+        3 => "frame-render-process-exited",
+        4 => "utility-process-exited",
+        5 => "sandbox-helper-process-exited",
+        6 => "gpu-process-exited",
+        7 => "ppapi-plugin-process-exited",
+        8 => "ppapi-broker-process-exited",
+        _ => "unknown-process-exited",
+    }
+}
+
+/// ARQ-06: a local report of a failed WebView2 process; like a panic report it
+/// holds only the version, the time, the kind of failure and the recovery.
+pub(crate) fn write_webview_failure_report(directory: &Path, kind: i32) -> io::Result<PathBuf> {
+    let created_at_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let action = match webview_failure_action(kind) {
+        WebviewFailureAction::Exit => "exit",
+        WebviewFailureAction::Reload => "reload",
+        WebviewFailureAction::ReportOnly => "none",
+    };
+    let report = serde_json::json!({
+        "contract": "columnia-webview-failure-report",
+        "schemaVersion": 1,
+        "appVersion": env!("CARGO_PKG_VERSION"),
+        "createdAtUnixMs": created_at_ms.to_string(),
+        "processFailedKind": webview_failure_kind_name(kind),
+        "action": action,
+    });
+    write_json_report(directory, "webview", created_at_ms, &report)
+}
+
+fn write_json_report(
+    directory: &Path,
+    prefix: &str,
+    created_at_ms: u128,
+    report: &serde_json::Value,
+) -> io::Result<PathBuf> {
+    fs::create_dir_all(directory)?;
+    let path = directory.join(format!(
+        "{prefix}-{created_at_ms}-{}.json",
+        std::process::id()
+    ));
     fs::write(
         &path,
-        serde_json::to_vec_pretty(&report).map_err(io::Error::other)?,
+        serde_json::to_vec_pretty(report).map_err(io::Error::other)?,
     )?;
     prune(directory)?;
     Ok(path)
@@ -112,13 +185,23 @@ fn prune(directory: &Path) -> io::Result<()> {
         .filter(|path| {
             path.file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("panic-") && name.ends_with(".json"))
+                .is_some_and(|name| {
+                    (name.starts_with("panic-") || name.starts_with("webview-"))
+                        && name.ends_with(".json")
+                })
         })
         .collect::<Vec<_>>();
     if reports.len() <= MAX_REPORTS {
         return Ok(());
     }
-    reports.sort();
+    // Oldest first by creation time, whatever the kind of report.
+    reports.sort_by_key(|path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.split('-').nth(1))
+            .and_then(|millis| millis.parse::<u128>().ok())
+            .unwrap_or_default()
+    });
     for path in &reports[..reports.len() - MAX_REPORTS] {
         let _ = fs::remove_file(path);
     }
@@ -213,6 +296,35 @@ mod tests {
             "mod.rs:1"
         );
         assert_eq!(report_source("", 5), "desconocido:5");
+    }
+
+    #[test]
+    fn a_failed_webview_process_leaves_a_report_and_decides_how_to_recover() {
+        use super::{webview_failure_action, write_webview_failure_report, WebviewFailureAction};
+        // ARQ-06: the browser process gone means no window can come back, so
+        // the instance exits instead of holding the single-instance lock.
+        assert_eq!(webview_failure_action(0), WebviewFailureAction::Exit);
+        assert_eq!(webview_failure_action(1), WebviewFailureAction::Reload);
+        assert_eq!(webview_failure_action(2), WebviewFailureAction::Reload);
+        assert_eq!(webview_failure_action(6), WebviewFailureAction::ReportOnly);
+        assert_eq!(webview_failure_action(99), WebviewFailureAction::ReportOnly);
+
+        let directory = tempfile::tempdir().expect("directorio de informes");
+        let path = write_webview_failure_report(directory.path(), 1).expect("informe escrito");
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(
+            name.starts_with("webview-") && name.ends_with(".json"),
+            "{name}"
+        );
+        let report: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(report["contract"], "columnia-webview-failure-report");
+        assert_eq!(report["processFailedKind"], "render-process-exited");
+        assert_eq!(report["action"], "reload");
+        for _ in 0..25 {
+            write_webview_failure_report(directory.path(), 2).expect("informe escrito");
+        }
+        assert!(std::fs::read_dir(directory.path()).unwrap().count() <= 20);
     }
 
     #[test]

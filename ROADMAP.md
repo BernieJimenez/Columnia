@@ -523,12 +523,12 @@ medio = 1 día; agregado por suma.
   - [x] `DOC-11` (Bajo) CONTRIBUTING y SECURITY: invitan a contribuir a un proyecto personal, sin URL del repositorio, y SECURITY depende de un correo personal — hecho el 2026-10-07
   - [x] `DOC-13` (Bajo) CHANGELOG (tramo 2160-2917): sección 0.58.0 gigante, «sistema anterior» como marcador sin nombre y afirmaciones de release sin respaldo — hecho el 2026-10-07
   - [x] `LEG-02` (Bajo) `check-legal-distribution` acepta decisiones vacías en la práctica y usa rutas solo-Windows — hecho el 2026-10-07
-- [ ] **RV101** — **Varios** — Dos incidencias de arranque y ventana vistas una sola vez al conducir la app por CDP (no… (y 3 problemas más) · *Esfuerzo: 2,5 días*
+- [x] **RV101** — **Varios** — Dos incidencias de arranque y ventana vistas una sola vez al conducir la app por CDP (no… (y 3 problemas más) · *Esfuerzo: 2,5 días* — hecho el 2026-10-07
   - Criterio de cierre: Se cumplen los criterios de aceptación de ARQ-06, UX-08, TXT-05, QA-43.
-  - [ ] `ARQ-06` (Bajo) Dos incidencias de arranque y ventana vistas una sola vez al conducir la app por CDP (no reproducidas)
-  - [ ] `UX-08` (Bajo) Textos y detalles menores de Cargar/Revisar/Preparar
-  - [ ] `TXT-05` (Bajo) Plurales fijos en los mensajes («1 filas», «1 columnas», «1 outliers»)
-  - [ ] `QA-43` (Bajo) Datos de prueba de la mitad 2: casi todo sintético y de unas pocas filas; solo 4 tests con volumen o varios chunks
+  - [x] `ARQ-06` (Bajo) Dos incidencias de arranque y ventana vistas una sola vez al conducir la app por CDP (no reproducidas) — hecho el 2026-10-07
+  - [x] `UX-08` (Bajo) Textos y detalles menores de Cargar/Revisar/Preparar — hecho el 2026-10-07
+  - [x] `TXT-05` (Bajo) Plurales fijos en los mensajes («1 filas», «1 columnas», «1 outliers») — hecho el 2026-10-07
+  - [x] `QA-43` (Bajo) Datos de prueba de la mitad 2: casi todo sintético y de unas pocas filas; solo 4 tests con volumen o varios chunks — hecho el 2026-10-07
 - [ ] **RV102** — **Pruebas del motor** — Fixtures temporales sin guardia RAII: se filtran carpetas y archivos si el test falla o c… (y 3 problemas más) · *Esfuerzo: 1 día*
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-39, QA-40, QA-41, QA-42.
   - [ ] `QA-39` (Bajo) Fixtures temporales sin guardia RAII: se filtran carpetas y archivos si el test falla o con `.keep()`

@@ -2111,6 +2111,10 @@ pub(crate) fn preview_value(value: AnyValue<'_>) -> Option<String> {
         AnyValue::Null => None,
         AnyValue::String(value) => Some(value.to_owned()),
         AnyValue::StringOwned(value) => Some(value.as_str().to_owned()),
+        // UX-08: the shortest text that reads back as the same number; Polars'
+        // display keeps about seven significant digits.
+        AnyValue::Float64(value) => Some(format!("{value:?}")),
+        AnyValue::Float32(value) => Some(format!("{value:?}")),
         value => Some(value.to_string()),
     }
 }
@@ -7171,8 +7175,20 @@ pub(crate) fn legacy_encoding_error(message: String) -> String {
     if message.starts_with(LEGACY_ENCODING_PREFIX) {
         return message;
     }
+    // QA-43: only the engines' own wording; Columnia's messages also name
+    // UTF-8 (the UTF-16 one advises saving as «CSV UTF-8»).
     let lower = message.to_lowercase();
-    if lower.contains("utf-8") || lower.contains("utf8") || lower.contains("invalid unicode") {
+    let engine_failure = [
+        "invalid utf-8",
+        "invalid utf8",
+        "valid utf-8",
+        "valid utf8",
+        "invalid unicode",
+        "utf8error",
+    ]
+    .iter()
+    .any(|fragment| lower.contains(fragment));
+    if engine_failure {
         LEGACY_ENCODING_PREFIX.to_owned()
     } else {
         message
@@ -7522,8 +7538,14 @@ where
             }
             consistent
                 .sort_unstable_by_key(|(_, share, fields)| std::cmp::Reverse((*share, *fields)));
+            // QA-43: a comma that does not even split the header would read
+            // the whole file as one column; any separator that does is better.
+            let comma_splits_header = consistent
+                .iter()
+                .any(|(delimiter, _, _)| *delimiter == b',');
             Ok(match consistent.as_slice() {
                 [(delimiter, share, _), ..] if *share >= 800 => *delimiter,
+                [(delimiter, _, _), ..] if !comma_splits_header => *delimiter,
                 _ => b',',
             })
         }
@@ -7642,11 +7664,42 @@ where
     delimited_scan_with_separator(path, separator, has_header)
 }
 
+const EMPTY_DELIMITED_FILE_MESSAGE: &str =
+    "El archivo está vacío: no tiene encabezados ni filas que cargar.";
+
+/// UX-08: a delimited file with nothing but a BOM or blank lines; Polars only
+/// says «no data: empty CSV».
+fn delimited_file_is_empty(path: &Path) -> Result<bool, String> {
+    const PROBE_BYTES: usize = 4096;
+    let mut file = File::open(path)
+        .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))?;
+    let mut buffer = [0_u8; PROBE_BYTES + 1];
+    let mut read = 0;
+    while read < buffer.len() {
+        match file.read(&mut buffer[read..]) {
+            Ok(0) => break,
+            Ok(count) => read += count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(format!("No se pudo leer el archivo delimitado: {error}")),
+        }
+    }
+    if read > PROBE_BYTES {
+        return Ok(false);
+    }
+    let contents = buffer[..read]
+        .strip_prefix(b"\xEF\xBB\xBF")
+        .unwrap_or(&buffer[..read]);
+    Ok(contents.iter().all(u8::is_ascii_whitespace))
+}
+
 fn delimited_scan_with_separator(
     path: &Path,
     separator: u8,
     has_header: bool,
 ) -> Result<LazyFrame, String> {
+    if delimited_file_is_empty(path)? {
+        return Err(EMPTY_DELIMITED_FILE_MESSAGE.to_owned());
+    }
     let line_terminator = delimited_line_terminator(path)?;
     let source = PlRefPath::try_from_path(path)
         .map_err(|error| format!("No se pudo preparar el lector delimitado: {error}"))?;
@@ -7745,11 +7798,17 @@ fn readable_header_names(names: &[String]) -> Vec<String> {
 #[cfg(test)]
 fn read_delimited_frame(path: &Path, extension: &str) -> Result<DataFrame, String> {
     let plan = delimited_scan(path, extension)?;
-    collect_lazy_frame_streaming(
-        plan,
-        "No se pudo interpretar el archivo delimitado como UTF-8",
-    )
-    .map_err(legacy_encoding_error)
+    collect_lazy_frame_streaming(plan, "No se pudo leer el archivo delimitado")
+        .map_err(delimited_read_error)
+}
+
+/// QA-43: a row with an extra field is named as such; the wrapper text used
+/// to say «UTF-8», so it was offered as a Windows-1252 conversion.
+fn delimited_read_error(message: String) -> String {
+    if message.contains("found more fields than defined") {
+        return "Alguna fila tiene más campos que el encabezado (por ejemplo, un separador sin comillas dentro de un valor). Corrige esa fila o carga el archivo sin encabezados.".to_owned();
+    }
+    legacy_encoding_error(message)
 }
 
 fn read_delimited_frame_with_header_and_cancel<C>(
@@ -7765,10 +7824,10 @@ where
     let plan = delimited_scan_with_header_and_cancel(path, extension, has_header, &is_cancelled)?;
     collect_lazy_frame_streaming_with_cancel(
         plan,
-        "No se pudo interpretar el archivo delimitado como UTF-8",
+        "No se pudo leer el archivo delimitado",
         &is_cancelled,
     )
-    .map_err(legacy_encoding_error)
+    .map_err(delimited_read_error)
 }
 
 fn parquet_scan(path: &Path) -> Result<LazyFrame, String> {

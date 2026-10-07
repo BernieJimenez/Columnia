@@ -221,7 +221,7 @@ export function PrepareProposal({
     const current = isNamesStep ? null : items[step];
     const question = current
       ? STEP_QUESTIONS[current.id]
-      : { question: `¿Normalizamos los nombres de las ${columnCount} columnas?`, yes: "Sí, normalizar", no: "No, dejarlos" };
+      : { question: columnCount === 1 ? "¿Normalizamos el nombre de la columna?" : `¿Normalizamos los nombres de las ${columnCount} columnas?`, yes: "Sí, normalizar", no: columnCount === 1 ? "No, dejarlo" : "No, dejarlos" };
     const hint = current ? `${titleOf(current)}. ${current.hint}` : "Minúsculas y sin espacios. Puede afectar consultas e integraciones.";
     const value = current ? selection[current.id] : normalizeNames;
     const choose = (next: boolean) => {

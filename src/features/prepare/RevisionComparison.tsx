@@ -255,7 +255,7 @@ function SnapshotComparisonResultView({ result }: { result: SnapshotComparisonRe
               <li key={rule.ruleIndex}>
                 <strong>Regla {rule.ruleIndex}{rule.column ? ` · ${rule.column}` : ""}</strong>{` (${QUALITY_RULE_SUMMARY[rule.kind] ?? "regla de calidad"}): `}
                 {rule.comparable
-                  ? `${rule.beforeInvalidCount?.toLocaleString() ?? "—"} → ${rule.afterInvalidCount?.toLocaleString() ?? "—"} valores inválidos; tasa ${rule.beforeInvalidPercentage == null ? "—" : formatPercent(rule.beforeInvalidPercentage, 1)} → ${rule.afterInvalidPercentage == null ? "—" : formatPercent(rule.afterInvalidPercentage, 1)}; pasó ${metricLabel(rule.beforePassed)} → ${metricLabel(rule.afterPassed)}`
+                  ? `${rule.beforeInvalidCount?.toLocaleString() ?? "—"} → ${rule.afterInvalidCount?.toLocaleString() ?? "—"} ${rule.afterInvalidCount === 1 ? "valor inválido" : "valores inválidos"}; tasa ${rule.beforeInvalidPercentage == null ? "—" : formatPercent(rule.beforeInvalidPercentage, 1)} → ${rule.afterInvalidPercentage == null ? "—" : formatPercent(rule.afterInvalidPercentage, 1)}; pasó ${metricLabel(rule.beforePassed)} → ${metricLabel(rule.afterPassed)}`
                   : rule.reason ?? "No comparable"}
               </li>
             ))}

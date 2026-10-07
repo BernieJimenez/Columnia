@@ -869,10 +869,13 @@ export function App() {
 
   // A CSV or TSV reviews its schema as soon as its headers are read, and again
   // after any change of headers or conventions: one click («Cargar archivo»)
-  // instead of «Revisar esquema» first (UX-01).
+  // instead of «Revisar esquema» first (UX-01). UX-08: a Parquet or JSON,
+  // which has no headers to choose, reviews it as soon as it is selected.
+  const reviewsWithoutHeaders = loadInspection.kind === "sheet"
+    && (loadInspection.source.format === "parquet" || loadInspection.source.format === "json");
   const autoSchemaReviewKey = loadInspection.kind === "sheet"
-    && (loadInspection.source.format === "csv" || loadInspection.source.format === "tsv")
-    && loadInspection.headerReview
+    && (reviewsWithoutHeaders
+      || ((loadInspection.source.format === "csv" || loadInspection.source.format === "tsv") && loadInspection.headerReview))
     && !loadInspection.headerReviewLoading
     && !loadInspection.schemaPreview
     && !loadInspection.schemaPreviewLoading

@@ -88,7 +88,9 @@ fn delimited_header_mode_preview(
         columns,
         rows,
         includes_first_row: header_mode == SpreadsheetHeaderMode::Generated,
-        sample_truncated: sample_truncated || frame.height() > HEADER_REVIEW_ROW_LIMIT,
+        // UX-08: only a sample that misses part of the file is truncated;
+        // showing the first rows of a sample that covers it is not.
+        sample_truncated,
     })
 }
 

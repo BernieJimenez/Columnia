@@ -207,6 +207,18 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Robustez y textos de Cargar, Revisar y Preparar: si el renderer de WebView2
+  cae, Columnia deja un informe en crash-reports y vuelve a mostrar la interfaz;
+  si cae el proceso del navegador, también deja el informe y cierra la
+  instancia, de modo que un nuevo arranque no queda atrapado en una ventana
+  inexistente (verificado matando ambos procesos en la app real); un CSV pequeño
+  ya no avisa de muestra truncada, un CSV vacío da un mensaje en español, los
+  años se leen «2013» también en las tablas de Revisar y no aparece «-0»; la
+  consola SQL y las vistas previas muestran los decimales completos; Parquet y
+  JSON se cargan con un solo clic; los contadores concuerdan en singular («1
+  fila», «1 columna»); un archivo con «;» y una fila corta ya no se lee como una
+  sola columna, una fila con campos de más se explica como tal en vez de ofrecer
+  una conversión de codificación, y un archivo UTF-16 ya no recibe esa oferta.
 - Documentación y gates de distribución: una fase de reinicio de la sonda de
   proyectos ya no arranca sin el respaldo del appdata que hace
   probe-webview2-restart.ps1; README, CONTRIBUTING y SECURITY dicen lo mismo

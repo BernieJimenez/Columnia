@@ -60,6 +60,10 @@ unicode-normalization = "0.1"
 xxhash-rust = { version = "0.8.18", default-features = false, features = ["xxh3"] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
+[target.'cfg(windows)'.dependencies]
+# ARQ-06: the version wry already uses, for the ProcessFailed event.
+webview2-com = "0.38.2"
+
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2.12.0"
