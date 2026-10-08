@@ -281,8 +281,30 @@ where
         &is_cancelled,
     )?;
     ensure_not_cancelled(is_cancelled())?;
-    let quality =
+    let mut quality =
         snapshot_quality_comparison(before_frame, after_frame, quality_rules, &is_cancelled)?;
+    // LIM-16: personal columns are numbered, never named, as in Preparar.
+    let mut personal = HashMap::<String, String>::new();
+    for column in before_profile.columns.iter().chain(&after_profile.columns) {
+        if column.privacy_signal.is_some() && !personal.contains_key(&column.name) {
+            let label = format!("Columna personal {}", personal.len() + 1);
+            personal.insert(column.name.clone(), label);
+        }
+    }
+    let shown = |name: &str| {
+        personal
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| name.to_owned())
+    };
+    for rule in &mut quality.rules {
+        rule.column = shown(&rule.column);
+        if let Some(reason) = rule.reason.as_mut() {
+            for (name, label) in &personal {
+                *reason = reason.replace(name.as_str(), label);
+            }
+        }
+    }
 
     let before_summary = SnapshotRevisionSummary {
         row_count: before_profile.row_count,
@@ -354,7 +376,7 @@ where
             });
             let comparable = before.is_some() && after.is_some();
             SnapshotColumnComparison {
-                name: name.clone(),
+                name: shown(&name),
                 comparable,
                 reason: (!comparable).then(|| {
                     "La columna existe solo en una de las dos revisiones; no se comparan sus métricas.".to_owned()

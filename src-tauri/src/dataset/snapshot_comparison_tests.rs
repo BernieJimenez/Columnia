@@ -137,6 +137,14 @@ fn history_comparison_profiles_immutable_revisions_and_returns_aggregate_only_de
         .contains("solo en una"));
 
     let correo_rule = &comparison.quality.rules[0];
+    // LIM-16: a personal column is not named, as everywhere else in Preparar.
+    assert_eq!(correo_rule.column, "Columna personal 1");
+    assert!(comparison
+        .columns
+        .iter()
+        .any(|column| column.name == "Columna personal 1" && column.comparable));
+    let serialized = serde_json::to_string(&comparison).unwrap();
+    assert!(!serialized.contains("correo"), "{serialized}");
     assert!(correo_rule.comparable);
     assert_eq!(correo_rule.before_invalid_count, Some(1));
     assert_eq!(correo_rule.after_invalid_count, Some(0));

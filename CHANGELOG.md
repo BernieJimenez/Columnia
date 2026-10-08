@@ -133,6 +133,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Seguridad
 
+- La comparación de dos revisiones en Preparar ya no muestra por nombre las
+  columnas con datos personales: aparecen como «Columna personal 1», «Columna
+  personal 2»…, también en sus reglas de calidad (LIM-16).
 - La confirmación nativa de una conexión remota muestra el controlador ODBC, el
   DSN y el usuario; Columnia rechaza un Driver= con ruta de archivo, FileDSN y
   SaveFile, y solo acepta controladores instalados en Windows (PROD-15).
