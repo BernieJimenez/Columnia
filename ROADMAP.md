@@ -593,10 +593,11 @@ medio = 1 día; agregado por suma.
   - [x] `PROD-17` (Propuesta) Exportar CSV compatible con Excel en configuración regional española — hecho el 2026-10-08
   - [x] `PROD-18` (Propuesta) Exportar fechas a XLSX como fechas — hecho el 2026-10-08
   - [x] `PROD-19` (Propuesta) Informar de hojas ocultas, celdas combinadas y filas de título al cargar libros — Decidido: la fila de encabezado se detecta sola (salta las filas de título) y «Generar encabezados» lee todas las filas — hecho el 2026-10-08
-- [ ] **RV114** — **Producto** — Informar de qué muestra se usa en correlaciones y permitir su semilla/estrategia (y 1 problemas más) · *Esfuerzo: 4 h*
+- [x] **RV114** — **Producto** — Informar de qué muestra se usa en correlaciones y permitir su semilla/estrategia (y 1 problemas más) · *Esfuerzo: 4 h* — hecho el 2026-10-08
   - Criterio de cierre: Hecho lo que proponen PROD-20, PROD-21.
   - [x] `PROD-20` (Propuesta) Informar de qué muestra se usa en correlaciones y permitir su semilla/estrategia — hecho el 2026-10-08
-  - [ ] `PROD-21` (Propuesta) Tolerancia numérica y normalización de texto opcionales en la comparación
+  - [x] `PROD-21` (Propuesta) Tolerancia numérica y normalización de texto opcionales en la comparación
+ — Decidido: en todas las rutas (memoria, Parquet y archivos grandes) — hecho el 2026-10-08
 - [x] **RV115** — **Refactorización y limpieza** — `SnapshotComparisonResult` anunciada como «solo agregados» pero el listado por columna muestra nombres de columna sin c… · *Esfuerzo: 2 h* — hecho el 2026-10-08
   - Criterio de cierre: Hecho lo que proponen LIM-16.
   - [x] `LIM-16` (Propuesta) `SnapshotComparisonResult` anunciada como «solo agregados» pero el listado por columna muestra nombres de columna sin comprobar privacidad — hecho el 2026-10-08

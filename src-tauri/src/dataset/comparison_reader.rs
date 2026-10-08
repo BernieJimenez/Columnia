@@ -4,6 +4,7 @@ use crate::crash_report::LockRecovering;
 pub(super) async fn compare_dataset_impl(
     app: AppHandle,
     key_columns: Option<Vec<String>>,
+    options: ComparisonOptions,
 ) -> Result<Option<DatasetComparison>, String> {
     let key_columns = normalize_key_columns(key_columns)?;
     let cancellation = DatasetComparisonCancellation::begin(&app);
@@ -55,6 +56,7 @@ pub(super) async fn compare_dataset_impl(
     cancellation.ensure()?;
     let cancellation_for_work = cancellation.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let _options = ComparisonOptionsScope::enter(options);
         let is_cancelled = cancellation_for_work.callback();
         cancellation_for_work.ensure()?;
         let (directory, snapshot_path, compared_row_count) =
@@ -152,6 +154,7 @@ pub(super) async fn compare_dataset_impl(
                 _directory: directory,
                 snapshot_path,
                 key_columns,
+                options,
             });
             Ok(Some(comparison))
         })
@@ -186,7 +189,7 @@ pub(super) async fn get_dataset_conflict_page_impl(
     tauri::async_runtime::spawn_blocking(move || {
         ensure_not_cancelled(is_cancelled())?;
         let state = app.state::<DatasetState>();
-        let (compared_path, compared_row_count, key_columns) = {
+        let (compared_path, compared_row_count, key_columns, options) = {
             let comparison = state.comparison.lock_recovering();
             let pending = comparison
                 .as_ref()
@@ -195,8 +198,10 @@ pub(super) async fn get_dataset_conflict_page_impl(
                 pending.snapshot_path.clone(),
                 pending.row_count,
                 pending.key_columns.clone(),
+                pending.options,
             )
         };
+        let _options = ComparisonOptionsScope::enter(options);
         let page = if let Some(page) = disk_backed_conflict_page_with_cancel(
             &state,
             &compared_path,

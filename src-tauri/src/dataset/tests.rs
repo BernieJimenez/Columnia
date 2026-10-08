@@ -6341,6 +6341,7 @@ fn cancelled_review_source_backed_publication_keeps_history_and_cleans_output() 
         _directory: comparison_directory,
         snapshot_path: comparison_path.clone(),
         key_columns: vec!["id".to_owned()],
+        options: ComparisonOptions::default(),
     });
     let expected_stamp = DatasetMutationStamp::capture(&dataset);
     let history_before = dataset.history.state();
@@ -6445,6 +6446,7 @@ fn cancelled_source_backed_conflict_resolution_keeps_history_and_comparison() {
         _directory: comparison_directory,
         snapshot_path: compared_path.clone(),
         key_columns: vec!["id".to_owned()],
+        options: ComparisonOptions::default(),
     });
     let expected_stamp = {
         let current = state
@@ -6557,6 +6559,7 @@ fn cancelled_review_eager_conflict_resolution_keeps_dataset_history_and_comparis
         _directory: comparison_directory,
         snapshot_path: comparison_path.clone(),
         key_columns: vec!["id".to_owned()],
+        options: ComparisonOptions::default(),
     });
     let expected_stamp = {
         let current = state
@@ -6714,6 +6717,7 @@ fn review_eager_publication_is_reversible_and_clears_comparison_on_commit() {
         _directory: comparison_directory,
         snapshot_path: comparison_path.clone(),
         key_columns: vec!["id".to_owned()],
+        options: ComparisonOptions::default(),
     });
     let expected_stamp = {
         let current = state
@@ -7328,6 +7332,7 @@ fn snapshot_backed_conflict_resolution_publishes_a_reversible_cursor() {
         _directory: compared_directory,
         snapshot_path: compared_path.clone(),
         key_columns: vec!["id".to_owned()],
+        options: ComparisonOptions::default(),
     });
     let context = {
         let current = state
@@ -7472,6 +7477,7 @@ fn snapshot_backed_consolidation_publishes_only_new_keys_reversibly() {
         _directory: compared_directory,
         snapshot_path: compared_path.clone(),
         key_columns: vec!["id".to_owned()],
+        options: ComparisonOptions::default(),
     });
     let cancellation = ReviewMutationCancellation::disabled();
     let preview = consolidate_source_backed_dataset(
@@ -7566,6 +7572,7 @@ fn source_backed_conflict_exclusion_and_resolution_match_eager_and_publish_rever
         _directory: compared_directory,
         snapshot_path: compared_path.clone(),
         key_columns: vec!["id".to_owned()],
+        options: ComparisonOptions::default(),
     });
     let context = {
         let current = state
@@ -13725,6 +13732,181 @@ fn the_disk_comparison_counts_rows_left_out_by_repeated_keys() {
     // id 1: 2 + 1 rows; id 3: 2 rows only on the compared side.
     assert_eq!(comparison.duplicate_key_row_count, Some(5));
     assert!(comparison.conflicts.is_empty());
+}
+
+#[test]
+fn comparison_options_tolerate_rounding_case_and_spaces_in_every_count() {
+    // PROD-21: 0.1 + 0.2 against 0.3, «Hola» against «hola» and trailing
+    // spaces were reported as conflicts.
+    let directory = tempfile::tempdir().unwrap();
+    let write = |name: &str, mut frame: DataFrame| {
+        let path = directory.path().join(name);
+        ParquetWriter::new(fs::File::create(&path).unwrap())
+            .finish(&mut frame)
+            .unwrap();
+        path
+    };
+    let current = write(
+        "actual.parquet",
+        df![
+            "id" => &["A-1", "a-2", "A-3"],
+            "importe" => &[0.1_f64 + 0.2, 10.0, 7.0],
+            "nombre" => &["Hola", "Ana ", "Luis"]
+        ]
+        .unwrap(),
+    );
+    let compared = write(
+        "comparado.parquet",
+        df![
+            "id" => &["A-1", "A-2", "A-3"],
+            "importe" => &[0.3_f64, 10.0, 8.0],
+            "nombre" => &["hola", "Ana", "Luis"]
+        ]
+        .unwrap(),
+    );
+    let compare = |options: ComparisonOptions| {
+        let _scope = comparison_engine::ComparisonOptionsScope::enter(options);
+        comparison_engine::compare_parquet_sources_with_cancel(
+            &current,
+            "actual.parquet",
+            3,
+            &compared,
+            "comparado.parquet",
+            3,
+            &["id".to_owned()],
+            &|| false,
+        )
+        .unwrap()
+    };
+
+    let exact = compare(ComparisonOptions::default());
+    assert_eq!(exact.matched_key_count, 2, "«a-2» no es «A-2» sin opciones");
+    assert_eq!(exact.conflicting_key_count, 2);
+    assert_eq!(exact.common_row_count, 0);
+
+    let tolerant = compare(ComparisonOptions {
+        numeric_tolerance: true,
+        ignore_case: true,
+        trim_spaces: true,
+    });
+    assert_eq!(
+        tolerant.matched_key_count, 3,
+        "las claves también se normalizan"
+    );
+    assert_eq!(
+        tolerant.conflicting_key_count, 1,
+        "solo 7 frente a 8 es un cambio real"
+    );
+    assert_eq!(tolerant.common_row_count, 2);
+    assert_eq!(tolerant.conflicts[0].key, [Some("A-3".to_owned())]);
+    // The values shown are the originals, not the normalized ones.
+    assert_eq!(
+        tolerant.conflicts[0].cells[0].current.as_deref(),
+        Some("7.0")
+    );
+    assert_eq!(
+        tolerant.options,
+        ComparisonOptions {
+            numeric_tolerance: true,
+            ignore_case: true,
+            trim_spaces: true,
+        }
+    );
+
+    let case_only = compare(ComparisonOptions {
+        ignore_case: true,
+        ..ComparisonOptions::default()
+    });
+    // «Ana » keeps its space and 0.1 + 0.2 its rounding error.
+    assert_eq!(case_only.conflicting_key_count, 3);
+}
+
+#[test]
+fn duckdb_and_the_engine_agree_on_what_comparison_options_make_equal() {
+    // PROD-21: resolving and consolidating large files run in DuckDB; a pair
+    // the engine calls equal must be equal there too, and the reverse.
+    let options = ComparisonOptions {
+        numeric_tolerance: true,
+        ignore_case: true,
+        trim_spaces: true,
+    };
+    let _scope = comparison_engine::ComparisonOptionsScope::enter(options);
+    let connection = duckdb::Connection::open_in_memory().expect("DuckDB en memoria");
+    let pairs: [(AnyValue, AnyValue, &str, &str, DataType); 6] = [
+        (
+            AnyValue::Float64(0.1 + 0.2),
+            AnyValue::Float64(0.3),
+            "0.1::DOUBLE + 0.2::DOUBLE",
+            "0.3::DOUBLE",
+            DataType::Float64,
+        ),
+        (
+            AnyValue::Float64(1.0),
+            AnyValue::Float64(1.000_000_1),
+            "1.0::DOUBLE",
+            "1.0000001::DOUBLE",
+            DataType::Float64,
+        ),
+        (
+            AnyValue::Float64(-0.0),
+            AnyValue::Float64(0.0),
+            "-0.0::DOUBLE",
+            "0.0::DOUBLE",
+            DataType::Float64,
+        ),
+        (
+            AnyValue::String("Hola"),
+            AnyValue::String("hola"),
+            "'Hola'",
+            "'hola'",
+            DataType::String,
+        ),
+        (
+            AnyValue::String("  Ana "),
+            AnyValue::String("ana"),
+            "'  Ana '",
+            "'ana'",
+            DataType::String,
+        ),
+        (
+            AnyValue::String("Ana\t"),
+            AnyValue::String("ana"),
+            "'Ana\t'",
+            "'ana'",
+            DataType::String,
+        ),
+    ];
+    for (left, right, left_sql, right_sql, data_type) in pairs {
+        let engine = comparison_engine::comparison_text(left.clone())
+            == comparison_engine::comparison_text(right.clone());
+        let query = format!(
+            "SELECT {} IS NOT DISTINCT FROM {}",
+            comparison_engine::duckdb_comparison_expression(
+                &format!("({left_sql})"),
+                &data_type,
+                options
+            ),
+            comparison_engine::duckdb_comparison_expression(
+                &format!("({right_sql})"),
+                &data_type,
+                options
+            ),
+        );
+        let duckdb: bool = connection
+            .query_row(&query, [], |row| row.get(0))
+            .unwrap_or_else(|error| panic!("{query}: {error}"));
+        assert_eq!(engine, duckdb, "{left:?} frente a {right:?}");
+    }
+    // Spot checks of the expected answers.
+    assert_eq!(
+        comparison_engine::comparison_text(AnyValue::Float64(0.1 + 0.2)),
+        comparison_engine::comparison_text(AnyValue::Float64(0.3))
+    );
+    assert_ne!(
+        comparison_engine::comparison_text(AnyValue::String("Ana\t")),
+        comparison_engine::comparison_text(AnyValue::String("ana")),
+        "solo se quitan espacios, no tabuladores"
+    );
 }
 
 #[test]

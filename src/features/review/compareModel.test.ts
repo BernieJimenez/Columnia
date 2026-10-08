@@ -29,6 +29,7 @@ const comparison = {
   conflictOffset: 0,
   conflictsTruncated: false,
   canConsolidate: true,
+  options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
 };
 
 describe("compareModel", () => {

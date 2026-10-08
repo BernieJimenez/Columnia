@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { cancelOperation } from "../../bridge";
 import type {
+  ComparisonOptions,
   ConflictResolution,
   ConflictSource,
   DatasetColumn,
@@ -13,6 +14,20 @@ import { formatDataType } from "../../format";
 import { errorMessage } from "../../bridge/errors";
 
 const CONFLICT_PAGE_SIZE = 50;
+const EXACT_COMPARISON: ComparisonOptions = { numericTolerance: false, ignoreCase: false, trimSpaces: false };
+
+/** PROD-21: the options as the result reads them. */
+function comparisonOptionsSummary(options: ComparisonOptions | undefined): string | null {
+  if (!options) return null;
+  const parts = [
+    options.numericTolerance ? "tolerando el redondeo de los decimales" : null,
+    options.ignoreCase ? "ignorando mayúsculas" : null,
+    options.trimSpaces ? "ignorando los espacios al principio y al final" : null,
+  ].filter((part): part is string => part !== null);
+  if (parts.length === 0) return null;
+  const last = parts.pop() as string;
+  return `Se comparó ${parts.length > 0 ? `${parts.join(", ")} e ${last}` : last}.`;
+}
 
 export function DatasetComparisonSection({
   status,
@@ -20,6 +35,8 @@ export function DatasetComparisonSection({
   datasetRevision,
   keyColumns,
   onKeyColumnsChange,
+  options = EXACT_COMPARISON,
+  onOptionsChange = () => undefined,
   onCompare,
   onCancelComparison,
   comparisonCancellationPending,
@@ -40,6 +57,8 @@ export function DatasetComparisonSection({
   datasetRevision: number;
   keyColumns: string[];
   onKeyColumnsChange: (columns: string[]) => void;
+  options?: ComparisonOptions;
+  onOptionsChange?: (options: ComparisonOptions) => void;
   onCompare: () => void;
   onCancelComparison: () => void;
   comparisonCancellationPending: boolean;
@@ -258,6 +277,33 @@ export function DatasetComparisonSection({
           <p className="comparison-key-status" role="status">
             Se comparará por: <strong>{keyColumns.join(", ")}</strong>
           </p>
+        )}
+      </fieldset>
+      <fieldset className="comparison-key-selector">
+        <legend>Qué cuenta como igual</legend>
+        <p>Sin opciones, dos valores son iguales solo si coinciden exactamente. Se aplican a las claves y a los valores.</p>
+        <div className="comparison-key-options">
+          {([
+            ["numericTolerance", "Tolerar el redondeo de los decimales", "0,1 + 0,2 = 0,3 y 1 = 1,0"],
+            ["ignoreCase", "Ignorar mayúsculas", "Hola = hola"],
+            ["trimSpaces", "Ignorar espacios al principio y al final", "«Ana » = «Ana»"],
+          ] as const).map(([option, label, example]) => (
+            <label key={option}>
+              <input
+                type="checkbox"
+                checked={options[option]}
+                disabled={reviewMutationBusy || status.kind === "loading" || status.kind === "ready"}
+                onChange={() => onOptionsChange({ ...options, [option]: !options[option] })}
+              />
+              <span>
+                <strong>{label}</strong>
+                <small>{example}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+        {status.kind === "ready" && comparisonOptionsSummary(status.comparison.options) && (
+          <p className="comparison-key-status" role="status">{comparisonOptionsSummary(status.comparison.options)}</p>
         )}
       </fieldset>
       {keyColumns.length > 0 && (

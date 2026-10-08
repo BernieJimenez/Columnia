@@ -34,12 +34,14 @@ const comparison: DatasetComparison = {
   conflictOffset: 0,
   conflictsTruncated: false,
   canConsolidate: true,
+  options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
 };
 
 const withConflicts = {
   ...comparison,
   conflictingKeyCount: 60,
   canConsolidate: false,
+  options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
   conflicts: [
     { key: ["7"], cells: [{ column: "importe", current: "10", compared: "12" }] },
   ],
@@ -54,6 +56,8 @@ type Overrides = Partial<{
   reviewMutationCancellationPending: boolean;
   comparisonCancellationPending: boolean;
   onConflictPageChange: (offset: number) => void | Promise<void>;
+  options: bridge.ComparisonOptions;
+  onOptionsChange: (options: bridge.ComparisonOptions) => void;
 }>;
 
 function renderSection(overrides: Overrides = {}) {
@@ -68,6 +72,8 @@ function renderSection(overrides: Overrides = {}) {
     onCancelReviewMutation: vi.fn(),
     onConsolidate: vi.fn(),
     onKeyColumnsChange: vi.fn(),
+    options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
+    onOptionsChange: vi.fn() as (options: bridge.ComparisonOptions) => void,
     ...overrides,
   };
   render(
@@ -80,6 +86,8 @@ function renderSection(overrides: Overrides = {}) {
       datasetRevision={1}
       keyColumns={["id"]}
       onKeyColumnsChange={props.onKeyColumnsChange}
+      options={props.options}
+      onOptionsChange={props.onOptionsChange}
       onCompare={vi.fn()}
       onCancelComparison={vi.fn()}
       comparisonCancellationPending={props.comparisonCancellationPending}
@@ -102,6 +110,25 @@ function renderSection(overrides: Overrides = {}) {
 const keyTypeMessage = "La columna clave 'id' es un número entero en el dataset activo y texto en el comparado. Conviértela al mismo tipo en Preparar (por ejemplo, a texto) y vuelve a comparar.";
 
 describe("DatasetComparisonSection", () => {
+  it("deja elegir qué cuenta como igual y el resultado dice qué se usó (PROD-21)", () => {
+    const onOptionsChange = vi.fn();
+    renderSection({ status: { kind: "idle" } as ComparisonStatus, onOptionsChange });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Ignorar mayúsculas/ }));
+    expect(onOptionsChange).toHaveBeenCalledWith({ numericTolerance: false, ignoreCase: true, trimSpaces: false });
+    cleanup();
+
+    renderSection({
+      status: {
+        kind: "ready",
+        comparison: { ...comparison, options: { numericTolerance: true, ignoreCase: true, trimSpaces: false } },
+      } as ComparisonStatus,
+      options: { numericTolerance: true, ignoreCase: true, trimSpaces: false },
+    });
+    expect(screen.getByRole("checkbox", { name: /Tolerar el redondeo/ })).toBeDisabled();
+    expect(screen.getByText(/Se comparó tolerando el redondeo de los decimales e ignorando mayúsculas/))
+      .toBeInTheDocument();
+  });
+
   it("no deja cambiar la clave bajo un resultado visible y explica cómo hacerlo (UX-05)", () => {
     renderSection();
     expect(screen.getByRole("checkbox", { name: /importe/ })).toBeDisabled();
@@ -158,9 +185,9 @@ describe("DatasetComparisonSection", () => {
   });
 
   it.each([
-    [{ ...comparison, conflictingKeyCount: 2, canConsolidate: false }, "existen conflictos de valores"],
-    [{ ...comparison, duplicateKeyCount: 1, canConsolidate: false }, "existen claves duplicadas"],
-    [{ ...comparison, keyColumns: [], canConsolidate: false }, "mismas columnas en el mismo orden"],
+    [{ ...comparison, conflictingKeyCount: 2, canConsolidate: false, options: { numericTolerance: false, ignoreCase: false, trimSpaces: false } }, "existen conflictos de valores"],
+    [{ ...comparison, duplicateKeyCount: 1, canConsolidate: false, options: { numericTolerance: false, ignoreCase: false, trimSpaces: false } }, "existen claves duplicadas"],
+    [{ ...comparison, keyColumns: [], canConsolidate: false, options: { numericTolerance: false, ignoreCase: false, trimSpaces: false } }, "mismas columnas en el mismo orden"],
   ])("explica por qué la consolidación está bloqueada (%#)", (blocked, text) => {
     renderSection({ status: { kind: "ready", comparison: blocked } });
     expect(screen.getByRole("note")).toHaveTextContent(text);
@@ -278,7 +305,7 @@ describe("DatasetComparisonSection", () => {
   });
 
   it("cuenta las filas que las claves repetidas dejan sin comparar (FUN-82)", () => {
-    renderSection({ status: { kind: "ready", comparison: { ...comparison, duplicateKeyCount: 2, duplicateKeyRowCount: 5, canConsolidate: false } } });
+    renderSection({ status: { kind: "ready", comparison: { ...comparison, duplicateKeyCount: 2, duplicateKeyRowCount: 5, canConsolidate: false, options: { numericTolerance: false, ignoreCase: false, trimSpaces: false } } } });
     expect(screen.getByText(/5 filas tienen una clave repetida/)).toBeInTheDocument();
   });
 

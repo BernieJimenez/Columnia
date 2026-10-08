@@ -33,6 +33,10 @@ no hay nada que corregir).
 
 La consola SQL de Revisar consulta el dataset sin cambiarlo.
 
+Para comparar con otra versión del archivo, abre «Comparar con otro dataset».
+En «Qué cuenta como igual» puedes tolerar el redondeo de los decimales e
+ignorar mayúsculas o espacios, para que solo aparezcan los cambios reales.
+
 ## 3. Preparar
 
 Preparar propone los cambios seguros que el diagnóstico encontró (quitar

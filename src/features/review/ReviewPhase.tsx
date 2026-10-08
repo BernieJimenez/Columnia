@@ -165,6 +165,8 @@ export function ReviewPhase({
           datasetRevision={datasetRevision}
           keyColumns={comparison.keyColumns}
           onKeyColumnsChange={comparison.onKeyColumnsChange}
+          options={comparison.options}
+          onOptionsChange={comparison.onOptionsChange}
           onCompare={comparison.onCompare}
           onCancelComparison={comparison.onCancelComparison ?? (() => undefined)}
           comparisonCancellationPending={comparison.cancellationPending ?? false}

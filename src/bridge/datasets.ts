@@ -3,6 +3,7 @@ import type {
   DatasetPreview,
   DatasetImportSchemaPreview,
   DelimitedHeaderReview,
+  ComparisonOptions,
   DatasetComparison,
   DatasetConflictPage,
   DatasetJoinType,
@@ -115,8 +116,11 @@ export function discardDatasetSelection(selectionId: string): Promise<void> {
   return invoke<void>("discard_dataset_selection", { selectionId });
 }
 
-export function compareDataset(keyColumns: string[] = []): Promise<DatasetComparison | null> {
-  return invoke<DatasetComparison | null>("compare_dataset", { keyColumns });
+export function compareDataset(
+  keyColumns: string[] = [],
+  options?: ComparisonOptions,
+): Promise<DatasetComparison | null> {
+  return invoke<DatasetComparison | null>("compare_dataset", { keyColumns, options });
 }
 
 export function getDatasetConflictPage(

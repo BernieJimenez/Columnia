@@ -11,6 +11,7 @@ import {
   getDatasetProfile,
   joinDataset,
   resolveDatasetConflicts,
+  type ComparisonOptions,
   type ConflictResolution,
   type DatasetColumn,
   type DatasetJoinType,
@@ -47,6 +48,7 @@ import {
 import { errorMessage } from "../../bridge/errors";
 
 const CONFLICT_PAGE_SIZE = 50;
+const EXACT_COMPARISON: ComparisonOptions = { numericTolerance: false, ignoreCase: false, trimSpaces: false };
 
 /** Everything the comparison and join tools of Revisar show and do. */
 export interface ReviewComparison {
@@ -54,6 +56,9 @@ export interface ReviewComparison {
   cancellationPending?: boolean;
   keyColumns: string[];
   onKeyColumnsChange: (columns: string[]) => void;
+  /** PROD-21: what the next comparison treats as the same value. */
+  options?: ComparisonOptions;
+  onOptionsChange?: (options: ComparisonOptions) => void;
   onCompare: () => void;
   onCancelComparison?: () => void;
   onClear: () => void;
@@ -109,6 +114,7 @@ export function useReviewController({
   const [comparisonStatus, setComparisonStatus] = useState<ComparisonStatus>({ kind: "idle" });
   const [comparisonCancellationPending, setComparisonCancellationPending] = useState(false);
   const [comparisonKeyColumns, setComparisonKeyColumns] = useState<string[]>([]);
+  const [comparisonOptions, setComparisonOptions] = useState<ComparisonOptions>(EXACT_COMPARISON);
   const [joinStatus, setJoinStatus] = useState<JoinStatus>({ kind: "idle" });
   const [joinType, setJoinType] = useState<DatasetJoinType>("inner");
   const [mutationStatus, setMutationStatus] = useState<ReviewMutationStatus>({ kind: "idle" });
@@ -244,7 +250,7 @@ export function useReviewController({
     setComparisonCancellationPending(false);
     setComparisonStatus(beginComparison());
     try {
-      const comparison = await compareDataset(comparisonKeyColumns);
+      const comparison = await compareDataset(comparisonKeyColumns, comparisonOptions);
       if (!isCurrentRequest()) return;
       setComparisonStatus(comparison ? completeComparison(comparison) : clearComparison());
     } catch (error: unknown) {
@@ -454,6 +460,8 @@ export function useReviewController({
     cancellationPending: comparisonCancellationPending,
     keyColumns: comparisonKeyColumns,
     onKeyColumnsChange: setComparisonKeyColumns,
+    options: comparisonOptions,
+    onOptionsChange: setComparisonOptions,
     onCompare: () => void compare(),
     onCancelComparison: () => void cancelComparison(),
     onClear: () => void clearActiveComparison(),

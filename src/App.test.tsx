@@ -3031,6 +3031,7 @@ describe("App", () => {
       conflictOffset: 0,
       conflictsTruncated: false,
       canConsolidate: true,
+      options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
     };
     vi.spyOn(bridge, "compareDataset").mockResolvedValue(comparison);
     vi.spyOn(bridge, "clearDatasetComparison").mockResolvedValue(undefined);
@@ -3128,6 +3129,7 @@ describe("App", () => {
       conflictOffset: 0,
       conflictsTruncated: false,
       canConsolidate: false,
+      options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
     };
     vi.spyOn(bridge, "compareDataset").mockResolvedValue(comparison);
     vi.spyOn(bridge, "clearDatasetComparison").mockResolvedValue(undefined);
@@ -3212,6 +3214,7 @@ describe("App", () => {
       conflictOffset: 0,
       conflictsTruncated: false,
       canConsolidate: true,
+      options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
     };
     const compareSpy = vi.spyOn(bridge, "compareDataset").mockResolvedValue(comparison);
     vi.spyOn(bridge, "clearDatasetComparison").mockResolvedValue(undefined);
@@ -3297,6 +3300,7 @@ describe("App", () => {
       conflictOffset: 0,
       conflictsTruncated: false,
       canConsolidate: true,
+      options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
     };
     const compareSpy = vi.spyOn(bridge, "compareDataset").mockResolvedValue(comparison);
     vi.spyOn(bridge, "clearDatasetComparison").mockResolvedValue(undefined);
@@ -3324,7 +3328,7 @@ describe("App", () => {
     fireEvent.click(screen.getByText("Comparar con otro dataset"));
     fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
     fireEvent.click(screen.getByRole("button", { name: "Elegir dataset para comparar" }));
-    await waitFor(() => expect(compareSpy).toHaveBeenCalledWith(["id"]));
+    await waitFor(() => expect(compareSpy).toHaveBeenCalledWith(["id"], { numericTolerance: false, ignoreCase: false, trimSpaces: false }));
     expect(screen.getByText("nuevo.csv")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Descartar comparación" }));
@@ -3614,6 +3618,7 @@ describe("App", () => {
       comparedOnlyKeyCount: 0, conflictingKeyCount: 3, duplicateKeyCount: 0,
       conflicts: [{ key: ["1"], cells: [{ column: "valor", current: "A", compared: "Z" }] }],
       conflictOffset: 0, conflictsTruncated: true, canConsolidate: false,
+      options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
     };
     vi.spyOn(bridge, "compareDataset").mockResolvedValue(comparison);
     vi.spyOn(bridge, "clearDatasetComparison").mockResolvedValue(undefined);

@@ -27,6 +27,7 @@ const profile = { rowCount: 2, columns: [] } as unknown as DatasetProfile;
 
 const comparison = {
   canConsolidate: true,
+  options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
   conflicts: [],
   conflictOffset: 0,
   conflictsTruncated: false,
@@ -131,7 +132,7 @@ describe("useReviewController", () => {
     act(() => result.current.comparison.onKeyColumnsChange(["id"]));
     await act(async () => result.current.comparison.onCompare());
     await waitFor(() => expect(result.current.comparison.status.kind).toBe("ready"));
-    expect(compare).toHaveBeenCalledWith(["id"]);
+    expect(compare).toHaveBeenCalledWith(["id"], { numericTolerance: false, ignoreCase: false, trimSpaces: false });
 
     await act(async () => result.current.comparison.onConflictPageChange(50));
     expect(result.current.comparison.status).toMatchObject({

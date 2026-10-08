@@ -622,6 +622,22 @@ pub(crate) enum DatasetQueryEngine {
     Duckdb,
 }
 
+/// PROD-21: what the comparison treats as the same value. Off, values match
+/// exactly as text; the report says which ones were used.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ComparisonOptions {
+    /// Decimal numbers equal to 12 significant digits (0.1 + 0.2 = 0.3, 1 = 1.0).
+    #[serde(default)]
+    pub(crate) numeric_tolerance: bool,
+    /// Text equal whatever its case («Hola» = «hola»), in keys and values.
+    #[serde(default)]
+    pub(crate) ignore_case: bool,
+    /// Text equal without the spaces at its start and end.
+    #[serde(default)]
+    pub(crate) trim_spaces: bool,
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DatasetComparison {
@@ -653,6 +669,8 @@ pub struct DatasetComparison {
     /// header row of a workbook, the header row of a delimited file (FUN-41).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) compared_source_note: Option<String>,
+    /// PROD-21: the options this comparison used.
+    pub(crate) options: ComparisonOptions,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -1845,6 +1863,8 @@ struct PendingComparison {
     _directory: tempfile::TempDir,
     snapshot_path: PathBuf,
     key_columns: Vec<String>,
+    /// PROD-21: paging, resolving and consolidating match as the comparison did.
+    options: ComparisonOptions,
 }
 
 struct ReviewComparisonSnapshot {
@@ -1855,6 +1875,7 @@ struct ReviewComparisonSnapshot {
     file_size_bytes: u64,
     row_count: usize,
     key_columns: Vec<String>,
+    options: ComparisonOptions,
 }
 
 /// The active frame written once to Parquet for DuckDB queries, while the
@@ -1954,6 +1975,7 @@ fn snapshot_pending_comparison_for_review(
     let file_name = pending.file_name.clone();
     let row_count = pending.row_count;
     let key_columns = pending.key_columns.clone();
+    let options = pending.options;
     let source_size = fs::metadata(&pending.snapshot_path)
         .map_err(|error| format!("No se pudo inspeccionar el snapshot comparado: {error}"))?
         .len();
@@ -2007,6 +2029,7 @@ fn snapshot_pending_comparison_for_review(
         file_size_bytes: copied_size,
         row_count,
         key_columns,
+        options,
     })
 }
 
@@ -8068,8 +8091,9 @@ use source_loading::{load_csv, load_csv_with_progress, materialization_budget_er
 pub async fn compare_dataset(
     app: AppHandle,
     key_columns: Option<Vec<String>>,
+    options: Option<ComparisonOptions>,
 ) -> Result<Option<DatasetComparison>, String> {
-    comparison_reader::compare_dataset_impl(app, key_columns).await
+    comparison_reader::compare_dataset_impl(app, key_columns, options.unwrap_or_default()).await
 }
 
 #[tauri::command]
@@ -8502,18 +8526,39 @@ fn source_backed_conflict_resolution_plan(
         unique_duckdb_internal_name(&mut used_names, "__columnia_resolution_conflict_index");
     let result_order_column =
         unique_duckdb_internal_name(&mut used_names, "__columnia_resolution_result_order");
-    let keys = key_columns
-        .iter()
-        .map(|key| duckdb_identifier(key))
-        .collect::<Vec<_>>();
-    let partition = keys.join(", ");
+    // PROD-21: keys and values match as the comparison that found them did.
+    let options = comparison_engine::current_comparison_options();
+    let matched = |alias: &str, column: &str| -> Result<String, String> {
+        let data_type = current
+            .column(column)
+            .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
+            .dtype()
+            .clone();
+        Ok(comparison_engine::duckdb_comparison_expression(
+            &format!("{alias}.{}", duckdb_identifier(column)),
+            &data_type,
+            options,
+        ))
+    };
+    let partition_by = |alias: &str| -> Result<String, String> {
+        Ok(key_columns
+            .iter()
+            .map(|key| matched(alias, key))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", "))
+    };
+    let current_partition = partition_by("c")?;
+    let compared_partition = partition_by("r")?;
     let key_conditions = key_columns
         .iter()
         .map(|key| {
-            let identifier = duckdb_identifier(key);
-            format!("c.{identifier} IS NOT DISTINCT FROM r.{identifier}")
+            Ok(format!(
+                "{} IS NOT DISTINCT FROM {}",
+                matched("c", key)?,
+                matched("r", key)?
+            ))
         })
-        .collect::<Vec<_>>()
+        .collect::<Result<Vec<_>, String>>()?
         .join(" AND ");
     let payload_columns = current
         .get_column_names()
@@ -8524,10 +8569,13 @@ fn source_backed_conflict_resolution_plan(
     let payload_equal = payload_columns
         .iter()
         .map(|column| {
-            let identifier = duckdb_identifier(column);
-            format!("c.{identifier} IS NOT DISTINCT FROM r.{identifier}")
+            Ok(format!(
+                "{} IS NOT DISTINCT FROM {}",
+                matched("c", column)?,
+                matched("r", column)?
+            ))
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, String>>()?;
     let conflict_predicate = if payload_equal.is_empty() {
         "FALSE".to_owned()
     } else {
@@ -8608,7 +8656,7 @@ fn source_backed_conflict_resolution_plan(
         format!(" WHERE x.{conflict_index} IS NULL OR x.{conflict_index} NOT IN ({excluded})")
     };
     let dataset_view_query = format!(
-        "CREATE VIEW dataset AS WITH current_ranked AS (SELECT c.*, COUNT(*) OVER (PARTITION BY {partition}) AS {current_count} FROM __columnia_current AS c), compared_ranked AS (SELECT r.*, COUNT(*) OVER (PARTITION BY {partition}) AS {compared_count} FROM __columnia_compared AS r), conflicts AS (SELECT c.{current_order}, ROW_NUMBER() OVER (ORDER BY c.{current_order}) - 1 AS {conflict_index} FROM current_ranked AS c JOIN compared_ranked AS r ON {key_conditions} WHERE c.{current_count} = 1 AND r.{compared_count} = 1 AND {conflict_predicate}) SELECT {projection}, c.{current_order} AS {result_order} FROM current_ranked AS c LEFT JOIN compared_ranked AS r ON {key_conditions} AND c.{current_count} = 1 AND r.{compared_count} = 1 LEFT JOIN conflicts AS x ON x.{current_order} = c.{current_order}{conflict_exclusion_filter}"
+        "CREATE VIEW dataset AS WITH current_ranked AS (SELECT c.*, COUNT(*) OVER (PARTITION BY {current_partition}) AS {current_count} FROM __columnia_current AS c), compared_ranked AS (SELECT r.*, COUNT(*) OVER (PARTITION BY {compared_partition}) AS {compared_count} FROM __columnia_compared AS r), conflicts AS (SELECT c.{current_order}, ROW_NUMBER() OVER (ORDER BY c.{current_order}) - 1 AS {conflict_index} FROM current_ranked AS c JOIN compared_ranked AS r ON {key_conditions} WHERE c.{current_count} = 1 AND r.{compared_count} = 1 AND {conflict_predicate}) SELECT {projection}, c.{current_order} AS {result_order} FROM current_ranked AS c LEFT JOIN compared_ranked AS r ON {key_conditions} AND c.{current_count} = 1 AND r.{compared_count} = 1 LEFT JOIN conflicts AS x ON x.{current_order} = c.{current_order}{conflict_exclusion_filter}"
     );
     let output_projection = current_columns
         .iter()
@@ -8764,6 +8812,7 @@ pub async fn resolve_dataset_conflicts(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
         let comparison = snapshot_pending_comparison_for_review(&state, &cancellation_for_work)?;
+        let _options = comparison_engine::ComparisonOptionsScope::enter(comparison.options);
         cancellation_for_work.ensure()?;
         let (source_context, initial_eager_frame, expected_stamp) = {
             let current = state.current.lock_recovering();
@@ -8883,6 +8932,7 @@ pub async fn use_consolidated_dataset(app: AppHandle) -> Result<DatasetPreview, 
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
         let comparison = snapshot_pending_comparison_for_review(&state, &cancellation)?;
+        let _options = comparison_engine::ComparisonOptionsScope::enter(comparison.options);
         cancellation.ensure()?;
         let (expected_stamp, source_context) = {
             let current = state

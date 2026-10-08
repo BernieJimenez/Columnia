@@ -12,6 +12,12 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Añadido
 
+- Al comparar con otro dataset, «Qué cuenta como igual» deja tolerar el redondeo
+  de los decimales (0,1 + 0,2 = 0,3 y 1 = 1,0), ignorar mayúsculas e ignorar los
+  espacios al principio y al final, en claves y valores; vale para archivos de
+  cualquier tamaño, también al resolver conflictos y consolidar, y el resultado
+  dice qué opciones se usaron. Los conflictos siguen mostrando los valores
+  originales (PROD-21).
 - Al elegir la hoja de un libro, Cargar marca las hojas ocultas como «(oculta)»
   y elige una visible por defecto, avisa de cuántos rangos de celdas combinadas
   tiene la hoja (solo la primera celda conserva el valor) y salta solo las filas

@@ -58,6 +58,16 @@ interface UnconvertedColumn {
   example: string;
 }
 
+/** PROD-21: what a comparison treats as the same value. */
+export interface ComparisonOptions {
+  /** Decimal numbers equal to 12 significant digits (0.1 + 0.2 = 0.3). */
+  numericTolerance: boolean;
+  /** Text equal whatever its case, in keys and values. */
+  ignoreCase: boolean;
+  /** Text equal without the spaces at its start and end. */
+  trimSpaces: boolean;
+}
+
 export interface DatasetComparison {
   currentFileName: string;
   comparedFileName: string;
@@ -84,6 +94,8 @@ export interface DatasetComparison {
   canConsolidate: boolean;
   /** How the compared file was read: sheet and header (FUN-41). */
   comparedSourceNote?: string;
+  /** PROD-21: the options this comparison used. */
+  options: ComparisonOptions;
 }
 
 export interface DatasetConflictPage {

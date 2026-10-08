@@ -307,10 +307,13 @@ pub(super) fn source_backed_consolidation_plan(
         let conditions = key_columns
             .iter()
             .map(|key| {
-                let identifier = duckdb_identifier(key);
-                format!("existing.{identifier} IS NOT DISTINCT FROM r.{identifier}")
+                Ok(format!(
+                    "{} IS NOT DISTINCT FROM {}",
+                    comparison_matched(current, Some("existing"), key)?,
+                    comparison_matched(current, Some("r"), key)?
+                ))
             })
-            .collect::<Vec<_>>()
+            .collect::<Result<Vec<_>, String>>()?
             .join(" AND ");
         format!("NOT EXISTS (SELECT 1 FROM __columnia_current AS existing WHERE {conditions})")
     };
@@ -348,6 +351,29 @@ pub(super) fn validate_source_backed_consolidation(
     )
 }
 
+/// PROD-21: `column` (with its alias, if any) as the active comparison
+/// matches it.
+fn comparison_matched(
+    current: &DataFrame,
+    alias: Option<&str>,
+    column: &str,
+) -> Result<String, String> {
+    let data_type = current
+        .column(column)
+        .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
+        .dtype()
+        .clone();
+    let qualified = match alias {
+        Some(alias) => format!("{alias}.{}", duckdb_identifier(column)),
+        None => duckdb_identifier(column),
+    };
+    Ok(comparison_engine::duckdb_comparison_expression(
+        &qualified,
+        &data_type,
+        comparison_engine::current_comparison_options(),
+    ))
+}
+
 pub(super) fn validate_source_backed_consolidation_with_cancellation<C>(
     current_path: &Path,
     current_format: crate::duckdb_query::DuckDbFileFormat,
@@ -363,11 +389,11 @@ where
     if key_columns.is_empty() {
         return Ok(());
     }
-    let keys = key_columns
+    let group_columns = key_columns
         .iter()
-        .map(|key| duckdb_identifier(key))
-        .collect::<Vec<_>>();
-    let group_columns = keys.join(", ");
+        .map(|key| comparison_matched(current, None, key))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
     let duplicate_query = format!(
         "SELECT COUNT(*) FROM (SELECT {group_columns} FROM __columnia_current GROUP BY {group_columns} HAVING COUNT(*) > 1 UNION ALL SELECT {group_columns} FROM __columnia_compared GROUP BY {group_columns} HAVING COUNT(*) > 1) AS duplicate_groups"
     );
@@ -393,21 +419,22 @@ where
     if payload_columns.is_empty() {
         return Ok(());
     }
+    let matched_pair = |column: &String| -> Result<String, String> {
+        Ok(format!(
+            "{} IS NOT DISTINCT FROM {}",
+            comparison_matched(current, Some("c"), column)?,
+            comparison_matched(current, Some("r"), column)?
+        ))
+    };
     let key_conditions = key_columns
         .iter()
-        .map(|key| {
-            let identifier = duckdb_identifier(key);
-            format!("c.{identifier} IS NOT DISTINCT FROM r.{identifier}")
-        })
-        .collect::<Vec<_>>()
+        .map(matched_pair)
+        .collect::<Result<Vec<_>, _>>()?
         .join(" AND ");
     let payload_conditions = payload_columns
         .iter()
-        .map(|column| {
-            let identifier = duckdb_identifier(column);
-            format!("c.{identifier} IS NOT DISTINCT FROM r.{identifier}")
-        })
-        .collect::<Vec<_>>()
+        .map(matched_pair)
+        .collect::<Result<Vec<_>, _>>()?
         .join(" AND ");
     let conflict_query = format!(
         "SELECT COUNT(*) FROM __columnia_current AS c JOIN __columnia_compared AS r ON {key_conditions} WHERE NOT ({payload_conditions})"

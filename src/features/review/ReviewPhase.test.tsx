@@ -513,6 +513,7 @@ describe("ReviewPhase", () => {
             conflictOffset: 0,
             conflictsTruncated: false,
             canConsolidate: true,
+            options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
           },
         },
           onCompare: onCompare,
@@ -1256,6 +1257,7 @@ describe("ReviewPhase", () => {
             conflictOffset: 0,
             conflictsTruncated: false,
             canConsolidate: false,
+            options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
           },
         },
           keyColumns: ["id"],
@@ -1316,6 +1318,7 @@ describe("ReviewPhase", () => {
         conflictOffset: 0,
         conflictsTruncated: false,
         canConsolidate: false,
+        options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
       },
     };
     const view = render(
@@ -1432,6 +1435,7 @@ describe("ReviewPhase", () => {
             conflictOffset: 0,
             conflictsTruncated: true,
             canConsolidate: false,
+            options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
           },
         },
           keyColumns: ["id"],

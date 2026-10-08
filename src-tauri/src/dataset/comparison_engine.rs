@@ -1,5 +1,104 @@
 use super::*;
 use crate::crash_report::LockRecovering;
+use std::cell::Cell;
+
+thread_local! {
+    /// PROD-21: the options of the comparison running on this thread. The
+    /// engine is single-threaded per comparison, so every signature and value
+    /// check of one run sees the same options without threading them through.
+    static COMPARISON_OPTIONS: Cell<ComparisonOptions> =
+        const { Cell::new(ComparisonOptions { numeric_tolerance: false, ignore_case: false, trim_spaces: false }) };
+}
+
+/// Sets the comparison options until it is dropped, then restores the
+/// previous ones.
+pub(super) struct ComparisonOptionsScope {
+    previous: ComparisonOptions,
+}
+
+impl ComparisonOptionsScope {
+    pub(super) fn enter(options: ComparisonOptions) -> Self {
+        Self {
+            previous: COMPARISON_OPTIONS.with(|current| current.replace(options)),
+        }
+    }
+}
+
+impl Drop for ComparisonOptionsScope {
+    fn drop(&mut self) {
+        COMPARISON_OPTIONS.with(|current| current.set(self.previous));
+    }
+}
+
+pub(super) fn current_comparison_options() -> ComparisonOptions {
+    COMPARISON_OPTIONS.with(Cell::get)
+}
+
+/// A decimal rounded to 12 significant digits. DuckDB rounds the same way
+/// (`printf('%.11e')`), so both engines agree on what is equal.
+fn rounded_decimal(value: f64) -> String {
+    let rounded = format!("{value:.11e}").parse::<f64>().unwrap_or(value);
+    if rounded == 0.0 {
+        "0".to_owned()
+    } else {
+        format!("{rounded}")
+    }
+}
+
+fn normalized_text(value: &str, options: ComparisonOptions) -> String {
+    let value = if options.trim_spaces {
+        value.trim_matches(' ')
+    } else {
+        value
+    };
+    if options.ignore_case {
+        value.to_lowercase()
+    } else {
+        value.to_owned()
+    }
+}
+
+/// PROD-21: the text a comparison matches on. Without options it is the
+/// value as shown; the conflicts still show the original values.
+pub(super) fn comparison_text(value: AnyValue<'_>) -> Option<String> {
+    let options = current_comparison_options();
+    match value {
+        AnyValue::String(text) => Some(normalized_text(text, options)),
+        AnyValue::StringOwned(text) => Some(normalized_text(text.as_str(), options)),
+        AnyValue::Float64(number) if options.numeric_tolerance && number.is_finite() => {
+            Some(rounded_decimal(number))
+        }
+        AnyValue::Float32(number) if options.numeric_tolerance && number.is_finite() => {
+            Some(rounded_decimal(f64::from(number)))
+        }
+        value => preview_value(value),
+    }
+}
+
+/// PROD-21: the DuckDB expression a comparison matches `column` on, the same
+/// normalization as [`comparison_text`].
+pub(super) fn duckdb_comparison_expression(
+    column: &str,
+    data_type: &DataType,
+    options: ComparisonOptions,
+) -> String {
+    match data_type {
+        DataType::String if options.trim_spaces || options.ignore_case => {
+            let mut expression = column.to_owned();
+            if options.trim_spaces {
+                expression = format!("trim({expression}, ' ')");
+            }
+            if options.ignore_case {
+                expression = format!("lower({expression})");
+            }
+            expression
+        }
+        DataType::Float32 | DataType::Float64 if options.numeric_tolerance => {
+            format!("CAST(printf('%.11e', CAST({column} AS DOUBLE)) AS DOUBLE)")
+        }
+        _ => column.to_owned(),
+    }
+}
 
 pub(super) fn row_signature(
     frame: &DataFrame,
@@ -13,7 +112,7 @@ pub(super) fn row_signature(
             .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?
             .get(row_index)
             .map_err(|error| format!("No se pudo comparar la fila {row_index}: {error}"))?;
-        match preview_value(value) {
+        match comparison_text(value) {
             Some(value) => {
                 use std::fmt::Write;
                 write!(&mut signature, "v{}:{value};", value.len())
@@ -1308,13 +1407,13 @@ pub(super) fn build_key_conflict_shape(
                 .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
                 .get(current_row_index)
                 .map_err(|error| format!("No se pudo leer el valor en conflicto: {error}"))
-                .map(preview_value)?;
+                .map(comparison_text)?;
             let compared_value = compared
                 .column(column)
                 .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
                 .get(compared_row_index)
                 .map_err(|error| format!("No se pudo leer el valor en conflicto: {error}"))
-                .map(preview_value)?;
+                .map(comparison_text)?;
             Ok((column.clone(), current_value, compared_value))
         })
         .collect::<Result<Vec<_>, String>>()?
@@ -2781,6 +2880,7 @@ where
         conflicts_truncated,
         can_consolidate,
         compared_source_note: None,
+        options: current_comparison_options(),
     })
 }
 
@@ -2891,6 +2991,7 @@ pub(super) fn compare_parquet_source(
         conflicts_truncated,
         can_consolidate,
         compared_source_note: None,
+        options: current_comparison_options(),
     })
 }
 
@@ -3049,5 +3150,6 @@ where
         conflicts_truncated,
         can_consolidate,
         compared_source_note: None,
+        options: current_comparison_options(),
     })
 }
