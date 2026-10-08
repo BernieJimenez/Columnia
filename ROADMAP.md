@@ -277,11 +277,11 @@ medio = 1 día; agregado por suma.
   - [x] `QA-17` (Medio) El test de ida y vuelta solo cubre el camino eager de exportación; el source-backed (`all_varchar`) no tiene equivalente — hecho el 2026-10-04
   - [x] `QA-18` (Medio) Explorar: ningún test cruza el filtro de rango con los intervalos del histograma (rango cerrado frente a bins semiabiertos) — hecho el 2026-10-03
   - [x] `QA-19` (Medio) No hay ningún test de perfil numérico con NaN o infinito (el `expect` de Q1/Q3 en `src-tauri/src/dataset/numeric_profile.rs:549-550` queda sin cubrir) — hecho el 2026-10-04
-- [ ] **RV63** — **Documentación** — CONTEXTO.md: cifras e inventario de IPC desactualizados y contradictorios entre sí (y 2 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV63** — **Documentación** — CONTEXTO.md: cifras e inventario de IPC desactualizados y contradictorios entre sí (y 2 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-08
   - Criterio de cierre: Se cumplen los criterios de aceptación de DOC-01, DOC-03, DOC-04.
   - [x] `DOC-01` (Medio) CONTEXTO.md: cifras e inventario de IPC desactualizados y contradictorios entre sí — hecho el 2026-10-04
   - [x] `DOC-03` (Medio) AUDITORIA.md: resultados de gates con fecha vieja o ya falsos — hecho el 2026-10-04
-  - [ ] `DOC-04` (Medio) CHANGELOG: la versión vigente 1.26.0 no tiene sección y el archivo funciona como diario de trabajo — Requiere tu decisión: crear la sección [1.26.0] equivale a cortar la versión (ROADMAP: «la sección se crea al cortar la versión»); no se hace sin tu indicación
+  - [x] `DOC-04` (Medio) CHANGELOG: la versión vigente 1.26.0 no tiene sección y el archivo funciona como diario de trabajo — Decidido: se queda en [Unreleased] mientras Columnia sea de uso personal; la sección se crea si un día se corta una versión para distribuir — hecho el 2026-10-08
 - [x] **RV64** — **Configuración de Rust y Tauri** — El único ADR está obsoleto y contradice la realidad; decisiones mayores sin ADR · *Esfuerzo: 1 día* — hecho el 2026-10-04
   - Criterio de cierre: Se cumplen los criterios de aceptación de DOC-06.
   - [x] `DOC-06` (Medio) El único ADR está obsoleto y contradice la realidad; decisiones mayores sin ADR — hecho el 2026-10-04
@@ -349,11 +349,11 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-53` (Bajo) `runExclusive` y `save` abandonan en silencio si hay una operación activa o `blocked` — hecho el 2026-10-05
   - [x] `UX-17` (Bajo) El botón «Guardar proyecto nuevo/Actualizar» no explica por qué está desactivado y no permite «Guardar como» — hecho el 2026-10-05
   - [x] `QA-35` (Bajo) Tests de proyectos: errores solo con mensajes que son una ruta y paneles sin cubrir — hecho el 2026-10-05
-- [ ] **RV75** — **Reglas de calidad** — La validación de regex del editor usa el motor de JavaScript, no el de Rust (y 4 problemas más) · *Esfuerzo: 2 días*
+- [x] **RV75** — **Reglas de calidad** — La validación de regex del editor usa el motor de JavaScript, no el de Rust (y 4 problemas más) · *Esfuerzo: 2 días* — hecho el 2026-10-08
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-54, FUN-76, SEG-05, REN-11, COD-16.
   - [x] `FUN-54` (Bajo) La validación de regex del editor usa el motor de JavaScript, no el de Rust — hecho el 2026-10-05
   - [x] `FUN-76` (Bajo) Semántica inconsistente de nulos/ceros con signo en reglas entre filas — hecho el 2026-10-05
-  - [ ] `SEG-05` (Bajo) La compuerta de calidad la decide quien llama: Rust valida las reglas que recibe por IPC, sin atarlas a un contrato guardado y aprobado — Requiere tu decisión: para que Rust imponga el contrato hay que decidir qué es el contrato aprobado de un dataset sin proyecto (hoy solo existe en el proyecto guardado y en la interfaz); con uso personal y la casilla explícita el riesgo es bajo
+  - [x] `SEG-05` (Bajo) La compuerta de calidad la decide quien llama: Rust valida las reglas que recibe por IPC, sin atarlas a un contrato guardado y aprobado — Decidido: riesgo aceptado con uso personal; «Exportar sin validar» sigue siendo una casilla explícita — hecho el 2026-10-08
   - [x] `REN-11` (Bajo) `allowed_values`, `referential_integrity` y claves `unique_together`: coste O(filas × referencias) y asignaciones por celda — hecho el 2026-10-05
   - [x] `COD-16` (Bajo) El presupuesto de texto del contrato omite campos (`baseline`, `dtype`, `minDate`, `maxDate`, `then.referenceValues`) — hecho el 2026-10-05
 - [x] **RV76** — **Entregar** — Fechas de `date_range` con formato ambiguo se interpretan con `Date.parse` del motor JS (y 5 problemas más) · *Esfuerzo: 2,2 días* — hecho el 2026-10-05
@@ -399,11 +399,11 @@ medio = 1 día; agregado por suma.
   - [x] `DAT-19` (Bajo) `reusable-tasks.sqlite3` se reescribe en cada arranque (migración no idempotente) — hecho el 2026-10-05
   - [x] `SEG-08` (Bajo) CSP con `style-src 'unsafe-inline'` y updater con `endpoints: []` pero plugin cargado — hecho el 2026-10-05
   - [x] `COD-11` (Bajo) `get_performance_settings` usa `lock()` y falla con veneno; el resto del módulo usa `lock_recovering` — hecho el 2026-10-05
-- [ ] **RV83** — **Exportación y libros** — Un destino XLSX con más de 16.384 columnas produce un libro que Excel no abre (y 3 problemas más) · *Esfuerzo: 1,8 días*
+- [x] **RV83** — **Exportación y libros** — Un destino XLSX con más de 16.384 columnas produce un libro que Excel no abre (y 3 problemas más) · *Esfuerzo: 1,8 días* — hecho el 2026-10-08
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-68, TXT-07, COD-15, QA-55.
   - [x] `FUN-68` (Bajo) Un destino XLSX con más de 16.384 columnas produce un libro que Excel no abre — hecho el 2026-10-05
   - [x] `TXT-07` (Bajo) El paquete ZIP promete receta y el resumen dice «no incluida» aunque se aplicaron cambios; el mensaje de la UI lista un contenido distinto del real — hecho el 2026-10-05
-  - [ ] `COD-15` (Bajo) Candidatos de rendimiento sin medir en exportación y updater — Hechas (a) SQL con búfer, 104 s → 2,8 s; (b) sin copia intermedia salvo el CSV de Excel, que necesita el BOM delante; (d) instalador sin clonar. **Requiere tu decisión** para (c): el lote carga cada archivo en el preflight y otra vez al ejecutarlo; validar solo la estructura evitaría la doble lectura, pero un archivo dañado en el trabajo N pasaría de «manifiesto inválido, código 1, sin salidas» a «fallo tardío, código 2, con las salidas anteriores» (cambia el contrato de cli.md).
+  - [x] `COD-15` (Bajo) Candidatos de rendimiento sin medir en exportación y updater — Hechas (a) SQL con búfer, 104 s → 2,8 s; (b) sin copia intermedia salvo el CSV de Excel, que necesita el BOM delante; (d) instalador sin clonar. Decidido para (c): se mantiene la doble lectura, que hace fallar un archivo dañado antes de escribir nada — hecho el 2026-10-08
   - [x] `QA-55` (Bajo) Mutantes no detectados en la detección de números con signo y en el analizador de fechas — hecho el 2026-10-05
 - [x] **RV84** — **CLI** — Parser CLI: valores que empiezan por `--` rechazados y sin separador `--` (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-05
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-69, DAT-13, SEG-10, UX-07, DOC-14, DOC-18.
