@@ -273,6 +273,9 @@ export function DeliveryPhase({
   const [suggestionChoice, setSuggestionChoice] = useState<{ key: string; excluded: number[] }>({ key: "", excluded: [] });
   const excludedSuggestions = suggestionChoice.key === suggestionsKey ? suggestionChoice.excluded : [];
   const chosenSuggestions = suggestedRules.filter((_, index) => !excludedSuggestions.includes(index));
+  // UX-21: with a contract, the suggestions it does not cover yet.
+  const missingSuggestions = suggestedRules.filter((suggestion) =>
+    !rules.some((rule) => rule.kind === suggestion.kind && rule.column === suggestion.column));
 
   function toggleSuggestion(index: number) {
     setSuggestionChoice({
@@ -670,6 +673,18 @@ export function DeliveryPhase({
                 <ul>
                   {rules.map((rule, index) => <li key={index}>{summarizeQualityRule(rule)}</li>)}
                 </ul>
+              )}
+              {missingSuggestions.length > 0 && (
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => changeRules([...rules, ...missingSuggestions])}
+                  disabled={busy}
+                >
+                  {missingSuggestions.length === 1
+                    ? "Añadir la comprobación sugerida que falta"
+                    : `Añadir las ${missingSuggestions.length} comprobaciones sugeridas que faltan`}
+                </button>
               )}
               <button
                 type="button"

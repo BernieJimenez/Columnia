@@ -213,6 +213,35 @@ describe("DatasetComparisonSection", () => {
     ]);
   });
 
+  it("una acción resuelve los conflictos de todas las páginas (UX-20)", () => {
+    const firstPage = {
+      ...withConflicts,
+      conflictingKeyCount: 3,
+      conflictOffset: 0,
+      conflictsTruncated: true,
+      conflicts: [
+        { key: ["1"], cells: [{ column: "importe", current: "10", compared: "12" }, { column: "estado", current: "a", compared: "b" }] },
+      ],
+    } as unknown as DatasetComparison;
+    const props = renderSection({ status: { kind: "ready", comparison: firstPage } });
+    const resolve = screen.getByRole("button", { name: "Resolver conflictos" });
+    expect(resolve).toBeDisabled();
+    // The page action answers every cell on screen.
+    fireEvent.click(screen.getByRole("button", { name: "Conservar el activo en esta página" }));
+    expect(screen.getByRole("radio", { name: "Conservar activo en importe" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Conservar activo en estado" })).toBeChecked();
+    // The global action covers the conflicts of the pages not opened yet.
+    fireEvent.click(screen.getByRole("button", { name: "Usar el comparado en los demás conflictos" }));
+    expect(resolve).toBeEnabled();
+    fireEvent.click(resolve);
+    expect(props.onResolveConflicts).toHaveBeenCalledWith([
+      { action: "useSource", conflictIndex: 0, column: "importe", source: "current" },
+      { action: "useSource", conflictIndex: 0, column: "estado", source: "current" },
+      { action: "useSource", conflictIndex: 1, source: "compared" },
+      { action: "useSource", conflictIndex: 2, source: "compared" },
+    ]);
+  });
+
   it("muestra el estado de la resolución en curso", () => {
     renderSection({
       status: { kind: "ready", comparison: withConflicts },

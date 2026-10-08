@@ -305,6 +305,19 @@ describe("comprobaciones propuestas en Entregar", () => {
     expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).toBeEnabled();
   });
 
+  it("con un contrato incompleto añade solo las sugeridas que faltan (UX-21)", () => {
+    render(<DeliveryHarness onExport={vi.fn()} suggestedRules={suggestedRules} />);
+    const proposal = screen.getByRole("group", { name: "Columnia propone 3 comprobaciones" });
+    fireEvent.click(within(proposal).getByRole("checkbox", { name: /estado/ }));
+    fireEvent.click(within(proposal).getByRole("checkbox", { name: /único|unique|repet/i }));
+    fireEvent.click(within(proposal).getByRole("button", { name: "Usar esta comprobación" }));
+    expect(screen.getByText("1 regla se comprobará antes de guardar la copia.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Añadir las 2 comprobaciones sugeridas que faltan" }));
+    expect(screen.getByText("3 reglas se comprobarán antes de guardar la copia.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /sugeridas que faltan|sugerida que falta/ })).not.toBeInTheDocument();
+  });
+
   it("no propone nada cuando ya hay reglas o no hay sugerencias", () => {
     render(<DeliveryHarness onExport={vi.fn()} />);
     expect(screen.queryByRole("group", { name: /Columnia propone/ })).not.toBeInTheDocument();

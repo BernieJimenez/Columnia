@@ -565,10 +565,10 @@ medio = 1 día; agregado por suma.
 - [x] **RV108** — **Arquitectura y resiliencia** — Registrar el motivo cuando una ruta source-backed cae a la ruta eager · *Esfuerzo: 2 h* — hecho el 2026-10-07
   - Criterio de cierre: Hecho lo que proponen ARQ-09.
   - [x] `ARQ-09` (Propuesta) Registrar el motivo cuando una ruta source-backed cae a la ruta eager — hecho el 2026-10-07
-- [ ] **RV109** — **Experiencia de uso** — Resolver conflictos exige decidir celda a celda en todas las páginas, sin acción masiva (y 1 problemas más) · *Esfuerzo: 1,2 días*
+- [x] **RV109** — **Experiencia de uso** — Resolver conflictos exige decidir celda a celda en todas las páginas, sin acción masiva (y 1 problemas más) · *Esfuerzo: 1,2 días* — hecho el 2026-10-07
   - Criterio de cierre: Hecho lo que proponen UX-20, UX-21.
-  - [ ] `UX-20` (Propuesta) Resolver conflictos exige decidir celda a celda en todas las páginas, sin acción masiva
-  - [ ] `UX-21` (Propuesta) Reglas propuestas también cuando ya hay contrato incompleto
+  - [x] `UX-20` (Propuesta) Resolver conflictos exige decidir celda a celda en todas las páginas, sin acción masiva — hecho el 2026-10-07
+  - [x] `UX-21` (Propuesta) Reglas propuestas también cuando ya hay contrato incompleto — hecho el 2026-10-07
 - [ ] **RV110** — **Accesibilidad** — Alternativa textual para los gráficos de Explorar (y 1 problemas más) · *Esfuerzo: 4 h*
   - Criterio de cierre: Hecho lo que proponen ACC-18, ACC-19.
   - [ ] `ACC-18` (Propuesta) Alternativa textual para los gráficos de Explorar

@@ -61,9 +61,13 @@ export function DatasetComparisonSection({
   const [conflictPageCancellationError, setConflictPageCancellationError] = useState<string | null>(null);
   const comparisonKeyColumnsKey = JSON.stringify(keyColumns);
   const comparedFileName = status.kind === "ready" ? status.comparison.comparedFileName : null;
+  // UX-20: the source for every conflict not decided one by one, also on
+  // pages not opened yet.
+  const [remainingConflictsSource, setRemainingConflictsSource] = useState<ConflictSource | null>(null);
   useEffect(() => {
     setConflictChoices({});
     setExcludedConflictIndexes({});
+    setRemainingConflictsSource(null);
     // Any of these makes the choices on screen belong to another comparison.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status.kind, comparedFileName, comparisonKeyColumnsKey, datasetRevision]);
@@ -106,6 +110,21 @@ export function DatasetComparisonSection({
     }));
   }
 
+  /** UX-20: one source for every cell of the conflicts on this page. */
+  function chooseSourceForVisiblePage(source: ConflictSource) {
+    if (status.kind !== "ready") return;
+    const { conflicts, conflictOffset } = status.comparison;
+    setConflictChoices((current) => {
+      const next = { ...current };
+      conflicts.forEach((conflict, conflictIndex) => {
+        const globalConflictIndex = conflictOffset + conflictIndex;
+        if (excludedConflictIndexes[globalConflictIndex] === true) return;
+        for (const cell of conflict.cells) next[conflictChoiceKey(globalConflictIndex, cell.column)] = source;
+      });
+      return next;
+    });
+  }
+
   function chooseConflictExclusion(conflictIndex: number, excluded: boolean) {
     setExcludedConflictIndexes((current) => {
       if (excluded) return { ...current, [conflictIndex]: true };
@@ -133,7 +152,27 @@ export function DatasetComparisonSection({
       const column = choiceKey.slice(separator + 1);
       return { action: "useSource", conflictIndex, column, source };
     });
-    return [...exclusions, ...sourceChoices];
+    if (remainingConflictsSource === null || status.kind !== "ready") return [...exclusions, ...sourceChoices];
+    // UX-20: a cell left open on this page takes the chosen source, and every
+    // conflict without decisions is resolved as a whole row.
+    const { conflicts, conflictOffset, conflictingKeyCount } = status.comparison;
+    conflicts.forEach((conflict, conflictIndex) => {
+      const globalConflictIndex = conflictOffset + conflictIndex;
+      const decided = conflict.cells.some((cell) => conflictChoices[conflictChoiceKey(globalConflictIndex, cell.column)] !== undefined);
+      if (!decided || excludedConflictIndexes[globalConflictIndex] === true) return;
+      for (const cell of conflict.cells) {
+        if (conflictChoices[conflictChoiceKey(globalConflictIndex, cell.column)] === undefined) {
+          sourceChoices.push({ action: "useSource", conflictIndex: globalConflictIndex, column: cell.column, source: remainingConflictsSource });
+        }
+      }
+    });
+    const withDecisions = new Set(sourceChoices.map((choice) => choice.conflictIndex));
+    const wholeRows: ConflictResolution[] = [];
+    for (let conflictIndex = 0; conflictIndex < conflictingKeyCount; conflictIndex += 1) {
+      if (excludedConflictIndexes[conflictIndex] === true || withDecisions.has(conflictIndex)) continue;
+      wholeRows.push({ action: "useSource", conflictIndex, source: remainingConflictsSource });
+    }
+    return [...exclusions, ...sourceChoices, ...wholeRows];
   }
 
   async function requestConflictPage(offset: number) {
@@ -370,6 +409,36 @@ export function DatasetComparisonSection({
                   <p className="step">Decisión explícita</p>
                   <h4 id="conflict-resolution-title">Resolver conflictos por clave</h4>
                   <p>Elige el origen de cada celda divergente o excluye una clave del resultado. No se modifica nada hasta confirmar todas las decisiones.</p>
+                  <div className="conflict-resolution__bulk" role="group" aria-label="Decidir varios conflictos a la vez">
+                    <button type="button" onClick={() => chooseSourceForVisiblePage("current")} disabled={reviewMutationBusy}>
+                      Conservar el activo en esta página
+                    </button>
+                    <button type="button" onClick={() => chooseSourceForVisiblePage("compared")} disabled={reviewMutationBusy}>
+                      Usar el comparado en esta página
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={remainingConflictsSource === "current"}
+                      onClick={() => setRemainingConflictsSource((current) => current === "current" ? null : "current")}
+                      disabled={reviewMutationBusy}
+                    >
+                      Conservar el activo en los demás conflictos
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={remainingConflictsSource === "compared"}
+                      onClick={() => setRemainingConflictsSource((current) => current === "compared" ? null : "compared")}
+                      disabled={reviewMutationBusy}
+                    >
+                      Usar el comparado en los demás conflictos
+                    </button>
+                  </div>
+                  {remainingConflictsSource !== null && (
+                    <p role="status">
+                      Los {status.comparison.conflictingKeyCount.toLocaleString()} conflictos que no decidas uno a uno usarán
+                      {remainingConflictsSource === "current" ? " el valor del activo" : " el valor del comparado"} en todas sus columnas.
+                    </p>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -381,7 +450,8 @@ export function DatasetComparisonSection({
                     ? activeReviewMutation !== "resolveConflicts"
                       || reviewMutationFinalizing
                       || reviewMutationCancellationRequested
-                    : conflictPageLoading || status.comparison.conflictsTruncated || !visibleConflictPageComplete}
+                    : conflictPageLoading
+                      || (remainingConflictsSource === null && (status.comparison.conflictsTruncated || !visibleConflictPageComplete))}
                 >
                   {reviewMutationCancellationPending
                     ? "Esperando cancelación…"
