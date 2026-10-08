@@ -30,9 +30,13 @@ interface RecipeRename {
   to: string;
 }
 
+/** PROD-11: how the text writes decimals; omitted reads a dot. */
+type RecipeDecimalSeparator = "dot" | "comma";
+
 interface RecipeCast {
   column: string;
   target: RecipeCastTarget;
+  decimalSeparator?: RecipeDecimalSeparator;
 }
 
 interface RecipeDateParse {

@@ -346,6 +346,15 @@ fn is_plain_integer(value: &str) -> bool {
     digits == "0" || !digits.starts_with('0')
 }
 
+/// PROD-11: the canonical text of a decimal written with these separators.
+pub(super) fn canonical_decimal(
+    value: &str,
+    decimal_separator: char,
+    grouping_separator: Option<char>,
+) -> Option<String> {
+    normalize_decimal(value, decimal_separator, grouping_separator)
+}
+
 fn normalize_decimal(
     value: &str,
     decimal_separator: char,

@@ -330,6 +330,7 @@ function normalizeRustFieldType(type: string): string {
       "QualityMonotonicDirection",
       "QualityAggregate",
       "RecipeCastTarget",
+      "RecipeDecimalSeparator",
       "RecipeDateFormat",
       "RecipeDateTarget",
       "RecipeFilterOperator",
@@ -482,7 +483,7 @@ function typescriptInterfaceFieldTypes(
 /** QA-29: the enums that cross the bridge as strings, compared by variant. */
 const SHARED_ENUMS = [
   "QualityRuleKind", "QualityComparison", "QualityMonotonicDirection", "QualityAggregate",
-  "RecipeCastTarget", "RecipeDateFormat", "RecipeDateTarget", "RecipeFilterOperator",
+  "RecipeCastTarget", "RecipeDecimalSeparator", "RecipeDateFormat", "RecipeDateTarget", "RecipeFilterOperator",
   "CalculatedOperation", "CalculatedOperandKind", "FindReplaceScope", "OutlierAction",
   "SummaryOperation", "ContactKind", "ExtractionKind", "PerformanceProfile", "DatasetLoadPath",
   "TemporalAggregationKind", "DiagnosticContract", "DiagnosticPhase", "DiagnosticStatus",

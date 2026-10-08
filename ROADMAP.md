@@ -581,7 +581,7 @@ medio = 1 día; agregado por suma.
   - [ ] `PROD-08` (Propuesta) Error estructurado en el puente en vez de cadenas
   - [x] `PROD-09` (Propuesta) «Archivos recientes» no reabre el archivo — hecho el 2026-10-07
   - [ ] `PROD-10` (Propuesta) Un único resumen «qué cambió» con celdas anuladas, filas perdidas y reversibilidad real
-  - [ ] `PROD-11` (Propuesta) Receta: decimales con coma y fechas dd/mm en conversiones de tipo
+  - [x] `PROD-11` (Propuesta) Receta: decimales con coma y fechas dd/mm en conversiones de tipo — hecho el 2026-10-07
   - [ ] `PROD-12` (Propuesta) Propuesta: lista de columnas e inserción con cita correcta en la consola SQL
   - [x] `PROD-13` (Propuesta) Mostrar en la entrega el destino y un resumen de lo transformado — hecho el 2026-10-07
 - [ ] **RV113** — **Producto** — Los tres informes de pánico reales son anteriores a CODE-01 y no permiten identificar el… (y 5 problemas más) · *Esfuerzo: 1,5 días*

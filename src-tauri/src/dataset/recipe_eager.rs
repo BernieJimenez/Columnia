@@ -2192,6 +2192,18 @@ pub(super) fn apply_eager_recipe_to_frame_with_exception_policy(
     recipe: &TransformRecipe,
     exception_policy: Option<&ImportExceptionPolicy>,
 ) -> Result<RecipeFrameOutcome, String> {
+    // PROD-11: comma decimals become canonical first, as in apply_recipe_to_frame.
+    if let Some(normalized) = with_cast_decimal_separators(source, recipe)? {
+        let mut recipe = recipe.clone();
+        for cast in &mut recipe.casts {
+            cast.decimal_separator = None;
+        }
+        return apply_eager_recipe_to_frame_with_exception_policy(
+            &normalized,
+            &recipe,
+            exception_policy,
+        );
+    }
     let mut candidate = source.clone();
     let rename_map = validated_rename_map(source, recipe)?;
     for cast in &recipe.casts {

@@ -1786,10 +1786,64 @@ pub(super) fn apply_lazy_recipe_to_frame(
     })
 }
 
+/// PROD-11: text columns a cast reads with a comma decimal become canonical
+/// («1.234,5» → «1234.5») so every engine casts them as usual; a value that
+/// does not read that way is left as is and the cast reports it.
+/// The recipe once its comma columns are canonical.
+fn without_decimal_separators(recipe: &TransformRecipe) -> TransformRecipe {
+    let mut recipe = recipe.clone();
+    for cast in &mut recipe.casts {
+        cast.decimal_separator = None;
+    }
+    recipe
+}
+
+pub(super) fn with_cast_decimal_separators(
+    source: &DataFrame,
+    recipe: &TransformRecipe,
+) -> Result<Option<DataFrame>, String> {
+    let comma_casts = recipe
+        .casts
+        .iter()
+        .filter(|cast| cast.decimal_separator == Some(RecipeDecimalSeparator::Comma))
+        .collect::<Vec<_>>();
+    if comma_casts.is_empty() {
+        return Ok(None);
+    }
+    let mut normalized = source.clone();
+    for cast in comma_casts {
+        let Ok(column) = source.column(&cast.column) else {
+            continue;
+        };
+        let Ok(strings) = column.str() else {
+            continue;
+        };
+        let values = strings
+            .iter()
+            .map(|value| {
+                value.map(|text| {
+                    import_conventions::canonical_decimal(text.trim(), ',', Some('.'))
+                        .unwrap_or_else(|| text.to_owned())
+                })
+            })
+            .collect::<Vec<_>>();
+        normalized
+            .replace(
+                &cast.column,
+                Column::new(cast.column.as_str().into(), values),
+            )
+            .map_err(|_| "No se pudo preparar la conversión con coma decimal.".to_owned())?;
+    }
+    Ok(Some(normalized))
+}
+
 pub(super) fn apply_recipe_to_frame(
     source: &DataFrame,
     recipe: &TransformRecipe,
 ) -> Result<RecipeFrameOutcome, String> {
+    if let Some(normalized) = with_cast_decimal_separators(source, recipe)? {
+        return apply_recipe_to_frame(&normalized, &without_decimal_separators(recipe));
+    }
     if lazy_recipe_supported(source, recipe) {
         return apply_lazy_recipe_to_frame(source, recipe);
     }

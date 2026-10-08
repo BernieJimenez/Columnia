@@ -658,13 +658,36 @@ export function TransformRecipeEditor({
               </label>
               <label>
                 <span>Tipo destino</span>
-                <select aria-label={`Tipo destino ${index + 1}`} value={cast.target} onChange={(event) => setCasts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, target: event.target.value as CastDraft["target"] } : item))}>
+                <select aria-label={`Tipo destino ${index + 1}`} value={cast.target} onChange={(event) => setCasts((current) => current.map((item, itemIndex) => {
+                  if (itemIndex !== index) return item;
+                  const { decimalSeparator: _separator, ...rest } = item;
+                  const target = event.target.value as CastDraft["target"];
+                  return target === "decimal" ? { ...rest, target, ...(_separator ? { decimalSeparator: _separator } : {}) } : { ...rest, target };
+                }))}>
                   <option value="string">Texto</option>
                   <option value="integer">Entero</option>
                   <option value="decimal">Decimal</option>
                   <option value="boolean">Booleano</option>
                 </select>
               </label>
+              {cast.target === "decimal" && (
+                // PROD-11: «12,5» as Spanish data writes it.
+                <label>
+                  <span>Separador decimal</span>
+                  <select
+                    aria-label={`Separador decimal ${index + 1}`}
+                    value={cast.decimalSeparator ?? "dot"}
+                    onChange={(event) => setCasts((current) => current.map((item, itemIndex) => {
+                      if (itemIndex !== index) return item;
+                      const { decimalSeparator: _separator, ...rest } = item;
+                      return event.target.value === "comma" ? { ...rest, decimalSeparator: "comma" as const } : rest;
+                    }))}
+                  >
+                    <option value="dot">Punto (12.5)</option>
+                    <option value="comma">Coma (12,5)</option>
+                  </select>
+                </label>
+              )}
               <button type="button" aria-label={`Quitar conversión ${index + 1}`} title="Quitar conversión" onClick={() => setCasts((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
             </div>
           ))}
@@ -889,7 +912,9 @@ export function TransformRecipeEditor({
       <div className="transform-recipe__footer">
         <p>
           Toda la receta referencia los nombres actuales. Booleano acepta únicamente true/false;
-          decimal usa punto y las fechas ambiguas requieren formato explícito.
+          {activeCasts.some((cast) => cast.target === "decimal" && cast.decimalSeparator === "comma")
+            ? " un decimal con coma admite el punto para los miles"
+            : " decimal usa punto salvo que elijas coma"} y las fechas ambiguas requieren formato explícito.
         </p>
         <button
           type="button"

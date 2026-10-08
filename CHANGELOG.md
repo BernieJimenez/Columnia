@@ -1031,6 +1031,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 - El análisis de calidad de Revisar es unas 2,5 veces más rápido en archivos medianos (338 MB: de 12 s a 5 s) y en archivos grandes muestra qué paso está haciendo tras leer las filas (REN-01, en curso).
+- La receta convierte a decimal textos con coma decimal: al elegir «Decimal»
+  aparece «Separador decimal» con punto o coma, y con coma «1.234,5» pasa a
+  1234,5 (el punto agrupa los miles); en archivos grandes esa conversión se hace
+  en memoria.
 - «Copia lista» dice ahora cuántas filas se exportaron, en qué carpeta (solo su
   nombre) y cuántas celdas de un CSV empezaban como una fórmula y se guardaron
   como texto. Verificado además que «Archivos recientes» explica que «Elegir de

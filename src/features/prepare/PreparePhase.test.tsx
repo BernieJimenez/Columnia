@@ -1589,6 +1589,21 @@ describe("TransformRecipeEditor", () => {
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ casts: [{ column: "nombre", target: "integer" }] }));
   });
 
+  it("convierte a decimal un texto con coma decimal cuando se elige (PROD-11)", () => {
+    const onApply = vi.fn();
+    render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={onApply} onDraftChange={() => undefined} />);
+    fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "nombre" } });
+    expect(screen.queryByLabelText("Separador decimal 1")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Tipo destino 1"), { target: { value: "decimal" } });
+    fireEvent.change(screen.getByLabelText("Separador decimal 1"), { target: { value: "comma" } });
+    expect(screen.queryByText(/decimal usa punto/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar y aplicar" }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
+      casts: [{ column: "nombre", target: "decimal", decimalSeparator: "comma" }],
+    }));
+  });
+
   it("interpone el alertdialog antes de aplicar filtros destructivos", () => {
     const onApply = vi.fn();
     render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={onApply} onDraftChange={() => undefined} />);

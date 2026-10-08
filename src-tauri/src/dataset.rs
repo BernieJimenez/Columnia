@@ -172,7 +172,9 @@ pub(crate) use recipe_eager::explain_invalid_recipe_date;
 use recipe_eager::*;
 #[cfg(test)]
 use recipe_engine::{apply_lazy_recipe_to_frame, lazy_recipe_supported};
-use recipe_engine::{apply_recipe_to_frame, lazy_renames_have_no_cycles};
+use recipe_engine::{
+    apply_recipe_to_frame, lazy_renames_have_no_cycles, with_cast_decimal_separators,
+};
 #[cfg(test)]
 use recipe_source_projection::source_backed_unicode_regex;
 use recipe_source_projection::{
@@ -1265,6 +1267,18 @@ pub enum RecipeCastTarget {
 pub struct RecipeCast {
     column: String,
     target: RecipeCastTarget,
+    /// PROD-11: how the text writes decimals; `None` reads a dot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    decimal_separator: Option<RecipeDecimalSeparator>,
+}
+
+/// PROD-11: the decimal separator of a type conversion; the other sign of
+/// the pair groups thousands («1.234,5» with a comma, «1,234.5» with a dot).
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RecipeDecimalSeparator {
+    Dot,
+    Comma,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]

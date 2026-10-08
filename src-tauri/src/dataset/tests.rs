@@ -255,6 +255,38 @@ fn a_history_folder_abandoned_by_an_error_is_removed_with_its_copies() {
 }
 
 #[test]
+fn a_recipe_converts_comma_decimals_when_told_so() {
+    // PROD-11: «12,5» and «1.234,5», as Spanish data writes them.
+    let frame = df!("importe" => ["12,5", "1.234,5", "-3"], "texto" => ["a", "b", "c"]).unwrap();
+    let recipe = TransformRecipe {
+        casts: vec![RecipeCast {
+            column: "importe".into(),
+            target: RecipeCastTarget::Decimal,
+            decimal_separator: Some(RecipeDecimalSeparator::Comma),
+        }],
+        ..Default::default()
+    };
+    let RecipeFrameOutcome { frame: result, .. } =
+        apply_recipe_to_frame(&frame, &recipe).expect("la receta convierte la coma decimal");
+    let amounts = result.column("importe").unwrap().f64().unwrap();
+    assert_eq!(amounts.get(0), Some(12.5));
+    assert_eq!(amounts.get(1), Some(1234.5));
+    assert_eq!(amounts.get(2), Some(-3.0));
+    // Without the separator, a comma is still an invalid decimal.
+    let plain = TransformRecipe {
+        casts: vec![RecipeCast {
+            column: "importe".into(),
+            target: RecipeCastTarget::Decimal,
+            decimal_separator: None,
+        }],
+        ..Default::default()
+    };
+    assert!(apply_recipe_to_frame(&frame, &plain).is_err());
+    // The projection over a large file does not know the separator.
+    assert!(!source_backed_projection_recipe_supported(&frame, &recipe));
+}
+
+#[test]
 fn an_export_reports_its_rows_folder_and_the_cells_it_protected() {
     // PROD-13: «Copia lista» shows where it went (the folder's own name, never
     // a path), how many rows it holds and how many cells were protected.
@@ -610,6 +642,7 @@ fn complete_stored_recipe() -> StoredTransformRecipe {
             casts: vec![RecipeCast {
                 column: "amount".to_owned(),
                 target: RecipeCastTarget::Decimal,
+                decimal_separator: None,
             }],
             date_parses: vec![RecipeDateParse {
                 column: "created".to_owned(),
@@ -3045,6 +3078,7 @@ fn source_backed_group_summary_keeps_first_appearance_order_on_a_large_file() {
         casts: vec![RecipeCast {
             column: "valor".to_owned(),
             target: RecipeCastTarget::Integer,
+            decimal_separator: None,
         }],
         group_summary: Some(GroupSummaryRecipe {
             group_by: vec!["clave".to_owned()],
@@ -3505,6 +3539,7 @@ fn source_backed_group_summary_preserves_stable_groups_nulls_and_counters() {
         casts: vec![RecipeCast {
             column: "amount".to_owned(),
             target: RecipeCastTarget::Integer,
+            decimal_separator: None,
         }],
         group_summary: Some(GroupSummaryRecipe {
             group_by: vec!["group".to_owned()],
@@ -3589,6 +3624,7 @@ fn source_backed_iqr_modes_match_eager_and_keep_separate_counts() {
             casts: vec![RecipeCast {
                 column: "amount".to_owned(),
                 target: RecipeCastTarget::Integer,
+                decimal_separator: None,
             }],
             outlier_treatments: vec![OutlierTreatment {
                 column: "amount".to_owned(),
@@ -3639,6 +3675,7 @@ fn source_backed_iqr_uses_filtered_baseline_and_separates_removed_rows() {
         casts: vec![RecipeCast {
             column: "amount".to_owned(),
             target: RecipeCastTarget::Integer,
+            decimal_separator: None,
         }],
         filters: vec![RecipeFilter {
             column: "group".to_owned(),
@@ -3703,6 +3740,7 @@ fn source_backed_cast_dates_and_calculations_match_the_eager_recipe() {
         casts: vec![RecipeCast {
             column: "amount".to_owned(),
             target: RecipeCastTarget::Decimal,
+            decimal_separator: None,
         }],
         date_parses: vec![RecipeDateParse {
             column: "when".to_owned(),
@@ -4052,6 +4090,7 @@ fn source_backed_merge_matches_eager_order_nulls_empty_strings_and_casts() {
         casts: vec![RecipeCast {
             column: "number".to_owned(),
             target: RecipeCastTarget::String,
+            decimal_separator: None,
         }],
         keep_columns: Some(vec![
             "tag".to_owned(),
@@ -8352,6 +8391,7 @@ fn every_recipe_text_field_has_a_length_limit() {
                 casts: vec![RecipeCast {
                     column: text.to_owned(),
                     target: RecipeCastTarget::String,
+                    decimal_separator: None,
                 }],
                 ..Default::default()
             }),
@@ -13476,15 +13516,18 @@ fn structural_recipe_applies_swapped_renames_strict_casts_and_dates_in_order() {
             RecipeCast {
                 column: "amount".into(),
                 target: RecipeCastTarget::Decimal,
+                decimal_separator: None,
             },
             // References the pre-rename name deliberately.
             RecipeCast {
                 column: "count".into(),
                 target: RecipeCastTarget::Integer,
+                decimal_separator: None,
             },
             RecipeCast {
                 column: "enabled".into(),
                 target: RecipeCastTarget::Boolean,
+                decimal_separator: None,
             },
         ],
         date_parses: vec![RecipeDateParse {
@@ -13759,6 +13802,7 @@ fn lazy_recipe_combines_date_parsing_and_casts_on_separate_columns() {
         casts: vec![RecipeCast {
             column: "amount".into(),
             target: RecipeCastTarget::Decimal,
+            decimal_separator: None,
         }],
         date_parses: vec![RecipeDateParse {
             column: "when".into(),
@@ -13845,6 +13889,7 @@ fn reusable_conversion_policy_nullifies_invalid_casts_and_dates_but_preserves_re
         casts: vec![RecipeCast {
             column: "amount".into(),
             target: RecipeCastTarget::Integer,
+            decimal_separator: None,
         }],
         date_parses: vec![RecipeDateParse {
             column: "when".into(),
@@ -13917,6 +13962,7 @@ fn reusable_conversion_policy_excludes_rows_only_for_invalid_values_and_counts_t
         casts: vec![RecipeCast {
             column: "amount".into(),
             target: RecipeCastTarget::Integer,
+            decimal_separator: None,
         }],
         date_parses: vec![RecipeDateParse {
             column: "when".into(),
@@ -13967,6 +14013,7 @@ fn reusable_conversion_policy_review_and_schema_or_recipe_mismatch_fail_before_p
         casts: vec![RecipeCast {
             column: "amount".into(),
             target: RecipeCastTarget::Integer,
+            decimal_separator: None,
         }],
         ..Default::default()
     };
@@ -14340,6 +14387,7 @@ fn structural_recipe_rolls_back_fully_on_invalid_value_and_does_not_create_undo(
         casts: vec![RecipeCast {
             column: "count".into(),
             target: RecipeCastTarget::Integer,
+            decimal_separator: None,
         }],
         date_parses: vec![],
         ..Default::default()
@@ -14437,6 +14485,7 @@ fn structural_recipe_rejects_cross_step_conflicts_and_final_name_collisions() {
         casts: vec![RecipeCast {
             column: "a".into(),
             target: RecipeCastTarget::String,
+            decimal_separator: None,
         }],
         date_parses: vec![RecipeDateParse {
             column: "a".into(),
@@ -14543,6 +14592,7 @@ fn lazy_recipe_casts_filters_and_calculates_in_one_plan() {
         casts: vec![RecipeCast {
             column: "amount".into(),
             target: RecipeCastTarget::Decimal,
+            decimal_separator: None,
         }],
         filters: vec![RecipeFilter {
             column: "amount".into(),
@@ -14609,6 +14659,7 @@ fn lazy_group_summary_preserves_stable_groups_nulls_and_counts() {
         casts: vec![RecipeCast {
             column: "value".into(),
             target: RecipeCastTarget::Integer,
+            decimal_separator: None,
         }],
         group_summary: Some(GroupSummaryRecipe {
             group_by: vec!["group".into()],
@@ -15809,6 +15860,7 @@ fn lazy_find_replace_counts_after_string_cast_and_preserves_nulls() {
         casts: vec![RecipeCast {
             column: "code".into(),
             target: RecipeCastTarget::String,
+            decimal_separator: None,
         }],
         find_replace: Some(FindReplaceRecipe {
             scope: FindReplaceScope::Column,
@@ -16062,6 +16114,7 @@ fn lazy_merge_accepts_numeric_source_cast_to_text() {
         casts: vec![RecipeCast {
             column: "number".into(),
             target: RecipeCastTarget::String,
+            decimal_separator: None,
         }],
         merge_columns: Some(MergeColumnsRecipe {
             sources: vec!["number".into(), "label".into()],
@@ -16186,6 +16239,7 @@ fn split_and_merge_observe_casts_but_reject_non_text_physical_columns() {
         casts: vec![RecipeCast {
             column: "number".into(),
             target: RecipeCastTarget::String,
+            decimal_separator: None,
         }],
         split_column: Some(SplitColumnRecipe {
             source: "number".into(),
@@ -16206,6 +16260,7 @@ fn split_and_merge_observe_casts_but_reject_non_text_physical_columns() {
         casts: vec![RecipeCast {
             column: "text".into(),
             target: RecipeCastTarget::Integer,
+            decimal_separator: None,
         }],
         split_column: Some(SplitColumnRecipe {
             source: "text".into(),
@@ -16666,6 +16721,7 @@ fn iqr_remaps_rename_observes_cast_and_keep_and_commits_one_undo() {
             casts: vec![RecipeCast {
                 column: "value".into(),
                 target: RecipeCastTarget::Integer,
+                decimal_separator: None,
             }],
             keep_columns: Some(vec!["value".into()]),
             outlier_treatments: vec![OutlierTreatment {
@@ -16911,6 +16967,7 @@ fn group_summary_runs_after_outliers_and_commits_one_undo_revision() {
             casts: vec![RecipeCast {
                 column: "v".into(),
                 target: RecipeCastTarget::Integer,
+                decimal_separator: None,
             }],
             outlier_treatments: vec![OutlierTreatment {
                 column: "v".into(),
@@ -20739,6 +20796,7 @@ fn lazy_and_eager_recipes_agree_on_boundary_inputs() {
                 casts: vec![RecipeCast {
                     column: "cantidad".to_owned(),
                     target: RecipeCastTarget::Integer,
+                    decimal_separator: None,
                 }],
                 ..TransformRecipe::default()
             },
@@ -20750,6 +20808,7 @@ fn lazy_and_eager_recipes_agree_on_boundary_inputs() {
                 casts: vec![RecipeCast {
                     column: "activo".to_owned(),
                     target: RecipeCastTarget::Boolean,
+                    decimal_separator: None,
                 }],
                 ..TransformRecipe::default()
             },
@@ -20761,6 +20820,7 @@ fn lazy_and_eager_recipes_agree_on_boundary_inputs() {
                 casts: vec![RecipeCast {
                     column: "precio".to_owned(),
                     target: RecipeCastTarget::Decimal,
+                    decimal_separator: None,
                 }],
                 ..TransformRecipe::default()
             },
@@ -20846,6 +20906,7 @@ fn eager_and_source_backed_recipes_agree_on_boundary_inputs() {
         casts: vec![RecipeCast {
             column: column.to_owned(),
             target,
+            decimal_separator: None,
         }],
         ..TransformRecipe::default()
     };
@@ -21113,6 +21174,7 @@ fn every_recipe_step_matches_between_eager_and_lazy_on_chunked_frames() {
                 casts: vec![RecipeCast {
                     column: "texto_num".into(),
                     target: RecipeCastTarget::Integer,
+                    decimal_separator: None,
                 }],
                 ..base()
             },
