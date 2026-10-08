@@ -493,10 +493,10 @@ medio = 1 día; agregado por suma.
   - [x] `COD-20` (Bajo) `check-retired-brand` divide por un regex con barras escapadas de más: siempre informa la línea 1 — hecho el 2026-10-07
   - [x] `LIM-12` (Bajo) Código muerto y mensaje desfasado en los gates pequeños — hecho el 2026-10-07
   - [x] `LIM-13` (Bajo) Plantillas de GitHub desfasadas respecto al proyecto — hecho el 2026-10-07
-- [ ] **RV97** — **Gates y scripts** — SBOM: mezcla dependencias de desarrollo/otras plataformas y no distingue alcance (y 5 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV97** — **Gates y scripts** — SBOM: mezcla dependencias de desarrollo/otras plataformas y no distingue alcance (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-08
   - Criterio de cierre: Se cumplen los criterios de aceptación de LIM-14, LIM-15, QA-47, QA-48, QA-49, QA-50.
   - [x] `LIM-14` (Bajo) SBOM: mezcla dependencias de desarrollo/otras plataformas y no distingue alcance — hecho el 2026-10-07
-  - [ ] `LIM-15` (Bajo) `skills-lock.json` solo fija 11 de las 18 skills versionadas en `.agents/` y no está documentado — Requiere tu decisión: si .agents/ y skills-lock.json se siguen versionando. Las 7 skills sin entrada (banner-design, brand, design, design-system, slides, ui-styling, ui-ux-pro-max) son copias del plugin ui-ux-pro-max que ya tienes instalado, y seo no aplica a una app de escritorio; el hash del lock lo calcula autoskills, así que no se puede completar a mano
+  - [x] `LIM-15` (Bajo) `skills-lock.json` solo fija 11 de las 18 skills versionadas en `.agents/` y no está documentado — Decidido: .agents/ y skills-lock.json dejan de versionarse y quedan solo en local — hecho el 2026-10-08
   - [x] `QA-47` (Bajo) probe-roundtrip: el veredicto de cada fixture depende solo de `$?`, no del código de salida — hecho el 2026-10-07
   - [x] `QA-48` (Bajo) verify-tier / prepare-beta-gate: pequeñeces de robustez — hecho el 2026-10-07
   - [x] `QA-49` (Bajo) El gate de documentación acopla CI local a prosa de Beta y a nombres de archivo — hecho el 2026-10-07

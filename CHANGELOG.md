@@ -1151,6 +1151,8 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- Las skills locales del agente (.agents/ y skills-lock.json) dejan de
+  versionarse y quedan solo en local (LIM-15).
 - Los errores del motor se reconocen en un solo sitio, src/bridge/errors.ts: un
   BridgeError con code (cancelled, legacyEncoding u other) e isCancellation();
   la cancelación y la codificación heredada se deciden por ese código y las 39

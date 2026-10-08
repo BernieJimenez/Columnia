@@ -141,7 +141,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `CHANGELOG.md` | Registro de cambios publicados y limitaciones conocidas por versión. |
 | `fixtures/accessibility/release-evidence-baseline-v1.json` | Casos, contrato, owner, propósito, fecha de aprobación y hashes de capturas generadas desde el binario release. |
 | `.codegraph/` | Índice semántico local del repositorio. Úsalo antes de búsquedas textuales para entender símbolos y rutas de llamadas. |
-| `.agents/skills/` | Skills locales disponibles para tareas especializadas del repositorio. |
+| `.agents/skills/` | Skills locales para tareas especializadas. Solo en local: no se versionan, igual que `skills-lock.json` (LIM-15). |
 
 ## Estado y ciclo de vida de los datos
 
@@ -564,7 +564,7 @@ Las ramas específicas de symlinks/reparse points dependen de la plataforma; en 
 
 1. Comprueba `git status` y conserva cambios ajenos.
 2. Si existe `.codegraph/`, usa primero `codegraph explore "<pregunta o símbolos>"` para localizar código, llamadas y radio de impacto.
-3. Lee la skill pertinente en `.agents/skills/<skill>/SKILL.md` antes de aplicarla.
+3. Si tienes skills locales en `.agents/skills/`, lee la pertinente antes de aplicarla.
 4. Traza el cambio desde `App.tsx` hacia `bridge.ts`, `lib.rs` y `dataset.rs` cuando cruce IPC.
 5. Mantén las rutas y datos sensibles exclusivamente en Rust.
 6. Añade o actualiza pruebas en la capa donde vive el comportamiento.

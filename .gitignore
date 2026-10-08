@@ -13,3 +13,7 @@ test-results/
 
 # Informes de revisión: solo en local (el repositorio es público)
 docs/auditorias/
+
+# Skills locales del agente: solo en local (LIM-15)
+.agents/
+skills-lock.json
