@@ -33,6 +33,9 @@ namespace ColumniaDesktopSmoke {
 "@
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+# OPS-24: the common evidence header (commit, tree, version, times).
+Import-Module (Join-Path $PSScriptRoot "evidence.psm1") -Force
+$EvidenceStartedAt = [DateTimeOffset]::UtcNow.ToString("o")
 $DebugExecutable = [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot "src-tauri\target\debug\columnia.exe"))
 $RunStartedAt = [DateTimeOffset]::UtcNow
 $Timestamp = $RunStartedAt.ToString("yyyyMMddTHHmmssZ")
@@ -444,7 +447,7 @@ finally {
         command = "npm run tauri dev"
         evidenceDirectory = $EvidenceRelativePath
         error = $FailureMessage
-    } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
+    } | Add-EvidenceHeader -Root $ProjectRoot -StartedAt $EvidenceStartedAt | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
 }
 
 if ($SmokeStatus -ne "passed") {

@@ -1190,6 +1190,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- Todos los summary.json de smokes, benchmarks, probes y gates llevan una
+  cabecera común (tools/evidence.psm1: commit, rama, árbol con cambios, versión
+  y horas), y check-performance-baseline rechaza la evidencia de otro commit o
+  medida con cambios sin commit (OPS-24).
 - El inventario IPC ya no repite cifras en AUDITORIA.md: el recuento vive en
   docs/reference/ipc-inventory.json y el gate falla si un comando se añade o se
   quita sin regenerarlo, con un test que lo comprueba (QA-62).

@@ -11,6 +11,9 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "app-data-guard.ps1")
 $AppDataGuard = $null
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+# OPS-24: the common evidence header (commit, tree, version, times).
+Import-Module (Join-Path $PSScriptRoot "evidence.psm1") -Force
+$EvidenceStartedAt = [DateTimeOffset]::UtcNow.ToString("o")
 $EvidenceStamp = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssZ")
 $EvidenceRelativePath = ".local/validation/release-evidence/$EvidenceStamp"
 $EvidenceDirectory = Join-Path $ProjectRoot ($EvidenceRelativePath -replace "/", "\")
@@ -209,7 +212,7 @@ catch {
     [Console]::Error.WriteLine($message)
     if (-not (Test-Path -LiteralPath $SummaryPath -PathType Leaf)) {
         [ordered]@{ schemaVersion = 1; captureVersion = 1; status = "failed"; source = "tauri-release-binary"; generatedAt = [DateTimeOffset]::UtcNow.ToString("o"); evidenceDirectory = $EvidenceRelativePath; error = $message } |
-            ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
+            Add-EvidenceHeader -Root $ProjectRoot -StartedAt $EvidenceStartedAt | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
     }
     exit 1
 }

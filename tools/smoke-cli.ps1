@@ -2,6 +2,9 @@
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+# OPS-24: the common evidence header (commit, tree, version, times).
+Import-Module (Join-Path $PSScriptRoot "evidence.psm1") -Force
+$EvidenceStartedAt = [DateTimeOffset]::UtcNow.ToString("o")
 $TauriRoot = Join-Path $ProjectRoot "src-tauri"
 $FixturesRoot = Join-Path $ProjectRoot "fixtures\automation"
 $StartedAt = [DateTimeOffset]::UtcNow
@@ -592,7 +595,7 @@ finally {
         checks = @($Checks)
         cleanupConfirmed = -not (Test-Path -LiteralPath $WorkDirectory)
         error = $FailureMessage
-    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
+    } | Add-EvidenceHeader -Root $ProjectRoot -StartedAt $EvidenceStartedAt | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
 }
 
 if ($Status -ne "passed") {

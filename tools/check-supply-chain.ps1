@@ -6,6 +6,9 @@ param(
 $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSScriptRoot "supply-chain.psm1") -Force
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+# OPS-24: the common evidence header (commit, tree, version, times).
+Import-Module (Join-Path $PSScriptRoot "evidence.psm1") -Force
+$EvidenceStartedAt = [DateTimeOffset]::UtcNow.ToString("o")
 $TauriRoot = Join-Path $ProjectRoot "src-tauri"
 $ProjectRootUri = [Uri]::new("$ProjectRoot\")
 $Stamp = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssZ")
@@ -145,7 +148,7 @@ $Document = [ordered]@{
     evidenceDirectory = Relative-Path $EvidenceDirectory
 }
 $SummaryPath = Join-Path $EvidenceDirectory "summary.json"
-$Document | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
+$Document | Add-EvidenceHeader -Root $ProjectRoot -StartedAt $EvidenceStartedAt | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
 if ($OverallStatus -eq "passed-with-skips") {
     # OPS-17: not a failure without -RequireAuditTools, but never worded as a full pass.
     Write-Host "Supply chain aprobado con omisiones: $($Overall.skippedChecks -join ', ') no se ejecutó. Evidencia: $(Relative-Path $SummaryPath)"

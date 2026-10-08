@@ -7,6 +7,9 @@
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+# OPS-24: the common evidence header (commit, tree, version, times).
+Import-Module (Join-Path $PSScriptRoot "evidence.psm1") -Force
+$EvidenceStartedAt = [DateTimeOffset]::UtcNow.ToString("o")
 . (Join-Path $PSScriptRoot "app-data-guard.ps1")
 $Timestamp = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssZ")
 $EvidenceRelativePath = ".local/validation/webview2-restart/$Timestamp"
@@ -126,7 +129,7 @@ finally {
         cleanupDelegatedToCdpPhases = $true
         appDataRestored = $AppDataRestored
         error = $FailureMessage
-    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
+    } | Add-EvidenceHeader -Root $ProjectRoot -StartedAt $EvidenceStartedAt | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
 }
 
 if ($Status -eq "passed") {

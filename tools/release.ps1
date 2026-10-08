@@ -25,6 +25,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+# OPS-24: the common evidence header (commit, tree, version, times).
+Import-Module (Join-Path $PSScriptRoot "evidence.psm1") -Force
+$EvidenceStartedAt = [DateTimeOffset]::UtcNow.ToString("o")
 $StartedAt = [DateTimeOffset]::UtcNow
 $Stamp = $StartedAt.ToString("yyyyMMddTHHmmssZ")
 # This orchestrator never tags or publishes: publication is always manual.
@@ -135,7 +138,7 @@ function Write-ReleaseSummary {
             note = "Este orquestador no crea tags, no publica artefactos y no contacta servicios remotos."
         }
         evidenceDirectory = $EvidenceRelativePath
-    } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
+    } | Add-EvidenceHeader -Root $ProjectRoot -StartedAt $EvidenceStartedAt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
 }
 
 # OPS-07: test-harness variables change what the build and the gates do; a

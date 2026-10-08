@@ -8,6 +8,9 @@
 $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSScriptRoot "process-tree.psm1") -Force
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+# OPS-24: the common evidence header (commit, tree, version, times).
+Import-Module (Join-Path $PSScriptRoot "evidence.psm1") -Force
+$EvidenceStartedAt = [DateTimeOffset]::UtcNow.ToString("o")
 $StartedAt = [DateTimeOffset]::UtcNow
 $Timestamp = $StartedAt.ToString("yyyyMMddTHHmmssZ")
 $EvidenceRelativePath = ".local/validation/duckdb-join-benchmark/$Timestamp"
@@ -213,7 +216,7 @@ $Summary = [ordered]@{
 }
 [System.IO.File]::WriteAllText(
     $SummaryPath,
-    (($Summary | ConvertTo-Json -Depth 8) + [Environment]::NewLine),
+    (($Summary | Add-EvidenceHeader -Root $ProjectRoot -StartedAt $EvidenceStartedAt | ConvertTo-Json -Depth 8) + [Environment]::NewLine),
     [System.Text.UTF8Encoding]::new($false)
 )
 

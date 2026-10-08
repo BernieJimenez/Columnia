@@ -6,6 +6,9 @@
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+# OPS-24: the common evidence header (commit, tree, version, times).
+Import-Module (Join-Path $PSScriptRoot "evidence.psm1") -Force
+$EvidenceStartedAt = [DateTimeOffset]::UtcNow.ToString("o")
 $ValidationRoot = Join-Path $ProjectRoot ".local\validation"
 $BaselineAbsolutePath = if ([System.IO.Path]::IsPathRooted($BaselinePath)) {
     $BaselinePath
@@ -62,6 +65,10 @@ function Get-StaleEvidenceReason {
         return $null
     }
     $Document = Get-Content -Encoding UTF8 -LiteralPath $Path -Raw | ConvertFrom-Json
+    # OPS-24: the common header decides when the summary carries it.
+    if ($null -ne $Document.evidence) {
+        return Get-EvidenceCommitProblem -Document $Document -HeadCommit $HeadCommit
+    }
     $Commit = if ($null -ne $Document.git -and $null -ne $Document.git.commit) { [string]$Document.git.commit } elseif ($null -ne $Document.commit) { [string]$Document.commit } else { $null }
     if (-not [string]::IsNullOrWhiteSpace($Commit)) {
         if ($Commit -ne $HeadCommit) {
@@ -472,7 +479,7 @@ New-Item -ItemType Directory -Path $EvidenceDirectory -Force | Out-Null
     checks = @($Checks)
     error = $FailureMessage
     evidenceDirectory = $EvidenceRelativePath
-} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
+} | Add-EvidenceHeader -Root $ProjectRoot -StartedAt $EvidenceStartedAt | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
 
 if ($Status -ne "passed") {
     Write-Error "Baseline de rendimiento falló: $FailureMessage Evidencia: $EvidenceRelativePath"

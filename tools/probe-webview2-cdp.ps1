@@ -59,6 +59,9 @@ namespace ColumniaWebView2CdpProbe {
 "@
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+# OPS-24: the common evidence header (commit, tree, version, times).
+Import-Module (Join-Path $PSScriptRoot "evidence.psm1") -Force
+$EvidenceStartedAt = [DateTimeOffset]::UtcNow.ToString("o")
 . (Join-Path $PSScriptRoot "app-data-guard.ps1")
 # Restart phases must share state across two launches; probe-webview2-restart.ps1
 # guards both phases, so only standalone runs guard the app data here.
@@ -972,7 +975,7 @@ finally {
         environmentVariable = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
         evidenceDirectory = $EvidenceRelativePath
         error = $FailureMessage
-    } | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
+    } | Add-EvidenceHeader -Root $ProjectRoot -StartedAt $EvidenceStartedAt | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
     # ConvertTo-Json silently stringifies anything deeper than -Depth; keep the
     # evidence re-verifiable by flagging PowerShell object representations.
     if ((Get-Content -Encoding UTF8 -LiteralPath $SummaryPath -Raw) -match 'System\.Object\[\]|"@\{') {

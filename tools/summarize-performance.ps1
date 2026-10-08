@@ -2,6 +2,9 @@
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+# OPS-24: the common evidence header (commit, tree, version, times).
+Import-Module (Join-Path $PSScriptRoot "evidence.psm1") -Force
+$EvidenceStartedAt = [DateTimeOffset]::UtcNow.ToString("o")
 $ValidationRoot = Join-Path $ProjectRoot ".local\validation"
 $OutputDirectory = Join-Path $ValidationRoot "performance-summary"
 $JsonPath = Join-Path $OutputDirectory "summary.json"
@@ -371,7 +374,7 @@ $Output = [ordered]@{
 }
 
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
-$Output | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $JsonPath -Encoding utf8
+$Output | Add-EvidenceHeader -Root $ProjectRoot -StartedAt $EvidenceStartedAt | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $JsonPath -Encoding utf8
 @($CsvRows) | ConvertTo-Csv -NoTypeInformation | Set-Content -LiteralPath $CsvPath -Encoding utf8
 
 if ($UnreadableEvidence.Count -gt 0) {
