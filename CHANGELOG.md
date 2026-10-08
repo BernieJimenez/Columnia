@@ -166,7 +166,7 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - T10-22: el estado vigente de `CONTEXTO.md` pasa de 4.190 a 432 palabras con las
   cifras del último gate Full, y ninguna celda de la cola vigente supera 80
   palabras. El texto completo se trasladó sin cambios a
-  `docs/reference/historial-verificacion.md`, con tabla de traslado.
+  `docs/archive/2026-09/historial-verificacion.md`, con tabla de traslado.
 - T10-30: el perfil Full de `tools/check.ps1` ejecuta también el escaneo de
   secretos, la política de red y los E2E (Release y Package ya cubrían los
   escaneos en la auditoría de cadena de suministro y ahora también los E2E). Las
@@ -207,6 +207,12 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Compilación de release y política de dependencias: el perfil release usa LTO
+  thin, una sola unidad de código y binarios sin símbolos (panic sigue en unwind
+  para que los bloqueos envenenados se recuperen); columnia.exe pasa de 135,9 a
+  122,1 MB y columnia-cli.exe de 118,7 a 105,6 MB, con una compilación completa
+  de unos 22 minutos; deny.toml ya no ignora diez avisos que no corresponden a
+  ningún crate del grafo.
 - Pruebas del motor: los archivos temporales de las pruebas Rust se borran solos
   aunque una aserción falle (ya no quedan miles de CSV en %TEMP%), y la carpeta
   de historial que dejaba una apertura de proyecto fallida, con las copias de
@@ -2861,8 +2867,8 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   snapshots que cambien durante la lectura.
 - Los perfiles Cargo `dev` y `test` omiten símbolos de depuración para que
   `npm run tauri dev` y las pruebas nativas puedan enlazar de forma reproducible
-  en Windows sin alcanzar `LNK1140`; el perfil `release` usa los valores por
-  defecto de Cargo (sin `[profile.release]` propio).
+  en Windows sin alcanzar `LNK1140`; el perfil `release` tiene su propia
+  política en `[profile.release]` (OPS-16).
 - Revisar permite elegir el límite de filas usado por la matriz de correlaciones
   numéricas (10.000, 50.000 o 100.000) y conserva la preferencia localmente;
   Rust valida el rango de 1.000 a 100.000, invalida cachés con una cobertura

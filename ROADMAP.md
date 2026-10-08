@@ -505,7 +505,7 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Se cumplen los criterios de aceptación de QA-51, QA-52, QA-53, QA-54, OPS-11, OPS-12.
   - [x] `QA-51` (Bajo) Filtro de privacidad del resumen Beta: regex de ruta mal escrita y falsos positivos con URL — hecho el 2026-10-07
   - [x] `QA-52` (Bajo) `check-incremental-matrix --run-native` puede pasar sin ejecutar ninguna prueba — hecho el 2026-10-07
-  - [x] `QA-53` (Bajo) `tools/check-beta-workflows.test.mjs` prueba las fixtures contra sí mismas, no flujos — hecho el 2026-10-07
+  - [x] `QA-53` (Bajo) El test de flujos Beta (hoy `tools/beta-fixtures-integrity.test.mjs`) prueba las fixtures contra sí mismas, no flujos — hecho el 2026-10-07
   - [x] `QA-54` (Bajo) Rigidez y exit code de las sondas CDP — hecho el 2026-10-07
   - [x] `OPS-11` (Bajo) Los mensajes con tilde de los scripts salen ilegibles en Windows PowerShell 5.1 — hecho el 2026-10-07
   - [x] `OPS-12` (Bajo) release.ps1 genera el manifiesto del updater con las notas de `## [Unreleased]` salvo que se pase `-UpdaterNotesPath` — hecho el 2026-10-07
@@ -537,9 +537,9 @@ medio = 1 día; agregado por suma.
   - [x] `QA-42` (Bajo) Aserciones débiles: solo el tipo en formatos de fecha, `||` entre mensajes y tuplas posicionales de 21 campos — hecho el 2026-10-07
 - [ ] **RV103** — **Configuración de Rust y Tauri** — Ejecutables e instaladores sin firma Authenticode (y 2 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-13, OPS-15, OPS-16.
-  - [ ] `OPS-13` (Bajo) Ejecutables e instaladores sin firma Authenticode
-  - [ ] `OPS-15` (Bajo) `src-tauri/deny.toml` ignora diez avisos que ya no corresponden a ningún crate
-  - [ ] `OPS-16` (Bajo) Sin `[profile.release]`: binarios de 129,5 MB / 112,9 MB sin LTO, strip ni codegen-units
+  - [ ] `OPS-13` (Bajo) Ejecutables e instaladores sin firma Authenticode — Requiere tu decisión: firmar exige un certificado de firma de código (propio o de una CA) y solo tiene sentido si se distribuyen binarios, hoy aparcado
+  - [x] `OPS-15` (Bajo) `src-tauri/deny.toml` ignora diez avisos que ya no corresponden a ningún crate — hecho el 2026-10-07
+  - [x] `OPS-16` (Bajo) Sin `[profile.release]`: binarios de 129,5 MB / 112,9 MB sin LTO, strip ni codegen-units — hecho el 2026-10-07
 - [ ] **RV104** — **Documentación** — README: «Rust estable» frente a la versión fijada en `rust-toolchain.toml` (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de DOC-07, DOC-08, DOC-09, DOC-12, DOC-15, DOC-16.
   - [ ] `DOC-07` (Bajo) README: «Rust estable» frente a la versión fijada en `rust-toolchain.toml`
@@ -606,7 +606,7 @@ medio = 1 día; agregado por suma.
   - [ ] `QA-58` (Propuesta) Probar claves de JOIN con nulos, ceros a la izquierda y espacios también en la ruta DuckDB
   - [ ] `QA-59` (Propuesta) Casos de borde de los límites numéricos en la ruta source-backed (coma decimal, día/mes ambiguo)
   - [ ] `QA-60` (Propuesta) Puerta de cobertura para Rust
-  - [ ] `QA-61` (Propuesta) Un único `npm run tools:test` que ejecute todos los `node --test` de `tools/`
+  - [ ] `QA-61` (Propuesta) Un único `npm run test:tools` que ejecute todos los `node --test` de `tools/`
 - [ ] **RV117** — **QA y testing** — Quitar los números fijos del inventario IPC y comprobarlo contra TypeScript · *Esfuerzo: 2 h*
   - Criterio de cierre: Hecho lo que proponen QA-62.
   - [ ] `QA-62` (Propuesta) Quitar los números fijos del inventario IPC y comprobarlo contra TypeScript

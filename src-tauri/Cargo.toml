@@ -11,9 +11,8 @@ name = "columnia_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 # The Windows linker can exhaust the PDB capacity on this dependency-heavy
-# development binary. Release uses Cargo's default profile (there is no
-# [profile.release]); dev/test builds do not need debugger symbols to run the
-# local application or its gates.
+# development binary. Release has its own profile below; dev/test builds do
+# not need debugger symbols to run the local application or its gates.
 [profile.dev]
 debug = 0
 # The profiling and cleaning loops live in this crate; unoptimized, a 300 000
@@ -29,6 +28,16 @@ opt-level = 2
 
 [profile.test]
 debug = 0
+
+# OPS-16: smaller and better optimized binaries. `panic` stays "unwind":
+# crash_report recovers poisoned locks and reports background tasks that
+# panic, which "abort" would turn into a closed app. Panic reports keep the
+# file and line of the panic, which stripping symbols does not remove.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "unwind"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
