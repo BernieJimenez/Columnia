@@ -617,9 +617,9 @@ medio = 1 día; agregado por suma.
   - [x] `OPS-23` (Propuesta) `.gitignore` sin secretos típicos ni `.gitattributes` — hecho el 2026-10-08
   - [x] `OPS-24` (Propuesta) Un único contenedor de «evidencia» con commit, versión y árbol — hecho el 2026-10-08
   - [x] `OPS-25` (Propuesta) Salvaguarda de la instalación real antes de los smokes que tocan HKCU/APPDATA — hecho el 2026-10-08
-- [ ] **RV119** — **Documentación** — Guía de uso, solución de problemas, respaldo y restauración (y 2 problemas más) · *Esfuerzo: 6 h*
+- [x] **RV119** — **Documentación** — Guía de uso, solución de problemas, respaldo y restauración (y 2 problemas más) · *Esfuerzo: 6 h* — hecho el 2026-10-08
   - Criterio de cierre: Hecho lo que proponen DOC-19, DOC-20, DOC-21.
-  - [ ] `DOC-19` (Propuesta) Guía de uso, solución de problemas, respaldo y restauración — Guías escritas el 2026-10-08; falta comprobar la restauración con la app real en la verificación final
+  - [x] `DOC-19` (Propuesta) Guía de uso, solución de problemas, respaldo y restauración — Restauración comprobada el 2026-10-08: un proyecto respaldado y copiado a una carpeta de datos limpia se lista y se exporta igual — hecho el 2026-10-08
   - [x] `DOC-20` (Propuesta) Compatibilidad declarada y reconstrucción en máquina nueva — hecho el 2026-10-08
   - [x] `DOC-21` (Propuesta) Glosario y política de nombres — hecho el 2026-10-08
 
