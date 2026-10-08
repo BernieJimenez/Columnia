@@ -67,6 +67,9 @@ interface LoadPhaseProps {
   /** The most recently saved project; null when none exists, undefined while unknown (DAT-01). */
   lastSavedProject?: { name: string; updatedAt: string } | null;
   onDismissPreviousExit?: () => void;
+  /** PROD-14: failure reports written since the previous session started. */
+  recentCrashReports?: number;
+  onDismissCrashReports?: () => void;
   /** ARQ-02: catalogs set aside at start-up because they could not be opened. */
   setAsideCatalogs?: string[];
   onDismissSetAsideCatalogs?: () => void;
@@ -104,6 +107,8 @@ export function LoadPhase({
   onDismissPreviousExit = () => undefined,
   setAsideCatalogs = [],
   onDismissSetAsideCatalogs = () => undefined,
+  recentCrashReports = 0,
+  onDismissCrashReports = () => undefined,
   onProfileReviewAction = () => undefined,
   onResourcePreflightAction = () => undefined,
   onSchemaMismatchAction = () => undefined,
@@ -169,6 +174,18 @@ export function LoadPhase({
             <p>Los cambios que no estaban guardados en un proyecto no se conservaron. Si guardaste uno, puedes recuperarlo en «Continuar un proyecto».</p>
           )}
           <button type="button" className="secondary-action" onClick={onDismissPreviousExit}>Entendido</button>
+        </section>
+      )}
+
+      {recentCrashReports > 0 && (
+        <section className="notice" aria-labelledby="crash-reports-title">
+          <h3 id="crash-reports-title">Columnia tuvo un fallo interno</h3>
+          <p>
+            Desde la sesión anterior se guardó {recentCrashReports === 1 ? "1 informe de fallo" : `${recentCrashReports.toLocaleString()} informes de fallo`}.
+            Están en la carpeta de datos de Columnia, en <code>crash-reports</code>; solo dicen la versión, la hora y el
+            archivo del código donde ocurrió, así que no incluyen tus datos. Si el fallo se repite, guárdalos para revisarlo.
+          </p>
+          <button type="button" className="secondary-action" onClick={onDismissCrashReports}>Entendido</button>
         </section>
       )}
 

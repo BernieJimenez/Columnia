@@ -178,30 +178,46 @@ fn write_json_report(
     Ok(path)
 }
 
-fn prune(directory: &Path) -> io::Result<()> {
-    let mut reports = fs::read_dir(directory)?
+/// The panic and WebView2 reports in `directory`, with their creation time.
+fn reports(directory: &Path) -> io::Result<Vec<(PathBuf, u128)>> {
+    Ok(fs::read_dir(directory)?
         .filter_map(Result::ok)
         .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| {
-                    (name.starts_with("panic-") || name.starts_with("webview-"))
-                        && name.ends_with(".json")
-                })
+        .filter_map(|path| {
+            let name = path.file_name()?.to_str()?;
+            if !(name.starts_with("panic-") || name.starts_with("webview-"))
+                || !name.ends_with(".json")
+            {
+                return None;
+            }
+            let created_at_ms = name.split('-').nth(1)?.parse::<u128>().unwrap_or_default();
+            Some((path, created_at_ms))
         })
-        .collect::<Vec<_>>();
+        .collect())
+}
+
+/// PROD-14: how many reports were written from `since_ms` on, so Cargar can
+/// say that Columnia failed instead of leaving them unread.
+pub(crate) fn reports_since(directory: &Path, since_ms: u128) -> usize {
+    reports(directory).map_or(0, |reports| {
+        reports
+            .iter()
+            .filter(|(_, created_at_ms)| *created_at_ms >= since_ms)
+            .count()
+    })
+}
+
+fn prune(directory: &Path) -> io::Result<()> {
+    let mut reports = reports(directory)?;
     if reports.len() <= MAX_REPORTS {
         return Ok(());
     }
     // Oldest first by creation time, whatever the kind of report.
-    reports.sort_by_key(|path| {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .and_then(|name| name.split('-').nth(1))
-            .and_then(|millis| millis.parse::<u128>().ok())
-            .unwrap_or_default()
-    });
+    reports.sort_by_key(|(_, created_at_ms)| *created_at_ms);
+    let reports = reports
+        .into_iter()
+        .map(|(path, _)| path)
+        .collect::<Vec<_>>();
     for path in &reports[..reports.len() - MAX_REPORTS] {
         let _ = fs::remove_file(path);
     }

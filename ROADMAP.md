@@ -586,7 +586,7 @@ medio = 1 día; agregado por suma.
   - [x] `PROD-13` (Propuesta) Mostrar en la entrega el destino y un resumen de lo transformado — hecho el 2026-10-07
 - [ ] **RV113** — **Producto** — Los tres informes de pánico reales son anteriores a CODE-01 y no permiten identificar el… (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Hecho lo que proponen PROD-14, PROD-15, PROD-16, PROD-17, PROD-18, PROD-19.
-  - [ ] `PROD-14` (Propuesta) Los tres informes de pánico reales son anteriores a CODE-01 y no permiten identificar el origen (3 pánicos seguidos en `tokio-rt-worker`)
+  - [x] `PROD-14` (Propuesta) Los tres informes de pánico reales son anteriores a CODE-01 y no permiten identificar el origen (3 pánicos seguidos en `tokio-rt-worker`) — hecho el 2026-10-08
   - [ ] `PROD-15` (Propuesta) Mostrar el controlador y el usuario en la confirmación nativa de la conexión remota
   - [ ] `PROD-16` (Propuesta) Cancelación de entrega ODBC solo entre filas/lotes
   - [ ] `PROD-17` (Propuesta) Exportar CSV compatible con Excel en configuración regional española

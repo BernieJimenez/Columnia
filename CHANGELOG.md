@@ -12,6 +12,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Añadido
 
+- Si Columnia tuvo un fallo interno desde la sesión anterior, Cargar lo avisa
+  una vez con cuántos informes de fallo se guardaron y dónde están (carpeta de
+  datos, crash-reports); los informes no incluyen datos y nombran la biblioteca
+  y el archivo donde ocurrió (PROD-14).
 - Revisar avisa cuando una columna usa coma decimal (1,5 o 1.234,56) y explica
   cómo volver a cargarla como número con la convención «Decimal coma · miles
   punto».

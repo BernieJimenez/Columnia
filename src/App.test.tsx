@@ -839,7 +839,7 @@ describe("App", () => {
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
       name: "Columnia", version: "0.26.0", platform: "windows",
     });
-    const status = vi.spyOn(bridge, "getSessionStatus").mockResolvedValue({ previousExitUnclean: true, setAsideCatalogs: [] });
+    const status = vi.spyOn(bridge, "getSessionStatus").mockResolvedValue({ previousExitUnclean: true, setAsideCatalogs: [], recentCrashReports: 0 });
 
     const { unmount } = render(<App />);
     const notice = await screen.findByRole("region", { name: "La sesión anterior se cerró de forma inesperada" });
@@ -850,7 +850,7 @@ describe("App", () => {
     expect(screen.queryByRole("region", { name: "La sesión anterior se cerró de forma inesperada" })).not.toBeInTheDocument();
     unmount();
 
-    status.mockResolvedValue({ previousExitUnclean: false, setAsideCatalogs: [] });
+    status.mockResolvedValue({ previousExitUnclean: false, setAsideCatalogs: [], recentCrashReports: 0 });
     render(<App />);
     await screen.findByRole("button", { name: "Seleccionar dataset" });
     await waitFor(() => expect(status).toHaveBeenCalledTimes(2));
@@ -862,7 +862,7 @@ describe("App", () => {
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
       name: "Columnia", version: "0.26.0", platform: "windows",
     });
-    vi.spyOn(bridge, "getSessionStatus").mockResolvedValue({ previousExitUnclean: true, setAsideCatalogs: [] });
+    vi.spyOn(bridge, "getSessionStatus").mockResolvedValue({ previousExitUnclean: true, setAsideCatalogs: [], recentCrashReports: 0 });
     const saved = (id: string, name: string, updatedAt: string) => ({
       id, name, datasetFileName: "ventas.csv", rowCount: 1, columnCount: 1,
       createdAt: "2026-09-20T09:00:00Z", updatedAt,

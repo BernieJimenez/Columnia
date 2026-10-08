@@ -3,6 +3,8 @@ export interface SessionStatus {
   previousExitUnclean: boolean;
   /** ARQ-02: catalogs that could not be opened and were moved to these paths. */
   setAsideCatalogs: string[];
+  /** PROD-14: failure reports written since the previous session started. */
+  recentCrashReports: number;
 }
 
 export interface AppInfo {

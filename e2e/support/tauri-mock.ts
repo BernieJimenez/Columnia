@@ -131,7 +131,7 @@ export async function installTauriMock(page: Page, options: TauriMockOptions): P
         case "set_unsaved_work":
           return null;
         case "get_app_info": return fixture.appInfo;
-        case "get_session_status": return { previousExitUnclean: false, setAsideCatalogs: [] };
+        case "get_session_status": return { previousExitUnclean: false, setAsideCatalogs: [], recentCrashReports: 0 };
         case "list_sample_datasets":
         case "list_delivery_presets":
           return [];

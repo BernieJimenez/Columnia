@@ -187,6 +187,7 @@ export function App() {
   const [activePhase, setActivePhase] = useState<WorkflowPhase>("load");
   const [encodingConversionPending, setEncodingConversionPending] = useState(false);
   const [previousExitUnclean, setPreviousExitUnclean] = useState(false);
+  const [recentCrashReports, setRecentCrashReports] = useState(0);
   const [setAsideCatalogs, setSetAsideCatalogs] = useState<string[]>([]);
   const [prepareFocusTarget, setPrepareFocusTarget] = useState<QualityActionTarget | null>(null);
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
@@ -448,6 +449,7 @@ export function App() {
         if (!active) return;
         setPreviousExitUnclean(session.previousExitUnclean);
         setSetAsideCatalogs(session.setAsideCatalogs ?? []);
+        setRecentCrashReports(session.recentCrashReports ?? 0);
       })
       .catch(() => undefined);
     return () => {
@@ -1440,6 +1442,8 @@ export function App() {
                 onDismissPreviousExit={() => setPreviousExitUnclean(false)}
                 setAsideCatalogs={setAsideCatalogs}
                 onDismissSetAsideCatalogs={() => setSetAsideCatalogs([])}
+                recentCrashReports={recentCrashReports}
+                onDismissCrashReports={() => setRecentCrashReports(0)}
                 encodingConversionPending={encodingConversionPending}
                 onProfileReviewAction={handleProfileReviewAction}
                 onResourcePreflightAction={handleResourcePreflightAction}

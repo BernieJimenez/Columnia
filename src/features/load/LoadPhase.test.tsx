@@ -452,6 +452,21 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
     expect(onDismissPreviousExit).toHaveBeenCalledOnce();
   });
 
+  it("avisa de los informes de fallo de la sesión anterior y dice dónde están (PROD-14)", () => {
+    const onDismissCrashReports = vi.fn();
+    const view = render(<LoadPhase {...loadPhaseProps({ recentCrashReports: 3, onDismissCrashReports })} />);
+    const notice = screen.getByRole("region", { name: "Columnia tuvo un fallo interno" });
+    expect(notice).toHaveTextContent("3 informes de fallo");
+    expect(notice).toHaveTextContent("crash-reports");
+    expect(notice).toHaveTextContent("no incluyen tus datos");
+    fireEvent.click(within(notice).getByRole("button", { name: "Entendido" }));
+    expect(onDismissCrashReports).toHaveBeenCalledOnce();
+    view.rerender(<LoadPhase {...loadPhaseProps({ recentCrashReports: 1 })} />);
+    expect(screen.getByRole("region", { name: "Columnia tuvo un fallo interno" })).toHaveTextContent("1 informe de fallo");
+    view.rerender(<LoadPhase {...loadPhaseProps({ recentCrashReports: 0 })} />);
+    expect(screen.queryByRole("region", { name: "Columnia tuvo un fallo interno" })).not.toBeInTheDocument();
+  });
+
   it("avisa de un catálogo apartado y dice dónde quedó (ARQ-02)", () => {
     const onDismissSetAsideCatalogs = vi.fn();
     render(<LoadPhase
