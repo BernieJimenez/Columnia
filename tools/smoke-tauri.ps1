@@ -271,6 +271,7 @@ function Stop-CreatedProcesses {
 }
 
 $AppDataGuard = $null
+$MachineBefore = $null
 New-Item -ItemType Directory -Path $EvidenceDirectory -Force | Out-Null
 
 try {
@@ -292,6 +293,8 @@ try {
         throw "Preflight falló: la aplicación debug de Columnia ya está activa."
     }
     # QA-22: the debug app opens the real catalog; it is restored afterwards.
+    # OPS-25: the registration, shortcuts and data must end as they start.
+    $MachineBefore = Get-ColumniaMachineState
     $AppDataGuard = Backup-ColumniaAppData
 
     $NpmCommand = (Get-Command npm.cmd -ErrorAction Stop).Source
@@ -409,6 +412,14 @@ finally {
     $AppDataRestored = $false
     if ($CleanupConfirmed -and $null -ne $AppDataGuard) {
         $AppDataRestored = Restore-ColumniaAppData -Guard $AppDataGuard
+    }
+    if ($AppDataRestored -and $null -ne $MachineBefore) {
+        $MachineDifferences = @(Compare-ColumniaMachineState -Before $MachineBefore -After (Get-ColumniaMachineState))
+        if ($MachineDifferences.Count -gt 0) {
+            $SmokeStatus = "failed"
+            $MachineError = "El smoke cambió la instalación real: $($MachineDifferences -join '; ')"
+            $FailureMessage = if ($FailureMessage) { "$FailureMessage $MachineError" } else { $MachineError }
+        }
     }
     $Timer.Stop()
     if (-not $CleanupConfirmed) {

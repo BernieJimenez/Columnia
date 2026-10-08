@@ -13,6 +13,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "app-data-guard.ps1")
 # OPS-24: the common evidence header (commit, tree, version, times).
 Import-Module (Join-Path $PSScriptRoot "evidence.psm1") -Force
 $EvidenceStartedAt = [DateTimeOffset]::UtcNow.ToString("o")
@@ -56,6 +57,7 @@ $TempRoot = $null
 $AppPath = $null
 $UninstallerPath = $null
 $SentinelPath = $null
+$MachineBefore = $null
 $StartedProcessIds = [System.Collections.Generic.HashSet[int]]::new()
 $SmokeStatus = "failed"
 $FailureMessage = $null
@@ -211,34 +213,6 @@ function Wait-PathState {
     return (Test-Path -LiteralPath $Path) -eq $ExpectedPresent
 }
 
-# OPS-02: the NSIS installer writes per-user keys and shortcuts that every
-# Columnia install shares; the smoke must leave them as it found them.
-$ColumniaRegistryKeys = @(
-    "HKCU:\Software\columnia",
-    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Columnia"
-)
-$ColumniaShortcuts = @(
-    (Join-Path ([Environment]::GetFolderPath("Programs")) "Columnia.lnk"),
-    (Join-Path ([Environment]::GetFolderPath("Desktop")) "Columnia.lnk")
-)
-
-function Get-ColumniaRegistrySnapshot {
-    $lines = [System.Collections.Generic.List[string]]::new()
-    foreach ($root in $ColumniaRegistryKeys) {
-        if (-not (Test-Path -LiteralPath $root)) { continue }
-        foreach ($key in @(Get-Item -LiteralPath $root) + @(Get-ChildItem -LiteralPath $root -Recurse)) {
-            $lines.Add($key.Name)
-            foreach ($valueName in $key.GetValueNames()) {
-                $lines.Add("$($key.Name)\[$valueName]=$($key.GetValue($valueName))")
-            }
-        }
-    }
-    foreach ($shortcut in $ColumniaShortcuts) {
-        if (Test-Path -LiteralPath $shortcut) { $lines.Add("shortcut:$shortcut") }
-    }
-    return $lines.ToArray()
-}
-
 # Removes what this scenario's install left behind: keys whose values point
 # inside the scenario folder, and shortcuts that did not exist before.
 function Remove-ScenarioRegistration {
@@ -299,6 +273,9 @@ try {
         }
     }
 
+    # OPS-25: an installed Columnia that is running would see its keys and data change.
+    Assert-NoInstalledColumniaRunning
+    $MachineBefore = Get-ColumniaMachineState
     $RegistryBefore = @(Get-ColumniaRegistrySnapshot)
     $RegistryCaptured = $true
     if (Test-Path -LiteralPath $ColumniaRegistryKeys[1]) {
@@ -441,6 +418,14 @@ finally {
         }
         catch {
             $scenarioStillExists = $true
+        }
+    }
+    # OPS-25: the person's registry, shortcuts and data end as they started.
+    if ($MachineBefore) {
+        $MachineDifferences = @(Compare-ColumniaMachineState -Before $MachineBefore -After (Get-ColumniaMachineState))
+        if ($MachineDifferences.Count -gt 0) {
+            $SmokeStatus = "failed"
+            $FailureMessage = "$FailureMessage El smoke cambió la instalación real: $($MachineDifferences -join '; ')".Trim()
         }
     }
     if (-not $CleanupConfirmed) {

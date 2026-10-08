@@ -68,3 +68,23 @@ test("una ejecución sin restaurar bloquea la siguiente copia (OPS-06)", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("compara la máquina al terminar: un cambio en APPDATA aunque mida lo mismo (OPS-25)", () => {
+  const root = scratch();
+  try {
+    const run = runGuard(root, `
+      $before = Get-ColumniaMachineState
+      $same = @(Compare-ColumniaMachineState -Before $before -After (Get-ColumniaMachineState))
+      Start-Sleep -Milliseconds 50
+      Set-Content -LiteralPath '${store(root)}' 'cambiado' -NoNewline
+      $changed = @(Compare-ColumniaMachineState -Before $before -After (Get-ColumniaMachineState))
+      [ordered]@{ same = $same.Count; changed = ($changed -join ' | ') } | ConvertTo-Json -Compress
+    `);
+    assert.ok(run.ok, run.output);
+    const result = JSON.parse(run.output.trim().split(/\r?\n/).at(-1));
+    assert.equal(result.same, 0);
+    assert.match(result.changed, /catalog\.json/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

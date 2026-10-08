@@ -1190,6 +1190,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- Los smokes de escritorio y del instalador avisan si hay una Columnia instalada
+  abierta y fallan si al terminar cambió el registro, los accesos directos o
+  algún archivo de %APPDATA%\app.columnia.desktop (ruta, tamaño y fecha), aunque
+  mida lo mismo (OPS-25).
 - Todos los summary.json de smokes, benchmarks, probes y gates llevan una
   cabecera común (tools/evidence.psm1: commit, rama, árbol con cambios, versión
   y horas), y check-performance-baseline rechaza la evidencia de otro commit o

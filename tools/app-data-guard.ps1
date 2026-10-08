@@ -102,3 +102,62 @@ function Restore-ColumniaAppData {
     Remove-Item -LiteralPath (Get-ColumniaAppDataGuardPointer) -Force -ErrorAction SilentlyContinue
     return $true
 }
+
+# OPS-02: the NSIS installer writes per-user keys and shortcuts that every
+# Columnia install shares; the smoke must leave them as it found them.
+$ColumniaRegistryKeys = @(
+    "HKCU:\Software\columnia",
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Columnia"
+)
+$ColumniaShortcuts = @(
+    (Join-Path ([Environment]::GetFolderPath("Programs")) "Columnia.lnk"),
+    (Join-Path ([Environment]::GetFolderPath("Desktop")) "Columnia.lnk")
+)
+
+function Get-ColumniaRegistrySnapshot {
+    $lines = [System.Collections.Generic.List[string]]::new()
+    foreach ($root in $ColumniaRegistryKeys) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        foreach ($key in @(Get-Item -LiteralPath $root) + @(Get-ChildItem -LiteralPath $root -Recurse)) {
+            $lines.Add($key.Name)
+            foreach ($valueName in $key.GetValueNames()) {
+                $lines.Add("$($key.Name)\[$valueName]=$($key.GetValue($valueName))")
+            }
+        }
+    }
+    foreach ($shortcut in $ColumniaShortcuts) {
+        if (Test-Path -LiteralPath $shortcut) { $lines.Add("shortcut:$shortcut") }
+    }
+    return $lines.ToArray()
+}
+
+# OPS-25: what a smoke must leave as it found it: the per-user registration,
+# the shortcuts and %APPDATA%\app.columnia.desktop (path, size and time of
+# every file, so a change of the same size is seen too).
+function Get-ColumniaMachineState {
+    $appData = Join-Path $env:APPDATA "app.columnia.desktop"
+    $files = @()
+    if (Test-Path -LiteralPath $appData -PathType Container) {
+        $files = @(Get-ChildItem -LiteralPath $appData -Recurse -File -Force | ForEach-Object {
+            "appdata:$($_.FullName.Substring($appData.Length).TrimStart('\'))|$($_.Length)|$($_.LastWriteTimeUtc.Ticks)"
+        })
+    }
+    return [pscustomobject]@{
+        Lines = @(Get-ColumniaRegistrySnapshot) + $files
+    }
+}
+
+function Compare-ColumniaMachineState {
+    param([object]$Before, [object]$After)
+    @($After.Lines | Where-Object { $Before.Lines -notcontains $_ } | ForEach-Object { "+ $_" }) +
+        @($Before.Lines | Where-Object { $After.Lines -notcontains $_ } | ForEach-Object { "- $_" })
+}
+
+function Assert-NoInstalledColumniaRunning {
+    $running = @(Get-Process -Name "columnia" -ErrorAction SilentlyContinue | Where-Object {
+        $_.Path -and $_.Path -notlike "*\src-tauri\target\*"
+    })
+    if ($running.Count -gt 0) {
+        throw "Columnia está abierta ($($running[0].Path)); ciérrala antes del smoke."
+    }
+}

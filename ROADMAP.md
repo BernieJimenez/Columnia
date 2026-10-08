@@ -610,11 +610,11 @@ medio = 1 día; agregado por suma.
 - [x] **RV117** — **QA y testing** — Quitar los números fijos del inventario IPC y comprobarlo contra TypeScript · *Esfuerzo: 2 h* — hecho el 2026-10-08
   - Criterio de cierre: Hecho lo que proponen QA-62.
   - [x] `QA-62` (Propuesta) Quitar los números fijos del inventario IPC y comprobarlo contra TypeScript — hecho el 2026-10-08
-- [ ] **RV118** — **DevOps y gates** — `.gitignore` sin secretos típicos ni `.gitattributes` (y 2 problemas más) · *Esfuerzo: 6 h*
+- [x] **RV118** — **DevOps y gates** — `.gitignore` sin secretos típicos ni `.gitattributes` (y 2 problemas más) · *Esfuerzo: 6 h* — hecho el 2026-10-08
   - Criterio de cierre: Hecho lo que proponen OPS-23, OPS-24, OPS-25.
   - [x] `OPS-23` (Propuesta) `.gitignore` sin secretos típicos ni `.gitattributes` — hecho el 2026-10-08
   - [x] `OPS-24` (Propuesta) Un único contenedor de «evidencia» con commit, versión y árbol — hecho el 2026-10-08
-  - [ ] `OPS-25` (Propuesta) Salvaguarda de la instalación real antes de los smokes que tocan HKCU/APPDATA
+  - [x] `OPS-25` (Propuesta) Salvaguarda de la instalación real antes de los smokes que tocan HKCU/APPDATA — hecho el 2026-10-08
 - [ ] **RV119** — **Documentación** — Guía de uso, solución de problemas, respaldo y restauración (y 2 problemas más) · *Esfuerzo: 6 h*
   - Criterio de cierre: Hecho lo que proponen DOC-19, DOC-20, DOC-21.
   - [ ] `DOC-19` (Propuesta) Guía de uso, solución de problemas, respaldo y restauración
