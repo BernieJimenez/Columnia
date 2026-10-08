@@ -555,10 +555,10 @@ medio = 1 día; agregado por suma.
 
 ### Tier 4 — Futuro u opcional
 
-- [ ] **RV106** — **Datos y persistencia** — Migración del catálogo sin copia de seguridad previa del `projects.sqlite3` (y 1 problemas más) · *Esfuerzo: 4 h*
+- [x] **RV106** — **Datos y persistencia** — Migración del catálogo sin copia de seguridad previa del `projects.sqlite3` (y 1 problemas más) · *Esfuerzo: 4 h* — hecho el 2026-10-07
   - Criterio de cierre: Hecho lo que proponen DAT-21, DAT-22.
-  - [ ] `DAT-21` (Propuesta) Migración del catálogo sin copia de seguridad previa del `projects.sqlite3`
-  - [ ] `DAT-22` (Propuesta) Unificar nombres únicos entre catálogos
+  - [x] `DAT-21` (Propuesta) Migración del catálogo sin copia de seguridad previa del `projects.sqlite3` — hecho el 2026-10-07
+  - [x] `DAT-22` (Propuesta) Unificar nombres únicos entre catálogos — hecho el 2026-10-07
 - [ ] **RV107** — **Seguridad** — Confirmar que un preset con `table_policy = replace` no se aplica sin confirmación · *Esfuerzo: 2 h*
   - Criterio de cierre: Hecho lo que proponen SEG-13.
   - [ ] `SEG-13` (Propuesta) Confirmar que un preset con `table_policy = replace` no se aplica sin confirmación

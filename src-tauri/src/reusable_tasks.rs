@@ -218,6 +218,17 @@ impl TaskStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| storage_error())?;
         let now = now_utc();
+        // DAT-22: names are unique without regard to case, as for presets.
+        let taken: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM reusable_tasks WHERE name = ?1 COLLATE NOCASE AND id <> ?2",
+                params![task.name, task_id.as_deref().unwrap_or("")],
+                |row| row.get(0),
+            )
+            .map_err(|_| storage_error())?;
+        if taken > 0 {
+            return Err("Ya existe una tarea con ese nombre.".to_owned());
+        }
         let (id, created_at) = if let Some(id) = task_id {
             validate_task_id(&id)?;
             let created_at = transaction
@@ -604,6 +615,29 @@ mod tests {
         with_path["importProfile"]["sourcePath"] = json!("C:/private/input.csv");
         assert!(serde_json::from_value::<ReusableTask>(with_path).is_err());
         assert!(validate_reusable_task(task()).is_ok());
+    }
+
+    #[test]
+    fn two_tasks_cannot_share_a_name_whatever_its_case() {
+        // DAT-22: the same rule as delivery presets (`COLLATE NOCASE UNIQUE`).
+        let directory = tempfile::tempdir().unwrap();
+        let store = TaskStore::initialize(directory.path().join("data")).unwrap();
+        let first = store.save(None, task()).unwrap();
+        let mut same = task();
+        same.name = "CIERRE MENSUAL".to_owned();
+        let error = store.save(None, same.clone()).unwrap_err();
+        assert_eq!(error, "Ya existe una tarea con ese nombre.");
+        // Saving the task under its own name, in another case, is fine.
+        store.save(Some(first.id.clone()), same).unwrap();
+        let mut other = task();
+        other.name = "Cierre semanal".to_owned();
+        let second = store.save(None, other).unwrap();
+        let mut rename = task();
+        rename.name = "cierre mensual".to_owned();
+        assert_eq!(
+            store.save(Some(second.id), rename).unwrap_err(),
+            "Ya existe una tarea con ese nombre."
+        );
     }
 
     #[test]

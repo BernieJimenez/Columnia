@@ -211,7 +211,7 @@ impl DeliveryPresetStore {
                      WHERE id = ?4",
                     params![preset.name, encoded, now, id],
                 )
-                .map_err(|_| "Ya existe un preset con ese nombre.".to_owned())?;
+                .map_err(preset_write_error)?;
             id
         } else {
             let count: i64 = transaction
@@ -231,7 +231,7 @@ impl DeliveryPresetStore {
                      VALUES (?1, ?2, ?3, ?4)",
                     params![id, preset.name, encoded, now],
                 )
-                .map_err(|_| "Ya existe un preset con ese nombre.".to_owned())?;
+                .map_err(preset_write_error)?;
             id
         };
         transaction.commit().map_err(|_| storage_error())?;
@@ -423,6 +423,19 @@ fn storage_error() -> String {
     "No se pudo acceder al catálogo local de presets de entrega.".to_owned()
 }
 
+/// DAT-22: only the unique name constraint is a duplicate; a full disk or a
+/// locked catalog is a storage failure.
+fn preset_write_error(error: rusqlite::Error) -> String {
+    match error {
+        rusqlite::Error::SqliteFailure(failure, _)
+            if failure.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
+        {
+            "Ya existe un preset con ese nombre.".to_owned()
+        }
+        _ => storage_error(),
+    }
+}
+
 fn ensure_preset_catalog_not_cancelled(is_cancelled: &impl Fn() -> bool) -> Result<(), String> {
     if is_cancelled() {
         Err(OPERATION_CANCELLED_MESSAGE.to_owned())
@@ -480,6 +493,25 @@ pub async fn delete_delivery_preset(app: AppHandle, preset_id: String) -> Result
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_write_failure_is_not_reported_as_a_duplicate_name() {
+        // DAT-22: every UPDATE/INSERT error used to read «Ya existe un preset
+        // con ese nombre», also a full disk.
+        let duplicate = rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE),
+            None,
+        );
+        assert_eq!(
+            preset_write_error(duplicate),
+            "Ya existe un preset con ese nombre."
+        );
+        let full = rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
+            None,
+        );
+        assert_eq!(preset_write_error(full), storage_error());
+    }
+
     use super::*;
     use serde_json::json;
     use tempfile::tempdir;

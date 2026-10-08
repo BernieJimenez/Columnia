@@ -207,6 +207,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Catálogos locales: antes de actualizar el catálogo de proyectos a un esquema
+  nuevo, Columnia guarda una copia (projects.sqlite3.v<N>.bak) que la versión
+  anterior puede abrir; dos tareas reutilizables ya no pueden llamarse igual
+  (sin distinguir mayúsculas), como ya pasaba con los presets, y un fallo al
+  guardar un preset ya no se presenta como nombre duplicado.
 - Galería del README regenerada con la app real y datos sintéticos (2026-10-07):
   Cargar, Revisar, Preparar, Explorar y Entregar tienen captura nueva y el GIF
   recorre las cinco etapas; las plantillas Beta ya no miden un «Gate 2» activo

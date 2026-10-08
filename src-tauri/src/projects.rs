@@ -321,6 +321,7 @@ impl ProjectStore {
             ensure_project_operation_not_cancelled(is_cancelled())?;
             return Ok(());
         }
+        self.back_up_before_migrating()?;
         self.migrate()?;
         ensure_project_operation_not_cancelled(is_cancelled())?;
         self.reconcile_orphan_generations_with_cancel(&is_cancelled)?;
@@ -402,6 +403,31 @@ impl ProjectStore {
             )
             .map_err(|_| storage_error())?;
         Ok(connection)
+    }
+
+    /// DAT-21: a migrated catalog no longer opens in the version that wrote it,
+    /// so the catalog as it was is copied once before the first step.
+    fn back_up_before_migrating(&self) -> Result<(), String> {
+        let connection = self.connection()?;
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(|_| storage_error())?;
+        if version <= 0 || version >= SCHEMA_VERSION {
+            return Ok(());
+        }
+        let backup = self
+            .catalog
+            .with_file_name(format!("projects.sqlite3.v{version}.bak"));
+        if backup.exists() {
+            return Ok(());
+        }
+        connection
+            .execute("VACUUM INTO ?1", [backup.to_string_lossy().as_ref()])
+            .map(|_| ())
+            .map_err(|_| {
+                "No se pudo copiar el catálogo de proyectos antes de actualizarlo; no se modificó."
+                    .to_owned()
+            })
     }
 
     fn migrate(&self) -> Result<(), String> {
@@ -3293,8 +3319,27 @@ mod tests {
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
+        // DAT-21: the catalog as the earlier version left it, before migrating.
+        let backup = root.join("projects.sqlite3.v1.bak");
+        let old: i64 = Connection::open(&backup)
+            .expect("la copia previa se abre")
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(old, 1);
+        let legacy_name: String = Connection::open(&backup)
+            .unwrap()
+            .query_row("SELECT name FROM projects", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(legacy_name, "Legado");
         drop(store);
-        ProjectStore::initialize(root).expect("reabrir v8 debe ser idempotente");
+        ProjectStore::initialize(root.clone()).expect("reabrir v8 debe ser idempotente");
+        // Only one copy, made by the migration itself.
+        let backups = fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".bak"))
+            .count();
+        assert_eq!(backups, 1);
     }
 
     #[test]
