@@ -12,7 +12,7 @@
 | Alias anónimo de participante | participante-___ |
 | Commit probado | ___ |
 | Versión de Columnia | ___ |
-| Ronda de medición | Gate 1 · baseline V1 / Gate 2 · shell de espacios |
+| Ronda de medición | Gate 1 · baseline V1 |
 | Release candidate | rc-___ |
 | Windows / arquitectura | ___ |
 | Experiencia con datos | inicial / intermedia / avanzada |

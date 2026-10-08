@@ -550,8 +550,8 @@ medio = 1 día; agregado por suma.
   - [x] `DOC-16` (Bajo) Guías de beta, NVDA y release: referencias a niveles retirados, flujo sin «Explorar» y 0.95.0 otra vez — hecho el 2026-10-07
 - [ ] **RV105** — **Documentación** — Galería del README fechada antes de los rediseños y de Explorar; plantillas beta con «Gat… (y 1 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de DOC-17, LEG-01.
-  - [ ] `DOC-17` (Bajo) Galería del README fechada antes de los rediseños y de Explorar; plantillas beta con «Gate 2 · shell de espacios»
-  - [ ] `LEG-01` (Bajo) THIRD_PARTY_NOTICES no incluye textos de licencia ni titulares de copyright; mezcla dependencias de otras plataformas y de desarrollo
+  - [x] `DOC-17` (Bajo) Galería del README fechada antes de los rediseños y de Explorar; plantillas beta con «Gate 2 · shell de espacios» — hecho el 2026-10-07
+  - [ ] `LEG-01` (Bajo) THIRD_PARTY_NOTICES no incluye textos de licencia ni titulares de copyright; mezcla dependencias de otras plataformas y de desarrollo — Requiere tu decisión: los textos completos de licencia y copyright solo hacen falta si se distribuyen binarios (aparcado) y conviene que los revise un profesional; el SBOM ya distingue lo que lleva el instalador (LIM-14)
 
 ### Tier 4 — Futuro u opcional
 

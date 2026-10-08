@@ -12,7 +12,7 @@
 
 > **Estado:** aplicación local de uso personal, con compilación y pruebas automatizadas verificadas en Windows x64. La beta con participantes, la prueba con lector de pantalla y la distribución están aparcadas (ver [`ROADMAP.md`](ROADMAP.md)). macOS/Linux no están validados. El [repositorio](https://github.com/BernieJimenez/Columnia) publica solo el código fuente: no hay instaladores oficiales ni updater.
 
-![Recorrido por Cargar, Revisar, Preparar y Entregar en Columnia; la animación no incluye Explorar](docs/images/gallery/00-recorrido.gif)
+![Recorrido por Cargar, Revisar, Preparar, Explorar y Entregar en Columnia](docs/images/gallery/00-recorrido.gif)
 
 ## Qué hace Columnia
 
@@ -27,11 +27,11 @@
 
 Columnia sigue cinco etapas: Cargar, Revisar, Preparar, Explorar y Entregar.
 
-### 1. Cargar y guardar el proyecto
+### 1. Cargar
 
-Selecciona un dataset, revisa su tamaño y conserva el espacio de trabajo localmente.
+Selecciona un dataset y comprueba cómo se leen sus columnas antes de abrirlo; el espacio de trabajo se puede guardar como proyecto local.
 
-![Proyecto local guardado en la etapa Cargar](docs/images/gallery/01-cargar.png)
+![Revisión de encabezados de un CSV en la etapa Cargar](docs/images/gallery/01-cargar.png)
 
 ### 2. Revisar la calidad
 
@@ -48,6 +48,8 @@ Aplica correcciones agrupadas y usa el historial para deshacer o rehacer cambios
 ### 4. Explorar
 
 Mira los datos ya preparados en un panel con indicadores, barras, histograma y tendencia; cada gráfico filtra a los demás.
+
+![Panel de la etapa Explorar con indicadores, barras e histograma](docs/images/gallery/04-explorar.png)
 
 ### 5. Validar y entregar
 

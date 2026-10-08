@@ -26,7 +26,7 @@ cómo la usas con tus propios archivos, sin que yo te explique nada.
 **Tu privacidad:**
 
 - Todo ocurre en tu equipo. Columnia no envía datos a internet ni tiene cuentas.
-- Tu archivo original no se modifica; se trabaja sobre una copia.
+- Tu archivo original no se modifica: Columnia lo lee y lo que entregas es un archivo nuevo.
 - No grabo tu pantalla ni me quedo con tus archivos, filas, rutas o nombres de
   columnas. Solo anoto tiempos, dónde dudaste y qué te pareció, con un alias.
 

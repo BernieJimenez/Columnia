@@ -33,7 +33,6 @@ function makeSession(index, datasetAliases = [`dataset-0${(index % 3) + 1}`, `da
     ["| Alias anónimo de participante | participante-___ |", `| Alias anónimo de participante | participante-0${index + 1} |`],
     ["| Commit probado | ___ |", `| Commit probado | ${commit} |`],
     ["| Versión de Columnia | ___ |", `| Versión de Columnia | ${version} |`],
-    ["| Ronda de medición | Gate 1 · baseline V1 / Gate 2 · shell de espacios |", "| Ronda de medición | Gate 1 · baseline V1 |"],
     ["| Release candidate | rc-___ |", `| Release candidate | ${candidateId} |`],
     ["| Windows / arquitectura | ___ |", "| Windows / arquitectura | Windows 11 / x64 |"],
     ["| Experiencia con datos | inicial / intermedia / avanzada |", "| Experiencia con datos | intermedia |"],
@@ -96,7 +95,6 @@ function addP2Finding(markdown) {
 function makeSummary() {
   let markdown = summaryTemplate;
   for (const [before, after] of [
-    ["| Gate | Gate 1 · baseline V1 / Gate 2 · shell de espacios |", "| Gate | Gate 1 · baseline V1 |"],
     ["| Release candidate | rc-___ |", `| Release candidate | ${candidateId} |`],
     ["| Commit probado | ___ |", `| Commit probado | ${commit} |`],
     ["| Versión de Columnia | ___ |", `| Versión de Columnia | ${version} |`],

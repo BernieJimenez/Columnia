@@ -207,6 +207,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Galería del README regenerada con la app real y datos sintéticos (2026-10-07):
+  Cargar, Revisar, Preparar, Explorar y Entregar tienen captura nueva y el GIF
+  recorre las cinco etapas; las plantillas Beta ya no miden un «Gate 2» activo
+  ni prometen trabajar sobre una copia. Las capturas de vista previa y SQL local
+  conservan su fecha anterior.
 - Documentación al día: el README y el tutorial piden Rust 1.98.1, Node, npm y
   las Build Tools con su carga, presentan las cinco etapas (con Explorar) y
   dejan la beta como aparcada; CONTEXTO ya no cita scripts que no existen; las

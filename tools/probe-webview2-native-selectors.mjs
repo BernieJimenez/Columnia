@@ -719,6 +719,7 @@ async function readExcelCheck(page) {
   await page.getByRole("button", { name: "Continuar a Entregar" }).click();
   const format = page.getByRole("combobox", { name: "Formato de exportación" });
   await format.waitFor({ state: "visible", timeout: probeTimeoutMs });
+  await capturePhase(page, "6-entregar");
   // UX-01: Entregar starts validating with the checks the data already meets.
   const validatesByDefault = await page.getByRole("radio", { name: /Validar calidad/ }).isChecked();
   await format.selectOption("excel");
