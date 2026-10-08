@@ -3435,7 +3435,7 @@ describe("App", () => {
       format: "excel", sheets: [{ id: "0", name: "Ventas", hidden: false, mergedCellCount: 0 }], defaultSheetId: "0",
       isCompressedContainer: false, resourceEstimate: resourceEstimate(1024),
     });
-    let resolveSheets!: (value: { id: string; name: string }[]) => void;
+    let resolveSheets!: (value: { id: string; name: string; hidden: boolean; mergedCellCount: number }[]) => void;
     vi.spyOn(bridge, "inspectWorkbookSheets").mockReturnValue(new Promise((resolve) => { resolveSheets = resolve; }));
     const cancel = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
     const discard = vi.spyOn(bridge, "discardDatasetSelection").mockResolvedValue(undefined);
