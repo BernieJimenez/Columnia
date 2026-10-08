@@ -2,9 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import {
+  backtickRepositoryPaths,
   betaDocumentProblems,
   contributionPolicyProblems,
+  isLivingDocument,
   missingDocsIndexLinks,
+  missingNpmScripts,
+  readmeRustProblems,
+  retiredLabels,
+  staleVersionExamples,
   parseCargoDependencies,
   validateChangelogVersion,
   validateDependencySnapshot,
@@ -172,4 +178,35 @@ test("README, CONTRIBUTING y SECURITY dicen lo mismo sobre contribuciones (DOC-1
   assert.deepEqual(contributionPolicyProblems(documents), []);
   const welcoming = { ...documents, "README.md": "Los reportes de errores y las mejoras son bienvenidos." };
   assert.deepEqual(contributionPolicyProblems(welcoming), ["README.md"]);
+});
+
+test("el README pide la versión de Rust que fija rust-toolchain.toml (DOC-07)", () => {
+  const toolchain = '[toolchain]\nchannel = "1.98.1"\n';
+  assert.deepEqual(readmeRustProblems("Requisitos: Rust `1.98.1` (rustup).", toolchain), []);
+  assert.equal(readmeRustProblems("Requisitos: Rust estable.", toolchain).length, 1);
+});
+
+test("los documentos vivos solo citan scripts npm que existen (DOC-09)", () => {
+  assert.deepEqual(missingNpmScripts("npm run build y npm run perf:i1:check", { build: "vite build" }), ["perf:i1:check"]);
+  assert.equal(isLivingDocument("CONTEXTO.md"), true);
+  assert.equal(isLivingDocument("CHANGELOG.md"), false);
+  assert.equal(isLivingDocument("docs/archive/2026-09/ROADMAP.md"), false);
+});
+
+test("las rutas entre backticks se pueden comprobar (DOC-12)", () => {
+  assert.deepEqual(
+    backtickRepositoryPaths("ver `docs/reference/cli.md`, `tools/<script>.mjs` y `docs/archive/2026-09/x.md`"),
+    ["docs/reference/cli.md", "docs/archive/2026-09/x.md"],
+  );
+  assert.deepEqual(backtickRepositoryPaths("copia a `docs/reference/beta-v1-summary.md`"), []);
+});
+
+test("las guías no usan otra versión como ejemplo (DOC-15)", () => {
+  const guide = "--expected-version 0.95.0 y https://x/columnia/1.26.0/ y Columnia_<versión>_x64";
+  assert.deepEqual(staleVersionExamples(guide, "1.26.0"), ["0.95.0"]);
+  assert.deepEqual(staleVersionExamples("--expected-version <versión>", "1.26.0"), []);
+});
+
+test("Tier y Gate 2 solo aparecen en bloques archivados (DOC-16)", () => {
+  assert.deepEqual(retiredLabels("## Uso\n\nTier 8 se cierra.\n\n## Gate 2 (archivado)\n\nGate 2 y Tier 5.\n"), ["Tier 8"]);
 });

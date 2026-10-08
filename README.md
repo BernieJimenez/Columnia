@@ -10,9 +10,9 @@
   [![Licencia MIT](https://img.shields.io/badge/licencia-MIT-f2c94c?style=flat-square)](LICENSE)
 </div>
 
-> **Estado:** prototipo local con compilación y pruebas automatizadas verificadas en Windows x64. Es una aplicación de uso personal: la beta con participantes, la prueba con lector de pantalla y la distribución están aparcadas (ver [`ROADMAP.md`](ROADMAP.md)). macOS/Linux no están validados. La publicación actual contiene código fuente, no instaladores oficiales ni updater.
+> **Estado:** aplicación local de uso personal, con compilación y pruebas automatizadas verificadas en Windows x64. La beta con participantes, la prueba con lector de pantalla y la distribución están aparcadas (ver [`ROADMAP.md`](ROADMAP.md)). macOS/Linux no están validados. El [repositorio](https://github.com/BernieJimenez/Columnia) publica solo el código fuente: no hay instaladores oficiales ni updater.
 
-![Recorrido por Cargar, Revisar, Preparar y Entregar en Columnia](docs/images/gallery/00-recorrido.gif)
+![Recorrido por Cargar, Revisar, Preparar y Entregar en Columnia; la animación no incluye Explorar](docs/images/gallery/00-recorrido.gif)
 
 ## Qué hace Columnia
 
@@ -24,6 +24,8 @@
 - Guarda proyectos locales para continuar el trabajo después.
 
 ## Recorrido visual
+
+Columnia sigue cinco etapas: Cargar, Revisar, Preparar, Explorar y Entregar.
 
 ### 1. Cargar y guardar el proyecto
 
@@ -43,7 +45,11 @@ Aplica correcciones agrupadas y usa el historial para deshacer o rehacer cambios
 
 ![Correcciones reversibles y su historial en la etapa Preparar](docs/images/gallery/03-preparar.png)
 
-### 4. Validar y entregar
+### 4. Explorar
+
+Mira los datos ya preparados en un panel con indicadores, barras, histograma y tendencia; cada gráfico filtra a los demás.
+
+### 5. Validar y entregar
 
 Define reglas de aceptación, comprueba el contrato y exporta una copia; el original no se modifica.
 
@@ -67,7 +73,7 @@ Consulta el [modelo de amenazas](THREAT_MODEL.md), la [privacidad de red](docs/r
 
 ## Ejecutar desde el código fuente
 
-Requisitos: Node.js `>=24.14.0 <25`, npm `>=11.10.1 <12`, Rust estable y las dependencias de Tauri para Windows.
+Requisitos: Node.js `>=24.14.0 <25`, npm `>=11.10.1 <12`, Rust `1.98.1` (lo instala `rustup` al leer `rust-toolchain.toml`), las Build Tools de Visual Studio 2022 con la carga «Desarrollo para el escritorio con C++» y WebView2 (ya incluido en Windows 11).
 
 ```bash
 npm install
@@ -86,13 +92,14 @@ npm run legal:check
 ## Documentación
 
 - [Primer dataset: tutorial paso a paso](docs/tutorials/first-dataset.md)
-- [Ejecutar una sesión beta con datos reales](docs/how-to/run-beta-validation.md)
 - [Documentación completa](docs/README.md)
 - [Sistema de diseño y contrato de interfaz](DESIGN.md)
 - [Alcance de V1](docs/reference/v1-scope.md)
 - [Arquitectura local-first](docs/explanation/local-first-architecture.md)
 - [Referencia de la CLI](docs/reference/cli.md)
 - [Decisión legal de publicación](docs/reference/legal-distribution-review.md)
+
+Aparcado (uso personal): [guía de la sesión beta con participantes](docs/how-to/run-beta-validation.md).
 
 ## Contribuir
 

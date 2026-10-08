@@ -7,7 +7,8 @@ ni los hashes visuales aprobados.
 ## Requisitos previos
 
 - Windows x64, WebView2 y las Build Tools de Visual Studio.
-- Node.js LTS, Rust estable y dependencias instaladas con `npm install`.
+- Node.js `>=24.14.0 <25`, npm `>=11.10.1 <12`, Rust `1.98.1` (según
+  `rust-toolchain.toml`) y las dependencias instaladas con `npm install`.
 - Una estación interactiva de Windows. La captura abre procesos locales y usa
   CDP solo en loopback.
 
@@ -140,7 +141,7 @@ servirán los assets:
 
 ```powershell
 $env:COLUMNIA_UPDATER_ENDPOINT = "https://updates.example/columnia.json"
-$env:COLUMNIA_UPDATER_ASSET_BASE_URL = "https://downloads.example/columnia/0.95.0/"
+$env:COLUMNIA_UPDATER_ASSET_BASE_URL = "https://downloads.example/columnia/<versión>/"
 $env:TAURI_SIGNING_PRIVATE_KEY = "C:\ruta-privada\columnia-updater.key"
 $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
 npm run release:updater:dry-run

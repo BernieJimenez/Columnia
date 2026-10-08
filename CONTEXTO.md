@@ -122,7 +122,6 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/check-documentation.mjs` | Valida el mapa Diátaxis, ADR/CHANGELOG, enlaces locales, UTF-8 sin BOM, coherencia de versiones y ownership de imágenes. |
 | `tools/benchmark-datasets.ps1` | Genera un CSV sintético cercano al objetivo indicado, mide iteraciones sostenidas de transform CSV/Parquet, actualiza el mismo proyecto el número indicado de veces y verifica reapertura/exportación durable; conserva solo tiempos, conteos, estados y cleanup sin datos después de borrar el almacén temporal. |
 | `tools/benchmark-webview2-dataset.ps1` | Genera un CSV temporal cercano a 100 MiB, lo entrega al selector Win32 del probe y exige dentro de WebView2 carga, paginación, transformación, exportación, memoria agregada y cleanup; elimina el dataset al terminar y publica solo evidencia sanitizada. |
-| `tools/benchmark-datasets.ps1` / `tools/benchmark-datasets.ps1` | Benchmark cruzado de la inspección de 100 MiB contra `sistema anterior`, con selección del entorno Python, comparación de duración/working set, validación de conteos y cleanup. |
 | `tools/check-performance-baseline.ps1` | Convierte el resumen CDP, el startup desktop, el benchmark de datasets, el recorrido WebView2 de dataset grande y el reporte Package en un gate contra `fixtures/performance/performance-baseline-v1.json`, incluyendo duración máxima por operación, con evidencia sanitizada y estado explícito. |
 | `tools/verify-experience.ps1` | Ejecuta juntos `accessibility:check` y `perf:check` para verificar los contratos visual y de rendimiento después de generar evidencias. |
 | `tools/verify-tier.ps1` | Orquesta el tier reproducible completo: tests, build, accesibilidad, benchmark sostenido, Package, smokes CLI/WebView2 y gates finales; permite omitir Package o native de forma explícita. |
@@ -371,8 +370,9 @@ Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, 
   fechas, condiciones, esquema y conteo de filas;
 - tolerancias por cantidad y/o porcentaje, resultados con conteos y confirmación
   explícita para exportar sin reglas;
-- importación desde sistema anterior y guardado como `columnia-quality-rules` v1, con
-  diálogos nativos y rutas privadas en Rust.
+- importación de reglas en el formato del nombre anterior del proyecto (retirado en
+  0.114.0) y guardado como `columnia-quality-rules` v1, con diálogos nativos y rutas
+  privadas en Rust.
 
 ## Invariantes de seguridad y privacidad
 
@@ -428,8 +428,6 @@ npm run updater:key:check
 npm run updater:verify-published -- --manifest-url <https-url> --output-dir <evidence-dir> --target windows-x86_64 --expected-version <version>
 npm run perf:summary
 npm run perf:benchmark
-npm run perf:i1
-npm run perf:i1:check
 npm run accessibility:visual
 npm run accessibility:check
 npm run docs:check

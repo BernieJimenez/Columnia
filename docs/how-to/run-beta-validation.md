@@ -35,8 +35,8 @@ y commit.
    Get-ChildItem .local\beta\rc-*\beta-*\session.md
    ```
 
-   No renombres la RC ni reutilices sus carpetas para otro commit. Gate 2 solo se
-   puede preparar después de publicar y revisar el resumen Gate 1. Comprueba sus
+   No renombres la RC ni reutilices sus carpetas para otro commit. La segunda ronda
+   (archivada) solo se puede preparar después de publicar y revisar el resumen Gate 1. Comprueba sus
    prerrequisitos con `npm run beta:check-gate1`; valida el resumen, el manifiesto,
    la evidencia `Full` y los tres formularios locales. Después prepara la nueva RC
    con `npm run beta:prepare -- -Gate Gate2`. Si falta evidencia o no coincide, el
@@ -178,7 +178,7 @@ La beta queda aceptada cuando se cumplen todos estos puntos:
 - tres sesiones válidas, tres participantes distintos y el mismo release
   candidate;
 - dos casos reales por sesión y al menos tres datasets reales distintos en total;
-- todas las personas completan Cargar → Revisar → Preparar → Entregar;
+- todas las personas completan Cargar → Revisar → Preparar → Explorar → Entregar;
 - al menos 24 de las 30 tareas agregadas se completan sin ayuda;
 - no quedan hallazgos P0 o P1 abiertos;
 - guardado/reapertura y verificación independiente de la entrega pasan en todas
@@ -199,13 +199,13 @@ npm run beta:check-summary
 El comando rechaza conteos que no coinciden, candidatos o commits mezclados,
 hallazgos P0/P1 y datos sensibles como alias de participantes, alias de datasets,
 correos, rutas o credenciales. Los reportes de sesión permanecen en
-`.local/beta/`; solo el resumen sanitizado se versiona. Tier 8 no se marca cerrado
-en `ROADMAP.md` hasta que ese archivo exista y todos los criterios anteriores
-estén aprobados.
+`.local/beta/`; solo el resumen sanitizado se versiona. La beta no se da por cerrada
+hasta que ese archivo exista y todos los criterios anteriores estén aprobados.
 
-## Gate 2: validar el shell de espacios
+## Gate 2: validar el shell de espacios (archivado)
 
-Después de cerrar Tier 8 y añadir el shell, ejecuta una segunda ronda enfocada
+Esta segunda ronda pertenece al plan anterior, hoy aparcado. Después de cerrar la
+primera ronda y añadir el shell, ejecuta una segunda ronda enfocada
 sobre otro release candidate estable. Usa la misma definición de tareas y
 métricas para comparar contra Gate 1. La consolidación de Analizar se acepta
 cuando:

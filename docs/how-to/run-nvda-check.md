@@ -1,8 +1,8 @@
 # Cómo probar Columnia con NVDA
 
 Este recorrido cubre la aceptación nativa de accesibilidad (RV09): completar
-Cargar → Revisar → Preparar → Entregar solo con teclado y un lector de pantalla
-real. Lleva unos 30 minutos. Anota los resultados en la tabla del
+Cargar → Revisar → Preparar → Explorar → Entregar, y guardar y reabrir el
+proyecto, solo con teclado y un lector de pantalla real. Lleva unos 40 minutos. Anota los resultados en la tabla del
 [checklist manual de accesibilidad](../../ACCESSIBILITY_MANUAL_CHECKLIST.md).
 
 ## Preparación (5 minutos)
@@ -61,7 +61,20 @@ puede completar sin ratón y el anuncio permite entender qué ocurre.
       aplicados»).
 - [ ] «Deshacer» funciona con teclado y se anuncia.
 
-### 4. Entregar
+### 4. Explorar
+
+- [ ] Se anuncia el cambio de etapa y el encabezado «Explora los datos limpios».
+- [ ] Cada gráfico de barras es una región con nombre («Filas por …») y sus
+      barras se anuncian como botones con su valor y su número de filas.
+- [ ] Activar una barra anuncia que está pulsada y los demás gráficos se
+      actualizan; aparece «Quitar filtro …» y se alcanza con `Tab`.
+- [ ] «Ver todos los valores de …» amplía el gráfico y se anuncia como
+      «Ver menos» después.
+- [ ] «Personalizar» se abre y se cierra con teclado y sus listas se leen con
+      su etiqueta.
+- [ ] «Quitar filtros» deja el panel como al entrar.
+
+### 5. Entregar
 
 - [ ] «Validar calidad» y «Exportar sin validar» se anuncian como botones de
       opción de un mismo grupo.
@@ -72,6 +85,14 @@ puede completar sin ratón y el anuncio permite entender qué ocurre.
       su campo.
 - [ ] La exportación termina con el selector de Windows y se anuncia el
       resultado.
+
+### 6. Proyectos
+
+- [ ] «Guardar y administrar proyectos» se anuncia como contraído y se expande
+      con `Enter`.
+- [ ] «Guardar proyecto nuevo» guarda y se anuncia el resultado.
+- [ ] Tras cargar otro archivo, «Abrir» en la lista de proyectos recupera el
+      guardado y se anuncia la etapa en la que estaba.
 
 ## Después
 

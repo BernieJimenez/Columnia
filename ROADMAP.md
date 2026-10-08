@@ -540,14 +540,14 @@ medio = 1 día; agregado por suma.
   - [ ] `OPS-13` (Bajo) Ejecutables e instaladores sin firma Authenticode — Requiere tu decisión: firmar exige un certificado de firma de código (propio o de una CA) y solo tiene sentido si se distribuyen binarios, hoy aparcado
   - [x] `OPS-15` (Bajo) `src-tauri/deny.toml` ignora diez avisos que ya no corresponden a ningún crate — hecho el 2026-10-07
   - [x] `OPS-16` (Bajo) Sin `[profile.release]`: binarios de 129,5 MB / 112,9 MB sin LTO, strip ni codegen-units — hecho el 2026-10-07
-- [ ] **RV104** — **Documentación** — README: «Rust estable» frente a la versión fijada en `rust-toolchain.toml` (y 5 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV104** — **Documentación** — README: «Rust estable» frente a la versión fijada en `rust-toolchain.toml` (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-07
   - Criterio de cierre: Se cumplen los criterios de aceptación de DOC-07, DOC-08, DOC-09, DOC-12, DOC-15, DOC-16.
-  - [ ] `DOC-07` (Bajo) README: «Rust estable» frente a la versión fijada en `rust-toolchain.toml`
-  - [ ] `DOC-08` (Bajo) README: «cuatro etapas» frente a las cinco de ROADMAP; enlaza la beta que está aparcada
-  - [ ] `DOC-09` (Bajo) CONTEXTO.md cita scripts npm y herramientas que no existen o duplicadas
-  - [ ] `DOC-12` (Bajo) CHANGELOG cita un archivo que no existe en la ruta indicada
-  - [ ] `DOC-15` (Bajo) Tutorial y guía de release con requisitos vagos y ejemplos de versiones muertas
-  - [ ] `DOC-16` (Bajo) Guías de beta, NVDA y release: referencias a niveles retirados, flujo sin «Explorar» y 0.95.0 otra vez
+  - [x] `DOC-07` (Bajo) README: «Rust estable» frente a la versión fijada en `rust-toolchain.toml` — hecho el 2026-10-07
+  - [x] `DOC-08` (Bajo) README: «cuatro etapas» frente a las cinco de ROADMAP; enlaza la beta que está aparcada — hecho el 2026-10-07
+  - [x] `DOC-09` (Bajo) CONTEXTO.md cita scripts npm y herramientas que no existen o duplicadas — hecho el 2026-10-07
+  - [x] `DOC-12` (Bajo) CHANGELOG cita un archivo que no existe en la ruta indicada — hecho el 2026-10-07
+  - [x] `DOC-15` (Bajo) Tutorial y guía de release con requisitos vagos y ejemplos de versiones muertas — hecho el 2026-10-07
+  - [x] `DOC-16` (Bajo) Guías de beta, NVDA y release: referencias a niveles retirados, flujo sin «Explorar» y 0.95.0 otra vez — hecho el 2026-10-07
 - [ ] **RV105** — **Documentación** — Galería del README fechada antes de los rediseños y de Explorar; plantillas beta con «Gat… (y 1 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de DOC-17, LEG-01.
   - [ ] `DOC-17` (Bajo) Galería del README fechada antes de los rediseños y de Explorar; plantillas beta con «Gate 2 · shell de espacios»

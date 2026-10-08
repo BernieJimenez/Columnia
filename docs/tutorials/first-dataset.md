@@ -7,7 +7,10 @@ ejecución local reproducible, sin subir datos a un servidor.
 ## Qué necesitas
 
 - Windows x64 con WebView2.
-- Node.js LTS, Rust estable y las Build Tools de Visual Studio.
+- Node.js `>=24.14.0 <25` y npm `>=11.10.1 <12`.
+- Rust `1.98.1` (lo instala `rustup` al leer `rust-toolchain.toml`).
+- Las Build Tools de Visual Studio 2022 con la carga «Desarrollo para el
+  escritorio con C++».
 - Una copia local de Columnia en la raíz del repositorio.
 
 ## Paso 1: instala las dependencias
@@ -29,8 +32,9 @@ Ejecuta:
 npm run tauri dev
 ```
 
-En menos de tres pasos ya verás la ventana de Columnia. La fase **Cargar** debe
-estar activa y el botón **Seleccionar dataset** disponible.
+La primera vez compila la aplicación y tarda unos minutos; después verás la
+ventana de Columnia. La fase **Cargar** debe estar activa y el botón
+**Seleccionar dataset** disponible.
 
 ## Paso 3: carga la fixture sintética
 

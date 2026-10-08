@@ -91,6 +91,50 @@ export function contributionPolicyProblems(documents) {
     .map(([name]) => name);
 }
 
+/** DOC-07: README names the Rust release that rust-toolchain.toml pins. */
+export function readmeRustProblems(readme, rustToolchain) {
+  const channel = rustToolchain.match(/^channel\s*=\s*"([^"]+)"/m)?.[1];
+  if (!channel) return ["rust-toolchain.toml no fija channel"];
+  return readme.includes(`Rust \`${channel}\``) ? [] : [`README.md debe pedir Rust \`${channel}\` como rust-toolchain.toml`];
+}
+
+/** Living documents: not the frozen archive, the local audit or the changelog's history. */
+export function isLivingDocument(relativePath) {
+  return !relativePath.startsWith("docs/archive/") && !relativePath.startsWith("docs/auditorias/") && relativePath !== "CHANGELOG.md";
+}
+
+/** DOC-09: every `npm run X` a living document cites exists in package.json. */
+export function missingNpmScripts(contents, scripts) {
+  return [...new Set([...contents.matchAll(/\bnpm[ \t]+run[ \t]+([A-Za-z0-9:_-]+)/g)].map((match) => match[1]))]
+    .filter((name) => !Object.hasOwn(scripts, name));
+}
+
+/** Files the documents tell the reader to create; they do not exist yet. */
+const FILES_CREATED_LATER = new Set(["docs/reference/beta-v1-summary.md"]);
+
+/** DOC-12: repository paths written in backticks (`docs/…`, `tools/…`, `fixtures/…`). */
+export function backtickRepositoryPaths(contents) {
+  return [...new Set([...contents.matchAll(/`((?:docs|tools|fixtures)\/[A-Za-z0-9._\/-]+\.[A-Za-z0-9]+)`/g)].map((match) => match[1]))]
+    .filter((path) => !path.includes("<") && !path.includes("*") && !FILES_CREATED_LATER.has(path));
+}
+
+/**
+ * DOC-15: a how-to or tutorial example names the current version or the
+ * placeholder `<versión>`, never another release to copy by mistake.
+ */
+export function staleVersionExamples(contents, version) {
+  const patterns = [/\/columnia\/(\d+\.\d+\.\d+)\//g, /--expected-version[ \t]+(\d+\.\d+\.\d+)/g, /Columnia_(\d+\.\d+\.\d+)_/g];
+  return patterns.flatMap((pattern) => [...contents.matchAll(pattern)].map((match) => match[1]))
+    .filter((cited) => cited !== version);
+}
+
+/** DOC-16: retired planning labels only inside a block marked as archived. */
+export function retiredLabels(contents) {
+  return contents.split(/^## /m)
+    .filter((section) => !/archivad/i.test(section.split("\n")[0] ?? ""))
+    .flatMap((section) => [...section.matchAll(/\b(Tier \d+|Gate 2)\b/g)].map((match) => match[1]));
+}
+
 /** QA-49: the Diátaxis entry points that docs/README.md must link. */
 export function missingDocsIndexLinks(docsIndex) {
   return [
@@ -464,6 +508,28 @@ try {
     }
   }
   if (brokenLinks.length > 0) fail(`Enlaces locales rotos: ${brokenLinks.join(", ")}`);
+  const livingProblems = [...readmeRustProblems(readme, await readUtf8("rust-toolchain.toml"))];
+  for (const relativePath of files) {
+    const contents = await readUtf8(relativePath);
+    if (relativePath === "CHANGELOG.md" || isLivingDocument(relativePath)) {
+      for (const path of backtickRepositoryPaths(contents)) {
+        if (!await existsWithExactCase(absolute(path))) livingProblems.push(`${relativePath} cita \`${path}\`, que no existe`);
+      }
+    }
+    if (!isLivingDocument(relativePath)) continue;
+    for (const name of missingNpmScripts(contents, packageManifest.scripts ?? {})) {
+      livingProblems.push(`${relativePath} cita npm run ${name}, que package.json no define`);
+    }
+    if (relativePath.startsWith("docs/how-to/") || relativePath.startsWith("docs/tutorials/")) {
+      for (const cited of staleVersionExamples(contents, version)) {
+        livingProblems.push(`${relativePath} usa la versión ${cited} como ejemplo (escribe <versión>)`);
+      }
+      for (const label of retiredLabels(contents)) {
+        livingProblems.push(`${relativePath} menciona «${label}» fuera de un bloque archivado`);
+      }
+    }
+  }
+  if (livingProblems.length > 0) fail(`Documentación desfasada: ${livingProblems.join("; ")}.`);
   const environmentSources = [];
   for (const root of ["src", "src-tauri/src", "src-tauri/build.rs", "tools", "e2e"]) {
     for (const file of await codeFiles(root)) environmentSources.push((await readFile(absolute(file), "utf8")).replace(/^\uFEFF/, ""));

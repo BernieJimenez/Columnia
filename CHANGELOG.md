@@ -207,6 +207,14 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Documentación al día: el README y el tutorial piden Rust 1.98.1, Node, npm y
+  las Build Tools con su carga, presentan las cinco etapas (con Explorar) y
+  dejan la beta como aparcada; CONTEXTO ya no cita scripts que no existen; las
+  guías usan <versión> en los ejemplos y no hablan de Tier 8 ni de Gate 2 fuera
+  de un bloque archivado; la guía de NVDA y el checklist cubren Explorar y
+  Proyectos; el gate de documentación comprueba la versión de Rust, los npm run
+  citados, las rutas entre backticks, las versiones de ejemplo y esas etiquetas
+  retiradas.
 - Compilación de release y política de dependencias: el perfil release usa LTO
   thin, una sola unidad de código y binarios sin símbolos (panic sigue en unwind
   para que los bloqueos envenenados se recuperen); columnia.exe pasa de 135,9 a

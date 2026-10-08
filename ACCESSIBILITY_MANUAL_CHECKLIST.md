@@ -32,6 +32,8 @@ Elegir NVDA o Narrador y activar la navegación por elementos/encabezados.
 - [ ] Los errores de validación se anuncian y quedan asociados al campo afectado.
 - [ ] Los botones de abrir, guardar, exportar y eliminar anuncian su acción y estado.
 - [ ] La tabla/preview anuncia encabezados, fila/columna y mensajes de ausencia de datos.
+- [ ] En Explorar, cada gráfico es una región con nombre, sus barras se anuncian
+      con valor y número de filas, y un filtro activo se anuncia y se puede quitar.
 - [ ] No se anuncian rutas locales, identificadores internos ni datos fuera de la vista.
 
 ## Contraste, zoom y movimiento
