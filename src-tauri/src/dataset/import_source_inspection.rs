@@ -108,7 +108,7 @@ pub(super) async fn inspect_workbook_sheets_impl(
     let sheet_names = tauri::async_runtime::spawn_blocking(move || {
         let state = cancellation_app.state::<DatasetState>();
         ensure_not_cancelled(state.load_was_cancelled(generation))?;
-        let sheets = inspect_workbook(&path)?;
+        let sheets = spreadsheet_io::inspect_workbook_details(&path)?;
         ensure_not_cancelled(state.load_was_cancelled(generation))?;
         let size_after_inspection = fs::metadata(&path)
             .map_err(|error| format!("No se pudieron verificar los metadatos del libro: {error}"))?
@@ -129,9 +129,11 @@ pub(super) async fn inspect_workbook_sheets_impl(
     let workbook_sheets = sheet_names
         .iter()
         .enumerate()
-        .map(|(index, name)| WorkbookSheet {
+        .map(|(index, sheet)| WorkbookSheet {
             id: index.to_string(),
-            name: name.clone(),
+            name: sheet.name.clone(),
+            hidden: sheet.hidden,
+            merged_cell_count: sheet.merged_cell_count,
         })
         .collect();
     {
@@ -144,7 +146,7 @@ pub(super) async fn inspect_workbook_sheets_impl(
             if pending.id != selection_id {
                 return Err("La selección ya no corresponde al archivo pendiente.".to_owned());
             }
-            pending.sheets = sheet_names;
+            pending.sheets = sheet_names.into_iter().map(|sheet| sheet.name).collect();
             Ok(())
         })?;
     }

@@ -21,7 +21,7 @@ import type {
   SampleDatasetDescriptor,
   SourceTextEncoding,
 } from "../../bridge";
-import { legacyEncodingExample } from "./loadModel";
+import { legacyEncodingExample, looksLikeTitleRow } from "./loadModel";
 import { DATE_CONVENTIONS, NUMBER_CONVENTIONS } from "./importProfile";
 import {
   formatRecentDatasetDate,
@@ -475,11 +475,46 @@ export function LoadPhase({
                 disabled={sheetSelection.schemaPreviewLoading === true || Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
               >
                 {sheetSelection.source.sheets.map((sheet) => (
-                  <option key={sheet.id} value={sheet.id}>{sheet.name}</option>
+                  <option key={sheet.id} value={sheet.id}>{sheet.hidden ? `${sheet.name} (oculta)` : sheet.name}</option>
                 ))}
               </select>
             </>
           )}
+          {sheetSelection.source.format === "excel" && (() => {
+            // PROD-19: what the sheet choice alone does not show.
+            const hiddenCount = sheetSelection.source.sheets.filter((sheet) => sheet.hidden).length;
+            const mergedCount = sheetSelection.source.sheets
+              .find((sheet) => sheet.id === sheetSelection.selectedSheetId)?.mergedCellCount ?? 0;
+            const titleRow = sheetSelection.headerMode === "firstRow"
+              && sheetSelection.schemaPreview != null
+              && looksLikeTitleRow(sheetSelection.schemaPreview.columns);
+            if (hiddenCount === 0 && mergedCount === 0 && !titleRow) return null;
+            return (
+              <section className="notice" aria-labelledby="workbook-notes-title">
+                <h4 id="workbook-notes-title">Avisos del libro</h4>
+                <ul>
+                  {hiddenCount > 0 && (
+                    <li>
+                      El libro tiene {hiddenCount === 1 ? "1 hoja oculta" : `${hiddenCount} hojas ocultas`} en Excel; aparece
+                      {hiddenCount === 1 ? "" : "n"} en la lista como «(oculta)» y no se elige sin que lo indiques.
+                    </li>
+                  )}
+                  {mergedCount > 0 && (
+                    <li>
+                      Esta hoja tiene {mergedCount === 1 ? "1 rango de celdas combinadas" : `${mergedCount.toLocaleString()} rangos de celdas combinadas`}:
+                      solo la primera celda de cada uno conserva el valor y las demás llegarán vacías.
+                    </li>
+                  )}
+                  {titleRow && (
+                    <li>
+                      La primera fila parece un título: solo la primera columna tiene nombre. Si los encabezados están más abajo,
+                      quita las filas de título en Excel antes de cargar o elige «Generar encabezados».
+                    </li>
+                  )}
+                </ul>
+              </section>
+            );
+          })()}
           {hasHeaderSelection && (
             <fieldset className="sheet-dialog__options">
               <legend>Encabezados</legend>

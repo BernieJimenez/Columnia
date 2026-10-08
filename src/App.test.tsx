@@ -2403,14 +2403,14 @@ describe("App", () => {
       fileName: "ventas.xlsx",
       fileSizeBytes: 4096,
       format: "excel",
-      sheets: [{ id: "0", name: "Resumen" }, { id: "1", name: "Ventas 2026" }],
+      sheets: [{ id: "0", name: "Resumen", hidden: false, mergedCellCount: 0 }, { id: "1", name: "Ventas 2026", hidden: false, mergedCellCount: 0 }],
       defaultSheetId: "0",
       isCompressedContainer: true,
       resourceEstimate: resourceEstimate(4096),
     });
     vi.spyOn(bridge, "inspectWorkbookSheets").mockResolvedValue([
-      { id: "0", name: "Resumen" },
-      { id: "1", name: "Ventas 2026" },
+      { id: "0", name: "Resumen", hidden: false, mergedCellCount: 0 },
+      { id: "1", name: "Ventas 2026", hidden: false, mergedCellCount: 0 },
     ]);
     const loadSpy = vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue({
       fileName: "ventas.xlsx",
@@ -3432,7 +3432,7 @@ describe("App", () => {
     vi.spyOn(bridge, "listSampleDatasets").mockResolvedValue([]);
     vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue({
       selectionId: "workbook-cancel", fileName: "ventas.xlsx", fileSizeBytes: 1024,
-      format: "excel", sheets: [{ id: "0", name: "Ventas" }], defaultSheetId: "0",
+      format: "excel", sheets: [{ id: "0", name: "Ventas", hidden: false, mergedCellCount: 0 }], defaultSheetId: "0",
       isCompressedContainer: false, resourceEstimate: resourceEstimate(1024),
     });
     let resolveSheets!: (value: { id: string; name: string }[]) => void;
@@ -3447,7 +3447,7 @@ describe("App", () => {
     await waitFor(() => expect(cancel).toHaveBeenCalledWith("load"));
     await waitFor(() => expect(discard).toHaveBeenCalledWith("workbook-cancel"));
     expect(screen.queryByRole("button", { name: "Cancelar inspección" })).not.toBeInTheDocument();
-    resolveSheets([{ id: "0", name: "Ventas" }]);
+    resolveSheets([{ id: "0", name: "Ventas", hidden: false, mergedCellCount: 0 }]);
   });
 
   it("confirma el preflight de una fuente source-backed antes de materializarla", async () => {

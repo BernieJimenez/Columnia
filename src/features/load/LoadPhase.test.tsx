@@ -24,8 +24,8 @@ const workbook: DatasetSourceInspection = {
   isCompressedContainer: true,
   defaultSheetId: "sheet-1",
   sheets: [
-    { id: "sheet-1", name: "Enero" },
-    { id: "sheet-2", name: "Febrero" },
+    { id: "sheet-1", name: "Enero", hidden: false, mergedCellCount: 0 },
+    { id: "sheet-2", name: "Febrero", hidden: false, mergedCellCount: 0 },
   ],
   resourceEstimate: {
     processingPath: "inMemory",
@@ -192,6 +192,35 @@ describe("LoadPhase", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Separador" }), { target: { value: "" } });
     fireEvent.click(reread);
     expect(onReinterpret).toHaveBeenLastCalledWith(null, "windows-1252");
+  });
+
+  it("marca las hojas ocultas y avisa de celdas combinadas y de una fila de título (PROD-19)", () => {
+    const source: DatasetSourceInspection = {
+      ...workbook,
+      defaultSheetId: "sheet-1",
+      sheets: [
+        { id: "sheet-1", name: "Auxiliar", hidden: true, mergedCellCount: 0 },
+        { id: "sheet-2", name: "Ventas", hidden: false, mergedCellCount: 3 },
+      ],
+    };
+    const inspection = completeSchemaPreview(workbookInspection(source), {
+      rowCount: 4,
+      columns: [
+        { name: "Informe de ventas 2026", dataType: "String" },
+        { name: "column_2", dataType: "String" },
+        { name: "column_3", dataType: "String" },
+      ],
+      schemaMismatch: null,
+    });
+    render(<LoadPhase {...loadPhaseProps()} inspection={inspection} />);
+
+    // The hidden sheet stays listed, but the visible one is chosen.
+    expect(screen.getByRole("option", { name: "Auxiliar (oculta)" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Hoja" })).toHaveValue("sheet-2");
+    const notes = screen.getByRole("region", { name: "Avisos del libro" });
+    expect(notes).toHaveTextContent("1 hoja oculta");
+    expect(notes).toHaveTextContent("3 rangos de celdas combinadas");
+    expect(notes).toHaveTextContent("La primera fila parece un título");
   });
 
   it("expone el diálogo accesible y emite acciones nominales para la hoja", () => {

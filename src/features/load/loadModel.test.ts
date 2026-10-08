@@ -42,8 +42,8 @@ const workbook: DatasetSourceInspection = {
   isCompressedContainer: true,
   defaultSheetId: "sheet-2",
   sheets: [
-    { id: "sheet-1", name: "Enero" },
-    { id: "sheet-2", name: "Febrero" },
+    { id: "sheet-1", name: "Enero", hidden: false, mergedCellCount: 0 },
+    { id: "sheet-2", name: "Febrero", hidden: false, mergedCellCount: 0 },
   ],
   resourceEstimate: {
     processingPath: "inMemory",

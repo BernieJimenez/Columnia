@@ -762,6 +762,10 @@ impl DatasetJoinType {
 pub struct WorkbookSheet {
     id: String,
     name: String,
+    /// PROD-19: hidden in Excel; listed, but not chosen by default.
+    hidden: bool,
+    /// PROD-19: merged ranges, whose cells load empty except the first.
+    merged_cell_count: usize,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

@@ -28,6 +28,53 @@ pub(super) fn inspect_workbook(path: &Path) -> Result<Vec<String>, String> {
     Ok(sheets)
 }
 
+/// PROD-19: what Cargar says about each sheet before loading it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct WorkbookSheetDetails {
+    pub(super) name: String,
+    pub(super) hidden: bool,
+    /// Merged ranges: only their first cell keeps the value.
+    pub(super) merged_cell_count: usize,
+}
+
+pub(super) fn inspect_workbook_details(path: &Path) -> Result<Vec<WorkbookSheetDetails>, String> {
+    let mut workbook = open_workbook_auto(path)
+        .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
+    let sheets = workbook
+        .sheets_metadata()
+        .iter()
+        .map(|sheet| {
+            (
+                sheet.name.clone(),
+                sheet.visible != calamine::SheetVisible::Visible,
+            )
+        })
+        .collect::<Vec<_>>();
+    if sheets.is_empty() {
+        return Err("El libro no contiene hojas disponibles.".to_owned());
+    }
+    Ok(sheets
+        .into_iter()
+        .map(|(name, hidden)| {
+            // Only XLSX and XLS record merged ranges; a failure only means no notice.
+            let merged_cell_count = match &mut workbook {
+                Sheets::Xlsx(xlsx) => xlsx
+                    .merge_cells_by_sheet_name(&name)
+                    .map_or(0, |cells| cells.len()),
+                Sheets::Xls(xls) => xls
+                    .merge_cells_by_sheet_name(&name)
+                    .map_or(0, |cells| cells.len()),
+                _ => 0,
+            };
+            WorkbookSheetDetails {
+                name,
+                hidden,
+                merged_cell_count,
+            }
+        })
+        .collect())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SpreadsheetColumnKind {
     Null,

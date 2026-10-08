@@ -17,6 +17,7 @@ import type {
   ProjectSummary,
   ProjectWorkspace,
   ReusableTaskSchemaCompatibility,
+  WorkbookSheet,
 } from "../../src/bridge";
 
 /**
@@ -33,7 +34,7 @@ export interface TauriMockOptions {
   dataset: DatasetPreview;
   format?: DatasetFormat;
   /** Workbook sheets for an Excel source; empty for other formats. */
-  sheets?: Array<{ id: string; name: string }>;
+  sheets?: WorkbookSheet[];
   profile?: DatasetProfile;
   explore?: ExplorePanel;
   exportResult?: ExportResult;

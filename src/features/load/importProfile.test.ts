@@ -12,7 +12,7 @@ const source: DatasetSourceInspection = {
   fileName: "private-source.xlsx",
   fileSizeBytes: 128,
   format: "excel",
-  sheets: [{ id: "selection-sheet-id", name: "Resumen" }],
+  sheets: [{ id: "selection-sheet-id", name: "Resumen", hidden: false, mergedCellCount: 0 }],
   defaultSheetId: "selection-sheet-id",
   isCompressedContainer: true,
   resourceEstimate: {
@@ -66,7 +66,7 @@ describe("perfiles reutilizables de importación", () => {
       sheetId: "selection-sheet-id",
       headerMode: "generated",
     });
-    expect(importProfileApplicability(profile, { ...source, sheets: [{ id: "other", name: "Detalle" }] }))
+    expect(importProfileApplicability(profile, { ...source, sheets: [{ id: "other", name: "Detalle", hidden: false, mergedCellCount: 0 }] }))
       .toEqual({ kind: "sheet_missing" });
     expect(importProfileApplicability({ ...profile, version: 2 } as unknown as ImportProfile, source))
       .toEqual({ kind: "format_mismatch" });

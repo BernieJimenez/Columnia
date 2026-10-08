@@ -38,7 +38,7 @@ async function installSyntheticImportBridge(page: Page, fixture: SyntheticImport
       rows: fixture.rows,
     },
     format: fixture.format,
-    sheets: fixture.format === "excel" ? [{ id: "sheet-sales", name: "Ventas" }] : [],
+    sheets: fixture.format === "excel" ? [{ id: "sheet-sales", name: "Ventas", hidden: false, mergedCellCount: 0 }] : [],
     // The engine's verdict for an unchanged schema; computing it here would
     // test the mock instead of the app (QA-06).
     taskSchema: { status: "ready", missingColumns: [], addedColumns: [], changedTypes: [], orderChanged: false },

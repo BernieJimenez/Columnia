@@ -10191,6 +10191,43 @@ fn xlsx_export_replaces_control_characters_that_xml_forbids() {
 }
 
 #[test]
+fn workbook_inspection_reports_hidden_sheets_and_merged_cells() {
+    // PROD-19: hidden sheets were listed like any other and merged cells came
+    // back empty except the first, without a word.
+    const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>"#;
+    const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
+    const WORKBOOK: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="oculta" sheetId="1" state="hidden" r:id="rId1"/><sheet name="datos" sheetId="2" r:id="rId2"/></sheets></workbook>"#;
+    const WORKBOOK_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>"#;
+    const HIDDEN: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>auxiliar</t></is></c></row></sheetData></worksheet>"#;
+    const DATA: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Informe de ventas</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>zona</t></is></c><c r="B2" t="inlineStr"><is><t>importe</t></is></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>Norte</t></is></c><c r="B3"><v>10</v></c></row></sheetData><mergeCells count="2"><mergeCell ref="A1:B1"/><mergeCell ref="A3:A4"/></mergeCells></worksheet>"#;
+
+    let path = temporary_delimited_bytes("xlsx", b"");
+    let mut archive = ::zip::ZipWriter::new(File::create(&path).unwrap());
+    let options = ::zip::write::SimpleFileOptions::default();
+    for (name, contents) in [
+        ("[Content_Types].xml", CONTENT_TYPES),
+        ("_rels/.rels", ROOT_RELS),
+        ("xl/workbook.xml", WORKBOOK),
+        ("xl/_rels/workbook.xml.rels", WORKBOOK_RELS),
+        ("xl/worksheets/sheet1.xml", HIDDEN),
+        ("xl/worksheets/sheet2.xml", DATA),
+    ] {
+        archive.start_file(name, options).unwrap();
+        archive.write_all(contents.as_bytes()).unwrap();
+    }
+    archive.finish().unwrap();
+
+    let sheets = spreadsheet_io::inspect_workbook_details(&path).expect("libro");
+    assert_eq!(
+        sheets
+            .iter()
+            .map(|sheet| (sheet.name.as_str(), sheet.hidden, sheet.merged_cell_count))
+            .collect::<Vec<_>>(),
+        [("oculta", true, 0), ("datos", false, 2)]
+    );
+}
+
+#[test]
 fn xlsx_export_writes_dates_as_excel_dates() {
     // PROD-18: dates went as text, so Excel could not sort or filter them.
     let dates = Series::new("fecha".into(), [Some(19_753_i32), Some(-25_568), None])

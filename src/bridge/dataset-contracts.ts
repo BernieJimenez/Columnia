@@ -97,6 +97,10 @@ export type DatasetFormat = "csv" | "tsv" | "json" | "parquet" | "excel";
 export interface WorkbookSheet {
   id: string;
   name: string;
+  /** PROD-19: hidden in Excel; listed, but not chosen by default. */
+  hidden: boolean;
+  /** PROD-19: merged ranges, whose cells load empty except the first. */
+  mergedCellCount: number;
 }
 
 export interface DatasetSourceInspection {

@@ -142,6 +142,23 @@ export function createReadyDatasetStatus(dataset: DatasetPreview): ReadyDatasetS
   return { kind: "ready", dataset, pageOffset: 0, pageLoading: false };
 }
 
+/** PROD-19: the default sheet, or the first visible one when it is hidden. */
+function defaultVisibleSheetId(source: DatasetSourceInspection): string {
+  const preferred = source.sheets.find((sheet) => sheet.id === source.defaultSheetId);
+  if (preferred && !preferred.hidden) return preferred.id;
+  return source.sheets.find((sheet) => !sheet.hidden)?.id ?? source.defaultSheetId ?? source.sheets[0]?.id ?? "";
+}
+
+/**
+ * PROD-19: with «primera fila» as headers, only the first column has a name and
+ * the rest got generated ones: that row is most likely a title above the table.
+ */
+export function looksLikeTitleRow(columns: ReadonlyArray<{ name: string }>): boolean {
+  if (columns.length < 2) return false;
+  const generated = (name: string) => /^column_\d+$/.test(name);
+  return !generated(columns[0]?.name ?? "column_1") && columns.slice(1).every((column) => generated(column.name));
+}
+
 export function workbookInspection(
   source: DatasetSourceInspection,
   savedProfile: ImportProfile | null = null,
@@ -160,7 +177,7 @@ export function workbookInspection(
     source,
     selectedSheetId: applicableProfile && applicableProfile.sheetId !== null
       ? applicableProfile.sheetId
-      : source.defaultSheetId ?? source.sheets[0]?.id ?? "",
+      : defaultVisibleSheetId(source),
     headerMode: applicableProfile && applicableProfile.headerMode !== null
       ? applicableProfile.headerMode
       : "firstRow",
