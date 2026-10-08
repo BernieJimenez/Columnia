@@ -1,12 +1,67 @@
-use std::{io::Write, path::Path};
+use std::{collections::VecDeque, io::Write, path::Path, sync::Mutex};
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 use tempfile::Builder as TempFileBuilder;
 
+use crate::crash_report::LockRecovering;
+
 const DIAGNOSTIC_SCHEMA_VERSION: u32 = 1;
 const MAX_ERROR_CODES: usize = 5;
+const MAX_SOURCE_BACKED_FALLBACKS: usize = 20;
+
+/// ARQ-09: a source-backed operation that fell back to the in-memory path,
+/// with the kind of engine error and never its message, which can quote data.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourceBackedFallback {
+    operation: String,
+    error_kind: String,
+}
+
+static SOURCE_BACKED_FALLBACKS: Mutex<VecDeque<SourceBackedFallback>> = Mutex::new(VecDeque::new());
+
+/// The engine's own error category («Conversion», «Out of Memory»…): the
+/// words before « Error:», when they are plain words; otherwise «other».
+fn fallback_error_kind(message: &str) -> String {
+    message
+        .split_once(" Error:")
+        .map(|(kind, _)| kind.trim())
+        .filter(|kind| {
+            !kind.is_empty()
+                && kind.len() <= 40
+                && kind.split(' ').count() <= 4
+                && kind
+                    .chars()
+                    .all(|character| character.is_ascii_alphabetic() || character == ' ')
+        })
+        .map(|kind| kind.to_ascii_lowercase().replace(' ', "-"))
+        .unwrap_or_else(|| "other".to_owned())
+}
+
+/// ARQ-09: records why a source-backed operation took the in-memory path.
+pub(crate) fn record_source_backed_fallback(
+    operation: &'static str,
+    error: &dyn std::fmt::Display,
+) {
+    let mut fallbacks = SOURCE_BACKED_FALLBACKS.lock_recovering();
+    if fallbacks.len() == MAX_SOURCE_BACKED_FALLBACKS {
+        fallbacks.pop_front();
+    }
+    fallbacks.push_back(SourceBackedFallback {
+        operation: operation.to_owned(),
+        error_kind: fallback_error_kind(&error.to_string()),
+    });
+}
+
+fn source_backed_fallbacks() -> Vec<SourceBackedFallback> {
+    SOURCE_BACKED_FALLBACKS
+        .lock_recovering()
+        .iter()
+        .cloned()
+        .collect()
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum DiagnosticContract {
@@ -114,6 +169,9 @@ pub struct DiagnosticReport {
     status: DiagnosticStatus,
     error_codes: Vec<DiagnosticErrorCode>,
     metrics: Option<DiagnosticMetrics>,
+    /// ARQ-09: filled by Rust when the report is saved, never by the interface.
+    #[serde(default, skip_deserializing, skip_serializing_if = "Vec::is_empty")]
+    source_backed_fallbacks: Vec<SourceBackedFallback>,
 }
 
 impl DiagnosticReport {
@@ -164,6 +222,10 @@ pub async fn save_diagnostic_report(
     report: DiagnosticReport,
 ) -> Result<Option<()>, String> {
     report.validate().map_err(str::to_owned)?;
+    let report = DiagnosticReport {
+        source_backed_fallbacks: source_backed_fallbacks(),
+        ..report
+    };
     let selection = app
         .dialog()
         .file()
@@ -231,6 +293,34 @@ fn write_report_atomically(destination: &Path, report: &DiagnosticReport) -> Res
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_source_backed_fallback_is_recorded_with_its_kind_and_no_values() {
+        // ARQ-09: the engine message quotes a value; only its category stays.
+        super::record_source_backed_fallback(
+            "prueba_arq09",
+            &"Conversion Error: Could not convert string 'Ana Pérez' to INT64",
+        );
+        super::record_source_backed_fallback(
+            "prueba_arq09_sin_tipo",
+            &"fallo sin categoría: 'secreto'",
+        );
+        let recorded = super::source_backed_fallbacks();
+        let text = serde_json::to_string(&recorded).unwrap();
+        assert!(
+            text.contains(r#"{"operation":"prueba_arq09","errorKind":"conversion"}"#),
+            "{text}"
+        );
+        assert!(
+            text.contains(r#"{"operation":"prueba_arq09_sin_tipo","errorKind":"other"}"#),
+            "{text}"
+        );
+        assert!(!text.contains("Ana") && !text.contains("secreto"), "{text}");
+        assert_eq!(
+            super::fallback_error_kind("Out of Memory Error: failed to allocate"),
+            "out-of-memory"
+        );
+    }
+
     use std::{fs, path::PathBuf};
 
     use serde_json::json;
@@ -252,6 +342,7 @@ mod tests {
                 columns: DiagnosticColumnBucket::Under10,
                 source_size: DiagnosticSizeBucket::OneTo99Mib,
             }),
+            source_backed_fallbacks: Vec::new(),
         }
     }
 

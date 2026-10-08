@@ -2106,6 +2106,13 @@ fn ensure_not_cancelled(cancelled: bool) -> Result<(), String> {
     }
 }
 
+/// ARQ-09: the source-backed path gave up; the reason is recorded (without
+/// data) and the caller takes the in-memory path.
+fn source_backed_fallback<T>(operation: &'static str, error: &dyn std::fmt::Display) -> Option<T> {
+    crate::diagnostics::record_source_backed_fallback(operation, error);
+    None
+}
+
 pub(crate) fn preview_value(value: AnyValue<'_>) -> Option<String> {
     match value {
         AnyValue::Null => None,
@@ -3336,7 +3343,12 @@ fn consolidate_source_backed_dataset(
         Ok(()) => {}
         Err(error) if error == SOURCE_BACKED_CONSOLIDATION_CONFLICT_ERROR => return Err(error),
         Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
-        Err(_) => return Ok(None),
+        Err(error) => {
+            return Ok(source_backed_fallback(
+                "consolidate_source_backed_dataset",
+                &error,
+            ))
+        }
     }
     let temporary = tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
         .map_err(|error| {
@@ -3364,7 +3376,12 @@ fn consolidate_source_backed_dataset(
             Ok(row_count) => row_count,
             Err(error) if error.contains("supera el límite local") => return Err(error),
             Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
-            Err(_) => return Ok(None),
+            Err(error) => {
+                return Ok(source_backed_fallback(
+                    "consolidate_source_backed_dataset",
+                    &error,
+                ))
+            }
         };
 
     let mut current = state.current.lock_recovering();
@@ -3737,7 +3754,12 @@ fn remove_columns_source_backed_with_cancellation(
         cancellation,
     ) {
         Ok(columns) => columns,
-        Err(_) => return Ok(None),
+        Err(error) => {
+            return Ok(source_backed_fallback(
+                "remove_columns_source_backed_with_cancellation",
+                &error,
+            ))
+        }
     };
     if removed_columns.is_empty() {
         return Ok(Some(ColumnRemovalResult {
@@ -3849,7 +3871,12 @@ fn mask_personal_values_source_backed_with_cancellation(
         cancellation.callback(),
     ) {
         Ok(counts) => counts,
-        Err(_) => return Ok(None),
+        Err(error) => {
+            return Ok(source_backed_fallback(
+                "mask_personal_values_source_backed_with_cancellation",
+                &error,
+            ))
+        }
     };
     let changed_cell_count = changed_counts.iter().copied().sum::<usize>();
     let changed_column_count = changed_counts.iter().filter(|count| **count > 0).count();
@@ -4445,7 +4472,12 @@ fn source_backed_text_cleaning_with_cancellation(
             cancellation.callback(),
         ) {
             Ok((_, counts)) => counts,
-            Err(_) => return Ok(None),
+            Err(error) => {
+                return Ok(source_backed_fallback(
+                    "source_backed_text_cleaning_with_cancellation",
+                    &error,
+                ))
+            }
         };
         if unsafe_counts.iter().any(|count| *count > 0) {
             return Ok(None);
@@ -4501,7 +4533,12 @@ fn source_backed_text_cleaning_with_cancellation(
             cancellation.callback(),
         ) {
             Ok(counts) => counts,
-            Err(_) => return Ok(None),
+            Err(error) => {
+                return Ok(source_backed_fallback(
+                    "source_backed_text_cleaning_with_cancellation",
+                    &error,
+                ))
+            }
         };
     let changed_cell_count = changed_counts.iter().copied().sum::<usize>();
     let changed_columns = selected_columns
@@ -4581,7 +4618,12 @@ fn source_backed_numeric_cast_with_cancellation(
         cancellation.callback(),
     ) {
         Ok(stats) => stats,
-        Err(_) => return Ok(None),
+        Err(error) => {
+            return Ok(source_backed_fallback(
+                "source_backed_numeric_cast_with_cancellation",
+                &error,
+            ))
+        }
     };
     let mut conversions = Vec::<(String, String, String, usize)>::new();
     for (name, stats) in columns.iter().zip(stats) {
@@ -4644,7 +4686,12 @@ fn source_backed_numeric_cast_with_cancellation(
             cancellation.callback(),
         ) {
             Ok(counts) => counts,
-            Err(_) => return Ok(None),
+            Err(error) => {
+                return Ok(source_backed_fallback(
+                    "source_backed_numeric_cast_with_cancellation",
+                    &error,
+                ))
+            }
         };
     let changed_columns = conversions
         .iter()
@@ -4785,7 +4832,12 @@ fn source_backed_date_parsing_with_cancellation(
             cancellation.callback(),
         ) {
             Ok(sample) => sample,
-            Err(_) => return Ok(None),
+            Err(error) => {
+                return Ok(source_backed_fallback(
+                    "source_backed_date_parsing_with_cancellation",
+                    &error,
+                ))
+            }
         };
         if sample.is_empty() {
             continue;
@@ -4829,7 +4881,12 @@ fn source_backed_date_parsing_with_cancellation(
         cancellation.callback(),
     ) {
         Ok(stats) => stats,
-        Err(_) => return Ok(None),
+        Err(error) => {
+            return Ok(source_backed_fallback(
+                "source_backed_date_parsing_with_cancellation",
+                &error,
+            ))
+        }
     };
     let conversions = candidates
         .into_iter()
@@ -4862,7 +4919,12 @@ fn source_backed_date_parsing_with_cancellation(
             cancellation.callback(),
         ) {
             Ok(counts) => counts,
-            Err(_) => return Ok(None),
+            Err(error) => {
+                return Ok(source_backed_fallback(
+                    "source_backed_date_parsing_with_cancellation",
+                    &error,
+                ))
+            }
         };
     let changed_columns = conversions
         .iter()
@@ -5027,7 +5089,12 @@ fn source_backed_imputation_with_cancellation(
         cancellation.callback(),
     ) {
         Ok(stats) => stats,
-        Err(_) => return Ok(None),
+        Err(error) => {
+            return Ok(source_backed_fallback(
+                "source_backed_imputation_with_cancellation",
+                &error,
+            ))
+        }
     };
     let mut replacements = HashMap::new();
     let mut numeric_types = HashMap::new();
@@ -5077,7 +5144,12 @@ fn source_backed_imputation_with_cancellation(
         cancellation.callback(),
     ) {
         Ok(counts) => counts,
-        Err(_) => return Ok(None),
+        Err(error) => {
+            return Ok(source_backed_fallback(
+                "source_backed_imputation_with_cancellation",
+                &error,
+            ))
+        }
     };
     let changed_cell_count = changed_columns
         .iter()
@@ -5189,7 +5261,12 @@ fn source_backed_direct_outlier_with_cancellation(
         cancellation.callback(),
     ) {
         Ok(stats) => stats,
-        Err(_) => return Ok(None),
+        Err(error) => {
+            return Ok(source_backed_fallback(
+                "source_backed_direct_outlier_with_cancellation",
+                &error,
+            ))
+        }
     };
     let mut plans = Vec::new();
     for ((name, dtype, _), stats) in numeric_columns.iter().zip(stats) {
@@ -5240,7 +5317,12 @@ fn source_backed_direct_outlier_with_cancellation(
             cancellation.callback(),
         ) {
             Ok(counts) => counts,
-            Err(_) => return Ok(None),
+            Err(error) => {
+                return Ok(source_backed_fallback(
+                    "source_backed_direct_outlier_with_cancellation",
+                    &error,
+                ))
+            }
         };
     let changed_columns = plans
         .iter()
@@ -5477,7 +5559,12 @@ fn source_backed_safe_corrections_with_cancellation(
             cancellation.callback(),
         ) {
             Ok(counts) => counts,
-            Err(_) => return Ok(None),
+            Err(error) => {
+                return Ok(source_backed_fallback(
+                    "source_backed_safe_corrections_with_cancellation",
+                    &error,
+                ))
+            }
         }
     };
     let changed_cell_count = changed_counts.iter().copied().sum::<usize>();

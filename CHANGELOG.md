@@ -211,6 +211,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Cuando una operación sobre un archivo grande abandona la ruta que lee desde
+  disco y pasa a la de memoria, Columnia anota la operación y el tipo de error
+  del motor (por ejemplo «conversion» u «out-of-memory»), nunca el mensaje ni
+  valores; las últimas veinte anotaciones se incluyen al guardar el informe de
+  diagnóstico.
 - Catálogos locales: antes de actualizar el catálogo de proyectos a un esquema
   nuevo, Columnia guarda una copia (projects.sqlite3.v<N>.bak) que la versión
   anterior puede abrir; dos tareas reutilizables ya no pueden llamarse igual

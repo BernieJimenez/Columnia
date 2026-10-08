@@ -562,9 +562,9 @@ medio = 1 día; agregado por suma.
 - [x] **RV107** — **Seguridad** — Confirmar que un preset con `table_policy = replace` no se aplica sin confirmación · *Esfuerzo: 2 h* — hecho el 2026-10-07
   - Criterio de cierre: Hecho lo que proponen SEG-13.
   - [x] `SEG-13` (Propuesta) Confirmar que un preset con `table_policy = replace` no se aplica sin confirmación — hecho el 2026-10-07
-- [ ] **RV108** — **Arquitectura y resiliencia** — Registrar el motivo cuando una ruta source-backed cae a la ruta eager · *Esfuerzo: 2 h*
+- [x] **RV108** — **Arquitectura y resiliencia** — Registrar el motivo cuando una ruta source-backed cae a la ruta eager · *Esfuerzo: 2 h* — hecho el 2026-10-07
   - Criterio de cierre: Hecho lo que proponen ARQ-09.
-  - [ ] `ARQ-09` (Propuesta) Registrar el motivo cuando una ruta source-backed cae a la ruta eager
+  - [x] `ARQ-09` (Propuesta) Registrar el motivo cuando una ruta source-backed cae a la ruta eager — hecho el 2026-10-07
 - [ ] **RV109** — **Experiencia de uso** — Resolver conflictos exige decidir celda a celda en todas las páginas, sin acción masiva (y 1 problemas más) · *Esfuerzo: 1,2 días*
   - Criterio de cierre: Hecho lo que proponen UX-20, UX-21.
   - [ ] `UX-20` (Propuesta) Resolver conflictos exige decidir celda a celda en todas las páginas, sin acción masiva

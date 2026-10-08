@@ -40,6 +40,12 @@ export interface DiagnosticMetrics {
   sourceSize: DiagnosticSizeBucket;
 }
 
+/** ARQ-09: a source-backed operation that fell back to the in-memory path. */
+export interface SourceBackedFallback {
+  operation: string;
+  errorKind: string;
+}
+
 export interface DiagnosticReport {
   contract: DiagnosticContract;
   schemaVersion: 1;
@@ -48,4 +54,6 @@ export interface DiagnosticReport {
   status: DiagnosticStatus;
   errorCodes: DiagnosticErrorCode[];
   metrics: DiagnosticMetrics | null;
+  /** ARQ-09: Rust adds it when the report is saved; the interface never sends it. */
+  sourceBackedFallbacks?: SourceBackedFallback[];
 }
