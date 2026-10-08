@@ -17,8 +17,9 @@ cuando tú eliges entregar a una base de datos remota.
      salen mal, abre «¿Columnas o acentos mal leídos?» y elige otro separador o
      codificación.
    - En un libro de Excel, elige la hoja. Las hojas ocultas aparecen como
-     «(oculta)», y el diálogo avisa de las celdas combinadas y de una fila de
-     título.
+     «(oculta)» y el diálogo avisa de las celdas combinadas. Si hay filas de
+     título encima de la tabla, Columnia las salta y dice en qué fila encontró
+     los encabezados; «Generar encabezados» lee todas las filas como datos.
 3. Confirma la carga. El archivo original nunca se modifica.
 
 Para seguir con un trabajo guardado, abre **Continuar un proyecto**.

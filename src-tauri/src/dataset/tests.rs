@@ -10346,6 +10346,74 @@ fn xlsx_export_replaces_control_characters_that_xml_forbids() {
 }
 
 #[test]
+fn title_rows_above_a_sheet_table_are_skipped_and_reported() {
+    // PROD-19: «Informe de ventas» in A1 became the only column name and the
+    // real headers a data row.
+    let cell = |reference: &str, value: &str| {
+        format!(r#"<c r="{reference}" t="inlineStr"><is><t>{value}</t></is></c>"#)
+    };
+    let worksheet = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:C6"/><sheetData><row r="1">{}</row><row r="2">{}</row><row r="4">{}{}{}</row><row r="5">{}<c r="B5"><v>10</v></c>{}</row><row r="6">{}<c r="C6"><v>2.5</v></c></row></sheetData></worksheet>"#,
+        cell("A1", "Informe de ventas"),
+        cell("A2", "Generado el 1 de octubre"),
+        cell("A4", "zona"),
+        cell("B4", "unidades"),
+        cell("C4", "precio"),
+        cell("A5", "Norte"),
+        cell("C5", "1.5"),
+        cell("A6", "Sur"),
+    );
+    let path = temporary_xlsx_with_worksheet(&worksheet);
+    let frame = load_spreadsheet_sheet(&path, "dataset", SpreadsheetHeaderMode::FirstRow)
+        .expect("la hoja debe cargar");
+    let names = frame
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["zona", "unidades", "precio"]);
+    assert_eq!(frame.height(), 2);
+    assert_eq!(
+        spreadsheet_io::spreadsheet_title_row_count(
+            &path,
+            "dataset",
+            SpreadsheetHeaderMode::FirstRow,
+            || false
+        )
+        .unwrap(),
+        3
+    );
+    // «Generar encabezados» still reads every row as data.
+    let generated = load_spreadsheet_sheet(&path, "dataset", SpreadsheetHeaderMode::Generated)
+        .expect("la hoja debe cargar");
+    assert_eq!(generated.height(), 6);
+
+    // The in-memory range path (XLS, ODS) skips them the same way.
+    let mut range = Range::<Data>::new((0, 0), (4, 2));
+    range.set_value((0, 0), Data::String("Informe".to_owned()));
+    for (column, name) in ["zona", "unidades", "precio"].iter().enumerate() {
+        range.set_value((2, column as u32), Data::String((*name).to_owned()));
+    }
+    range.set_value((3, 0), Data::String("Norte".to_owned()));
+    range.set_value((4, 0), Data::String("Sur".to_owned()));
+    let frame = spreadsheet_range_to_frame(&range, SpreadsheetHeaderMode::FirstRow).unwrap();
+    assert_eq!(frame.get_column_names()[0].as_str(), "zona");
+    assert_eq!(frame.height(), 2);
+
+    // A table whose first row is its header is left alone, even if some of
+    // the header cells are empty.
+    let mut plain = Range::<Data>::new((0, 0), (1, 3));
+    plain.set_value((0, 0), Data::String("id".to_owned()));
+    plain.set_value((0, 3), Data::String("total".to_owned()));
+    for column in 0..4 {
+        plain.set_value((1, column), Data::Int(i64::from(column)));
+    }
+    let frame = spreadsheet_range_to_frame(&plain, SpreadsheetHeaderMode::FirstRow).unwrap();
+    assert_eq!(frame.get_column_names()[0].as_str(), "id");
+    assert_eq!(frame.height(), 1);
+}
+
+#[test]
 fn workbook_inspection_reports_hidden_sheets_and_merged_cells() {
     // PROD-19: hidden sheets were listed like any other and merged cells came
     // back empty except the first, without a word.

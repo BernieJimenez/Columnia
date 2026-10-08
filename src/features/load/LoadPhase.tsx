@@ -485,10 +485,14 @@ export function LoadPhase({
             const hiddenCount = sheetSelection.source.sheets.filter((sheet) => sheet.hidden).length;
             const mergedCount = sheetSelection.source.sheets
               .find((sheet) => sheet.id === sheetSelection.selectedSheetId)?.mergedCellCount ?? 0;
+            const skippedTitleRows = sheetSelection.headerMode === "firstRow"
+              ? sheetSelection.schemaPreview?.titleRowCount ?? 0
+              : 0;
             const titleRow = sheetSelection.headerMode === "firstRow"
+              && skippedTitleRows === 0
               && sheetSelection.schemaPreview != null
               && looksLikeTitleRow(sheetSelection.schemaPreview.columns);
-            if (hiddenCount === 0 && mergedCount === 0 && !titleRow) return null;
+            if (hiddenCount === 0 && mergedCount === 0 && !titleRow && skippedTitleRows === 0) return null;
             return (
               <section className="notice" aria-labelledby="workbook-notes-title">
                 <h4 id="workbook-notes-title">Avisos del libro</h4>
@@ -503,6 +507,13 @@ export function LoadPhase({
                     <li>
                       Esta hoja tiene {mergedCount === 1 ? "1 rango de celdas combinadas" : `${mergedCount.toLocaleString()} rangos de celdas combinadas`}:
                       solo la primera celda de cada uno conserva el valor y las demás llegarán vacías.
+                    </li>
+                  )}
+                  {skippedTitleRows > 0 && (
+                    <li>
+                      Encabezados en la fila {(skippedTitleRows + 1).toLocaleString()}:{" "}
+                      {skippedTitleRows === 1 ? "la fila de encima parecía un título y no se carga" : `las ${skippedTitleRows.toLocaleString()} filas de encima parecían un título y no se cargan`}.
+                      Si no es así, elige «Generar encabezados» para leer todas las filas como datos.
                     </li>
                   )}
                   {titleRow && (

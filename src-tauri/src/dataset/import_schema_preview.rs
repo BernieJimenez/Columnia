@@ -82,6 +82,7 @@ pub(super) async fn preview_dataset_selection_impl(
             }
         }
 
+        let mut title_row_count = None;
         let (mut frame, row_count, source_backed) = if is_spreadsheet {
             let header_mode = header_mode
                 .ok_or_else(|| "Elige cómo interpretar los encabezados del libro.".to_owned())?;
@@ -94,6 +95,15 @@ pub(super) async fn preview_dataset_selection_impl(
                 .sheets
                 .get(index)
                 .ok_or_else(|| "La hoja seleccionada no existe en el libro.".to_owned())?;
+            title_row_count = match super::spreadsheet_io::spreadsheet_title_row_count(
+                &path,
+                sheet_name,
+                header_mode,
+                is_cancelled.clone(),
+            )? {
+                0 => None,
+                rows => Some(rows),
+            };
             if should_defer_source_load(&extension, pending.file_size_bytes)
                 && matches!(extension.as_str(), "xlsx" | "xlsb")
             {
@@ -224,6 +234,7 @@ pub(super) async fn preview_dataset_selection_impl(
             columns,
             schema_mismatch,
             unconverted_columns,
+            title_row_count,
         })
     })
     .await

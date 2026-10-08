@@ -585,14 +585,14 @@ medio = 1 día; agregado por suma.
   - [x] `PROD-11` (Propuesta) Receta: decimales con coma y fechas dd/mm en conversiones de tipo — hecho el 2026-10-07
   - [x] `PROD-12` (Propuesta) Propuesta: lista de columnas e inserción con cita correcta en la consola SQL — hecho el 2026-10-07
   - [x] `PROD-13` (Propuesta) Mostrar en la entrega el destino y un resumen de lo transformado — hecho el 2026-10-07
-- [ ] **RV113** — **Producto** — Los tres informes de pánico reales son anteriores a CODE-01 y no permiten identificar el… (y 5 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV113** — **Producto** — Los tres informes de pánico reales son anteriores a CODE-01 y no permiten identificar el… (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-08
   - Criterio de cierre: Hecho lo que proponen PROD-14, PROD-15, PROD-16, PROD-17, PROD-18, PROD-19.
   - [x] `PROD-14` (Propuesta) Los tres informes de pánico reales son anteriores a CODE-01 y no permiten identificar el origen (3 pánicos seguidos en `tokio-rt-worker`) — hecho el 2026-10-08
   - [x] `PROD-15` (Propuesta) Mostrar el controlador y el usuario en la confirmación nativa de la conexión remota — hecho el 2026-10-08
   - [x] `PROD-16` (Propuesta) Cancelación de entrega ODBC solo entre filas/lotes — hecho el 2026-10-08
   - [x] `PROD-17` (Propuesta) Exportar CSV compatible con Excel en configuración regional española — hecho el 2026-10-08
   - [x] `PROD-18` (Propuesta) Exportar fechas a XLSX como fechas — hecho el 2026-10-08
-  - [ ] `PROD-19` (Propuesta) Informar de hojas ocultas, celdas combinadas y filas de título al cargar libros — Avisos hechos el 2026-10-08 (hojas ocultas, celdas combinadas y fila de título); Requiere tu decisión: cómo elegir la fila de encabezado (automática o un número de fila), porque cambia la carga, el perfil de importación, las tareas y los proyectos
+  - [x] `PROD-19` (Propuesta) Informar de hojas ocultas, celdas combinadas y filas de título al cargar libros — Decidido: la fila de encabezado se detecta sola (salta las filas de título) y «Generar encabezados» lee todas las filas — hecho el 2026-10-08
 - [ ] **RV114** — **Producto** — Informar de qué muestra se usa en correlaciones y permitir su semilla/estrategia (y 1 problemas más) · *Esfuerzo: 4 h*
   - Criterio de cierre: Hecho lo que proponen PROD-20, PROD-21.
   - [x] `PROD-20` (Propuesta) Informar de qué muestra se usa en correlaciones y permitir su semilla/estrategia — hecho el 2026-10-08

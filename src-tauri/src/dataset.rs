@@ -9095,6 +9095,9 @@ pub struct DatasetImportSchemaPreview {
     /// FUN-80: columns the chosen conventions left as text, and why.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     unconverted_columns: Vec<UnconvertedColumn>,
+    /// PROD-19: rows above the header of a sheet that were skipped as titles.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title_row_count: Option<usize>,
 }
 
 #[tauri::command]

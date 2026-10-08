@@ -314,6 +314,30 @@ where
     }
 }
 
+/// PROD-19: rows read before deciding where the header is.
+const HEADER_DETECTION_ROWS: usize = 20;
+
+/// PROD-19: the header row from the filled cells of the first rows. Leading
+/// rows with one value at most (a title, a subtitle, a blank line) are
+/// skipped when a later row fills at least half of the widest one; anything
+/// else keeps the first row, as before.
+pub(super) fn detect_header_row(filled_cells: &[usize]) -> usize {
+    let widest = filled_cells.iter().copied().max().unwrap_or(0);
+    if widest < 3 {
+        return 0;
+    }
+    let needed = widest.div_ceil(2).max(2);
+    for (row, &filled) in filled_cells.iter().enumerate() {
+        if filled >= needed {
+            return row;
+        }
+        if filled > 1 {
+            return 0;
+        }
+    }
+    0
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct SpreadsheetSnapshotPlan {
     start: (u32, u32),
@@ -330,6 +354,11 @@ struct SpreadsheetSnapshotPlanBuilder {
     width: usize,
     height: usize,
     data_start: usize,
+    /// PROD-19: the header row once decided; `None` while the first rows are
+    /// still being buffered (first-row headers only).
+    header_row: Option<usize>,
+    pending: Vec<((usize, usize), Data)>,
+    filled_cells: Vec<usize>,
     header_values: Vec<String>,
     kinds: Vec<SpreadsheetColumnKind>,
     saw_cell: bool,
@@ -359,12 +388,16 @@ impl SpreadsheetSnapshotPlanBuilder {
         if width == 0 || height == 0 {
             return Err("La hoja seleccionada está vacía.".to_owned());
         }
-        let data_start = usize::from(header_mode == SpreadsheetHeaderMode::FirstRow);
+        let first_row = header_mode == SpreadsheetHeaderMode::FirstRow;
         Ok(Self {
             dimensions,
             width,
             height,
-            data_start,
+            // Generated headers read every row; first-row headers decide later.
+            data_start: 0,
+            header_row: (!first_row).then_some(usize::MAX),
+            pending: Vec::new(),
+            filled_cells: vec![0; HEADER_DETECTION_ROWS],
             header_values: vec![String::new(); width],
             kinds: vec![SpreadsheetColumnKind::Null; width],
             saw_cell: false,
@@ -396,7 +429,29 @@ impl SpreadsheetSnapshotPlanBuilder {
         self.saw_cell = true;
         self.used_rows = self.used_rows.max(row + 1);
         self.used_columns = self.used_columns.max(column + 1);
-        if row == 0 && self.data_start == 1 {
+        if self.header_row.is_none() {
+            if row < HEADER_DETECTION_ROWS {
+                self.filled_cells[row] += 1;
+                self.pending.push(((row, column), value));
+                return;
+            }
+            self.decide_header_row();
+        }
+        self.place((row, column), value);
+    }
+
+    /// PROD-19: fixes the header row and places the buffered first rows.
+    fn decide_header_row(&mut self) {
+        let header_row = detect_header_row(&self.filled_cells);
+        self.header_row = Some(header_row);
+        self.data_start = header_row + 1;
+        for (position, value) in std::mem::take(&mut self.pending) {
+            self.place(position, value);
+        }
+    }
+
+    fn place(&mut self, (row, column): (usize, usize), value: Data) {
+        if Some(row) == self.header_row {
             self.header_values[column] = value.to_string();
             return;
         }
@@ -418,6 +473,9 @@ impl SpreadsheetSnapshotPlanBuilder {
     ) -> Result<SpreadsheetSnapshotPlan, String> {
         if !self.saw_cell {
             return Err("La hoja seleccionada está vacía.".to_owned());
+        }
+        if self.header_row.is_none() {
+            self.decide_header_row();
         }
         self.width = self.used_columns;
         self.height = self.used_rows.max(self.data_start);
@@ -925,6 +983,65 @@ pub(super) fn spreadsheet_range_to_frame(
     spreadsheet_range_to_frame_with_cancel(range, header_mode, &|| false)
 }
 
+/// Filled cells of the first rows of a range, for [`detect_header_row`].
+fn range_filled_cells(range: &Range<Data>) -> Vec<usize> {
+    (0..range.height().min(HEADER_DETECTION_ROWS))
+        .map(|row| {
+            (0..range.width())
+                .filter(|&column| {
+                    range
+                        .get((row, column))
+                        .is_some_and(|cell| !matches!(cell, Data::Empty))
+                })
+                .count()
+        })
+        .collect()
+}
+
+/// PROD-19: how many rows above the header the loaders skip, for Cargar to
+/// say so. It reads only the first rows; streaming and range paths count
+/// from the same origin as their loaders.
+pub(super) fn spreadsheet_title_row_count(
+    path: &Path,
+    sheet_name: &str,
+    header_mode: SpreadsheetHeaderMode,
+    is_cancelled: impl Fn() -> bool,
+) -> Result<usize, String> {
+    if header_mode != SpreadsheetHeaderMode::FirstRow {
+        return Ok(0);
+    }
+    const FIRST_ROWS_READ: &str = "first rows read";
+    let mut filled_cells = vec![0_usize; HEADER_DETECTION_ROWS];
+    let streamed = visit_streamed_spreadsheet_cells(
+        path,
+        sheet_name,
+        |dimensions, position, value| {
+            let row = position.0.saturating_sub(dimensions.start.0) as usize;
+            if row >= HEADER_DETECTION_ROWS {
+                return Err(FIRST_ROWS_READ.to_owned());
+            }
+            if position.1 >= dimensions.start.1 && !matches!(value, Data::Empty) {
+                filled_cells[row] += 1;
+            }
+            Ok(())
+        },
+        is_cancelled,
+    );
+    match streamed {
+        Ok(()) => Ok(detect_header_row(&filled_cells)),
+        Err(error) if error == FIRST_ROWS_READ => Ok(detect_header_row(&filled_cells)),
+        Err(error) if error == SPREADSHEET_STREAMING_UNSUPPORTED => {
+            let mut workbook = open_workbook_auto(path)
+                .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
+            let range = workbook
+                .worksheet_range(sheet_name)
+                .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
+            Ok(detect_header_row(&range_filled_cells(&range)))
+        }
+        Err(error) => Err(error),
+    }
+}
+
 pub(super) fn spreadsheet_range_to_frame_with_cancel<C>(
     range: &Range<Data>,
     header_mode: SpreadsheetHeaderMode,
@@ -939,7 +1056,14 @@ where
     }
     let width = range.width();
     let height = range.height();
-    let data_start = usize::from(header_mode == SpreadsheetHeaderMode::FirstRow);
+    let header_row = match header_mode {
+        SpreadsheetHeaderMode::FirstRow => detect_header_row(&range_filled_cells(range)),
+        SpreadsheetHeaderMode::Generated => 0,
+    };
+    let data_start = match header_mode {
+        SpreadsheetHeaderMode::FirstRow => header_row + 1,
+        SpreadsheetHeaderMode::Generated => 0,
+    };
     let headers = match header_mode {
         SpreadsheetHeaderMode::FirstRow => {
             let mut headers = Vec::with_capacity(width);
@@ -949,7 +1073,7 @@ where
                 }
                 headers.push(
                     range
-                        .get((0, column))
+                        .get((header_row, column))
                         .map(ToString::to_string)
                         .unwrap_or_default(),
                 );

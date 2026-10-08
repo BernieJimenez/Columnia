@@ -14,8 +14,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 - Al elegir la hoja de un libro, Cargar marca las hojas ocultas como «(oculta)»
   y elige una visible por defecto, avisa de cuántos rangos de celdas combinadas
-  tiene la hoja (solo la primera celda conserva el valor) y, si la primera fila
-  parece un título, lo dice antes de cargar (PROD-19, en curso).
+  tiene la hoja (solo la primera celda conserva el valor) y salta solo las filas
+  de título que haya encima de la tabla, diciendo en qué fila encontró los
+  encabezados; «Generar encabezados» sigue leyendo todas las filas como datos
+  (PROD-19).
 - Si Columnia tuvo un fallo interno desde la sesión anterior, Cargar lo avisa
   una vez con cuántos informes de fallo se guardaron y dónde están (carpeta de
   datos, crash-reports); los informes no incluyen datos y nombran la biblioteca

@@ -223,6 +223,20 @@ describe("LoadPhase", () => {
     expect(notes).toHaveTextContent("La primera fila parece un título");
   });
 
+  it("dice en qué fila encontró los encabezados cuando saltó filas de título (PROD-19)", () => {
+    const inspection = completeSchemaPreview(workbookInspection(workbook), {
+      rowCount: 2,
+      columns: [{ name: "zona", dataType: "String" }, { name: "unidades", dataType: "Int64" }],
+      schemaMismatch: null,
+      titleRowCount: 3,
+    });
+    render(<LoadPhase {...loadPhaseProps()} inspection={inspection} />);
+    const notes = screen.getByRole("region", { name: "Avisos del libro" });
+    expect(notes).toHaveTextContent("Encabezados en la fila 4");
+    expect(notes).toHaveTextContent("las 3 filas de encima");
+    expect(notes).toHaveTextContent("«Generar encabezados»");
+  });
+
   it("expone el diálogo accesible y emite acciones nominales para la hoja", () => {
     const onSheetAction = vi.fn();
     render(

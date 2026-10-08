@@ -45,6 +45,8 @@ export interface DatasetImportSchemaPreview {
   schemaMismatch: ImportProfileMismatch | null;
   /** FUN-80: columns the chosen conventions left as text, and why. */
   unconvertedColumns?: UnconvertedColumn[];
+  /** PROD-19: rows above the header of a sheet that were skipped as titles. */
+  titleRowCount?: number;
 }
 
 interface UnconvertedColumn {
