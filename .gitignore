@@ -17,3 +17,14 @@ docs/auditorias/
 # Skills locales del agente: solo en local (LIM-15)
 .agents/
 skills-lock.json
+
+# Secretos y artefactos de publicación: nunca en el repositorio (OPS-23)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+.tauri/
+*.sha256

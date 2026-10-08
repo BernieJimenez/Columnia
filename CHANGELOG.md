@@ -133,6 +133,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Seguridad
 
+- .gitignore deja fuera los secretos típicos y los artefactos de publicación
+  (.env, *.pem, *.key, *.pfx, *.p12, .tauri/ y *.sha256); .gitattributes ya
+  fijaba LF desde OPS-03 (OPS-23).
 - La comparación de dos revisiones en Preparar ya no muestra por nombre las
   columnas con datos personales: aparecen como «Columna personal 1», «Columna
   personal 2»…, también en sus reglas de calidad (LIM-16).
