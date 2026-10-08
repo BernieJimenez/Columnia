@@ -249,6 +249,39 @@ fn is_row_identifier(column: &ColumnProfile, row_count: usize) -> bool {
     }
 }
 
+/// Rows from which «almost every row distinct» says key rather than chance.
+const MIN_ROWS_FOR_NEAR_UNIQUE: usize = 20;
+
+/// The automatic panel leaves keys out; «Personalizar» still offers them.
+/// Text with a distinct value in almost every row, or a row number with gaps
+/// but no repeats; names such as `id` are already privacy signals. Unique
+/// prices stay a measure.
+fn looks_like_identifier(column: &ColumnProfile, row_count: usize, numeric: bool) -> bool {
+    if is_row_identifier(column, row_count) {
+        return true;
+    }
+    let filled = row_count.saturating_sub(column.null_count);
+    let near_unique = filled >= MIN_ROWS_FOR_NEAR_UNIQUE
+        && column.unique_count.saturating_mul(100) >= filled.saturating_mul(95);
+    if !near_unique {
+        return false;
+    }
+    if !numeric {
+        return true;
+    }
+    let bound =
+        |value: &Option<String>| value.as_deref().and_then(|value| value.parse::<f64>().ok());
+    match (bound(&column.minimum), bound(&column.maximum)) {
+        (Some(minimum), Some(maximum)) => {
+            column.unique_count >= filled
+                && minimum.fract() == 0.0
+                && maximum.fract() == 0.0
+                && maximum - minimum + 1.0 <= filled as f64 * 1.1
+        }
+        _ => false,
+    }
+}
+
 fn plan_panel(profile: &DatasetProfile) -> PanelPlan {
     let columns = profile
         .columns
@@ -287,6 +320,9 @@ fn plan_panel(profile: &DatasetProfile) -> PanelPlan {
             }
         }
         let entry = (column.name.clone(), column.unique_count);
+        if looks_like_identifier(column, profile.row_count, numeric) && !dated {
+            continue;
+        }
         if dated {
             date.get_or_insert_with(|| column.name.clone());
         } else if numeric {

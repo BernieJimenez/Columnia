@@ -1030,6 +1030,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - RV04: si falla cancelar una importación pendiente o liberar su selección temporal, Columnia conserva el `selectionId`, identifica el paso pendiente y permite reintentarlo sin repetir el paso completado. Las nuevas inspecciones permanecen bloqueadas hasta completar la limpieza.
 
 ### Mejorado
+- El panel automático de Explorar deja fuera las columnas que parecen claves:
+  texto con un valor distinto en casi cada fila y números de fila con huecos.
+  «Personalizar» las sigue ofreciendo.
 - El análisis de calidad de Revisar es unas 2,5 veces más rápido en archivos medianos (338 MB: de 12 s a 5 s) y en archivos grandes muestra qué paso está haciendo tras leer las filas (REN-01, en curso).
 - Cada cambio de Preparar añade a su «Último resultado» un resumen común:
   cuántas celdas quedaron vacías, cuántas filas se quitaron y si se puede

@@ -19422,6 +19422,50 @@ fn explore_panel_chooses_charts_from_the_profile_and_counts_every_row() {
 }
 
 #[test]
+fn explore_panel_leaves_identifiers_out_of_the_automatic_charts() {
+    // The real app drew an identifier column; Personalizar still offers it.
+    let rows = 40_i64;
+    let numbered: Vec<i64> = (1..=rows + 3).filter(|row| row % 13 != 0).collect();
+    let folio: Vec<String> = (0..rows)
+        .map(|row| format!("F-{:03}", row.min(rows - 2)))
+        .collect();
+    let price: Vec<i64> = (0..rows).map(|row| 100 + row * row * 3).collect();
+    let region: Vec<&str> = (0..rows)
+        .map(|row| ["Norte", "Sur", "Este", "Oeste"][row as usize % 4])
+        .collect();
+    let zone: Vec<i64> = (0..rows).map(|row| row % 3 + 1).collect();
+    let frame = df!(
+        "numero" => numbered,
+        "folio" => folio,
+        "precio" => price,
+        "region" => region,
+        "zona" => zone,
+    )
+    .expect("frame de prueba");
+    let profile = profile_dataset(&frame).expect("perfil");
+    let panel = explore::explore_panel(frame.lazy(), &profile, &[], &ExploreLayout::default())
+        .expect("panel");
+    let value = serde_json::to_value(&panel).unwrap();
+
+    let names = |list: &serde_json::Value| {
+        list.as_array()
+            .unwrap()
+            .iter()
+            .map(|item| {
+                item.as_str().map_or_else(
+                    || item["column"].as_str().unwrap().to_owned(),
+                    str::to_owned,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(&value["categories"]), ["region", "zona"]);
+    assert_eq!(value["histogram"]["column"], "precio");
+    assert_eq!(value["kpis"][1]["column"], "precio");
+    assert!(names(&value["options"]["measures"]).contains(&"numero".to_owned()));
+}
+
+#[test]
 fn a_poisoned_lock_still_keeps_the_dropped_file_and_the_last_export() {
     // COD-12: the writers used `lock().ok()` and dropped the value.
     let state = std::sync::Arc::new(DatasetState::default());
