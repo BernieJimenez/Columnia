@@ -21583,6 +21583,29 @@ fn a_lone_word_marker_is_kept_as_data_in_every_path() {
     assert!(large.equals_missing(&cleaned));
 }
 
+/// PROD-17: Excel in Spanish reads `1.5` as text or a date; «CSV para Excel»
+/// writes decimal numbers with a comma, the plain CSV keeps the point.
+#[test]
+fn excel_csv_writes_decimal_numbers_with_a_comma() {
+    let frame = df!(
+        "importe" => [Some(1.5_f64), Some(-2.25), None],
+        "unidades" => [Some(3_i64), Some(4), Some(5)],
+    )
+    .unwrap();
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    let excel = directory.path().join("excel.csv");
+    export_frame_atomic(&frame, &excel, ExportFormat::CsvExcel, |_, _| {}, || false)
+        .expect("CSV para Excel");
+    let text = String::from_utf8(fs::read(&excel).unwrap()[3..].to_vec()).unwrap();
+    assert!(text.contains("1,5;3"), "{text}");
+    assert!(text.contains("-2,25;4"), "{text}");
+
+    let plain = directory.path().join("plano.csv");
+    export_frame_atomic(&frame, &plain, ExportFormat::Csv, |_, _| {}, || false).unwrap();
+    let plain_text = fs::read_to_string(&plain).unwrap();
+    assert!(plain_text.contains("1.5,3"), "{plain_text}");
+}
+
 /// UX-03: «CSV para Excel» starts with the UTF-8 BOM and separates with `;`,
 /// in memory and from a large file, so Excel opens it in columns with the
 /// accents right; the plain CSV keeps commas and no BOM.

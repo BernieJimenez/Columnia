@@ -92,6 +92,7 @@ where
         .expect("el tamaño de lote CSV debe ser mayor que cero");
     let mut writer = CsvWriter::new(&mut *output)
         .with_separator(if excel { b';' } else { b',' })
+        .with_decimal_comma(excel)
         .with_batch_size(batch_size)
         .batched(frame.schema().as_ref())
         .map_err(|error| format!("No se pudo preparar el escritor CSV: {error}"))?;

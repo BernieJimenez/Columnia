@@ -826,7 +826,7 @@ export function DeliveryPhase({
               disabled={busy}
             >
               <option value="csv">CSV</option>
-              <option value="csv_excel">CSV para Excel (punto y coma, tildes correctas)</option>
+              <option value="csv_excel">CSV para Excel (punto y coma, coma decimal, tildes correctas)</option>
               <option value="json">JSON</option>
               <option value="parquet">Parquet</option>
               <option value="sql">SQL</option>

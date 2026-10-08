@@ -1038,6 +1038,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 - Si los datos cambian después de Revisar (por ejemplo, al aplicar un cambio en
+- «CSV para Excel» (UTF-8 con BOM y punto y coma) escribe además los números
+  decimales con coma, como los espera Excel en español; en archivos grandes que
+  se exportan desde el origen, los valores salen tal como estaban escritos
+  (PROD-17).
 - Una entrega ODBC con un lote INSERT bloqueado (por ejemplo, por un bloqueo de
   tabla) se detiene a los 30 s en lugar de a los 300 s, así que Cancelar y el
   error llegan antes; ODBC no permite interrumpir con seguridad una llamada ya
