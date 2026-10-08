@@ -278,9 +278,10 @@ try {
         Invoke-Checked "Network policy" $ProjectRoot {
             & node tools/check-network-policy.mjs
         }
-        # Baseline only: the per-module report is recorded, not enforced, until
-        # there is a history to set thresholds from (T10-18).
-        Invoke-Checked "Rust coverage baseline" $TauriRoot {
+        # QA-60: every module keeps the minimum in
+        # fixtures/coverage/rust-coverage-thresholds.json (set from the history
+        # recorded since T10-18).
+        Invoke-Checked "Rust coverage" $TauriRoot {
             if (-not (Get-Command cargo-llvm-cov -ErrorAction SilentlyContinue)) {
                 throw "Falta cargo-llvm-cov. Instálalo con: cargo install cargo-llvm-cov; rustup component add llvm-tools-preview"
             }
@@ -292,7 +293,7 @@ try {
             try {
                 cargo llvm-cov --lib --json --summary-only --output-path $rawCoverage
                 if ($LASTEXITCODE -eq 0) {
-                    node (Join-Path $ProjectRoot "tools\summarize-rust-coverage.mjs") $rawCoverage $coverageBaseline
+                    node (Join-Path $ProjectRoot "tools\summarize-rust-coverage.mjs") $rawCoverage $coverageBaseline --thresholds (Join-Path $ProjectRoot "fixtures\coverage\rust-coverage-thresholds.json")
                 }
             }
             finally {

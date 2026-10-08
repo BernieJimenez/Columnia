@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { summarizeRustCoverage } from "./summarize-rust-coverage.mjs";
+import { rustCoverageProblems, summarizeRustCoverage, thresholdsFromBaseline } from "./summarize-rust-coverage.mjs";
 
 const file = (filename, count, covered) => ({ filename, summary: { lines: { count, covered } } });
 
@@ -55,4 +55,26 @@ test("solo agrupa directorios que son módulos y distingue un módulo sin línea
       ["empty", 1, null],
     ],
   );
+});
+
+test("un módulo por debajo de su umbral o sin umbral hace fallar la cobertura (QA-60)", () => {
+  const baseline = {
+    modules: [
+      { module: "dataset", linePercent: 72.19 },
+      { module: "privacy", linePercent: 96.62 },
+      { module: "nuevo", linePercent: 40 },
+      { module: "vacio", linePercent: null },
+    ],
+  };
+  const thresholds = { modules: { dataset: 71, privacy: 97, vacio: 0 } };
+  const problems = rustCoverageProblems(baseline, thresholds);
+  assert.equal(problems.length, 2);
+  assert.match(problems[0], /privacy.*96\.62.*97/);
+  assert.match(problems[1], /nuevo.*no tiene umbral/);
+  assert.deepEqual(rustCoverageProblems({ modules: [{ module: "dataset", linePercent: 72.19 }] }, thresholds), []);
+});
+
+test("los umbrales iniciales dejan un punto de margen bajo la medida (QA-60)", () => {
+  const thresholds = thresholdsFromBaseline({ modules: [{ module: "dataset", linePercent: 72.19 }, { module: "lib", linePercent: 18.09 }, { module: "vacio", linePercent: null }] });
+  assert.deepEqual(thresholds.modules, { dataset: 71, lib: 17, vacio: 0 });
 });

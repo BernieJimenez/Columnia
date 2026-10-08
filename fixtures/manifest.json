@@ -28,6 +28,7 @@
     "beta/inventory-after.csv",
     "beta/inventory-before.csv",
     "beta/monthly-sales.csv",
+    "coverage/rust-coverage-thresholds.json",
     "incremental/paths-v1.json",
     "performance/dataset-scale-matrix-v1.json",
     "performance/performance-baseline-v1.json",

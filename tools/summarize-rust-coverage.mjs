@@ -1,6 +1,7 @@
 // Summarizes a `cargo llvm-cov --json --summary-only` export into a per-module
-// line-coverage baseline. It records the baseline; it does not enforce limits
-// until the Rust coverage has a history to compare against.
+// line-coverage baseline and, with `--thresholds`, fails when a module drops
+// below its minimum (QA-60). The minimums live in
+// fixtures/coverage/rust-coverage-thresholds.json.
 import { readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
@@ -50,10 +51,45 @@ export function summarizeRustCoverage(exportDocument) {
   };
 }
 
+/**
+ * QA-60: modules below their minimum, or measured without one. A new module
+ * must get its threshold in the same change that adds it.
+ */
+export function rustCoverageProblems(baseline, thresholds) {
+  const minimums = thresholds?.modules ?? {};
+  const problems = [];
+  for (const row of baseline.modules) {
+    if (!Object.hasOwn(minimums, row.module)) {
+      problems.push(`El módulo ${row.module} no tiene umbral de cobertura; añádelo a fixtures/coverage/rust-coverage-thresholds.json.`);
+      continue;
+    }
+    if (row.linePercent !== null && row.linePercent < minimums[row.module]) {
+      problems.push(`La cobertura de ${row.module} bajó a ${row.linePercent} % (mínimo ${minimums[row.module]} %).`);
+    }
+  }
+  return problems;
+}
+
+/** Minimums one point below a measurement, rounded down to whole percents. */
+export function thresholdsFromBaseline(baseline) {
+  return {
+    contract: "columnia-rust-coverage-thresholds",
+    schemaVersion: 1,
+    modules: Object.fromEntries(baseline.modules.map((row) => [
+      row.module,
+      row.linePercent === null ? 0 : Math.max(0, Math.floor(row.linePercent - 1)),
+    ])),
+  };
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  const [input, output] = process.argv.slice(2);
-  if (!input || !output) {
-    console.error("Uso: node tools/summarize-rust-coverage.mjs <llvm-cov.json> <baseline.json>");
+  const args = process.argv.slice(2);
+  const thresholdsIndex = args.indexOf("--thresholds");
+  const thresholdsPath = thresholdsIndex >= 0 ? args[thresholdsIndex + 1] : null;
+  const writeThresholds = args.includes("--write-thresholds");
+  const [input, output] = args.filter((arg, index) => !arg.startsWith("--") && index !== thresholdsIndex + 1);
+  if (!input || !output || (thresholdsIndex >= 0 && !thresholdsPath)) {
+    console.error("Uso: node tools/summarize-rust-coverage.mjs <llvm-cov.json> <baseline.json> [--thresholds <umbrales.json> [--write-thresholds]]");
     process.exit(2);
   }
   try {
@@ -62,6 +98,14 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     console.log(`Cobertura Rust: ${baseline.totalLinePercent}% de líneas en ${baseline.modules.length} módulos.`);
     for (const row of baseline.modules) {
       console.log(`  ${row.module.padEnd(28)} ${String(row.linePercent ?? "—").padStart(6)}%  (${row.coveredLines}/${row.lines})`);
+    }
+    if (thresholdsPath && writeThresholds) {
+      await writeFile(thresholdsPath, `${JSON.stringify(thresholdsFromBaseline(baseline), null, 2)}\n`);
+      console.log(`Umbrales escritos en ${thresholdsPath}.`);
+    } else if (thresholdsPath) {
+      const problems = rustCoverageProblems(baseline, JSON.parse(await readFile(thresholdsPath, "utf8")));
+      if (problems.length > 0) throw new Error(problems.join(" "));
+      console.log("Cobertura Rust por encima de los umbrales de cada módulo.");
     }
   } catch (error) {
     console.error(`No se pudo resumir la cobertura Rust: ${error instanceof Error ? error.message : String(error)}`);

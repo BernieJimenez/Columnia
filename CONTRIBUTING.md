@@ -62,8 +62,10 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib <filtro>
 cargo test --manifest-path src-tauri/Cargo.toml --lib <filtro> -- --ignored
 ```
 
-`Full` también ejecuta los E2E, el escaneo de secretos, la política de red y una
-línea base de cobertura Rust por módulo. Esta última necesita `cargo-llvm-cov`:
+`Full` también ejecuta los E2E, el escaneo de secretos, la política de red y la
+cobertura Rust por módulo, que falla si un módulo baja de su mínimo en
+`fixtures/coverage/rust-coverage-thresholds.json` (un módulo nuevo necesita su
+umbral). Esta última necesita `cargo-llvm-cov`:
 
 ```powershell
 cargo install cargo-llvm-cov

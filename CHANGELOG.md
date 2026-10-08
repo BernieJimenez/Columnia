@@ -1196,6 +1196,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- La cobertura Rust tiene puerta: el perfil Full falla si un módulo baja de su
+  mínimo en fixtures/coverage/rust-coverage-thresholds.json (la medida del
+  2026-10-08 menos un punto) o si aparece un módulo sin umbral (QA-60).
 - Un test fija que, en archivos grandes, 01/02/2025 se convierte en 1 de febrero
   con DMY y en 2 de enero con MDY, y que 1.234,50 y 1,5 se leen como 1234,5 y
   1,5 con coma decimal, igual que en memoria (QA-59).

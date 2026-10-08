@@ -606,7 +606,7 @@ medio = 1 día; agregado por suma.
   - [ ] `QA-57` (Propuesta) Pruebas de mutación en los módulos críticos
   - [x] `QA-58` (Propuesta) Probar claves de JOIN con nulos, ceros a la izquierda y espacios también en la ruta DuckDB — hecho el 2026-10-08
   - [x] `QA-59` (Propuesta) Casos de borde de los límites numéricos en la ruta source-backed (coma decimal, día/mes ambiguo) — hecho el 2026-10-08
-  - [ ] `QA-60` (Propuesta) Puerta de cobertura para Rust
+  - [x] `QA-60` (Propuesta) Puerta de cobertura para Rust — hecho el 2026-10-08
   - [x] `QA-61` (Propuesta) Un único `npm run test:tools` que ejecute todos los `node --test` de `tools/` — hecho el 2026-10-08
 - [x] **RV117** — **QA y testing** — Quitar los números fijos del inventario IPC y comprobarlo contra TypeScript · *Esfuerzo: 2 h* — hecho el 2026-10-08
   - Criterio de cierre: Hecho lo que proponen QA-62.
