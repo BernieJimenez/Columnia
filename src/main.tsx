@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import "./styles.css";
+import { errorMessage } from "./bridge/errors";
 
 if (typeof performance !== "undefined") {
   performance.mark("columnia:app-bootstrap");
@@ -42,5 +43,5 @@ async function renderApp() {
 
 // ARQ-03: a failed start shows a message instead of an empty window.
 renderApp().catch((error: unknown) => {
-  appRoot.textContent = `Columnia no pudo iniciar: ${error instanceof Error ? error.message : String(error)}. Cierra y vuelve a abrir la aplicación.`;
+  appRoot.textContent = `Columnia no pudo iniciar: ${errorMessage(error)}. Cierra y vuelve a abrir la aplicación.`;
 });

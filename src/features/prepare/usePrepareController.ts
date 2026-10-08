@@ -39,6 +39,7 @@ import {
 } from "../../bridge";
 import { EMPTY_HISTORY, appliedPlanChanges, nullifiedCellsSentence, type ChangeStatus } from "./prepareModel";
 import { isRowAuditColumn } from "../../rowAudit";
+import { errorMessage } from "../../bridge/errors";
 
 interface PrepareControllerOptions {
   activeDataset: DatasetPreview | null;
@@ -89,7 +90,7 @@ export function usePrepareController({
   }
 
   function changeFailureStatus(error: unknown): ChangeStatus {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return isCancellationError(error)
       ? { kind: "cancelled", message: "Preparación cancelada. El dataset anterior sigue activo." }
       : { kind: "error", message };

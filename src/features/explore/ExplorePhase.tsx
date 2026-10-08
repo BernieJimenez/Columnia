@@ -24,6 +24,7 @@ import {
 } from "./exploreModel";
 import "./explore.css";
 import { plural } from "../../plural";
+import { errorMessage } from "../../bridge/errors";
 
 interface ExplorePhaseProps {
   dataset: DatasetPreview;
@@ -123,7 +124,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
         // The last panel stays, so its chips can still remove the filter that failed (UX-01).
         setState((previous) => ({
           kind: "error",
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
           previous: previous.kind === "ready" ? previous.panel : previous.previous,
         }));
       },

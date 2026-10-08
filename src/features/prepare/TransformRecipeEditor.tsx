@@ -18,6 +18,7 @@ import { canMapRecipeSchema, inspectRecipeSchema, mapRecipeColumns, recipeSource
 import { buildTransformPreview, visibleColumnNames, type TransformPreview } from "./transformAdvisor";
 import { isDateType, isDatetimeType, isNumericType, isTextType } from "../../dataTypes";
 import { plural } from "../../plural";
+import { errorMessage } from "../../bridge/errors";
 
 function operationGroupStatus(count: number, singular: string, pluralLabel: string) {
   if (count === 0) return "Sin cambios";
@@ -432,7 +433,7 @@ export function TransformRecipeEditor({
         ? { kind: "success", message: `Receta guardada: ${saved.name}. Los cambios posteriores no se guardan automáticamente.` }
         : { kind: "idle" });
     } catch (error) {
-      setRecipeFileStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setRecipeFileStatus({ kind: "error", message: errorMessage(error) });
     }
   }
 
@@ -493,7 +494,7 @@ export function TransformRecipeEditor({
         setRecipeFileStatus({ kind: "success", message: `Receta cargada: ${loaded.name}. Revísala antes de aplicarla.` });
       }
     } catch (error) {
-      setRecipeFileStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setRecipeFileStatus({ kind: "error", message: errorMessage(error) });
     }
   }
 

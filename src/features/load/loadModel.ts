@@ -11,6 +11,7 @@ import type {
   SpreadsheetHeaderMode,
 } from "../../bridge";
 import { importProfileApplicability } from "./importProfile";
+import { toBridgeError } from "../../bridge/errors";
 
 export type ReadyDatasetStatus = {
   kind: "ready";
@@ -280,13 +281,15 @@ export function setLoadInspectionError(
     : { kind: "error", message };
 }
 
-/** Mirrors LEGACY_ENCODING_PREFIX in Rust: a delimited file that reads as Windows-1252. */
-export const LEGACY_ENCODING_PREFIX = "__columnia_legacy_encoding__:windows-1252:";
+export { LEGACY_ENCODING_PREFIX } from "../../bridge/errors";
 
 /**
  * The decoded example that follows the prefix ("" when the engine found the
  * byte after the sample), or null when the message is an ordinary error.
+ * PROD-08: decided by the bridge error's code.
  */
 export function legacyEncodingExample(message: string | null | undefined): string | null {
-  return message?.startsWith(LEGACY_ENCODING_PREFIX) ? message.slice(LEGACY_ENCODING_PREFIX.length) : null;
+  if (message == null) return null;
+  const error = toBridgeError(message);
+  return error.code === "legacyEncoding" ? error.example : null;
 }

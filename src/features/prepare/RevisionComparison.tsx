@@ -14,6 +14,7 @@ import { isCancellationError } from "../../bridge/cancellation";
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { QUALITY_RULE_SUMMARY } from "../delivery/deliveryModel";
 import { formatPercent } from "../../format";
+import { errorMessage } from "../../bridge/errors";
 
 type ComparisonState =
   | { kind: "idle" }
@@ -116,7 +117,7 @@ export function RevisionComparison({
         setComparison({ kind: "cancelled" });
         return;
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       setComparison({ kind: "error", message });
     }
   }

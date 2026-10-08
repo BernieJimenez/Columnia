@@ -10,6 +10,7 @@ import type {
 import type { ComparisonStatus } from "./compareModel";
 import type { JoinStatus, ReviewMutationStatus } from "./joinModel";
 import { formatDataType } from "../../format";
+import { errorMessage } from "../../bridge/errors";
 
 const CONFLICT_PAGE_SIZE = 50;
 
@@ -194,7 +195,7 @@ export function DatasetComparisonSection({
     try {
       await cancelOperation("datasetComparison");
     } catch (error: unknown) {
-      setConflictPageCancellationError(error instanceof Error ? error.message : String(error));
+      setConflictPageCancellationError(errorMessage(error));
       setConflictPageCancellationPending(false);
     }
   }

@@ -23,6 +23,7 @@ import {
   type DeliveryExportRequest,
   type DeliveryExportState,
 } from "./deliveryModel";
+import { errorMessage } from "../../bridge/errors";
 
 /** Delivery settings a project or a reusable task stores and restores. */
 interface DeliverySettings {
@@ -44,10 +45,6 @@ interface DeliveryControllerOptions {
   recipeDraft: SavedRecipe | null;
 }
 
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export function useDeliveryController({
   datasetRevisionRef,

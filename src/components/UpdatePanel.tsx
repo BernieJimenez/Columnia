@@ -10,6 +10,7 @@ import {
   type UpdaterProgress,
 } from "../bridge";
 import { formatBytes } from "../format";
+import { errorMessage } from "../bridge/errors";
 
 type UpdateState =
   | { kind: "idle" }
@@ -25,10 +26,6 @@ type UpdateState =
 interface UpdatePanelProps {
   enabled: boolean;
   currentVersion: string | null;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function formatUpdateBytes(bytes: number | null): string {

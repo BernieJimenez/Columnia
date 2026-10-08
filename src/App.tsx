@@ -107,6 +107,7 @@ import {
   readPerformanceProfile,
   writePerformanceProfile,
 } from "./features/settings/performanceModel";
+import { errorMessage } from "./bridge/errors";
 
 type AppStatus =
   | { kind: "loading" }
@@ -425,7 +426,7 @@ export function App() {
       .then((info) => active && setStatus({ kind: "ready", info }))
       .catch((error: unknown) => {
         if (active) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = errorMessage(error);
           setStatus({ kind: "error", message });
         }
       });
@@ -503,7 +504,7 @@ export function App() {
       );
     } catch (error: unknown) {
       if (headerPreviewRequestRef.current !== requestId) return;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       setLoadInspection((current) =>
         current.kind === "sheet" && current.source.selectionId === source.selectionId
           ? setLoadInspectionError(current, message)
@@ -531,7 +532,7 @@ export function App() {
       );
       void requestDelimitedHeaderReview(converted);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       setLoadInspection((current) =>
         current.kind === "sheet" && current.source.selectionId === source.selectionId
           ? setLoadInspectionError(current, message)
@@ -581,7 +582,7 @@ export function App() {
       );
     } catch (error: unknown) {
       if (schemaPreviewRequestRef.current !== requestId) return;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       setLoadInspection((current) =>
         current.kind === "sheet" && current.source.selectionId === selectionId
           ? failSchemaPreview(current, message)
@@ -694,7 +695,7 @@ export function App() {
         ));
         return;
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       setLoadInspection((current) => setLoadInspectionError(current, message));
     } finally {
       if (loadRequestRef.current === requestId) setSelectionFinalizing(false);
@@ -745,7 +746,7 @@ export function App() {
         setLoadInspection({ kind: "idle" });
         return;
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       setLoadInspection((current) => setLoadInspectionError(current, message));
     } finally {
       if (isCurrentRequest()) {
@@ -818,7 +819,7 @@ export function App() {
         await cancelOperation("load");
         cancelPending = false;
       } catch (error: unknown) {
-        errors.push(error instanceof Error ? error.message : String(error));
+        errors.push(errorMessage(error));
       }
     }
     if (discardPending) {
@@ -826,7 +827,7 @@ export function App() {
         await discardDatasetSelection(source.selectionId);
         discardPending = false;
       } catch (error: unknown) {
-        errors.push(error instanceof Error ? error.message : String(error));
+        errors.push(errorMessage(error));
       }
     }
 
@@ -1012,7 +1013,7 @@ export function App() {
     try {
       await cancelOperation("load");
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       setDatasetStatus((current) => recoverDatasetLoadCancellationFailure(current, message));
     }
   }
@@ -1039,7 +1040,7 @@ export function App() {
         setDatasetStatus(previous);
         return;
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       setDatasetStatus(failPageLoad(previous, message));
     } finally {
       if (pageRequestRef.current === requestId) {

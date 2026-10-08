@@ -49,6 +49,7 @@ import {
   suggestedTypeLabel,
 } from "./ReviewCharts";
 import { plural } from "../../plural";
+import { errorMessage } from "../../bridge/errors";
 
 interface ReviewPhaseProps {
   datasetStatus: ReadyDatasetStatus;
@@ -466,7 +467,7 @@ function LocalQueryPanel({
       recordQueryHistory(requestId, "error");
       setState({
         kind: "error",
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }
@@ -487,7 +488,7 @@ function LocalQueryPanel({
       cancelledQueryRef.current = null;
       setState({
         kind: "error",
-        message: `No se pudo cancelar la consulta: ${error instanceof Error ? error.message : String(error)}`,
+        message: `No se pudo cancelar la consulta: ${errorMessage(error)}`,
       });
     }
   }

@@ -44,6 +44,7 @@ import {
   type AnalysisSampleRows,
   type ProfileStatus,
 } from "./reviewModel";
+import { errorMessage } from "../../bridge/errors";
 
 const CONFLICT_PAGE_SIZE = 50;
 
@@ -90,10 +91,6 @@ interface ReviewControllerOptions {
   onDatasetReplaced: (dataset: DatasetPreview, mutation: ReviewMutationKind) => Promise<void>;
 }
 
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export function useReviewController({
   datasetRevisionRef,

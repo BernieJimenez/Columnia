@@ -11,6 +11,7 @@ import {
   type DeliveryPresetSummary,
 } from "../../bridge";
 import { plural } from "../../plural";
+import { errorMessage } from "../../bridge/errors";
 
 interface DeliveryPresetsProps {
   dataset: DatasetPreview;
@@ -59,7 +60,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
       setPresetsLoaded(true);
     } catch (error: unknown) {
       if (!presetsMounted.current || request !== presetsRequestGeneration.current) return;
-      setPresetsError(error instanceof Error ? error.message : String(error));
+      setPresetsError(errorMessage(error));
     } finally {
       if (presetsMounted.current && request === presetsRequestGeneration.current) {
         presetsCatalogInFlight.current = false;
@@ -78,7 +79,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
       await cancelOperation("deliveryPresetCatalog");
     } catch (error: unknown) {
       if (presetsMounted.current && request === presetsRequestGeneration.current) {
-        setPresetsError(error instanceof Error ? error.message : String(error));
+        setPresetsError(errorMessage(error));
       }
     } finally {
       if (presetsMounted.current && request === presetsRequestGeneration.current) {
@@ -107,7 +108,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
       setOpenedPreset(preset);
       setPresetNotice("Preset guardado localmente. Las credenciales de conexión no se almacenan.");
     } catch (error: unknown) {
-      setPresetsError(error instanceof Error ? error.message : String(error));
+      setPresetsError(errorMessage(error));
     } finally {
       setPresetWorking(false);
     }
@@ -124,7 +125,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
       setPresetName(preset.name);
       setPresetNotice(null);
     } catch (error: unknown) {
-      setPresetsError(error instanceof Error ? error.message : String(error));
+      setPresetsError(errorMessage(error));
     } finally {
       setPresetWorking(false);
     }
@@ -144,7 +145,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
       setPresetName("");
       setPresetNotice("Preset eliminado del catálogo local.");
     } catch (error: unknown) {
-      setPresetsError(error instanceof Error ? error.message : String(error));
+      setPresetsError(errorMessage(error));
     } finally {
       setPresetWorking(false);
     }

@@ -46,6 +46,7 @@ import { formatPercent } from "../../format";
 import { DeliveryPresets } from "./DeliveryPresets";
 import { DeliveryResult } from "./DeliveryResult";
 import { QualityRulesEditor, withAddedRule } from "./QualityRulesEditor";
+import { errorMessage } from "../../bridge/errors";
 
 interface DeliveryPhaseProps {
   dataset: DatasetPreview;
@@ -355,7 +356,7 @@ export function DeliveryPhase({
     } catch (error: unknown) {
       setMigrationState({
         kind: "error",
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }
@@ -370,7 +371,7 @@ export function DeliveryPhase({
     } catch (error: unknown) {
       setQualityFileState({
         kind: "error",
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }
@@ -382,7 +383,7 @@ export function DeliveryPhase({
     try {
       await cancelOperation("qualityValidation");
     } catch (error: unknown) {
-      setQualityValidationCancellationError(error instanceof Error ? error.message : String(error));
+      setQualityValidationCancellationError(errorMessage(error));
       setQualityValidationCancellationPending(false);
     }
   }
@@ -422,7 +423,7 @@ export function DeliveryPhase({
               kind: "gate_changed",
               gate: {
                 kind: "error",
-                message: error instanceof Error ? error.message : String(error),
+                message: errorMessage(error),
               },
             });
             return;
@@ -500,7 +501,7 @@ export function DeliveryPhase({
       }
       setDatabasePreflightState({
         kind: "error",
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     } finally {
       if (requestGeneration === databaseRequestGeneration.current) {
@@ -516,7 +517,7 @@ export function DeliveryPhase({
     try {
       await cancelOperation("databasePreflight");
     } catch (error: unknown) {
-      setDatabasePreflightCancellationError(error instanceof Error ? error.message : String(error));
+      setDatabasePreflightCancellationError(errorMessage(error));
       setDatabasePreflightCancellationPending(false);
     }
   }

@@ -578,7 +578,7 @@ medio = 1 día; agregado por suma.
   - [x] `UI-02` (Propuesta) Token `--control-border` y tabla de contraste generada — hecho el 2026-10-07
 - [ ] **RV112** — **Producto** — Error estructurado en el puente en vez de cadenas (y 5 problemas más) · *Esfuerzo: 3 días*
   - Criterio de cierre: Hecho lo que proponen PROD-08, PROD-09, PROD-10, PROD-11, PROD-12, PROD-13.
-  - [ ] `PROD-08` (Propuesta) Error estructurado en el puente en vez de cadenas
+  - [x] `PROD-08` (Propuesta) Error estructurado en el puente en vez de cadenas — hecho el 2026-10-07
   - [x] `PROD-09` (Propuesta) «Archivos recientes» no reabre el archivo — hecho el 2026-10-07
   - [ ] `PROD-10` (Propuesta) Un único resumen «qué cambió» con celdas anuladas, filas perdidas y reversibilidad real
   - [x] `PROD-11` (Propuesta) Receta: decimales con coma y fechas dd/mm en conversiones de tipo — hecho el 2026-10-07

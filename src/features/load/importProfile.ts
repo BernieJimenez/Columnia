@@ -7,6 +7,7 @@ import type {
   ImportProfileMismatch,
   SpreadsheetHeaderMode,
 } from "../../bridge";
+import { errorMessage } from "../../bridge/errors";
 
 const IMPORT_PROFILE_MISMATCH_PREFIX = "__columnia_import_profile_mismatch__:";
 
@@ -62,7 +63,7 @@ export function createImportProfile(
 }
 
 export function parseImportProfileMismatch(error: unknown): ImportProfileMismatch | null {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   if (!message.startsWith(IMPORT_PROFILE_MISMATCH_PREFIX)) return null;
   try {
     const parsed: unknown = JSON.parse(message.slice(IMPORT_PROFILE_MISMATCH_PREFIX.length));

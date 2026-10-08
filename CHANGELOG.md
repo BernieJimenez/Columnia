@@ -1147,6 +1147,12 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- Los errores del motor se reconocen en un solo sitio, src/bridge/errors.ts: un
+  BridgeError con code (cancelled, legacyEncoding u other) e isCancellation();
+  la cancelación y la codificación heredada se deciden por ese código y las 39
+  copias de «error instanceof Error ? error.message : String(error)» usan
+  errorMessage(). Rust sigue devolviendo texto con marcadores estables que una
+  prueba compara a ambos lados.
 - DESIGN.md incluye la tabla de contraste de cada tema, generada con node
   tools/contrast-table.mjs desde los tokens de src/styles.css (su única fuente,
   que el test de accesibilidad ya leía); una prueba falla si la tabla queda

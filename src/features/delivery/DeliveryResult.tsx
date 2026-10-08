@@ -5,6 +5,7 @@ import type { SavedRecipe } from "../../bridge";
 import { formatFileSize } from "./DatasetMetrics";
 import { bundleFileNames, listFileNames, type DeliveryContractState, type DeliveryExportState } from "./deliveryModel";
 import { plural } from "../../plural";
+import { errorMessage } from "../../bridge/errors";
 
 type ExportResult = Extract<DeliveryExportState, { kind: "success" }>["result"];
 
@@ -53,7 +54,7 @@ export function DeliveryResult({
       const quotedLineBreaks = await openLastExportInPowerBi();
       setPowerBiState({ kind: "opened", quotedLineBreaks });
     } catch (error: unknown) {
-      setPowerBiState({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      setPowerBiState({ kind: "error", message: errorMessage(error) });
     }
   }
 

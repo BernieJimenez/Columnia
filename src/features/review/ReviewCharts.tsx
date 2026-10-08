@@ -13,6 +13,7 @@ import type {
 } from "../../bridge";
 import { formatDecimal, formatPercent, withoutNegativeZero } from "../../format";
 import { plural } from "../../plural";
+import { errorMessage } from "../../bridge/errors";
 
 export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetProfile; datasetRevision: number }) {
   const [activeTemporalAggregation, setActiveTemporalAggregation] = useState<TemporalAggregationOwner | null>(null);
@@ -525,7 +526,7 @@ function TemporalTrendChart({
       })
       .catch((error: unknown) => {
         if (requestIdRef.current !== requestId) return;
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         if (/cancelad[oa]/i.test(message)) {
           setAggregationStatus("idle");
           return;
@@ -550,7 +551,7 @@ function TemporalTrendChart({
     try {
       await requestTemporalCancellation();
     } catch (error: unknown) {
-      setAggregationError(error instanceof Error ? error.message : String(error));
+      setAggregationError(errorMessage(error));
       setAggregationStatus("error");
     }
   }
