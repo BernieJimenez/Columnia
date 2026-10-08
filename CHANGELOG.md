@@ -125,6 +125,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Seguridad
 
+- Verificado: abrir un preset de entrega que proponía reemplazar la tabla carga
+  «Crear sin reemplazar» y pide elegir Reemplazar de nuevo en esa sesión
+  (cubierto por la prueba de DeliveryPhase); el comentario de
+  delivery_presets.rs sigue siendo cierto.
 - source-map-js 1.2.2 en el lockfile (GHSA-68fv-2mgg-jv7q, solo herramientas
   de desarrollo: Vite, jsdom y la cobertura; no llega al instalador).
 - El escaneo de secretos falla si git no puede listar los archivos (en vez de

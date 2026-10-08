@@ -559,9 +559,9 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Hecho lo que proponen DAT-21, DAT-22.
   - [x] `DAT-21` (Propuesta) Migración del catálogo sin copia de seguridad previa del `projects.sqlite3` — hecho el 2026-10-07
   - [x] `DAT-22` (Propuesta) Unificar nombres únicos entre catálogos — hecho el 2026-10-07
-- [ ] **RV107** — **Seguridad** — Confirmar que un preset con `table_policy = replace` no se aplica sin confirmación · *Esfuerzo: 2 h*
+- [x] **RV107** — **Seguridad** — Confirmar que un preset con `table_policy = replace` no se aplica sin confirmación · *Esfuerzo: 2 h* — hecho el 2026-10-07
   - Criterio de cierre: Hecho lo que proponen SEG-13.
-  - [ ] `SEG-13` (Propuesta) Confirmar que un preset con `table_policy = replace` no se aplica sin confirmación
+  - [x] `SEG-13` (Propuesta) Confirmar que un preset con `table_policy = replace` no se aplica sin confirmación — hecho el 2026-10-07
 - [ ] **RV108** — **Arquitectura y resiliencia** — Registrar el motivo cuando una ruta source-backed cae a la ruta eager · *Esfuerzo: 2 h*
   - Criterio de cierre: Hecho lo que proponen ARQ-09.
   - [ ] `ARQ-09` (Propuesta) Registrar el motivo cuando una ruta source-backed cae a la ruta eager
