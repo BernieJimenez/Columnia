@@ -255,6 +255,34 @@ fn a_history_folder_abandoned_by_an_error_is_removed_with_its_copies() {
 }
 
 #[test]
+fn an_export_reports_its_rows_folder_and_the_cells_it_protected() {
+    // PROD-13: «Copia lista» shows where it went (the folder's own name, never
+    // a path), how many rows it holds and how many cells were protected.
+    let directory = tempfile::Builder::new()
+        .prefix("entregas-")
+        .tempdir()
+        .unwrap();
+    let frame = df!("nota" => ["=1+1", "ok", "+34 600"]).unwrap();
+    let output = directory.path().join("salida.csv");
+    let result = with_exported_row_count(
+        export_frame_for_automation(&frame, &output, ExportFormat::Csv).unwrap(),
+        frame.height(),
+    );
+    assert_eq!(
+        result.folder_name.as_deref(),
+        directory.path().file_name().and_then(|name| name.to_str())
+    );
+    assert_eq!(result.formula_protected_cell_count, Some(1));
+    assert_eq!(result.row_count, Some(3));
+    let json = serde_json::to_string(&result).unwrap();
+    assert!(json.contains("\"rowCount\":3"), "{json}");
+    assert!(
+        !json.contains(&*directory.path().to_string_lossy()),
+        "{json}"
+    );
+}
+
+#[test]
 fn decimals_keep_their_full_precision_in_previews_and_query_results() {
     // UX-08: Polars' display rounded MIN(V1) = -56.407509631329 to -56.40751.
     assert_eq!(

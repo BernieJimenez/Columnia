@@ -164,6 +164,12 @@ export interface ExportResult {
   protectedColumns: string[];
   /** Excel only: cells whose control characters became U+FFFD (RV19). */
   replacedControlCellCount: number;
+  /** PROD-13: rows written. */
+  rowCount?: number;
+  /** PROD-13: the destination folder's own name, never its path. */
+  folderName?: string;
+  /** PROD-13: CSV cells quoted so a spreadsheet does not run them as formulas. */
+  formulaProtectedCellCount?: number;
 }
 
 export interface DatabaseConnectionResult {

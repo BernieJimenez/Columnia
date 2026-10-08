@@ -1031,6 +1031,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 - El análisis de calidad de Revisar es unas 2,5 veces más rápido en archivos medianos (338 MB: de 12 s a 5 s) y en archivos grandes muestra qué paso está haciendo tras leer las filas (REN-01, en curso).
+- «Copia lista» dice ahora cuántas filas se exportaron, en qué carpeta (solo su
+  nombre) y cuántas celdas de un CSV empezaban como una fórmula y se guardaron
+  como texto. Verificado además que «Archivos recientes» explica que «Elegir de
+  nuevo» abre el selector, porque Columnia no guarda rutas.
 - Explorar es más accesible: el histograma y la tendencia tienen «Ver como
   tabla» con sus cifras exactas (la tendencia de más de 24 periodos se resume
   por año), y cada gráfico de columnas es una sola parada de Tab con flechas,

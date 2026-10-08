@@ -465,6 +465,30 @@ pub struct ExportResult {
     pub(crate) protected_columns: Vec<String>,
     /// Excel only: cells whose control characters became U+FFFD (RV19).
     pub(crate) replaced_control_cell_count: usize,
+    /// PROD-13: rows written, filled in by the commands from the dataset.
+    pub(crate) row_count: Option<usize>,
+    /// PROD-13: the destination folder's own name, never its path.
+    pub(crate) folder_name: Option<String>,
+    /// PROD-13: CSV cells that began like a formula and got a leading quote;
+    /// `None` when the export path does not count them.
+    pub(crate) formula_protected_cell_count: Option<usize>,
+}
+
+/// PROD-13: the rows of the dataset the export was made from.
+pub(crate) fn with_exported_row_count(result: ExportResult, row_count: usize) -> ExportResult {
+    ExportResult {
+        row_count: Some(row_count),
+        ..result
+    }
+}
+
+/// PROD-13: only the last component of the destination's folder.
+pub(crate) fn export_folder_name(destination: &Path) -> Option<String> {
+    destination
+        .parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
@@ -9512,8 +9536,41 @@ pub async fn validate_quality_rules(
     })?
 }
 
+/// PROD-13: the rows of the active dataset, for «Copia lista».
+fn active_dataset_row_count(app: &AppHandle) -> Option<usize> {
+    let state = app.state::<DatasetState>();
+    let current = state.current.lock_recovering();
+    current.as_ref().map(|dataset| dataset.row_count)
+}
+
 #[tauri::command]
 pub async fn export_dataset(
+    app: AppHandle,
+    format: ExportFormat,
+    quality_rules: Vec<QualityRule>,
+    allow_unvalidated: bool,
+    privacy_mode: PrivacyMode,
+    recipe: Option<StoredTransformRecipe>,
+    on_progress: Channel<OperationProgress>,
+) -> Result<Option<ExportResult>, String> {
+    let row_count = active_dataset_row_count(&app);
+    let result = export_active_dataset(
+        app,
+        format,
+        quality_rules,
+        allow_unvalidated,
+        privacy_mode,
+        recipe,
+        on_progress,
+    )
+    .await?;
+    Ok(result.map(|result| match row_count {
+        Some(rows) => with_exported_row_count(result, rows),
+        None => result,
+    }))
+}
+
+async fn export_active_dataset(
     app: AppHandle,
     format: ExportFormat,
     quality_rules: Vec<QualityRule>,
@@ -10172,6 +10229,30 @@ pub async fn export_dataset_to_database(
     privacy_mode: PrivacyMode,
     on_progress: Channel<OperationProgress>,
 ) -> Result<ExportResult, String> {
+    let row_count = active_dataset_row_count(&app);
+    let result = export_active_dataset_to_database(
+        app,
+        target,
+        quality_rules,
+        allow_unvalidated,
+        privacy_mode,
+        on_progress,
+    )
+    .await?;
+    Ok(match row_count {
+        Some(rows) => with_exported_row_count(result, rows),
+        None => result,
+    })
+}
+
+async fn export_active_dataset_to_database(
+    app: AppHandle,
+    target: DatabaseTarget,
+    quality_rules: Vec<QualityRule>,
+    allow_unvalidated: bool,
+    privacy_mode: PrivacyMode,
+    on_progress: Channel<OperationProgress>,
+) -> Result<ExportResult, String> {
     remote_databases::validate_database_target(&target)?;
     validate_quality_rules_payload(&quality_rules)?;
     confirm_remote_target_off_main_thread(&app, &target).await?;
@@ -10385,6 +10466,9 @@ pub async fn export_dataset_to_database(
                     protected_column_count: protected_columns.len(),
                     protected_columns,
                     replaced_control_cell_count: 0,
+                    row_count: None,
+                    folder_name: None,
+                    formula_protected_cell_count: None,
                 })
             })
             .await
@@ -10463,6 +10547,9 @@ pub async fn export_dataset_to_database(
         protected_column_count: protected_columns.len(),
         protected_columns,
         replaced_control_cell_count: 0,
+        row_count: None,
+        folder_name: None,
+        formula_protected_cell_count: None,
     })
 }
 

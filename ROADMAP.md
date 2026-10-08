@@ -579,11 +579,11 @@ medio = 1 día; agregado por suma.
 - [ ] **RV112** — **Producto** — Error estructurado en el puente en vez de cadenas (y 5 problemas más) · *Esfuerzo: 3 días*
   - Criterio de cierre: Hecho lo que proponen PROD-08, PROD-09, PROD-10, PROD-11, PROD-12, PROD-13.
   - [ ] `PROD-08` (Propuesta) Error estructurado en el puente en vez de cadenas
-  - [ ] `PROD-09` (Propuesta) «Archivos recientes» no reabre el archivo
+  - [x] `PROD-09` (Propuesta) «Archivos recientes» no reabre el archivo — hecho el 2026-10-07
   - [ ] `PROD-10` (Propuesta) Un único resumen «qué cambió» con celdas anuladas, filas perdidas y reversibilidad real
   - [ ] `PROD-11` (Propuesta) Receta: decimales con coma y fechas dd/mm en conversiones de tipo
   - [ ] `PROD-12` (Propuesta) Propuesta: lista de columnas e inserción con cita correcta en la consola SQL
-  - [ ] `PROD-13` (Propuesta) Mostrar en la entrega el destino y un resumen de lo transformado
+  - [x] `PROD-13` (Propuesta) Mostrar en la entrega el destino y un resumen de lo transformado — hecho el 2026-10-07
 - [ ] **RV113** — **Producto** — Los tres informes de pánico reales son anteriores a CODE-01 y no permiten identificar el… (y 5 problemas más) · *Esfuerzo: 1,5 días*
   - Criterio de cierre: Hecho lo que proponen PROD-14, PROD-15, PROD-16, PROD-17, PROD-18, PROD-19.
   - [ ] `PROD-14` (Propuesta) Los tres informes de pánico reales son anteriores a CODE-01 y no permiten identificar el origen (3 pánicos seguidos en `tokio-rt-worker`)

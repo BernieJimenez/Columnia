@@ -35,7 +35,7 @@ pub(crate) fn neutralize_spreadsheet_formula(value: &str) -> String {
 
 #[cfg(test)]
 pub(super) fn csv_formula_safe_frame(frame: &DataFrame) -> Result<DataFrame, String> {
-    csv_formula_safe_frame_with_cancel(frame, &|| false)
+    csv_formula_safe_frame_with_cancel(frame, &|| false).map(|(safe, _)| safe)
 }
 
 /// Column names get the same protection as the values (SEG-01): a header
@@ -52,15 +52,17 @@ pub(super) fn csv_formula_safe_column_names(frame: &DataFrame) -> Result<DataFra
     Ok(safe)
 }
 
+/// The frame with formula-like text quoted, and how many cells changed (PROD-13).
 pub(super) fn csv_formula_safe_frame_with_cancel<C>(
     frame: &DataFrame,
     is_cancelled: &C,
-) -> Result<DataFrame, String>
+) -> Result<(DataFrame, usize), String>
 where
     C: Fn() -> bool + ?Sized,
 {
     ensure_not_cancelled(is_cancelled())?;
     let mut safe = frame.clone();
+    let mut protected_cells = 0_usize;
     for column in frame
         .columns()
         .iter()
@@ -76,12 +78,16 @@ where
             if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
                 ensure_not_cancelled(is_cancelled())?;
             }
-            values.push(value.map(neutralize_spreadsheet_formula));
+            let safe_value = value.map(neutralize_spreadsheet_formula);
+            if safe_value.as_deref() != value {
+                protected_cells += 1;
+            }
+            values.push(safe_value);
         }
         ensure_not_cancelled(is_cancelled())?;
         safe.replace(&name, Column::new(name.clone().into(), values))
             .map_err(|_| "No se pudo proteger una columna de texto para CSV.".to_owned())?;
     }
     ensure_not_cancelled(is_cancelled())?;
-    Ok(safe)
+    Ok((safe, protected_cells))
 }

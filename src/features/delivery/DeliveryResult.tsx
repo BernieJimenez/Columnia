@@ -103,10 +103,32 @@ export function DeliveryResult({
               <dt>{result.format === "PostgreSQL" || result.format === "MySQL" || result.format === "SQL Server" ? "Destino" : "Archivo"}</dt>
               <dd>{result.fileName}</dd>
             </div>
+            {result.folderName != null && (
+              <div>
+                <dt>Carpeta</dt>
+                <dd>{result.folderName}</dd>
+              </div>
+            )}
             <div>
               <dt>Formato</dt>
               <dd>{result.format}</dd>
             </div>
+            {result.rowCount != null && (
+              <div>
+                <dt>Filas exportadas</dt>
+                <dd>{result.rowCount.toLocaleString()}</dd>
+              </div>
+            )}
+            {(result.formulaProtectedCellCount ?? 0) > 0 && (
+              <div>
+                <dt>Celdas protegidas</dt>
+                <dd>
+                  {result.formulaProtectedCellCount === 1
+                    ? "1 celda empezaba como una fórmula y se guardó como texto"
+                    : `${(result.formulaProtectedCellCount ?? 0).toLocaleString()} celdas empezaban como una fórmula y se guardaron como texto`}
+                </dd>
+              </div>
+            )}
             {result.format !== "PostgreSQL"
               && result.format !== "MySQL"
               && result.format !== "SQL Server" && (

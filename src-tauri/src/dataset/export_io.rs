@@ -66,7 +66,7 @@ pub(super) fn write_csv_frame_with_cancel<C>(
 where
     C: Fn() -> bool + ?Sized,
 {
-    write_delimited_frame_with_cancel(frame, output, false, is_cancelled)
+    write_delimited_frame_with_cancel(frame, output, false, is_cancelled).map(|_| ())
 }
 
 /// CSV, or with `excel` the «CSV para Excel» variant: UTF-8 with BOM and
@@ -77,7 +77,7 @@ pub(super) fn write_delimited_frame_with_cancel<C>(
     output: &mut File,
     excel: bool,
     is_cancelled: &C,
-) -> Result<(), String>
+) -> Result<usize, String>
 where
     C: Fn() -> bool + ?Sized,
 {
@@ -95,8 +95,11 @@ where
         .with_batch_size(batch_size)
         .batched(frame.schema().as_ref())
         .map_err(|error| format!("No se pudo preparar el escritor CSV: {error}"))?;
+    let mut protected_cells = 0_usize;
     for_each_export_batch(frame, is_cancelled, |batch| {
-        let mut safe_batch = csv_formula_safe_frame_with_cancel(batch, is_cancelled)?;
+        let (mut safe_batch, batch_protected) =
+            csv_formula_safe_frame_with_cancel(batch, is_cancelled)?;
+        protected_cells += batch_protected;
         safe_batch.align_chunks_par();
         ensure_not_cancelled(is_cancelled())?;
         writer
@@ -108,7 +111,7 @@ where
         .finish()
         .map_err(|error| format!("No se pudo cerrar el CSV: {error}"))?;
     ensure_not_cancelled(is_cancelled())?;
-    Ok(())
+    Ok(protected_cells)
 }
 
 pub(super) fn write_json_frame_with_cancel<C>(
@@ -830,6 +833,9 @@ where
         protected_column_count: 0,
         protected_columns: Vec::new(),
         replaced_control_cell_count,
+        row_count: None,
+        folder_name: export_folder_name(&destination),
+        formula_protected_cell_count: None,
     })
 }
 
@@ -1947,13 +1953,16 @@ where
 
     report("Escribiendo dataset", 25);
     let mut replaced_control_cell_count = 0;
+    let mut formula_protected_cell_count = None;
     match format {
-        ExportFormat::Csv | ExportFormat::CsvExcel => write_delimited_frame_with_cancel(
-            &protected_frame,
-            temporary.as_file_mut(),
-            format == ExportFormat::CsvExcel,
-            &is_cancelled,
-        )?,
+        ExportFormat::Csv | ExportFormat::CsvExcel => {
+            formula_protected_cell_count = Some(write_delimited_frame_with_cancel(
+                &protected_frame,
+                temporary.as_file_mut(),
+                format == ExportFormat::CsvExcel,
+                &is_cancelled,
+            )?)
+        }
         ExportFormat::Json => {
             write_json_frame_with_cancel(&protected_frame, temporary.as_file_mut(), &is_cancelled)?
         }
@@ -2017,6 +2026,9 @@ where
         protected_column_count: protected_columns.len(),
         protected_columns,
         replaced_control_cell_count,
+        row_count: None,
+        folder_name: export_folder_name(&destination),
+        formula_protected_cell_count,
     })
 }
 
