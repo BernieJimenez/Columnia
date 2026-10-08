@@ -588,7 +588,7 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Hecho lo que proponen PROD-14, PROD-15, PROD-16, PROD-17, PROD-18, PROD-19.
   - [x] `PROD-14` (Propuesta) Los tres informes de pánico reales son anteriores a CODE-01 y no permiten identificar el origen (3 pánicos seguidos en `tokio-rt-worker`) — hecho el 2026-10-08
   - [x] `PROD-15` (Propuesta) Mostrar el controlador y el usuario en la confirmación nativa de la conexión remota — hecho el 2026-10-08
-  - [ ] `PROD-16` (Propuesta) Cancelación de entrega ODBC solo entre filas/lotes
+  - [x] `PROD-16` (Propuesta) Cancelación de entrega ODBC solo entre filas/lotes — hecho el 2026-10-08
   - [ ] `PROD-17` (Propuesta) Exportar CSV compatible con Excel en configuración regional española
   - [ ] `PROD-18` (Propuesta) Exportar fechas a XLSX como fechas
   - [ ] `PROD-19` (Propuesta) Informar de hojas ocultas, celdas combinadas y filas de título al cargar libros

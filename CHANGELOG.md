@@ -1038,6 +1038,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 - Si los datos cambian después de Revisar (por ejemplo, al aplicar un cambio en
+- Una entrega ODBC con un lote INSERT bloqueado (por ejemplo, por un bloqueo de
+  tabla) se detiene a los 30 s en lugar de a los 300 s, así que Cancelar y el
+  error llegan antes; ODBC no permite interrumpir con seguridad una llamada ya
+  en curso (PROD-16).
   Preparar), la barra lateral marca Revisar como «Revisar de nuevo» en lugar de
   «Después».
 - El panel automático de Explorar deja fuera las columnas que parecen claves:

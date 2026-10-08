@@ -20,6 +20,10 @@ const PREFLIGHT_CANCEL_CHECK_ROWS: usize = 1_024;
 /// cancellation is only observed between driver calls.
 const ODBC_LOGIN_TIMEOUT_SEC: u32 = 15;
 const ODBC_STATEMENT_TIMEOUT_SEC: usize = 300;
+/// PROD-16: an INSERT batch (at most `MAX_ROWS_PER_INSERT` rows) that takes
+/// longer is blocked, usually by a lock; giving up sooner lets Cancelar and
+/// the error reach the person without waiting the full statement limit.
+const ODBC_BATCH_TIMEOUT_SEC: usize = 30;
 
 const REMOTE_TARGET_NOT_CONFIRMED: &str =
     "La conexión remota se canceló: no se confirmó el destino en el diálogo de Windows.";
@@ -160,7 +164,7 @@ impl<'c, 'env> BatchInserter<'c, 'env> {
                 format_driver_error("No se pudo preparar la inserción remota", error, target)
             })?;
         full_batch
-            .set_query_timeout_sec(ODBC_STATEMENT_TIMEOUT_SEC)
+            .set_query_timeout_sec(ODBC_BATCH_TIMEOUT_SEC)
             .map_err(|error| {
                 format_driver_error(
                     "No se pudo limitar el tiempo de la inserción remota",
@@ -206,11 +210,7 @@ impl<'c, 'env> BatchInserter<'c, 'env> {
         }
         let sql = parameterized_insert_sql(&self.table, &self.columns, self.pending_rows);
         self.connection
-            .execute(
-                &sql,
-                self.pending.as_slice(),
-                Some(ODBC_STATEMENT_TIMEOUT_SEC),
-            )
+            .execute(&sql, self.pending.as_slice(), Some(ODBC_BATCH_TIMEOUT_SEC))
             .map_err(|error| {
                 format_driver_error(
                     "No se pudo insertar un lote en la tabla remota",
@@ -1964,7 +1964,7 @@ fn format_driver_error<E: Debug>(context: &str, error: E, target: &DatabaseTarge
     let readable = readable_driver_detail(&detail);
     if detail.contains("HYT00") || detail.contains("HYT01") {
         return format!(
-            "{context} para {}: la base remota no respondió a tiempo (conexión {ODBC_LOGIN_TIMEOUT_SEC} s, sentencia {ODBC_STATEMENT_TIMEOUT_SEC} s). Comprueba la red o los bloqueos de la tabla y vuelve a intentarlo. {readable}",
+            "{context} para {}: la base remota no respondió a tiempo (conexión {ODBC_LOGIN_TIMEOUT_SEC} s, lote {ODBC_BATCH_TIMEOUT_SEC} s, sentencia {ODBC_STATEMENT_TIMEOUT_SEC} s). Comprueba la red o los bloqueos de la tabla y vuelve a intentarlo. {readable}",
             target.kind.label()
         );
     }
@@ -2428,6 +2428,23 @@ mod tests {
         );
         assert!(error.contains("no respondió a tiempo"), "{error}");
         assert!(!error.contains("secret"), "{error}");
+    }
+
+    #[test]
+    fn a_blocked_insert_batch_gives_up_long_before_the_statement_limit() {
+        // PROD-16: Cancelar is only seen between batches, so a batch blocked by a
+        // table lock held the delivery for the whole 300 s statement limit.
+        const { assert!(ODBC_BATCH_TIMEOUT_SEC <= 30) };
+        const { assert!(ODBC_BATCH_TIMEOUT_SEC < ODBC_STATEMENT_TIMEOUT_SEC) };
+        let error = format_driver_error(
+            "No se pudo insertar un lote en la tabla remota",
+            "State: HYT00, Native error: 0, Message: Query timeout expired",
+            &target(DatabaseKind::SqlServer),
+        );
+        assert!(
+            error.contains(&format!("lote {ODBC_BATCH_TIMEOUT_SEC} s")),
+            "{error}"
+        );
     }
 
     /// Manual check against an unroutable address; needs an installed SQL
