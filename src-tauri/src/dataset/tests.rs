@@ -10191,6 +10191,82 @@ fn xlsx_export_replaces_control_characters_that_xml_forbids() {
 }
 
 #[test]
+fn xlsx_export_writes_dates_as_excel_dates() {
+    // PROD-18: dates went as text, so Excel could not sort or filter them.
+    let dates = Series::new("fecha".into(), [Some(19_753_i32), Some(-25_568), None])
+        .cast(&DataType::Date)
+        .unwrap();
+    let moments = Series::new(
+        "momento".into(),
+        [Some(1_706_702_400_000_i64), None, Some(0)],
+    )
+    .cast(&DataType::Datetime(TimeUnit::Milliseconds, None))
+    .unwrap();
+    let frame = DataFrame::new(3, vec![dates.into_column(), moments.into_column()]).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("fechas.xlsx");
+    export_frame_atomic(
+        &frame,
+        &destination,
+        ExportFormat::Excel,
+        |_, _| {},
+        || false,
+    )
+    .expect("Excel debe publicarse");
+
+    let mut archive = ZipArchive::new(fs::File::open(&destination).unwrap()).unwrap();
+    let mut sheet = String::new();
+    archive
+        .by_name("xl/worksheets/sheet1.xml")
+        .unwrap()
+        .read_to_string(&mut sheet)
+        .unwrap();
+    let mut styles = String::new();
+    archive
+        .by_name("xl/styles.xml")
+        .unwrap()
+        .read_to_string(&mut styles)
+        .unwrap();
+    // 2024-01-31 is serial 45322 in Excel's 1900 date system.
+    assert!(
+        sheet.contains(r#"<c r="A2" s="1" t="n"><v>45322</v></c>"#),
+        "{sheet}"
+    );
+    assert!(
+        sheet.contains(r#"<c r="B2" s="2" t="n"><v>45322.5</v></c>"#),
+        "{sheet}"
+    );
+    assert!(
+        sheet.contains(r#"<c r="B4" s="2" t="n"><v>25569</v></c>"#),
+        "{sheet}"
+    );
+    // Before 1900-03-01 Excel's serials are off by one day: kept as text.
+    assert!(sheet.contains("1899-12-31"), "{sheet}");
+    assert!(styles.contains(r#"<xf numFmtId="14""#), "{styles}");
+    assert!(styles.contains(r#"<xf numFmtId="22""#), "{styles}");
+    // Loaded back, the dates still read as the same days.
+    let loaded = load_spreadsheet_sheet(&destination, "dataset", SpreadsheetHeaderMode::FirstRow)
+        .expect("el XLSX exportado carga");
+    let first = loaded.column("fecha").unwrap().get(0).unwrap().to_string();
+    assert!(first.contains("2024-01-31"), "{first}");
+
+    assert_eq!(
+        export_io::xlsx_source_cell(0, 1, &DataType::Date, Some("2024-01-31")).unwrap(),
+        r#"<c r="A2" s="1" t="n"><v>45322</v></c>"#
+    );
+    assert_eq!(
+        export_io::xlsx_source_cell(
+            1,
+            1,
+            &DataType::Datetime(TimeUnit::Microseconds, None),
+            Some("2024-01-31 12:00:00")
+        )
+        .unwrap(),
+        r#"<c r="B2" s="2" t="n"><v>45322.5</v></c>"#
+    );
+}
+
+#[test]
 fn xlsx_export_rejects_more_rows_than_one_sheet_holds() {
     let rows = 1_048_576_usize;
     let frame = DataFrame::new(

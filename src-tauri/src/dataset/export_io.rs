@@ -456,6 +456,45 @@ pub(super) fn xlsx_cell(
 /// Largest integer an Excel number (an IEEE double) holds exactly: 2^53.
 const EXCEL_EXACT_INTEGER: u64 = 1 << 53;
 
+/// PROD-18: styles of `styles.xml` for dates (built-in short date, which Excel
+/// shows in the regional format) and for dates with time.
+const XLSX_DATE_STYLE: u8 = 1;
+const XLSX_DATETIME_STYLE: u8 = 2;
+/// Serial of 1970-01-01 in Excel's 1900 date system.
+const EXCEL_UNIX_EPOCH_SERIAL: i64 = 25_569;
+/// Excel counts a 1900-02-29 that never existed, so serials before
+/// 1900-03-01 (61) are a day off; 9999-12-31 is the last date it accepts.
+const EXCEL_FIRST_EXACT_SERIAL: i64 = 61;
+const EXCEL_LAST_SERIAL: i64 = 2_958_465;
+
+/// The Excel serial of a date given as days since 1970-01-01, when Excel shows
+/// it as the same day.
+fn excel_day_serial(days_since_epoch: i64) -> Option<i64> {
+    let serial = days_since_epoch.checked_add(EXCEL_UNIX_EPOCH_SERIAL)?;
+    (EXCEL_FIRST_EXACT_SERIAL..=EXCEL_LAST_SERIAL)
+        .contains(&serial)
+        .then_some(serial)
+}
+
+/// The Excel serial (days plus the fraction of the day) of a moment given in
+/// `unit` since 1970-01-01 without a time zone.
+fn excel_datetime_serial(value: i64, unit: TimeUnit) -> Option<f64> {
+    let per_day: i64 = match unit {
+        TimeUnit::Nanoseconds => 86_400_000_000_000,
+        TimeUnit::Microseconds => 86_400_000_000,
+        TimeUnit::Milliseconds => 86_400_000,
+    };
+    let days = value.div_euclid(per_day);
+    let within_day = value.rem_euclid(per_day);
+    let serial = excel_day_serial(days)?;
+    Some(serial as f64 + within_day as f64 / per_day as f64)
+}
+
+fn push_excel_number_cell(output: &mut String, style: u8, serial: impl std::fmt::Display) {
+    use std::fmt::Write as _;
+    let _ = write!(output, " s=\"{style}\" t=\"n\"><v>{serial}</v></c>");
+}
+
 fn push_xlsx_cell(
     output: &mut String,
     column_name: &str,
@@ -494,6 +533,24 @@ fn push_xlsx_cell(
         AnyValue::Float32(_) | AnyValue::Float64(_) => {
             return Err("Excel no puede representar valores numéricos no finitos.".to_owned());
         }
+        AnyValue::Date(days) => match excel_day_serial(i64::from(days)) {
+            Some(serial) => {
+                push_excel_number_cell(output, XLSX_DATE_STYLE, serial);
+                Ok(())
+            }
+            None => {
+                return push_excel_text_cell(output, column_name, row_number, &value.to_string())
+            }
+        },
+        AnyValue::Datetime(moment, unit, None) => match excel_datetime_serial(moment, unit) {
+            Some(serial) => {
+                push_excel_number_cell(output, XLSX_DATETIME_STYLE, serial);
+                Ok(())
+            }
+            None => {
+                return push_excel_text_cell(output, column_name, row_number, &value.to_string())
+            }
+        },
         AnyValue::String(value) => {
             return push_excel_text_cell(output, column_name, row_number, value);
         }
@@ -562,6 +619,28 @@ pub(super) fn xlsx_source_cell(
             return Err("Excel no puede representar valores numéricos no finitos.".to_owned());
         }
         return Ok(format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"));
+    } else if matches!(data_type, DataType::Date) {
+        use chrono::Datelike as _;
+        let serial = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+            .ok()
+            .and_then(|date| excel_day_serial(i64::from(date.num_days_from_ce() - 719_163)));
+        if let Some(serial) = serial {
+            let mut cell = format!("<c r=\"{reference}\"");
+            push_excel_number_cell(&mut cell, XLSX_DATE_STYLE, serial);
+            return Ok(cell);
+        }
+    } else if matches!(data_type, DataType::Datetime(_, None)) {
+        let serial = ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f"]
+            .iter()
+            .find_map(|format| chrono::NaiveDateTime::parse_from_str(value, format).ok())
+            .and_then(|moment| {
+                excel_datetime_serial(moment.and_utc().timestamp_micros(), TimeUnit::Microseconds)
+            });
+        if let Some(serial) = serial {
+            let mut cell = format!("<c r=\"{reference}\"");
+            push_excel_number_cell(&mut cell, XLSX_DATETIME_STYLE, serial);
+            return Ok(cell);
+        }
     } else if matches!(data_type, DataType::Boolean) {
         if ["true", "1"]
             .iter()
@@ -619,7 +698,7 @@ where
     const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
     const WORKBOOK: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="dataset" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
     const WORKBOOK_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#;
-    const STYLES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellXfs></styleSheet>"#;
+    const STYLES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf numFmtId="14" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="22" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/></cellXfs></styleSheet>"#;
 
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     let mut archive = ZipWriter::new(output);
@@ -945,7 +1024,7 @@ where
     const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
     const WORKBOOK: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="dataset" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
     const WORKBOOK_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#;
-    const STYLES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellXfs></styleSheet>"#;
+    const STYLES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf numFmtId="14" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="22" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/></cellXfs></styleSheet>"#;
 
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     let mut archive = ZipWriter::new(output);

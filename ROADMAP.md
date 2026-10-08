@@ -590,7 +590,7 @@ medio = 1 día; agregado por suma.
   - [x] `PROD-15` (Propuesta) Mostrar el controlador y el usuario en la confirmación nativa de la conexión remota — hecho el 2026-10-08
   - [x] `PROD-16` (Propuesta) Cancelación de entrega ODBC solo entre filas/lotes — hecho el 2026-10-08
   - [x] `PROD-17` (Propuesta) Exportar CSV compatible con Excel en configuración regional española — hecho el 2026-10-08
-  - [ ] `PROD-18` (Propuesta) Exportar fechas a XLSX como fechas
+  - [x] `PROD-18` (Propuesta) Exportar fechas a XLSX como fechas — hecho el 2026-10-08
   - [ ] `PROD-19` (Propuesta) Informar de hojas ocultas, celdas combinadas y filas de título al cargar libros
 - [ ] **RV114** — **Producto** — Informar de qué muestra se usa en correlaciones y permitir su semilla/estrategia (y 1 problemas más) · *Esfuerzo: 4 h*
   - Criterio de cierre: Hecho lo que proponen PROD-20, PROD-21.

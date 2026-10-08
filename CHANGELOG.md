@@ -1038,6 +1038,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 - Si los datos cambian después de Revisar (por ejemplo, al aplicar un cambio en
+- Al exportar a Excel, las fechas y las fechas con hora se guardan como fechas
+  de Excel (con el formato corto de tu configuración regional), así que se
+  pueden ordenar y filtrar; las anteriores al 1 de marzo de 1900 y las que
+  tienen zona horaria siguen como texto (PROD-18).
 - «CSV para Excel» (UTF-8 con BOM y punto y coma) escribe además los números
   decimales con coma, como los espera Excel en español; en archivos grandes que
   se exportan desde el origen, los valores salen tal como estaban escritos
