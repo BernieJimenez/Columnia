@@ -244,6 +244,7 @@ function QualitySection({
         </div>
       </details>
       <LocalQueryPanel
+        columnNames={dataset.columns.map((column) => column.name).filter((name) => !isRowAuditColumn(name))}
         comparisonAvailable={comparisonAvailable}
         queryHistory={sqlHistory}
         onQueryHistoryChange={onSqlHistoryChange}
@@ -299,6 +300,14 @@ function QualitySection({
 /** A stable default, so that a re-render does not look like a new history. */
 const NO_SQL_HISTORY: SqlQueryHistoryEntry[] = [];
 
+/**
+ * PROD-12: a column name as both engines read it: plain when it is a simple
+ * identifier, otherwise between double quotes with inner quotes doubled.
+ */
+export function sqlIdentifier(name: string): string {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : `"${name.replaceAll('"', '""')}"`;
+}
+
 /** The SQL being written and its last result, kept while Review stays open (FUN-27). */
 type SqlQueryDraft = {
   text: string;
@@ -308,6 +317,7 @@ type SqlQueryDraft = {
 };
 
 function LocalQueryPanel({
+  columnNames,
   comparisonAvailable,
   queryHistory: persistedQueryHistory,
   onQueryHistoryChange,
@@ -317,6 +327,7 @@ function LocalQueryPanel({
   onQueryEngineChange,
   datasetRevision,
 }: {
+  columnNames: string[];
   comparisonAvailable: boolean;
   queryHistory: SqlQueryHistoryEntry[];
   onQueryHistoryChange: (entries: SqlQueryHistoryEntry[]) => void;
@@ -329,6 +340,20 @@ function LocalQueryPanel({
   // A result belongs to its revision; the text survives a new revision.
   const restoredResult = draft?.revision === datasetRevision ? draft.result : null;
   const [query, setQuery] = useState(draft?.text ?? "SELECT * FROM dataset LIMIT 50");
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+
+  /** PROD-12: puts the quoted column where the cursor is and keeps it there. */
+  function insertColumn(name: string) {
+    const editor = editorRef.current;
+    const identifier = sqlIdentifier(name);
+    const start = editor?.selectionStart ?? query.length;
+    const end = editor?.selectionEnd ?? query.length;
+    setQuery(`${query.slice(0, start)}${identifier}${query.slice(end)}`);
+    requestAnimationFrame(() => {
+      editor?.focus();
+      editor?.setSelectionRange(start + identifier.length, start + identifier.length);
+    });
+  }
   const [localQueryEngine, setLocalQueryEngine] = useState<DatasetQueryEngine>(readQueryEnginePreference);
   const selectedQueryEngine = queryEngine ?? localQueryEngine;
   const [state, setState] = useState<
@@ -499,6 +524,7 @@ function LocalQueryPanel({
         <label className="local-query__field">
           Consulta SQL de solo lectura
           <textarea
+            ref={editorRef}
             aria-label="Consulta SQL de solo lectura"
             rows={2}
             value={query}
@@ -506,6 +532,21 @@ function LocalQueryPanel({
             spellCheck={false}
           />
         </label>
+        {columnNames.length > 0 && (
+          <details className="local-query__columns">
+            <summary>Columnas del dataset ({columnNames.length.toLocaleString()})</summary>
+            <p>Pulsa una para insertarla donde está el cursor; los nombres con espacios, comas o comillas se citan solos.</p>
+            <ul>
+              {columnNames.map((name) => (
+                <li key={name}>
+                  <button type="button" aria-label={`Insertar la columna ${name}`} onClick={() => insertColumn(name)}>
+                    {name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
         <label className="local-query__field">
           Motor de consulta
           <select

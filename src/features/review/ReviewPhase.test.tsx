@@ -9,7 +9,7 @@ import type {
   TemporalAggregationSeries,
 } from "../../bridge";
 import * as bridge from "../../bridge";
-import { DatasetPreviewPanel, ReviewPhase } from "./ReviewPhase";
+import { DatasetPreviewPanel, ReviewPhase, sqlIdentifier } from "./ReviewPhase";
 import { formatNumber } from "../../format";
 import { formatStatistic, readsAsCode } from "./ReviewCharts";
 import { createReadyDatasetStatus } from "../load/loadModel";
@@ -547,6 +547,14 @@ describe("ReviewPhase", () => {
     expect(onJoin).toHaveBeenCalledWith("inner");
   });
 
+  it("cita el nombre de columna al insertarlo en la consulta (PROD-12)", () => {
+    expect(sqlIdentifier("importe")).toBe("importe");
+    expect(sqlIdentifier("Apellido, Nombre")).toBe('"Apellido, Nombre"');
+    expect(sqlIdentifier('dice "hola"')).toBe('"dice ""hola"""');
+    expect(sqlIdentifier("2024")).toBe('"2024"');
+    expect(sqlIdentifier("tabla.columna")).toBe('"tabla.columna"');
+  });
+
   it("ejecuta la consulta SQL segura y muestra el resultado accesible", async () => {
     const onSqlHistoryChange = vi.fn();
     vi.spyOn(bridge, "queryDataset").mockResolvedValue({
@@ -584,7 +592,13 @@ describe("ReviewPhase", () => {
       />,
     );
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Consulta SQL de solo lectura" }), {
+    const editor = screen.getByRole("textbox", { name: "Consulta SQL de solo lectura" });
+    // PROD-12: a column goes in where the cursor is, quoted when it needs it.
+    fireEvent.change(editor, { target: { value: "SELECT  FROM dataset LIMIT 1" } });
+    (editor as HTMLTextAreaElement).setSelectionRange(7, 7);
+    fireEvent.click(screen.getByRole("button", { name: "Insertar la columna nota" }));
+    expect(editor).toHaveValue("SELECT nota FROM dataset LIMIT 1");
+    fireEvent.change(editor, {
       target: { value: "SELECT id FROM dataset LIMIT 1" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
