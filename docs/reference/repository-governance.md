@@ -1,7 +1,8 @@
 # Gobierno del repositorio
 
-Este documento es la referencia operativa de la Fase I0. Describe las reglas
-que deben cumplirse antes de integrar cambios en Columnia.
+Este documento es la referencia operativa de la Fase I0 (ver el
+[glosario](glosario.md)). Describe las reglas que deben cumplirse antes de
+integrar cambios en Columnia.
 
 ## Contratos del proyecto
 

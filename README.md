@@ -73,6 +73,16 @@ Columnia funciona localmente: no requiere cuenta, inicio de sesión, telemetría
 
 Consulta el [modelo de amenazas](THREAT_MODEL.md), la [privacidad de red](docs/reference/network-privacy.md) y la [política de seguridad](SECURITY.md) para conocer los controles técnicos.
 
+## Compatibilidad
+
+| Elemento | Estado |
+| --- | --- |
+| Windows 11 x64 | Validado: es donde se compila y se prueba. |
+| Windows 10 x64 | Debería funcionar con WebView2 instalado; sin validar. |
+| Windows ARM64, macOS y Linux | Sin validar. |
+| Microsoft Edge WebView2 | Necesario. Windows 11 lo incluye; en Windows 10 se instala «WebView2 Runtime». |
+| Memoria | Depende del archivo: Columnia estima la RAM antes de cargar y lee por bloques los CSV, TSV y Parquet de al menos 512 MiB. |
+
 ## Ejecutar desde el código fuente
 
 Requisitos: Node.js `>=24.14.0 <25`, npm `>=11.10.1 <12`, Rust `1.98.1` (lo instala `rustup` al leer `rust-toolchain.toml`), las Build Tools de Visual Studio 2022 con la carga «Desarrollo para el escritorio con C++» y WebView2 (ya incluido en Windows 11).
@@ -81,6 +91,23 @@ Requisitos: Node.js `>=24.14.0 <25`, npm `>=11.10.1 <12`, Rust `1.98.1` (lo inst
 npm install
 npm run tauri dev
 ```
+
+### Reconstruir en una máquina nueva
+
+1. Instala Git, Node.js 24 (incluye npm 11), [rustup](https://rustup.rs) y las
+   Build Tools de Visual Studio 2022 con la carga «Desarrollo para el escritorio
+   con C++». En Windows 10, instala también WebView2 Runtime.
+2. Clona el repositorio y ejecuta `npm install`. Al compilar, rustup instala
+   solo la versión de Rust de `rust-toolchain.toml`.
+3. Ejecuta `npm run tauri dev` para abrir la aplicación.
+4. Para llevarte tus proyectos, copia la carpeta de datos como explica
+   [Respaldar y restaurar proyectos](docs/how-to/respaldar-proyectos.md).
+
+La clave privada del updater no está en el repositorio: hoy no se publican
+instaladores ni actualizaciones. Si algún día se distribuye, guárdala fuera del
+equipo de trabajo (por ejemplo, en un gestor de contraseñas) con su
+contraseña; sin ella no se pueden firmar actualizaciones para las
+instalaciones existentes (ver [publicar un release](docs/how-to/publish-release.md)).
 
 Para validar el proyecto:
 
@@ -94,6 +121,9 @@ npm run legal:check
 ## Documentación
 
 - [Primer dataset: tutorial paso a paso](docs/tutorials/first-dataset.md)
+- [Usar Columnia de principio a fin](docs/how-to/usar-columnia.md), con problemas frecuentes
+- [Respaldar y restaurar proyectos](docs/how-to/respaldar-proyectos.md)
+- [Glosario](docs/reference/glosario.md)
 - [Documentación completa](docs/README.md)
 - [Sistema de diseño y contrato de interfaz](DESIGN.md)
 - [Alcance de V1](docs/reference/v1-scope.md)

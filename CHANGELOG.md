@@ -1048,6 +1048,12 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 - Si los datos cambian después de Revisar (por ejemplo, al aplicar un cambio en
+- Documentación nueva: «Usar Columnia de principio a fin» con problemas
+  frecuentes, «Respaldar y restaurar proyectos» (qué hay en
+  %APPDATA%\app.columnia.desktop y cómo restaurarlo), un glosario de términos
+  internos, y en el README una tabla de compatibilidad y cómo reconstruir el
+  entorno en una máquina nueva; CONTRIBUTING fija el español en los commits
+  (DOC-19, DOC-20, DOC-21).
 - Las correlaciones de Revisar dicen si usan todas las filas o «una muestra de N
   de M filas»; la muestra se reparte por todo el archivo con un desplazamiento
   fijo dentro de cada tramo, así que una serie que se repite cada pocas filas ya

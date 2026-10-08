@@ -19,6 +19,11 @@ revisiones y roadmaps anteriores están en el [archivo](archive/README.md).
 
 ### How-to
 
+- [Usar Columnia de principio a fin](how-to/usar-columnia.md): las cinco etapas
+  con un archivo propio y los problemas frecuentes.
+- [Respaldar y restaurar proyectos](how-to/respaldar-proyectos.md): qué copiar
+  de la carpeta de datos, cómo restaurarla y qué pasa tras un cierre
+  inesperado.
 - [Ejecutar una sesión beta](how-to/run-beta-validation.md): validar el recorrido
   completo con datos reales sin conservar información sensible.
 - [Probar con NVDA](how-to/run-nvda-check.md): recorrido de unos 30 minutos con
@@ -37,6 +42,8 @@ agregada y sanitizada que se versiona al cerrar los gates.
 
 ### Referencia
 
+- [Glosario](reference/glosario.md): términos internos (gate, tier,
+  source-backed, RVnn, T10-xx…).
 - [Alcance de Columnia V1](reference/v1-scope.md): modelo local sin cuentas,
   formatos obligatorios, persistencia, presupuestos y límites explícitos.
 - [Referencia de la CLI](reference/cli.md): comandos, opciones, contratos JSON y

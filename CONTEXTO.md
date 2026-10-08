@@ -3,6 +3,8 @@
 > Punto de entrada técnico para personas y agentes que trabajen en este
 > repositorio. Describe el sistema tal como es hoy. Lo pendiente está en
 > [`ROADMAP.md`](ROADMAP.md) y lo entregado en [`CHANGELOG.md`](CHANGELOG.md).
+> Los términos internos (gate, tier, source-backed, T10-xx…) están en el
+> [glosario](docs/reference/glosario.md).
 
 `CONTEXTO.md` es el nombre español histórico del `CONTEXT.md` que pide el proceso
 de revisión. El registro de sesiones, reauditorías y estados anteriores (hasta el

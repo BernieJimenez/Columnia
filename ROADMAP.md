@@ -4,7 +4,8 @@
 
 **Estado:** aplicación local funcional para Windows x64, de **uso personal**. No
 se comparte ni se distribuye; las mejoras se eligen por lo que su dueño nota al
-usarla con sus propios archivos.
+usarla con sus propios archivos. Los identificadores (RVnn y códigos de
+hallazgo) se explican en el [glosario](docs/reference/glosario.md).
 
 Este documento solo contiene lo pendiente. Lo entregado está en
 [`CHANGELOG.md`](CHANGELOG.md). El roadmap anterior, con los Tiers 5 a 10 y los
@@ -617,9 +618,9 @@ medio = 1 día; agregado por suma.
   - [x] `OPS-25` (Propuesta) Salvaguarda de la instalación real antes de los smokes que tocan HKCU/APPDATA — hecho el 2026-10-08
 - [ ] **RV119** — **Documentación** — Guía de uso, solución de problemas, respaldo y restauración (y 2 problemas más) · *Esfuerzo: 6 h*
   - Criterio de cierre: Hecho lo que proponen DOC-19, DOC-20, DOC-21.
-  - [ ] `DOC-19` (Propuesta) Guía de uso, solución de problemas, respaldo y restauración
-  - [ ] `DOC-20` (Propuesta) Compatibilidad declarada y reconstrucción en máquina nueva
-  - [ ] `DOC-21` (Propuesta) Glosario y política de nombres
+  - [ ] `DOC-19` (Propuesta) Guía de uso, solución de problemas, respaldo y restauración — Guías escritas el 2026-10-08; falta comprobar la restauración con la app real en la verificación final
+  - [x] `DOC-20` (Propuesta) Compatibilidad declarada y reconstrucción en máquina nueva — hecho el 2026-10-08
+  - [x] `DOC-21` (Propuesta) Glosario y política de nombres — hecho el 2026-10-08
 
 ## Aparcado: solo si Columnia se comparte
 

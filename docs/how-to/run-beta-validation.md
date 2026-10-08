@@ -3,7 +3,8 @@
 Este recorrido comprueba si una persona puede convertir un archivo problemático
 en una entrega confiable sin ayuda del equipo. No sustituye los gates automáticos:
 busca fricción, resultados inesperados y problemas que solo aparecen con datos de
-trabajo reales.
+trabajo reales. Los términos internos (gate, tier, RV07…) están en el
+[glosario](../reference/glosario.md).
 
 ## Resultado esperado
 

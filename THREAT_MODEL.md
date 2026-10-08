@@ -2,6 +2,9 @@
 
 > Estado verificado el 2026-10-03, al aplicar la revisión del 2026-10-01. Este documento describe el sistema implementado, no una garantía absoluta de seguridad. Debe actualizarse cuando cambien datos, IPC, permisos, red, parsers, persistencia o distribución.
 
+Los controles citan el hallazgo del que vienen (T10-xx, SEG-xx…); el
+[glosario](docs/reference/glosario.md) explica esos códigos.
+
 ## Alcance y supuestos
 
 Columnia es una aplicación de escritorio Tauri y una CLI que procesan datasets locales con React, Rust y Polars. Este modelo cubre la ventana `main`, el puente IPC, `columnia-cli`, el motor de datos, archivos elegidos por la persona, proyectos SQLite, snapshots temporales o durables, recetas y exportaciones.

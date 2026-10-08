@@ -22,7 +22,8 @@ política describe cómo se preparan y validan los cambios.
 
 ## Commits
 
-Usa Conventional Commits en modo imperativo:
+Usa Conventional Commits en modo imperativo y escribe los mensajes en español
+(los anteriores a octubre de 2026 están en inglés y se dejan así):
 
 ```text
 feat: conserva tipos nativos al leer ODS
