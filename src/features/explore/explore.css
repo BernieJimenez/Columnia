@@ -59,3 +59,10 @@
   .explore__fill { background: CanvasText; opacity: 1; }
   .explore__bar[aria-pressed="true"] .explore__fill, .explore__column[aria-pressed="true"] .explore__fill { background: Highlight; }
 }
+
+/* ACC-18: the chart's numbers as a table, closed by default. */
+.explore__table { margin-top: 8px; font-size: .85rem; }
+.explore__table summary { cursor: pointer; color: var(--text-secondary); min-height: 32px; }
+.explore__table table { border-collapse: collapse; margin-top: 6px; }
+.explore__table th, .explore__table td { padding: 4px 12px 4px 0; text-align: left; border-bottom: 1px solid var(--border-subtle); }
+.explore__table td { text-align: right; font-variant-numeric: tabular-nums; }

@@ -571,8 +571,8 @@ medio = 1 día; agregado por suma.
   - [x] `UX-21` (Propuesta) Reglas propuestas también cuando ya hay contrato incompleto — hecho el 2026-10-07
 - [ ] **RV110** — **Accesibilidad** — Alternativa textual para los gráficos de Explorar (y 1 problemas más) · *Esfuerzo: 4 h*
   - Criterio de cierre: Hecho lo que proponen ACC-18, ACC-19.
-  - [ ] `ACC-18` (Propuesta) Alternativa textual para los gráficos de Explorar
-  - [ ] `ACC-19` (Propuesta) Ejecutar y registrar la checklist manual
+  - [x] `ACC-18` (Propuesta) Alternativa textual para los gráficos de Explorar — hecho el 2026-10-07
+  - [ ] `ACC-19` (Propuesta) Ejecutar y registrar la checklist manual — Requiere tu decisión: pasar la checklist manual exige una persona con NVDA y la prueba con lector de pantalla está aparcada; la guía (docs/how-to/run-nvda-check.md) ya cubre las cinco etapas
 - [ ] **RV111** — **Interfaz visual** — Token `--control-border` y tabla de contraste generada · *Esfuerzo: 2 h*
   - Criterio de cierre: Hecho lo que proponen UI-02.
   - [ ] `UI-02` (Propuesta) Token `--control-border` y tabla de contraste generada

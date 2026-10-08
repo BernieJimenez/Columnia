@@ -1031,6 +1031,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 - El análisis de calidad de Revisar es unas 2,5 veces más rápido en archivos medianos (338 MB: de 12 s a 5 s) y en archivos grandes muestra qué paso está haciendo tras leer las filas (REN-01, en curso).
+- Explorar es más accesible: el histograma y la tendencia tienen «Ver como
+  tabla» con sus cifras exactas (la tendencia de más de 24 periodos se resume
+  por año), y cada gráfico de columnas es una sola parada de Tab con flechas,
+  Inicio y Fin para moverse entre sus columnas.
 - Revisar y Entregar con menos clics: al resolver conflictos por clave hay
   botones para conservar el activo o usar el comparado en toda la página, y para
   aplicar esa elección a los demás conflictos, también los de páginas no

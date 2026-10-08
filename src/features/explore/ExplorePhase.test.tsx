@@ -187,6 +187,36 @@ describe("ExplorePhase", () => {
     ], {}));
   });
 
+  it("reads each chart as a table and moves between columns with the arrows (ACC-18)", async () => {
+    const months = Array.from({ length: 30 }, (_, index) => ({
+      period: `${2023 + Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`,
+      count: 1,
+    }));
+    vi.spyOn(bridge, "getExplorePanel").mockResolvedValue({ ...panel(8), trend: { column: "fecha", granularity: "month", points: months } });
+    render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
+
+    const histogram = await screen.findByRole("region", { name: "Distribución de precio" });
+    fireEvent.click(within(histogram).getByText("Ver como tabla"));
+    const histogramTable = within(histogram).getByRole("table", { name: "Filas por tramo de precio" });
+    expect(within(histogramTable).getAllByRole("row")).toHaveLength(3);
+
+    // More than 24 months are summarised by year in the table.
+    const trend = screen.getByRole("region", { name: "Filas en el tiempo por fecha" });
+    const trendTable = within(trend).getByRole("table", { name: "Filas por año de fecha" });
+    expect(within(trendTable).getAllByRole("row").map((row) => row.textContent)).toEqual([
+      "AñoFilas", "202312", "202412", "20256",
+    ]);
+
+    // One Tab stop per chart; the arrows move between its columns.
+    const columns = within(histogram).getAllByRole("button", { name: /^precio de/ });
+    expect(columns.map((column) => column.tabIndex)).toEqual([0, -1]);
+    columns[0]!.focus();
+    fireEvent.keyDown(columns[0]!, { key: "ArrowRight" });
+    expect(columns[1]).toHaveFocus();
+    fireEvent.keyDown(columns[1]!, { key: "Home" });
+    expect(columns[0]).toHaveFocus();
+  });
+
   it("keeps the filters on screen after a failure so they can be removed (UX-01)", async () => {
     const getPanel = vi.spyOn(bridge, "getExplorePanel")
       .mockResolvedValueOnce(panel(8))

@@ -40,6 +40,58 @@ type PanelState =
   | { kind: "ready"; panel: ExplorePanel }
   | { kind: "error"; message: string; previous: ExplorePanel | null };
 
+/**
+ * ACC-18: the chart's numbers as a table, for screen readers and for reading
+ * exact values; closed by default so the panel stays visual.
+ */
+function ChartTable({ caption, headers, rows }: {
+  caption: string;
+  headers: [string, string];
+  rows: [string, number][];
+}) {
+  return (
+    <details className="explore__table">
+      <summary>Ver como tabla</summary>
+      <table>
+        <caption className="visually-hidden">{caption}</caption>
+        <thead>
+          <tr><th scope="col">{headers[0]}</th><th scope="col">{headers[1]}</th></tr>
+        </thead>
+        <tbody>
+          {rows.map(([label, count]) => (
+            <tr key={label}><th scope="row">{label}</th><td>{formatNumber(count)}</td></tr>
+          ))}
+        </tbody>
+      </table>
+    </details>
+  );
+}
+
+/** ACC-18: more than 24 monthly or daily periods read better by year. */
+function trendTableRows(points: { period: string; count: number }[]): { byYear: boolean; rows: [string, number][] } {
+  if (points.length <= 24 || !points.every((point) => /^\d{4}-/.test(point.period))) {
+    return { byYear: false, rows: points.map((point) => [point.period, point.count]) };
+  }
+  const years = new Map<string, number>();
+  for (const point of points) {
+    const year = point.period.slice(0, 4);
+    years.set(year, (years.get(year) ?? 0) + point.count);
+  }
+  return { byYear: true, rows: [...years.entries()] };
+}
+
+/** ACC-18: one Tab stop per chart; the arrows, Home and End move between its columns. */
+function moveAmongColumns(event: React.KeyboardEvent<HTMLDivElement>) {
+  const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
+  const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  if (index < 0) return;
+  const targets: Record<string, number> = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: buttons.length - 1 };
+  const target = targets[event.key];
+  if (target === undefined) return;
+  event.preventDefault();
+  buttons[Math.max(0, Math.min(buttons.length - 1, target))]?.focus();
+}
+
 export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFilters, onFiltersChange }: ExplorePhaseProps) {
   const [filters, setFilters] = useState<ExploreFilter[]>(initialFilters ?? []);
   useEffect(() => { onFiltersChange?.(filters); }, [filters, onFiltersChange]);
@@ -271,7 +323,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
               return (
                 <section className="explore__panel explore__panel--wide" aria-label={`Distribución de ${histogram.column}`}>
                   <h4>{histogram.column}</h4>
-                  <div className={`explore__columns${active ? " explore__bars--dim" : ""}`}>
+                  <div className={`explore__columns${active ? " explore__bars--dim" : ""}`} onKeyDown={moveAmongColumns}>
                     {histogram.bins.map((bin, index) => {
                       const selected = isRangeSelected(filters, histogram.column, bin.lower, bin.upper);
                       return (
@@ -279,6 +331,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                           key={bin.lower}
                           type="button"
                           className="explore__column"
+                          tabIndex={index === 0 ? 0 : -1}
                           aria-pressed={selected}
                           aria-label={`${histogram.column} de ${binLabel(bin.lower, bin.upper, histogram.integer, index === histogram.bins.length - 1, years)}: ${plural(bin.count, "fila", "filas")}`}
                           onClick={() => setFilters((current) =>
@@ -298,6 +351,14 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                     Filas por tramo de {histogram.column}; el tramo más alto tiene {plural(max, "fila", "filas")}.
                     {ignored ? ` ${ignored}: no aparece en ningún tramo.` : ""}
                   </p>
+                  <ChartTable
+                    caption={`Filas por tramo de ${histogram.column}`}
+                    headers={["Tramo", "Filas"]}
+                    rows={histogram.bins.map((bin, index) => [
+                      binLabel(bin.lower, bin.upper, histogram.integer, index === histogram.bins.length - 1, years),
+                      bin.count,
+                    ])}
+                  />
                 </section>
               );
             })()}
@@ -309,12 +370,13 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
               return (
                 <section className="explore__panel explore__panel--wide" aria-label={`Filas en el tiempo por ${trend.column}`}>
                   <h4>{trend.column}</h4>
-                  <div className={`explore__columns${active ? " explore__bars--dim" : ""}`}>
-                    {trend.points.map((point) => (
+                  <div className={`explore__columns${active ? " explore__bars--dim" : ""}`} onKeyDown={moveAmongColumns}>
+                    {trend.points.map((point, index) => (
                       <button
                         key={point.period}
                         type="button"
                         className="explore__column"
+                        tabIndex={index === 0 ? 0 : -1}
                         aria-pressed={isPeriodSelected(filters, trend.column, point.period)}
                         aria-label={`${point.period}: ${plural(point.count, "fila", "filas")}`}
                         title={`${point.period}: ${formatNumber(point.count)}`}
@@ -328,6 +390,16 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                     <span>{trend.points[0]?.period}</span>
                     <span>{trend.points.at(-1)?.period}</span>
                   </p>
+                  {(() => {
+                    const table = trendTableRows(trend.points);
+                    return (
+                      <ChartTable
+                        caption={table.byYear ? `Filas por año de ${trend.column}` : `Filas por periodo de ${trend.column}`}
+                        headers={[table.byYear ? "Año" : "Periodo", "Filas"]}
+                        rows={table.rows}
+                      />
+                    );
+                  })()}
                 </section>
               );
             })()}
