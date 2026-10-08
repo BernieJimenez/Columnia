@@ -1196,6 +1196,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- Un test fija que, en archivos grandes, 01/02/2025 se convierte en 1 de febrero
+  con DMY y en 2 de enero con MDY, y que 1.234,50 y 1,5 se leen como 1234,5 y
+  1,5 con coma decimal, igual que en memoria (QA-59).
 - Un test fija que los JOIN por DuckDB emparejan las claves exactamente igual
   que Polars: «007» no es «7», mayúsculas y espacios cuentan, y una clave nula
   nunca empareja (QA-58).

@@ -3273,6 +3273,88 @@ fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
     );
 }
 
+fn source_backed_dataset(path: &TempFixture) -> LoadedDataset {
+    let (schema, _, row_count) =
+        source_backed_load(path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
+    LoadedDataset {
+        source_path: Some(path.path_buf()),
+        file_name: "dataset.csv".to_owned(),
+        file_size_bytes: fs::metadata(path).expect("la fuente debe existir").len(),
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+    }
+}
+
+fn source_backed_recipe_result(dataset: &mut LoadedDataset, recipe: &TransformRecipe) -> DataFrame {
+    apply_recipe_to_dataset(dataset, recipe).expect("la receta source-backed debe publicarse");
+    match dataset.source_path.as_deref() {
+        Some(path) if dataset.source_backed => read_parquet_frame(path).expect("Parquet legible"),
+        _ => dataset.frame.clone(),
+    }
+}
+
+#[test]
+fn source_backed_conversions_of_ambiguous_dates_and_comma_decimals_match_eager() {
+    // QA-59: the large-file tests only used 31/12/2025 and 10,20,30.
+    let path = temporary_csv("dia,importe\n01/02/2025,\"1.234,50\"\n12/03/2025,\"1,5\"\n");
+    let (eager, _) = load_csv(&path).expect("el CSV debe cargar");
+    let date = |format| TransformRecipe {
+        date_parses: vec![RecipeDateParse {
+            column: "dia".to_owned(),
+            format,
+            target: RecipeDateTarget::Date,
+        }],
+        ..TransformRecipe::default()
+    };
+    let days = |frame: &DataFrame| {
+        let column = frame
+            .column("dia")
+            .unwrap()
+            .cast(&DataType::String)
+            .unwrap();
+        column
+            .str()
+            .unwrap()
+            .iter()
+            .map(|value| value.map(str::to_owned))
+            .collect::<Vec<_>>()
+    };
+    for (format, first, second) in [
+        (RecipeDateFormat::Dmy, "2025-02-01", "2025-03-12"),
+        (RecipeDateFormat::Mdy, "2025-01-02", "2025-12-03"),
+    ] {
+        let recipe = date(format);
+        let expected = expected_recipe_outcome(&eager, &recipe)
+            .expect("receta eager")
+            .frame;
+        assert_eq!(
+            days(&expected),
+            [Some(first.to_owned()), Some(second.to_owned())]
+        );
+        let mut dataset = source_backed_dataset(&path);
+        let output = source_backed_recipe_result(&mut dataset, &recipe);
+        assert_eq!(days(&output), days(&expected), "{format:?}");
+    }
+
+    let comma = TransformRecipe {
+        casts: vec![RecipeCast {
+            column: "importe".into(),
+            target: RecipeCastTarget::Decimal,
+            decimal_separator: Some(RecipeDecimalSeparator::Comma),
+        }],
+        ..TransformRecipe::default()
+    };
+    let mut dataset = source_backed_dataset(&path);
+    let output = source_backed_recipe_result(&mut dataset, &comma);
+    let amounts = output.column("importe").unwrap().f64().unwrap();
+    assert_eq!(amounts.get(0), Some(1234.5));
+    assert_eq!(amounts.get(1), Some(1.5));
+}
+
 #[test]
 fn source_backed_date_parts_after_filters_match_eager() {
     let path = temporary_csv("day,amount\n31/12/2025,20\n01/01/2026,5\n15/02/2026,30\n");
