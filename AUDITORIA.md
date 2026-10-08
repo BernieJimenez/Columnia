@@ -30,6 +30,7 @@ resultado en el mismo cambio.
 | runtime | `@tauri-apps/api` | `^2.11.1` |
 | runtime | `react` | `^19.3.0` |
 | runtime | `react-dom` | `^19.3.0` |
+| desarrollo | `@axe-core/playwright` | `^4.13.0` |
 | desarrollo | `@playwright/test` | `^1.63.0` |
 | desarrollo | `@tauri-apps/cli` | `^2.11.5` |
 | desarrollo | `@testing-library/jest-dom` | `^7.0.1` |
@@ -57,13 +58,13 @@ de supply chain verifica checksums y fuentes. Las versiones declaradas son:
 
 Resultados del **2026-10-04** sobre el commit `11dc27d` (DOC-03). Son una
 fotografía fechada, no un estado permanente: la evidencia completa queda en
-`.local/validation/` y antes de un release se vuelven a ejecutar. Los conteos de
-dependencias del lockfile y del inventario IPC los comprueba `docs:check` contra
-`package-lock.json` e [`ipc-inventory.json`](docs/reference/ipc-inventory.json).
+`.local/validation/` y antes de un release se vuelven a ejecutar. El conteo de
+dependencias del lockfile lo comprueba `docs:check` contra `package-lock.json`;
+el del inventario IPC está en [`ipc-inventory.json`](docs/reference/ipc-inventory.json).
 
 | Comando | Resultado (2026-10-04, `11dc27d`) | Interpretación |
 | --- | --- | --- |
-| `npm audit --json --omit=optional` | 0 vulnerabilidades; 200 dependencias del lockfile | Desde OPS-01, una vulnerabilidad hace fallar `supply-chain:check` |
+| `npm audit --json --omit=optional` | 0 vulnerabilidades; 202 dependencias del lockfile (repetido el 2026-10-08 al añadir `@axe-core/playwright`) | Desde OPS-01, una vulnerabilidad hace fallar `supply-chain:check` |
 | `cargo audit --json` | 0 vulnerabilidades; avisos informativos (7 crates sin mantenimiento, 1 unsound) con 2 excepciones documentadas | `quick-xml` llega transitivamente por `object_store`; Columnia no habilita los features cloud. La razón vigente está en `src-tauri/deny.toml` |
 | `cargo deny --format json check` | Aprobado | Política explícita en `src-tauri/deny.toml`; las excepciones upstream tienen razón y se revisan al actualizar Tauri/Polars |
 | `cargo outdated --version` | Herramienta no instalada | No se inventa un estado de actualización Cargo |

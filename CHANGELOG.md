@@ -1196,6 +1196,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- Los E2E ejecutan axe-core (@axe-core/playwright, reglas WCAG 2.2 A/AA) en las
+  cinco etapas de los seis temas dentro del recorrido de contraste, y un test
+  comprueba que una violación nueva, como un botón sin nombre, hace fallar
+  (QA-56).
 - La cobertura Rust tiene puerta: el perfil Full falla si un módulo baja de su
   mínimo en fixtures/coverage/rust-coverage-thresholds.json (la medida del
   2026-10-08 menos un punto) o si aparece un módulo sin umbral (QA-60).

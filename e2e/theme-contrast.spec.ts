@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 import type { ColumnProfile, DatasetPreview, DatasetProfile, ExplorePanel } from "../src/bridge";
 import { installTauriMock } from "./support/tauri-mock";
+import { axeViolations } from "./support/axe";
 
 // Synthetic dataset with missing values, typed columns, duplicates, dates and
 // personal-data signals, so every contrast-sensitive element is rendered.
@@ -163,6 +164,8 @@ for (const theme of themes) {
       await page.waitForTimeout(250);
       const result = await contrastFailures(page);
       failures.push(...result.failures.map((failure) => `${phase}: ${failure}`));
+      // QA-56: and every other WCAG A/AA rule axe-core knows.
+      failures.push(...await axeViolations(page, phase));
       return result;
     };
     await expect(page.getByRole("button", { name: "Seleccionar dataset" })).toBeVisible();

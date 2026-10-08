@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 import type { DatasetPreview, ProjectSummary } from "../src/bridge";
 import { installTauriMock } from "./support/tauri-mock";
+import { axeViolations } from "./support/axe";
 
 const dataset = {
   fileName: "ventas.csv",
@@ -37,6 +38,17 @@ async function selectAndConfirmDataset(page: Page) {
 }
 
 test.describe("contratos de accesibilidad del shell", () => {
+  test("axe-core no encuentra violaciones al abrir y detecta una nueva (QA-56)", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("button", { name: "Seleccionar dataset" })).toBeVisible();
+    expect(await axeViolations(page, "Cargar")).toEqual([]);
+
+    // A button without an accessible name is what axe must catch.
+    await page.evaluate(() => document.querySelector("main")?.append(document.createElement("button")));
+    const violations = await axeViolations(page, "Cargar con un botón sin nombre");
+    expect(violations.join(" | ")).toContain("button-name");
+  });
+
   test("mantiene landmarks, nombres y estados ARIA coherentes", async ({ page }) => {
     await page.goto("/", { waitUntil: "commit" });
 
