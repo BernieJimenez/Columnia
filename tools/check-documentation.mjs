@@ -114,7 +114,7 @@ const FILES_CREATED_LATER = new Set(["docs/reference/beta-v1-summary.md"]);
 
 /** DOC-12: repository paths written in backticks (`docs/…`, `tools/…`, `fixtures/…`). */
 export function backtickRepositoryPaths(contents) {
-  return [...new Set([...contents.matchAll(/`((?:docs|tools|fixtures)\/[A-Za-z0-9._\/-]+\.[A-Za-z0-9]+)`/g)].map((match) => match[1]))]
+  return [...new Set([...contents.matchAll(/`((?:docs|tools|fixtures)\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+)`/g)].map((match) => match[1]))]
     .filter((path) => !path.includes("<") && !path.includes("*") && !FILES_CREATED_LATER.has(path));
 }
 
