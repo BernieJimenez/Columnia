@@ -324,12 +324,109 @@ fn describe_remote_target(target: &DatabaseTarget) -> String {
         DatabaseTablePolicy::CreateOnly => "crear la tabla",
         DatabaseTablePolicy::Replace => "reemplazar la tabla",
     };
+    // PROD-15: which driver loads and as whom Columnia signs in.
+    let attributes = odbc_attributes(&target.connection_string);
+    let attribute = |names: &[&str]| {
+        attributes
+            .iter()
+            .find(|(key, _)| names.contains(&key.as_str()))
+            .map(|(_, value)| unbraced(value).to_owned())
+            .filter(|value| !value.is_empty())
+    };
+    let mut details = Vec::new();
+    if let Some(driver) = attribute(&["driver"]) {
+        details.push(format!("Controlador: {driver}"));
+    }
+    if let Some(dsn) = attribute(&["dsn"]) {
+        details.push(format!("Origen de datos (DSN): {dsn}"));
+    }
+    details.push(match attribute(&["uid", "user id", "user", "username"]) {
+        Some(user) => format!("Usuario: {user}"),
+        None => "Usuario: el que indique el controlador o Windows".to_owned(),
+    });
     format!(
-        "Columnia se conectará a {} en {} y podrá escribir en la tabla {} ({policy}). Los datos del dataset activo saldrán de este equipo.\n\n¿Confirmas este destino?",
+        "Columnia se conectará a {} en {} y podrá escribir en la tabla {} ({policy}). Los datos del dataset activo saldrán de este equipo.\n\n{}\n\n¿Confirmas este destino?",
         target.kind.label(),
         server,
-        qualified_table(target)
+        qualified_table(target),
+        details.join("\n")
     )
+}
+
+fn unbraced(value: &str) -> &str {
+    value
+        .trim()
+        .trim_start_matches('{')
+        .trim_end_matches('}')
+        .trim()
+}
+
+/// PROD-15: `Driver=` names an installed driver; a path would load any
+/// library, and a file DSN can name one too.
+fn validate_driver_attributes(connection_string: &str) -> Result<(), String> {
+    for (key, value) in odbc_attributes(connection_string) {
+        match key.as_str() {
+            "filedsn" | "savefile" => {
+                return Err("La cadena de conexión ODBC no puede usar FileDSN ni SaveFile; usa Driver= o DSN= con un controlador instalado.".to_owned());
+            }
+            "driver" => {
+                let driver = unbraced(&value);
+                let lower = driver.to_ascii_lowercase();
+                if driver.contains(['\\', '/', ':'])
+                    || lower.ends_with(".dll")
+                    || lower.ends_with(".so")
+                {
+                    return Err("El controlador ODBC debe ser el nombre de uno instalado (por ejemplo, ODBC Driver 18 for SQL Server), no la ruta de un archivo.".to_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// PROD-15: `Driver=` must be one of the drivers Windows lists as installed.
+fn ensure_installed_driver(connection_string: &str, installed: &[String]) -> Result<(), String> {
+    let Some(driver) = odbc_attributes(connection_string)
+        .into_iter()
+        .find(|(key, _)| key == "driver")
+        .map(|(_, value)| unbraced(&value).to_owned())
+    else {
+        return Ok(());
+    };
+    if installed
+        .iter()
+        .any(|name| name.trim().eq_ignore_ascii_case(&driver))
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "El controlador ODBC «{driver}» no está instalado en este equipo. Instálalo o elige uno de los que muestra el Administrador de orígenes de datos ODBC."
+        ))
+    }
+}
+
+/// Opens the connection after checking the driver against the installed ones.
+fn connect<'env>(
+    environment: &'env Environment,
+    target: &DatabaseTarget,
+) -> Result<odbc_api::Connection<'env>, String> {
+    let installed = environment
+        .drivers()
+        .map_err(|error| {
+            format_driver_error(
+                "No se pudieron listar los controladores ODBC",
+                error,
+                target,
+            )
+        })?
+        .into_iter()
+        .map(|driver| driver.description)
+        .collect::<Vec<_>>();
+    ensure_installed_driver(&target.connection_string, &installed)?;
+    environment
+        .connect_with_connection_string(&target.connection_string, odbc_connection_options())
+        .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))
 }
 
 /// A compromised interface can invoke any IPC command, so every remote
@@ -512,11 +609,9 @@ where
     let environment = environment
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
 
-    let connection = environment
-        .connect_with_connection_string(&target.connection_string, odbc_connection_options());
+    let connection = connect(&environment, target);
     ensure_connection_test_not_cancelled(&is_cancelled)?;
-    let connection = connection
-        .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
+    let connection = connection?;
 
     let query_result = connection.execute("SELECT 1", (), Some(10));
     ensure_connection_test_not_cancelled(&is_cancelled)?;
@@ -548,9 +643,7 @@ where
     validate_database_target(target)?;
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
-    let connection = environment
-        .connect_with_connection_string(&target.connection_string, odbc_connection_options())
-        .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
+    let connection = connect(&environment, target)?;
     ensure_not_cancelled(is_cancelled)?;
     connection
         .execute("SELECT 1", (), Some(10))
@@ -1269,6 +1362,7 @@ pub(crate) fn validate_database_target(target: &DatabaseTarget) -> Result<(), St
             "La cadena de conexión ODBC contiene caracteres de control no permitidos.".to_owned(),
         );
     }
+    validate_driver_attributes(&target.connection_string)?;
     validate_identifier(&target.schema, "el esquema", true)?;
     validate_identifier(&target.table, "la tabla", false)?;
     if target.kind == DatabaseKind::Mysql && target.table_policy == DatabaseTablePolicy::Replace {
@@ -1296,9 +1390,7 @@ where
     let input_columns = input_shape_from_frame_with_cancel(frame, &is_cancelled)?;
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
-    let connection = environment
-        .connect_with_connection_string(&target.connection_string, odbc_connection_options())
-        .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
+    let connection = connect(&environment, target)?;
     ensure_not_cancelled(&is_cancelled)?;
     connection
         .execute("SELECT 1", (), Some(10))
@@ -1414,9 +1506,7 @@ where
     )?;
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
-    let connection = environment
-        .connect_with_connection_string(&target.connection_string, odbc_connection_options())
-        .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
+    let connection = connect(&environment, target)?;
     connection
         .execute("SELECT 1", (), Some(10))
         .map_err(|error| format_driver_error("La prueba SELECT 1 falló", error, target))?;
@@ -2121,6 +2211,74 @@ mod tests {
         assert!(message.contains("tcp:db.example.com,1433"), "{message}");
         assert!(message.contains("[public].[ventas]"), "{message}");
         assert!(!message.contains("secret"), "{message}");
+    }
+
+    #[test]
+    fn confirmation_names_the_driver_the_dsn_and_the_user() {
+        // PROD-15: the native dialog said where, not which driver nor as whom.
+        let mut value = target(DatabaseKind::SqlServer);
+        value.connection_string =
+            "Driver={ODBC Driver 18 for SQL Server};Server=db;Uid=ana;Pwd=secret".to_owned();
+        let message = describe_remote_target(&value);
+        assert!(
+            message.contains("Controlador: ODBC Driver 18 for SQL Server"),
+            "{message}"
+        );
+        assert!(message.contains("Usuario: ana"), "{message}");
+        assert!(!message.contains("secret"), "{message}");
+
+        value.connection_string = "DSN=Ventas;Trusted_Connection=yes".to_owned();
+        let message = describe_remote_target(&value);
+        assert!(
+            message.contains("Origen de datos (DSN): Ventas"),
+            "{message}"
+        );
+        assert!(
+            message.contains("Usuario: el que indique el controlador o Windows"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn a_driver_given_as_a_file_path_or_a_file_dsn_is_rejected() {
+        let mut value = target(DatabaseKind::Postgresql);
+        for connection_string in [
+            r"Driver={C:\Temp\malicioso.dll};Server=db",
+            "Driver=/tmp/libmal.so;Server=db",
+            r"Driver=\\servidor\compartido\driver;Server=db",
+            "Driver=malicioso.DLL;Server=db",
+            "FileDSN=C:/dsn/ventas.dsn",
+            "DSN=Ventas;SaveFile=C:/dsn/copia.dsn",
+        ] {
+            value.connection_string = connection_string.to_owned();
+            let error = validate_database_target(&value).expect_err(connection_string);
+            assert!(
+                error.contains("controlador instalado")
+                    || error.contains("no la ruta de un archivo"),
+                "{connection_string}: {error}"
+            );
+        }
+        value.connection_string = "Driver={PostgreSQL Unicode(x64)};Server=db".to_owned();
+        assert!(validate_database_target(&value).is_ok());
+    }
+
+    #[test]
+    fn only_installed_drivers_are_accepted() {
+        let installed = [
+            "ODBC Driver 18 for SQL Server".to_owned(),
+            "PostgreSQL Unicode(x64)".to_owned(),
+        ];
+        assert!(ensure_installed_driver(
+            "Driver={odbc driver 18 for sql server};Server=db",
+            &installed
+        )
+        .is_ok());
+        assert!(
+            ensure_installed_driver("DSN=Ventas", &installed).is_ok(),
+            "un DSN no nombra el controlador"
+        );
+        let error = ensure_installed_driver("Driver={Otro};Server=db", &installed).unwrap_err();
+        assert!(error.contains("«Otro» no está instalado"), "{error}");
     }
 
     #[test]

@@ -129,6 +129,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Seguridad
 
+- La confirmación nativa de una conexión remota muestra el controlador ODBC, el
+  DSN y el usuario; Columnia rechaza un Driver= con ruta de archivo, FileDSN y
+  SaveFile, y solo acepta controladores instalados en Windows (PROD-15).
 - Verificado: abrir un preset de entrega que proponía reemplazar la tabla carga
   «Crear sin reemplazar» y pide elegir Reemplazar de nuevo en esa sesión
   (cubierto por la prueba de DeliveryPhase); el comentario de
