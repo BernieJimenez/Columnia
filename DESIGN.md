@@ -126,6 +126,55 @@ navegación.
   el estado.
 - Todo texto normal cumple WCAG AA, al menos 4.5:1; controles y texto grande,
   al menos 3:1 cuando corresponda.
+- La tabla siguiente se genera desde los tokens de `src/styles.css` con
+  `node tools/contrast-table.mjs`; no se edita a mano.
+
+<!-- contrast-table:start -->
+| Tema | Color | Fondo | Contraste | Mínimo |
+| --- | --- | --- | ---: | ---: |
+| `:root` | `--text-primary` #202e31 | `--canvas` #f5f5f1 | 12.84:1 | 4.5:1 |
+| `:root` | `--text-primary` #202e31 | `--surface` #ffffff | 14.03:1 | 4.5:1 |
+| `:root` | `--text-secondary` #536469 | `--surface` #ffffff | 6.19:1 | 4.5:1 |
+| `:root` | `--accent` #176d62 | `--surface` #ffffff | 6.18:1 | 4.5:1 |
+| `:root` | `--danger` #b5463c | `--surface` #ffffff | 5.38:1 | 4.5:1 |
+| `:root` | `--control-border` #7d8b8e | `--surface` #ffffff | 3.53:1 | 3:1 |
+| `:root` | `--control-border` #7d8b8e | `--canvas` #f5f5f1 | 3.23:1 | 3:1 |
+| `:root[data-resolved-theme="dark"]` | `--text-primary` #e5edeb | `--canvas` #141c1f | 14.52:1 | 4.5:1 |
+| `:root[data-resolved-theme="dark"]` | `--text-primary` #e5edeb | `--surface` #1b262a | 13.00:1 | 4.5:1 |
+| `:root[data-resolved-theme="dark"]` | `--text-secondary` #b3c3c1 | `--surface` #1b262a | 8.47:1 | 4.5:1 |
+| `:root[data-resolved-theme="dark"]` | `--accent` #84d7bd | `--surface` #1b262a | 9.16:1 | 4.5:1 |
+| `:root[data-resolved-theme="dark"]` | `--danger` #f08a82 | `--surface` #1b262a | 6.38:1 | 4.5:1 |
+| `:root[data-resolved-theme="dark"]` | `--control-border` #718385 | `--surface` #1b262a | 3.90:1 | 3:1 |
+| `:root[data-resolved-theme="dark"]` | `--control-border` #718385 | `--canvas` #141c1f | 4.35:1 | 3:1 |
+| `:root[data-theme="paper"]` | `--text-primary` #342b24 | `--canvas` #f3ecdf | 11.78:1 | 4.5:1 |
+| `:root[data-theme="paper"]` | `--text-primary` #342b24 | `--surface` #fffaf0 | 13.31:1 | 4.5:1 |
+| `:root[data-theme="paper"]` | `--text-secondary` #67574a | `--surface` #fffaf0 | 6.64:1 | 4.5:1 |
+| `:root[data-theme="paper"]` | `--accent` #9a4f2e | `--surface` #fffaf0 | 5.71:1 | 4.5:1 |
+| `:root[data-theme="paper"]` | `--danger` #ad3f38 | `--surface` #fffaf0 | 5.69:1 | 4.5:1 |
+| `:root[data-theme="paper"]` | `--control-border` #8f7f6e | `--surface` #fffaf0 | 3.72:1 | 3:1 |
+| `:root[data-theme="paper"]` | `--control-border` #8f7f6e | `--canvas` #f3ecdf | 3.29:1 | 3:1 |
+| `:root[data-theme="ocean"]` | `--text-primary` #17313a | `--canvas` #edf4f6 | 12.28:1 | 4.5:1 |
+| `:root[data-theme="ocean"]` | `--text-primary` #17313a | `--surface` #fbfeff | 13.48:1 | 4.5:1 |
+| `:root[data-theme="ocean"]` | `--text-secondary` #496772 | `--surface` #fbfeff | 5.98:1 | 4.5:1 |
+| `:root[data-theme="ocean"]` | `--accent` #076f85 | `--surface` #fbfeff | 5.72:1 | 4.5:1 |
+| `:root[data-theme="ocean"]` | `--danger` #b74343 | `--surface` #fbfeff | 5.32:1 | 4.5:1 |
+| `:root[data-theme="ocean"]` | `--control-border` #708a94 | `--surface` #fbfeff | 3.60:1 | 3:1 |
+| `:root[data-theme="ocean"]` | `--control-border` #708a94 | `--canvas` #edf4f6 | 3.28:1 | 3:1 |
+| `:root[data-theme="slate"]` | `--text-primary` #202a33 | `--canvas` #eef0f2 | 12.76:1 | 4.5:1 |
+| `:root[data-theme="slate"]` | `--text-primary` #202a33 | `--surface` #fcfdfe | 14.32:1 | 4.5:1 |
+| `:root[data-theme="slate"]` | `--text-secondary` #56636e | `--surface` #fcfdfe | 6.05:1 | 4.5:1 |
+| `:root[data-theme="slate"]` | `--accent` #426c8a | `--surface` #fcfdfe | 5.51:1 | 4.5:1 |
+| `:root[data-theme="slate"]` | `--danger` #aa4646 | `--surface` #fcfdfe | 5.61:1 | 4.5:1 |
+| `:root[data-theme="slate"]` | `--control-border` #7c8790 | `--surface` #fcfdfe | 3.60:1 | 3:1 |
+| `:root[data-theme="slate"]` | `--control-border` #7c8790 | `--canvas` #eef0f2 | 3.21:1 | 3:1 |
+| `:root[data-theme="paper"] .sidebar` | `--accent` #f1b38e | `--surface` #4a3b32 | 5.90:1 | 4.5:1 |
+| `:root[data-theme="paper"] .sidebar` | `--control-border` #9c8f86 | `--surface` #4a3b32 | 3.41:1 | 3:1 |
+| `:root[data-theme="ocean"] .sidebar` | `--accent` #8edced | `--surface` #1b4352 | 6.90:1 | 4.5:1 |
+| `:root[data-theme="ocean"] .sidebar` | `--control-border` #839da5 | `--surface` #1b4352 | 3.72:1 | 3:1 |
+| `:root[data-theme="slate"] .sidebar` | `--accent` #acd2eb | `--surface` #35424d | 6.46:1 | 4.5:1 |
+| `:root[data-theme="slate"] .sidebar` | `--control-border` #8d979f | `--surface` #35424d | 3.46:1 | 3:1 |
+<!-- contrast-table:end -->
+
 - `forced-colors` usa colores del sistema y mantiene bordes, foco y estado.
 - El movimiento respeta `prefers-reduced-motion` y solo se añade cuando explica
   una transición o progreso.

@@ -573,9 +573,9 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Hecho lo que proponen ACC-18, ACC-19.
   - [x] `ACC-18` (Propuesta) Alternativa textual para los gráficos de Explorar — hecho el 2026-10-07
   - [ ] `ACC-19` (Propuesta) Ejecutar y registrar la checklist manual — Requiere tu decisión: pasar la checklist manual exige una persona con NVDA y la prueba con lector de pantalla está aparcada; la guía (docs/how-to/run-nvda-check.md) ya cubre las cinco etapas
-- [ ] **RV111** — **Interfaz visual** — Token `--control-border` y tabla de contraste generada · *Esfuerzo: 2 h*
+- [x] **RV111** — **Interfaz visual** — Token `--control-border` y tabla de contraste generada · *Esfuerzo: 2 h* — hecho el 2026-10-07
   - Criterio de cierre: Hecho lo que proponen UI-02.
-  - [ ] `UI-02` (Propuesta) Token `--control-border` y tabla de contraste generada
+  - [x] `UI-02` (Propuesta) Token `--control-border` y tabla de contraste generada — hecho el 2026-10-07
 - [ ] **RV112** — **Producto** — Error estructurado en el puente en vez de cadenas (y 5 problemas más) · *Esfuerzo: 3 días*
   - Criterio de cierre: Hecho lo que proponen PROD-08, PROD-09, PROD-10, PROD-11, PROD-12, PROD-13.
   - [ ] `PROD-08` (Propuesta) Error estructurado en el puente en vez de cadenas

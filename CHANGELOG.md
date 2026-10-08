@@ -1135,6 +1135,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- DESIGN.md incluye la tabla de contraste de cada tema, generada con node
+  tools/contrast-table.mjs desde los tokens de src/styles.css (su única fuente,
+  que el test de accesibilidad ya leía); una prueba falla si la tabla queda
+  desfasada. El token --control-border ya existía.
 - `DeliveryPhase.tsx` pasa de 2 209 a 1 116 líneas: el editor de reglas de
   calidad va a `QualityRulesEditor.tsx`, los presets de entrega a
   `DeliveryPresets.tsx` y el resultado de la exportación a `DeliveryResult.tsx`,
