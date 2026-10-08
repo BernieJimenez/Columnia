@@ -1196,6 +1196,8 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- Comprobado que npm run test:tools ejecuta todos los node --test de tools/ y
+  que tools/check.ps1 lo invoca (QA-61).
 - Los smokes de escritorio y del instalador avisan si hay una Columnia instalada
   abierta y fallan si al terminar cambió el registro, los accesos directos o
   algún archivo de %APPDATA%\app.columnia.desktop (ruta, tamaño y fecha), aunque
