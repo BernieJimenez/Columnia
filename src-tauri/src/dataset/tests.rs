@@ -255,6 +255,27 @@ fn a_history_folder_abandoned_by_an_error_is_removed_with_its_copies() {
 }
 
 #[test]
+fn every_published_change_says_what_it_nulled_removed_and_whether_it_undoes() {
+    // PROD-10: one summary for any Preparar action, computed when it publishes.
+    let path = temporary_csv("a,b\n1,x\n2,y\n3,z\n");
+    let (frame, _) = load_csv(&path).unwrap();
+    let mut dataset = loaded_dataset(path.path_buf(), frame);
+    let candidate = df!(
+        "a" => [Some(1_i64), Some(2_i64)],
+        "b" => [None::<&str>, Some("y")],
+    )
+    .unwrap();
+    publish_candidate_with_cancellation(&mut dataset, candidate, "Prueba", None).unwrap();
+    let summary = dataset.history.state().last_change.expect("hay resumen");
+    assert_eq!(summary.removed_row_count, 1);
+    assert_eq!(summary.nulled_cell_count, 1);
+    assert!(summary.reversible);
+    // Any later change of the frame that does not publish here drops it.
+    dataset.history.touch();
+    assert!(dataset.history.state().last_change.is_none());
+}
+
+#[test]
 fn a_recipe_converts_comma_decimals_when_told_so() {
     // PROD-11: «12,5» and «1.234,5», as Spanish data writes them.
     let frame = df!("importe" => ["12,5", "1.234,5", "-3"], "texto" => ["a", "b", "c"]).unwrap();

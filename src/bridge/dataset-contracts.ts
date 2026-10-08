@@ -362,6 +362,15 @@ export interface HistoryState {
   maxEntries: number;
   diskBytes: number;
   diskBudgetBytes: number;
+  /** PROD-10: what the last published change did; absent once the frame moved on. */
+  lastChange?: ChangeSummary;
+}
+
+/** PROD-10: the common «qué cambió» summary of a Preparar action. */
+export interface ChangeSummary {
+  nulledCellCount: number;
+  removedRowCount: number;
+  reversible: boolean;
 }
 
 export interface HistoryResult {

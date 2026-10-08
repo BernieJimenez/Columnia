@@ -70,3 +70,18 @@ describe("HistoryBar design", () => {
     expect(onUndo).toHaveBeenCalledOnce();
   });
 });
+
+describe("HistoryBar resumen común (PROD-10)", () => {
+  it("añade al último resultado las celdas vacías, las filas quitadas y si se deshace", () => {
+    render(
+      <HistoryBar
+        status={{ ...history, lastChange: { nulledCellCount: 2, removedRowCount: 1, reversible: true } }}
+        busy={false}
+        latestChange="Se convirtió 1 columna a número."
+        onUndo={() => undefined}
+        onRedo={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("2 celdas quedaron vacías · se quitó 1 fila · puedes deshacerlo.");
+  });
+});

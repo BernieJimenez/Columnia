@@ -33,6 +33,17 @@ pub struct HistoryEntryState {
     pub(super) is_current: bool,
 }
 
+/// PROD-10: what the last published change did, for one common summary.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeSummary {
+    pub(super) nulled_cell_count: usize,
+    pub(super) removed_row_count: usize,
+    pub(super) reversible: bool,
+    #[serde(skip)]
+    pub(super) revision: u64,
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryState {
@@ -46,6 +57,8 @@ pub struct HistoryState {
     pub(super) max_entries: usize,
     pub(super) disk_bytes: u64,
     pub(super) disk_budget_bytes: u64,
+    /// PROD-10: only while the frame is the one that change published.
+    pub(super) last_change: Option<ChangeSummary>,
 }
 
 #[derive(Debug)]
@@ -213,6 +226,8 @@ pub(super) struct HistoryManager {
     /// snapshot: the earlier versions stay and undo returns to the last one
     /// that was saved (DAT-07).
     pub(super) unsaved_current: Option<String>,
+    /// PROD-10: the summary of the last change published through Preparar.
+    pub(super) last_change: Option<ChangeSummary>,
 }
 
 #[cfg(test)]
@@ -244,6 +259,7 @@ impl HistoryManager {
             disk_budget_bytes: HISTORY_DISK_BUDGET_BYTES,
             revision: 0,
             unsaved_current: None,
+            last_change: None,
         })
     }
 
@@ -271,9 +287,17 @@ impl HistoryManager {
             disk_budget_bytes,
             revision: 0,
             unsaved_current: None,
+            last_change: None,
         };
         manager.record(frame, "Dataset original")?;
         Ok(manager)
+    }
+
+    /// PROD-10: the last summary while the frame is still the one it describes.
+    fn current_change(&self) -> Option<ChangeSummary> {
+        self.last_change
+            .clone()
+            .filter(|change| change.revision == self.revision)
     }
 
     pub(super) fn touch(&mut self) {
@@ -314,6 +338,7 @@ impl HistoryManager {
                 max_entries: self.max_entries,
                 disk_bytes: self.disk_bytes(),
                 disk_budget_bytes: self.disk_budget_bytes,
+                last_change: self.current_change(),
             };
         }
         let entries = if self.snapshots_enabled {
@@ -351,6 +376,7 @@ impl HistoryManager {
             max_entries: self.max_entries,
             disk_bytes: self.disk_bytes(),
             disk_budget_bytes: self.disk_budget_bytes,
+            last_change: self.current_change(),
         }
     }
 

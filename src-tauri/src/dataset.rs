@@ -1682,6 +1682,17 @@ fn publish_candidate_with_cancellation(
         append_audit_label(&mut candidate, label)?;
     }
     let preview = loaded_dataset_preview(dataset, &candidate)?;
+    // PROD-10: cells that became empty in the columns both frames share, and
+    // rows that are gone, for the common «qué cambió» summary.
+    let nulled_cell_count = candidate
+        .columns()
+        .iter()
+        .filter_map(|column| {
+            let before = dataset.frame.column(column.name()).ok()?;
+            Some(column.null_count().saturating_sub(before.null_count()))
+        })
+        .sum::<usize>();
+    let removed_row_count = dataset.frame.height().saturating_sub(candidate.height());
     let prepared_snapshot = if dataset.history.snapshots_enabled {
         Some(dataset.history.prepare_frame_snapshot(&candidate, || {
             cancellation.is_some_and(PrepareCancellation::is_cancelled)
@@ -1720,6 +1731,13 @@ fn publish_candidate_with_cancellation(
     } else {
         publish()?;
     }
+    let reversible = dataset.history.state().can_undo;
+    dataset.history.last_change = Some(history::ChangeSummary {
+        nulled_cell_count,
+        removed_row_count,
+        reversible,
+        revision: dataset.history.revision,
+    });
     for path in retired_paths {
         if !dataset
             .history

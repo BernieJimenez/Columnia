@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { DatasetProfile, TransformRecipe } from "../../bridge";
 import {
   EMPTY_HISTORY,
+  formatChangeSummary,
   appliedPlanChanges,
   changeProgressMessage,
   isLoadedRecipe,
@@ -138,5 +139,16 @@ describe("appliedPlanChanges", () => {
       "3 marcadores «sin dato» convertidos en vacíos",
     ]);
     expect(appliedPlanChanges(options, none)).toEqual([]);
+  });
+});
+
+describe("resumen común de un cambio (PROD-10)", () => {
+  it("dice celdas vacías, filas quitadas y si se puede deshacer, con plurales 0/1/N", () => {
+    expect(formatChangeSummary({ nulledCellCount: 0, removedRowCount: 0, reversible: true }))
+      .toBe("Ninguna celda quedó vacía · no se quitaron filas · puedes deshacerlo.");
+    expect(formatChangeSummary({ nulledCellCount: 1, removedRowCount: 1, reversible: true }))
+      .toBe("1 celda quedó vacía · se quitó 1 fila · puedes deshacerlo.");
+    expect(formatChangeSummary({ nulledCellCount: 1200, removedRowCount: 3, reversible: false }))
+      .toBe(`${(1200).toLocaleString()} celdas quedaron vacías · se quitaron 3 filas · no se puede deshacer porque el historial está desactivado.`);
   });
 });

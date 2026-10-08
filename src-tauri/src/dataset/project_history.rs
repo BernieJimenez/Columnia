@@ -361,5 +361,6 @@ where
         disk_budget_bytes: history.disk_budget_bytes,
         revision: 0,
         unsaved_current: None,
+        last_change: None,
     })
 }

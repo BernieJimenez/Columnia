@@ -1,4 +1,5 @@
 import type {
+  ChangeSummary,
   ChangedTextColumn,
   DatasetProfile,
   HistoryState,
@@ -10,6 +11,7 @@ import type {
 } from "../../bridge";
 import { isTextType } from "../../dataTypes";
 import { isRowAuditColumn } from "../../rowAudit";
+import { plural } from "../../plural";
 
 export type ChangeStatus =
   | { kind: "idle" }
@@ -205,4 +207,19 @@ export function nullifiedCellsSentence(columns: ChangedTextColumn[]): string {
     .map((column) => `${column.name}: ${(column.nullifiedCellCount ?? 0).toLocaleString()}`)
     .join(", ");
   return ` ${cellCount(total)} que no encajaban ${total === 1 ? "quedó vacía" : "quedaron vacías"} (${detail}).`;
+}
+
+/**
+ * PROD-10: one sentence for every Preparar change: cells left empty, rows
+ * removed and whether Deshacer brings it back.
+ */
+export function formatChangeSummary(change: ChangeSummary): string {
+  const nulled = change.nulledCellCount === 0
+    ? "Ninguna celda quedó vacía"
+    : `${plural(change.nulledCellCount, "celda quedó vacía", "celdas quedaron vacías")}`;
+  const removed = change.removedRowCount === 0
+    ? "no se quitaron filas"
+    : `${change.removedRowCount === 1 ? "se quitó" : "se quitaron"} ${plural(change.removedRowCount, "fila", "filas")}`;
+  const undo = change.reversible ? "puedes deshacerlo" : "no se puede deshacer porque el historial está desactivado";
+  return `${nulled} · ${removed} · ${undo}.`;
 }

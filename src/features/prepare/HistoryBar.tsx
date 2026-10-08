@@ -1,5 +1,5 @@
 import type { HistoryState } from "../../bridge";
-import { changeProgressMessage, type ChangeStatus } from "./prepareModel";
+import { changeProgressMessage, formatChangeSummary, type ChangeStatus } from "./prepareModel";
 import { formatBytes } from "../../format";
 
 export function HistoryBar({
@@ -49,6 +49,7 @@ export function HistoryBar({
           <div className="history-latest" role="status">
             <span>Último resultado</span>
             <p>{latestChange}</p>
+            {status.lastChange != null && <p className="history-latest__summary">{formatChangeSummary(status.lastChange)}</p>}
           </div>
         )}
         {status.entries.length > 1 && (
