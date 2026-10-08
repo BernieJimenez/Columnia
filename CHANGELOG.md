@@ -1196,6 +1196,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- Un test fija que los JOIN por DuckDB emparejan las claves exactamente igual
+  que Polars: «007» no es «7», mayúsculas y espacios cuentan, y una clave nula
+  nunca empareja (QA-58).
 - Comprobado que npm run test:tools ejecuta todos los node --test de tools/ y
   que tools/check.ps1 lo invoca (QA-61).
 - Los smokes de escritorio y del instalador avisan si hay una Columnia instalada

@@ -7823,6 +7823,57 @@ fn duckdb_query_preserves_active_row_order_without_leaking_internal_columns() {
 }
 
 #[test]
+fn duckdb_join_keys_match_exactly_like_the_polars_path() {
+    // QA-58: only "1"/"2"/"3" were joined through DuckDB. Leading zeros,
+    // case, trailing spaces and nulls are not normalized, and a null key never
+    // matches (SQL `NULL = NULL` is not true), in both engines.
+    let current = DataFrame::new(
+        6,
+        vec![Series::new(
+            "id".into(),
+            [
+                Some("007"),
+                Some("7"),
+                None,
+                Some("Ana"),
+                Some("ana "),
+                Some("ana"),
+            ],
+        )
+        .into_column()],
+    )
+    .unwrap();
+    let compared = DataFrame::new(
+        3,
+        vec![
+            Series::new("id".into(), [Some("7"), None, Some("ana")]).into_column(),
+            Series::new("segment".into(), [Some("siete"), Some("nulo"), Some("ana")]).into_column(),
+        ],
+    )
+    .unwrap();
+    let sql =
+        "SELECT id, segment FROM dataset LEFT JOIN compared ON dataset.id = compared.id LIMIT 10";
+    let spec = prepare_duckdb_query(sql, &current, Some(&compared)).expect("JOIN DuckDB válido");
+    let duckdb =
+        crate::duckdb_query::execute_duckdb_query(&current, Some(&compared), &spec, || false)
+            .expect("DuckDB debe ejecutar el JOIN");
+    let text = |value: &str| Some(value.to_owned());
+    let expected = vec![
+        vec![text("007"), None],
+        vec![text("7"), text("siete")],
+        vec![None, None],
+        vec![text("Ana"), None],
+        vec![text("ana "), None],
+        vec![text("ana"), text("ana")],
+    ];
+    assert_eq!(duckdb.rows, expected);
+
+    let polars = execute_local_query_with_comparison(&current, Some(&compared), sql)
+        .expect("Polars debe ejecutar el mismo JOIN");
+    assert_eq!(polars.rows, expected, "los dos motores emparejan igual");
+}
+
+#[test]
 fn duckdb_query_keeps_full_join_keys_and_group_order() {
     let current = df![
         "id" => &[1_i64, 2],
