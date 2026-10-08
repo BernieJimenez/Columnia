@@ -305,6 +305,8 @@ describe("App", () => {
 
     expect(within(screen.getByRole("button", { name: "Cargar" })).getByText("Hecho")).toBeInTheDocument();
     expect(within(screen.getByRole("button", { name: "Revisar" })).queryByText("Hecho")).not.toBeInTheDocument();
+    // The data changed after Revisar: it asks to look again instead of «Después».
+    expect(within(screen.getByRole("button", { name: "Revisar" })).getByText("Revisar de nuevo")).toBeInTheDocument();
     expect(within(screen.getByRole("button", { name: "Preparar" })).getByText("Hecho")).toBeInTheDocument();
   });
 

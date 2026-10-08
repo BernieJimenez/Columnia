@@ -1030,6 +1030,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - RV04: si falla cancelar una importación pendiente o liberar su selección temporal, Columnia conserva el `selectionId`, identifica el paso pendiente y permite reintentarlo sin repetir el paso completado. Las nuevas inspecciones permanecen bloqueadas hasta completar la limpieza.
 
 ### Mejorado
+- Si los datos cambian después de Revisar (por ejemplo, al aplicar un cambio en
+  Preparar), la barra lateral marca Revisar como «Revisar de nuevo» en lugar de
+  «Después».
 - El panel automático de Explorar deja fuera las columnas que parecen claves:
   texto con un valor distinto en casi cada fila y números de fila con huecos.
   «Personalizar» las sigue ofreciendo.

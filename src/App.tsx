@@ -237,10 +237,12 @@ export function App() {
     stageRef.current?.focus({ preventScroll: true });
   }, [activePhase]);
 
-  function bumpDatasetRevision() {
+  /** `sameDataset`: a change made in Revisar or Preparar, so earlier marks stay
+   * (no longer current) and Revisar can ask to look again. */
+  function bumpDatasetRevision(sameDataset = false) {
     const nextRevision = datasetRevisionRef.current + 1;
     datasetRevisionRef.current = nextRevision;
-    setCompletedPhaseRevisions({ load: nextRevision });
+    setCompletedPhaseRevisions((current) => (sameDataset ? { ...current, load: nextRevision } : { load: nextRevision }));
     review.invalidateRequests();
     pageRequestRef.current += 1;
     pageCancellationRequestRef.current = null;
@@ -273,7 +275,7 @@ export function App() {
     onDatasetReplaced: async (dataset, mutation) => {
       setChangedSinceSave(true);
       setDatasetStatus(createReadyDatasetStatus(dataset));
-      bumpDatasetRevision();
+      bumpDatasetRevision(true);
       if (mutation !== "join") delivery.resetOutput();
       review.invalidateProfile();
       projects.unlinkActiveProject();
@@ -305,7 +307,7 @@ export function App() {
     exceptionPolicy: activeExceptionPolicy,
     onDatasetChanged: (dataset) => {
       setChangedSinceSave(true);
-      bumpDatasetRevision();
+      bumpDatasetRevision(true);
       setActiveExceptionPolicy((current) => current && exceptionPolicyMatchesSchema(current, dataset.columns)
         ? current
         : null);
@@ -1234,6 +1236,9 @@ export function App() {
           {workflowPhases.map((phase, phaseIndex) => {
             const available = phase.id === "load" || Boolean(activeDataset);
             const phaseComplete = isPhaseComplete(phase.id);
+            // Reviewed, then the data changed: «Revisar de nuevo», not «Después».
+            const reviewAgain = phase.id === "review" && !phaseComplete
+              && completedPhaseRevisions.review !== undefined;
             const phaseState = phaseIndex === activePhaseIndex
               ? "current"
               : phaseComplete ? "complete" : "upcoming";
@@ -1241,7 +1246,7 @@ export function App() {
               <button
                 key={phase.id}
                 type="button"
-                aria-description={phaseComplete ? "Completada" : undefined}
+                aria-description={phaseComplete ? "Completada" : reviewAgain ? "Los datos cambiaron desde la revisión" : undefined}
                 className={`side-nav__item side-nav__item--${phaseState}${activePhase === phase.id ? " side-nav__active" : ""}`}
                 aria-current={activePhase === phase.id ? "step" : undefined}
                 aria-disabled={!available || undefined}
@@ -1259,7 +1264,7 @@ export function App() {
                   <span className="side-nav__label-row">
                     <strong>{phase.label}</strong>
                     <small className="side-nav__state" aria-hidden="true">
-                      {phaseComplete ? "Hecho" : phaseState === "current" ? "Ahora" : "Después"}
+                      {phaseComplete ? "Hecho" : phaseState === "current" ? "Ahora" : reviewAgain ? "Revisar de nuevo" : "Después"}
                     </small>
                   </span>
                   <small aria-hidden="true">{phase.description}</small>
