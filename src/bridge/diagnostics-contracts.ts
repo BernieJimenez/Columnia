@@ -41,7 +41,7 @@ export interface DiagnosticMetrics {
 }
 
 /** ARQ-09: a source-backed operation that fell back to the in-memory path. */
-export interface SourceBackedFallback {
+interface SourceBackedFallback {
   operation: string;
   errorKind: string;
 }
