@@ -205,6 +205,8 @@ export interface NumericCorrelationMatrix {
   columns: string[];
   pairs: NumericCorrelation[];
   sampledRowCount: number;
+  /** PROD-20: rows the sample was drawn from; absent in older projects. */
+  rowCount?: number;
   truncated: boolean;
 }
 

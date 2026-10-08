@@ -948,6 +948,9 @@ pub struct NumericCorrelationMatrix {
     columns: Vec<String>,
     pairs: Vec<NumericCorrelation>,
     sampled_row_count: usize,
+    /// PROD-20: rows the sample was drawn from; absent in older projects.
+    #[serde(default)]
+    row_count: Option<usize>,
     truncated: bool,
 }
 

@@ -835,6 +835,7 @@ describe("ReviewPhase", () => {
       numericCorrelations: {
         ...profile.numericCorrelations!,
         sampledRowCount: 87,
+        rowCount: 120,
         truncated: true,
       },
     };
@@ -901,7 +902,7 @@ describe("ReviewPhase", () => {
     );
     expect(screen.getByRole("heading", { name: "Correlaciones numéricas" })).toBeInTheDocument();
     expect(screen.getByText(/Pearson entre pares disponibles/)).toHaveTextContent(
-      "La lectura usa 87 filas y muestra las primeras 12 columnas numéricas.",
+      "La lectura usa una muestra de 87 de 120 filas repartida por todo el archivo y muestra las primeras 12 columnas numéricas.",
     );
     expect(
       screen.getByRole("region", { name: "Matriz de correlaciones numéricas" }),

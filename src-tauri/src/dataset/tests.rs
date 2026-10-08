@@ -9322,6 +9322,28 @@ fn numeric_correlations_honor_the_requested_sample_limit() {
 }
 
 #[test]
+fn correlation_samples_do_not_alias_periodic_data_and_say_how_many_rows_they_cover() {
+    // PROD-20: one row every n/m fell on the same phase of a period-4 series,
+    // so both columns looked constant and the correlation vanished.
+    let phase = (0..4_000_i64).map(|row| row % 4).collect::<Vec<_>>();
+    let double = phase.iter().map(|value| value * 2).collect::<Vec<_>>();
+    let frame = df!("fase" => phase, "doble" => double).unwrap();
+    let profile = profile_dataset_with_sample_rows(&frame, 1_000).expect("perfil");
+    let correlations = profile
+        .numeric_correlations
+        .as_ref()
+        .expect("correlaciones");
+    assert_eq!(correlations.sampled_row_count, 1_000);
+    assert_eq!(correlations.row_count, Some(4_000));
+    let coefficient = correlations.pairs[0].coefficient.expect("la muestra varía");
+    assert!((coefficient - 1.0).abs() < 1e-9, "{coefficient}");
+
+    // The same data gives the same sample.
+    let again = profile_dataset_with_sample_rows(&frame, 1_000).expect("perfil");
+    assert_eq!(again.numeric_correlations, profile.numeric_correlations);
+}
+
+#[test]
 fn validates_numeric_correlation_sample_bounds() {
     assert_eq!(
         validate_numeric_correlation_sample_rows(MIN_NUMERIC_CORRELATION_SAMPLE_ROWS),

@@ -594,7 +594,7 @@ medio = 1 día; agregado por suma.
   - [ ] `PROD-19` (Propuesta) Informar de hojas ocultas, celdas combinadas y filas de título al cargar libros — Avisos hechos el 2026-10-08 (hojas ocultas, celdas combinadas y fila de título); Requiere tu decisión: cómo elegir la fila de encabezado (automática o un número de fila), porque cambia la carga, el perfil de importación, las tareas y los proyectos
 - [ ] **RV114** — **Producto** — Informar de qué muestra se usa en correlaciones y permitir su semilla/estrategia (y 1 problemas más) · *Esfuerzo: 4 h*
   - Criterio de cierre: Hecho lo que proponen PROD-20, PROD-21.
-  - [ ] `PROD-20` (Propuesta) Informar de qué muestra se usa en correlaciones y permitir su semilla/estrategia
+  - [x] `PROD-20` (Propuesta) Informar de qué muestra se usa en correlaciones y permitir su semilla/estrategia — hecho el 2026-10-08
   - [ ] `PROD-21` (Propuesta) Tolerancia numérica y normalización de texto opcionales en la comparación
 - [ ] **RV115** — **Refactorización y limpieza** — `SnapshotComparisonResult` anunciada como «solo agregados» pero el listado por columna muestra nombres de columna sin c… · *Esfuerzo: 2 h*
   - Criterio de cierre: Hecho lo que proponen LIM-16.

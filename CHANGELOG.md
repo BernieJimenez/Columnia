@@ -1042,6 +1042,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 - Si los datos cambian después de Revisar (por ejemplo, al aplicar un cambio en
+- Las correlaciones de Revisar dicen si usan todas las filas o «una muestra de N
+  de M filas»; la muestra se reparte por todo el archivo con un desplazamiento
+  fijo dentro de cada tramo, así que una serie que se repite cada pocas filas ya
+  no la engaña y el resultado es el mismo en cada análisis (PROD-20).
 - Al exportar a Excel, las fechas y las fechas con hora se guardan como fechas
   de Excel (con el formato corto de tu configuración regional), así que se
   pueden ordenar y filtrar; las anteriores al 1 de marzo de 1900 y las que

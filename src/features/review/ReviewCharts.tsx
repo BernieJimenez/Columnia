@@ -1187,12 +1187,22 @@ function CategoricalGroupChart({
   );
 }
 
+/** PROD-20: whether the correlations read every row or a sample, and of how many. */
+function correlationSampleText(matrix: NumericCorrelationMatrix): string {
+  const sampled = plural(matrix.sampledRowCount, "fila", "filas");
+  if (matrix.rowCount == null) return `La lectura usa ${sampled}`;
+  if (matrix.rowCount <= matrix.sampledRowCount) {
+    return matrix.rowCount === 1 ? "La lectura usa la única fila" : `La lectura usa las ${plural(matrix.rowCount, "fila", "filas")}`;
+  }
+  return `La lectura usa una muestra de ${matrix.sampledRowCount.toLocaleString()} de ${plural(matrix.rowCount, "fila", "filas")} repartida por todo el archivo`;
+}
+
 function NumericCorrelationChart({ matrix }: { matrix: NumericCorrelationMatrix }) {
   return (
     <div className="quality-chart quality-chart--wide quality-correlation" role="group" aria-labelledby="quality-correlation-title">
       <h5 id="quality-correlation-title">Correlaciones numéricas</h5>
       <p className="quality-chart__note">
-        Pearson entre pares disponibles. La lectura usa {matrix.sampledRowCount.toLocaleString()} filas
+        Pearson entre pares disponibles. {correlationSampleText(matrix)}
         {matrix.truncated ? " y muestra las primeras 12 columnas numéricas" : ""}.
       </p>
       <div className="quality-correlation__table" role="region" tabIndex={0} aria-label="Matriz de correlaciones numéricas">

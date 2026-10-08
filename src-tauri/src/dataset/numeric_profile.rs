@@ -606,6 +606,27 @@ pub(super) fn numeric_statistics(
     }))
 }
 
+/// The row behind sample `index` of `sampled` taken from `row_count` rows.
+/// Every sample covers its own stretch of the file, so a large file is not
+/// represented only by its header. Within the stretch the row moves by a fixed
+/// hash, not always to the start: a series that repeats every few rows does
+/// not fall on the same phase each time (PROD-20). Increasing and the same on
+/// every run.
+fn correlation_sample_row(index: usize, sampled: usize, row_count: usize) -> usize {
+    if sampled == 0 || sampled >= row_count {
+        return index;
+    }
+    let start = index.saturating_mul(row_count) / sampled;
+    let end = (index + 1).saturating_mul(row_count) / sampled;
+    let width = end.saturating_sub(start).max(1);
+    // splitmix64 of the sample index.
+    let mut mixed = (index as u64).wrapping_add(0x9E37_79B9_7F4A_7C15);
+    mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    mixed ^= mixed >> 31;
+    start + (mixed % width as u64) as usize
+}
+
 fn correlation_numeric_value(value: AnyValue<'_>) -> Option<f64> {
     if let Some(value) = numeric_value(value.clone()) {
         return Some(value);
@@ -651,8 +672,7 @@ where
             if sample_index % 4096 == 0 {
                 ensure_not_cancelled(is_cancelled())?;
             }
-            // Evenly sample the frame so a large file is not represented only by its header.
-            let row_index = sample_index.saturating_mul(row_count) / sampled_row_count;
+            let row_index = correlation_sample_row(sample_index, sampled_row_count, row_count);
             let value = column.get(row_index).map_err(|error| {
                 format!(
                     "No se pudieron calcular correlaciones para la columna {}: {error}",
@@ -686,6 +706,7 @@ where
             .collect(),
         pairs,
         sampled_row_count,
+        row_count: Some(row_count),
         truncated: profiles
             .iter()
             .filter(|profile| profile.outlier_count.is_some())
@@ -771,7 +792,7 @@ where
         SOURCE_PROFILE_BLOCK_ROWS,
         |start, block| {
             while next_sample < sampled_row_count {
-                let row_index = next_sample.saturating_mul(row_count) / sampled_row_count;
+                let row_index = correlation_sample_row(next_sample, sampled_row_count, row_count);
                 if row_index < start {
                     return Ok(());
                 }
@@ -814,6 +835,7 @@ where
         columns: numeric_columns,
         pairs,
         sampled_row_count,
+        row_count: Some(row_count),
         truncated: profiles
             .iter()
             .filter(|profile| profile.outlier_count.is_some())
