@@ -535,9 +535,9 @@ medio = 1 día; agregado por suma.
   - [x] `QA-40` (Bajo) Tests que construyen estructuras del tamaño de un límite (coste de memoria/tiempo no medido) — hecho el 2026-10-07
   - [x] `QA-41` (Bajo) Fixtures `temporary_csv` sueltos en `%TEMP%` y borrados solo en la última línea (se filtran si el test falla) — hecho el 2026-10-07
   - [x] `QA-42` (Bajo) Aserciones débiles: solo el tipo en formatos de fecha, `||` entre mensajes y tuplas posicionales de 21 campos — hecho el 2026-10-07
-- [ ] **RV103** — **Configuración de Rust y Tauri** — Ejecutables e instaladores sin firma Authenticode (y 2 problemas más) · *Esfuerzo: 1,5 días*
+- [x] **RV103** — **Configuración de Rust y Tauri** — Ejecutables e instaladores sin firma Authenticode (y 2 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-08
   - Criterio de cierre: Se cumplen los criterios de aceptación de OPS-13, OPS-15, OPS-16.
-  - [ ] `OPS-13` (Bajo) Ejecutables e instaladores sin firma Authenticode — Requiere tu decisión: firmar exige un certificado de firma de código (propio o de una CA) y solo tiene sentido si se distribuyen binarios, hoy aparcado
+  - [x] `OPS-13` (Bajo) Ejecutables e instaladores sin firma Authenticode — Decidido: no aplica mientras Columnia no se distribuya; se retoma con la distribución — hecho el 2026-10-08
   - [x] `OPS-15` (Bajo) `src-tauri/deny.toml` ignora diez avisos que ya no corresponden a ningún crate — hecho el 2026-10-07
   - [x] `OPS-16` (Bajo) Sin `[profile.release]`: binarios de 129,5 MB / 112,9 MB sin LTO, strip ni codegen-units — hecho el 2026-10-07
 - [x] **RV104** — **Documentación** — README: «Rust estable» frente a la versión fijada en `rust-toolchain.toml` (y 5 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-07
@@ -548,10 +548,10 @@ medio = 1 día; agregado por suma.
   - [x] `DOC-12` (Bajo) CHANGELOG cita un archivo que no existe en la ruta indicada — hecho el 2026-10-07
   - [x] `DOC-15` (Bajo) Tutorial y guía de release con requisitos vagos y ejemplos de versiones muertas — hecho el 2026-10-07
   - [x] `DOC-16` (Bajo) Guías de beta, NVDA y release: referencias a niveles retirados, flujo sin «Explorar» y 0.95.0 otra vez — hecho el 2026-10-07
-- [ ] **RV105** — **Documentación** — Galería del README fechada antes de los rediseños y de Explorar; plantillas beta con «Gat… (y 1 problemas más) · *Esfuerzo: 1,2 días*
+- [x] **RV105** — **Documentación** — Galería del README fechada antes de los rediseños y de Explorar; plantillas beta con «Gat… (y 1 problemas más) · *Esfuerzo: 1,2 días* — hecho el 2026-10-08
   - Criterio de cierre: Se cumplen los criterios de aceptación de DOC-17, LEG-01.
   - [x] `DOC-17` (Bajo) Galería del README fechada antes de los rediseños y de Explorar; plantillas beta con «Gate 2 · shell de espacios» — hecho el 2026-10-07
-  - [ ] `LEG-01` (Bajo) THIRD_PARTY_NOTICES no incluye textos de licencia ni titulares de copyright; mezcla dependencias de otras plataformas y de desarrollo — Requiere tu decisión: los textos completos de licencia y copyright solo hacen falta si se distribuyen binarios (aparcado) y conviene que los revise un profesional; el SBOM ya distingue lo que lleva el instalador (LIM-14)
+  - [x] `LEG-01` (Bajo) THIRD_PARTY_NOTICES no incluye textos de licencia ni titulares de copyright; mezcla dependencias de otras plataformas y de desarrollo — Decidido: se pospone hasta distribuir binarios; el SBOM ya distingue lo que lleva el instalador — hecho el 2026-10-08
 
 ### Tier 4 — Futuro u opcional
 
@@ -569,10 +569,10 @@ medio = 1 día; agregado por suma.
   - Criterio de cierre: Hecho lo que proponen UX-20, UX-21.
   - [x] `UX-20` (Propuesta) Resolver conflictos exige decidir celda a celda en todas las páginas, sin acción masiva — hecho el 2026-10-07
   - [x] `UX-21` (Propuesta) Reglas propuestas también cuando ya hay contrato incompleto — hecho el 2026-10-07
-- [ ] **RV110** — **Accesibilidad** — Alternativa textual para los gráficos de Explorar (y 1 problemas más) · *Esfuerzo: 4 h*
+- [x] **RV110** — **Accesibilidad** — Alternativa textual para los gráficos de Explorar (y 1 problemas más) · *Esfuerzo: 4 h* — hecho el 2026-10-08
   - Criterio de cierre: Hecho lo que proponen ACC-18, ACC-19.
   - [x] `ACC-18` (Propuesta) Alternativa textual para los gráficos de Explorar — hecho el 2026-10-07
-  - [ ] `ACC-19` (Propuesta) Ejecutar y registrar la checklist manual — Requiere tu decisión: pasar la checklist manual exige una persona con NVDA y la prueba con lector de pantalla está aparcada; la guía (docs/how-to/run-nvda-check.md) ya cubre las cinco etapas
+  - [x] `ACC-19` (Propuesta) Ejecutar y registrar la checklist manual — Decidido: queda aparcada con la prueba de lector de pantalla; la guía docs/how-to/run-nvda-check.md ya cubre las cinco etapas — hecho el 2026-10-08
 - [x] **RV111** — **Interfaz visual** — Token `--control-border` y tabla de contraste generada · *Esfuerzo: 2 h* — hecho el 2026-10-07
   - Criterio de cierre: Hecho lo que proponen UI-02.
   - [x] `UI-02` (Propuesta) Token `--control-border` y tabla de contraste generada — hecho el 2026-10-07
