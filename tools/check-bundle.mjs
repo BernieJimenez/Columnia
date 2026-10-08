@@ -10,7 +10,10 @@ const FRONTEND_LIMITS = Object.freeze({
   css: Object.freeze({ rawBytesPerFile: 128 * 1024, gzipBytesPerFile: 40 * 1024 }),
   // COD-19: fonts, images, .wasm and the page itself count too.
   other: Object.freeze({ rawBytesPerFile: 256 * 1024, gzipBytesPerFile: 256 * 1024 }),
-  total: Object.freeze({ rawBytes: 832 * 1024, gzipBytes: 240 * 1024 }),
+  // 2026-10-07: raw total raised from 832 to 896 KiB for the roadmap features
+  // (conflict bulk actions, suggested rules); the gzip total, closer to what the
+  // WebView loads, keeps its 240 KiB limit.
+  total: Object.freeze({ rawBytes: 896 * 1024, gzipBytes: 240 * 1024 }),
   otherTotal: Object.freeze({ rawBytes: 512 * 1024 }),
 });
 
