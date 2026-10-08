@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { commandParityProblems, handlerEntries, invokedCommands } from "./check-ipc-inventory.mjs";
+import { commandParityProblems, expectedInventory, handlerEntries, inventoryDrift, invokedCommands } from "./check-ipc-inventory.mjs";
 
 test("detecta un invoke huérfano en cada sentido (QA-25)", () => {
   const invoked = invokedCommands([
@@ -22,4 +22,15 @@ test("ignora comentarios dentro de generate_handler", () => {
     probe::probe_seed_dataset,
   ]`);
   assert.deepEqual(entries.map(({ name }) => name), ["load_dataset", "probe_seed_dataset"]);
+});
+
+test("un comando nuevo sin inventariar hace fallar el gate y el inventario al día pasa (QA-62)", () => {
+  const handler = `tauri::generate_handler![
+    dataset::load_dataset,
+    dataset::get_dataset_page,
+  ]`;
+  const inventory = expectedInventory(handler);
+  assert.deepEqual(inventoryDrift(inventory, expectedInventory(handler)), []);
+  const withNewCommand = handler.replace("dataset::get_dataset_page,", "dataset::get_dataset_page,\n    dataset::export_dataset,");
+  assert.match(inventoryDrift(inventory, expectedInventory(withNewCommand))[0], /no coincide con generate_handler/);
 });

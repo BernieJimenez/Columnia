@@ -607,9 +607,9 @@ medio = 1 día; agregado por suma.
   - [ ] `QA-59` (Propuesta) Casos de borde de los límites numéricos en la ruta source-backed (coma decimal, día/mes ambiguo)
   - [ ] `QA-60` (Propuesta) Puerta de cobertura para Rust
   - [ ] `QA-61` (Propuesta) Un único `npm run test:tools` que ejecute todos los `node --test` de `tools/`
-- [ ] **RV117** — **QA y testing** — Quitar los números fijos del inventario IPC y comprobarlo contra TypeScript · *Esfuerzo: 2 h*
+- [x] **RV117** — **QA y testing** — Quitar los números fijos del inventario IPC y comprobarlo contra TypeScript · *Esfuerzo: 2 h* — hecho el 2026-10-08
   - Criterio de cierre: Hecho lo que proponen QA-62.
-  - [ ] `QA-62` (Propuesta) Quitar los números fijos del inventario IPC y comprobarlo contra TypeScript
+  - [x] `QA-62` (Propuesta) Quitar los números fijos del inventario IPC y comprobarlo contra TypeScript — hecho el 2026-10-08
 - [ ] **RV118** — **DevOps y gates** — `.gitignore` sin secretos típicos ni `.gitattributes` (y 2 problemas más) · *Esfuerzo: 6 h*
   - Criterio de cierre: Hecho lo que proponen OPS-23, OPS-24, OPS-25.
   - [ ] `OPS-23` (Propuesta) `.gitignore` sin secretos típicos ni `.gitattributes`

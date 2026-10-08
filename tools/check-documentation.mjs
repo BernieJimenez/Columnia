@@ -426,7 +426,6 @@ try {
   validateReadmeSetupContract(readme, packageManifest);
   const packageLock = JSON.parse(await readUtf8("package-lock.json"));
   const auditDocument = await readUtf8("AUDITORIA.md");
-  const ipcInventory = JSON.parse(await readUtf8("docs/reference/ipc-inventory.json"));
   const tauriConfig = JSON.parse(await readUtf8("src-tauri/tauri.conf.json"));
   const legalDecision = JSON.parse(await readUtf8("docs/reference/legal-distribution-decision.json"));
   const cargoManifest = await readUtf8("src-tauri/Cargo.toml");
@@ -458,11 +457,6 @@ try {
   const npmAuditCount = auditDocument.match(/`npm audit --json --omit=optional`[^|]*\|[^|]*; (\d+) dependencias del lockfile/);
   if (!npmAuditCount || Number(npmAuditCount[1]) !== packageCount) {
     fail(`La ficha de dependencias no coincide con package-lock.json: declara ${npmAuditCount?.[1] ?? "sin conteo"}, actual ${packageCount}.`);
-  }
-  const ipcAuditCount = auditDocument.match(/`npm run ipc:check`[^|]*\| Aprobado; (\d+) comandos de producción, (\d+) debug y (\d+) estructuras compartidas/);
-  const expectedIpcCount = [ipcInventory.productionCommands?.length, ipcInventory.debugCommands?.length, ipcInventory.sharedStructures?.length];
-  if (!ipcAuditCount || expectedIpcCount.some((count, index) => Number(ipcAuditCount[index + 1]) !== count)) {
-    fail(`La ficha de dependencias no coincide con el inventario IPC: declara ${ipcAuditCount?.[1] ?? "sin conteo"}/${ipcAuditCount?.[2] ?? "sin conteo"}/${ipcAuditCount?.[3] ?? "sin conteo"}, actual ${expectedIpcCount.join("/")}.`);
   }
   // The living documents stay short; their history is archived, not deleted.
   for (const [document, contents] of [
@@ -538,8 +532,8 @@ try {
   if (undocumented.length > 0) fail(`Variables de entorno sin documentar en docs/reference/environment-variables.md: ${undocumented.join(", ")}`);
   const cliProblems = cliSubcommandProblems(await readUtf8("docs/reference/cli.md"), await readUtf8("src-tauri/src/automation.rs"));
   if (cliProblems.length > 0) fail(`docs/reference/cli.md no coincide con la CLI: ${cliProblems.join(", ")}`);
-  // AUDITORIA.md keeps its counts because the checks above verify them.
-  for (const living of ["CONTEXTO.md", "THREAT_MODEL.md", "README.md"]) {
+  // QA-62: the counts live in docs/reference/ipc-inventory.json, never in prose.
+  for (const living of ["CONTEXTO.md", "THREAT_MODEL.md", "README.md", "AUDITORIA.md"]) {
     const figures = handWrittenInventoryFigures(await readUtf8(living));
     if (figures.length > 0) fail(`${living} repite cifras que caducan (${figures.join(", ")}); remite a docs/reference/ipc-inventory.json o a la evidencia fechada.`);
   }

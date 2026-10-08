@@ -1187,6 +1187,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- El inventario IPC ya no repite cifras en AUDITORIA.md: el recuento vive en
+  docs/reference/ipc-inventory.json y el gate falla si un comando se añade o se
+  quita sin regenerarlo, con un test que lo comprueba (QA-62).
 - Las skills locales del agente (.agents/ y skills-lock.json) dejan de
   versionarse y quedan solo en local (LIM-15).
 - Los errores del motor se reconocen en un solo sitio, src/bridge/errors.ts: un

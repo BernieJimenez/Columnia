@@ -203,7 +203,7 @@ export function handlerEntries(source) {
   }).filter(({ name }) => name);
 }
 
-function expectedInventory(source) {
+export function expectedInventory(source) {
   const entries = handlerEntries(source);
   return {
     schemaVersion: 1,
@@ -216,6 +216,23 @@ function expectedInventory(source) {
 
 function comparable(value) {
   return JSON.stringify(value);
+}
+
+/**
+ * QA-62: what the published inventory misses against `generate_handler!`. No
+ * count is fixed: a command added or removed without regenerating the
+ * inventory is the failure.
+ */
+export function inventoryDrift(current, expected) {
+  const problems = [];
+  if (comparable(current.productionCommands) !== comparable(expected.productionCommands)
+    || comparable(current.debugCommands) !== comparable(expected.debugCommands)) {
+    problems.push("El inventario IPC no coincide con generate_handler; regénéralo y clasifica cualquier novedad.");
+  }
+  if (comparable(current.sharedStructures) !== comparable(expected.sharedStructures)) {
+    problems.push("La lista de estructuras compartidas IPC cambió; actualiza el inventario y sus contratos.");
+  }
+  return problems;
 }
 
 async function main() {
@@ -236,13 +253,8 @@ async function main() {
       throw new Error(`Falta un archivo fuente declarado por el inventario IPC: ${file}`);
     }
   }
-  if (comparable(current.productionCommands) !== comparable(expected.productionCommands)
-    || comparable(current.debugCommands) !== comparable(expected.debugCommands)) {
-    throw new Error("El inventario IPC no coincide con generate_handler; regénéralo y clasifica cualquier novedad.");
-  }
-  if (comparable(current.sharedStructures) !== comparable(expected.sharedStructures)) {
-    throw new Error("La lista de estructuras compartidas IPC cambió; actualiza el inventario y sus contratos.");
-  }
+  const drift = inventoryDrift(current, expected);
+  if (drift.length > 0) throw new Error(drift.join(" "));
   const parity = commandParityProblems(
     current.productionCommands.map(({ name }) => name),
     invokedCommands(await bridgeSources(resolve(projectRoot, "src"))),

@@ -71,7 +71,7 @@ dependencias del lockfile y del inventario IPC los comprueba `docs:check` contra
 | `npm run network:check` | Aprobado | Sin APIs de red/telemetría en producción; CSP solo deja IPC interno |
 | `npm run notices:check` | Aprobado | `THIRD_PARTY_NOTICES.md` se deriva offline de ambos lockfiles; aprueba igual en un clon con CRLF (OPS-03) |
 | `npm run toolchains:check` | Aprobado; Node 24.14.0, npm 11.10.1 y Rust/Cargo 1.98.1 | Node y npm se comparan con el rango de `engines`; Rust con `rust-toolchain.toml` |
-| `npm run ipc:check` | Aprobado; 92 comandos de producción, 4 debug y 84 estructuras compartidas | El inventario se genera desde `generate_handler!` y exige un `invoke` de TypeScript por cada comando de producción |
+| `npm run ipc:check` | Aprobado; el recuento de comandos y estructuras está en [`ipc-inventory.json`](docs/reference/ipc-inventory.json) | El inventario se genera desde `generate_handler!` y exige un `invoke` de TypeScript por cada comando de producción |
 
 Las excepciones de `cargo audit`/`cargo deny` no ocultan una vulnerabilidad de
 la aplicación: están limitadas a advisories transitivos con razón, versión y
