@@ -41,6 +41,29 @@ fn bounds_for_order(
 }
 
 impl TemporalBounds {
+    /// REN-01: the bounds of an earlier part of a column followed by a later
+    /// one; on a tie the earlier value stays, as when reading in order.
+    fn merge(&mut self, later: TemporalBounds) {
+        if let Some((datetime, value)) = later.minimum {
+            if self
+                .minimum
+                .as_ref()
+                .is_none_or(|(current, _)| datetime < *current)
+            {
+                self.minimum = Some((datetime, value));
+            }
+        }
+        if let Some((datetime, value)) = later.maximum {
+            if self
+                .maximum
+                .as_ref()
+                .is_none_or(|(current, _)| datetime > *current)
+            {
+                self.maximum = Some((datetime, value));
+            }
+        }
+    }
+
     fn observe(&mut self, datetime: NaiveDateTime, value: String) {
         if self
             .minimum
@@ -509,6 +532,47 @@ pub(super) fn text_statistics_with_unique_count(
         for (value, count) in distinct {
             tally.observe(value, count);
         }
+    } else if non_null_count >= PARALLEL_TEXT_TALLY_VALUES {
+        // REN-01: a column of (almost) all distinct values, such as timestamps,
+        // is tallied in consecutive parts at the same time and merged in
+        // order. Each part keeps the whole date budget: while the column stays
+        // within it nothing changes, and past it no part could make it a date.
+        let parts = std::thread::available_parallelism()
+            .map(|parallelism| parallelism.get().min(8))
+            .unwrap_or(2)
+            .max(1);
+        let length = values.len();
+        let part_length = length.div_ceil(parts);
+        let budget = tally.date_failure_budget;
+        let tallies = std::thread::scope(|scope| {
+            let handles = (0..parts)
+                .map(|part| {
+                    let offset = part * part_length;
+                    let slice = values.slice(
+                        offset as i64,
+                        part_length.min(length.saturating_sub(offset)),
+                    );
+                    scope.spawn(move || {
+                        let mut part_tally = TextTally {
+                            date_failure_budget: budget,
+                            ..TextTally::default()
+                        };
+                        for value in slice.iter().flatten() {
+                            part_tally.observe(value, 1);
+                        }
+                        part_tally
+                    })
+                })
+                .collect::<Vec<_>>();
+            handles
+                .into_iter()
+                .map(|handle| handle.join())
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(|_| "El análisis de texto de la columna se interrumpió.".to_owned())?;
+        for part_tally in tallies {
+            tally.merge(part_tally);
+        }
     } else {
         for value in values.iter().flatten() {
             tally.observe(value, 1);
@@ -516,6 +580,10 @@ pub(super) fn text_statistics_with_unique_count(
     }
     Ok(Some(tally.finish()))
 }
+
+/// REN-01: from this many values, a column of distinct values is tallied in
+/// parts at the same time.
+const PARALLEL_TEXT_TALLY_VALUES: usize = 200_000;
 
 #[derive(Default)]
 struct TextTally {
@@ -547,6 +615,37 @@ struct TextTally {
 }
 
 impl TextTally {
+    /// REN-01: adds the tally of the next part of the column.
+    fn merge(&mut self, later: TextTally) {
+        self.empty_count += later.empty_count;
+        self.sentinel_count += later.sentinel_count;
+        self.marker_count += later.marker_count;
+        self.encoding_issue_count += later.encoding_issue_count;
+        self.value_count += later.value_count;
+        self.boolean_count += later.boolean_count;
+        self.integer_count += later.integer_count;
+        self.decimal_count += later.decimal_count;
+        self.date_count += later.date_count;
+        self.temporal_bounds.merge(later.temporal_bounds);
+        self.month_first_bounds.merge(later.month_first_bounds);
+        self.total_length += later.total_length;
+        self.minimum_length = match (self.minimum_length, later.minimum_length) {
+            (Some(left), Some(right)) => Some(left.min(right)),
+            (left, right) => left.or(right),
+        };
+        self.maximum_length = match (self.maximum_length, later.maximum_length) {
+            (Some(left), Some(right)) => Some(left.max(right)),
+            (left, right) => left.or(right),
+        };
+        self.date_tally.merge(&later.date_tally);
+        self.untrimmed_count += later.untrimmed_count;
+        self.comma_decimal_count += later.comma_decimal_count;
+        for (marker, count) in later.word_markers {
+            *self.word_markers.entry(marker).or_insert(0) += count;
+        }
+        self.date_failures += later.date_failures;
+    }
+
     /// Records `count` occurrences of `value`.
     fn observe(&mut self, value: &str, count: usize) {
         let length = text_length(value);
@@ -1552,28 +1651,34 @@ where
     };
     ensure_not_cancelled(is_cancelled())?;
 
-    let categorical_group_summaries = if columns.is_empty() {
-        None
+    // REN-01: categories, trend and correlations only read the frame and the
+    // column profiles; they run at the same time instead of one after another.
+    let (categorical_group_summaries, temporal_series, numeric_correlations) = if columns.is_empty()
+    {
+        (None, None, None)
     } else {
-        report("Resumiendo categorías", 93);
-        categorical_group_summaries(frame, &columns, &is_cancelled)?
-    };
-
-    let temporal_series = if columns.is_empty() {
-        None
-    } else {
-        report("Resumiendo tendencia temporal", 95);
-        temporal_series_summaries(frame, &columns, &is_cancelled)?
-    };
-
-    let numeric_correlations = if columns.is_empty() {
-        None
-    } else {
-        report("Calculando correlaciones", 97);
-        let correlations =
-            numeric_correlation_matrix(frame, &columns, &is_cancelled, correlation_sample_rows)?;
+        report("Resumiendo categorías, tendencia y correlaciones", 93);
+        let columns = &columns;
+        let is_cancelled = &is_cancelled;
+        let (categories, trend, correlations) = std::thread::scope(|scope| {
+            let categories =
+                scope.spawn(move || categorical_group_summaries(frame, columns, is_cancelled));
+            let trend =
+                scope.spawn(move || temporal_series_summaries(frame, columns, is_cancelled));
+            let correlations =
+                numeric_correlation_matrix(frame, columns, is_cancelled, correlation_sample_rows);
+            let interrupted = |_| "El resumen del perfil se interrumpió.".to_owned();
+            (
+                categories
+                    .join()
+                    .map_err(interrupted)
+                    .and_then(|result| result),
+                trend.join().map_err(interrupted).and_then(|result| result),
+                correlations,
+            )
+        });
         report("Analizando columnas", 100);
-        correlations
+        (categories?, trend?, correlations?)
     };
 
     Ok(DatasetProfile {
@@ -2316,4 +2421,70 @@ pub(super) fn profile_dataset_with_sample_rows(
     sample_rows: usize,
 ) -> Result<DatasetProfile, String> {
     profile_dataset_with_progress(frame, |_, _| {}, || false, sample_rows)
+}
+
+#[cfg(test)]
+mod parallel_text_tally_tests {
+    use super::*;
+
+    fn summary(statistics: &TextStatistics) -> String {
+        format!(
+            "{} {} {} {} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {} {}",
+            statistics.value_count,
+            statistics.empty_count,
+            statistics.sentinel_count,
+            statistics.encoding_issue_count,
+            statistics.minimum_length,
+            statistics.maximum_length,
+            statistics.average_length,
+            statistics.suggested_type,
+            statistics.type_match_percentage,
+            statistics.invalid_type_count,
+            statistics.temporal_bounds.minimum_value(),
+            statistics.temporal_bounds.maximum_value(),
+            statistics
+                .date_inference
+                .map(|inference| inference.order_label()),
+            statistics.untrimmed_count,
+            statistics.comma_decimal_count,
+        )
+    }
+
+    #[test]
+    fn a_large_distinct_column_tallied_in_parts_matches_one_pass() {
+        // REN-01: the parts must add up to exactly the single pass, including
+        // the bounds and the date order.
+        let values = (0..250_000_u32)
+            .map(|row| match row % 50 {
+                0 => " 2024-02-03 10:00:00 ".to_owned(),
+                1 => String::new(),
+                2 => "N/A".to_owned(),
+                3 => format!("Ã©{row}"),
+                4 => format!("{},5", row % 97),
+                _ => format!(
+                    "2024-{:02}-{:02} {:02}:{:02}:{:02}",
+                    row % 12 + 1,
+                    row % 28 + 1,
+                    row % 24,
+                    row % 60,
+                    row % 59
+                ),
+            })
+            .collect::<Vec<_>>();
+        let column = Column::new("momento".into(), values.clone());
+        let parallel = text_statistics(&column)
+            .expect("estadísticas")
+            .expect("texto");
+
+        let non_null = values.len();
+        let mut one_pass = TextTally {
+            date_failure_budget: Some(non_null / 10),
+            ..TextTally::default()
+        };
+        for value in &values {
+            one_pass.observe(value, 1);
+        }
+        assert_eq!(summary(&parallel), summary(&one_pass.finish()));
+        assert_eq!(parallel.suggested_type, Some("date"));
+    }
 }

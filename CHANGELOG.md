@@ -1056,6 +1056,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- El análisis de calidad de Revisar es más rápido en archivos medianos: una
+  columna de valores distintos (fechas con hora, por ejemplo) se analiza en
+  partes a la vez, y categorías, tendencia y correlaciones se calculan en
+  paralelo. vmCloud (338 MB, 2 millones de filas) pasa de 4,8 s a 2,7 s
+  (REN-01, en curso).
 - Diseño más coherente: todos los desplegables usan el mismo indicador (una
   flecha que gira al abrirse) en lugar de mezclar «+», triángulos y cajas
   grises; las propuestas de Revisar son una lista y no parecen botones;

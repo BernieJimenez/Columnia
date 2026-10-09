@@ -157,6 +157,15 @@ impl Default for DateTally {
 }
 
 impl DateTally {
+    /// REN-01: the tally of two consecutive parts of a column.
+    pub(super) fn merge(&mut self, later: &DateTally) {
+        for (fits, later_fits) in self.fits.iter_mut().zip(later.fits) {
+            *fits = *fits && later_fits;
+        }
+        self.has_time |= later.has_time;
+        self.values += later.values;
+    }
+
     pub(super) fn observe(&mut self, value: &str) {
         if !self.fits.contains(&true) {
             return;

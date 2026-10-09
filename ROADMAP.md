@@ -32,16 +32,19 @@ remota. El archivo original no se modifica.
 ## Cola vigente
 
 La revisión del 2026-10-01 quedó aplicada el 2026-10-08: 92 de sus 97 objetivos
-están cerrados. Quedan seis hallazgos que necesitan medir con archivos muy
-grandes o un servidor que este equipo no tiene. Ninguno bloquea el uso diario.
+están cerrados. Quedan cuatro hallazgos que necesitan archivos muy grandes o un
+controlador que este equipo no tiene. Ninguno bloquea el uso diario.
 
 ### Rendimiento
 
 - [ ] **REN-01** — El perfil de calidad de archivos grandes es lento y se repite
   tras cada cambio (RV48).
-  - Hecho: vmCloud de 11,9 s a 4,8 s y etapas visibles.
-  - Falta: llegar a ≤ 3 s, medir 2019-Oct (5,3 GiB) y reutilizar el perfil tras
-    cada cambio en lugar de recalcularlo.
+  - Hecho: vmCloud (338 MB) se perfila en 2,6–2,7 s (criterio ≤ 3 s): texto de
+    valores distintos en paralelo y categorías, tendencia y correlaciones a la
+    vez. Sonda `perf_probe_profile`.
+  - Falta: 2019-Oct (5,6 GB) tarda 223 s (criterio ≤ 60 s) y pasa hasta 67 s
+    sin cambiar la etiqueta (criterio ≤ 10 s); reutilizar el perfil tras cada
+    cambio en lugar de recalcularlo.
 - [ ] **REN-08** — Coste de la comparación por clave con millones de filas
   (RV50).
   - Falta: medirlo en la app con archivos de millones de filas y guardar el

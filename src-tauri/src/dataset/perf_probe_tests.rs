@@ -287,3 +287,110 @@ fn perf_probe_reload_memory() {
         );
     }
 }
+
+/// REN-01: profiles a file the way `get_dataset_profile` does (in memory below
+/// the source-backed threshold, from disk above it) and prints the total time
+/// and every progress label with the second it appeared.
+/// `COLUMNIA_PROBE_PROFILE_FILE` names the file.
+#[test]
+#[ignore = "sonda de perfil opt-in con un archivo grande"]
+fn perf_probe_profile() {
+    let Ok(path) = std::env::var("COLUMNIA_PROBE_PROFILE_FILE") else {
+        println!("probe   COLUMNIA_PROBE_PROFILE_FILE no definida; nada que medir");
+        return;
+    };
+    let path = PathBuf::from(path);
+    let extension = dataset_extension(&path).expect("extensión");
+    let size = fs::metadata(&path).expect("archivo").len();
+    let started = Instant::now();
+    let mut last = Instant::now();
+    let mut longest_silence = 0.0_f64;
+    let mut report = |stage: &'static str, percent: u8| {
+        let now = Instant::now();
+        longest_silence = longest_silence.max(now.duration_since(last).as_secs_f64());
+        last = now;
+        println!(
+            "probe   {:>7.2} s  {percent:>3} %  {stage}",
+            started.elapsed().as_secs_f64()
+        );
+    };
+    let profile_started;
+    if should_defer_source_load(&extension, size) {
+        let (_, _, row_count) =
+            source_backed_load(&path, &extension, || false).expect("carga source-backed");
+        println!(
+            "probe   carga source-backed           {:>7.2} s",
+            started.elapsed().as_secs_f64()
+        );
+        profile_started = Instant::now();
+        profile_source_backed_with_progress(
+            &path,
+            &extension,
+            size,
+            row_count,
+            &mut report,
+            || false,
+            MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+        )
+        .expect("perfil source-backed");
+    } else {
+        let (frame, _) = load_dataset_with_progress(&path, |_, _| {}, || false).expect("carga");
+        println!(
+            "probe   carga en memoria              {:>7.2} s",
+            started.elapsed().as_secs_f64()
+        );
+        if std::env::var_os("COLUMNIA_PROBE_PROFILE_PARTS").is_some() {
+            let part = Instant::now();
+            let distinct = count_distinct_rows(&frame).expect("distintas");
+            println!(
+                "probe   filas distintas               {:>7.2} s",
+                part.elapsed().as_secs_f64()
+            );
+            let part = Instant::now();
+            count_normalized_duplicate_rows(
+                &frame,
+                frame.height() - distinct,
+                &|| false,
+                &mut |_, _| {},
+            )
+            .expect("parecidas");
+            println!(
+                "probe   filas parecidas               {:>7.2} s",
+                part.elapsed().as_secs_f64()
+            );
+        }
+        if std::env::var_os("COLUMNIA_PROBE_PROFILE_PARTS").is_some() {
+            for column in frame.columns() {
+                let part = Instant::now();
+                let mut stages = Vec::new();
+                profile_column(column, frame.height(), &|| false, |stage, _| {
+                    stages.push((stage, part.elapsed().as_secs_f64()))
+                })
+                .expect("columna");
+                println!(
+                    "probe   columna {:<24} {:>6.2} s  {}  {:?}",
+                    column.name().as_str(),
+                    part.elapsed().as_secs_f64(),
+                    column.dtype(),
+                    stages
+                        .iter()
+                        .map(|(stage, at)| format!("{stage}@{at:.2}"))
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+        profile_started = Instant::now();
+        profile_dataset_with_progress(
+            &frame,
+            &mut report,
+            || false,
+            MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+        )
+        .expect("perfil");
+    }
+    println!(
+        "probe   perfil                        {:>7.2} s",
+        profile_started.elapsed().as_secs_f64()
+    );
+    println!("probe   mayor silencio entre etiquetas {longest_silence:>7.2} s");
+}

@@ -16,6 +16,7 @@ que aparece en el código esté en esta tabla.
 | `COLUMNIA_UPDATER_CONTRACT_TEST` | `tools/check-updater-manifest.mjs` | Con `1`, acepta una clave pública de prueba; solo la usa `tools/test-updater-manifest.mjs`. |
 | `COLUMNIA_TEST_HARNESS_MANIFEST` | Al compilar los tests de Rust (`src-tauri/build.rs`) | Con `1`, incrusta el manifiesto de Windows que necesitan los binarios de test para arrancar. Necesaria para `cargo test` en Windows. |
 | `COLUMNIA_TEST_LOCALE` | `src/test/setup.ts` | Locale con el que corre Vitest (p. ej. `es-ES`); `npm run test:locale` la usa para repetir la suite con otra configuración regional. |
+| `COLUMNIA_PROBE_PROFILE_FILE`, `COLUMNIA_PROBE_PROFILE_PARTS` | `src-tauri/src/dataset/perf_probe_tests.rs` | Archivo que perfila la sonda de REN-01 (`perf_probe_profile`) y, con cualquier valor, el tiempo de cada columna y de los duplicados. |
 | `COLUMNIA_PROBE_ROWS` | `src-tauri/src/dataset/perf_probe_tests.rs` | Filas de la sonda de rendimiento (por defecto 300 000). |
 | `COLUMNIA_PROBE_RELOAD_FILE`, `COLUMNIA_PROBE_RELOADS`, `COLUMNIA_PROBE_RELOAD_STEPS`, `COLUMNIA_PROBE_RELOAD_PAUSE_MS` | `src-tauri/src/dataset/perf_probe_tests.rs` | CSV, número de recargas (por defecto 20), pasos que se repiten (`load,profile,history`) y pausa en milisegundos antes de medir, en la sonda de memoria de REN-02 (`perf_probe_reload_memory`). |
 | `COLUMNIA_PROBE_ODBC` | `tools/probe-webview2-native-selectors.mjs` | Cadena de conexión de SQL Server para que la sonda de la app real pruebe también la entrega remota. |
