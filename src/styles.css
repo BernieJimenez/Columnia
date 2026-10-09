@@ -1974,11 +1974,14 @@ body { color: var(--text-primary); background: var(--canvas); }
 :root:root details > summary::after {
   content: "";
   display: inline-block;
-  flex-shrink: 0;
+  flex: 0 0 auto;
   align-self: center;
   justify-self: center;
   width: 7px;
   height: 7px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
   margin: 0 6px 3px 10px;
   border: solid currentColor;
   border-width: 0 2px 2px 0;

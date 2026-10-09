@@ -1274,8 +1274,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .prepare-proposal__row input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
 .prepare-proposal__row label { flex: 1 1 auto; font-size: 1.05rem; font-weight: 650; cursor: pointer; }
 .prepare-proposal__hint { margin: 0 0 0 34px; color: var(--text-secondary); font-size: .9rem; }
-.prepare-proposal__examples-toggle,
-.prepare-proposal__examples-toggle { border-color: var(--border-subtle); text-decoration: none; }
+.prepare-proposal__examples-toggle { min-height: 44px; padding: 0 12px; border: 1px solid var(--border-subtle); border-radius: 6px; background: transparent; color: var(--accent); font: inherit; text-decoration: none; cursor: pointer; }
 .prepare-proposal__examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin: 4px 0 0 34px; padding: 0; list-style: none; }
 .prepare-proposal__examples li { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface); font-size: .9rem; }
 .prepare-proposal__before { color: var(--text-secondary); }
