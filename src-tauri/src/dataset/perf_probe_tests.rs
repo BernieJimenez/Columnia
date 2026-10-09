@@ -521,3 +521,32 @@ fn perf_probe_keyed_comparison() {
         );
     }
 }
+
+/// REN-13: writes `COLUMNIA_PROBE_GENERATE_ROWS` rows (default 100 000 000)
+/// of numbers, a category and a date to the CSV `COLUMNIA_PROBE_GENERATE_CSV`,
+/// to measure what the profile of a very large file needs on disk.
+#[test]
+#[ignore = "sonda opt-in que genera un CSV muy grande"]
+fn perf_probe_generate_csv() {
+    let Ok(path) = std::env::var("COLUMNIA_PROBE_GENERATE_CSV") else {
+        println!("probe   COLUMNIA_PROBE_GENERATE_CSV no definida; nada que generar");
+        return;
+    };
+    let rows = std::env::var("COLUMNIA_PROBE_GENERATE_ROWS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(100_000_000);
+    let started = Instant::now();
+    let connection = duckdb::Connection::open_in_memory().expect("DuckDB");
+    connection
+        .execute_batch(&format!(
+            "COPY (SELECT i AS id, round((i % 99991) * 0.37, 2) AS importe,              (i * 7919) % 1000003 AS cantidad, round(sin(i) * 1000, 3) AS saldo,              'zona ' || (i % 12) AS zona, DATE '2020-01-01' + CAST(i % 1500 AS INTEGER) AS fecha              FROM range({rows}) t(i)) TO '{}' (FORMAT CSV, HEADER)",
+            path.replace('\\', "/")
+        ))
+        .expect("CSV generado");
+    println!(
+        "probe   CSV de {rows} filas en {:.1} s ({} MiB)",
+        started.elapsed().as_secs_f64(),
+        fs::metadata(&path).expect("CSV").len() / (1024 * 1024)
+    );
+}

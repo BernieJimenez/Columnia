@@ -1056,6 +1056,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Medido el disco temporal del perfil con un CSV sintético de 100 millones de
+  filas (4,8 GB): necesita 8,5 GiB, unas 1,8 veces el archivo, y tarda 208 s.
+  Se mantiene la lectura en una sola pasada, porque leer por columna o por
+  lotes ahorraría disco a costa de más tiempo. Sonda `perf_probe_generate_csv`
+  (REN-13).
 - Comparar por clave archivos de millones de filas es mucho más rápido. Con
   2 millones de filas y 200.000 conflictos, el resumen pasa de 42,6 s a 6,3 s
   y la primera página de conflictos de 47,7 s a 8,4 s (si el otro archivo

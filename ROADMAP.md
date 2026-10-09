@@ -31,9 +31,9 @@ remota. El archivo original no se modifica.
 
 ## Cola vigente
 
-La revisión del 2026-10-01 quedó aplicada el 2026-10-08: 92 de sus 97 objetivos
-están cerrados. Quedan cuatro hallazgos que necesitan archivos muy grandes o un
-controlador que este equipo no tiene. Ninguno bloquea el uso diario.
+La revisión del 2026-10-01 quedó aplicada el 2026-10-08. El 2026-10-09 se
+cerraron REN-08 y REN-13 y DAT-12 pasó a aparcado; solo queda REN-01, que no
+bloquea el uso diario.
 
 ### Rendimiento
 
@@ -51,10 +51,9 @@ controlador que este equipo no tiene. Ninguno bloquea el uso diario.
     práctica).
   - Falta: bajar 2019-Oct a ≤ 60 s (92–125 s según la carga del antivirus,
     que revisa los temporales) y reutilizar el perfil tras cada cambio en
-    lugar de recalcularlo.
-- [ ] **REN-13** — Disco temporal del perfil numérico de archivos grandes (RV65).
-  - Falta: medir con un CSV de unos 100 M filas antes de cambiar una sola pasada
-    por una lectura por columna o por lotes (menos disco, más tiempo).
+    lugar de recalcularlo. Con 100 M filas (CSV sintético de 4,8 GB, 208 s)
+    aún hay dos esperas largas sin progreso: el final del conteo de valores
+    distintos (51 s) y la tendencia temporal (26 s).
 
 ## Aparcado: solo si Columnia se comparte
 
