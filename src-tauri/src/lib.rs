@@ -2,6 +2,25 @@ use serde::Serialize;
 
 use tauri::{DragDropEvent, Emitter, Manager, WindowEvent};
 
+/// REN-02: the Windows system allocator kept the memory of each reload of a
+/// large dataset (380 MB to 920 MB in 20 reloads of a 144 MB CSV); mimalloc,
+/// the allocator Polars recommends, returns it.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+/// `mi_option_purge_delay` in mimalloc 3 (`mi_option_e`, between
+/// `eager_commit_delay` = 14 and `use_numa_nodes` = 16).
+const MI_OPTION_PURGE_DELAY: libmimalloc_sys::mi_option_t = 15;
+
+/// REN-02: mimalloc returns freed memory to Windows after 10 ms by default, so
+/// right after a reload it still held up to 1.3 GB. Purging at once kept 20
+/// reloads between 455 MB and 530 MB at the same speed.
+pub(crate) fn configure_allocator() {
+    // SAFETY: setting a mimalloc option is thread-safe and takes effect on
+    // the next purge.
+    unsafe { libmimalloc_sys::mi_option_set(MI_OPTION_PURGE_DELAY, 0) };
+}
+
 pub mod automation;
 mod catalog_recovery;
 mod crash_report;
@@ -120,6 +139,7 @@ fn restore_main_window(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    configure_allocator();
     let mut builder = tauri::Builder::default();
 
     #[cfg(desktop)]

@@ -201,7 +201,7 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-40` (Medio) Convención decimal convierte códigos con ceros a la izquierda y enteros largos en float sin aviso — hecho el 2026-10-04
   - [x] `DAT-06` (Medio) «El archivo de origen cambió» se detecta solo por tamaño en seis caminos (exportar, validar, recetas, paginar) — hecho el 2026-10-04
   - [x] `DAT-09` (Medio) `transform` con receta identidad sobre un CSV de 5,4 GB falla con un mensaje genérico, mientras una receta equivalente sí funciona — hecho el 2026-10-04
-  - [ ] `REN-02` (Medio) El proceso Rust retiene cada vez más memoria al recargar el mismo dataset (+450 MB en 10 recargas de un CSV de 144 MB)
+  - [ ] `REN-02` (Medio) El proceso Rust retiene cada vez más memoria al recargar el mismo dataset (+450 MB en 10 recargas de un CSV de 144 MB) — Avance el 2026-10-08: con mimalloc y purga inmediata, 20 recargas de creditcard.csv en el proceso pasan de 380→922 MiB (×2,43) a 476→563 MiB (×1,125) a la misma velocidad; queda un crecimiento de unos 3 MiB por recarga que en archivos pequeños se estabiliza (calentamiento de hilos). Sigue abierto: el criterio pide ≤ ×1,10 y falta medirlo en la app
   - [x] `PROD-01` (Medio) La CLI rechaza Windows-1252, MacRoman, UTF-16, JSON con BOM y finales de línea mezclados con un mensaje que no dice por qué — hecho el 2026-10-04
 - [ ] **RV50** — **Comparación** — La comparación lee siempre el archivo comparado con reglas fijas (primera hoja, primera f… (y 4 problemas más) · *Esfuerzo: 3,5 días*
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-41, FUN-42, REN-08, UX-05, UX-06.
@@ -277,7 +277,8 @@ medio = 1 día; agregado por suma.
   - [x] `QA-17` (Medio) El test de ida y vuelta solo cubre el camino eager de exportación; el source-backed (`all_varchar`) no tiene equivalente — hecho el 2026-10-04
   - [x] `QA-18` (Medio) Explorar: ningún test cruza el filtro de rango con los intervalos del histograma (rango cerrado frente a bins semiabiertos) — hecho el 2026-10-03
   - [x] `QA-19` (Medio) No hay ningún test de perfil numérico con NaN o infinito (el `expect` de Q1/Q3 en `src-tauri/src/dataset/numeric_profile.rs:549-550` queda sin cubrir) — hecho el 2026-10-04
-- [x] **RV63** — **Documentación** — CONTEXTO.md: cifras e inventario de IPC desactualizados y contradictorios entre sí (y 2 problemas más) · *Esfuerzo: 1,5 días* — hecho el 2026-10-08
+- [x] **RV63** — **Documentación** — CONTEXTO.md: cifras e inventario de IPC desactualizados y contradictorios entre sí (y 2 problemas más) · *Esfuerzo: 1,5 días*
+ — hecho el 2026-10-08
   - Criterio de cierre: Se cumplen los criterios de aceptación de DOC-01, DOC-03, DOC-04.
   - [x] `DOC-01` (Medio) CONTEXTO.md: cifras e inventario de IPC desactualizados y contradictorios entre sí — hecho el 2026-10-04
   - [x] `DOC-03` (Medio) AUDITORIA.md: resultados de gates con fecha vieja o ya falsos — hecho el 2026-10-04
@@ -349,7 +350,8 @@ medio = 1 día; agregado por suma.
   - [x] `FUN-53` (Bajo) `runExclusive` y `save` abandonan en silencio si hay una operación activa o `blocked` — hecho el 2026-10-05
   - [x] `UX-17` (Bajo) El botón «Guardar proyecto nuevo/Actualizar» no explica por qué está desactivado y no permite «Guardar como» — hecho el 2026-10-05
   - [x] `QA-35` (Bajo) Tests de proyectos: errores solo con mensajes que son una ruta y paneles sin cubrir — hecho el 2026-10-05
-- [x] **RV75** — **Reglas de calidad** — La validación de regex del editor usa el motor de JavaScript, no el de Rust (y 4 problemas más) · *Esfuerzo: 2 días* — hecho el 2026-10-08
+- [x] **RV75** — **Reglas de calidad** — La validación de regex del editor usa el motor de JavaScript, no el de Rust (y 4 problemas más) · *Esfuerzo: 2 días*
+ — hecho el 2026-10-08
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-54, FUN-76, SEG-05, REN-11, COD-16.
   - [x] `FUN-54` (Bajo) La validación de regex del editor usa el motor de JavaScript, no el de Rust — hecho el 2026-10-05
   - [x] `FUN-76` (Bajo) Semántica inconsistente de nulos/ceros con signo en reglas entre filas — hecho el 2026-10-05
@@ -399,7 +401,8 @@ medio = 1 día; agregado por suma.
   - [x] `DAT-19` (Bajo) `reusable-tasks.sqlite3` se reescribe en cada arranque (migración no idempotente) — hecho el 2026-10-05
   - [x] `SEG-08` (Bajo) CSP con `style-src 'unsafe-inline'` y updater con `endpoints: []` pero plugin cargado — hecho el 2026-10-05
   - [x] `COD-11` (Bajo) `get_performance_settings` usa `lock()` y falla con veneno; el resto del módulo usa `lock_recovering` — hecho el 2026-10-05
-- [x] **RV83** — **Exportación y libros** — Un destino XLSX con más de 16.384 columnas produce un libro que Excel no abre (y 3 problemas más) · *Esfuerzo: 1,8 días* — hecho el 2026-10-08
+- [x] **RV83** — **Exportación y libros** — Un destino XLSX con más de 16.384 columnas produce un libro que Excel no abre (y 3 problemas más) · *Esfuerzo: 1,8 días*
+ — hecho el 2026-10-08
   - Criterio de cierre: Se cumplen los criterios de aceptación de FUN-68, TXT-07, COD-15, QA-55.
   - [x] `FUN-68` (Bajo) Un destino XLSX con más de 16.384 columnas produce un libro que Excel no abre — hecho el 2026-10-05
   - [x] `TXT-07` (Bajo) El paquete ZIP promete receta y el resumen dice «no incluida» aunque se aplicaron cambios; el mensaje de la UI lista un contenido distinto del real — hecho el 2026-10-05

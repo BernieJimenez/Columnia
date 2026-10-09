@@ -1056,6 +1056,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 - Si los datos cambian después de Revisar (por ejemplo, al aplicar un cambio en
+- Columnia usa mimalloc como asignador de memoria y le pide devolver enseguida
+  la memoria liberada: al recargar 20 veces un CSV de 144 MB, la memoria del
+  proceso pasa de crecer de 380 MB a 920 MB a quedarse entre 480 y 560 MB, con
+  la misma velocidad (REN-02, en curso).
 - Documentación nueva: «Usar Columnia de principio a fin» con problemas
   frecuentes, «Respaldar y restaurar proyectos» (qué hay en
   %APPDATA%\app.columnia.desktop y cómo restaurarlo), un glosario de términos

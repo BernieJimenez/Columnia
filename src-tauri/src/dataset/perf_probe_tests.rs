@@ -204,3 +204,74 @@ fn perf_probe_interactive_path() {
         );
     }
 }
+
+fn process_working_set_bytes() -> u64 {
+    use sysinfo::{get_current_pid, ProcessRefreshKind, ProcessesToUpdate, System};
+    let pid = get_current_pid().expect("pid");
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        true,
+        ProcessRefreshKind::nothing().with_memory(),
+    );
+    system.process(pid).map_or(0, |process| process.memory())
+}
+
+/// REN-02: reloads the same file into the active dataset, as the app does
+/// (load, profile, history, replace), and prints the working set of each
+/// cycle. `COLUMNIA_PROBE_RELOAD_FILE` names the CSV, `COLUMNIA_PROBE_RELOADS`
+/// the cycles (default 20).
+#[test]
+#[ignore = "sonda de memoria opt-in con un archivo grande"]
+fn perf_probe_reload_memory() {
+    let Ok(path) = std::env::var("COLUMNIA_PROBE_RELOAD_FILE") else {
+        println!("probe   COLUMNIA_PROBE_RELOAD_FILE no definida; nada que medir");
+        return;
+    };
+    let cycles = std::env::var("COLUMNIA_PROBE_RELOADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(20);
+    crate::configure_allocator();
+    let state = DatasetState::default();
+    let path = PathBuf::from(path);
+    let mut sizes = Vec::with_capacity(cycles);
+    for cycle in 1..=cycles {
+        let (frame, _) = load_dataset_with_progress(&path, |_, _| {}, || false).expect("carga");
+        // `COLUMNIA_PROBE_RELOAD_STEPS` (load,profile,history) isolates a step.
+        let steps = std::env::var("COLUMNIA_PROBE_RELOAD_STEPS")
+            .unwrap_or_else(|_| "load,profile,history".to_owned());
+        let profile = steps
+            .contains("profile")
+            .then(|| profile_dataset(&frame).expect("perfil"));
+        let history = if steps.contains("history") {
+            HistoryManager::new(&frame).expect("historial")
+        } else {
+            HistoryManager::deferred().expect("historial diferido")
+        };
+        let loaded = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "probe.csv".to_owned(),
+            file_size_bytes: fs::metadata(&path).map(|metadata| metadata.len()).unwrap_or(0),
+            row_count: frame.height(),
+            frame,
+            source_backed: false,
+            delimited_header_mode: None,
+            profile,
+            history,
+        };
+        *state.current.lock_recovering() = Some(loaded);
+        let bytes = process_working_set_bytes();
+        sizes.push(bytes);
+        println!(
+            "probe   reload {cycle:>2}                        {:>8.1} MiB",
+            bytes as f64 / (1024.0 * 1024.0)
+        );
+    }
+    if let (Some(second), Some(last)) = (sizes.get(1), sizes.last()) {
+        println!(
+            "probe   last / cycle 2                    {:>8.3}",
+            *last as f64 / *second as f64
+        );
+    }
+}
