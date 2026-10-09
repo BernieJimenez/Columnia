@@ -12108,16 +12108,26 @@ fn benchmark_source_backed_export_cooperative_cancellation() {
                     let entry = entry.map_err(|error| {
                         format!("No se pudo leer el área temporal de cancelación: {error}")
                     })?;
-                    if !entry
+                    let is_directory = entry
                         .file_type()
                         .map_err(|error| {
                             format!("No se pudo inspeccionar el área temporal: {error}")
                         })?
-                        .is_dir()
+                        .is_dir();
+                    // COD-15 (b): the CSV is written straight to a staged
+                    // `.columnia-export-*` file next to the destination; a
+                    // scratch folder with `dataset.partial.csv` was the old way.
+                    let partial = if is_directory {
+                        entry.path().join("dataset.partial.csv")
+                    } else if entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with(".columnia-export-")
                     {
+                        entry.path()
+                    } else {
                         continue;
-                    }
-                    let partial = entry.path().join("dataset.partial.csv");
+                    };
                     if let Ok(metadata) = fs::metadata(partial) {
                         largest_partial = largest_partial.max(metadata.len());
                     }
