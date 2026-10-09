@@ -272,6 +272,43 @@ fn write_normalized_value_fingerprint(hasher: &mut Xxh3, value: AnyValue<'_>) {
     hasher.write_u8(0xff);
 }
 
+/// REN-01: the fingerprint of one row exactly as stored: text byte for byte
+/// and other values by type and full value, so only identical rows share it
+/// (a collision is about 1e-24 for 42 million rows).
+pub(crate) fn exact_row_fingerprint(
+    columns: &[NormalizedFingerprintColumn<'_>],
+    row_index: usize,
+) -> Result<NormalizedRowFingerprint, String> {
+    let mut hasher = Xxh3::with_seed(0);
+    for column in columns {
+        match column {
+            NormalizedFingerprintColumn::String(values) => match values.get(row_index) {
+                Some(value) => {
+                    hasher.write_u8(1);
+                    hasher.write_u64(value.len() as u64);
+                    hasher.write(value.as_bytes());
+                }
+                None => hasher.write_u8(0),
+            },
+            NormalizedFingerprintColumn::Other(column) => {
+                match column.get(row_index).map_err(|error| {
+                    format!("No se pudieron comparar las filas para detectar duplicados: {error}")
+                })? {
+                    AnyValue::Null => hasher.write_u8(0),
+                    value => {
+                        // Debug keeps the type and every digit of the value.
+                        let exact = format!("{value:?}");
+                        hasher.write_u8(1);
+                        hasher.write_u64(exact.len() as u64);
+                        hasher.write(exact.as_bytes());
+                    }
+                }
+            }
+        }
+    }
+    Ok(hasher.digest128())
+}
+
 pub(crate) fn row_fingerprint(
     columns: &[Column],
     row_index: usize,

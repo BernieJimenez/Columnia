@@ -1064,6 +1064,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - El conteo de filas y valores distintos de archivos grandes se hace a la vez
   que la lectura de filas, no después: 2019-Oct pasa de 167 s a 139 s y la
   espera más larga sin cambiar la etiqueta, de 70 s a 44 s (REN-01, en curso).
+- En archivos grandes, las filas repetidas se cuentan con huellas de 128 bits
+  durante la misma lectura, como ya se hacía con las parecidas (la
+  probabilidad de error es de una entre 10²³), y DuckDB solo cuenta los
+  valores distintos de cada columna. 2019-Oct pasa de 139 s a 92 s y la espera
+  tras leer las filas, de 44 s a 10 s (REN-01, en curso).
 - El análisis de calidad de Revisar es más rápido en archivos medianos: una
   columna de valores distintos (fechas con hora, por ejemplo) se analiza en
   partes a la vez, y categorías, tendencia y correlaciones se calculan en

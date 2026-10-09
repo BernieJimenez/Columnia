@@ -43,13 +43,12 @@ controlador que este equipo no tiene. Ninguno bloquea el uso diario.
     valores distintos en paralelo y categorías, tendencia y correlaciones a la
     vez. Sonda `perf_probe_profile`.
   - Hecho: en archivos grandes cada columna de texto se revisa en partes a la
-    vez y DuckDB cuenta filas y valores distintos al mismo tiempo que la
-    lectura de filas. 2019-Oct (5,6 GB): perfil de 223 s a 139 s.
+    vez, las filas repetidas se cuentan con huellas en esa misma lectura y
+    DuckDB cuenta los valores distintos a la vez. 2019-Oct (5,6 GB): perfil
+    de 223 s a 92 s.
   - Falta: bajar 2019-Oct a ≤ 60 s y que la etiqueta cambie al menos cada
-    10 s. Quedan dos esperas sin progreso: la copia de trabajo en Parquet
-    (27 s) y el final del conteo de DuckDB (44 s), cuya parte cara es contar
-    filas completas distintas. Reutilizar el perfil tras cada cambio en lugar
-    de recalcularlo.
+    10 s; la espera mayor es la copia de trabajo en Parquet (27 s), sin
+    progreso. Reutilizar el perfil tras cada cambio en lugar de recalcularlo.
 - [ ] **REN-08** — Coste de la comparación por clave con millones de filas
   (RV50).
   - Falta: medirlo en la app con archivos de millones de filas y guardar el

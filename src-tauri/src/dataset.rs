@@ -251,8 +251,8 @@ pub(crate) use project_validation::{
 pub(crate) mod samples;
 
 use crate::dataset_fingerprints::{
-    normalized_fingerprint_columns, normalized_row_fingerprint, normalized_row_fingerprints_range,
-    row_fingerprint, NormalizedRowFingerprint,
+    exact_row_fingerprint, normalized_fingerprint_columns, normalized_row_fingerprint,
+    normalized_row_fingerprints_range, row_fingerprint, NormalizedRowFingerprint,
 };
 use crate::remote_databases::{self, DatabaseTarget};
 use crate::remote_delivery_ledger::{

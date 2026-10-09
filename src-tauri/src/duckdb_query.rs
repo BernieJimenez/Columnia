@@ -821,14 +821,31 @@ pub(crate) fn count_file_distinct_non_null<C>(
 where
     C: Fn() -> bool + Send + 'static,
 {
-    count_file_distinct_rows_and_non_null_columns(source_path, source_format, columns, is_cancelled)
+    // REN-01: only the columns; distinct whole rows are the costly part.
+    count_file_distinct(source_path, source_format, columns, false, is_cancelled)
         .map(|(_, counts)| counts)
 }
 
+#[cfg(test)]
 pub(crate) fn count_file_distinct_rows_and_non_null_columns<C>(
     source_path: &Path,
     source_format: DuckDbFileFormat,
     columns: &[String],
+    is_cancelled: C,
+) -> Result<(usize, Vec<usize>), String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    count_file_distinct(source_path, source_format, columns, true, is_cancelled)
+}
+
+/// Distinct non-null values of each column and, with `count_rows`, distinct
+/// whole rows (0 otherwise).
+fn count_file_distinct<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    columns: &[String],
+    count_rows: bool,
     is_cancelled: C,
 ) -> Result<(usize, Vec<usize>), String>
 where
@@ -854,9 +871,12 @@ where
             .map(|column| format!("COUNT(DISTINCT {})", quote_identifier(column)))
             .collect::<Vec<_>>()
             .join(", ");
-        let query = format!(
-            "SELECT COUNT(DISTINCT struct_pack({row_fields})), {column_projections} FROM dataset"
-        );
+        let row_projection = if count_rows {
+            format!("COUNT(DISTINCT struct_pack({row_fields}))")
+        } else {
+            "0".to_owned()
+        };
+        let query = format!("SELECT {row_projection}, {column_projections} FROM dataset");
         let raw_counts = match connection.query_row(&query, [], |row| {
             let distinct_rows = row.get::<_, i64>(0)?;
             let distinct_columns = columns
@@ -868,7 +888,7 @@ where
         }) {
             Ok(counts) => counts,
             Err(error) if error.to_string().contains("Out of Memory Error") => {
-                count_distinct_sequentially(connection, columns, cancelled)?
+                count_distinct_sequentially(connection, columns, count_rows, cancelled)?
             }
             Err(error) => {
                 return Err(format!(
@@ -900,6 +920,7 @@ where
 fn count_distinct_sequentially(
     connection: &Connection,
     columns: &[String],
+    count_rows: bool,
     cancelled: &AtomicBool,
 ) -> Result<(i64, Vec<i64>), String> {
     if cancelled.load(Ordering::Acquire) {
@@ -941,7 +962,7 @@ fn count_distinct_sequentially(
         .map(|(index, column)| format!("field_{index} := {}", quote_identifier(column)))
         .collect::<Vec<_>>()
         .join(", ");
-    let rows = if columns.is_empty() {
+    let rows = if columns.is_empty() || !count_rows {
         0
     } else {
         count(&format!(
@@ -2777,7 +2798,7 @@ mod tests {
         let columns = vec!["odd\"column".to_owned(), "label".to_owned()];
         let cancelled = AtomicBool::new(false);
         assert_eq!(
-            count_distinct_sequentially(&connection, &columns, &cancelled).unwrap(),
+            count_distinct_sequentially(&connection, &columns, true, &cancelled).unwrap(),
             (5, vec![2, 2]),
         );
         // The text "null" is a value, not a missing one, in rows and columns.
@@ -2785,17 +2806,17 @@ mod tests {
             .execute_batch("INSERT INTO dataset VALUES (3, 'null'), (3, NULL), (3, 'null');")
             .unwrap();
         assert_eq!(
-            count_distinct_sequentially(&connection, &columns, &cancelled).unwrap(),
+            count_distinct_sequentially(&connection, &columns, true, &cancelled).unwrap(),
             (7, vec![3, 3]),
         );
         connection.execute_batch("DELETE FROM dataset").unwrap();
         assert_eq!(
-            count_distinct_sequentially(&connection, &columns, &cancelled).unwrap(),
+            count_distinct_sequentially(&connection, &columns, true, &cancelled).unwrap(),
             (0, vec![0, 0]),
         );
         cancelled.store(true, Ordering::Release);
         assert_eq!(
-            count_distinct_sequentially(&connection, &columns, &cancelled).unwrap_err(),
+            count_distinct_sequentially(&connection, &columns, true, &cancelled).unwrap_err(),
             OPERATION_CANCELLED_MESSAGE,
         );
     }

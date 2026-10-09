@@ -4787,6 +4787,35 @@ fn source_backed_profile_matches_the_in_memory_profile_without_retaining_rows() 
 }
 
 #[test]
+fn source_backed_exact_duplicates_from_fingerprints_match_the_in_memory_count() {
+    // REN-01: a comma moved between columns, a missing value, a leading space
+    // and a different case are not exact repeats; only the last row is.
+    let path = temporary_csv("a,b\n\"x,y\",z\nx,\"y,z\"\n,z\nx,\n x,z\nX,z\nx,z\nx,z\n");
+    let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+    let expected = profile_dataset(&frame).expect("el perfil en memoria debe calcularse");
+    let (_, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
+    let actual = profile_source_backed_with_progress(
+        &path,
+        "csv",
+        fs::metadata(&path).expect("la fuente debe existir").len(),
+        row_count,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("el perfil source-backed debe calcularse");
+
+    assert_eq!(actual.duplicate_row_count, 1);
+    assert_eq!(actual.duplicate_row_count, expected.duplicate_row_count);
+    assert_eq!(
+        actual.near_duplicate_row_count,
+        expected.near_duplicate_row_count
+    );
+    assert_eq!(actual.columns, expected.columns);
+}
+
+#[test]
 fn materialized_history_snapshot_profiles_without_using_the_active_frame() {
     let frame = df![
         "city" => &["Santo Domingo", "Santiago", "Santiago"],

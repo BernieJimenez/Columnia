@@ -1906,16 +1906,11 @@ where
     let normalized_directory = tempfile::tempdir().map_err(|error| {
         format!("No se pudo preparar el almacenamiento temporal para duplicados parecidos: {error}")
     })?;
-    let normalized_bucket_paths = (0..NORMALIZED_DUPLICATE_BUCKETS)
-        .map(|bucket| {
-            normalized_directory
-                .path()
-                .join(format!("source-fingerprints-{bucket:03}.bin"))
-        })
-        .collect::<Vec<_>>();
-    let mut normalized_writers = (0..NORMALIZED_DUPLICATE_BUCKETS)
-        .map(|_| None::<BufWriter<File>>)
-        .collect::<Vec<_>>();
+    let mut normalized_buckets =
+        FingerprintBuckets::new(normalized_directory.path(), "source-fingerprints");
+    // REN-01: exact duplicates are counted from fingerprints of the same pass,
+    // like the near ones, instead of a DuckDB count of distinct whole rows.
+    let mut exact_buckets = FingerprintBuckets::new(normalized_directory.path(), "source-exact");
     let mut accumulators = schema_columns
         .iter()
         .map(SourceColumnAccumulator::new)
@@ -1925,8 +1920,8 @@ where
         .map(|column| column.name().to_string())
         .collect::<Vec<_>>();
 
-    // REN-01: DuckDB counts distinct rows and values while the row pass runs,
-    // instead of reading the whole file again after it.
+    // REN-01: DuckDB counts distinct values while the row pass runs, instead
+    // of reading the whole file again after it.
     let mut distinct_count = BackgroundDistinctCount::start(path, &column_names);
     report("Analizando filas y columnas", 10);
     for_each_parquet_block_with_size(
@@ -1942,25 +1937,15 @@ where
                     if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
                         ensure_not_cancelled(is_cancelled())?;
                     }
-                    normalized_row_fingerprint(&fingerprint_columns, row_index)
+                    Ok((
+                        normalized_row_fingerprint(&fingerprint_columns, row_index)?,
+                        exact_row_fingerprint(&fingerprint_columns, row_index)?,
+                    ))
                 })
                 .collect::<Result<Vec<_>, String>>()?;
-            for fingerprint in fingerprints {
-                let bucket = (fingerprint >> 120) as usize;
-                let writer = if let Some(writer) = normalized_writers[bucket].as_mut() {
-                    writer
-                } else {
-                    let file = File::create(&normalized_bucket_paths[bucket]).map_err(|error| {
-                    format!("No se pudo preparar el almacenamiento temporal para duplicados parecidos: {error}")
-                })?;
-                    normalized_writers[bucket]
-                        .get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, file))
-                };
-                writer
-                .write_all(&fingerprint.to_le_bytes())
-                .map_err(|error| {
-                    format!("No se pudieron guardar las huellas temporales de duplicados parecidos: {error}")
-                })?;
+            for (normalized, exact) in fingerprints {
+                normalized_buckets.push(normalized)?;
+                exact_buckets.push(exact)?;
             }
 
             accumulators
@@ -1979,21 +1964,18 @@ where
         },
     )?;
 
-    for writer in normalized_writers.iter_mut().flatten() {
-        writer.flush().map_err(|error| {
-            format!(
-                "No se pudieron sincronizar las huellas temporales de duplicados parecidos: {error}"
-            )
-        })?;
-    }
+    normalized_buckets.flush()?;
+    exact_buckets.flush()?;
     // REN-01: the steps after the row pass say what they do, so the label
     // does not stay on «Analizando filas y columnas» for minutes.
+    report("Contando filas repetidas", 90);
+    let exact_duplicate_row_count =
+        count_normalized_duplicate_fingerprints(&exact_buckets.paths, is_cancelled)?;
     report("Comparando filas parecidas", 90);
     let normalized_duplicate_row_count =
-        count_normalized_duplicate_fingerprints(&normalized_bucket_paths, is_cancelled)?;
-    report("Contando filas y valores distintos", 90);
-    let (distinct_row_count, distinct_counts) = distinct_count.finish()?;
-    let exact_duplicate_row_count = row_count.saturating_sub(distinct_row_count);
+        count_normalized_duplicate_fingerprints(&normalized_buckets.paths, is_cancelled)?;
+    report("Contando valores distintos", 90);
+    let distinct_counts = distinct_count.finish()?;
     let near_duplicate_row_count =
         normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count);
     if distinct_counts.len() != accumulators.len() {
@@ -2017,16 +1999,57 @@ where
     ))
 }
 
-/// Distinct rows and the distinct values of each column.
-type DistinctCounts = (usize, Vec<usize>);
+/// Fingerprints spilled to `NORMALIZED_DUPLICATE_BUCKETS` temporary files by
+/// their first byte, so each bucket can be sorted alone.
+struct FingerprintBuckets {
+    paths: Vec<PathBuf>,
+    writers: Vec<Option<BufWriter<File>>>,
+}
 
-/// REN-01: the DuckDB count of distinct rows and values of a source profile,
+impl FingerprintBuckets {
+    fn new(directory: &Path, prefix: &str) -> Self {
+        Self {
+            paths: (0..NORMALIZED_DUPLICATE_BUCKETS)
+                .map(|bucket| directory.join(format!("{prefix}-{bucket:03}.bin")))
+                .collect(),
+            writers: (0..NORMALIZED_DUPLICATE_BUCKETS).map(|_| None).collect(),
+        }
+    }
+
+    fn push(&mut self, fingerprint: u128) -> Result<(), String> {
+        let bucket = (fingerprint >> 120) as usize;
+        let writer = if let Some(writer) = self.writers[bucket].as_mut() {
+            writer
+        } else {
+            let file = File::create(&self.paths[bucket]).map_err(|error| {
+                format!("No se pudo preparar el almacenamiento temporal para duplicados: {error}")
+            })?;
+            self.writers[bucket].get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, file))
+        };
+        writer
+            .write_all(&fingerprint.to_le_bytes())
+            .map_err(|error| {
+                format!("No se pudieron guardar las huellas temporales de duplicados: {error}")
+            })
+    }
+
+    fn flush(&mut self) -> Result<(), String> {
+        for writer in self.writers.iter_mut().flatten() {
+            writer.flush().map_err(|error| {
+                format!("No se pudieron sincronizar las huellas temporales de duplicados: {error}")
+            })?;
+        }
+        Ok(())
+    }
+}
+
+/// REN-01: the DuckDB count of distinct values of a source profile,
 /// run on its own thread beside the row pass. If the profile stops early, the
 /// count is interrupted and waited for, so the snapshot is no longer read when
 /// its temporary folder is removed.
 struct BackgroundDistinctCount {
     stop: Arc<AtomicBool>,
-    handle: Option<std::thread::JoinHandle<Result<DistinctCounts, String>>>,
+    handle: Option<std::thread::JoinHandle<Result<Vec<usize>, String>>>,
 }
 
 impl BackgroundDistinctCount {
@@ -2036,7 +2059,7 @@ impl BackgroundDistinctCount {
         let column_names = column_names.to_vec();
         let thread_stop = Arc::clone(&stop);
         let handle = std::thread::spawn(move || {
-            crate::duckdb_query::count_file_distinct_rows_and_non_null_columns(
+            crate::duckdb_query::count_file_distinct_non_null(
                 &path,
                 crate::duckdb_query::DuckDbFileFormat::Parquet,
                 &column_names,
@@ -2049,7 +2072,7 @@ impl BackgroundDistinctCount {
         }
     }
 
-    fn finish(&mut self) -> Result<DistinctCounts, String> {
+    fn finish(&mut self) -> Result<Vec<usize>, String> {
         self.handle
             .take()
             .ok_or_else(|| "El conteo de valores distintos ya terminó.".to_owned())?
