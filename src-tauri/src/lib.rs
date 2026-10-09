@@ -5,20 +5,117 @@ use tauri::{DragDropEvent, Emitter, Manager, WindowEvent};
 /// REN-02: the Windows system allocator kept the memory of each reload of a
 /// large dataset (380 MB to 920 MB in 20 reloads of a 144 MB CSV); mimalloc,
 /// the allocator Polars recommends, returns it.
+#[cfg(not(test))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-/// `mi_option_purge_delay` in mimalloc 3 (`mi_option_e`, between
-/// `eager_commit_delay` = 14 and `use_numa_nodes` = 16).
-const MI_OPTION_PURGE_DELAY: libmimalloc_sys::mi_option_t = 15;
+/// In tests, mimalloc with a count of the bytes in use, so the memory probe
+/// can tell memory the program holds from memory the allocator keeps.
+#[cfg(test)]
+#[global_allocator]
+static GLOBAL: CountingAllocator = CountingAllocator;
 
-/// REN-02: mimalloc returns freed memory to Windows after 10 ms by default, so
-/// right after a reload it still held up to 1.3 GB. Purging at once kept 20
-/// reloads between 455 MB and 530 MB at the same speed.
+#[cfg(test)]
+pub(crate) static ALLOCATED_BYTES: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+pub(crate) struct CountingAllocator;
+
+#[cfg(test)]
+// SAFETY: every call is forwarded unchanged to mimalloc; only a counter is kept.
+unsafe impl std::alloc::GlobalAlloc for CountingAllocator {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        let pointer = unsafe { mimalloc::MiMalloc.alloc(layout) };
+        if !pointer.is_null() {
+            ALLOCATED_BYTES.fetch_add(layout.size(), std::sync::atomic::Ordering::Relaxed);
+        }
+        pointer
+    }
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: std::alloc::Layout) {
+        ALLOCATED_BYTES.fetch_sub(layout.size(), std::sync::atomic::Ordering::Relaxed);
+        unsafe { mimalloc::MiMalloc.dealloc(pointer, layout) }
+    }
+    unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
+        let pointer = unsafe { mimalloc::MiMalloc.alloc_zeroed(layout) };
+        if !pointer.is_null() {
+            ALLOCATED_BYTES.fetch_add(layout.size(), std::sync::atomic::Ordering::Relaxed);
+        }
+        pointer
+    }
+    unsafe fn realloc(
+        &self,
+        pointer: *mut u8,
+        layout: std::alloc::Layout,
+        new_size: usize,
+    ) -> *mut u8 {
+        let moved = unsafe { mimalloc::MiMalloc.realloc(pointer, layout, new_size) };
+        if !moved.is_null() {
+            ALLOCATED_BYTES.fetch_add(new_size, std::sync::atomic::Ordering::Relaxed);
+            ALLOCATED_BYTES.fetch_sub(layout.size(), std::sync::atomic::Ordering::Relaxed);
+        }
+        moved
+    }
+}
+
+/// Positions in mimalloc 3's `mi_option_e` (`c_src/mimalloc/v3/include/mimalloc.h`
+/// of libmimalloc-sys 0.1.49); the bindings do not name them.
+/// `mimalloc_option_positions_match_the_source` checks them against the
+/// defaults of `src/options.c`.
+const MI_OPTION_PURGE_DELAY: libmimalloc_sys::mi_option_t = 15;
+#[cfg(test)]
+const MI_OPTION_GENERIC_COLLECT: libmimalloc_sys::mi_option_t = 34;
+const MI_OPTION_PAGE_RECLAIM_ON_FREE: libmimalloc_sys::mi_option_t = 35;
+#[cfg(test)]
+const MI_OPTION_PAGE_FULL_RETAIN: libmimalloc_sys::mi_option_t = 36;
+const MI_OPTION_PAGE_CROSS_THREAD_MAX_RECLAIM: libmimalloc_sys::mi_option_t = 42;
+
+/// REN-02: how mimalloc gives memory back. By default it purges freed memory
+/// after 1 s and leaves the pages of each load's worker threads with those
+/// threads: 20 reloads of a 144 MB CSV grew 380→920 MB with the system
+/// allocator and still +12 % with default mimalloc. Purging at once and letting
+/// any thread reclaim abandoned pages keeps it within +5 %, at the same speed.
 pub fn configure_allocator() {
     // SAFETY: setting a mimalloc option is thread-safe and takes effect on
-    // the next purge.
-    unsafe { libmimalloc_sys::mi_option_set(MI_OPTION_PURGE_DELAY, 0) };
+    // the next allocation or purge.
+    unsafe {
+        libmimalloc_sys::mi_option_set(MI_OPTION_PURGE_DELAY, 0);
+        libmimalloc_sys::mi_option_set(MI_OPTION_PAGE_RECLAIM_ON_FREE, 1);
+        libmimalloc_sys::mi_option_set(MI_OPTION_PAGE_CROSS_THREAD_MAX_RECLAIM, -1);
+    }
+}
+
+#[cfg(test)]
+mod allocator_tests {
+    #[test]
+    fn mimalloc_option_positions_match_the_source() {
+        // The defaults of `options.c` around the options Columnia sets prove
+        // the positions still name them; a new mimalloc that moves them fails
+        // here. Only the memory probe calls `configure_allocator`.
+        // SAFETY: reading an option has no side effect.
+        unsafe {
+            assert_eq!(
+                libmimalloc_sys::mi_option_get(super::MI_OPTION_PURGE_DELAY),
+                1_000
+            );
+            assert_eq!(
+                libmimalloc_sys::mi_option_get(super::MI_OPTION_GENERIC_COLLECT),
+                10_000
+            );
+            assert_eq!(
+                libmimalloc_sys::mi_option_get(super::MI_OPTION_PAGE_RECLAIM_ON_FREE),
+                0
+            );
+            assert_eq!(
+                libmimalloc_sys::mi_option_get(super::MI_OPTION_PAGE_FULL_RETAIN),
+                2
+            );
+            assert_eq!(
+                libmimalloc_sys::mi_option_get(super::MI_OPTION_PAGE_CROSS_THREAD_MAX_RECLAIM),
+                32
+            );
+        }
+    }
 }
 
 pub mod automation;

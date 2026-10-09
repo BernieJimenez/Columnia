@@ -263,11 +263,21 @@ fn perf_probe_reload_memory() {
             history,
         };
         *state.current.lock_recovering() = Some(loaded);
+        // `COLUMNIA_PROBE_RELOAD_PAUSE_MS`: idle time before measuring, as a
+        // person reads the result before loading again.
+        if let Some(pause) = std::env::var("COLUMNIA_PROBE_RELOAD_PAUSE_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+        {
+            std::thread::sleep(std::time::Duration::from_millis(pause));
+        }
         let bytes = process_working_set_bytes();
         sizes.push(bytes);
         println!(
-            "probe   reload {cycle:>2}                        {:>8.1} MiB",
-            bytes as f64 / (1024.0 * 1024.0)
+            "probe   reload {cycle:>2}                        {:>8.1} MiB   en uso {:>8.1} MiB",
+            bytes as f64 / (1024.0 * 1024.0),
+            crate::ALLOCATED_BYTES.load(std::sync::atomic::Ordering::Relaxed) as f64
+                / (1024.0 * 1024.0)
         );
     }
     if let (Some(second), Some(last)) = (sizes.get(1), sizes.last()) {

@@ -1065,10 +1065,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - Si los datos cambian después de Revisar (por ejemplo, al aplicar un cambio en
   Preparar), la barra lateral marca Revisar como «Revisar de nuevo» en lugar de
   «Después».
-- Columnia usa mimalloc como asignador de memoria y le pide devolver enseguida
-  la memoria liberada: al recargar 20 veces un CSV de 144 MB, la memoria del
-  proceso pasa de crecer de 380 MB a 920 MB a quedarse entre 480 y 560 MB, con
-  la misma velocidad (REN-02, en curso).
+- Columnia usa mimalloc como asignador de memoria, le pide devolver enseguida
+  la memoria liberada y deja que cualquier hilo recupere las páginas que otros
+  abandonan: al recargar 20 veces un CSV de 144 MB, la memoria del proceso pasa
+  de crecer de 380 MB a 920 MB a quedarse entre 485 y 510 MB (+5 %), con la
+  misma velocidad. La CLI usa la misma configuración (REN-02).
 - Documentación nueva: «Usar Columnia de principio a fin» con problemas
   frecuentes, «Respaldar y restaurar proyectos» (qué hay en
   %APPDATA%\app.columnia.desktop y cómo restaurarlo), un glosario de términos

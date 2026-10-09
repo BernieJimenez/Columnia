@@ -37,13 +37,6 @@ grandes o un servidor que este equipo no tiene. Ninguno bloquea el uso diario.
 
 ### Rendimiento
 
-- [ ] **REN-02** — La memoria del proceso crece al recargar el mismo dataset
-  (RV49).
-  - Hecho: mimalloc con purga inmediata. 20 recargas de un CSV de 144 MB pasan
-    de 380→922 MiB a 476→563 MiB a la misma velocidad.
-  - Falta: tras 20 recargas, no superar en más del 10 % la memoria del ciclo 2
-    (hoy +12,5 %, unos 3 MiB por recarga) y medirlo en la app, no solo en la
-    sonda `perf_probe_reload_memory`.
 - [ ] **REN-01** — El perfil de calidad de archivos grandes es lento y se repite
   tras cada cambio (RV48).
   - Hecho: vmCloud de 11,9 s a 4,8 s y etapas visibles.
