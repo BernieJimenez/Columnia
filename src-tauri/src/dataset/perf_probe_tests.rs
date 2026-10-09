@@ -252,7 +252,9 @@ fn perf_probe_reload_memory() {
         let loaded = LoadedDataset {
             source_path: Some(path.clone()),
             file_name: "probe.csv".to_owned(),
-            file_size_bytes: fs::metadata(&path).map(|metadata| metadata.len()).unwrap_or(0),
+            file_size_bytes: fs::metadata(&path)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0),
             row_count: frame.height(),
             frame,
             source_backed: false,
