@@ -148,6 +148,37 @@ where
     Ok((directory, destination))
 }
 
+/// REN-01: the delimited snapshot of a source profile, passing DuckDB's
+/// progress of the copy (0.0 to 1.0) to `progress`.
+pub(super) fn persist_delimited_source_file_with_progress<C, P>(
+    path: &Path,
+    extension: &str,
+    is_cancelled: &C,
+    progress: P,
+) -> Result<(tempfile::TempDir, PathBuf), String>
+where
+    C: Fn() -> bool,
+    P: FnMut(f64),
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let delimiter = detect_delimiter(path, extension)?;
+    let directory = tempfile::tempdir()
+        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
+    let temporary = directory.path().join("compared.partial.parquet");
+    crate::duckdb_query::materialize_file_to_parquet_with_progress(
+        path,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter },
+        &temporary,
+        is_cancelled,
+        progress,
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+    let destination = directory.path().join("compared.parquet");
+    fs::rename(&temporary, &destination)
+        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {error}"))?;
+    Ok((directory, destination))
+}
+
 pub(super) fn persist_json_comparison_source_file_with_cancel<C>(
     path: &Path,
     is_cancelled: C,

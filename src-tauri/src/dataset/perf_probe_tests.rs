@@ -323,7 +323,7 @@ fn perf_probe_profile() {
             started.elapsed().as_secs_f64()
         );
         profile_started = Instant::now();
-        profile_source_backed_with_progress(
+        let profile = profile_source_backed_with_progress(
             &path,
             &extension,
             size,
@@ -333,6 +333,10 @@ fn perf_probe_profile() {
             MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
         )
         .expect("perfil source-backed");
+        println!(
+            "probe   filas repetidas {} · parecidas {}",
+            profile.duplicate_row_count, profile.near_duplicate_row_count
+        );
     } else {
         let (frame, _) = load_dataset_with_progress(&path, |_, _| {}, || false).expect("carga");
         println!(

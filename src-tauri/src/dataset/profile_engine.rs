@@ -2416,6 +2416,7 @@ where
     Ok((directory, snapshot))
 }
 
+#[cfg(test)]
 pub(super) fn source_profile_snapshot(
     source_path: &Path,
     extension: &str,
@@ -2460,7 +2461,29 @@ where
     C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
-    let (_snapshot_directory, snapshot_path) = source_profile_snapshot(source_path, extension)?;
+    // REN-01: copying a large delimited file to Parquet takes a while, so
+    // DuckDB's own progress of the copy moves the bar from 0 to 9 %.
+    let (_snapshot_directory, snapshot_path) = match extension {
+        "parquet" => (None, source_path.to_owned()),
+        "csv" | "tsv" | "txt" => {
+            report("Preparando una copia de trabajo", 0);
+            let mut shown = 0_u8;
+            let (directory, snapshot) = persist_delimited_source_file_with_progress(
+                source_path,
+                extension,
+                &is_cancelled,
+                |fraction| {
+                    let percent = ((fraction * 10.0) as u8).min(9);
+                    if percent > shown {
+                        shown = percent;
+                        report("Preparando una copia de trabajo", percent);
+                    }
+                },
+            )?;
+            (Some(directory), snapshot)
+        }
+        _ => return Err("El formato no admite un perfil source-backed.".to_owned()),
+    };
     let schema = read_parquet_schema_frame(&snapshot_path)?;
 
     let (duplicate_row_count, near_duplicate_row_count, columns, categorical_candidates) =

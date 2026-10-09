@@ -1069,6 +1069,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   probabilidad de error es de una entre 10²³), y DuckDB solo cuenta los
   valores distintos de cada columna. 2019-Oct pasa de 139 s a 92 s y la espera
   tras leer las filas, de 44 s a 10 s (REN-01, en curso).
+- Al analizar un CSV grande, «Preparando una copia de trabajo» avanza con el
+  progreso real de DuckDB (del 0 al 9 %) en lugar de quedarse 27 s quieto, y
+  esa copia se puede cancelar. En 2019-Oct la etiqueta cambia ahora como mucho
+  cada 10 s; las filas repetidas siguen siendo 30.220, las mismas que contaba
+  DuckDB (REN-01, en curso).
 - El análisis de calidad de Revisar es más rápido en archivos medianos: una
   columna de valores distintos (fechas con hora, por ejemplo) se analiza en
   partes a la vez, y categorías, tendencia y correlaciones se calculan en

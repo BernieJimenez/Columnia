@@ -208,6 +208,7 @@ use comparison_io::{
 use comparison_io::{
     load_compare_frame_with_cancel, persist_comparison_file_with_cancel,
     persist_comparison_snapshot_with_cancel, persist_delimited_comparison_source_file_with_cancel,
+    persist_delimited_source_file_with_progress,
 };
 pub(crate) use export_io::copy_file_with_cancel;
 #[cfg(test)]

@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    ffi::{CStr, CString},
     fs::{self, File},
     io::{BufWriter, Write},
     path::Path,
@@ -22,6 +23,8 @@ use crate::dataset::{
 };
 
 const QUERY_POLL_INTERVAL: Duration = Duration::from_millis(10);
+/// REN-01: how often DuckDB is asked how far a long copy has gone.
+const PROGRESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const DUCKDB_MEMORY_LIMIT: &str = "512MB";
 const DUCKDB_MAX_TEMP_DIRECTORY_SIZE: &str = "8GB";
 
@@ -216,6 +219,27 @@ fn copy_file_to_parquet(
         format!("No se pudo preparar el espacio temporal para el snapshot protegido: {error}")
     })?;
     configure_duckdb_resources(connection, resource_directory.path())?;
+    let copy = copy_to_parquet_statement(
+        connection,
+        source_path,
+        source_format,
+        destination,
+        column_order,
+    )?;
+    connection
+        .execute_batch(&format!("SET preserve_insertion_order = true; {copy}"))
+        .map_err(|error| format!("DuckDB no pudo crear el snapshot protegido: {error}"))?;
+    Ok(())
+}
+
+/// The `COPY ... TO ... (FORMAT PARQUET)` statement of a snapshot copy.
+fn copy_to_parquet_statement(
+    connection: &Connection,
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    destination: &Path,
+    column_order: Option<&[String]>,
+) -> Result<String, String> {
     let source = file_scan_expression(source_path, source_format)?;
     let destination = destination
         .to_string_lossy()
@@ -233,13 +257,152 @@ fn copy_file_to_parquet(
             .collect::<Vec<_>>()
             .join(", "),
     };
-    let query = format!(
-        "SET preserve_insertion_order = true; COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT PARQUET)"
-    );
-    connection
-        .execute_batch(&query)
-        .map_err(|error| format!("DuckDB no pudo crear el snapshot protegido: {error}"))?;
-    Ok(())
+    Ok(format!(
+        "COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT PARQUET)"
+    ))
+}
+
+/// REN-01: like [`materialize_file_to_parquet_with_cancel`] for a delimited
+/// file, but it passes DuckDB's own progress of the copy (0.0 to 1.0) to
+/// `progress` while it runs, so a copy of a large file does not look stuck.
+pub(crate) fn materialize_file_to_parquet_with_progress<C, P>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    destination: &Path,
+    is_cancelled: &C,
+    mut progress: P,
+) -> Result<(), String>
+where
+    C: Fn() -> bool,
+    P: FnMut(f64),
+{
+    if is_cancelled() {
+        return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+    }
+    let native = NativeDuckDb::open()?;
+    let resource_directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el espacio temporal para el snapshot protegido: {error}")
+    })?;
+    let copy = {
+        // SAFETY: `native` owns the database and outlives this connection,
+        // which is dropped at the end of the block and does not close it.
+        let connection = unsafe { Connection::open_from_raw(native.database) }
+            .map_err(|error| format!("No se pudo iniciar DuckDB para la operación: {error}"))?;
+        configure_duckdb_resources(&connection, resource_directory.path())?;
+        copy_to_parquet_statement(&connection, source_path, source_format, destination, None)?
+    };
+    for setting in [
+        "SET preserve_insertion_order = true",
+        "SET enable_progress_bar = true",
+        "SET enable_progress_bar_print = false",
+    ] {
+        native
+            .execute(setting)
+            .map_err(|error| format!("DuckDB no pudo preparar el snapshot protegido: {error}"))?;
+    }
+    let mut cancelled = false;
+    let outcome = thread::scope(|scope| {
+        let worker = scope.spawn(|| native.execute(&copy));
+        while !worker.is_finished() {
+            if !cancelled && is_cancelled() {
+                cancelled = true;
+                native.interrupt();
+            }
+            let percentage = native.progress();
+            if percentage >= 0.0 {
+                progress((percentage / 100.0).clamp(0.0, 1.0));
+            }
+            thread::sleep(PROGRESS_POLL_INTERVAL);
+        }
+        worker.join()
+    });
+    if cancelled {
+        return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+    }
+    outcome
+        .map_err(|_| "La copia de DuckDB terminó inesperadamente.".to_owned())?
+        .map_err(|error| format!("DuckDB no pudo crear el snapshot protegido: {error}"))
+}
+
+/// REN-01: an in-memory DuckDB database and connection opened through the C
+/// API, because the `duckdb` crate cannot read the progress of a running
+/// statement from another thread.
+struct NativeDuckDb {
+    database: duckdb::ffi::duckdb_database,
+    connection: duckdb::ffi::duckdb_connection,
+}
+
+// SAFETY: DuckDB lets another thread interrupt a connection or read its
+// progress while a statement runs on it; nothing else is shared.
+unsafe impl Send for NativeDuckDb {}
+unsafe impl Sync for NativeDuckDb {}
+
+impl NativeDuckDb {
+    fn open() -> Result<Self, String> {
+        use duckdb::ffi;
+        let mut database: ffi::duckdb_database = std::ptr::null_mut();
+        // SAFETY: a null path opens an in-memory database.
+        if unsafe { ffi::duckdb_open(std::ptr::null(), &mut database) } != ffi::DuckDBSuccess {
+            return Err("No se pudo iniciar DuckDB para la operación.".to_owned());
+        }
+        let mut connection: ffi::duckdb_connection = std::ptr::null_mut();
+        // SAFETY: `database` was just opened.
+        if unsafe { ffi::duckdb_connect(database, &mut connection) } != ffi::DuckDBSuccess {
+            // SAFETY: the database is closed once, here.
+            unsafe { ffi::duckdb_close(&mut database) };
+            return Err("No se pudo conectar con DuckDB para la operación.".to_owned());
+        }
+        Ok(Self {
+            database,
+            connection,
+        })
+    }
+
+    fn execute(&self, statement: &str) -> Result<(), String> {
+        use duckdb::ffi;
+        let statement = CString::new(statement)
+            .map_err(|_| "La consulta contiene un carácter nulo.".to_owned())?;
+        // SAFETY: an all-zero result is the empty value DuckDB fills in.
+        let mut result: ffi::duckdb_result = unsafe { std::mem::zeroed() };
+        // SAFETY: the connection is open and `statement` is a C string.
+        let state = unsafe { ffi::duckdb_query(self.connection, statement.as_ptr(), &mut result) };
+        let error = (state != ffi::DuckDBSuccess).then(|| {
+            // SAFETY: the message, if any, lives until the result is destroyed.
+            let message = unsafe { ffi::duckdb_result_error(&mut result) };
+            if message.is_null() {
+                "error desconocido".to_owned()
+            } else {
+                unsafe { CStr::from_ptr(message) }
+                    .to_string_lossy()
+                    .into_owned()
+            }
+        });
+        // SAFETY: the result is destroyed once, after its message was copied.
+        unsafe { ffi::duckdb_destroy_result(&mut result) };
+        error.map_or(Ok(()), Err)
+    }
+
+    /// The percentage done of the running statement, or a negative value when
+    /// DuckDB cannot tell.
+    fn progress(&self) -> f64 {
+        // SAFETY: the connection stays open while `self` lives.
+        unsafe { duckdb::ffi::duckdb_query_progress(self.connection) }.percentage
+    }
+
+    fn interrupt(&self) {
+        // SAFETY: the connection stays open while `self` lives.
+        unsafe { duckdb::ffi::duckdb_interrupt(self.connection) }
+    }
+}
+
+impl Drop for NativeDuckDb {
+    fn drop(&mut self) {
+        // SAFETY: both handles were opened in `open` and are closed once.
+        unsafe {
+            duckdb::ffi::duckdb_disconnect(&mut self.connection);
+            duckdb::ffi::duckdb_close(&mut self.database);
+        }
+    }
 }
 
 pub(crate) fn materialize_file_to_parquet_with_projection<C>(
@@ -3180,6 +3343,75 @@ mod tests {
 
         assert_eq!(row_count, 2);
         assert!(destination.is_file());
+    }
+
+    #[test]
+    fn a_copy_with_progress_writes_the_same_snapshot_and_reports_fractions() {
+        // REN-01: the native connection copies like the `duckdb` crate one
+        // and only reports fractions between 0 and 1.
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("source.csv");
+        let mut contents = String::from("city,value\n");
+        for row in 0..200_000 {
+            contents.push_str(&format!("Ciudad {},{row}\n", row % 97));
+        }
+        fs::write(&source, contents).expect("se debe escribir la fuente delimitada");
+        let expected = directory.path().join("expected.parquet");
+        let actual = directory.path().join("actual.parquet");
+        let format = DuckDbFileFormat::Delimited { delimiter: b',' };
+        materialize_file_to_parquet(&source, format, &expected, None).expect("copia de referencia");
+        let mut fractions = Vec::new();
+        materialize_file_to_parquet_with_progress(
+            &source,
+            format,
+            &actual,
+            &|| false,
+            |fraction| fractions.push(fraction),
+        )
+        .expect("copia con progreso");
+
+        let connection = Connection::open_in_memory().expect("DuckDB debe iniciar");
+        let escape = |path: &Path| path.to_string_lossy().replace('\\', "/");
+        let differences: i64 = connection
+            .query_row(
+                &format!(
+                    "SELECT COUNT(*) FROM (SELECT * FROM read_parquet('{}') EXCEPT ALL SELECT * FROM read_parquet('{}'))",
+                    escape(&expected),
+                    escape(&actual)
+                ),
+                [],
+                |row| row.get(0),
+            )
+            .expect("los snapshots deben poder compararse");
+        let rows: i64 = connection
+            .query_row(
+                &format!("SELECT COUNT(*) FROM read_parquet('{}')", escape(&actual)),
+                [],
+                |row| row.get(0),
+            )
+            .expect("el snapshot debe poder leerse");
+        assert_eq!((differences, rows), (0, 200_000));
+        assert!(fractions
+            .iter()
+            .all(|fraction| (0.0..=1.0).contains(fraction)));
+    }
+
+    #[test]
+    fn a_copy_with_progress_cancelled_before_start_writes_nothing() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("source.csv");
+        let destination = directory.path().join("snapshot.parquet");
+        fs::write(&source, "city,value\nSantiago,20\n").expect("fuente");
+        let error = materialize_file_to_parquet_with_progress(
+            &source,
+            DuckDbFileFormat::Delimited { delimiter: b',' },
+            &destination,
+            &|| true,
+            |_| {},
+        )
+        .unwrap_err();
+        assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+        assert!(!destination.exists());
     }
 
     #[test]

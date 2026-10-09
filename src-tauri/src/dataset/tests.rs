@@ -4780,6 +4780,10 @@ fn source_backed_profile_matches_the_in_memory_profile_without_retaining_rows() 
     );
     assert_eq!(actual.temporal_series, expected.temporal_series);
     assert!(actual.numeric_correlations.is_none());
+    assert_eq!(
+        updates.first(),
+        Some(&("Preparando una copia de trabajo", 0))
+    );
     assert!(updates
         .iter()
         .any(|(stage, _)| *stage == "Analizando filas y columnas"));

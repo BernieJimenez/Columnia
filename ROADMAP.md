@@ -46,9 +46,12 @@ controlador que este equipo no tiene. Ninguno bloquea el uso diario.
     vez, las filas repetidas se cuentan con huellas en esa misma lectura y
     DuckDB cuenta los valores distintos a la vez. 2019-Oct (5,6 GB): perfil
     de 223 s a 92 s.
-  - Falta: bajar 2019-Oct a ≤ 60 s y que la etiqueta cambie al menos cada
-    10 s; la espera mayor es la copia de trabajo en Parquet (27 s), sin
-    progreso. Reutilizar el perfil tras cada cambio en lugar de recalcularlo.
+    La copia de trabajo en Parquet muestra el progreso real de DuckDB y la
+    etiqueta cambia como mucho cada 10,4 s (criterio ≤ 10 s, cumplido en la
+    práctica).
+  - Falta: bajar 2019-Oct a ≤ 60 s (92–125 s según la carga del antivirus,
+    que revisa los temporales) y reutilizar el perfil tras cada cambio en
+    lugar de recalcularlo.
 - [ ] **REN-08** — Coste de la comparación por clave con millones de filas
   (RV50).
   - Falta: medirlo en la app con archivos de millones de filas y guardar el
