@@ -52,29 +52,20 @@ controlador que este equipo no tiene. Ninguno bloquea el uso diario.
   - Falta: bajar 2019-Oct a ≤ 60 s (92–125 s según la carga del antivirus,
     que revisa los temporales) y reutilizar el perfil tras cada cambio en
     lugar de recalcularlo.
-- [ ] **REN-08** — Coste de la comparación por clave con millones de filas
-  (RV50).
-  - Falta: medirlo en la app con archivos de millones de filas y guardar el
-    índice de conflictos para paginar sin recalcular.
 - [ ] **REN-13** — Disco temporal del perfil numérico de archivos grandes (RV65).
   - Falta: medir con un CSV de unos 100 M filas antes de cambiar una sola pasada
     por una lectura por columna o por lotes (menos disco, más tiempo).
 
-### Entrega a bases de datos
-
-- [ ] **DAT-12** — En MySQL, «Crear» no es atómico (RV44).
-  - Hecho: si la entrega falla, se borra la tabla que creó.
-  - Falta: la prueba con un servidor y un controlador MySQL reales.
-
 ## Aparcado: solo si Columnia se comparte
 
-Estos objetivos dejaron la cola el 2026-10-01 porque la aplicación es de uso
-personal. Se retoman únicamente si se decide dársela a otras personas.
+Estos objetivos dejaron la cola porque la aplicación es de uso personal o
+porque dependen de algo que su dueño no usa. Se retoman solo si eso cambia.
 
 | ID | Criterio de cierre | Se retoma si |
 | --- | --- | --- |
 | RV07 — Beta | Tres participantes distintos sobre el mismo release candidate, dos casos reales por sesión y al menos tres datasets; 24 de 30 tareas sin ayuda; guardar, reabrir y entrega verificados; sin P0/P1; resumen sanitizado validado con `npm run beta:check-summary`. Cada fallo dependiente de datos se reduce a una fixture sintética con su regresión antes de corregirlo. Guía: [sesión beta](docs/how-to/run-beta-validation.md) e [invitación](docs/templates/beta-invitation.md). | Otras personas van a usarla |
 | RV09 — Accesibilidad nativa | Cargar → Entregar en Windows solo con teclado y NVDA, incluidos diálogos, tablas, progreso, zoom y alto contraste. Guía: [probar con NVDA](docs/how-to/run-nvda-check.md). | La usa alguien con lector de pantalla |
+| DAT-12 — «Crear» en MySQL | Ya hecho: si la entrega falla, se borra la tabla que creó. Falta la prueba `external_odbc_round_trip_mysql_with_and_without_no_backslash_escapes` con un servidor y un controlador MySQL reales (aparcado el 2026-10-09: su dueño no usa MySQL). SQL Server y PostgreSQL no lo necesitan. | Se entrega a MySQL |
 | RV11 — Distribución | Aprobación jurídica, prueba en VM limpia (instalación, reapertura, updater, fallos y recuperación), hashes y firmas de los artefactos descargados, la sección `## [versión]` del CHANGELOG al cortar la versión, la firma Authenticode de los ejecutables (OPS-13) y los textos de licencia de terceros (LEG-01). | Se reparten binarios |
 
 La publicación vigente autoriza **código fuente únicamente**. No autoriza

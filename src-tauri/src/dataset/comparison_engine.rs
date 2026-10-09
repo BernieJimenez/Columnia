@@ -105,11 +105,25 @@ pub(super) fn row_signature(
     columns: &[String],
     row_index: usize,
 ) -> Result<String, String> {
+    let columns = columns
+        .iter()
+        .map(|name| {
+            frame
+                .column(name)
+                .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    row_signature_of_columns(&columns, row_index)
+}
+
+/// [`row_signature`] over columns already looked up, for loops over rows.
+pub(super) fn row_signature_of_columns(
+    columns: &[&Column],
+    row_index: usize,
+) -> Result<String, String> {
     let mut signature = String::new();
-    for name in columns {
-        let value = frame
-            .column(name)
-            .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?
+    for column in columns {
+        let value = column
             .get(row_index)
             .map_err(|error| format!("No se pudo comparar la fila {row_index}: {error}"))?;
         match comparison_text(value) {
@@ -238,8 +252,16 @@ pub(super) fn append_spilled_key_rows_with_writers(
     row_offset: usize,
     writers: &mut [Option<BufWriter<File>>],
 ) -> Result<(), String> {
+    let key_columns = key_columns
+        .iter()
+        .map(|name| {
+            frame
+                .column(name)
+                .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     for row_index in 0..frame.height() {
-        let signature = row_signature(frame, key_columns, row_index)?;
+        let signature = row_signature_of_columns(&key_columns, row_index)?;
         let bucket = comparison_key_bucket(&signature);
         let writer = if let Some(writer) = writers[bucket].as_mut() {
             writer
@@ -294,9 +316,15 @@ where
 {
     ensure_not_cancelled(is_cancelled())?;
     let spill = create_spilled_key_rows()?;
+    // REN-08: the bucket files stay open across blocks.
+    let mut writers = (0..COMPARISON_KEY_BUCKETS)
+        .map(|_| None::<BufWriter<File>>)
+        .collect::<Vec<_>>();
     for_each_parquet_block_with_cancel(path, row_count, is_cancelled, |start, block| {
-        append_spilled_key_rows(&spill, block, columns, start)
+        append_spilled_key_rows_with_writers(&spill, block, columns, start, &mut writers)
     })?;
+    flush_spilled_key_payload_writers(&mut writers)?;
+    drop(writers);
     ensure_not_cancelled(is_cancelled())?;
     Ok(spill)
 }
@@ -330,8 +358,24 @@ pub(super) fn create_spilled_key_payload_rows() -> Result<SpilledKeyPayloadRows,
     })
 }
 
-pub(super) fn append_spilled_key_payload_rows_with_cancel<C>(
+fn flush_spilled_key_payload_writers(
+    writers: &mut [Option<BufWriter<File>>],
+) -> Result<(), String> {
+    for writer in writers.iter_mut().flatten() {
+        writer.flush().map_err(|error| {
+            format!("No se pudo sincronizar el índice temporal de comparación por clave: {error}")
+        })?;
+    }
+    Ok(())
+}
+
+/// REN-08: the bucket files stay open across the blocks of one spill (opening
+/// 256 files for every block dominated the comparison of large files), and
+/// the signatures of a block are built in parallel, each thread with the
+/// comparison options of the caller.
+fn append_spilled_key_payload_rows_with_writers<C>(
     spill: &SpilledKeyPayloadRows,
+    writers: &mut [Option<BufWriter<File>>],
     frame: &DataFrame,
     key_columns: &[String],
     payload_columns: &[String],
@@ -341,17 +385,34 @@ pub(super) fn append_spilled_key_payload_rows_with_cancel<C>(
 where
     C: Fn() -> bool + Sync,
 {
-    let mut writers = (0..COMPARISON_KEY_BUCKETS)
-        .map(|_| None::<BufWriter<File>>)
-        .collect::<Vec<_>>();
+    let lookup = |names: &[String]| {
+        names
+            .iter()
+            .map(|name| {
+                frame
+                    .column(name)
+                    .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))
+            })
+            .collect::<Result<Vec<_>, _>>()
+    };
+    let key_columns = lookup(key_columns)?;
+    let payload_columns = lookup(payload_columns)?;
+    let options = current_comparison_options();
+    let records = (0..frame.height())
+        .into_par_iter()
+        .with_min_len(1024)
+        .map(|row_index| {
+            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            let _options = ComparisonOptionsScope::enter(options);
+            let key = row_signature_of_columns(&key_columns, row_index)?;
+            let payload = row_signature_of_columns(&payload_columns, row_index)?;
+            Ok((comparison_key_bucket(&key), key, payload))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
 
-    for row_index in 0..frame.height() {
-        if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-            ensure_not_cancelled(is_cancelled())?;
-        }
-        let key = row_signature(frame, key_columns, row_index)?;
-        let payload = row_signature(frame, payload_columns, row_index)?;
-        let bucket = comparison_key_bucket(&key);
+    for (row_index, (bucket, key, payload)) in records.into_iter().enumerate() {
         let writer = if let Some(writer) = writers[bucket].as_mut() {
             writer
         } else {
@@ -388,13 +449,7 @@ where
                 format!("No se pudo escribir el índice temporal de comparación por clave: {error}")
             })?;
     }
-
-    for writer in writers.iter_mut().flatten() {
-        writer.flush().map_err(|error| {
-            format!("No se pudo sincronizar el índice temporal de comparación por clave: {error}")
-        })?;
-    }
-    ensure_not_cancelled(is_cancelled())
+    Ok(())
 }
 
 pub(super) fn spill_parquet_key_payload_rows_with_cancel<C>(
@@ -408,9 +463,13 @@ where
     C: Fn() -> bool + Sync,
 {
     let spill = create_spilled_key_payload_rows()?;
+    let mut writers = (0..COMPARISON_KEY_BUCKETS)
+        .map(|_| None::<BufWriter<File>>)
+        .collect::<Vec<_>>();
     for_each_parquet_block_with_cancel(path, row_count, is_cancelled, |start, block| {
-        append_spilled_key_payload_rows_with_cancel(
+        append_spilled_key_payload_rows_with_writers(
             &spill,
+            &mut writers,
             block,
             key_columns,
             payload_columns,
@@ -418,6 +477,9 @@ where
             is_cancelled,
         )
     })?;
+    flush_spilled_key_payload_writers(&mut writers)?;
+    drop(writers);
+    ensure_not_cancelled(is_cancelled())?;
     Ok(spill)
 }
 
@@ -1282,6 +1344,7 @@ pub(super) fn compare_keyed_parquet(
     Ok(summary)
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct ParquetComparisonSource<'a> {
     pub(super) path: &'a Path,
     pub(super) row_count: usize,
@@ -1910,12 +1973,17 @@ where
     Ok((conflicts, total > page_end))
 }
 
+/// `skip_conflicts` conflicts are only counted, not visited: their marker
+/// already proves them (it comes from the same payload signature the shape
+/// compares), so the compared file is not read for them (REN-08).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn for_each_key_conflict_between_parquet_with_cancel<C, F>(
     current: ParquetComparisonSource<'_>,
     compared: ParquetComparisonSource<'_>,
     key_columns: &[String],
     shared_columns: &[String],
     max_conflicts: Option<usize>,
+    skip_conflicts: usize,
     is_cancelled: &C,
     mut visit: F,
 ) -> Result<usize, String>
@@ -1945,82 +2013,14 @@ where
         return Ok(0);
     }
 
-    let current_rows = spill_parquet_key_payload_rows_with_cancel(
-        current.path,
-        current.row_count,
-        key_columns,
-        &shared_payload_columns,
-        is_cancelled,
-    )?;
-    let compared_rows = spill_parquet_key_payload_rows_with_cancel(
-        compared.path,
-        compared.row_count,
-        key_columns,
-        &shared_payload_columns,
-        is_cancelled,
-    )?;
     let row_index_bytes = std::mem::size_of::<u64>() as u64;
-    let current_row_bytes = u64::try_from(current.row_count)
-        .map_err(|_| "El dataset activo supera la capacidad del índice temporal.".to_owned())?;
-    let mut conflict_markers = tempfile::tempfile().map_err(|error| {
-        format!("No se pudo preparar el índice temporal de conflictos: {error}")
-    })?;
-    conflict_markers
-        .set_len(current_row_bytes)
-        .map_err(|error| {
-            format!("No se pudo preparar el índice temporal de conflictos: {error}")
-        })?;
-    let mut conflict_rows = tempfile::tempfile().map_err(|error| {
-        format!("No se pudo preparar el índice temporal de conflictos: {error}")
-    })?;
-
-    for bucket in 0..COMPARISON_KEY_BUCKETS {
-        ensure_not_cancelled(is_cancelled())?;
-        let current_bucket =
-            read_spilled_key_payload_bucket_with_cancel(&current_rows, bucket, is_cancelled)?;
-        let compared_bucket =
-            read_spilled_key_payload_bucket_with_cancel(&compared_rows, bucket, is_cancelled)?;
-        let mut record_index = 0usize;
-        for (key, current_group) in current_bucket {
-            if record_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-                ensure_not_cancelled(is_cancelled())?;
-            }
-            record_index = record_index.saturating_add(1);
-            let Some(compared_group) = compared_bucket.get(&key) else {
-                continue;
-            };
-            if current_group.count != 1
-                || compared_group.count != 1
-                || current_group.payload == compared_group.payload
-            {
-                continue;
-            }
-            let marker_offset = u64::try_from(current_group.first_row_index).map_err(|_| {
-                "El índice de fila supera la capacidad del índice temporal.".to_owned()
-            })?;
-            let compared_offset = u64::try_from(current_group.first_row_index)
-                .ok()
-                .and_then(|index| index.checked_mul(row_index_bytes))
-                .ok_or_else(|| "El índice de conflicto supera la capacidad local.".to_owned())?;
-            let compared_row_index =
-                u64::try_from(compared_group.first_row_index).map_err(|_| {
-                    "El índice de fila supera la capacidad del índice temporal.".to_owned()
-                })?;
-            conflict_markers
-                .seek(SeekFrom::Start(marker_offset))
-                .and_then(|_| conflict_markers.write_all(&[1]))
-                .map_err(|error| {
-                    format!("No se pudo escribir el índice temporal de conflictos: {error}")
-                })?;
-            conflict_rows
-                .seek(SeekFrom::Start(compared_offset))
-                .and_then(|_| conflict_rows.write_all(&compared_row_index.to_le_bytes()))
-                .map_err(|error| {
-                    format!("No se pudo escribir el índice temporal de conflictos: {error}")
-                })?;
-        }
-    }
-
+    let (mut conflict_markers, mut conflict_rows) = key_conflict_markers(
+        current,
+        compared,
+        key_columns,
+        &shared_payload_columns,
+        is_cancelled,
+    )?;
     conflict_markers
         .seek(SeekFrom::Start(0))
         .map_err(|error| format!("No se pudo leer el índice temporal de conflictos: {error}"))?;
@@ -2042,6 +2042,10 @@ where
                     format!("No se pudo leer el índice temporal de conflictos: {error}")
                 })?;
                 if marker[0] == 0 {
+                    continue;
+                }
+                if total < skip_conflicts {
+                    total += 1;
                     continue;
                 }
                 let current_row_index = start
@@ -2131,6 +2135,99 @@ where
     Ok(total)
 }
 
+/// The spill and join behind every keyed conflict walk: one byte per current
+/// row (1 when its key has a conflict) and, at the row's position, the index
+/// of the compared row it conflicts with.
+fn key_conflict_markers<C>(
+    current: ParquetComparisonSource<'_>,
+    compared: ParquetComparisonSource<'_>,
+    key_columns: &[String],
+    shared_payload_columns: &[String],
+    is_cancelled: &C,
+) -> Result<(File, File), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let shared_payload_columns = shared_payload_columns.to_vec();
+    let current_rows = spill_parquet_key_payload_rows_with_cancel(
+        current.path,
+        current.row_count,
+        key_columns,
+        &shared_payload_columns,
+        is_cancelled,
+    )?;
+    let compared_rows = spill_parquet_key_payload_rows_with_cancel(
+        compared.path,
+        compared.row_count,
+        key_columns,
+        &shared_payload_columns,
+        is_cancelled,
+    )?;
+    let row_index_bytes = std::mem::size_of::<u64>() as u64;
+    let current_row_bytes = u64::try_from(current.row_count)
+        .map_err(|_| "El dataset activo supera la capacidad del índice temporal.".to_owned())?;
+    let mut conflict_markers = tempfile::tempfile().map_err(|error| {
+        format!("No se pudo preparar el índice temporal de conflictos: {error}")
+    })?;
+    conflict_markers
+        .set_len(current_row_bytes)
+        .map_err(|error| {
+            format!("No se pudo preparar el índice temporal de conflictos: {error}")
+        })?;
+    let mut conflict_rows = tempfile::tempfile().map_err(|error| {
+        format!("No se pudo preparar el índice temporal de conflictos: {error}")
+    })?;
+
+    for bucket in 0..COMPARISON_KEY_BUCKETS {
+        ensure_not_cancelled(is_cancelled())?;
+        let current_bucket =
+            read_spilled_key_payload_bucket_with_cancel(&current_rows, bucket, is_cancelled)?;
+        let compared_bucket =
+            read_spilled_key_payload_bucket_with_cancel(&compared_rows, bucket, is_cancelled)?;
+        let mut record_index = 0usize;
+        for (key, current_group) in current_bucket {
+            if record_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            record_index = record_index.saturating_add(1);
+            let Some(compared_group) = compared_bucket.get(&key) else {
+                continue;
+            };
+            if current_group.count != 1
+                || compared_group.count != 1
+                || current_group.payload == compared_group.payload
+            {
+                continue;
+            }
+            let marker_offset = u64::try_from(current_group.first_row_index).map_err(|_| {
+                "El índice de fila supera la capacidad del índice temporal.".to_owned()
+            })?;
+            let compared_offset = u64::try_from(current_group.first_row_index)
+                .ok()
+                .and_then(|index| index.checked_mul(row_index_bytes))
+                .ok_or_else(|| "El índice de conflicto supera la capacidad local.".to_owned())?;
+            let compared_row_index =
+                u64::try_from(compared_group.first_row_index).map_err(|_| {
+                    "El índice de fila supera la capacidad del índice temporal.".to_owned()
+                })?;
+            conflict_markers
+                .seek(SeekFrom::Start(marker_offset))
+                .and_then(|_| conflict_markers.write_all(&[1]))
+                .map_err(|error| {
+                    format!("No se pudo escribir el índice temporal de conflictos: {error}")
+                })?;
+            conflict_rows
+                .seek(SeekFrom::Start(compared_offset))
+                .and_then(|_| conflict_rows.write_all(&compared_row_index.to_le_bytes()))
+                .map_err(|error| {
+                    format!("No se pudo escribir el índice temporal de conflictos: {error}")
+                })?;
+        }
+    }
+
+    Ok((conflict_markers, conflict_rows))
+}
+
 pub(super) fn collect_key_conflicts_page_between_parquet_with_cancel<C>(
     current: ParquetComparisonSource<'_>,
     compared: ParquetComparisonSource<'_>,
@@ -2145,12 +2242,14 @@ where
 {
     ensure_not_cancelled(is_cancelled())?;
     let mut conflicts = Vec::new();
-    let total = for_each_key_conflict_between_parquet_with_cancel(
+    let page_end = offset.saturating_add(limit);
+    let walk = for_each_key_conflict_between_parquet_with_cancel(
         current,
         compared,
         key_columns,
         shared_columns,
         None,
+        offset,
         is_cancelled,
         |conflict_index,
          current_block,
@@ -2160,7 +2259,12 @@ where
          current_row_index,
          compared_row_index,
          shape| {
-            if conflict_index < offset || conflicts.len() >= limit {
+            // REN-08: one conflict past the page is enough to know there is
+            // another page; the rest of the file is not read.
+            if conflict_index >= page_end {
+                return Err(CONFLICT_PAGE_FILLED.to_owned());
+            }
+            if conflict_index < offset {
                 return Ok(());
             }
             let mut conflict = build_key_conflict_from_shape(
@@ -2176,10 +2280,237 @@ where
             conflicts.push(conflict);
             Ok(())
         },
-    )?;
-    let page_end = offset.saturating_add(conflicts.len());
+    );
     ensure_not_cancelled(is_cancelled())?;
-    Ok((conflicts, total > page_end))
+    let has_next = match walk {
+        Ok(_) => false,
+        Err(error) if error == CONFLICT_PAGE_FILLED => true,
+        Err(error) => return Err(error),
+    };
+    Ok((conflicts, has_next))
+}
+
+/// REN-08: stops a conflict walk once the requested page is complete.
+const CONFLICT_PAGE_FILLED: &str = "La página de conflictos está completa.";
+
+/// What a conflict index was built from; a page reuses it only when all of it
+/// still holds.
+#[derive(Clone, PartialEq)]
+struct ConflictIndexKey {
+    source_path: PathBuf,
+    source_size_bytes: u64,
+    source_row_count: usize,
+    compared_path: PathBuf,
+    compared_row_count: usize,
+    key_columns: Vec<String>,
+    options: ComparisonOptions,
+}
+
+/// REN-08: the conflicts of the active comparison, found once and paged from
+/// disk afterwards: the working copy of the source and, in row order, the
+/// (current row, compared row) pair of every conflict.
+struct ConflictIndex {
+    key: ConflictIndexKey,
+    _directory: tempfile::TempDir,
+    _current_snapshot: Option<tempfile::TempDir>,
+    current_path: PathBuf,
+    current_row_count: usize,
+    pairs_path: PathBuf,
+    count: usize,
+}
+
+static CONFLICT_INDEX: std::sync::Mutex<Option<std::sync::Arc<ConflictIndex>>> =
+    std::sync::Mutex::new(None);
+
+/// Drops the conflict index (and its working copy) of a comparison that ends.
+pub(super) fn clear_conflict_index() {
+    *CONFLICT_INDEX.lock_recovering() = None;
+}
+
+const CONFLICT_PAIR_BYTES: usize = 2 * std::mem::size_of::<u64>();
+
+/// Writes the (current row, compared row) pair of every conflict, in current
+/// row order, and returns how many there are.
+fn write_key_conflict_pairs<C>(
+    current: ParquetComparisonSource<'_>,
+    compared: ParquetComparisonSource<'_>,
+    key_columns: &[String],
+    shared_columns: &[String],
+    pairs_path: &Path,
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let shared_payload_columns = shared_columns
+        .iter()
+        .filter(|column| !key_columns.contains(column))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut writer = BufWriter::new(
+        File::create(pairs_path)
+            .map_err(|error| format!("No se pudo preparar el índice de conflictos: {error}"))?,
+    );
+    if shared_payload_columns.is_empty() {
+        return Ok(0);
+    }
+    let (conflict_markers, mut conflict_rows) = key_conflict_markers(
+        current,
+        compared,
+        key_columns,
+        &shared_payload_columns,
+        is_cancelled,
+    )?;
+    let mut markers = BufReader::new(conflict_markers);
+    markers
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| format!("No se pudo leer el índice temporal de conflictos: {error}"))?;
+    let mut count = 0usize;
+    let mut marker = [0_u8; 1];
+    for current_row_index in 0..current.row_count {
+        if current_row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+            ensure_not_cancelled(is_cancelled())?;
+        }
+        markers.read_exact(&mut marker).map_err(|error| {
+            format!("No se pudo leer el índice temporal de conflictos: {error}")
+        })?;
+        if marker[0] == 0 {
+            continue;
+        }
+        let mut compared_row = [0_u8; std::mem::size_of::<u64>()];
+        conflict_rows
+            .seek(SeekFrom::Start(
+                (current_row_index as u64) * std::mem::size_of::<u64>() as u64,
+            ))
+            .and_then(|_| conflict_rows.read_exact(&mut compared_row))
+            .map_err(|error| {
+                format!("No se pudo leer el índice temporal de conflictos: {error}")
+            })?;
+        writer
+            .write_all(&(current_row_index as u64).to_le_bytes())
+            .and_then(|_| writer.write_all(&compared_row))
+            .map_err(|error| format!("No se pudo escribir el índice de conflictos: {error}"))?;
+        count += 1;
+    }
+    writer
+        .flush()
+        .map_err(|error| format!("No se pudo escribir el índice de conflictos: {error}"))?;
+    Ok(count)
+}
+
+/// One page of conflicts read from the index: only the rows of the page are
+/// read from the two files.
+fn conflict_page_from_index<C>(
+    index: &ConflictIndex,
+    compared: ParquetComparisonSource<'_>,
+    key_columns: &[String],
+    shared_columns: &[String],
+    offset: usize,
+    limit: usize,
+    is_cancelled: &C,
+) -> Result<(Vec<KeyConflictRows>, bool), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let shared_payload_columns = shared_columns
+        .iter()
+        .filter(|column| !key_columns.contains(column))
+        .cloned()
+        .collect::<Vec<_>>();
+    let end = offset.saturating_add(limit).min(index.count);
+    let mut conflicts = Vec::new();
+    if offset >= end {
+        return Ok((conflicts, false));
+    }
+    let mut pairs = File::open(&index.pairs_path)
+        .map_err(|error| format!("No se pudo leer el índice de conflictos: {error}"))?;
+    pairs
+        .seek(SeekFrom::Start((offset * CONFLICT_PAIR_BYTES) as u64))
+        .map_err(|error| format!("No se pudo leer el índice de conflictos: {error}"))?;
+    let mut bytes = vec![0_u8; (end - offset) * CONFLICT_PAIR_BYTES];
+    pairs
+        .read_exact(&mut bytes)
+        .map_err(|error| format!("No se pudo leer el índice de conflictos: {error}"))?;
+    let mut current_cache: Option<(usize, DataFrame)> = None;
+    for pair in bytes.as_chunks::<CONFLICT_PAIR_BYTES>().0 {
+        ensure_not_cancelled(is_cancelled())?;
+        let current_row_index = usize::try_from(u64::from_le_bytes(
+            pair[..8].try_into().expect("ocho bytes"),
+        ))
+        .map_err(|_| "El índice de conflictos excede la capacidad local.".to_owned())?;
+        let compared_row_index = usize::try_from(u64::from_le_bytes(
+            pair[8..].try_into().expect("ocho bytes"),
+        ))
+        .map_err(|_| "El índice de conflictos excede la capacidad local.".to_owned())?;
+        if current_row_index >= index.current_row_count || compared_row_index >= compared.row_count
+        {
+            return Err("El índice de conflictos apunta fuera de los datos.".to_owned());
+        }
+        // The current rows of a page are close together; the compared ones
+        // may be anywhere, so only that row is read.
+        let block_start = current_row_index - current_row_index % LOCAL_QUERY_BLOCK_ROWS;
+        if current_cache.as_ref().map(|(start, _)| *start) != Some(block_start) {
+            let length = LOCAL_QUERY_BLOCK_ROWS.min(index.current_row_count - block_start);
+            let block = read_parquet_query_block_with_cancel(
+                &index.current_path,
+                block_start,
+                length,
+                is_cancelled,
+            )?;
+            if block.height() != length {
+                return Err("El snapshot activo cambió durante la lectura.".to_owned());
+            }
+            current_cache = Some((block_start, block));
+        }
+        let (_, current_block) = current_cache.as_ref().expect("bloque activo");
+        let compared_row = read_parquet_query_block_with_cancel(
+            compared.path,
+            compared_row_index,
+            1,
+            is_cancelled,
+        )?;
+        if compared_row.height() != 1 {
+            return Err("El snapshot comparado cambió durante la lectura.".to_owned());
+        }
+        let current_row_in_block = current_row_index - block_start;
+        let Some(shape) = build_key_conflict_shape(
+            current_block,
+            &compared_row,
+            &shared_payload_columns,
+            current_row_in_block,
+            0,
+        )?
+        else {
+            return Err("El índice de conflictos no coincide con los datos.".to_owned());
+        };
+        let mut conflict = build_key_conflict_from_shape(
+            current_block,
+            &compared_row,
+            key_columns,
+            shape,
+            current_row_in_block,
+            0,
+        )?;
+        conflict.current_row_index = current_row_index;
+        conflict.compared_row_index = compared_row_index;
+        conflicts.push(conflict);
+    }
+    Ok((conflicts, end < index.count))
+}
+
+/// The columns two Parquet files share, in the order of the first.
+fn shared_columns_between(current: &Path, compared: &Path) -> Result<Vec<String>, String> {
+    let compared_columns = read_parquet_schema_frame(compared)?
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    Ok(read_parquet_schema_frame(current)?
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .filter(|name| compared_columns.contains(name))
+        .collect())
 }
 
 pub(super) fn source_backed_parquet_snapshot_with_cancel<C>(
@@ -2269,35 +2600,67 @@ where
     validate_dataset_file(compared_path)?;
     ensure_not_cancelled(is_cancelled())?;
 
-    let Some((current_path, current_row_count, _current_snapshot_directory)) =
-        source_backed_parquet_snapshot_with_cancel(&context, is_cancelled.clone())?
-    else {
-        return Ok(None);
+    let key = ConflictIndexKey {
+        source_path: context.source_path.clone(),
+        source_size_bytes: context.source_size_bytes,
+        source_row_count: context.row_count,
+        compared_path: compared_path.to_owned(),
+        compared_row_count,
+        key_columns: key_columns.to_vec(),
+        options: current_comparison_options(),
     };
-    let current_schema = read_parquet_schema_frame(&current_path)?;
+    let cached = CONFLICT_INDEX
+        .lock_recovering()
+        .as_ref()
+        .filter(|index| index.key == key)
+        .cloned();
+    let index = match cached {
+        Some(index) => index,
+        None => {
+            // A new comparison or dataset: the previous index and its working
+            // copy go before a new one is built.
+            clear_conflict_index();
+            let Some((current_path, current_row_count, current_snapshot)) =
+                source_backed_parquet_snapshot_with_cancel(&context, is_cancelled.clone())?
+            else {
+                return Ok(None);
+            };
+            let shared_columns = shared_columns_between(&current_path, compared_path)?;
+            ensure_not_cancelled(is_cancelled())?;
+            let directory = tempfile::tempdir()
+                .map_err(|error| format!("No se pudo preparar el índice de conflictos: {error}"))?;
+            let pairs_path = directory.path().join("conflictos.bin");
+            let count = write_key_conflict_pairs(
+                ParquetComparisonSource {
+                    path: &current_path,
+                    row_count: current_row_count,
+                },
+                ParquetComparisonSource {
+                    path: compared_path,
+                    row_count: compared_row_count,
+                },
+                key_columns,
+                &shared_columns,
+                &pairs_path,
+                &is_cancelled,
+            )?;
+            let index = std::sync::Arc::new(ConflictIndex {
+                key,
+                _directory: directory,
+                _current_snapshot: current_snapshot,
+                current_path,
+                current_row_count,
+                pairs_path,
+                count,
+            });
+            *CONFLICT_INDEX.lock_recovering() = Some(std::sync::Arc::clone(&index));
+            index
+        }
+    };
+    let shared_columns = shared_columns_between(&index.current_path, compared_path)?;
     ensure_not_cancelled(is_cancelled())?;
-    let compared_schema = read_parquet_schema_frame(compared_path)?;
-    ensure_not_cancelled(is_cancelled())?;
-    let current_columns = current_schema
-        .get_column_names()
-        .iter()
-        .map(|name| name.to_string())
-        .collect::<Vec<_>>();
-    let compared_columns = compared_schema
-        .get_column_names()
-        .iter()
-        .map(|name| name.to_string())
-        .collect::<Vec<_>>();
-    let shared_columns = current_columns
-        .iter()
-        .filter(|name| compared_columns.contains(name))
-        .cloned()
-        .collect::<Vec<_>>();
-    let (conflicts, has_next) = collect_key_conflicts_page_between_parquet_with_cancel(
-        ParquetComparisonSource {
-            path: &current_path,
-            row_count: current_row_count,
-        },
+    let (conflicts, has_next) = conflict_page_from_index(
+        &index,
         ParquetComparisonSource {
             path: compared_path,
             row_count: compared_row_count,

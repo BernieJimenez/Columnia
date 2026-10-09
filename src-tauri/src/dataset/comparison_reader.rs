@@ -147,6 +147,7 @@ pub(super) async fn compare_dataset_impl(
         comparison.compared_source_note = compared_source_note(&path, &extension);
         cancellation_for_work.ensure()?;
         cancellation_for_work.commit(|| {
+            clear_conflict_index();
             *state.comparison.lock_recovering() = Some(PendingComparison {
                 file_name: compared_file_name,
                 file_size_bytes,

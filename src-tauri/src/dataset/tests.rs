@@ -11832,6 +11832,7 @@ fn source_backed_conflict_scan_honors_cancellation_between_disk_blocks() {
         &["id".to_owned()],
         &["id".to_owned(), "value".to_owned()],
         Some(SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS),
+        0,
         &is_cancelled,
         |_, _, _, _, _, _, _, _| Ok(()),
     )
@@ -22995,4 +22996,142 @@ fn power_bi_data_source_does_not_replace_a_foreign_pbids() {
     let first = write_power_bi_data_source(&export, "x").unwrap();
     assert_eq!(first, own);
     assert_eq!(write_power_bi_data_source(&export, "x").unwrap(), own);
+}
+
+#[test]
+fn conflict_pages_between_parquet_walk_the_same_list_in_order() {
+    // REN-08: a page stops once it is full and skips the earlier conflicts by
+    // their markers; chained pages must still give the whole list, in order,
+    // also when the compared file stores its rows in another order.
+    let ids = (0..5_000_i64).collect::<Vec<_>>();
+    let current_values = ids.iter().map(|id| id * 10).collect::<Vec<_>>();
+    let compared_ids = ids.iter().rev().copied().collect::<Vec<_>>();
+    let compared_values = compared_ids
+        .iter()
+        .map(|id| if id % 7 == 0 { id * 10 + 1 } else { id * 10 })
+        .collect::<Vec<_>>();
+    let current = df!("id" => &ids, "value" => &current_values).expect("frame activo");
+    let compared =
+        df!("id" => &compared_ids, "value" => &compared_values).expect("frame comparado");
+    let (_current_directory, current_path) =
+        persist_comparison_snapshot(&current).expect("snapshot activo");
+    let (_compared_directory, compared_path) =
+        persist_comparison_snapshot(&compared).expect("snapshot comparado");
+    let key = ["id".to_owned()];
+    let shared = ["id".to_owned(), "value".to_owned()];
+    let page = |offset, limit| {
+        collect_key_conflicts_page_between_parquet_with_cancel(
+            ParquetComparisonSource {
+                path: &current_path,
+                row_count: current.height(),
+            },
+            ParquetComparisonSource {
+                path: &compared_path,
+                row_count: compared.height(),
+            },
+            &key,
+            &shared,
+            offset,
+            limit,
+            &|| false,
+        )
+        .expect("página de conflictos")
+    };
+    let (all, all_has_next) = page(0, 10_000);
+    let expected = ids.iter().filter(|id| *id % 7 == 0).count();
+    assert_eq!((all.len(), all_has_next), (expected, false));
+    let mut chained = Vec::new();
+    let mut offset = 0;
+    loop {
+        let (rows, has_next) = page(offset, 100);
+        offset += rows.len();
+        chained.extend(rows);
+        if !has_next {
+            break;
+        }
+    }
+    let indexes = |rows: &[KeyConflictRows]| {
+        rows.iter()
+            .map(|row| (row.current_row_index, row.compared_row_index))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(indexes(&chained), indexes(&all));
+    let (last, last_has_next) = page(expected - 1, 1);
+    assert_eq!((last.len(), last_has_next), (1, false));
+}
+
+#[test]
+fn disk_backed_conflict_pages_from_the_index_match_the_full_walk() {
+    // REN-08: the first page builds the conflict index and the next ones read
+    // it; chained small pages give the same conflicts as one large page.
+    let mut csv = String::from("id,city\n");
+    let mut compared_ids = Vec::new();
+    let mut compared_cities = Vec::new();
+    for id in 0..600 {
+        csv.push_str(&format!("{id},Ciudad {id}\n"));
+    }
+    for id in (0..600).rev() {
+        compared_ids.push(id.to_string());
+        compared_cities.push(if id % 5 == 0 {
+            format!("Otra {id}")
+        } else {
+            format!("Ciudad {id}")
+        });
+    }
+    let current_path = temporary_csv(&csv);
+    let compared = df!["id" => &compared_ids, "city" => &compared_cities].expect("comparado");
+    let (_compared_directory, compared_path) =
+        persist_comparison_snapshot(&compared).expect("snapshot comparado");
+    let (current_frame, _, current_row_count) =
+        source_backed_load(&current_path, "csv", || false).expect("fuente source-backed");
+    let state = DatasetState::default();
+    *state.current.lock().expect("estado activo") = Some(LoadedDataset {
+        source_path: Some(current_path.path_buf()),
+        file_name: "current.csv".to_owned(),
+        file_size_bytes: fs::metadata(&current_path).expect("metadatos").len(),
+        row_count: current_row_count,
+        frame: current_frame,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("historial diferido"),
+    });
+    let page = |offset, limit| {
+        disk_backed_conflict_page(
+            &state,
+            &compared_path,
+            compared.height(),
+            &["id".to_owned()],
+            offset,
+            limit,
+        )
+        .expect("página")
+        .expect("ruta diferida")
+    };
+    let keys = |page: &DatasetConflictPage| {
+        page.conflicts
+            .iter()
+            .map(|conflict| (conflict.key.clone(), conflict.cells[0].compared.clone()))
+            .collect::<Vec<_>>()
+    };
+    let chain = |limit| {
+        let mut all = Vec::new();
+        let mut offset = 0;
+        loop {
+            let next = page(offset, limit);
+            offset += next.conflicts.len();
+            all.extend(keys(&next));
+            if !next.has_next {
+                break all;
+            }
+        }
+    };
+    let by_fifty = chain(MAX_CONFLICT_PREVIEW);
+    assert_eq!(by_fifty.len(), 120);
+    assert_eq!(chain(7), by_fifty);
+    assert_eq!(
+        by_fifty[0],
+        (vec![Some("0".to_owned())], Some("Otra 0".to_owned()))
+    );
+    assert!(page(500, 10).conflicts.is_empty());
 }

@@ -398,3 +398,126 @@ fn perf_probe_profile() {
     );
     println!("probe   mayor silencio entre etiquetas {longest_silence:>7.2} s");
 }
+
+/// REN-08: times a keyed comparison between two generated Parquet files of
+/// `COLUMNIA_PROBE_COMPARE_ROWS` rows (default 2 000 000) where one row in ten
+/// changes its amount: the summary, the first conflict page and a page in the
+/// middle. `COLUMNIA_PROBE_COMPARE_SHUFFLED` stores the compared rows in
+/// another order, as a file exported by a different system would.
+#[test]
+#[ignore = "sonda opt-in de comparación por clave con millones de filas"]
+fn perf_probe_keyed_comparison() {
+    let rows = std::env::var("COLUMNIA_PROBE_COMPARE_ROWS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(2_000_000);
+    let order = if std::env::var_os("COLUMNIA_PROBE_COMPARE_SHUFFLED").is_some() {
+        "ORDER BY hash(i)"
+    } else {
+        ""
+    };
+    let directory = tempfile::tempdir().expect("directorio temporal");
+    let current = directory.path().join("current.parquet");
+    let compared = directory.path().join("compared.parquet");
+    let sql_path = |path: &Path| path.to_string_lossy().replace('\\', "/");
+    let started = Instant::now();
+    let connection = duckdb::Connection::open_in_memory().expect("DuckDB");
+    let select = |amount: &str, order: &str| {
+        format!(
+            "SELECT i AS id, 'cliente ' || (i % 50000) AS cliente, CAST({amount} AS DOUBLE) AS importe, \
+             DATE '2024-01-01' + CAST(i % 365 AS INTEGER) AS fecha, \
+             CASE i % 3 WHEN 0 THEN 'pagado' WHEN 1 THEN 'enviado' ELSE 'devuelto' END AS estado \
+             FROM range({rows}) t(i) {order}"
+        )
+    };
+    connection
+        .execute_batch(&format!(
+            "COPY ({}) TO '{}' (FORMAT PARQUET); COPY ({}) TO '{}' (FORMAT PARQUET);",
+            select("(i % 997) * 1.5", ""),
+            sql_path(&current),
+            select(
+                "CASE WHEN i % 10 = 0 THEN (i % 997) * 1.5 + 1 ELSE (i % 997) * 1.5 END",
+                order
+            ),
+            sql_path(&compared),
+        ))
+        .expect("archivos de la sonda");
+    println!(
+        "probe   archivos ({rows} filas)          {:>7.2} s",
+        started.elapsed().as_secs_f64()
+    );
+    let current_schema = read_parquet_schema_frame(&current).expect("esquema");
+    let compared_schema = read_parquet_schema_frame(&compared).expect("esquema");
+    let key = vec!["id".to_owned()];
+    let shared = ["id", "cliente", "importe", "fecha", "estado"].map(str::to_owned);
+    let source = |path| ParquetComparisonSource {
+        path,
+        row_count: rows,
+    };
+    let part = Instant::now();
+    let summary = compare_keyed_parquet_sources_with_cancel(
+        source(&current),
+        source(&compared),
+        &current_schema,
+        &compared_schema,
+        &key,
+        &shared,
+        &|| false,
+    )
+    .expect("resumen");
+    println!(
+        "probe   resumen ({} conflictos)        {:>7.2} s",
+        summary.conflicting_key_count,
+        part.elapsed().as_secs_f64()
+    );
+    for offset in [0, summary.conflicting_key_count / 2] {
+        let part = Instant::now();
+        let (page, _) = collect_key_conflicts_page_between_parquet_with_cancel(
+            source(&current),
+            source(&compared),
+            &key,
+            &shared,
+            offset,
+            50,
+            &|| false,
+        )
+        .expect("página");
+        println!(
+            "probe   página en {offset:>9} ({} filas)   {:>7.2} s",
+            page.len(),
+            part.elapsed().as_secs_f64()
+        );
+    }
+
+    // In the app the active file pages through the conflict index: the first
+    // page builds it, the next ones only read their rows.
+    let (frame, _, row_count) =
+        source_backed_load(&current, "parquet", || false).expect("fuente source-backed");
+    let state = DatasetState::default();
+    *state.current.lock().expect("estado activo") = Some(LoadedDataset {
+        source_path: Some(current.clone()),
+        file_name: "current.parquet".to_owned(),
+        file_size_bytes: fs::metadata(&current).expect("metadatos").len(),
+        row_count,
+        frame,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("historial diferido"),
+    });
+    for (label, offset) in [
+        ("índice + primera", 0),
+        ("siguiente", 50),
+        ("a mitad", summary.conflicting_key_count / 2),
+    ] {
+        let part = Instant::now();
+        let page = disk_backed_conflict_page(&state, &compared, rows, &key, offset, 50)
+            .expect("página")
+            .expect("ruta en disco");
+        println!(
+            "probe   app: {label:<17} ({} filas) {:>7.2} s",
+            page.conflicts.len(),
+            part.elapsed().as_secs_f64()
+        );
+    }
+}

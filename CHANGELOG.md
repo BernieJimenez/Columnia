@@ -1056,6 +1056,14 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Comparar por clave archivos de millones de filas es mucho más rápido. Con
+  2 millones de filas y 200.000 conflictos, el resumen pasa de 42,6 s a 6,3 s
+  y la primera página de conflictos de 47,7 s a 8,4 s (si el otro archivo
+  guarda las filas en otro orden, de más de 20 minutos a 8,8 s). Esa primera
+  página guarda un índice de los conflictos, y cada página siguiente tarda
+  0,5 s en lugar de repetir todo el cruce. Los archivos temporales de la
+  comparación ya no se abren de nuevo en cada bloque y las firmas de las filas
+  se calculan en paralelo. Sonda `perf_probe_keyed_comparison` (REN-08).
 - El análisis de calidad de archivos grandes revisa cada columna de texto en
   partes a la vez; el recuento de categorías y los números siguen en el orden
   de las filas, así que el resultado no cambia. Con 2019-Oct (5,6 GB, 42

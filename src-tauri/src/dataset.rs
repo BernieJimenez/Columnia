@@ -3158,6 +3158,7 @@ fn publish_review_source_backed_result_output(
         dataset.history.source_snapshot_path = None;
         dataset.profile = None;
         *comparison = None;
+        clear_conflict_index();
         Ok(history_commit)
     })?;
 
@@ -3251,6 +3252,7 @@ fn publish_review_eager_candidate(
         dataset.source_backed = false;
         dataset.profile = None;
         *comparison = None;
+        clear_conflict_index();
         Ok(())
     })?;
 
@@ -8415,6 +8417,7 @@ fn validate_source_backed_conflict_decisions(
         key_columns,
         shared_columns,
         Some(SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS),
+        0,
         is_cancelled,
         |conflict_index,
          _current_block,
@@ -8917,6 +8920,7 @@ pub async fn resolve_dataset_conflicts(
 pub async fn clear_dataset_comparison(app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         *app.state::<DatasetState>().comparison.lock_recovering() = None;
+        clear_conflict_index();
     })
     .await
     .map_err(|error| {
