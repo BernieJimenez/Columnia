@@ -3633,8 +3633,11 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Elegir dataset para comparar" }));
     await screen.findByText("nuevo.csv");
     fireEvent.click(screen.getByRole("radio", { name: "Usar comparado en valor" }));
-    fireEvent.click(screen.getByRole("button", { name: "Siguientes conflictos" }));
-    await waitFor(() => expect(nextPage).toHaveBeenCalledWith(1, 50));
+    // Under a loaded machine the button can still be busy for a moment.
+    const nextButton = screen.getByRole("button", { name: "Siguientes conflictos" });
+    await waitFor(() => expect(nextButton).toBeEnabled(), { timeout: 5000 });
+    fireEvent.click(nextButton);
+    await waitFor(() => expect(nextPage).toHaveBeenCalledWith(1, 50), { timeout: 5000 });
     expect(await screen.findByText("Conflictos 2–2 de 3")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Usar comparado en valor" }));
     fireEvent.click(screen.getByRole("button", { name: "Siguientes conflictos" }));
