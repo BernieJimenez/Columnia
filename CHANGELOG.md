@@ -1056,6 +1056,19 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Acabado visual del flujo:
+  - el estado de cada paso de la barra lateral es una pastilla y «Revisar de
+    nuevo» va contorneado;
+  - la superficie de trabajo se eleva un poco en los temas claros;
+  - el archivo activo lleva un icono de documento;
+  - solo la pestaña activa se subraya, con el color de acento;
+  - las celdas sin valor dicen «vacío» y los números de la vista previa se
+    alinean a la derecha;
+  - un gráfico de categorías suelto ocupa la fila entera en Explorar;
+  - «Continuar» atenuado en Preparar ya no parece deshabilitado y un botón
+    secundario deshabilitado sí lo parece.
+
+  La galería de `docs/images/gallery/` se rehízo con la interfaz actual.
 - Al final del análisis de calidad de un archivo grande, la tendencia temporal
   y las correlaciones se calculan a la vez, las fechas de cada bloque se leen
   en paralelo y la barra avanza con las filas leídas; el conteo de valores
