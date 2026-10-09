@@ -965,6 +965,9 @@ fn non_finite_count(column: &Column) -> Result<Option<usize>, String> {
     Ok((count > 0).then_some(count))
 }
 
+/// REN-01: rows per part when a source text column is checked in parts.
+const SOURCE_TEXT_PART_ROWS: usize = 8 * 1024;
+
 pub(super) struct SourceTextAccumulator {
     empty_count: usize,
     sentinel_count: usize,
@@ -1022,78 +1025,150 @@ impl SourceTextAccumulator {
         let values = column
             .str()
             .map_err(|error| format!("No se pudo analizar la columna source-backed: {error}"))?;
-        for value in values.iter() {
-            let Some(value) = value else {
-                self.categorical_candidates.observe(None);
-                continue;
-            };
-            let length = text_length(value);
-            let trimmed = value.trim();
-            let short = trimmed.len() <= SHORT_VALUE_BYTES;
-            let normalized = if short {
-                normalize_text_value(trimmed, true)
-            } else {
-                String::new()
-            };
-            self.empty_count = self
-                .empty_count
-                .saturating_add(usize::from(trimmed.is_empty()));
-            let is_sentinel = short && SENTINEL_VALUES.contains(&normalized.as_str());
-            if is_sentinel && is_word_sentinel(&normalized) {
-                *self.word_markers.entry(normalized.clone()).or_insert(0) += 1;
-            }
-            self.sentinel_count = self.sentinel_count.saturating_add(usize::from(is_sentinel));
-            self.marker_count = self
-                .marker_count
-                .saturating_add(usize::from(is_sentinel && !trimmed.is_empty()));
-            self.encoding_issue_count = self
-                .encoding_issue_count
-                .saturating_add(usize::from(repair_mojibake(value).is_some()));
-            self.untrimmed_count = self
-                .untrimmed_count
-                .saturating_add(usize::from(trimmed.len() != value.len()));
-            self.comma_decimal_count = self
-                .comma_decimal_count
-                .saturating_add(usize::from(short && is_comma_decimal_number(trimmed)));
-            self.value_count = self.value_count.saturating_add(1);
-            self.total_length = self.total_length.saturating_add(length);
-            self.minimum_length = Some(
-                self.minimum_length
-                    .map_or(length, |current| current.min(length)),
-            );
-            self.maximum_length = Some(
-                self.maximum_length
-                    .map_or(length, |current| current.max(length)),
-            );
-            self.categorical_candidates.observe(Some(value));
-            if trimmed.is_empty() {
-                continue;
-            }
-            if !is_sentinel {
-                self.date_tally.observe(trimmed);
-            }
-            self.boolean_count = self.boolean_count.saturating_add(usize::from(matches!(
-                normalized.as_str(),
-                "true" | "yes" | "si" | "false" | "no"
-            )));
-            let parsed_numeric = short.then(|| semantic_numeric_value(trimmed)).flatten();
-            self.integer_count = self.integer_count.saturating_add(usize::from(
-                parsed_numeric.and_then(exact_integer).is_some(),
-            ));
-            self.decimal_count = self
-                .decimal_count
-                .saturating_add(usize::from(parsed_numeric.is_some()));
-            if short && is_supported_date_candidate(trimmed) {
-                if let Some(datetime) = quality_datetime_value(AnyValue::String(trimmed)) {
-                    self.date_count = self.date_count.saturating_add(1);
-                    self.temporal_bounds.observe_str(datetime, trimmed);
-                    self.month_first_bounds
-                        .observe_str(month_first_datetime(trimmed).unwrap_or(datetime), trimmed);
+        // REN-01: a long text column, such as a timestamp read as text, is
+        // checked in consecutive parts at the same time and merged in order.
+        // Group counts stay in one ordered pass beside them, because the first
+        // `MAX_GROUP_CANDIDATES` distinct values decide which ones are kept,
+        // and the numbers reach the numeric accumulator in row order.
+        let length = values.len();
+        let parts = (length / SOURCE_TEXT_PART_ROWS).clamp(1, 8);
+        let part_length = length.div_ceil(parts);
+        let candidates = &mut self.categorical_candidates;
+        let ((), partials) = rayon::join(
+            || {
+                for value in values.iter() {
+                    candidates.observe(value);
                 }
+            },
+            || {
+                (0..parts)
+                    .into_par_iter()
+                    .map(|part| {
+                        let offset = part * part_length;
+                        let slice = values.slice(
+                            offset as i64,
+                            part_length.min(length.saturating_sub(offset)),
+                        );
+                        let mut partial = SourceTextAccumulator::new();
+                        let mut numbers = Vec::with_capacity(slice.len());
+                        for value in slice.iter() {
+                            partial.observe(value, &mut numbers);
+                        }
+                        (partial, numbers)
+                    })
+                    .collect::<Vec<_>>()
+            },
+        );
+        for (partial, numbers) in partials {
+            self.merge(partial);
+            for number in numbers {
+                numeric.push(number)?;
             }
-            numeric.push(parsed_numeric)?;
         }
         Ok(())
+    }
+
+    /// REN-01: adds the counts of the next part of the column; group counts
+    /// are kept apart, in their own ordered pass.
+    fn merge(&mut self, later: SourceTextAccumulator) {
+        self.empty_count += later.empty_count;
+        self.sentinel_count += later.sentinel_count;
+        self.marker_count += later.marker_count;
+        self.encoding_issue_count += later.encoding_issue_count;
+        self.value_count += later.value_count;
+        self.boolean_count += later.boolean_count;
+        self.integer_count += later.integer_count;
+        self.decimal_count += later.decimal_count;
+        self.date_count += later.date_count;
+        self.temporal_bounds.merge(later.temporal_bounds);
+        self.month_first_bounds.merge(later.month_first_bounds);
+        self.total_length += later.total_length;
+        self.minimum_length = match (self.minimum_length, later.minimum_length) {
+            (Some(left), Some(right)) => Some(left.min(right)),
+            (left, right) => left.or(right),
+        };
+        self.maximum_length = match (self.maximum_length, later.maximum_length) {
+            (Some(left), Some(right)) => Some(left.max(right)),
+            (left, right) => left.or(right),
+        };
+        self.date_tally.merge(&later.date_tally);
+        self.untrimmed_count += later.untrimmed_count;
+        self.comma_decimal_count += later.comma_decimal_count;
+        for (marker, count) in later.word_markers {
+            *self.word_markers.entry(marker).or_insert(0) += count;
+        }
+    }
+
+    /// Everything but the group counts for one cell; a number read from it,
+    /// if any, is left in `numbers` in row order.
+    fn observe(&mut self, value: Option<&str>, numbers: &mut Vec<Option<f64>>) {
+        let Some(value) = value else {
+            return;
+        };
+        let length = text_length(value);
+        let trimmed = value.trim();
+        let short = trimmed.len() <= SHORT_VALUE_BYTES;
+        let normalized = if short {
+            normalize_text_value(trimmed, true)
+        } else {
+            String::new()
+        };
+        self.empty_count = self
+            .empty_count
+            .saturating_add(usize::from(trimmed.is_empty()));
+        let is_sentinel = short && SENTINEL_VALUES.contains(&normalized.as_str());
+        if is_sentinel && is_word_sentinel(&normalized) {
+            *self.word_markers.entry(normalized.clone()).or_insert(0) += 1;
+        }
+        self.sentinel_count = self.sentinel_count.saturating_add(usize::from(is_sentinel));
+        self.marker_count = self
+            .marker_count
+            .saturating_add(usize::from(is_sentinel && !trimmed.is_empty()));
+        self.encoding_issue_count = self
+            .encoding_issue_count
+            .saturating_add(usize::from(repair_mojibake(value).is_some()));
+        self.untrimmed_count = self
+            .untrimmed_count
+            .saturating_add(usize::from(trimmed.len() != value.len()));
+        self.comma_decimal_count = self
+            .comma_decimal_count
+            .saturating_add(usize::from(short && is_comma_decimal_number(trimmed)));
+        self.value_count = self.value_count.saturating_add(1);
+        self.total_length = self.total_length.saturating_add(length);
+        self.minimum_length = Some(
+            self.minimum_length
+                .map_or(length, |current| current.min(length)),
+        );
+        self.maximum_length = Some(
+            self.maximum_length
+                .map_or(length, |current| current.max(length)),
+        );
+        if trimmed.is_empty() {
+            return;
+        }
+        if !is_sentinel {
+            self.date_tally.observe(trimmed);
+        }
+        self.boolean_count = self.boolean_count.saturating_add(usize::from(matches!(
+            normalized.as_str(),
+            "true" | "yes" | "si" | "false" | "no"
+        )));
+        let parsed_numeric = short.then(|| semantic_numeric_value(trimmed)).flatten();
+        self.integer_count = self.integer_count.saturating_add(usize::from(
+            parsed_numeric.and_then(exact_integer).is_some(),
+        ));
+        self.decimal_count = self
+            .decimal_count
+            .saturating_add(usize::from(parsed_numeric.is_some()));
+        if short && is_supported_date_candidate(trimmed) {
+            if let Some(datetime) = quality_datetime_value(AnyValue::String(trimmed)) {
+                self.date_count = self.date_count.saturating_add(1);
+                self.temporal_bounds.observe_str(datetime, trimmed);
+                self.month_first_bounds
+                    .observe_str(month_first_datetime(trimmed).unwrap_or(datetime), trimmed);
+            }
+        }
+        numbers.push(parsed_numeric);
     }
 
     fn finish(mut self) -> (TextStatistics, HashMap<GroupKey, usize>) {
@@ -2486,5 +2561,46 @@ mod parallel_text_tally_tests {
         }
         assert_eq!(summary(&parallel), summary(&one_pass.finish()));
         assert_eq!(parallel.suggested_type, Some("date"));
+    }
+
+    #[test]
+    fn a_source_text_block_checked_in_parts_matches_small_blocks() {
+        // REN-01: one long block split in parts gives the same statistics,
+        // group counts and numbers as short blocks read one part each.
+        let values = (0..60_000_u32)
+            .map(|row| match row % 40 {
+                0 => None,
+                1 => Some(String::new()),
+                2 => Some("N/A".to_owned()),
+                3 => Some(format!(" {},5 ", row % 97)),
+                4 => Some(format!("{}", row % 1_000)),
+                5 => Some(format!("grupo {}", row % 7)),
+                _ => Some(format!(
+                    "2019-{:02}-{:02} {:02}:{:02}:00 UTC",
+                    row % 12 + 1,
+                    row % 28 + 1,
+                    row % 24,
+                    row % 60
+                )),
+            })
+            .collect::<Vec<_>>();
+        let column = Column::new("momento".into(), values);
+        let mut whole = SourceTextAccumulator::new();
+        let mut whole_numeric = SourceNumericAccumulator::new();
+        whole.update(&column, &mut whole_numeric).expect("bloque");
+        let mut blocks = SourceTextAccumulator::new();
+        let mut blocks_numeric = SourceNumericAccumulator::new();
+        for offset in (0..column.len()).step_by(4_096) {
+            blocks
+                .update(&column.slice(offset as i64, 4_096), &mut blocks_numeric)
+                .expect("bloque corto");
+        }
+        let (whole_text, whole_groups) = whole.finish();
+        let (blocks_text, blocks_groups) = blocks.finish();
+        assert_eq!(summary(&whole_text), summary(&blocks_text));
+        assert_eq!(whole_groups, blocks_groups);
+        assert_eq!(whole_numeric.value_count, blocks_numeric.value_count);
+        assert_eq!(whole_numeric.mean, blocks_numeric.mean);
+        assert_eq!(whole_numeric.m2, blocks_numeric.m2);
     }
 }

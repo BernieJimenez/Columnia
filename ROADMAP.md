@@ -42,9 +42,14 @@ controlador que este equipo no tiene. Ninguno bloquea el uso diario.
   - Hecho: vmCloud (338 MB) se perfila en 2,6–2,7 s (criterio ≤ 3 s): texto de
     valores distintos en paralelo y categorías, tendencia y correlaciones a la
     vez. Sonda `perf_probe_profile`.
-  - Falta: 2019-Oct (5,6 GB) tarda 223 s (criterio ≤ 60 s) y pasa hasta 67 s
-    sin cambiar la etiqueta (criterio ≤ 10 s); reutilizar el perfil tras cada
-    cambio en lugar de recalcularlo.
+  - Hecho: en archivos grandes cada columna de texto se revisa en partes a la
+    vez. 2019-Oct (5,6 GB): lectura de filas de 115 s a 56 s y perfil de 223 s
+    a 167 s.
+  - Falta: bajar 2019-Oct a ≤ 60 s y que la etiqueta cambie al menos cada
+    10 s. Quedan dos pasos sin progreso: la copia de trabajo en Parquet (27 s)
+    y el conteo de filas y valores distintos en DuckDB (70 s), que podría
+    solaparse con la lectura de filas. Reutilizar el perfil tras cada cambio en
+    lugar de recalcularlo.
 - [ ] **REN-08** — Coste de la comparación por clave con millones de filas
   (RV50).
   - Falta: medirlo en la app con archivos de millones de filas y guardar el

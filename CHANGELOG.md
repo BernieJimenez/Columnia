@@ -1056,6 +1056,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- El análisis de calidad de archivos grandes revisa cada columna de texto en
+  partes a la vez; el recuento de categorías y los números siguen en el orden
+  de las filas, así que el resultado no cambia. Con 2019-Oct (5,6 GB, 42
+  millones de filas) la lectura de filas y columnas pasa de 115 s a 56 s y el
+  perfil completo de 223 s a 167 s (REN-01, en curso).
 - El análisis de calidad de Revisar es más rápido en archivos medianos: una
   columna de valores distintos (fechas con hora, por ejemplo) se analiza en
   partes a la vez, y categorías, tendencia y correlaciones se calculan en
