@@ -807,8 +807,9 @@ td {
 /* In Prepare, keep the stage action primary while an enabled local action exists. */
 :root .workspace--prepare:has(.prepare-proposal__primary:is(:not(:disabled), [data-waiting])) .flow-footer__next-action:not(:disabled),
 :root .workspace--prepare:has(.transform-recipe__footer > button[aria-label="Aplicar receta"]:not(:disabled)) .flow-footer__next-action:not(:disabled) {
-  border: 1px solid var(--border-subtle);
-  background: var(--surface-subtle);
+  /* Looks like a secondary action, not like a disabled one (2026-10-09). */
+  border: 1px solid var(--control-border);
+  background: transparent;
   color: var(--text-primary);
 }
 :root .workspace--prepare:has(.prepare-proposal__primary:is(:not(:disabled), [data-waiting])) .flow-footer__next-action:hover:not(:disabled),
@@ -1497,3 +1498,27 @@ button:active:not(:disabled) { transform: translateY(1px); }
 
 /* Numbers line up by their digits in the data preview. */
 .table-region :is(th, td).cell--number { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Only the active tab is underlined, in the accent colour. `:root:root`
+   outranks the theme rule that gives every workspace button a control border. */
+:root:root .workspace .stage-tabs button {
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+}
+:root:root .workspace .stage-tabs button:hover:not(:disabled):not(.stage-tab--active) {
+  border-bottom-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+:root:root .workspace .stage-tabs .stage-tab--active { border-bottom-color: var(--accent); color: var(--accent); }
+@media (forced-colors: active) {
+  :root:root .workspace .stage-tabs .stage-tab--active { border-bottom-color: Highlight; }
+}
+
+/* A disabled secondary action looks disabled, like a disabled primary one. */
+:root:root .workspace .secondary-action:disabled {
+  border-color: var(--border-subtle);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
