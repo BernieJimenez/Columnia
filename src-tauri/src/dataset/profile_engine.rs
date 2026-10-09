@@ -1925,6 +1925,9 @@ where
         .map(|column| column.name().to_string())
         .collect::<Vec<_>>();
 
+    // REN-01: DuckDB counts distinct rows and values while the row pass runs,
+    // instead of reading the whole file again after it.
+    let mut distinct_count = BackgroundDistinctCount::start(path, &column_names);
     report("Analizando filas y columnas", 10);
     for_each_parquet_block_with_size(
         path,
@@ -1985,17 +1988,11 @@ where
     }
     // REN-01: the steps after the row pass say what they do, so the label
     // does not stay on «Analizando filas y columnas» for minutes.
-    report("Contando filas y valores distintos", 90);
-    let (distinct_row_count, distinct_counts) =
-        crate::duckdb_query::count_file_distinct_rows_and_non_null_columns(
-            path,
-            crate::duckdb_query::DuckDbFileFormat::Parquet,
-            &column_names,
-            || false,
-        )?;
     report("Comparando filas parecidas", 90);
     let normalized_duplicate_row_count =
         count_normalized_duplicate_fingerprints(&normalized_bucket_paths, is_cancelled)?;
+    report("Contando filas y valores distintos", 90);
+    let (distinct_row_count, distinct_counts) = distinct_count.finish()?;
     let exact_duplicate_row_count = row_count.saturating_sub(distinct_row_count);
     let near_duplicate_row_count =
         normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count);
@@ -2018,6 +2015,56 @@ where
         columns,
         categorical_candidates,
     ))
+}
+
+/// Distinct rows and the distinct values of each column.
+type DistinctCounts = (usize, Vec<usize>);
+
+/// REN-01: the DuckDB count of distinct rows and values of a source profile,
+/// run on its own thread beside the row pass. If the profile stops early, the
+/// count is interrupted and waited for, so the snapshot is no longer read when
+/// its temporary folder is removed.
+struct BackgroundDistinctCount {
+    stop: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<Result<DistinctCounts, String>>>,
+}
+
+impl BackgroundDistinctCount {
+    fn start(path: &Path, column_names: &[String]) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let path = path.to_owned();
+        let column_names = column_names.to_vec();
+        let thread_stop = Arc::clone(&stop);
+        let handle = std::thread::spawn(move || {
+            crate::duckdb_query::count_file_distinct_rows_and_non_null_columns(
+                &path,
+                crate::duckdb_query::DuckDbFileFormat::Parquet,
+                &column_names,
+                move || thread_stop.load(Ordering::Acquire),
+            )
+        });
+        Self {
+            stop,
+            handle: Some(handle),
+        }
+    }
+
+    fn finish(&mut self) -> Result<DistinctCounts, String> {
+        self.handle
+            .take()
+            .ok_or_else(|| "El conteo de valores distintos ya terminó.".to_owned())?
+            .join()
+            .map_err(|_| "El conteo de valores distintos se interrumpió.".to_owned())?
+    }
+}
+
+impl Drop for BackgroundDistinctCount {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            self.stop.store(true, Ordering::Release);
+            let _ = handle.join();
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]

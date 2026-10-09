@@ -1061,6 +1061,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   de las filas, así que el resultado no cambia. Con 2019-Oct (5,6 GB, 42
   millones de filas) la lectura de filas y columnas pasa de 115 s a 56 s y el
   perfil completo de 223 s a 167 s (REN-01, en curso).
+- El conteo de filas y valores distintos de archivos grandes se hace a la vez
+  que la lectura de filas, no después: 2019-Oct pasa de 167 s a 139 s y la
+  espera más larga sin cambiar la etiqueta, de 70 s a 44 s (REN-01, en curso).
 - El análisis de calidad de Revisar es más rápido en archivos medianos: una
   columna de valores distintos (fechas con hora, por ejemplo) se analiza en
   partes a la vez, y categorías, tendencia y correlaciones se calculan en
