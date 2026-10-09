@@ -1208,6 +1208,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- El roadmap solo lista lo pendiente: la revisión del 2026-10-01, aplicada, se
+  archiva con sus casillas en docs/archive/2026-10/ y quedan seis hallazgos de
+  rendimiento y de MySQL con lo hecho y lo que falta.
 - Primera prueba de mutación (cargo mutants) sobre csv_formula_safety,
   date_inference, dataset_fingerprints y file_validation: 107 de 121 mutantes
   detectados; tres tests nuevos matan seis de los nueve supervivientes y el

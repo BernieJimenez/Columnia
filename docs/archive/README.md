@@ -4,6 +4,15 @@ Documentos de trabajo que ya no se mantienen, conservados sin cambios para
 consultar decisiones pasadas. Sus enlaces relativos apuntan a la estructura del
 repositorio de su fecha y pueden no resolverse.
 
+## 2026-10 — revisión del 2026-10-01
+
+Archivado el 2026-10-08, al quedar aplicada la revisión: 92 de sus 97 objetivos
+cerrados; los abiertos siguen en el roadmap vigente.
+
+| Documento | Qué contiene |
+| --- | --- |
+| [`ROADMAP.md`](2026-10/ROADMAP.md) | Pendientes de la revisión por Tier (RV23–RV119), con la casilla, la fecha y la decisión de cada hallazgo |
+
 ## 2026-09 — hasta el cierre del Tier 10
 
 Archivado el 2026-09-26 para empezar una revisión nueva desde el código.
