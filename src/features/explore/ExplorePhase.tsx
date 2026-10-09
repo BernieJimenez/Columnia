@@ -274,11 +274,13 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
           </dl>
 
           <div className="explore__grid">
-            {panel.categories.map((chart) => {
+            {panel.categories.map((chart, index) => {
               const max = Math.max(1, ...chart.bars.map((bar) => bar.count));
               const active = filters.some((filter) => filter.column === chart.column);
+              // An odd chart out takes the whole row instead of leaving half of it empty.
+              const alone = index === panel.categories.length - 1 && panel.categories.length % 2 === 1;
               return (
-                <section key={chart.column} className="explore__panel" aria-label={`Filas por ${chart.column}`}>
+                <section key={chart.column} className={`explore__panel${alone ? " explore__panel--wide" : ""}`} aria-label={`Filas por ${chart.column}`}>
                   <h4>{chart.column}</h4>
                   <div className={`explore__bars${active ? " explore__bars--dim" : ""}`}>
                     {chart.bars.map((bar) => {

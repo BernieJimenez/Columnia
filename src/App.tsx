@@ -1265,7 +1265,7 @@ export function App() {
                 <span className="side-nav__copy">
                   <span className="side-nav__label-row">
                     <strong>{phase.label}</strong>
-                    <small className="side-nav__state" aria-hidden="true">
+                    <small className={`side-nav__state${reviewAgain ? " side-nav__state--again" : ""}`} aria-hidden="true">
                       {phaseComplete ? "Hecho" : phaseState === "current" ? "Ahora" : reviewAgain ? "Revisar de nuevo" : "Después"}
                     </small>
                   </span>
