@@ -6,6 +6,9 @@ use columnia_lib::{
 };
 
 fn main() -> ExitCode {
+    // REN-02: the same allocator setting as the desktop app; without it a
+    // project save peaked at 730 MB instead of 460 MB.
+    columnia_lib::configure_allocator();
     match run() {
         Ok(exit_code) => exit_code,
         Err(error) => {

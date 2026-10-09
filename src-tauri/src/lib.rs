@@ -15,7 +15,7 @@ const MI_OPTION_PURGE_DELAY: libmimalloc_sys::mi_option_t = 15;
 /// REN-02: mimalloc returns freed memory to Windows after 10 ms by default, so
 /// right after a reload it still held up to 1.3 GB. Purging at once kept 20
 /// reloads between 455 MB and 530 MB at the same speed.
-pub(crate) fn configure_allocator() {
+pub fn configure_allocator() {
     // SAFETY: setting a mimalloc option is thread-safe and takes effect on
     // the next purge.
     unsafe { libmimalloc_sys::mi_option_set(MI_OPTION_PURGE_DELAY, 0) };
