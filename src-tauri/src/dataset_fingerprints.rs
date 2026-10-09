@@ -354,4 +354,20 @@ mod tests {
             expected[1..4]
         );
     }
+
+    #[test]
+    fn cancellation_is_polled_once_every_4096_rows() {
+        // QA-57: a mutant that polled on every row, or never, survived.
+        let frame = df!("numero" => (0..8_193_i64).collect::<Vec<_>>()).unwrap();
+        let polls = std::cell::Cell::new(0_usize);
+        normalized_row_fingerprints_range(frame.columns(), 0, 8_193, &|| {
+            polls.set(polls.get() + 1);
+            false
+        })
+        .unwrap();
+        assert_eq!(polls.get(), 3, "filas 0, 4096 y 8192");
+        let error =
+            normalized_row_fingerprints_range(frame.columns(), 0, 10, &|| true).unwrap_err();
+        assert_eq!(error, crate::dataset::OPERATION_CANCELLED_MESSAGE);
+    }
 }

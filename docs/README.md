@@ -42,6 +42,8 @@ agregada y sanitizada que se versiona al cerrar los gates.
 
 ### Referencia
 
+- [Pruebas de mutación](reference/mutation-testing.md): cómo ejecutar `cargo mutants`
+  y qué quedó del último informe.
 - [Glosario](reference/glosario.md): términos internos (gate, tier,
   source-backed, RVnn, T10-xx…).
 - [Alcance de Columnia V1](reference/v1-scope.md): modelo local sin cuentas,

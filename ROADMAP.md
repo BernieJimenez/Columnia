@@ -604,10 +604,10 @@ medio = 1 día; agregado por suma.
 - [x] **RV115** — **Refactorización y limpieza** — `SnapshotComparisonResult` anunciada como «solo agregados» pero el listado por columna muestra nombres de columna sin c… · *Esfuerzo: 2 h* — hecho el 2026-10-08
   - Criterio de cierre: Hecho lo que proponen LIM-16.
   - [x] `LIM-16` (Propuesta) `SnapshotComparisonResult` anunciada como «solo agregados» pero el listado por columna muestra nombres de columna sin comprobar privacidad — hecho el 2026-10-08
-- [ ] **RV116** — **QA y testing** — axe-core en los E2E (y 5 problemas más) · *Esfuerzo: 2,2 días*
+- [x] **RV116** — **QA y testing** — axe-core en los E2E (y 5 problemas más) · *Esfuerzo: 2,2 días* — hecho el 2026-10-08
   - Criterio de cierre: Hecho lo que proponen QA-56, QA-57, QA-58, QA-59, QA-60, QA-61.
   - [x] `QA-56` (Propuesta) axe-core en los E2E — hecho el 2026-10-08
-  - [ ] `QA-57` (Propuesta) Pruebas de mutación en los módulos críticos
+  - [x] `QA-57` (Propuesta) Pruebas de mutación en los módulos críticos — hecho el 2026-10-08
   - [x] `QA-58` (Propuesta) Probar claves de JOIN con nulos, ceros a la izquierda y espacios también en la ruta DuckDB — hecho el 2026-10-08
   - [x] `QA-59` (Propuesta) Casos de borde de los límites numéricos en la ruta source-backed (coma decimal, día/mes ambiguo) — hecho el 2026-10-08
   - [x] `QA-60` (Propuesta) Puerta de cobertura para Rust — hecho el 2026-10-08

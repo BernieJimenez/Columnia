@@ -5396,6 +5396,51 @@ fn rejects_symbolic_links_for_reads_and_existing_destinations() {
 
 #[cfg(windows)]
 #[test]
+fn a_directory_junction_is_refused_as_a_reparse_point_without_privileges() {
+    // QA-57: the symlink test above returns early when Windows refuses the
+    // privilege, so the reparse-point check was never exercised. A junction
+    // needs no privilege.
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    let target = directory.path().join("real");
+    let junction = directory.path().join("union");
+    fs::create_dir(&target).unwrap();
+    let output = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(&junction)
+        .arg(&target)
+        .output()
+        .expect("mklink");
+    assert!(output.status.success(), "mklink /J: {output:?}");
+
+    let file = directory.path().join("normal.csv");
+    fs::write(&file, "valor\n1\n").unwrap();
+    assert!(!is_symbolic_link_or_reparse_point(
+        &fs::symlink_metadata(&file).unwrap()
+    ));
+    assert!(is_symbolic_link_or_reparse_point(
+        &fs::symlink_metadata(&junction).unwrap()
+    ));
+    let error = canonicalize_write_destination(&junction, "la exportación")
+        .expect_err("una unión no es un destino válido");
+    assert!(
+        error.contains("enlace simbólico o punto de reanálisis"),
+        "{error}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn a_destination_that_cannot_be_inspected_is_an_error_not_a_new_file() {
+    // QA-57: only «does not exist» means a new file; any other error while
+    // reading the destination must stop the write.
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    let error = canonicalize_write_destination(&directory.path().join("a?b.csv"), "la exportación")
+        .expect_err("un nombre inválido no se puede comprobar");
+    assert!(error.contains("No se pudo verificar el destino"), "{error}");
+}
+
+#[cfg(windows)]
+#[test]
 fn rejects_windows_reparse_points_including_dangling_links() {
     use std::io::ErrorKind;
     use std::os::windows::fs::symlink_file;

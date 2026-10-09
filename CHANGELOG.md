@@ -1208,6 +1208,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- Primera prueba de mutación (cargo mutants) sobre csv_formula_safety,
+  date_inference, dataset_fingerprints y file_validation: 107 de 121 mutantes
+  detectados; tres tests nuevos matan seis de los nueve supervivientes y el
+  informe docs/reference/mutation-testing.md explica los tres restantes y cómo
+  repetirla (QA-57).
 - Los E2E ejecutan axe-core (@axe-core/playwright, reglas WCAG 2.2 A/AA) en las
   cinco etapas de los seis temas dentro del recorrido de contraste, y un test
   comprueba que una violación nueva, como un botón sin nombre, hace fallar
