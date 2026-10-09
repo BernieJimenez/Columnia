@@ -1494,3 +1494,6 @@ button:active:not(:disabled) { transform: translateY(1px); }
   .workspace .phase-file::before { background: CanvasText; }
   .side-nav .side-nav__state { background: none; border: 1px solid CanvasText; }
 }
+
+/* Numbers line up by their digits in the data preview. */
+.table-region :is(th, td).cell--number { text-align: right; font-variant-numeric: tabular-nums; }

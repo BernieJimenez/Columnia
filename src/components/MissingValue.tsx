@@ -6,7 +6,7 @@
 export function MissingValue() {
   return (
     <span className="null-value">
-      <span aria-hidden="true">null</span>
+      <span aria-hidden="true">vacío</span>
       <span className="visually-hidden">valor ausente</span>
     </span>
   );

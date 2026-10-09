@@ -1470,7 +1470,7 @@ describe("App", () => {
       "review-preview-panel",
     );
     expect(screen.getByRole("cell", { name: "Santo Domingo" })).toBeInTheDocument();
-    expect(screen.getByText("null")).toBeInTheDocument();
+    expect(screen.getByText("vacío")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     expect(screen.getByRole("button", { name: "Seleccionar otro dataset" })).toBeInTheDocument();

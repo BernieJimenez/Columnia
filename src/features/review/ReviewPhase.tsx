@@ -41,6 +41,7 @@ import type { QualityActionTarget } from "./qualityActionPlan";
 import type { ReviewComparison } from "./useReviewController";
 import { formatBytes, formatDataType, formatDecimal, formatNumber, formatPercent } from "../../format";
 import { isRowAuditColumn } from "../../rowAudit";
+import { isNumericType } from "../../dataTypes";
 import {
   QualityVisuals,
   formatStatistic,
@@ -680,7 +681,12 @@ export function DatasetPreviewPanel({
           <thead>
             <tr>
               {dataset.columns.map((column) => (
-                <th key={column.name} scope="col" aria-label={`${column.name} ${formatDataType(column.dataType)}`}>
+                <th
+                  key={column.name}
+                  scope="col"
+                  className={isNumericType(column.dataType) ? "cell--number" : undefined}
+                  aria-label={`${column.name} ${formatDataType(column.dataType)}`}
+                >
                   <span>{column.name}</span>
                   <small>{formatDataType(column.dataType)}</small>
                 </th>
@@ -691,7 +697,12 @@ export function DatasetPreviewPanel({
             {dataset.rows.map((row, rowIndex) => (
               <tr key={pageOffset + rowIndex}>
                 {row.map((value, columnIndex) => (
-                  <td key={columnIndex}>{renderCellValue(value)}</td>
+                  <td
+                    key={columnIndex}
+                    className={isNumericType(dataset.columns[columnIndex]?.dataType ?? "") ? "cell--number" : undefined}
+                  >
+                    {renderCellValue(value)}
+                  </td>
                 ))}
               </tr>
             ))}

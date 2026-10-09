@@ -1480,7 +1480,7 @@ describe("ReviewPhase", () => {
 
     expect(screen.getByLabelText("Vista previa del dataset")).toHaveAttribute("tabindex", "0");
     expect(screen.getByText("Filas 51–52 de 120")).toHaveAttribute("aria-live", "polite");
-    expect(screen.getByText("null")).toBeInTheDocument();
+    expect(screen.getByText("vacío")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Anterior" }));
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
     expect(onPageChange).toHaveBeenNthCalledWith(1, 0);
