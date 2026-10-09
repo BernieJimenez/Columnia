@@ -50,9 +50,14 @@ bloquea el uso diario.
     progreso de DuckDB, y tendencia y correlaciones avanzan juntas: en
     2019-Oct la etiqueta cambia como mucho cada 9,1 s (criterio ≤ 10 s,
     cumplido).
+  - Medido (2026-10-09): tras un cambio en memoria, recalcular el perfil
+    cuesta lo mismo que el primero (0,4 s con 300 000 filas; 2,7 s con
+    vmCloud) y lo marca la detección de filas parecidas, que depende de todas
+    las columnas. Reutilizar el perfil de las columnas que no cambian solo
+    ahorró un 8 % y se descartó.
   - Falta: bajar 2019-Oct a ≤ 60 s (92–125 s según la carga del antivirus,
-    que revisa los temporales) y reutilizar el perfil tras cada cambio en
-    lugar de recalcularlo. Con 100 M filas (CSV sintético de 4,8 GB, 170 s)
+    que revisa los temporales) y, para reutilizar el perfil tras un cambio,
+    actualizar también duplicados y filas parecidas sin releer todo. Con 100 M filas (CSV sintético de 4,8 GB, 170 s)
     queda una espera de 48 s al cerrar el conteo de valores distintos de una
     columna con 100 M valores únicos, fase en la que DuckDB no informa de
     progreso.
