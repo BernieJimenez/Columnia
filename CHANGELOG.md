@@ -1056,6 +1056,12 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Al final del análisis de calidad de un archivo grande, la tendencia temporal
+  y las correlaciones se calculan a la vez, las fechas de cada bloque se leen
+  en paralelo y la barra avanza con las filas leídas; el conteo de valores
+  distintos muestra el progreso de DuckDB mientras lee. 2019-Oct: perfil en
+  92 s y la etiqueta cambia como mucho cada 9,1 s (criterio ≤ 10 s). Con
+  100 millones de filas, de 208 s a 170 s (REN-01, en curso).
 - Medido el disco temporal del perfil con un CSV sintético de 100 millones de
   filas (4,8 GB): necesita 8,5 GiB, unas 1,8 veces el archivo, y tarda 208 s.
   Se mantiene la lectura en una sola pasada, porque leer por columna o por

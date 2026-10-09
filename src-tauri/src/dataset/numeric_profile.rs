@@ -761,12 +761,15 @@ fn pearson_correlation(first: &[Option<f64>], second: &[Option<f64>]) -> (Option
     (coefficient, sample_count)
 }
 
+/// `rows_read` counts the rows read, so the profile can show how far it has
+/// gone (REN-01).
 pub(super) fn source_numeric_correlation_matrix<C>(
     path: &Path,
     row_count: usize,
     profiles: &[ColumnProfile],
     is_cancelled: &C,
     sample_row_limit: usize,
+    rows_read: &std::sync::atomic::AtomicUsize,
 ) -> Result<Option<NumericCorrelationMatrix>, String>
 where
     C: Fn() -> bool + Sync,
@@ -791,6 +794,7 @@ where
         &numeric_columns,
         SOURCE_PROFILE_BLOCK_ROWS,
         |start, block| {
+            rows_read.fetch_add(block.height(), std::sync::atomic::Ordering::Relaxed);
             while next_sample < sampled_row_count {
                 let row_index = correlation_sample_row(next_sample, sampled_row_count, row_count);
                 if row_index < start {

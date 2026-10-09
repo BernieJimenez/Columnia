@@ -46,14 +46,16 @@ bloquea el uso diario.
     vez, las filas repetidas se cuentan con huellas en esa misma lectura y
     DuckDB cuenta los valores distintos a la vez. 2019-Oct (5,6 GB): perfil
     de 223 s a 92 s.
-    La copia de trabajo en Parquet muestra el progreso real de DuckDB y la
-    etiqueta cambia como mucho cada 10,4 s (criterio ≤ 10 s, cumplido en la
-    práctica).
+    La copia de trabajo y el conteo de valores distintos muestran el
+    progreso de DuckDB, y tendencia y correlaciones avanzan juntas: en
+    2019-Oct la etiqueta cambia como mucho cada 9,1 s (criterio ≤ 10 s,
+    cumplido).
   - Falta: bajar 2019-Oct a ≤ 60 s (92–125 s según la carga del antivirus,
     que revisa los temporales) y reutilizar el perfil tras cada cambio en
-    lugar de recalcularlo. Con 100 M filas (CSV sintético de 4,8 GB, 208 s)
-    aún hay dos esperas largas sin progreso: el final del conteo de valores
-    distintos (51 s) y la tendencia temporal (26 s).
+    lugar de recalcularlo. Con 100 M filas (CSV sintético de 4,8 GB, 170 s)
+    queda una espera de 48 s al cerrar el conteo de valores distintos de una
+    columna con 100 M valores únicos, fase en la que DuckDB no informa de
+    progreso.
 
 ## Aparcado: solo si Columnia se comparte
 

@@ -324,6 +324,109 @@ where
         .map_err(|error| format!("DuckDB no pudo crear el snapshot protegido: {error}"))
 }
 
+/// REN-01: DuckDB's progress of a running native count, readable from the
+/// thread that waits for it.
+pub(crate) struct NativeProgress(Arc<NativeDuckDb>);
+
+impl NativeProgress {
+    /// How far the running statement has gone (0.0 to 1.0), if DuckDB knows.
+    pub(crate) fn fraction(&self) -> Option<f64> {
+        let percentage = self.0.progress();
+        (percentage >= 0.0).then(|| (percentage / 100.0).clamp(0.0, 1.0))
+    }
+
+    /// Stops the running statement; the count then ends with an error.
+    pub(crate) fn interrupt(&self) {
+        self.0.interrupt();
+    }
+}
+
+/// The thread of a native distinct count and its per-column result.
+pub(crate) type DistinctCountWorker = thread::JoinHandle<Result<Vec<usize>, String>>;
+
+/// REN-01: counts the distinct non-null values of each column of a Parquet
+/// file on its own thread, through a native connection whose progress the
+/// returned [`NativeProgress`] reads. If DuckDB runs out of memory, the count
+/// falls back to [`count_file_distinct_non_null`], which has no progress.
+pub(crate) fn spawn_parquet_distinct_count(
+    path: &Path,
+    columns: &[String],
+) -> Result<(NativeProgress, DistinctCountWorker), String> {
+    let native = Arc::new(NativeDuckDb::open()?);
+    let worker_native = Arc::clone(&native);
+    let path = path.to_owned();
+    let columns = columns.to_vec();
+    let handle = thread::spawn(move || {
+        if columns.is_empty() {
+            return Ok(Vec::new());
+        }
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el conteo de valores distintos source-backed: {error}")
+        })?;
+        // SAFETY: `worker_native` owns the database and outlives this
+        // connection, which does not close it.
+        let connection = unsafe { Connection::open_from_raw(worker_native.database) }
+            .map_err(|error| format!("No se pudo iniciar DuckDB para la operación: {error}"))?;
+        configure_duckdb_resources(&connection, resource_directory.path())?;
+        register_file_view(
+            &connection,
+            "dataset",
+            &path,
+            DuckDbFileFormat::Parquet,
+            None,
+        )?;
+        let projections = columns
+            .iter()
+            .map(|column| format!("COUNT(DISTINCT {})", quote_identifier(column)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        for setting in [
+            "SET enable_progress_bar = true",
+            "SET enable_progress_bar_print = false",
+        ] {
+            worker_native.execute(setting).map_err(|error| {
+                format!("DuckDB no pudo preparar el conteo de valores distintos: {error}")
+            })?;
+        }
+        match worker_native.execute(&format!(
+            "CREATE TABLE distinct_counts AS SELECT {projections} FROM dataset"
+        )) {
+            Ok(()) => {}
+            Err(error) if error.contains("Out of Memory Error") => {
+                drop(connection);
+                return count_file_distinct_non_null(
+                    &path,
+                    DuckDbFileFormat::Parquet,
+                    &columns,
+                    || false,
+                );
+            }
+            Err(error) => {
+                return Err(format!("DuckDB no pudo contar valores distintos: {error}"));
+            }
+        }
+        let counts = connection
+            .query_row("SELECT * FROM distinct_counts", [], |row| {
+                (0..columns.len())
+                    .map(|index| row.get::<_, i64>(index))
+                    .collect::<duckdb::Result<Vec<_>>>()
+            })
+            .map_err(|error| format!("DuckDB no pudo leer los valores distintos: {error}"))?;
+        counts
+            .into_iter()
+            .zip(&columns)
+            .map(|(count, column)| {
+                usize::try_from(count).map_err(|_| {
+                    format!(
+                        "El conteo de valores distintos de la columna {column} excede la capacidad local."
+                    )
+                })
+            })
+            .collect()
+    });
+    Ok((NativeProgress(native), handle))
+}
+
 /// REN-01: an in-memory DuckDB database and connection opened through the C
 /// API, because the `duckdb` crate cannot read the progress of a running
 /// statement from another thread.
@@ -3394,6 +3497,30 @@ mod tests {
         assert!(fractions
             .iter()
             .all(|fraction| (0.0..=1.0).contains(fraction)));
+    }
+
+    #[test]
+    fn a_native_distinct_count_matches_the_crate_count() {
+        // REN-01: the count with progress gives the same numbers, nulls
+        // left out, as the one without it.
+        let directory = tempfile::tempdir().expect("directorio temporal");
+        let path = directory.path().join("datos.parquet");
+        let connection = Connection::open_in_memory().expect("DuckDB");
+        connection
+            .execute_batch(&format!(
+                "COPY (SELECT i % 7 AS grupo, CASE WHEN i % 5 = 0 THEN NULL ELSE 'v' || (i % 11) END AS texto FROM range(5000) t(i)) TO '{}' (FORMAT PARQUET)",
+                path.to_string_lossy().replace('\\', "/")
+            ))
+            .expect("Parquet");
+        let columns = ["grupo".to_owned(), "texto".to_owned()];
+        let (_progress, worker) =
+            spawn_parquet_distinct_count(&path, &columns).expect("conteo nativo");
+        let native = worker.join().expect("hilo").expect("conteo");
+        let expected =
+            count_file_distinct_non_null(&path, DuckDbFileFormat::Parquet, &columns, || false)
+                .expect("conteo de referencia");
+        assert_eq!(native, expected);
+        assert_eq!(native, vec![7, 11]);
     }
 
     #[test]

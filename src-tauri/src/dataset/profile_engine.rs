@@ -1922,7 +1922,7 @@ where
 
     // REN-01: DuckDB counts distinct values while the row pass runs, instead
     // of reading the whole file again after it.
-    let mut distinct_count = BackgroundDistinctCount::start(path, &column_names);
+    let mut distinct_count = BackgroundDistinctCount::start(path, &column_names)?;
     report("Analizando filas y columnas", 10);
     for_each_parquet_block_with_size(
         path,
@@ -1953,12 +1953,14 @@ where
                 .zip(block.columns().par_iter())
                 .try_for_each(|(accumulator, column)| accumulator.update(column))?;
 
+            // The row pass moves the bar from 10 to 84 %; 85 to 92 % are
+            // the counts that follow it (REN-01).
             let processed_rows = start.saturating_add(block.height());
             let progress = processed_rows
-                .saturating_mul(80)
+                .saturating_mul(74)
                 .checked_div(row_count)
-                .unwrap_or(80);
-            let percent = 10 + progress.min(80) as u8;
+                .unwrap_or(74);
+            let percent = 10 + progress.min(74) as u8;
             report("Analizando filas y columnas", percent);
             Ok(())
         },
@@ -1968,14 +1970,21 @@ where
     exact_buckets.flush()?;
     // REN-01: the steps after the row pass say what they do, so the label
     // does not stay on «Analizando filas y columnas» for minutes.
-    report("Contando filas repetidas", 90);
+    report("Contando filas repetidas", 85);
     let exact_duplicate_row_count =
         count_normalized_duplicate_fingerprints(&exact_buckets.paths, is_cancelled)?;
-    report("Comparando filas parecidas", 90);
+    report("Comparando filas parecidas", 86);
     let normalized_duplicate_row_count =
         count_normalized_duplicate_fingerprints(&normalized_buckets.paths, is_cancelled)?;
-    report("Contando valores distintos", 90);
-    let distinct_counts = distinct_count.finish()?;
+    report("Contando valores distintos", 87);
+    let mut shown = 87_u8;
+    let distinct_counts = distinct_count.finish(is_cancelled, |fraction| {
+        let percent = 87 + ((fraction * 5.0) as u8).min(5);
+        if percent > shown {
+            shown = percent;
+            report("Contando valores distintos", percent);
+        }
+    })?;
     let near_duplicate_row_count =
         normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count);
     if distinct_counts.len() != accumulators.len() {
@@ -1990,7 +1999,7 @@ where
         categorical_candidates.push(candidates);
     }
 
-    report("Analizando columnas", 90);
+    report("Analizando columnas", 92);
     Ok((
         exact_duplicate_row_count,
         near_duplicate_row_count,
@@ -2043,39 +2052,47 @@ impl FingerprintBuckets {
     }
 }
 
-/// REN-01: the DuckDB count of distinct values of a source profile,
-/// run on its own thread beside the row pass. If the profile stops early, the
-/// count is interrupted and waited for, so the snapshot is no longer read when
-/// its temporary folder is removed.
+/// REN-01: the DuckDB count of distinct values of a source profile, run on
+/// its own thread beside the row pass. Waiting for it reports DuckDB's own
+/// progress. If the profile stops early, the count is interrupted and waited
+/// for, so the snapshot is no longer read when its temporary folder goes.
 struct BackgroundDistinctCount {
-    stop: Arc<AtomicBool>,
+    progress: crate::duckdb_query::NativeProgress,
     handle: Option<std::thread::JoinHandle<Result<Vec<usize>, String>>>,
 }
 
 impl BackgroundDistinctCount {
-    fn start(path: &Path, column_names: &[String]) -> Self {
-        let stop = Arc::new(AtomicBool::new(false));
-        let path = path.to_owned();
-        let column_names = column_names.to_vec();
-        let thread_stop = Arc::clone(&stop);
-        let handle = std::thread::spawn(move || {
-            crate::duckdb_query::count_file_distinct_non_null(
-                &path,
-                crate::duckdb_query::DuckDbFileFormat::Parquet,
-                &column_names,
-                move || thread_stop.load(Ordering::Acquire),
-            )
-        });
-        Self {
-            stop,
+    fn start(path: &Path, column_names: &[String]) -> Result<Self, String> {
+        let (progress, handle) =
+            crate::duckdb_query::spawn_parquet_distinct_count(path, column_names)?;
+        Ok(Self {
+            progress,
             handle: Some(handle),
-        }
+        })
     }
 
-    fn finish(&mut self) -> Result<Vec<usize>, String> {
-        self.handle
+    /// Waits for the count, passing its progress (0.0 to 1.0) to `report`.
+    fn finish<C, F>(&mut self, is_cancelled: &C, mut report: F) -> Result<Vec<usize>, String>
+    where
+        C: Fn() -> bool,
+        F: FnMut(f64),
+    {
+        let handle = self
+            .handle
             .take()
-            .ok_or_else(|| "El conteo de valores distintos ya terminó.".to_owned())?
+            .ok_or_else(|| "El conteo de valores distintos ya terminó.".to_owned())?;
+        while !handle.is_finished() {
+            if is_cancelled() {
+                self.progress.interrupt();
+                let _ = handle.join();
+                return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+            }
+            if let Some(fraction) = self.progress.fraction() {
+                report(fraction);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        handle
             .join()
             .map_err(|_| "El conteo de valores distintos se interrumpió.".to_owned())?
     }
@@ -2084,7 +2101,7 @@ impl BackgroundDistinctCount {
 impl Drop for BackgroundDistinctCount {
     fn drop(&mut self) {
         if let Some(handle) = self.handle.take() {
-            self.stop.store(true, Ordering::Release);
+            self.progress.interrupt();
             let _ = handle.join();
         }
     }
@@ -2525,34 +2542,78 @@ where
     }
     let categorical_group_summaries = (!categorical.is_empty()).then_some(categorical);
 
-    report("Resumiendo tendencia temporal", 95);
-    let mut temporal = Vec::new();
-    for (schema_column, profile) in schema.columns().iter().zip(&columns) {
-        if temporal.len() >= MAX_TEMPORAL_COLUMNS
-            || profile.privacy_signal.is_some()
-            || (!matches!(
-                schema_column.dtype(),
-                DataType::Date | DataType::Datetime(_, _)
-            ) && profile.suggested_type.as_deref() != Some("date"))
-        {
-            continue;
+    // REN-01: the trend and the correlations each read the file again, so
+    // they run at the same time and the bar follows the rows both have read.
+    report("Resumiendo tendencia y correlaciones", 94);
+    let temporal_candidates = schema
+        .columns()
+        .iter()
+        .zip(&columns)
+        .filter(|(schema_column, profile)| {
+            profile.privacy_signal.is_none()
+                && (matches!(
+                    schema_column.dtype(),
+                    DataType::Date | DataType::Datetime(_, _)
+                ) || profile.suggested_type.as_deref() == Some("date"))
+        })
+        .map(|(_, profile)| profile)
+        .collect::<Vec<_>>();
+    let correlation_reads = columns
+        .iter()
+        .filter(|profile| profile.outlier_count.is_some())
+        .take(2)
+        .count()
+        == 2;
+    let planned_rows = row_count
+        .saturating_mul(temporal_candidates.len() + usize::from(correlation_reads))
+        .max(1);
+    let rows_read = std::sync::atomic::AtomicUsize::new(0);
+    let (temporal, numeric_correlations) = std::thread::scope(|scope| {
+        let temporal = scope.spawn(|| {
+            let mut temporal = Vec::new();
+            for profile in &temporal_candidates {
+                if temporal.len() >= MAX_TEMPORAL_COLUMNS {
+                    break;
+                }
+                if let Some(summary) = source_temporal_series_summary(
+                    &snapshot_path,
+                    row_count,
+                    profile,
+                    &is_cancelled,
+                    &rows_read,
+                )? {
+                    temporal.push(summary);
+                }
+            }
+            Ok::<_, String>(temporal)
+        });
+        let correlations = scope.spawn(|| {
+            source_numeric_correlation_matrix(
+                &snapshot_path,
+                row_count,
+                &columns,
+                &is_cancelled,
+                correlation_sample_rows,
+                &rows_read,
+            )
+        });
+        let mut shown = 94_u8;
+        while !(temporal.is_finished() && correlations.is_finished()) {
+            let done = rows_read.load(std::sync::atomic::Ordering::Relaxed);
+            let percent = 94 + ((done.saturating_mul(5) / planned_rows).min(5)) as u8;
+            if percent > shown {
+                shown = percent;
+                report("Resumiendo tendencia y correlaciones", percent);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
         }
-        if let Some(summary) =
-            source_temporal_series_summary(&snapshot_path, row_count, profile, &is_cancelled)?
-        {
-            temporal.push(summary);
-        }
-    }
+        let interrupted = || "El resumen de tendencia y correlaciones se interrumpió.".to_owned();
+        Ok::<_, String>((
+            temporal.join().map_err(|_| interrupted())??,
+            correlations.join().map_err(|_| interrupted())??,
+        ))
+    })?;
     let temporal_series = (!temporal.is_empty()).then_some(temporal);
-
-    report("Calculando correlaciones", 97);
-    let numeric_correlations = source_numeric_correlation_matrix(
-        &snapshot_path,
-        row_count,
-        &columns,
-        &is_cancelled,
-        correlation_sample_rows,
-    )?;
     report("Analizando columnas", 100);
     ensure_not_cancelled(is_cancelled())?;
     let final_size = fs::metadata(source_path)

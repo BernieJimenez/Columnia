@@ -286,46 +286,81 @@ where
     Ok((!summaries.is_empty()).then_some(summaries))
 }
 
+/// Periods counted over part of a column; parts merge in any order.
+#[derive(Default)]
+struct TemporalTally {
+    counts: HashMap<TemporalPeriodKey, usize>,
+    first: Option<TemporalPeriodKey>,
+    last: Option<TemporalPeriodKey>,
+    parsed_row_count: usize,
+}
+
+impl TemporalTally {
+    fn observe(&mut self, key: TemporalPeriodKey) {
+        self.first = Some(self.first.map_or(key, |current| current.min(key)));
+        self.last = Some(self.last.map_or(key, |current| current.max(key)));
+        *self.counts.entry(key).or_insert(0) += 1;
+        self.parsed_row_count = self.parsed_row_count.saturating_add(1);
+    }
+
+    fn merge(mut self, other: TemporalTally) -> TemporalTally {
+        for (key, count) in other.counts {
+            *self.counts.entry(key).or_insert(0) += count;
+        }
+        self.first = match (self.first, other.first) {
+            (Some(left), Some(right)) => Some(left.min(right)),
+            (left, right) => left.or(right),
+        };
+        self.last = match (self.last, other.last) {
+            (Some(left), Some(right)) => Some(left.max(right)),
+            (left, right) => left.or(right),
+        };
+        self.parsed_row_count = self.parsed_row_count.saturating_add(other.parsed_row_count);
+        self
+    }
+}
+
+/// REN-01: each block's dates are read in parallel parts, and `rows_read`
+/// counts the rows done so the profile can show how far it has gone.
 pub(super) fn source_temporal_series_summary<C>(
     path: &Path,
     row_count: usize,
     profile: &ColumnProfile,
     is_cancelled: &C,
+    rows_read: &std::sync::atomic::AtomicUsize,
 ) -> Result<Option<TemporalSeriesSummary>, String>
 where
     C: Fn() -> bool + Sync,
 {
-    let mut counts = HashMap::<TemporalPeriodKey, usize>::new();
-    let mut first = None;
-    let mut last = None;
-    let mut parsed_row_count = 0usize;
+    let month_first = profile.date_order.as_deref() == Some("mdy");
+    let mut tally = TemporalTally::default();
     for_each_parquet_column_block_with_size(
         path,
         row_count,
         &profile.name,
         SOURCE_PROFILE_BLOCK_ROWS,
         |_, column| {
-            for row_index in 0..column.len() {
-                if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-                    ensure_not_cancelled(is_cancelled())?;
-                }
-                let value = column.get(row_index).map_err(|error| {
-                    format!(
-                        "No se pudo resumir la tendencia temporal de {}: {error}",
-                        profile.name
-                    )
-                })?;
-                let Some(datetime) =
-                    ordered_datetime_value(value, profile.date_order.as_deref() == Some("mdy"))
-                else {
-                    continue;
-                };
-                let key = temporal_period_key(datetime);
-                first = Some(first.map_or(key, |current: TemporalPeriodKey| current.min(key)));
-                last = Some(last.map_or(key, |current: TemporalPeriodKey| current.max(key)));
-                *counts.entry(key).or_insert(0) += 1;
-                parsed_row_count = parsed_row_count.saturating_add(1);
-            }
+            let block = (0..column.len())
+                .into_par_iter()
+                .with_min_len(4096)
+                .try_fold(TemporalTally::default, |mut part, row_index| {
+                    if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                        ensure_not_cancelled(is_cancelled())?;
+                    }
+                    let value = column.get(row_index).map_err(|error| {
+                        format!(
+                            "No se pudo resumir la tendencia temporal de {}: {error}",
+                            profile.name
+                        )
+                    })?;
+                    if let Some(datetime) = ordered_datetime_value(value, month_first) {
+                        part.observe(temporal_period_key(datetime));
+                    }
+                    Ok::<_, String>(part)
+                })
+                .try_reduce(TemporalTally::default, |left, right| Ok(left.merge(right)))?;
+            tally = std::mem::take(&mut tally).merge(block);
+            rows_read.fetch_add(column.len(), std::sync::atomic::Ordering::Relaxed);
             Ok(())
         },
     )?;
@@ -333,9 +368,9 @@ where
     finish_temporal_series_summary(
         &profile.name,
         row_count,
-        parsed_row_count,
-        first,
-        last,
-        counts,
+        tally.parsed_row_count,
+        tally.first,
+        tally.last,
+        tally.counts,
     )
 }
