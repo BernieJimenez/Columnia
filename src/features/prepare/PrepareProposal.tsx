@@ -283,7 +283,7 @@ export function PrepareProposal({
         <h3 id="prepare-proposal-title" ref={titleRef} tabIndex={-1} className="prepare-proposal__title">No hay cambios que proponer</h3>
         <p className="prepare-proposal__lead">No se detectaron espacios sobrantes, duplicados ni vacíos que rellenar.</p>
         <div className="prepare-proposal__actions">
-          <button type="button" className="link-action" disabled={disabled} onClick={() => { setMode("steps"); setStep(0); }}>
+          <button type="button" className="secondary-action" disabled={disabled} onClick={() => { setMode("steps"); setStep(0); }}>
             Personalizar paso a paso
           </button>
         </div>
@@ -377,11 +377,11 @@ export function PrepareProposal({
         >
           {applyLabel(count)}
         </button>
-        <button type="button" className="link-action" disabled={disabled} onClick={() => { setMode("steps"); setStep(0); }}>
+        <button type="button" className="secondary-action" disabled={disabled} onClick={() => { setMode("steps"); setStep(0); }}>
           Personalizar paso a paso
         </button>
         {canUndo && (
-          <button type="button" className="link-action" disabled={busy} onClick={onUndo}>
+          <button type="button" className="secondary-action" disabled={busy} onClick={onUndo}>
             Deshacer último cambio
           </button>
         )}

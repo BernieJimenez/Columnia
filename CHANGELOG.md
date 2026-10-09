@@ -1055,7 +1055,16 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - RV04: si falla cancelar una importación pendiente o liberar su selección temporal, Columnia conserva el `selectionId`, identifica el paso pendiente y permite reintentarlo sin repetir el paso completado. Las nuevas inspecciones permanecen bloqueadas hasta completar la limpieza.
 
 ### Mejorado
+
+- Diseño más coherente: todos los desplegables usan el mismo indicador (una
+  flecha que gira al abrirse) en lugar de mezclar «+», triángulos y cajas
+  grises; las propuestas de Revisar son una lista y no parecen botones;
+  «Personalizar paso a paso» y «Deshacer último cambio» son botones normales, y
+  en Entregar los campos de formato y protección quedan alineados con una ayuda
+  más legible.
 - Si los datos cambian después de Revisar (por ejemplo, al aplicar un cambio en
+  Preparar), la barra lateral marca Revisar como «Revisar de nuevo» en lugar de
+  «Después».
 - Columnia usa mimalloc como asignador de memoria y le pide devolver enseguida
   la memoria liberada: al recargar 20 veces un CSV de 144 MB, la memoria del
   proceso pasa de crecer de 380 MB a 920 MB a quedarse entre 480 y 560 MB, con
@@ -1082,8 +1091,6 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   tabla) se detiene a los 30 s en lugar de a los 300 s, así que Cancelar y el
   error llegan antes; ODBC no permite interrumpir con seguridad una llamada ya
   en curso (PROD-16).
-  Preparar), la barra lateral marca Revisar como «Revisar de nuevo» en lugar de
-  «Después».
 - El panel automático de Explorar deja fuera las columnas que parecen claves:
   texto con un valor distinto en casi cada fila y números de fila con huecos.
   «Personalizar» las sigue ofreciendo.

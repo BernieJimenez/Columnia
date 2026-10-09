@@ -1772,7 +1772,7 @@ body { color: var(--text-primary); background: var(--canvas); }
 .privacy-mode { display: grid; gap: 5px; min-width: 0; color: var(--text-secondary); font-weight: 750; }
 .export-format select,
 .privacy-mode select { min-width: 0; width: 100%; min-height: 44px; padding: 7px 9px; }
-.privacy-mode__note { color: var(--text-secondary); font-size: .75rem; font-weight: 500; line-height: 1.4; }
+.privacy-mode__note { color: var(--text-secondary); font-size: .8125rem; font-weight: 500; line-height: 1.4; }
 .export-action { min-width: 138px; }
 .export-requirement { grid-column: 2; margin: -4px 0 0; color: var(--text-secondary); font-size: .875rem; }
 .database-target { grid-column: 1 / -1; display: grid; gap: 10px; margin: 0; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--surface-subtle); }
@@ -1783,7 +1783,7 @@ body { color: var(--text-primary); background: var(--canvas); }
 .database-target select { min-height: 44px; width: 100%; padding: 7px 9px; }
 .database-target__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .database-target .notice { margin: 0; }
-.delivery-presets { grid-column: 1 / -1; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--surface-subtle); }
+.delivery-presets { grid-column: 1 / -1; padding: 10px 4px; border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); }
 .delivery-presets > summary { color: var(--text-primary); font-weight: 750; cursor: pointer; }
 .delivery-presets > p { margin: 8px 0; color: var(--text-secondary); font-size: .875rem; }
 .delivery-presets > label { display: grid; gap: 5px; margin-top: 8px; color: var(--text-secondary); font-size: .875rem; font-weight: 750; }
@@ -1961,3 +1961,35 @@ body { color: var(--text-primary); background: var(--canvas); }
 
 /* ARQ-03: shown only when the whole window failed to render. */
 .app-failure { max-width: 640px; margin: 48px auto; padding: 0 16px; color: var(--text-primary); }
+
+/*
+ * One disclosure pattern (2026-10-08): every <details> shows the same chevron
+ * at the end of its summary, pointing down when closed and up when open. It
+ * replaces the "+"/"-" boxes and the native triangle, and takes the text
+ * colour so it keeps the contrast of every theme. `:root:root` outranks the
+ * older per-component markers without !important; their grid placement stays.
+ */
+:root:root details > summary { list-style: none; }
+:root:root details > summary::-webkit-details-marker { display: none; }
+:root:root details > summary::after {
+  content: "";
+  display: inline-block;
+  flex-shrink: 0;
+  align-self: center;
+  justify-self: center;
+  width: 7px;
+  height: 7px;
+  margin: 0 6px 3px 10px;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font-size: 0;
+  transform: rotate(45deg);
+  transition: transform .15s ease;
+}
+:root:root details[open] > summary::after { margin-bottom: 0; transform: rotate(-135deg); }
+@media (prefers-reduced-motion: reduce) {
+  :root:root details > summary::after { transition: none; }
+}
