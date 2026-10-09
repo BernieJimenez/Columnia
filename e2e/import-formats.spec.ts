@@ -75,7 +75,8 @@ for (const fixture of importCases) {
     } else {
       const dialog = page.getByRole("dialog", { name: `Revisar importación de ${fixture.fileName}` });
       await expect(dialog).toBeVisible();
-      await dialog.getByRole("button", { name: "Revisar esquema" }).click();
+      // UX-08: a Parquet reviews its schema as soon as it is selected.
+      await expect(dialog.getByRole("region", { name: "Esquema detectado antes de importar" })).toBeVisible();
       await dialog.getByRole("button", { name: "Cargar archivo" }).click();
     }
 
