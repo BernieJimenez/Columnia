@@ -19657,37 +19657,22 @@ fn safe_correction_plan_types_date_columns_without_losing_values() {
 }
 
 #[test]
-fn safe_corrections_leave_the_duckdb_shortcut_when_the_plan_types_or_fills() {
-    // RV18: the source-backed shortcut ignored castColumns, so a large CSV
-    // announced "Convertir a número" and exported the columns as text.
-    let cast = ["Quantity".to_owned()];
+fn safe_corrections_leave_the_duckdb_shortcut_only_to_fill_or_date() {
+    // RV18: typing numbers now runs on disk too (REN-01: a 5 GB CSV could not
+    // be loaded to type one column); filling gaps and dates still need memory.
     let dates = [DateColumnPlan {
         column: "InvoiceDate".to_owned(),
         order: "mdy".to_owned(),
     }];
-    assert!(safe_corrections_stay_source_backed(true, false, None, None));
-    assert!(safe_corrections_stay_source_backed(
-        true,
-        false,
-        Some(&[]),
-        Some(&[])
-    ));
+    assert!(safe_corrections_stay_source_backed(true, false, None));
+    assert!(safe_corrections_stay_source_backed(true, false, Some(&[])));
     assert!(!safe_corrections_stay_source_backed(
         true,
         false,
-        Some(&cast),
-        None
-    ));
-    assert!(!safe_corrections_stay_source_backed(
-        true,
-        false,
-        None,
         Some(&dates)
     ));
-    assert!(!safe_corrections_stay_source_backed(true, true, None, None));
-    assert!(!safe_corrections_stay_source_backed(
-        false, false, None, None
-    ));
+    assert!(!safe_corrections_stay_source_backed(true, true, None));
+    assert!(!safe_corrections_stay_source_backed(false, false, None));
 }
 
 #[test]
@@ -23134,4 +23119,92 @@ fn disk_backed_conflict_pages_from_the_index_match_the_full_walk() {
         (vec![Some("0".to_owned())], Some("Otra 0".to_owned()))
     );
     assert!(page(500, 10).conflicts.is_empty());
+}
+
+#[test]
+fn source_backed_numeric_typing_matches_the_in_memory_plan() {
+    // REN-01: typing numbers on disk follows `cast_fully_numeric_columns`:
+    // after trimming and «sin dato», whole numbers, whole numbers written as
+    // decimals and decimals are typed; codes with a leading zero and mixed
+    // columns stay text.
+    let path = temporary_csv(
+        "entero,decimal,entero_decimal,codigo,mezcla,con_marcador\n\
+         5,35.79,10.0,007,1,4\n\
+         \" +7 \",1.5,1e+05,12,abc,N/A\n\
+         10,2,3,3,2,6\n\
+         10,2,3,3,2,6\n",
+    );
+    let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
+    let mut dataset = LoadedDataset {
+        source_path: Some(path.path_buf()),
+        file_name: "tipado.csv".to_owned(),
+        file_size_bytes: fs::metadata(&path).expect("la fuente debe existir").len(),
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial debe inicializarse"),
+    };
+    let columns = [
+        "entero",
+        "decimal",
+        "entero_decimal",
+        "codigo",
+        "mezcla",
+        "con_marcador",
+    ]
+    .map(str::to_owned);
+    let expected = safe_corrected_plan_frame(
+        &source_frame,
+        true,
+        false,
+        true,
+        true,
+        false,
+        None,
+        Some(&columns),
+        None,
+    )
+    .expect("el plan en memoria debe aplicarse");
+    let cancellation = PrepareCancellation::disabled();
+    let result = source_backed_safe_corrections_with_cancellation(
+        &mut dataset,
+        true,
+        false,
+        true,
+        true,
+        Some(&columns),
+        &cancellation,
+    )
+    .expect("el plan en disco debe aplicarse")
+    .expect("el CSV debe procesarse en disco");
+    let output = read_parquet_frame(dataset.source_path.as_deref().expect("fuente"))
+        .expect("el resultado Parquet debe leerse");
+
+    println!(
+        "disco {:?}
+memoria {:?}",
+        output.schema(),
+        expected.frame.schema()
+    );
+    assert_eq!(result.typed_column_count, 4);
+    assert_eq!(result.typed_column_count, expected.typed_column_count);
+    assert_eq!(result.removed_row_count, 1);
+    for name in ["entero", "entero_decimal", "con_marcador"] {
+        assert_eq!(
+            output.column(name).unwrap().dtype(),
+            &DataType::Int64,
+            "{name}"
+        );
+    }
+    assert_eq!(
+        output.column("decimal").unwrap().dtype(),
+        &DataType::Float64
+    );
+    assert_eq!(output.column("codigo").unwrap().dtype(), &DataType::String);
+    assert_eq!(output.column("mezcla").unwrap().dtype(), &DataType::String);
+    assert!(output.equals_missing(&expected.frame));
 }

@@ -5533,6 +5533,7 @@ fn source_backed_safe_corrections(
         normalize_column_names,
         normalize_sentinels,
         remove_duplicates,
+        None,
         &cancellation,
     )
 }
@@ -5567,12 +5568,14 @@ fn safe_corrections_label(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn source_backed_safe_corrections_with_cancellation(
     dataset: &mut LoadedDataset,
     trim_text: bool,
     normalize_column_names: bool,
     normalize_sentinels: bool,
     remove_duplicates: bool,
+    cast_columns: Option<&[String]>,
     cancellation: &PrepareCancellation,
 ) -> Result<Option<SafeCorrectionsResult>, String> {
     cancellation.ensure()?;
@@ -5657,7 +5660,62 @@ fn source_backed_safe_corrections_with_cancellation(
         }
     };
     let changed_cell_count = changed_counts.iter().copied().sum::<usize>();
-    if changed_cell_count == 0 && renames.is_empty() && !remove_duplicates {
+    // REN-01: a large file is typed on disk too, after the text corrections,
+    // with the rules of `cast_fully_numeric_columns`; loading 5 GB into memory
+    // to type one column failed for lack of RAM.
+    let cast_candidates = cast_columns
+        .unwrap_or_default()
+        .iter()
+        .filter(|name| {
+            dataset
+                .frame
+                .column(name)
+                .is_ok_and(|column| column.dtype() == &DataType::String)
+                && privacy_signal(name) != Some("identifier")
+        })
+        .map(|name| {
+            let expression = text_expressions
+                .iter()
+                .find(|(column, _)| column == name)
+                .map_or_else(
+                    || duckdb_identifier(name),
+                    |(_, expression)| expression.clone(),
+                );
+            (name.clone(), expression)
+        })
+        .collect::<Vec<_>>();
+    let cast_targets = match crate::duckdb_query::file_numeric_cast_targets(
+        &source_path,
+        source_format,
+        &cast_candidates,
+        cancellation.callback(),
+    ) {
+        Ok(targets) => targets,
+        Err(error) => {
+            return Ok(source_backed_fallback(
+                "source_backed_safe_corrections_with_cancellation",
+                &error,
+            ))
+        }
+    };
+    let typed_columns = cast_candidates
+        .iter()
+        .zip(&cast_targets)
+        .filter_map(|((name, expression), target)| {
+            target.map(|target| {
+                (
+                    name.clone(),
+                    crate::duckdb_query::numeric_cast_sql(expression, target),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    let typed_column_count = typed_columns.len();
+    if changed_cell_count == 0
+        && renames.is_empty()
+        && !remove_duplicates
+        && typed_column_count == 0
+    {
         return Ok(Some(SafeCorrectionsResult {
             dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
             changed_cell_count: 0,
@@ -5679,7 +5737,12 @@ fn source_backed_safe_corrections_with_cancellation(
         .map(|(original, renamed)| {
             let source = duckdb_identifier(original);
             let destination = duckdb_identifier(renamed);
-            if let Some((_, expression)) = text_expressions
+            if let Some((_, expression)) = typed_columns
+                .iter()
+                .find(|(name, _)| name == original.as_str())
+            {
+                format!("{expression} AS {destination}")
+            } else if let Some((_, expression)) = text_expressions
                 .iter()
                 .find(|(name, _)| name == original.as_str())
             {
@@ -5722,7 +5785,7 @@ fn source_backed_safe_corrections_with_cancellation(
     } else {
         prepared_query
     };
-    let force_publish = changed_cell_count > 0 || !renames.is_empty();
+    let force_publish = changed_cell_count > 0 || !renames.is_empty() || typed_column_count > 0;
     let Some(mutation) = publish_source_backed_query(
         dataset,
         &source_path,
@@ -5733,7 +5796,7 @@ fn source_backed_safe_corrections_with_cancellation(
             normalize_sentinels,
             normalize_column_names,
             remove_duplicates,
-            false,
+            typed_column_count > 0,
             false,
             false,
         ),
@@ -5750,7 +5813,7 @@ fn source_backed_safe_corrections_with_cancellation(
         affected_row_count,
         renamed_column_count: renames.len(),
         renames,
-        typed_column_count: 0,
+        typed_column_count,
         dated_column_count: 0,
         imputed_cell_count: 0,
     }))
@@ -11999,16 +12062,14 @@ pub async fn drop_outlier_values(app: AppHandle) -> Result<TextCleaningResult, S
 
 /// The DuckDB shortcut only trims, converts markers, renames and removes
 /// duplicates; typing or imputing on it would be dropped without a word.
+/// Numeric typing runs on disk too (REN-01); imputation and dates still need
+/// the materialized frame.
 fn safe_corrections_stay_source_backed(
     source_backed: bool,
     impute_missing: bool,
-    cast_columns: Option<&[String]>,
     date_columns: Option<&[DateColumnPlan]>,
 ) -> bool {
-    source_backed
-        && !impute_missing
-        && cast_columns.is_none_or(<[String]>::is_empty)
-        && date_columns.is_none_or(<[DateColumnPlan]>::is_empty)
+    source_backed && !impute_missing && date_columns.is_none_or(<[DateColumnPlan]>::is_empty)
 }
 
 /// Runs the same plan as `apply_safe_corrections` on a copy and reports what
@@ -12033,6 +12094,14 @@ pub async fn preview_safe_corrections(
         let dataset = current.as_ref().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        // REN-01: simulating the plan would load a large file into memory;
+        // the proposal keeps the profile's estimate instead.
+        if dataset.source_backed {
+            return Err(
+                "La simulación de la propuesta no está disponible para archivos grandes."
+                    .to_owned(),
+            );
+        }
         let frame = materialized_dataset_frame_with_cancel(dataset, || false)?;
         let plan = safe_corrected_plan_frame(
             &frame,
@@ -12090,7 +12159,6 @@ pub async fn apply_safe_corrections(
         if safe_corrections_stay_source_backed(
             dataset.source_backed,
             impute_missing,
-            cast_columns.as_deref(),
             date_columns.as_deref(),
         ) {
             if let Some(result) = source_backed_safe_corrections_with_cancellation(
@@ -12099,6 +12167,7 @@ pub async fn apply_safe_corrections(
                 normalize_column_names,
                 normalize_sentinels,
                 remove_duplicates,
+                cast_columns.as_deref(),
                 &cancellation,
             )? {
                 return Ok(result);

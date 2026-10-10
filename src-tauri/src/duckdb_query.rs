@@ -1302,6 +1302,118 @@ where
     })
 }
 
+/// The type a fully numeric text column takes, with the rules of the
+/// in-memory `cast_fully_numeric_columns` (RV18 / FUN-07).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NumericCastTarget {
+    /// Every value is a whole number that fits in 64 bits.
+    Integer,
+    /// Every value is a whole number written as a decimal (`10.0`, `1e+05`).
+    IntegerFromDecimal,
+    /// Every value is a finite decimal with at most 15 significant digits.
+    Decimal,
+}
+
+/// The value of a text expression trimmed like Rust's `str::trim` for ASCII
+/// whitespace (Unicode spaces are left, so such a column stays text).
+pub(crate) fn trimmed_text_sql(expression: &str) -> String {
+    format!(r"regexp_replace(CAST(({expression}) AS VARCHAR), '^\s+|\s+$', '', 'g')")
+}
+
+/// The SQL that converts a text expression to `target`.
+pub(crate) fn numeric_cast_sql(expression: &str, target: NumericCastTarget) -> String {
+    let value = trimmed_text_sql(expression);
+    match target {
+        NumericCastTarget::Integer => format!("CAST({value} AS BIGINT)"),
+        NumericCastTarget::IntegerFromDecimal => {
+            format!("CAST(CAST({value} AS DOUBLE) AS BIGINT)")
+        }
+        NumericCastTarget::Decimal => format!("CAST({value} AS DOUBLE)"),
+    }
+}
+
+/// REN-01 / RV18: for each `(column, expression)` of a file, the numeric type
+/// its non-null values allow, or `None` when one of them is empty, a code
+/// with a leading zero, or not a number. One scan for all the expressions.
+pub(crate) fn file_numeric_cast_targets<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    expressions: &[(String, String)],
+    is_cancelled: C,
+) -> Result<Vec<Option<NumericCastTarget>>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    if expressions.is_empty() {
+        return Ok(Vec::new());
+    }
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar la revisión de columnas numéricas: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        // Per expression: present values, then «empty or leading-zero code»,
+        // «integer», «whole number as decimal» and «finite decimal of at most
+        // 15 significant digits». COALESCE turns a failed check of a present value into «no».
+        let select = expressions
+            .iter()
+            .map(|(_, expression)| {
+                let value = trimmed_text_sql(expression);
+                let unsigned = format!("ltrim({value}, '+-')");
+                let float = format!(
+                    r"(regexp_matches({value}, '^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?$') AND COALESCE(isfinite(TRY_CAST({value} AS DOUBLE)), false))"
+                );
+                let digits = format!("regexp_replace({unsigned}, '[^0-9]', '', 'g')");
+                let integer_digits = format!("split_part({unsigned}, '.', 1)");
+                let significant = format!(
+                    "CASE WHEN ltrim({integer_digits}, '0') = '' THEN length(rtrim(ltrim({digits}, '0'), '0')) ELSE greatest(length(rtrim(ltrim({digits}, '0'), '0')), length(ltrim({integer_digits}, '0'))) END"
+                );
+                let fits = format!(
+                    "(regexp_matches({unsigned}, '[eE]') OR {significant} <= 15)"
+                );
+                // Only present values count: a «sin dato» turned into NULL
+                // must not make the column look non-numeric.
+                let present = format!("FILTER (WHERE {value} IS NOT NULL)");
+                format!(
+                    "COUNT({value}), \
+                     COALESCE(bool_or({value} = '' OR regexp_matches({value}, '^[+-]*0[0-9]')) {present}, false), \
+                     COALESCE(bool_and(COALESCE(regexp_matches({value}, '^[+-]?[0-9]+$') AND TRY_CAST({value} AS BIGINT) IS NOT NULL, false)) {present}, false), \
+                     COALESCE(bool_and(COALESCE({float} AND TRY_CAST({value} AS DOUBLE) = trunc(TRY_CAST({value} AS DOUBLE)) AND abs(TRY_CAST({value} AS DOUBLE)) <= 9007199254740992, false)) {present}, false), \
+                     COALESCE(bool_and(COALESCE({float} AND {fits}, false)) {present}, false)"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!("SELECT {select} FROM dataset");
+        connection
+            .query_row(&query, [], |row| {
+                (0..expressions.len())
+                    .map(|index| {
+                        let base = index * 5;
+                        let present = row.get::<_, i64>(base)?;
+                        let blocked = row.get::<_, bool>(base + 1)?;
+                        let integer = row.get::<_, bool>(base + 2)?;
+                        let whole = row.get::<_, bool>(base + 3)?;
+                        let decimal = row.get::<_, bool>(base + 4)?;
+                        Ok(if present == 0 || blocked {
+                            None
+                        } else if integer {
+                            Some(NumericCastTarget::Integer)
+                        } else if whole {
+                            Some(NumericCastTarget::IntegerFromDecimal)
+                        } else if decimal {
+                            Some(NumericCastTarget::Decimal)
+                        } else {
+                            None
+                        })
+                    })
+                    .collect::<duckdb::Result<Vec<_>>>()
+            })
+            .map_err(|error| format!("DuckDB no pudo revisar las columnas numéricas: {error}"))
+    })
+}
+
 pub(crate) fn count_file_expression_changes<C>(
     source_path: &Path,
     source_format: DuckDbFileFormat,

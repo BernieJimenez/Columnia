@@ -572,3 +572,55 @@ fn perf_probe_generate_csv() {
         fs::metadata(&path).expect("CSV").len() / (1024 * 1024)
     );
 }
+
+/// REN-01: applies the proposal of a large file (markers, numbers and exact
+/// duplicates) on disk, as «Aplicar» does for a source-backed dataset, and
+/// prints its time and result. `COLUMNIA_PROBE_PROFILE_FILE` names the file.
+#[test]
+#[ignore = "sonda opt-in que aplica la propuesta a un archivo grande"]
+fn perf_probe_apply_proposal() {
+    let Ok(path) = std::env::var("COLUMNIA_PROBE_PROFILE_FILE") else {
+        println!("probe   COLUMNIA_PROBE_PROFILE_FILE no definida; nada que medir");
+        return;
+    };
+    let path = PathBuf::from(path);
+    let extension = dataset_extension(&path).expect("extensión");
+    let (schema, _, row_count) =
+        source_backed_load(&path, &extension, || false).expect("carga source-backed");
+    let columns = schema
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let mut dataset = LoadedDataset {
+        source_path: Some(path.clone()),
+        file_name: "propuesta".to_owned(),
+        file_size_bytes: fs::metadata(&path).expect("archivo").len(),
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("historial diferido"),
+    };
+    let started = Instant::now();
+    let result = source_backed_safe_corrections_with_cancellation(
+        &mut dataset,
+        false,
+        false,
+        true,
+        true,
+        Some(&columns),
+        &PrepareCancellation::disabled(),
+    )
+    .expect("la propuesta debe aplicarse")
+    .expect("el archivo debe procesarse en disco");
+    println!(
+        "probe   propuesta aplicada en {:.1} s: {} celdas «sin dato», {} columnas a número, {} filas duplicadas quitadas, {} filas",
+        started.elapsed().as_secs_f64(),
+        result.changed_cell_count,
+        result.typed_column_count,
+        result.removed_row_count,
+        result.dataset.row_count
+    );
+}
