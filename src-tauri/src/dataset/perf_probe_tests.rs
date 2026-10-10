@@ -302,6 +302,22 @@ fn perf_probe_profile() {
     let path = PathBuf::from(path);
     let extension = dataset_extension(&path).expect("extensión");
     let size = fs::metadata(&path).expect("archivo").len();
+    // The peak working set of the process, sampled while the profile runs.
+    let sampling = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let peak = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let sampler = {
+        let sampling = std::sync::Arc::clone(&sampling);
+        let peak = std::sync::Arc::clone(&peak);
+        std::thread::spawn(move || {
+            while sampling.load(std::sync::atomic::Ordering::Relaxed) {
+                peak.fetch_max(
+                    process_working_set_bytes(),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        })
+    };
     let started = Instant::now();
     let mut last = Instant::now();
     let mut longest_silence = 0.0_f64;
@@ -397,6 +413,12 @@ fn perf_probe_profile() {
         profile_started.elapsed().as_secs_f64()
     );
     println!("probe   mayor silencio entre etiquetas {longest_silence:>7.2} s");
+    sampling.store(false, std::sync::atomic::Ordering::Relaxed);
+    sampler.join().expect("muestreo de memoria");
+    println!(
+        "probe   pico de working set           {:>7.0} MiB",
+        peak.load(std::sync::atomic::Ordering::Relaxed) as f64 / (1024.0 * 1024.0)
+    );
 }
 
 /// REN-08: times a keyed comparison between two generated Parquet files of

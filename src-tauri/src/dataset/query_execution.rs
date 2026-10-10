@@ -1133,6 +1133,57 @@ where
     Ok(())
 }
 
+/// REN-01: like [`for_each_parquet_block_with_size`], but the next block is
+/// read on another thread while `visit` works on the current one.
+pub(super) fn for_each_parquet_block_prefetched<F>(
+    path: &Path,
+    row_count: usize,
+    block_rows: usize,
+    mut visit: F,
+) -> Result<(), String>
+where
+    F: FnMut(usize, &DataFrame) -> Result<(), String>,
+{
+    let block_count = row_count.div_ceil(block_rows);
+    std::thread::scope(|scope| {
+        let (sender, receiver) =
+            std::sync::mpsc::sync_channel::<Result<(usize, DataFrame), String>>(1);
+        scope.spawn(move || {
+            for block_index in 0..block_count {
+                let start = block_index * block_rows;
+                let length = block_rows.min(row_count - start);
+                let block = read_parquet_query_block(path, start, length).and_then(|block| {
+                    if block.height() == length {
+                        Ok((start, block))
+                    } else {
+                        Err(format!(
+                            "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot Parquet cambió durante la lectura (se esperaban {length} filas en el bloque y se obtuvieron {}).",
+                            block.height()
+                        ))
+                    }
+                });
+                let failed = block.is_err();
+                // The receiver is gone when `visit` stopped with an error.
+                if sender.send(block).is_err() || failed {
+                    return;
+                }
+            }
+        });
+        for block in receiver {
+            let (start, block) = block?;
+            visit(start, &block)?;
+        }
+        Ok::<_, String>(())
+    })?;
+    let trailing_block = read_parquet_query_block(path, row_count, 1)?;
+    if trailing_block.height() != 0 {
+        return Err(format!(
+            "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot Parquet contiene más filas que las registradas."
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn for_each_parquet_block_with_cancel<C, F>(
     path: &Path,
     row_count: usize,

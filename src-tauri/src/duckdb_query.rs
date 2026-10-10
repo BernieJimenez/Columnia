@@ -26,6 +26,10 @@ const QUERY_POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// REN-01: how often DuckDB is asked how far a long copy has gone.
 const PROGRESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const DUCKDB_MEMORY_LIMIT: &str = "512MB";
+/// REN-01: the working copy of a large file and its count of distinct values
+/// take twice as long under 512 MB (2019-Oct: 25 s against 15 s); 1 GB keeps
+/// the app under the 1 536 MiB working set of the large-dataset benchmark.
+const DUCKDB_LARGE_FILE_MEMORY_LIMIT: &str = "1GB";
 const DUCKDB_MAX_TEMP_DIRECTORY_SIZE: &str = "8GB";
 
 pub(crate) struct DuckDbQuerySpec {
@@ -288,7 +292,11 @@ where
         // which is dropped at the end of the block and does not close it.
         let connection = unsafe { Connection::open_from_raw(native.database) }
             .map_err(|error| format!("No se pudo iniciar DuckDB para la operación: {error}"))?;
-        configure_duckdb_resources(&connection, resource_directory.path())?;
+        configure_duckdb_resources_with_limit(
+            &connection,
+            resource_directory.path(),
+            DUCKDB_LARGE_FILE_MEMORY_LIMIT,
+        )?;
         copy_to_parquet_statement(&connection, source_path, source_format, destination, None)?
     };
     for setting in [
@@ -367,7 +375,11 @@ pub(crate) fn spawn_parquet_distinct_count(
         // connection, which does not close it.
         let connection = unsafe { Connection::open_from_raw(worker_native.database) }
             .map_err(|error| format!("No se pudo iniciar DuckDB para la operación: {error}"))?;
-        configure_duckdb_resources(&connection, resource_directory.path())?;
+        configure_duckdb_resources_with_limit(
+            &connection,
+            resource_directory.path(),
+            DUCKDB_LARGE_FILE_MEMORY_LIMIT,
+        )?;
         register_file_view(
             &connection,
             "dataset",
@@ -2238,6 +2250,14 @@ fn restrict_external_access(
 }
 
 fn configure_duckdb_resources(connection: &Connection, directory: &Path) -> Result<(), String> {
+    configure_duckdb_resources_with_limit(connection, directory, DUCKDB_MEMORY_LIMIT)
+}
+
+fn configure_duckdb_resources_with_limit(
+    connection: &Connection,
+    directory: &Path,
+    memory_limit: &str,
+) -> Result<(), String> {
     let spill_directory = directory.join("duckdb-spill");
     fs::create_dir_all(&spill_directory)
         .map_err(|error| format!("No se pudo preparar el derrame temporal de DuckDB: {error}"))?;
@@ -2246,7 +2266,7 @@ fn configure_duckdb_resources(connection: &Connection, directory: &Path) -> Resu
         .replace('\\', "/")
         .replace('\'', "''");
     let query = format!(
-        "SET memory_limit = '{DUCKDB_MEMORY_LIMIT}'; SET max_temp_directory_size = '{DUCKDB_MAX_TEMP_DIRECTORY_SIZE}'; SET temp_directory = '{escaped_spill_directory}'; SET preserve_insertion_order = true;"
+        "SET memory_limit = '{memory_limit}'; SET max_temp_directory_size = '{DUCKDB_MAX_TEMP_DIRECTORY_SIZE}'; SET temp_directory = '{escaped_spill_directory}'; SET preserve_insertion_order = true;"
     );
     connection
         .execute_batch(&query)

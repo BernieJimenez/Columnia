@@ -1056,6 +1056,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- En archivos grandes, la lectura de filas prepara el bloque siguiente mientras
+  analiza el actual, calcula a la vez huellas y columnas, y la copia de trabajo
+  y el conteo de valores distintos usan hasta 1 GB de memoria en DuckDB (con
+  512 MB la copia tardaba el doble). 2019-Oct pasa de 80 s a 64 s con un pico
+  de 1.159 MiB de memoria (REN-01, en curso).
 - Al analizar la calidad, una fecha igual a la anterior no se vuelve a
   interpretar: con filas ordenadas por tiempo el mismo instante se repite
   muchas veces y leer uno probaba todos los formatos admitidos. 2019-Oct pasa

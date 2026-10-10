@@ -43,7 +43,9 @@ bloquea el uso diario.
     archivos grandes, el texto se revisa en partes a la vez, las filas
     repetidas se cuentan con huellas en la misma lectura, DuckDB cuenta los
     valores distintos en paralelo y una fecha igual a la anterior no se
-    vuelve a interpretar. 2019-Oct (5,6 GB): de 223 s a 80 s. La etiqueta
+    vuelve a interpretar; la lectura de filas prepara el bloque siguiente y
+    DuckDB usa hasta 1 GB para la copia y el conteo de distintos. 2019-Oct
+    (5,6 GB): de 223 s a 64 s, con un pico de 1.159 MiB. La etiqueta
     cambia como mucho cada 8,9 s (criterio ≤ 10 s, cumplido): la copia de
     trabajo y el conteo de distintos muestran el progreso de DuckDB.
     Sondas `perf_probe_profile` y `perf_probe_generate_csv`.
@@ -52,8 +54,8 @@ bloquea el uso diario.
     detección de filas parecidas, que depende de todas las columnas.
     Reutilizar el perfil de las columnas sin cambios ahorró un 8 % y se
     descartó.
-  - Falta: bajar 2019-Oct a ≤ 60 s (80 s; la copia de trabajo en Parquet son
-    unos 26 s y la lectura de filas 37 s) y, para reutilizar el perfil tras
+  - Falta: bajar 2019-Oct a ≤ 60 s (64 s; al final se esperan unos 9 s al
+    conteo de valores distintos de DuckDB) y, para reutilizar el perfil tras
     un cambio, actualizar duplicados y filas parecidas sin releer todo. Con
     100 M filas (CSV sintético de 4,8 GB) queda una espera de 48 s al cerrar
     el conteo de valores distintos de una columna con 100 M valores únicos,

@@ -1946,34 +1946,42 @@ where
     // of reading the whole file again after it.
     let mut distinct_count = BackgroundDistinctCount::start(path, &column_names)?;
     report("Analizando filas y columnas", 10);
-    for_each_parquet_block_with_size(
+    // REN-01: the next block is read while this one is analysed, and the row
+    // fingerprints and the column accumulators run at the same time.
+    for_each_parquet_block_prefetched(
         path,
         row_count,
         SOURCE_PROFILE_BLOCK_ROWS,
         |start, block| {
             ensure_not_cancelled(is_cancelled())?;
-            let fingerprint_columns = normalized_fingerprint_columns(block.columns())?;
-            let fingerprints = (0..block.height())
-                .into_par_iter()
-                .map(|row_index| {
-                    if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-                        ensure_not_cancelled(is_cancelled())?;
-                    }
-                    Ok((
-                        normalized_row_fingerprint(&fingerprint_columns, row_index)?,
-                        exact_row_fingerprint(&fingerprint_columns, row_index)?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, String>>()?;
-            for (normalized, exact) in fingerprints {
+            let (fingerprints, updated) = rayon::join(
+                || {
+                    let fingerprint_columns = normalized_fingerprint_columns(block.columns())?;
+                    (0..block.height())
+                        .into_par_iter()
+                        .map(|row_index| {
+                            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                                ensure_not_cancelled(is_cancelled())?;
+                            }
+                            Ok((
+                                normalized_row_fingerprint(&fingerprint_columns, row_index)?,
+                                exact_row_fingerprint(&fingerprint_columns, row_index)?,
+                            ))
+                        })
+                        .collect::<Result<Vec<_>, String>>()
+                },
+                || {
+                    accumulators
+                        .par_iter_mut()
+                        .zip(block.columns().par_iter())
+                        .try_for_each(|(accumulator, column)| accumulator.update(column))
+                },
+            );
+            updated?;
+            for (normalized, exact) in fingerprints? {
                 normalized_buckets.push(normalized)?;
                 exact_buckets.push(exact)?;
             }
-
-            accumulators
-                .par_iter_mut()
-                .zip(block.columns().par_iter())
-                .try_for_each(|(accumulator, column)| accumulator.update(column))?;
 
             // The row pass moves the bar from 10 to 84 %; 85 to 92 % are
             // the counts that follow it (REN-01).
