@@ -236,6 +236,14 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- En un archivo grande, «Convertir a número» de la propuesta de Preparar se
+  hace en disco con DuckDB, con las mismas reglas que en memoria (enteros,
+  enteros escritos como decimal, decimales de hasta 15 cifras; los códigos con
+  cero inicial y las columnas mezcladas siguen como texto). Antes obligaba a
+  cargar el archivo entero y fallaba por falta de RAM (2019-Oct pedía 21,9 GB).
+  La simulación de la propuesta ya no intenta cargar un archivo grande en
+  memoria (REN-14).
+
 - Cuando una operación sobre un archivo grande abandona la ruta que lee desde
   disco y pasa a la de memoria, Columnia anota la operación y el tipo de error
   del motor (por ejemplo «conversion» u «out-of-memory»), nunca el mensaje ni

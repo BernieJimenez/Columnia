@@ -35,6 +35,19 @@ La revisión del 2026-10-01 quedó aplicada el 2026-10-08. El 2026-10-09 se
 cerraron REN-08 y REN-13 y DAT-12 pasó a aparcado; solo queda REN-01, que no
 bloquea el uso diario.
 
+### Preparar archivos grandes
+
+- [ ] **REN-14** — Aplicar la propuesta a un archivo muy grande (2019-Oct,
+  5,6 GB) falla.
+  - Hecho: convertir a número ya se hace en disco, sin cargar el archivo, y la
+    simulación de la propuesta no intenta cargarlo en memoria. Sonda
+    `perf_probe_apply_proposal`.
+  - Falta: «Quitar 30.220 filas duplicadas» agota los 8 GB de disco temporal
+    que DuckDB tiene permitidos (consulta de ventana sobre 42 M filas y 9
+    columnas; agrupar por todas las columnas tampoco cupo). Opciones: quitar
+    duplicados con las huellas de fila del perfil o subir el límite de disco
+    temporal según el espacio libre.
+
 ### Rendimiento
 
 - [ ] **REN-01** — El perfil de calidad de archivos grandes es lento y se repite
