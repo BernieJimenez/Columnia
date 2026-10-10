@@ -1056,6 +1056,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Al analizar la calidad, una fecha igual a la anterior no se vuelve a
+  interpretar: con filas ordenadas por tiempo el mismo instante se repite
+  muchas veces y leer uno probaba todos los formatos admitidos. 2019-Oct pasa
+  de 92 s a 80 s (REN-01, en curso).
 - Acabado visual del flujo:
   - el estado de cada paso de la barra lateral es una pastilla y «Revisar de
     nuevo» va contorneado;

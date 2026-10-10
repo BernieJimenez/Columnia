@@ -990,6 +990,10 @@ pub(super) struct SourceTextAccumulator {
     comma_decimal_count: usize,
     /// How many cells hold each word marker; lone ones are data (FUN-19).
     word_markers: HashMap<String, usize>,
+    /// REN-01: the last date text read and what it gave (date and month-first
+    /// date). Rows sorted by time repeat a timestamp many times in a row, and
+    /// reading one tries every supported format.
+    last_date: Option<(String, Option<(NaiveDateTime, NaiveDateTime)>)>,
 }
 
 impl SourceTextAccumulator {
@@ -1014,6 +1018,7 @@ impl SourceTextAccumulator {
             untrimmed_count: 0,
             comma_decimal_count: 0,
             word_markers: HashMap::new(),
+            last_date: None,
         }
     }
 
@@ -1161,11 +1166,28 @@ impl SourceTextAccumulator {
             .decimal_count
             .saturating_add(usize::from(parsed_numeric.is_some()));
         if short && is_supported_date_candidate(trimmed) {
-            if let Some(datetime) = quality_datetime_value(AnyValue::String(trimmed)) {
+            let parsed = match &mut self.last_date {
+                Some((text, parsed)) if text == trimmed => *parsed,
+                last => {
+                    let parsed =
+                        quality_datetime_value(AnyValue::String(trimmed)).map(|datetime| {
+                            (datetime, month_first_datetime(trimmed).unwrap_or(datetime))
+                        });
+                    match last {
+                        Some((text, cached)) => {
+                            text.clear();
+                            text.push_str(trimmed);
+                            *cached = parsed;
+                        }
+                        None => *last = Some((trimmed.to_owned(), parsed)),
+                    }
+                    parsed
+                }
+            };
+            if let Some((datetime, month_first)) = parsed {
                 self.date_count = self.date_count.saturating_add(1);
                 self.temporal_bounds.observe_str(datetime, trimmed);
-                self.month_first_bounds
-                    .observe_str(month_first_datetime(trimmed).unwrap_or(datetime), trimmed);
+                self.month_first_bounds.observe_str(month_first, trimmed);
             }
         }
         numbers.push(parsed_numeric);

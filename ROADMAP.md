@@ -39,28 +39,25 @@ bloquea el uso diario.
 
 - [ ] **REN-01** — El perfil de calidad de archivos grandes es lento y se repite
   tras cada cambio (RV48).
-  - Hecho: vmCloud (338 MB) se perfila en 2,6–2,7 s (criterio ≤ 3 s): texto de
-    valores distintos en paralelo y categorías, tendencia y correlaciones a la
-    vez. Sonda `perf_probe_profile`.
-  - Hecho: en archivos grandes cada columna de texto se revisa en partes a la
-    vez, las filas repetidas se cuentan con huellas en esa misma lectura y
-    DuckDB cuenta los valores distintos a la vez. 2019-Oct (5,6 GB): perfil
-    de 223 s a 92 s.
-    La copia de trabajo y el conteo de valores distintos muestran el
-    progreso de DuckDB, y tendencia y correlaciones avanzan juntas: en
-    2019-Oct la etiqueta cambia como mucho cada 9,1 s (criterio ≤ 10 s,
-    cumplido).
-  - Medido (2026-10-09): tras un cambio en memoria, recalcular el perfil
-    cuesta lo mismo que el primero (0,4 s con 300 000 filas; 2,7 s con
-    vmCloud) y lo marca la detección de filas parecidas, que depende de todas
-    las columnas. Reutilizar el perfil de las columnas que no cambian solo
-    ahorró un 8 % y se descartó.
-  - Falta: bajar 2019-Oct a ≤ 60 s (92–125 s según la carga del antivirus,
-    que revisa los temporales) y, para reutilizar el perfil tras un cambio,
-    actualizar también duplicados y filas parecidas sin releer todo. Con 100 M filas (CSV sintético de 4,8 GB, 170 s)
-    queda una espera de 48 s al cerrar el conteo de valores distintos de una
-    columna con 100 M valores únicos, fase en la que DuckDB no informa de
-    progreso.
+  - Hecho: vmCloud (338 MB) se perfila en 2,6–2,7 s (criterio ≤ 3 s). En
+    archivos grandes, el texto se revisa en partes a la vez, las filas
+    repetidas se cuentan con huellas en la misma lectura, DuckDB cuenta los
+    valores distintos en paralelo y una fecha igual a la anterior no se
+    vuelve a interpretar. 2019-Oct (5,6 GB): de 223 s a 80 s. La etiqueta
+    cambia como mucho cada 8,9 s (criterio ≤ 10 s, cumplido): la copia de
+    trabajo y el conteo de distintos muestran el progreso de DuckDB.
+    Sondas `perf_probe_profile` y `perf_probe_generate_csv`.
+  - Medido: tras un cambio en memoria, recalcular el perfil cuesta lo mismo
+    que el primero (0,4 s con 300 000 filas; 2,7 s con vmCloud) y lo marca la
+    detección de filas parecidas, que depende de todas las columnas.
+    Reutilizar el perfil de las columnas sin cambios ahorró un 8 % y se
+    descartó.
+  - Falta: bajar 2019-Oct a ≤ 60 s (80 s; la copia de trabajo en Parquet son
+    unos 26 s y la lectura de filas 37 s) y, para reutilizar el perfil tras
+    un cambio, actualizar duplicados y filas parecidas sin releer todo. Con
+    100 M filas (CSV sintético de 4,8 GB) queda una espera de 48 s al cerrar
+    el conteo de valores distintos de una columna con 100 M valores únicos,
+    fase en la que DuckDB no informa de progreso.
 
 ## Aparcado: solo si Columnia se comparte
 

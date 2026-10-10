@@ -144,6 +144,9 @@ pub(super) struct DateTally {
     fits: [bool; 3],
     has_time: bool,
     values: usize,
+    /// REN-01: the last text observed. The same text again changes nothing
+    /// but the count, so it is not parsed again (sorted timestamps repeat).
+    last: Option<String>,
 }
 
 impl Default for DateTally {
@@ -152,6 +155,7 @@ impl Default for DateTally {
             fits: [true; 3],
             has_time: false,
             values: 0,
+            last: None,
         }
     }
 }
@@ -172,6 +176,14 @@ impl DateTally {
         }
         let value = value.trim();
         self.values += 1;
+        match &mut self.last {
+            Some(last) if last == value => return,
+            Some(last) => {
+                last.clear();
+                last.push_str(value);
+            }
+            None => self.last = Some(value.to_owned()),
+        }
         for (fits, order) in self.fits.iter_mut().zip(ORDERS) {
             if *fits && parse_ordered_date(value, order).is_none() {
                 *fits = false;
@@ -216,6 +228,30 @@ mod tests {
             tally.observe(value);
         }
         tally.finish()
+    }
+
+    #[test]
+    fn a_repeated_text_counts_again_without_changing_the_order() {
+        // REN-01: the same text in a row is not parsed again; the result and
+        // the count are those of reading every value.
+        let mut tally = DateTally::default();
+        for value in [
+            "01/02/2024",
+            "01/02/2024",
+            " 01/02/2024 ",
+            "13/02/2024 10:00",
+            "13/02/2024 10:00",
+        ] {
+            tally.observe(value);
+        }
+        assert_eq!(tally.values, 5);
+        assert_eq!(
+            tally.finish(),
+            Some(DateInference::Single {
+                order: DateOrder::Dmy,
+                has_time: true
+            })
+        );
     }
 
     #[test]
