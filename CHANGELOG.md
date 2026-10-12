@@ -242,7 +242,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   cero inicial y las columnas mezcladas siguen como texto). Antes obligaba a
   cargar el archivo entero y fallaba por falta de RAM (2019-Oct pedía 21,9 GB).
   La simulación de la propuesta ya no intenta cargar un archivo grande en
-  memoria (REN-14).
+  memoria. Quitar duplicados de un archivo grande puede usar como disco
+  temporal la mitad del espacio libre (entre 8 y 64 GiB) y 1 GB de memoria en
+  DuckDB: con el límite fijo de 8 GB fallaba. La propuesta completa de
+  2019-Oct (marcadores, número y 30.220 duplicados) ya se aplica (REN-14).
 
 - Cuando una operación sobre un archivo grande abandona la ruta que lee desde
   disco y pasa a la de memoria, Columnia anota la operación y el tipo de error

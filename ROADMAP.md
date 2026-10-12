@@ -39,14 +39,13 @@ bloquea el uso diario.
 
 - [ ] **REN-14** — Aplicar la propuesta a un archivo muy grande (2019-Oct,
   5,6 GB) falla.
-  - Hecho: convertir a número ya se hace en disco, sin cargar el archivo, y la
-    simulación de la propuesta no intenta cargarlo en memoria. Sonda
+  - Hecho: convertir a número se hace en disco, la simulación de la propuesta
+    no carga el archivo y las recetas en disco usan como temporal la mitad del
+    espacio libre (8–64 GiB) y 1 GB de memoria. La propuesta completa de
+    2019-Oct se aplica: 4.072 marcadores, 1 columna a número y 30.220
+    duplicados, con 3,5 GB de disco temporal. Sonda
     `perf_probe_apply_proposal`.
-  - Falta: «Quitar 30.220 filas duplicadas» agota los 8 GB de disco temporal
-    que DuckDB tiene permitidos (consulta de ventana sobre 42 M filas y 9
-    columnas; agrupar por todas las columnas tampoco cupo). Opciones: quitar
-    duplicados con las huellas de fila del perfil o subir el límite de disco
-    temporal según el espacio libre.
+  - Falta: tarda 580 s (casi 10 minutos) sin progreso intermedio.
 
 ### Rendimiento
 

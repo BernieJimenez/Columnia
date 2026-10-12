@@ -64,6 +64,8 @@ serde_json = { version = "1", features = ["arbitrary_precision"] }
 semver = "1.0.28"
 sha2 = "0.11.0"
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+# REN-14: free space of the temporary drive; already built for polars-io.
+fs4 = "1.1.0"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2.7.3"
 tempfile = "3"

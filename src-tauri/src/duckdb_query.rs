@@ -790,7 +790,14 @@ where
         let resource_directory = tempfile::tempdir().map_err(|error| {
             format!("No se pudo preparar el espacio temporal para la receta source-backed: {error}")
         })?;
-        configure_duckdb_resources(connection, resource_directory.path())?;
+        // REN-14: a recipe rewrites a large file; it may need more memory and
+        // temporary disk than a query (dropping duplicates sorts every row).
+        configure_duckdb_resources_with_limits(
+            connection,
+            resource_directory.path(),
+            DUCKDB_LARGE_FILE_MEMORY_LIMIT,
+            &large_file_temp_directory_limit(resource_directory.path()),
+        )?;
         register_file_view(connection, "dataset", source_path, source_format, None)?;
         let destination = destination
             .to_string_lossy()
@@ -2370,6 +2377,29 @@ fn configure_duckdb_resources_with_limit(
     directory: &Path,
     memory_limit: &str,
 ) -> Result<(), String> {
+    configure_duckdb_resources_with_limits(
+        connection,
+        directory,
+        memory_limit,
+        DUCKDB_MAX_TEMP_DIRECTORY_SIZE,
+    )
+}
+
+/// REN-14: temporary disk for an operation that rewrites a large file: half
+/// of the free space of the drive that holds `directory`, between the usual
+/// 8 GiB and 64 GiB. Removing the duplicates of a 5.6 GB CSV needed more than
+/// 8 GiB.
+fn large_file_temp_directory_limit(directory: &Path) -> String {
+    let free_gib = fs4::available_space(directory).unwrap_or(0) / (1 << 30);
+    format!("{}GiB", (free_gib / 2).clamp(8, 64))
+}
+
+fn configure_duckdb_resources_with_limits(
+    connection: &Connection,
+    directory: &Path,
+    memory_limit: &str,
+    temp_directory_limit: &str,
+) -> Result<(), String> {
     let spill_directory = directory.join("duckdb-spill");
     fs::create_dir_all(&spill_directory)
         .map_err(|error| format!("No se pudo preparar el derrame temporal de DuckDB: {error}"))?;
@@ -2378,7 +2408,7 @@ fn configure_duckdb_resources_with_limit(
         .replace('\\', "/")
         .replace('\'', "''");
     let query = format!(
-        "SET memory_limit = '{memory_limit}'; SET max_temp_directory_size = '{DUCKDB_MAX_TEMP_DIRECTORY_SIZE}'; SET temp_directory = '{escaped_spill_directory}'; SET preserve_insertion_order = true;"
+        "SET memory_limit = '{memory_limit}'; SET max_temp_directory_size = '{temp_directory_limit}'; SET temp_directory = '{escaped_spill_directory}'; SET preserve_insertion_order = true;"
     );
     connection
         .execute_batch(&query)

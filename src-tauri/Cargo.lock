@@ -885,6 +885,7 @@ dependencies = [
  "chrono",
  "duckdb",
  "encoding_rs",
+ "fs4",
  "getrandom 0.3.4",
  "hex",
  "libmimalloc-sys",
