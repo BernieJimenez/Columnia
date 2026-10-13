@@ -802,7 +802,10 @@ fn probe_explore(
             current_source_backed_context(dataset).ok_or("la fuente en disco no está")?;
         match dataset_extension(&path)?.as_str() {
             "parquet" => parquet_scan(&path)?,
-            extension => delimited_scan_with_header(&path, extension, true)?,
+            extension => match cached_profile_snapshot(&path) {
+                Some(snapshot) => parquet_scan(&snapshot)?,
+                None => delimited_scan_with_header(&path, extension, true)?,
+            },
         }
     } else {
         dataset.frame.clone().lazy()

@@ -23291,3 +23291,43 @@ fn source_backed_dates_and_fills_match_the_in_memory_plan() {
     assert_eq!(output.column("mala").unwrap().dtype(), &DataType::String);
     assert!(output.equals_missing(&expected.frame));
 }
+
+#[test]
+fn explore_reads_the_profile_copy_of_an_unchanged_large_csv() {
+    // REN-14: Explorar reuses the profile's Parquet copy instead of parsing the
+    // CSV again; the panel is the same, and a changed file is read again.
+    let path =
+        temporary_csv("zona,importe\nnorte,10\nsur,20\nnorte,30\neste,40\nnorte,50\nsur,60\n");
+    let size = fs::metadata(&path).expect("fuente").len();
+    let (_, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe abrirse en disco");
+    let profile = profile_source_backed_with_progress(
+        &path,
+        "csv",
+        size,
+        row_count,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("perfil en disco");
+    let snapshot = cached_profile_snapshot(&path).expect("la copia queda en caché");
+    let layout = explore::ExploreLayout::default();
+    let from_copy =
+        explore::explore_panel(parquet_scan(&snapshot).unwrap(), &profile, &[], &layout)
+            .expect("Explorar sobre la copia");
+    let from_csv = explore::explore_panel(
+        delimited_scan_with_header(&path, "csv", true).unwrap(),
+        &profile,
+        &[],
+        &layout,
+    )
+    .expect("Explorar sobre el CSV");
+    assert_eq!(
+        serde_json::to_value(&from_copy).unwrap(),
+        serde_json::to_value(&from_csv).unwrap()
+    );
+
+    fs::write(&path, "zona,importe\nnorte,10\n").expect("cambiar la fuente");
+    assert!(cached_profile_snapshot(&path).is_none());
+}

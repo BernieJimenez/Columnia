@@ -10903,13 +10903,25 @@ pub async fn get_explore_panel(
         let plan = if dataset.source_backed {
             let (source_path, _, _) = current_source_backed_context(dataset)
                 .ok_or_else(|| "La fuente cambió o ya no está disponible.".to_owned())?;
+            let has_header =
+                dataset.delimited_header_mode != Some(SpreadsheetHeaderMode::Generated);
             match dataset_extension(&source_path)?.as_str() {
                 "parquet" => parquet_scan(&source_path)?,
-                extension @ ("csv" | "tsv" | "txt") => delimited_scan_with_header(
-                    &source_path,
-                    extension,
-                    dataset.delimited_header_mode != Some(SpreadsheetHeaderMode::Generated),
-                )?,
+                // REN-14: the profile's working copy is read instead of the
+                // CSV when the file has not changed.
+                "csv" | "tsv" | "txt" if has_header => {
+                    match cached_profile_snapshot(&source_path) {
+                        Some(snapshot) => parquet_scan(&snapshot)?,
+                        None => delimited_scan_with_header(
+                            &source_path,
+                            &dataset_extension(&source_path)?,
+                            true,
+                        )?,
+                    }
+                }
+                extension @ ("csv" | "tsv" | "txt") => {
+                    delimited_scan_with_header(&source_path, extension, has_header)?
+                }
                 _ => return Err("Este formato todavía no se puede explorar.".to_owned()),
             }
         } else {

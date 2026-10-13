@@ -2494,6 +2494,66 @@ where
     }
 }
 
+/// REN-14: the Parquet working copy of the last large delimited file the
+/// profile read. Explorar and a second profile of the same, unchanged file
+/// read it instead of parsing the CSV again (2019-Oct: 55 s against 3 s).
+struct ProfileSnapshot {
+    source: PathBuf,
+    size: u64,
+    modified: Option<SystemTime>,
+    _directory: tempfile::TempDir,
+    path: PathBuf,
+}
+
+static PROFILE_SNAPSHOT: std::sync::Mutex<Vec<ProfileSnapshot>> = std::sync::Mutex::new(Vec::new());
+
+/// The app keeps the copy of one file (it can take gigabytes of temporary
+/// disk); tests profile several files at the same time.
+const PROFILE_SNAPSHOT_CAPACITY: usize = if cfg!(test) { 64 } else { 1 };
+
+fn file_modified(path: &Path) -> Option<SystemTime> {
+    fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+}
+
+/// The working copy of `source` when the profile made one and the file has
+/// not changed since (same size and modification time).
+pub(super) fn cached_profile_snapshot(source: &Path) -> Option<PathBuf> {
+    use crate::crash_report::LockRecovering;
+    let size = fs::metadata(source).ok()?.len();
+    let modified = file_modified(source);
+    PROFILE_SNAPSHOT
+        .lock_recovering()
+        .iter()
+        .find(|snapshot| {
+            snapshot.source == source
+                && snapshot.size == size
+                && snapshot.modified == modified
+                && snapshot.path.is_file()
+        })
+        .map(|snapshot| snapshot.path.clone())
+}
+
+fn remember_profile_snapshot(source: &Path, directory: tempfile::TempDir, path: PathBuf) {
+    use crate::crash_report::LockRecovering;
+    let Ok(metadata) = fs::metadata(source) else {
+        return;
+    };
+    let mut snapshots = PROFILE_SNAPSHOT.lock_recovering();
+    snapshots.retain(|snapshot| snapshot.source != source);
+    if snapshots.len() >= PROFILE_SNAPSHOT_CAPACITY {
+        snapshots.remove(0);
+    }
+    snapshots.push(ProfileSnapshot {
+        source: source.to_owned(),
+        size: metadata.len(),
+        modified: metadata.modified().ok(),
+        _directory: directory,
+        path,
+    });
+}
+
 pub(super) fn profile_source_backed_with_progress<F, C>(
     source_path: &Path,
     extension: &str,
@@ -2510,8 +2570,12 @@ where
     ensure_not_cancelled(is_cancelled())?;
     // REN-01: copying a large delimited file to Parquet takes a while, so
     // DuckDB's own progress of the copy moves the bar from 0 to 9 %.
-    let (_snapshot_directory, snapshot_path) = match extension {
+    let cached = cached_profile_snapshot(source_path);
+    let (snapshot_directory, snapshot_path) = match extension {
         "parquet" => (None, source_path.to_owned()),
+        "csv" | "tsv" | "txt" if cached.is_some() => {
+            (None, cached.expect("la copia en caché existe"))
+        }
         "csv" | "tsv" | "txt" => {
             report("Preparando una copia de trabajo", 0);
             let mut shown = 0_u8;
@@ -2651,6 +2715,9 @@ where
         .len();
     if final_size != expected_file_size {
         return Err("El archivo source-backed cambió durante el perfilado.".to_owned());
+    }
+    if let Some(directory) = snapshot_directory {
+        remember_profile_snapshot(source_path, directory, snapshot_path.clone());
     }
     Ok(DatasetProfile {
         row_count,
