@@ -245,7 +245,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   memoria. Quitar duplicados de un archivo grande puede usar como disco
   temporal la mitad del espacio libre (entre 8 y 64 GiB) y 1 GB de memoria en
   DuckDB: con el límite fijo de 8 GB fallaba. La propuesta completa de
-  2019-Oct (marcadores, número y 30.220 duplicados) ya se aplica (REN-14).
+  2019-Oct (marcadores, número y 30.220 duplicados) ya se aplica, en 262 s:
+  las columnas que las correcciones no cambian se leen tal cual y los
+  duplicados se quitan agrupando por todas las columnas (REN-14).
 
 - Cuando una operación sobre un archivo grande abandona la ruta que lee desde
   disco y pasa a la de memoria, Columnia anota la operación y el tipo de error

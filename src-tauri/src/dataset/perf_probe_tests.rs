@@ -587,11 +587,23 @@ fn perf_probe_apply_proposal() {
     let extension = dataset_extension(&path).expect("extensión");
     let (schema, _, row_count) =
         source_backed_load(&path, &extension, || false).expect("carga source-backed");
-    let columns = schema
-        .get_column_names()
-        .iter()
-        .map(|name| name.to_string())
-        .collect::<Vec<_>>();
+    // The proposal lists the columns it types; `COLUMNIA_PROBE_CAST_COLUMNS`
+    // (comma separated) stands for that list, every column by default.
+    let columns = std::env::var("COLUMNIA_PROBE_CAST_COLUMNS").map_or_else(
+        |_| {
+            schema
+                .get_column_names()
+                .iter()
+                .map(|name| name.to_string())
+                .collect::<Vec<_>>()
+        },
+        |listed| {
+            listed
+                .split(',')
+                .map(|name| name.trim().to_owned())
+                .collect()
+        },
+    );
     let mut dataset = LoadedDataset {
         source_path: Some(path.clone()),
         file_name: "propuesta".to_owned(),

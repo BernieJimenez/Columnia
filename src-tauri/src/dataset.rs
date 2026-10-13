@@ -2458,15 +2458,13 @@ fn source_backed_duplicate_query(schema: &DataFrame, projection: &str) -> Result
     while schema_names.iter().any(|name| *name == order_name) {
         order_name.push('_');
     }
-    let mut rank_name = "__columnia_duplicate_rank".to_owned();
-    while schema_names.iter().any(|name| *name == rank_name) || rank_name == order_name {
-        rank_name.push('_');
-    }
     let order_column = duckdb_identifier(&order_name);
-    let rank_column = duckdb_identifier(&rank_name);
+    // REN-14: the first row of each group, as a grouping by every column with
+    // its first position, then in file order; on 2019-Oct it was faster than
+    // a window partitioned by every column.
+    let columns = columns.join(", ");
     Ok(format!(
-        "SELECT {projection} FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY {} ORDER BY {order_column}) AS {rank_column} FROM (SELECT dataset.*, ROW_NUMBER() OVER () AS {order_column} FROM dataset) AS ordered) AS ranked WHERE {rank_column} = 1 ORDER BY {order_column}",
-        columns.join(", ")
+        "SELECT {projection} FROM (SELECT {columns}, min({order_column}) AS {order_column} FROM (SELECT dataset.*, ROW_NUMBER() OVER () AS {order_column} FROM dataset) AS ordered GROUP BY {columns}) AS ranked ORDER BY {order_column}"
     ))
 }
 
@@ -5660,6 +5658,15 @@ fn source_backed_safe_corrections_with_cancellation(
         }
     };
     let changed_cell_count = changed_counts.iter().copied().sum::<usize>();
+    // REN-14: a column the corrections do not change is read as it is; its
+    // expression (several regular expressions per cell) gave every value back
+    // unchanged and cost minutes on a 42 M row file.
+    let text_expressions = text_expressions
+        .into_iter()
+        .zip(&changed_counts)
+        .filter(|(_, changed)| **changed > 0)
+        .map(|(expression, _)| expression)
+        .collect::<Vec<_>>();
     // REN-01: a large file is typed on disk too, after the text corrections,
     // with the rules of `cast_fully_numeric_columns`; loading 5 GB into memory
     // to type one column failed for lack of RAM.
@@ -5771,16 +5778,12 @@ fn source_backed_safe_corrections_with_cancellation(
         while names.contains(order_name.as_str()) {
             order_name.push('_');
         }
-        let mut rank_name = "__columnia_plan_rank".to_owned();
-        while names.contains(rank_name.as_str()) || rank_name == order_name {
-            rank_name.push('_');
-        }
         let order_column = duckdb_identifier(&order_name);
-        let rank_column = duckdb_identifier(&rank_name);
+        // REN-14: grouping keeps the first of each group (see
+        // `source_backed_duplicate_query`).
+        let columns = columns.join(", ");
         format!(
-            "WITH prepared AS ({prepared_query}), ordered AS (SELECT prepared.*, ROW_NUMBER() OVER () AS {order_column} FROM prepared), ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY {} ORDER BY {order_column}) AS {rank_column} FROM ordered) SELECT {} FROM ranked WHERE {rank_column} = 1 ORDER BY {order_column}",
-            columns.join(", "),
-            columns.join(", "),
+            "WITH prepared AS ({prepared_query}), ordered AS (SELECT prepared.*, ROW_NUMBER() OVER () AS {order_column} FROM prepared) SELECT {columns} FROM (SELECT {columns}, min({order_column}) AS {order_column} FROM ordered GROUP BY {columns}) AS ranked ORDER BY {order_column}"
         )
     } else {
         prepared_query

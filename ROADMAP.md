@@ -45,7 +45,11 @@ bloquea el uso diario.
     2019-Oct se aplica: 4.072 marcadores, 1 columna a número y 30.220
     duplicados, con 3,5 GB de disco temporal. Sonda
     `perf_probe_apply_proposal`.
-  - Falta: tarda 580 s (casi 10 minutos) sin progreso intermedio.
+  - Hecho: las columnas sin cambios se leen tal cual (sin las expresiones de
+    «sin dato») y los duplicados se quitan agrupando por todas las columnas:
+    de 596 s a 262 s.
+  - Falta: 262 s sin progreso intermedio; la búsqueda de marcadores sueltos y
+    el conteo de cambios son dos lecturas completas del CSV (44 s y 37 s).
 
 ### Rendimiento
 
