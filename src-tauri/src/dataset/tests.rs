@@ -23184,6 +23184,7 @@ fn source_backed_numeric_typing_matches_the_in_memory_plan() {
         None,
         None,
         &cancellation,
+        &mut |_, _| {},
     )
     .expect("el plan en disco debe aplicarse")
     .expect("el CSV debe procesarse en disco");
@@ -23273,6 +23274,7 @@ fn source_backed_dates_and_fills_match_the_in_memory_plan() {
         Some(&dates),
         Some(&fill),
         &PrepareCancellation::disabled(),
+        &mut |_, _| {},
     )
     .expect("el plan en disco debe aplicarse")
     .expect("el CSV debe procesarse en disco");
@@ -23330,4 +23332,39 @@ fn explore_reads_the_profile_copy_of_an_unchanged_large_csv() {
 
     fs::write(&path, "zona,importe\nnorte,10\n").expect("cambiar la fuente");
     assert!(cached_profile_snapshot(&path).is_none());
+}
+
+#[test]
+fn the_first_version_of_a_large_csv_reuses_the_profile_copy() {
+    // REN-14: the history's starting point is the profile's Parquet copy of
+    // the unchanged CSV, with the same content as reading the CSV again.
+    let path = temporary_csv("zona,importe\nnorte,10\nsur,\nnorte,30\n");
+    let size = fs::metadata(&path).expect("fuente").len();
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe abrirse en disco");
+    let format = crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' };
+    let history = HistoryManager::new(&schema).expect("el historial debe inicializarse");
+    let from_csv = prepare_source_backed_baseline_snapshot(&history, &path, format, || false)
+        .expect("versión de partida desde el CSV");
+    profile_source_backed_with_progress(
+        &path,
+        "csv",
+        size,
+        row_count,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("perfil en disco");
+    let cached = cached_profile_snapshot(&path).expect("la copia queda en caché");
+    let from_copy = prepare_source_backed_baseline_snapshot(&history, &path, format, || false)
+        .expect("versión de partida desde la copia");
+    assert_eq!(
+        fs::read(from_copy.temporary.path()).unwrap(),
+        fs::read(&cached).unwrap()
+    );
+    let read = |snapshot: &PreparedHistorySnapshot| {
+        read_parquet_frame(snapshot.temporary.path()).expect("la versión se lee")
+    };
+    assert!(read(&from_copy).equals_missing(&read(&from_csv)));
 }

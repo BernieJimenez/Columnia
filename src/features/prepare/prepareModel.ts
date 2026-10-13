@@ -8,6 +8,7 @@ import type {
   SafeCorrectionOptions,
   SafeCorrectionsResult,
   TransformRecipe,
+  OperationProgress,
 } from "../../bridge";
 import { isTextType } from "../../dataTypes";
 import { isRowAuditColumn } from "../../rowAudit";
@@ -19,6 +20,8 @@ export type ChangeStatus =
       kind: "working";
       action: "safe" | "duplicates" | "near_duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "identifier_columns" | "personal_columns" | "personal_mask" | "sentinels" | "booleans" | "encoding" | "invalid_types" | "impute" | "categorical_impute" | "parse_dates" | "cast_numeric" | "outlier_impute" | "outlier_cap" | "outlier_drop" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
       cancelRequested?: boolean;
+      /** The step and percent of a long apply, when the backend reports them (REN-14). */
+      progress?: OperationProgress;
     }
   /** `changes` lists what a proposal applied, one line each, for its result screen. */
   /** `unchanged`: the dataset already met the plan, nothing was written (FUN-46). */

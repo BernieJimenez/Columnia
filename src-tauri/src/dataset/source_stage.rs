@@ -307,6 +307,7 @@ pub(super) fn source_date_and_impute_stage<C>(
     output: &Path,
     plan: &SourceStagePlan,
     is_cancelled: &C,
+    progress: &mut dyn FnMut(f64),
 ) -> Result<Option<SourceStageOutcome>, String>
 where
     C: Fn() -> bool + Sync,
@@ -394,15 +395,21 @@ where
         .batched(empty.schema())
         .map_err(|error| format!("No se pudo preparar la versión corregida: {error}"))?;
     let mut imputed_cell_count = 0usize;
-    for_each_parquet_block_prefetched(input, row_count, SOURCE_STAGE_BLOCK_ROWS, |_, block| {
-        ensure_not_cancelled(is_cancelled())?;
-        let (mut converted, filled) = convert_block(block, &numbers, &dates, &fills)?;
-        imputed_cell_count += filled;
-        converted.align_chunks_par();
-        writer
-            .write_batch(&converted)
-            .map_err(|error| format!("No se pudo escribir la versión corregida: {error}"))
-    })?;
+    for_each_parquet_block_prefetched(
+        input,
+        row_count,
+        SOURCE_STAGE_BLOCK_ROWS,
+        |start, block| {
+            ensure_not_cancelled(is_cancelled())?;
+            progress(start as f64 / row_count.max(1) as f64);
+            let (mut converted, filled) = convert_block(block, &numbers, &dates, &fills)?;
+            imputed_cell_count += filled;
+            converted.align_chunks_par();
+            writer
+                .write_batch(&converted)
+                .map_err(|error| format!("No se pudo escribir la versión corregida: {error}"))
+        },
+    )?;
     writer
         .finish()
         .map_err(|error| format!("No se pudo cerrar la versión corregida: {error}"))?;

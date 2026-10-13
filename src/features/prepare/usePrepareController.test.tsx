@@ -778,7 +778,7 @@ describe("usePrepareController", () => {
       normalizeSentinels: true,
       normalizeColumnNames: true,
       removeDuplicates: true,
-    });
+    }, expect.any(Function));
     fireEvent.click(screen.getByRole("button", { name: "Receta" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("no produjo cambios"));
   });
@@ -804,7 +804,7 @@ describe("usePrepareController", () => {
     fireEvent.click(screen.getByRole("button", { name: "Solo tipos" }));
 
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Plan aplicado: 1 columna convertida a número."));
-    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ castColumns: ["Quantity"] }));
+    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ castColumns: ["Quantity"] }), expect.any(Function));
     expect(callbacks.onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(callbacks.onDeliveryInvalidated).toHaveBeenCalled();
   });

@@ -45,9 +45,15 @@ bloquea el uso diario.
     2019-Nov) por cargar, perfil, Explorar, propuesta, perfil y Explorar otra
     vez: 0 fallos. Las herramientas sueltas de Preparar ya tenían su camino en
     disco.
-  - Falta: aplicar la propuesta tarda 272 s en 2019-Oct y 516 s en 2019-Nov
-    sin progreso intermedio, y Explorar sobre el CSV original tarda 55 s y
-    88 s porque relee el CSV (sobre la versión en Parquet, 2–4 s).
+  - Hecho: «Aplicar» muestra el paso, el porcentaje y el tiempo, y se cancela
+    desde ahí; Explorar y la versión de partida del historial reutilizan la
+    copia del perfil, y los marcadores sueltos se buscan en una sola lectura.
+    `perf_probe_full_flow` en los 11 datasets, 0 fallos: Explorar 2,3 s en
+    2019-Oct y 4,2 s en 2019-Nov (antes 55 y 88 s); aplicar la propuesta,
+    195 s y 427 s (antes 272 y 516 s).
+  - Falta: aplicar sigue tardando minutos en 5–9 GB (escribir sin duplicados
+    unos 130 s en 2019-Oct), con pausas de hasta unos 30 s sin cambio de
+    porcentaje mientras DuckDB cuenta los cambios o arranca la escritura.
 
 ### Rendimiento
 

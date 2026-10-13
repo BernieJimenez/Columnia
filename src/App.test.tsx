@@ -1959,7 +1959,7 @@ describe("App", () => {
     expect(await screen.findByText("Plan aplicado: 1 columna renombrada.")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeInTheDocument();
     expect(within(screen.getByRole("button", { name: "Preparar" })).getByText("Hecho")).toBeInTheDocument();
-    expect(normalizeSpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: false, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false }));
+    expect(normalizeSpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: false, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false }), expect.any(Function));
 
     await switchPhase("Revisar");
     fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
@@ -2012,7 +2012,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Aplicar \d+ cambios?$/ }));
 
     expect(await screen.findByText("Plan aplicado: 1 celda actualizada.")).toBeInTheDocument();
-    expect(trimSpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: true, normalizeSentinels: false, normalizeColumnNames: false, removeDuplicates: false }));
+    expect(trimSpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: true, normalizeSentinels: false, normalizeColumnNames: false, removeDuplicates: false }), expect.any(Function));
 
     fireEvent.click(screen.getByRole("checkbox", { name: "city" }));
     fireEvent.click(screen.getByRole("button", { name: "Normalizar texto seleccionado" }));
@@ -2066,7 +2066,7 @@ describe("App", () => {
     ).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
-    expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: true, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false }));
+    expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: true, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false }), expect.any(Function));
   });
 
   it("calcula y presenta el perfil de calidad del dataset", async () => {
@@ -2186,7 +2186,7 @@ describe("App", () => {
     expect(await screen.findByText(/^Plan aplicado:/)).toBeInTheDocument();
     expect(safeCorrectionSpy).toHaveBeenCalledWith(expect.objectContaining({
       trimText: false, normalizeSentinels: false, normalizeColumnNames: false, removeDuplicates: true,
-    }));
+    }), expect.any(Function));
     await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(2));
 
     const result = await screen.findByRole("region", { name: "Listo: cambios aplicados" });

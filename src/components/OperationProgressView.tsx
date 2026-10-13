@@ -23,6 +23,11 @@ const OPERATION_COPY: Record<
     title: "Analizando calidad",
     description: "Estamos comprobando estructura, valores y consistencia.",
   },
+  prepare: {
+    eyebrow: "Preparación",
+    title: "Aplicando cambios",
+    description: "Estamos escribiendo una versión corregida; el archivo original no se toca.",
+  },
   export: {
     eyebrow: "Entrega",
     title: "Exportando dataset",

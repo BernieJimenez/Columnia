@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { expectShape } from "./shape";
+import { progressChannel, type ProgressHandler } from "./progress";
 import type {
   DatasetMutation,
   ColumnRemovalResult,
@@ -132,7 +133,11 @@ export function previewSafeCorrections(options: SafeCorrectionOptions): Promise<
   });
 }
 
-export function applySafeCorrections(options: SafeCorrectionOptions): Promise<SafeCorrectionsResult> {
+/** `onProgress` receives the step and percent of a long apply (REN-14). */
+export function applySafeCorrections(
+  options: SafeCorrectionOptions,
+  onProgress?: ProgressHandler,
+): Promise<SafeCorrectionsResult> {
   return invoke<SafeCorrectionsResult>("apply_safe_corrections", {
     trimText: options.trimText,
     normalizeSentinels: options.normalizeSentinels,
@@ -142,6 +147,7 @@ export function applySafeCorrections(options: SafeCorrectionOptions): Promise<Sa
     imputeColumns: options.imputeColumns ?? null,
     castColumns: options.castColumns ?? null,
     dateColumns: options.dateColumns ?? null,
+    onProgress: progressChannel(onProgress),
   });
 }
 

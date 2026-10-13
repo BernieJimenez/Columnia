@@ -1,6 +1,7 @@
 import type { HistoryState } from "../../bridge";
 import { changeProgressMessage, formatChangeSummary, type ChangeStatus } from "./prepareModel";
 import { formatBytes } from "../../format";
+import { OperationProgressView } from "../../components/OperationProgressView";
 
 export function HistoryBar({
   status,
@@ -88,6 +89,15 @@ export function ChangeFeedback({ status, onCancel }: { status: ChangeStatus; onC
   if (status.kind === "idle" || status.kind === "applied") return null;
 
   if (status.kind === "working") {
+    // REN-14: a long apply shows its step, percent and elapsed time.
+    if (status.progress && onCancel) {
+      return (
+        <OperationProgressView
+          progress={status.progress}
+          cancellation={status.cancelRequested ? { kind: "requested" } : { kind: "available", onCancel }}
+        />
+      );
+    }
     const message = changeProgressMessage(status.action);
     return (
       <div className="notice change-feedback__working" role="status">

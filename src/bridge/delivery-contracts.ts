@@ -1,5 +1,5 @@
 export interface OperationProgress {
-  operation: "load" | "profile" | "export";
+  operation: "load" | "profile" | "export" | "prepare";
   stage: string;
   percent: number;
 }

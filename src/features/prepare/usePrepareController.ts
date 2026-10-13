@@ -577,7 +577,9 @@ export function usePrepareController({
     if (!options.trimText && !options.normalizeSentinels && !options.normalizeColumnNames && !options.removeDuplicates && !options.imputeMissing && !castsColumns) return;
     setChangeStatus({ kind: "working", action: "safe" });
     try {
-      const result = await applySafeCorrections(options);
+      const result = await applySafeCorrections(options, (progress) =>
+        setChangeStatus((current) => (current.kind === "working" ? { ...current, progress } : current)),
+      );
       const imputedCellCount = result.imputedCellCount;
       const changed = result.changedCellCount > 0
         || result.removedRowCount > 0

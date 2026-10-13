@@ -12,6 +12,13 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Añadido
 
+- Aplicar la propuesta de Preparar a un archivo grande muestra en qué paso va
+  (revisar el archivo, contar los cambios, escribir la versión corregida,
+  convertir números, fechas y huecos, guardar la versión), su porcentaje y el
+  tiempo transcurrido, y se puede cancelar desde ahí; antes solo decía
+  «Aplicando…» durante varios minutos. La lista de marcadores «sin dato» se
+  compara con `list_contains`: con `IN (...)` DuckDB dejaba de informar el
+  avance de toda la escritura (REN-14).
 - Al comparar con otro dataset, «Qué cuenta como igual» deja tolerar el redondeo
   de los decimales (0,1 + 0,2 = 0,3 y 1 = 1,0), ignorar mayúsculas e ignorar los
   espacios al principio y al final, en claves y valores; vale para archivos de
@@ -236,6 +243,14 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Explorar un CSV grande ya analizado lee la copia de trabajo que hizo el
+  perfil en lugar de volver a interpretar el CSV (2019-Oct: de unos 55 s a
+  pocos segundos), y un segundo perfil del mismo archivo se ahorra la copia.
+  Si el archivo cambia, se vuelve a leer. El primer cambio guarda en el
+  historial esa misma copia como versión de partida en lugar de convertir el
+  CSV otra vez, y los marcadores que aparecen una sola vez se buscan en todas
+  las columnas con una sola lectura del archivo, no una por columna (2019-Oct:
+  «Revisando el archivo» de 47 s a 20 s) (REN-14).
 - La propuesta de Preparar se aplica entera en disco a un archivo grande:
   convertir a número, convertir a fecha y rellenar huecos siguen las mismas
   reglas que en memoria y se hacen bloque a bloque después de las correcciones

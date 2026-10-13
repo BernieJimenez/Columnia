@@ -446,6 +446,7 @@ describe("desktop bridge", () => {
       imputeColumns: null,
       castColumns: null,
       dateColumns: null,
+      onProgress: expect.anything(),
     });
     expect(invoke).toHaveBeenNthCalledWith(13, "undo_last_change");
     expect(invoke).toHaveBeenNthCalledWith(14, "redo_last_change");

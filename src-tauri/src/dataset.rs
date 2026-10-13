@@ -2637,6 +2637,26 @@ fn prepare_source_backed_baseline_snapshot<C>(
 where
     C: Fn() -> bool + Send + Sync + Clone + 'static,
 {
+    // REN-14: the profile's working copy of an unchanged CSV is the same
+    // Parquet this function would write; copying it saves reading the CSV
+    // again (2019-Oct: about 40 s). A failed copy falls back to the CSV.
+    if let (None, crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }) =
+        (history.source_snapshot_path.as_deref(), source_format)
+    {
+        let same_reading = dataset_extension(source_path)
+            .and_then(|extension| detect_delimiter(source_path, &extension))
+            .is_ok_and(|detected| detected == delimiter);
+        if let Some(cached) = same_reading
+            .then(|| cached_profile_snapshot(source_path))
+            .flatten()
+        {
+            match history.prepare_parquet_snapshot(&cached, is_cancelled.clone()) {
+                Ok(prepared) => return Ok(prepared),
+                Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
+                Err(_) => {}
+            }
+        }
+    }
     let mut generated_snapshot_guard = None;
     let snapshot_source = if let Some(snapshot) = history.source_snapshot_path.as_deref() {
         snapshot.to_owned()
@@ -2829,8 +2849,12 @@ fn publish_source_backed_query(
         force_publish,
         cancellation,
         None,
+        None,
     )
 }
+
+/// What a long write reports: DuckDB's progress, 0.0 to 1.0.
+type SourceBackedProgress<'a> = &'a mut dyn FnMut(f64);
 
 /// The output of a stage that rewrites what DuckDB wrote: `Ok(true)` when it
 /// wrote the second file, `Ok(false)` to keep the first.
@@ -2849,6 +2873,7 @@ fn publish_source_backed_query_staged(
     force_publish: bool,
     cancellation: PrepareCancellation,
     stage: Option<SourceBackedStage<'_>>,
+    progress: Option<SourceBackedProgress<'_>>,
 ) -> Result<Option<DatasetMutation>, String> {
     cancellation.ensure()?;
     let original_source_path = dataset
@@ -2868,13 +2893,27 @@ fn publish_source_backed_query_staged(
     let output_path = temporary.path().to_owned();
     drop(temporary);
     let mut output_guard = SourceBackedJoinOutputGuard::new(&output_path);
-    match crate::duckdb_query::materialize_file_query_to_parquet_with_cancel(
-        source_path,
-        source_format,
-        query,
-        &output_path,
-        cancellation.callback(),
-    ) {
+    let written = match progress {
+        Some(progress) => {
+            let is_cancelled = || cancellation.is_cancelled();
+            crate::duckdb_query::materialize_file_query_to_parquet_with_progress(
+                source_path,
+                source_format,
+                query,
+                &output_path,
+                &is_cancelled,
+                progress,
+            )
+        }
+        None => crate::duckdb_query::materialize_file_query_to_parquet_with_cancel(
+            source_path,
+            source_format,
+            query,
+            &output_path,
+            cancellation.callback(),
+        ),
+    };
+    match written {
         Ok(()) => {}
         Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
         Err(_) => {
@@ -4369,8 +4408,11 @@ fn source_backed_text_expression(
                 .map(|value| duckdb_string_literal(value))
                 .collect::<Vec<_>>()
                 .join(", ");
+            // REN-14: `list_contains` rather than `IN (...)`: DuckDB turns a
+            // long IN list into a join that hides the progress of the whole
+            // write, and a large file looked stuck for minutes.
             Some(format!(
-                "CASE WHEN {normalized} IN ({values}) THEN NULL ELSE {identifier} END"
+                "CASE WHEN list_contains([{values}], {normalized}) THEN NULL ELSE {identifier} END"
             ))
         }
         TextCleaningMode::Booleans => {
@@ -4487,15 +4529,54 @@ fn source_backed_lone_word_sentinels(
         .map(|value| duckdb_string_literal(value))
         .collect::<Vec<_>>()
         .join(", ");
-    let mut lone = HashMap::new();
-    for column in columns {
-        let normalized = source_backed_normalized_text_expression(&duckdb_identifier(column), true);
-        let query = format!(
-            "SELECT v FROM (SELECT {normalized} AS v FROM dataset) WHERE v IN ({words}) GROUP BY v HAVING count(*) = 1"
-        );
-        let markers = crate::duckdb_query::query_file_strings(source_path, source_format, &query)?;
-        if !markers.is_empty() {
-            lone.insert(column.clone(), markers);
+    let mut lone: HashMap<String, Vec<String>> = HashMap::new();
+    if columns.is_empty() {
+        return Ok(lone);
+    }
+    // REN-14: every column in one read of the file (a histogram of its
+    // markers each), not one read per column; on 2019-Oct, 5 reads took 40 s.
+    let normalized = columns
+        .iter()
+        .enumerate()
+        .map(|(index, column)| {
+            format!(
+                "{} AS v{index}",
+                source_backed_normalized_text_expression(&duckdb_identifier(column), true)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let histograms = (0..columns.len())
+        .map(|index| {
+            format!(
+                "histogram(v{index}) FILTER (WHERE list_contains([{words}], v{index})) AS h{index}"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let singles = (0..columns.len())
+        .map(|index| {
+            format!(
+                "coalesce(['{index}:' || e.key FOR e IN map_entries(h{index}) IF e.value = 1], []::VARCHAR[])"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let query = format!(
+        "SELECT unnest(flatten([{singles}])) FROM (SELECT {histograms} FROM (SELECT {normalized} FROM dataset))"
+    );
+    for entry in crate::duckdb_query::query_file_strings(source_path, source_format, &query)? {
+        let Some((index, marker)) = entry.split_once(':') else {
+            continue;
+        };
+        if let Some(column) = index
+            .parse::<usize>()
+            .ok()
+            .and_then(|index| columns.get(index))
+        {
+            lone.entry(column.clone())
+                .or_default()
+                .push(marker.to_owned());
         }
     }
     Ok(lone)
@@ -5586,6 +5667,7 @@ fn source_backed_safe_corrections(
         None,
         None,
         &cancellation,
+        &mut |_, _| {},
     )
 }
 
@@ -5630,7 +5712,10 @@ fn source_backed_safe_corrections_with_cancellation(
     date_columns: Option<&[DateColumnPlan]>,
     impute_columns: Option<&[String]>,
     cancellation: &PrepareCancellation,
+    report: &mut dyn FnMut(&'static str, u8),
 ) -> Result<Option<SafeCorrectionsResult>, String> {
+    // REN-14: a large file takes minutes; each step says what it does.
+    report("Revisando el archivo", 2);
     cancellation.ensure()?;
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
@@ -5694,6 +5779,7 @@ fn source_backed_safe_corrections_with_cancellation(
     } else {
         Vec::new()
     };
+    report("Contando los cambios", 15);
     let (affected_row_count, changed_counts) = if text_expressions.is_empty() {
         (0, Vec::new())
     } else {
@@ -5814,9 +5900,25 @@ fn source_backed_safe_corrections_with_cancellation(
     };
     let mut stage_outcome = SourceStageOutcome::default();
     let stage_cancellation = cancellation.clone();
+    let report = std::cell::RefCell::new(report);
     let mut stage = |input: &Path, output: &Path| -> Result<bool, String> {
         let is_cancelled = || stage_cancellation.is_cancelled();
-        match source_date_and_impute_stage(input, output, &stage_plan, &is_cancelled)? {
+        report.borrow_mut()("Convirtiendo números, fechas y huecos", 80);
+        let mut shown = 80_u8;
+        let mut progress = |fraction: f64| {
+            let percent = 80 + ((fraction * 15.0) as u8).min(15);
+            if percent > shown {
+                shown = percent;
+                report.borrow_mut()("Convirtiendo números, fechas y huecos", percent);
+            }
+        };
+        match source_date_and_impute_stage(
+            input,
+            output,
+            &stage_plan,
+            &is_cancelled,
+            &mut progress,
+        )? {
             Some(outcome) => {
                 stage_outcome = outcome;
                 Ok(true)
@@ -5825,6 +5927,15 @@ fn source_backed_safe_corrections_with_cancellation(
         }
     };
     let force_publish = changed_cell_count > 0 || !renames.is_empty() || staged_work;
+    report.borrow_mut()("Escribiendo la versión corregida", 30);
+    let mut written_shown = 30_u8;
+    let mut write_progress = |fraction: f64| {
+        let percent = 30 + ((fraction * 49.0) as u8).min(49);
+        if percent > written_shown {
+            written_shown = percent;
+            report.borrow_mut()("Escribiendo la versión corregida", percent);
+        }
+    };
     let Some(mutation) = publish_source_backed_query_staged(
         dataset,
         &source_path,
@@ -5842,10 +5953,12 @@ fn source_backed_safe_corrections_with_cancellation(
         force_publish,
         cancellation.clone(),
         staged_work.then_some(&mut stage as SourceBackedStage<'_>),
+        Some(&mut write_progress as SourceBackedProgress<'_>),
     )?
     else {
         return Ok(None);
     };
+    report.borrow_mut()("Guardando la versión", 99);
     Ok(Some(SafeCorrectionsResult {
         removed_row_count: mutation.affected_row_count,
         dataset: mutation.dataset,
@@ -12278,6 +12391,7 @@ fn apply_safe_corrections_to_dataset(
     cast_columns: Option<Vec<String>>,
     date_columns: Option<Vec<DateColumnPlan>>,
     cancellation: &PrepareCancellation,
+    report: &mut dyn FnMut(&'static str, u8),
 ) -> Result<SafeCorrectionsResult, String> {
     // A large file runs the whole plan on disk (REN-14); the in-memory plan
     // below publishes one revision for the rest.
@@ -12300,6 +12414,7 @@ fn apply_safe_corrections_to_dataset(
                 None
             },
             cancellation,
+            report,
         )? {
             return Ok(result);
         }
@@ -12381,6 +12496,7 @@ pub async fn apply_safe_corrections(
     impute_columns: Option<Vec<String>>,
     cast_columns: Option<Vec<String>>,
     date_columns: Option<Vec<DateColumnPlan>>,
+    on_progress: Channel<OperationProgress>,
 ) -> Result<SafeCorrectionsResult, String> {
     let normalize_sentinels = normalize_sentinels.unwrap_or(false);
     let remove_duplicates = remove_duplicates.unwrap_or(false);
@@ -12404,6 +12520,7 @@ pub async fn apply_safe_corrections(
             cast_columns,
             date_columns,
             &cancellation,
+            &mut |stage, percent| send_progress(&on_progress, "prepare", stage, percent),
         )
     })
     .await

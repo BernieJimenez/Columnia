@@ -616,6 +616,7 @@ fn perf_probe_apply_proposal() {
         history: HistoryManager::deferred().expect("historial diferido"),
     };
     let started = Instant::now();
+    let mut last_stage = None;
     let result = source_backed_safe_corrections_with_cancellation(
         &mut dataset,
         false,
@@ -626,6 +627,14 @@ fn perf_probe_apply_proposal() {
         None,
         None,
         &PrepareCancellation::disabled(),
+        &mut |stage, percent| {
+            if last_stage.replace((stage, percent)) != Some((stage, percent)) {
+                println!(
+                    "probe   {:>7.1} s {percent:>3} %  {stage}",
+                    started.elapsed().as_secs_f64()
+                );
+            }
+        },
     )
     .expect("la propuesta debe aplicarse")
     .expect("el archivo debe procesarse en disco");
@@ -922,6 +931,7 @@ fn perf_probe_full_flow() {
                 (!proposal.cast.is_empty()).then_some(proposal.cast),
                 (!proposal.dates.is_empty()).then_some(proposal.dates),
                 &PrepareCancellation::disabled(),
+                &mut |_, _| {},
             )?;
             step("propuesta aplicada");
             println!(

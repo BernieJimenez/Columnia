@@ -308,9 +308,27 @@ where
             .execute(setting)
             .map_err(|error| format!("DuckDB no pudo preparar el snapshot protegido: {error}"))?;
     }
+    run_native_with_progress(&native, &copy, is_cancelled, &mut progress)?
+        .map_err(|error| format!("DuckDB no pudo crear el snapshot protegido: {error}"))
+}
+
+/// Runs `statement` on `native` in another thread while this one passes
+/// DuckDB's progress (0.0 to 1.0) to `progress` and interrupts the statement
+/// when `is_cancelled` turns true. The outer error is a cancellation or a
+/// crash; the inner one is DuckDB's.
+fn run_native_with_progress<C, P>(
+    native: &NativeDuckDb,
+    statement: &str,
+    is_cancelled: &C,
+    progress: &mut P,
+) -> Result<Result<(), String>, String>
+where
+    C: Fn() -> bool,
+    P: FnMut(f64),
+{
     let mut cancelled = false;
     let outcome = thread::scope(|scope| {
-        let worker = scope.spawn(|| native.execute(&copy));
+        let worker = scope.spawn(|| native.execute(statement));
         while !worker.is_finished() {
             if !cancelled && is_cancelled() {
                 cancelled = true;
@@ -327,9 +345,63 @@ where
     if cancelled {
         return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
     }
-    outcome
-        .map_err(|_| "La copia de DuckDB terminó inesperadamente.".to_owned())?
-        .map_err(|error| format!("DuckDB no pudo crear el snapshot protegido: {error}"))
+    outcome.map_err(|_| "La operación de DuckDB terminó inesperadamente.".to_owned())
+}
+
+/// REN-14: like [`materialize_file_query_to_parquet_with_cancel`], passing
+/// DuckDB's progress of the write (0.0 to 1.0) to `progress`, so rewriting a
+/// large file for a recipe does not look stuck.
+pub(crate) fn materialize_file_query_to_parquet_with_progress<C, P>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    query: &str,
+    destination: &Path,
+    is_cancelled: &C,
+    mut progress: P,
+) -> Result<(), String>
+where
+    C: Fn() -> bool,
+    P: FnMut(f64),
+{
+    if is_cancelled() {
+        return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+    }
+    let native = NativeDuckDb::open()?;
+    let resource_directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el espacio temporal para la receta source-backed: {error}")
+    })?;
+    {
+        // SAFETY: `native` owns the database and outlives this connection,
+        // which is dropped at the end of the block and does not close it.
+        let connection = unsafe { Connection::open_from_raw(native.database) }
+            .map_err(|error| format!("No se pudo iniciar DuckDB para la operación: {error}"))?;
+        configure_duckdb_resources_with_limits(
+            &connection,
+            resource_directory.path(),
+            DUCKDB_LARGE_FILE_MEMORY_LIMIT,
+            &large_file_temp_directory_limit(resource_directory.path()),
+        )?;
+        register_file_view(&connection, "dataset", source_path, source_format, None)?;
+    }
+    for setting in [
+        "SET preserve_insertion_order = true",
+        "SET enable_progress_bar = true",
+        "SET enable_progress_bar_print = false",
+    ] {
+        native
+            .execute(setting)
+            .map_err(|error| format!("DuckDB no pudo preparar la receta source-backed: {error}"))?;
+    }
+    let destination = destination
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('\'', "''");
+    let statement = format!("COPY ({query}) TO '{destination}' (FORMAT PARQUET)");
+    run_native_with_progress(&native, &statement, is_cancelled, &mut progress)?.map_err(|error| {
+        crate::dataset::explain_invalid_recipe_date(format!(
+            "DuckDB no pudo publicar la receta source-backed: {error}"
+        ))
+    })
 }
 
 /// REN-01: DuckDB's progress of a running native count, readable from the
