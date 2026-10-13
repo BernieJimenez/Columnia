@@ -37,19 +37,17 @@ bloquea el uso diario.
 
 ### Preparar archivos grandes
 
-- [ ] **REN-14** — Aplicar la propuesta a un archivo muy grande (2019-Oct,
-  5,6 GB) falla.
-  - Hecho: convertir a número se hace en disco, la simulación de la propuesta
-    no carga el archivo y las recetas en disco usan como temporal la mitad del
-    espacio libre (8–64 GiB) y 1 GB de memoria. La propuesta completa de
-    2019-Oct se aplica: 4.072 marcadores, 1 columna a número y 30.220
-    duplicados, con 3,5 GB de disco temporal. Sonda
-    `perf_probe_apply_proposal`.
-  - Hecho: las columnas sin cambios se leen tal cual (sin las expresiones de
-    «sin dato») y los duplicados se quitan agrupando por todas las columnas:
-    de 596 s a 262 s.
-  - Falta: 262 s sin progreso intermedio; la búsqueda de marcadores sueltos y
-    el conteo de cambios son dos lecturas completas del CSV (44 s y 37 s).
+- [ ] **REN-14** — Preparar y explorar archivos muy grandes.
+  - Hecho: la propuesta de Preparar se aplica entera en disco (marcadores,
+    espacios, números, fechas, huecos y duplicados) con las mismas reglas que
+    en memoria. La sonda `perf_probe_full_flow` recorre 11 datasets (de 3 MiB
+    a 8,6 GB: netflix, creditcard, ALL2 en CSV y Parquet, vmCloud, 2019-Oct y
+    2019-Nov) por cargar, perfil, Explorar, propuesta, perfil y Explorar otra
+    vez: 0 fallos. Las herramientas sueltas de Preparar ya tenían su camino en
+    disco.
+  - Falta: aplicar la propuesta tarda 272 s en 2019-Oct y 516 s en 2019-Nov
+    sin progreso intermedio, y Explorar sobre el CSV original tarda 55 s y
+    88 s porque relee el CSV (sobre la versión en Parquet, 2–4 s).
 
 ### Rendimiento
 
