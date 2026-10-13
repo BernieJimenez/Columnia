@@ -1339,86 +1339,80 @@ pub(crate) fn numeric_cast_sql(expression: &str, target: NumericCastTarget) -> S
     }
 }
 
-/// REN-01 / RV18: for each `(column, expression)` of a file, the numeric type
-/// its non-null values allow, or `None` when one of them is empty, a code
-/// with a leading zero, or not a number. One scan for all the expressions.
-pub(crate) fn file_numeric_cast_targets<C>(
-    source_path: &Path,
-    source_format: DuckDbFileFormat,
-    expressions: &[(String, String)],
-    is_cancelled: C,
-) -> Result<Vec<Option<NumericCastTarget>>, String>
-where
-    C: Fn() -> bool + Send + 'static,
-{
-    if expressions.is_empty() {
-        return Ok(Vec::new());
-    }
-    execute_duckdb_operation(is_cancelled, |connection| {
-        let resource_directory = tempfile::tempdir().map_err(|error| {
-            format!("No se pudo preparar la revisión de columnas numéricas: {error}")
-        })?;
-        configure_duckdb_resources(connection, resource_directory.path())?;
-        register_file_view(connection, "dataset", source_path, source_format, None)?;
-        // Per expression: present values, then «empty or leading-zero code»,
-        // «integer», «whole number as decimal» and «finite decimal of at most
-        // 15 significant digits». COALESCE turns a failed check of a present value into «no».
-        let select = expressions
-            .iter()
-            .map(|(_, expression)| {
-                let value = trimmed_text_sql(expression);
-                let unsigned = format!("ltrim({value}, '+-')");
-                let float = format!(
-                    r"(regexp_matches({value}, '^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?$') AND COALESCE(isfinite(TRY_CAST({value} AS DOUBLE)), false))"
-                );
-                let digits = format!("regexp_replace({unsigned}, '[^0-9]', '', 'g')");
-                let integer_digits = format!("split_part({unsigned}, '.', 1)");
-                let significant = format!(
-                    "CASE WHEN ltrim({integer_digits}, '0') = '' THEN length(rtrim(ltrim({digits}, '0'), '0')) ELSE greatest(length(rtrim(ltrim({digits}, '0'), '0')), length(ltrim({integer_digits}, '0'))) END"
-                );
-                let fits = format!(
-                    "(regexp_matches({unsigned}, '[eE]') OR {significant} <= 15)"
-                );
-                // Only present values count: a «sin dato» turned into NULL
-                // must not make the column look non-numeric.
-                let present = format!("FILTER (WHERE {value} IS NOT NULL)");
-                format!(
-                    "COUNT({value}), \
-                     COALESCE(bool_or({value} = '' OR regexp_matches({value}, '^[+-]*0[0-9]')) {present}, false), \
-                     COALESCE(bool_and(COALESCE(regexp_matches({value}, '^[+-]?[0-9]+$') AND TRY_CAST({value} AS BIGINT) IS NOT NULL, false)) {present}, false), \
-                     COALESCE(bool_and(COALESCE({float} AND TRY_CAST({value} AS DOUBLE) = trunc(TRY_CAST({value} AS DOUBLE)) AND abs(TRY_CAST({value} AS DOUBLE)) <= 9007199254740992, false)) {present}, false), \
-                     COALESCE(bool_and(COALESCE({float} AND {fits}, false)) {present}, false)"
+/// REN-14: the lower median (`observed[(n - 1) / 2]` once sorted) of a
+/// Parquet column, as `impute_missing_values_in_columns` fills a gap: of the
+/// integers, or of the finite values read as `f64`. `None` when the column
+/// has no gap to fill or no value.
+fn parquet_lower_median(
+    path: &Path,
+    column: &str,
+    as_double: bool,
+    cast: Option<NumericCastTarget>,
+) -> Result<Option<String>, String> {
+    execute_duckdb_operation(
+        || false,
+        |connection| {
+            let resource_directory = tempfile::tempdir().map_err(|error| {
+                format!("No se pudo preparar el cálculo de la mediana: {error}")
+            })?;
+            configure_duckdb_resources(connection, resource_directory.path())?;
+            register_file_view(connection, "dataset", path, DuckDbFileFormat::Parquet, None)?;
+            let column = quote_identifier(column);
+            // A text column that the same plan types reads its numbers with
+            // the conversion the plan applies.
+            let base = cast.map_or_else(
+                || column.clone(),
+                |target| numeric_cast_sql(&column, target),
+            );
+            let (value, condition) = if as_double {
+                (
+                    format!("CAST({base} AS DOUBLE)"),
+                    "x IS NOT NULL AND isfinite(x)",
                 )
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        let query = format!("SELECT {select} FROM dataset");
-        connection
-            .query_row(&query, [], |row| {
-                (0..expressions.len())
-                    .map(|index| {
-                        let base = index * 5;
-                        let present = row.get::<_, i64>(base)?;
-                        let blocked = row.get::<_, bool>(base + 1)?;
-                        let integer = row.get::<_, bool>(base + 2)?;
-                        let whole = row.get::<_, bool>(base + 3)?;
-                        let decimal = row.get::<_, bool>(base + 4)?;
-                        Ok(if present == 0 || blocked {
-                            None
-                        } else if integer {
-                            Some(NumericCastTarget::Integer)
-                        } else if whole {
-                            Some(NumericCastTarget::IntegerFromDecimal)
-                        } else if decimal {
-                            Some(NumericCastTarget::Decimal)
-                        } else {
-                            None
-                        })
-                    })
-                    .collect::<duckdb::Result<Vec<_>>>()
-            })
-            .map_err(|error| format!("DuckDB no pudo revisar las columnas numéricas: {error}"))
-    })
+            } else {
+                (base, "x IS NOT NULL")
+            };
+            let query = format!(
+            "WITH v AS (SELECT {column} IS NULL AS gap, {value} AS x FROM dataset), \
+             s AS (SELECT count(*) FILTER (WHERE gap) AS gaps, count(*) FILTER (WHERE {condition}) AS n FROM v) \
+             SELECT (SELECT gaps FROM s), CAST((SELECT x FROM (SELECT x, row_number() OVER (ORDER BY x) AS rn FROM v WHERE {condition}) WHERE rn = ((SELECT n FROM s) - 1) // 2 + 1) AS VARCHAR)"
+        );
+            let (gaps, median) = connection
+                .query_row(&query, [], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+                })
+                .map_err(|error| format!("DuckDB no pudo calcular la mediana: {error}"))?;
+            Ok(if gaps == 0 { None } else { median })
+        },
+    )
+}
+
+pub(crate) fn parquet_lower_median_integer(
+    path: &Path,
+    column: &str,
+    cast: Option<NumericCastTarget>,
+) -> Result<Option<i64>, String> {
+    parquet_lower_median(path, column, false, cast)?
+        .map(|value| {
+            value
+                .parse::<i64>()
+                .map_err(|_| format!("La mediana '{value}' no es un entero."))
+        })
+        .transpose()
+}
+
+pub(crate) fn parquet_lower_median_number(
+    path: &Path,
+    column: &str,
+    cast: Option<NumericCastTarget>,
+) -> Result<Option<f64>, String> {
+    parquet_lower_median(path, column, true, cast)?
+        .map(|value| {
+            value
+                .parse::<f64>()
+                .map_err(|_| format!("La mediana '{value}' no es un número."))
+        })
+        .transpose()
 }
 
 pub(crate) fn count_file_expression_changes<C>(

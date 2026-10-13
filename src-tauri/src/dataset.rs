@@ -101,6 +101,7 @@ mod recipe_eager;
 mod recipe_engine;
 #[path = "dataset/recipe_source_projection.rs"]
 mod recipe_source_projection;
+mod source_stage;
 mod temporal_profile;
 pub(crate) use automation::*;
 use csv_formula_safety::csv_formula_safe_column_names;
@@ -181,6 +182,7 @@ use recipe_source_projection::{
     apply_source_backed_projection_recipe_with_cancellation, duckdb_iso8601_expression,
     duckdb_string_literal, source_backed_projection_recipe_supported,
 };
+use source_stage::*;
 mod explore;
 #[path = "dataset/export_io.rs"]
 mod export_io;
@@ -2818,6 +2820,36 @@ fn publish_source_backed_query(
     force_publish: bool,
     cancellation: PrepareCancellation,
 ) -> Result<Option<DatasetMutation>, String> {
+    publish_source_backed_query_staged(
+        dataset,
+        source_path,
+        source_format,
+        query,
+        label,
+        force_publish,
+        cancellation,
+        None,
+    )
+}
+
+/// The output of a stage that rewrites what DuckDB wrote: `Ok(true)` when it
+/// wrote the second file, `Ok(false)` to keep the first.
+type SourceBackedStage<'a> = &'a mut dyn FnMut(&Path, &Path) -> Result<bool, String>;
+
+/// Like `publish_source_backed_query`, with a `stage` that rewrites the
+/// DuckDB output before it is published (REN-14: dates and filled gaps that
+/// follow Rust's rules).
+#[allow(clippy::too_many_arguments)]
+fn publish_source_backed_query_staged(
+    dataset: &mut LoadedDataset,
+    source_path: &Path,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
+    query: &str,
+    label: &str,
+    force_publish: bool,
+    cancellation: PrepareCancellation,
+    stage: Option<SourceBackedStage<'_>>,
+) -> Result<Option<DatasetMutation>, String> {
     cancellation.ensure()?;
     let original_source_path = dataset
         .source_path
@@ -2848,6 +2880,25 @@ fn publish_source_backed_query(
         Err(_) => {
             let _ = fs::remove_file(&output_path);
             return Ok(None);
+        }
+    }
+    if let Some(stage) = stage {
+        let staged = output_path.with_extension("etapa.parquet");
+        let outcome = stage(&output_path, &staged);
+        match outcome {
+            Ok(true) => {
+                if let Err(error) = fs::rename(&staged, &output_path) {
+                    let _ = fs::remove_file(&staged);
+                    let _ = fs::remove_file(&output_path);
+                    return Err(format!("No se pudo publicar la versión corregida: {error}"));
+                }
+            }
+            Ok(false) => {}
+            Err(error) => {
+                let _ = fs::remove_file(&staged);
+                let _ = fs::remove_file(&output_path);
+                return Err(error);
+            }
         }
     }
 
@@ -5532,6 +5583,8 @@ fn source_backed_safe_corrections(
         normalize_sentinels,
         remove_duplicates,
         None,
+        None,
+        None,
         &cancellation,
     )
 }
@@ -5574,6 +5627,8 @@ fn source_backed_safe_corrections_with_cancellation(
     normalize_sentinels: bool,
     remove_duplicates: bool,
     cast_columns: Option<&[String]>,
+    date_columns: Option<&[DateColumnPlan]>,
+    impute_columns: Option<&[String]>,
     cancellation: &PrepareCancellation,
 ) -> Result<Option<SafeCorrectionsResult>, String> {
     cancellation.ensure()?;
@@ -5667,62 +5722,15 @@ fn source_backed_safe_corrections_with_cancellation(
         .filter(|(_, changed)| **changed > 0)
         .map(|(expression, _)| expression)
         .collect::<Vec<_>>();
-    // REN-01: a large file is typed on disk too, after the text corrections,
-    // with the rules of `cast_fully_numeric_columns`; loading 5 GB into memory
-    // to type one column failed for lack of RAM.
-    let cast_candidates = cast_columns
-        .unwrap_or_default()
-        .iter()
-        .filter(|name| {
-            dataset
-                .frame
-                .column(name)
-                .is_ok_and(|column| column.dtype() == &DataType::String)
-                && privacy_signal(name) != Some("identifier")
-        })
-        .map(|name| {
-            let expression = text_expressions
-                .iter()
-                .find(|(column, _)| column == name)
-                .map_or_else(
-                    || duckdb_identifier(name),
-                    |(_, expression)| expression.clone(),
-                );
-            (name.clone(), expression)
-        })
-        .collect::<Vec<_>>();
-    let cast_targets = match crate::duckdb_query::file_numeric_cast_targets(
-        &source_path,
-        source_format,
-        &cast_candidates,
-        cancellation.callback(),
-    ) {
-        Ok(targets) => targets,
-        Err(error) => {
-            return Ok(source_backed_fallback(
-                "source_backed_safe_corrections_with_cancellation",
-                &error,
-            ))
-        }
-    };
-    let typed_columns = cast_candidates
-        .iter()
-        .zip(&cast_targets)
-        .filter_map(|((name, expression), target)| {
-            target.map(|target| {
-                (
-                    name.clone(),
-                    crate::duckdb_query::numeric_cast_sql(expression, target),
-                )
-            })
-        })
-        .collect::<Vec<_>>();
-    let typed_column_count = typed_columns.len();
-    if changed_cell_count == 0
-        && renames.is_empty()
-        && !remove_duplicates
-        && typed_column_count == 0
-    {
+    // REN-01 / REN-14: a large file types its numbers on disk too, in the
+    // stage that follows the DuckDB corrections, with the same check as in
+    // memory (`NumericCastCheck`); loading 5 GB to type one column failed for
+    // lack of RAM.
+    let cast_candidates = cast_columns.map(<[String]>::to_vec).unwrap_or_default();
+    let staged_work = !cast_candidates.is_empty()
+        || date_columns.is_some_and(|plans| !plans.is_empty())
+        || impute_columns.is_some();
+    if changed_cell_count == 0 && renames.is_empty() && !remove_duplicates && !staged_work {
         return Ok(Some(SafeCorrectionsResult {
             dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
             changed_cell_count: 0,
@@ -5744,12 +5752,7 @@ fn source_backed_safe_corrections_with_cancellation(
         .map(|(original, renamed)| {
             let source = duckdb_identifier(original);
             let destination = duckdb_identifier(renamed);
-            if let Some((_, expression)) = typed_columns
-                .iter()
-                .find(|(name, _)| name == original.as_str())
-            {
-                format!("{expression} AS {destination}")
-            } else if let Some((_, expression)) = text_expressions
+            if let Some((_, expression)) = text_expressions
                 .iter()
                 .find(|(name, _)| name == original.as_str())
             {
@@ -5788,8 +5791,41 @@ fn source_backed_safe_corrections_with_cancellation(
     } else {
         prepared_query
     };
-    let force_publish = changed_cell_count > 0 || !renames.is_empty() || typed_column_count > 0;
-    let Some(mutation) = publish_source_backed_query(
+    // REN-14: dates and filled gaps follow Rust's rules, so they run on the
+    // DuckDB output block by block before it is published. The plans use the
+    // names the person saw; follow this plan's renames.
+    let renamed = |name: &str| {
+        renames
+            .iter()
+            .find(|rename| rename.from == name)
+            .map_or_else(|| name.to_owned(), |rename| rename.to.clone())
+    };
+    let stage_plan = SourceStagePlan {
+        numbers: cast_candidates.iter().map(|name| renamed(name)).collect(),
+        dates: date_columns
+            .unwrap_or_default()
+            .iter()
+            .map(|plan| DateColumnPlan {
+                column: renamed(&plan.column),
+                order: plan.order.clone(),
+            })
+            .collect(),
+        impute: impute_columns.map(|columns| columns.iter().map(|name| renamed(name)).collect()),
+    };
+    let mut stage_outcome = SourceStageOutcome::default();
+    let stage_cancellation = cancellation.clone();
+    let mut stage = |input: &Path, output: &Path| -> Result<bool, String> {
+        let is_cancelled = || stage_cancellation.is_cancelled();
+        match source_date_and_impute_stage(input, output, &stage_plan, &is_cancelled)? {
+            Some(outcome) => {
+                stage_outcome = outcome;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    };
+    let force_publish = changed_cell_count > 0 || !renames.is_empty() || staged_work;
+    let Some(mutation) = publish_source_backed_query_staged(
         dataset,
         &source_path,
         source_format,
@@ -5799,12 +5835,13 @@ fn source_backed_safe_corrections_with_cancellation(
             normalize_sentinels,
             normalize_column_names,
             remove_duplicates,
-            typed_column_count > 0,
-            false,
-            false,
+            !cast_candidates.is_empty(),
+            date_columns.is_some_and(|plans| !plans.is_empty()),
+            impute_columns.is_some(),
         ),
         force_publish,
         cancellation.clone(),
+        staged_work.then_some(&mut stage as SourceBackedStage<'_>),
     )?
     else {
         return Ok(None);
@@ -5816,10 +5853,116 @@ fn source_backed_safe_corrections_with_cancellation(
         affected_row_count,
         renamed_column_count: renames.len(),
         renames,
-        typed_column_count,
-        dated_column_count: 0,
-        imputed_cell_count: 0,
+        typed_column_count: stage_outcome.typed_column_count,
+        dated_column_count: stage_outcome.dated_column_count,
+        imputed_cell_count: stage_outcome.imputed_cell_count,
     }))
+}
+
+/// The type a fully numeric text column takes (RV18 / FUN-07).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum NumericCastKind {
+    /// Every value is a whole number that fits in 64 bits.
+    Integer,
+    /// Every value is a whole number written as a decimal (`10.0`, `1e+05`).
+    IntegerFromDecimal,
+    /// Every value is a finite decimal that f64 holds exactly.
+    Decimal,
+}
+
+/// Decides, value by value, whether a text column is fully numeric and of
+/// which kind, so a large file can be checked block by block with the same
+/// rules as a column in memory (REN-14). Nothing becomes null: one blank, one
+/// non-number or one leading-zero code keeps the column as text.
+pub(super) struct NumericCastCheck {
+    present: bool,
+    blocked: bool,
+    integer: bool,
+    whole: bool,
+    decimal: bool,
+}
+
+impl NumericCastCheck {
+    pub(super) fn new() -> Self {
+        Self {
+            present: false,
+            blocked: false,
+            integer: true,
+            whole: true,
+            decimal: true,
+        }
+    }
+
+    pub(super) fn observe(&mut self, value: &str) {
+        if self.blocked {
+            return;
+        }
+        let value = value.trim();
+        self.present = true;
+        if value.is_empty() || leading_zero_code(value) {
+            self.blocked = true;
+            return;
+        }
+        if self.integer && value.parse::<i64>().is_err() {
+            self.integer = false;
+        }
+        let number = value.parse::<f64>().ok();
+        if self.whole && number.and_then(exact_integer).is_none() {
+            self.whole = false;
+        }
+        if self.decimal && !(number.is_some_and(f64::is_finite) && decimal_fits_in_f64(value)) {
+            self.decimal = false;
+        }
+    }
+
+    pub(super) fn kind(&self) -> Option<NumericCastKind> {
+        if !self.present || self.blocked {
+            None
+        } else if self.integer {
+            Some(NumericCastKind::Integer)
+        } else if self.whole {
+            Some(NumericCastKind::IntegerFromDecimal)
+        } else if self.decimal {
+            Some(NumericCastKind::Decimal)
+        } else {
+            None
+        }
+    }
+}
+
+/// The text column `values` converted to `kind`; nulls stay null.
+pub(super) fn numeric_cast_column(
+    name: &str,
+    values: &StringChunked,
+    kind: NumericCastKind,
+) -> Column {
+    match kind {
+        NumericCastKind::Integer => Column::new(
+            name.into(),
+            values
+                .iter()
+                .map(|value| value.and_then(|value| value.trim().parse::<i64>().ok()))
+                .collect::<Vec<_>>(),
+        ),
+        // Whole numbers written as 1e+05 or 10.0 (R and spreadsheet exports)
+        // stay integers instead of exporting as 55003.0.
+        NumericCastKind::IntegerFromDecimal => Column::new(
+            name.into(),
+            values
+                .iter()
+                .map(|value| {
+                    value.and_then(|value| value.trim().parse::<f64>().ok().and_then(exact_integer))
+                })
+                .collect::<Vec<_>>(),
+        ),
+        NumericCastKind::Decimal => Column::new(
+            name.into(),
+            values
+                .iter()
+                .map(|value| value.and_then(|value| value.trim().parse::<f64>().ok()))
+                .collect::<Vec<_>>(),
+        ),
+    }
 }
 
 /// Types the listed text columns only when every non-empty value is a number
@@ -5842,83 +5985,59 @@ fn cast_fully_numeric_columns(
         let values = column
             .str()
             .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
-        let present = values.iter().flatten().map(str::trim).collect::<Vec<_>>();
-        if present.is_empty()
-            || present
-                .iter()
-                .any(|value| value.is_empty() || leading_zero_code(value))
-        {
-            continue;
+        let mut check = NumericCastCheck::new();
+        for value in values.iter().flatten() {
+            check.observe(value);
         }
-        let converted = if present.iter().all(|value| value.parse::<i64>().is_ok()) {
-            Column::new(
-                name.as_str().into(),
-                values
-                    .iter()
-                    .map(|value| value.and_then(|value| value.trim().parse::<i64>().ok()))
-                    .collect::<Vec<_>>(),
-            )
-        } else if present
-            .iter()
-            .all(|value| value.parse::<f64>().ok().and_then(exact_integer).is_some())
-        {
-            // Whole numbers written as 1e+05 or 10.0 (R and spreadsheet
-            // exports) stay integers instead of exporting as 55003.0.
-            Column::new(
-                name.as_str().into(),
-                values
-                    .iter()
-                    .map(|value| {
-                        value.and_then(|value| {
-                            value.trim().parse::<f64>().ok().and_then(exact_integer)
-                        })
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        } else if present.iter().all(|value| {
-            value.parse::<f64>().is_ok_and(f64::is_finite) && decimal_fits_in_f64(value)
-        }) {
-            Column::new(
-                name.as_str().into(),
-                values
-                    .iter()
-                    .map(|value| value.and_then(|value| value.trim().parse::<f64>().ok()))
-                    .collect::<Vec<_>>(),
-            )
-        } else {
+        let Some(kind) = check.kind() else {
             continue;
         };
-        cast.replace(name, converted)
+        cast.replace(name, numeric_cast_column(name, values, kind))
             .map_err(|error| format!("No se pudo convertir la columna '{name}': {error}"))?;
         typed_column_count += 1;
     }
     Ok((cast, typed_column_count))
 }
 
-/// FUN-57: a decimal written with more than 15 significant digits (a
-/// 20-digit code, a long fraction) does not survive the trip through f64;
-/// such a column stays text. Scientific notation is already approximate.
+/// FUN-57: a decimal becomes a number only when f64 holds it exactly, that is
+/// when the shortest f64 form has the same digits. A 20-digit code or a long
+/// fraction stays text; 54.88135039273247, written from an f64, converts
+/// (REN-14: the 15-digit limit left such columns as text after the proposal
+/// announced them). Scientific notation is already approximate.
 fn decimal_fits_in_f64(value: &str) -> bool {
-    let value = value.trim().trim_start_matches(['+', '-']);
+    let value = value.trim();
     if value.contains(['e', 'E']) {
         return true;
     }
-    let digits = value
-        .chars()
-        .filter(char::is_ascii_digit)
-        .collect::<String>();
-    let integer_digits = value.split('.').next().unwrap_or_default();
-    let significant = if integer_digits.trim_start_matches('0').is_empty() {
-        // 0.000123: leading zeros of the fraction do not count.
-        digits.trim_start_matches('0').trim_end_matches('0').len()
-    } else {
-        digits
-            .trim_start_matches('0')
-            .trim_end_matches('0')
-            .len()
-            .max(integer_digits.trim_start_matches('0').len())
+    value
+        .parse::<f64>()
+        .is_ok_and(|number| canonical_decimal(value) == canonical_decimal(&number.to_string()))
+}
+
+/// A decimal written without sign noise, leading zeros or trailing zeros of
+/// the fraction: `+007.50` and `7.5` read the same.
+fn canonical_decimal(text: &str) -> String {
+    let (negative, unsigned) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text.strip_prefix('+').unwrap_or(text)),
     };
-    significant <= 15
+    let (integer, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
+    let integer = integer.trim_start_matches('0');
+    let fraction = fraction.trim_end_matches('0');
+    let mut body = if integer.is_empty() {
+        "0".to_owned()
+    } else {
+        integer.to_owned()
+    };
+    if !fraction.is_empty() {
+        body.push('.');
+        body.push_str(fraction);
+    }
+    if negative && body != "0" {
+        format!("-{body}")
+    } else {
+        body
+    }
 }
 
 /// The integer a finite float holds exactly, if any. Limited to ±2^53 so
@@ -12065,14 +12184,15 @@ pub async fn drop_outlier_values(app: AppHandle) -> Result<TextCleaningResult, S
 
 /// The DuckDB shortcut only trims, converts markers, renames and removes
 /// duplicates; typing or imputing on it would be dropped without a word.
-/// Numeric typing runs on disk too (REN-01); imputation and dates still need
-/// the materialized frame.
+/// Every step of the proposal runs on disk for a large file (REN-01 numbers,
+/// REN-14 dates and filled gaps); an explicit list of columns to fill is
+/// needed there, as the proposal sends.
 fn safe_corrections_stay_source_backed(
     source_backed: bool,
     impute_missing: bool,
-    date_columns: Option<&[DateColumnPlan]>,
+    impute_columns: Option<&[String]>,
 ) -> bool {
-    source_backed && !impute_missing && date_columns.is_none_or(<[DateColumnPlan]>::is_empty)
+    source_backed && (!impute_missing || impute_columns.is_some())
 }
 
 /// Runs the same plan as `apply_safe_corrections` on a copy and reports what
@@ -12132,6 +12252,111 @@ pub async fn preview_safe_corrections(
     })?
 }
 
+/// The body of `apply_safe_corrections` for one dataset, so a probe can run
+/// the same plan as «Aplicar» on any file.
+#[allow(clippy::too_many_arguments)]
+fn apply_safe_corrections_to_dataset(
+    dataset: &mut LoadedDataset,
+    trim_text: bool,
+    normalize_column_names: bool,
+    normalize_sentinels: bool,
+    remove_duplicates: bool,
+    impute_missing: bool,
+    impute_columns: Option<Vec<String>>,
+    cast_columns: Option<Vec<String>>,
+    date_columns: Option<Vec<DateColumnPlan>>,
+    cancellation: &PrepareCancellation,
+) -> Result<SafeCorrectionsResult, String> {
+    // A large file runs the whole plan on disk (REN-14); the in-memory plan
+    // below publishes one revision for the rest.
+    if safe_corrections_stay_source_backed(
+        dataset.source_backed,
+        impute_missing,
+        impute_columns.as_deref(),
+    ) {
+        if let Some(result) = source_backed_safe_corrections_with_cancellation(
+            dataset,
+            trim_text,
+            normalize_column_names,
+            normalize_sentinels,
+            remove_duplicates,
+            cast_columns.as_deref(),
+            date_columns.as_deref(),
+            if impute_missing {
+                impute_columns.as_deref()
+            } else {
+                None
+            },
+            cancellation,
+        )? {
+            return Ok(result);
+        }
+    }
+    cancellation.ensure()?;
+    materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
+
+    let SafeCorrectionPlanFrame {
+        frame: candidate,
+        affected_row_count,
+        changed_cell_count,
+        removed_row_count,
+        renames,
+        typed_column_count,
+        dated_column_count,
+        imputed_cell_count,
+        ..
+    } = safe_corrected_plan_frame(
+        &dataset.frame,
+        trim_text,
+        normalize_column_names,
+        normalize_sentinels,
+        remove_duplicates,
+        impute_missing,
+        impute_columns.as_deref(),
+        cast_columns.as_deref(),
+        date_columns.as_deref(),
+    )?;
+    cancellation.ensure()?;
+    let renamed_column_count = renames.len();
+
+    let preview = if changed_cell_count > 0
+        || renamed_column_count > 0
+        || removed_row_count > 0
+        || typed_column_count > 0
+        || dated_column_count > 0
+        || imputed_cell_count > 0
+    {
+        publish_candidate_with_cancellation(
+            dataset,
+            candidate,
+            &safe_corrections_label(
+                trim_text,
+                normalize_sentinels,
+                normalize_column_names,
+                remove_duplicates,
+                typed_column_count > 0,
+                dated_column_count > 0,
+                impute_missing,
+            ),
+            Some(cancellation),
+        )?
+    } else {
+        loaded_dataset_preview(dataset, &dataset.frame)?
+    };
+
+    Ok(SafeCorrectionsResult {
+        dataset: preview,
+        changed_cell_count,
+        affected_row_count,
+        removed_row_count,
+        renamed_column_count,
+        renames,
+        typed_column_count,
+        dated_column_count,
+        imputed_cell_count,
+    })
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn apply_safe_corrections(
@@ -12156,89 +12381,18 @@ pub async fn apply_safe_corrections(
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
-        // Imputation and typing need the materialized frame, so a plan that
-        // includes either skips the source-backed shortcut (which would drop
-        // them silently) and publishes one revision.
-        if safe_corrections_stay_source_backed(
-            dataset.source_backed,
-            impute_missing,
-            date_columns.as_deref(),
-        ) {
-            if let Some(result) = source_backed_safe_corrections_with_cancellation(
-                dataset,
-                trim_text,
-                normalize_column_names,
-                normalize_sentinels,
-                remove_duplicates,
-                cast_columns.as_deref(),
-                &cancellation,
-            )? {
-                return Ok(result);
-            }
-        }
-        cancellation.ensure()?;
-        materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
-
-        let SafeCorrectionPlanFrame {
-            frame: candidate,
-            affected_row_count,
-            changed_cell_count,
-            removed_row_count,
-            renames,
-            typed_column_count,
-            dated_column_count,
-            imputed_cell_count,
-            ..
-        } = safe_corrected_plan_frame(
-            &dataset.frame,
+        apply_safe_corrections_to_dataset(
+            dataset,
             trim_text,
             normalize_column_names,
             normalize_sentinels,
             remove_duplicates,
             impute_missing,
-            impute_columns.as_deref(),
-            cast_columns.as_deref(),
-            date_columns.as_deref(),
-        )?;
-        cancellation.ensure()?;
-        let renamed_column_count = renames.len();
-
-        let preview = if changed_cell_count > 0
-            || renamed_column_count > 0
-            || removed_row_count > 0
-            || typed_column_count > 0
-            || dated_column_count > 0
-            || imputed_cell_count > 0
-        {
-            publish_candidate_with_cancellation(
-                dataset,
-                candidate,
-                &safe_corrections_label(
-                    trim_text,
-                    normalize_sentinels,
-                    normalize_column_names,
-                    remove_duplicates,
-                    typed_column_count > 0,
-                    dated_column_count > 0,
-                    impute_missing,
-                ),
-                Some(&cancellation),
-            )?
-        } else {
-            loaded_dataset_preview(dataset, &dataset.frame)?
-        };
-
-        Ok(SafeCorrectionsResult {
-            dataset: preview,
-            changed_cell_count,
-            affected_row_count,
-            removed_row_count,
-            renamed_column_count,
-            renames,
-            typed_column_count,
-            dated_column_count,
-            imputed_cell_count,
-        })
+            impute_columns,
+            cast_columns,
+            date_columns,
+            &cancellation,
+        )
     })
     .await
     .map_err(|error| {

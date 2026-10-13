@@ -19657,19 +19657,16 @@ fn safe_correction_plan_types_date_columns_without_losing_values() {
 }
 
 #[test]
-fn safe_corrections_leave_the_duckdb_shortcut_only_to_fill_or_date() {
-    // RV18: typing numbers now runs on disk too (REN-01: a 5 GB CSV could not
-    // be loaded to type one column); filling gaps and dates still need memory.
-    let dates = [DateColumnPlan {
-        column: "InvoiceDate".to_owned(),
-        order: "mdy".to_owned(),
-    }];
+fn safe_corrections_stay_on_disk_for_every_step_of_the_proposal() {
+    // REN-01 / REN-14: numbers, dates and filled gaps run on disk for a large
+    // file; only filling every column without a list (not the proposal)
+    // still needs memory.
+    let listed = ["Quantity".to_owned()];
     assert!(safe_corrections_stay_source_backed(true, false, None));
-    assert!(safe_corrections_stay_source_backed(true, false, Some(&[])));
-    assert!(!safe_corrections_stay_source_backed(
+    assert!(safe_corrections_stay_source_backed(
         true,
-        false,
-        Some(&dates)
+        true,
+        Some(&listed)
     ));
     assert!(!safe_corrections_stay_source_backed(true, true, None));
     assert!(!safe_corrections_stay_source_backed(false, false, None));
@@ -22859,17 +22856,19 @@ fn quality_reference_bench() {
     );
 }
 
-/// FUN-57: «convertir a número» never rounds a long code or a long fraction.
+/// FUN-57: «convertir a número» never rounds a long code or a long fraction,
+/// and converts a long decimal that f64 holds exactly (REN-14: vmCloud).
 #[test]
 fn numeric_cast_keeps_values_that_f64_cannot_hold_as_text() {
     let frame = df![
         "referencia" => &["12345678901234567890", "12345678901234567891"],
         "precio" => &["1.5", "2.25"],
         "minimo" => &["0.000123", "0.5"],
-        "largo" => &["3.14159265358979323", "1.0"]
+        "largo" => &["3.14159265358979323", "1.0"],
+        "medida" => &["54.88135039273247", "0.7151893663724195"]
     ]
     .unwrap();
-    let names = ["referencia", "precio", "minimo", "largo"].map(str::to_owned);
+    let names = ["referencia", "precio", "minimo", "largo", "medida"].map(str::to_owned);
     let (cast, typed) = cast_fully_numeric_columns(&frame, &names).unwrap();
     assert_eq!(
         cast.column("referencia").unwrap().dtype(),
@@ -22878,7 +22877,12 @@ fn numeric_cast_keeps_values_that_f64_cannot_hold_as_text() {
     assert_eq!(cast.column("largo").unwrap().dtype(), &DataType::String);
     assert_eq!(cast.column("precio").unwrap().dtype(), &DataType::Float64);
     assert_eq!(cast.column("minimo").unwrap().dtype(), &DataType::Float64);
-    assert_eq!(typed, 2);
+    assert_eq!(cast.column("medida").unwrap().dtype(), &DataType::Float64);
+    assert_eq!(
+        cast.column("medida").unwrap().f64().unwrap().get(0),
+        Some(54.88135039273247)
+    );
+    assert_eq!(typed, 3);
 }
 
 /// FUN-58: removing accents keeps Japanese, Korean or Devanagari text intact
@@ -23177,6 +23181,8 @@ fn source_backed_numeric_typing_matches_the_in_memory_plan() {
         true,
         true,
         Some(&columns),
+        None,
+        None,
         &cancellation,
     )
     .expect("el plan en disco debe aplicarse")
@@ -23206,5 +23212,82 @@ memoria {:?}",
     );
     assert_eq!(output.column("codigo").unwrap().dtype(), &DataType::String);
     assert_eq!(output.column("mezcla").unwrap().dtype(), &DataType::String);
+    assert!(output.equals_missing(&expected.frame));
+}
+
+#[test]
+fn source_backed_dates_and_fills_match_the_in_memory_plan() {
+    // REN-14: on a large file dates and filled gaps run on disk, after the
+    // DuckDB corrections, with the rules of the in-memory plan.
+    let path = temporary_csv(
+        "momento,dia,mala,zona,unidades,precio\n\
+         13/01/2024 10:30,02/03/2024,01/02/2024,norte,5,1.5\n\
+         14/01/2024 11:00,03/03/2024,99/99/2024,,N/A,2.25\n\
+         15/01/2024 12:15,,05/02/2024,norte,7,\n\
+         16/01/2024 09:00,04/03/2024,06/02/2024,sur,,4\n\
+         17/01/2024 08:45,05/03/2024,07/02/2024,norte,9,5.5\n",
+    );
+    let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
+    let mut dataset = LoadedDataset {
+        source_path: Some(path.path_buf()),
+        file_name: "fechas.csv".to_owned(),
+        file_size_bytes: fs::metadata(&path).expect("la fuente debe existir").len(),
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial debe inicializarse"),
+    };
+    let dates = ["momento", "dia", "mala"].map(|column| DateColumnPlan {
+        column: column.to_owned(),
+        order: "dmy".to_owned(),
+    });
+    let cast = ["unidades".to_owned(), "precio".to_owned()];
+    let fill = [
+        "zona".to_owned(),
+        "unidades".to_owned(),
+        "precio".to_owned(),
+    ];
+    let expected = safe_corrected_plan_frame(
+        &source_frame,
+        true,
+        false,
+        true,
+        false,
+        true,
+        Some(&fill),
+        Some(&cast),
+        Some(&dates),
+    )
+    .expect("el plan en memoria debe aplicarse");
+    let result = source_backed_safe_corrections_with_cancellation(
+        &mut dataset,
+        true,
+        false,
+        true,
+        false,
+        Some(&cast),
+        Some(&dates),
+        Some(&fill),
+        &PrepareCancellation::disabled(),
+    )
+    .expect("el plan en disco debe aplicarse")
+    .expect("el CSV debe procesarse en disco");
+    let output = read_parquet_frame(dataset.source_path.as_deref().expect("fuente"))
+        .expect("el resultado Parquet debe leerse");
+
+    assert_eq!(result.dated_column_count, 2);
+    assert_eq!(result.dated_column_count, expected.dated_column_count);
+    assert_eq!(result.typed_column_count, expected.typed_column_count);
+    assert_eq!(result.imputed_cell_count, expected.imputed_cell_count);
+    assert_eq!(
+        output.column("momento").unwrap().dtype(),
+        &DataType::Datetime(TimeUnit::Milliseconds, None)
+    );
+    assert_eq!(output.column("dia").unwrap().dtype(), &DataType::Date);
+    assert_eq!(output.column("mala").unwrap().dtype(), &DataType::String);
     assert!(output.equals_missing(&expected.frame));
 }

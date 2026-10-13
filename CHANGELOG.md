@@ -236,6 +236,15 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- La propuesta de Preparar se aplica entera en disco a un archivo grande:
+  convertir a número, convertir a fecha y rellenar huecos siguen las mismas
+  reglas que en memoria y se hacen bloque a bloque después de las correcciones
+  de DuckDB; antes las fechas y los rellenos obligaban a cargar el archivo
+  (REN-14).
+- «Convertir a número» convierte un decimal largo que un `f64` guarda exacto
+  (`54.88135039273247`); antes exigía 15 cifras como máximo y en vmCloud la
+  propuesta anunciaba 6 columnas y no convertía ninguna. Un código de 20
+  dígitos o una fracción más larga siguen como texto (FUN-57, REN-14).
 - En un archivo grande, «Convertir a número» de la propuesta de Preparar se
   hace en disco con DuckDB, con las mismas reglas que en memoria (enteros,
   enteros escritos como decimal, decimales de hasta 15 cifras; los códigos con

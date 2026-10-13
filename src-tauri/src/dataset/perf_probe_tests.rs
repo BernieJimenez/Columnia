@@ -623,6 +623,8 @@ fn perf_probe_apply_proposal() {
         true,
         true,
         Some(&columns),
+        None,
+        None,
         &PrepareCancellation::disabled(),
     )
     .expect("la propuesta debe aplicarse")
@@ -635,4 +637,313 @@ fn perf_probe_apply_proposal() {
         result.removed_row_count,
         result.dataset.row_count
     );
+}
+
+/// The proposal the Preparar phase builds from a profile, with the rules of
+/// `buildPrepareProposal` in `src/features/prepare/proposalModel.ts`.
+/// Ambiguous dates take the day-first order a person would choose here.
+struct ProbeProposal {
+    trim: bool,
+    sentinels: bool,
+    duplicates: bool,
+    impute: Option<Vec<String>>,
+    cast: Vec<String>,
+    dates: Vec<DateColumnPlan>,
+}
+
+fn probe_looks_like_identifier(name: &str) -> bool {
+    const WORDS: [&str; 13] = [
+        "id", "code", "codigo", "cod", "no", "nro", "num", "number", "key", "clave", "uuid", "ref",
+        "sku",
+    ];
+    let mut spaced = String::new();
+    let mut previous: Option<char> = None;
+    for character in name.chars() {
+        if character.is_ascii_uppercase()
+            && previous.is_some_and(|before| before.is_ascii_lowercase() || before.is_ascii_digit())
+        {
+            spaced.push(' ');
+        }
+        spaced.push(character);
+        previous = Some(character);
+    }
+    let lowered = spaced.to_lowercase();
+    let words = lowered
+        .split(|character: char| {
+            !(character.is_ascii_alphanumeric()
+                || "\u{e1}\u{e9}\u{ed}\u{f3}\u{fa}\u{f1}".contains(character))
+        })
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    words.last().is_some_and(|last| WORDS.contains(last))
+        || words
+            .first()
+            .is_some_and(|first| *first != "no" && WORDS.contains(first))
+}
+
+fn probe_is_text(data_type: &str) -> bool {
+    ["str", "string", "utf8", "varchar"].contains(&data_type.trim().to_lowercase().as_str())
+}
+
+fn probe_is_numeric(data_type: &str) -> bool {
+    let normalized = data_type.trim().to_lowercase();
+    normalized.starts_with('i')
+        || normalized.starts_with('u')
+        || normalized.starts_with('f')
+        || normalized.starts_with("decimal")
+}
+
+fn probe_proposal(profile: &DatasetProfile) -> ProbeProposal {
+    let columns = profile
+        .columns
+        .iter()
+        .filter(|column| column.name != "_cambios")
+        .collect::<Vec<_>>();
+    let untrimmed = columns
+        .iter()
+        .filter(|column| probe_is_text(&column.data_type))
+        .map(|column| column.untrimmed_count.unwrap_or(1))
+        .sum::<usize>();
+    let has_text = columns
+        .iter()
+        .any(|column| probe_is_text(&column.data_type));
+    let cast = columns
+        .iter()
+        .filter(|column| {
+            probe_is_text(&column.data_type)
+                && matches!(
+                    column.suggested_type.as_deref(),
+                    Some("integer" | "decimal")
+                )
+                && column.invalid_type_count == Some(0)
+                && column.privacy_signal.is_none()
+                && !probe_looks_like_identifier(&column.name)
+        })
+        .map(|column| column.name.clone())
+        .collect::<Vec<_>>();
+    let dates = columns
+        .iter()
+        .filter(|column| {
+            probe_is_text(&column.data_type)
+                && column.date_order.is_some()
+                && column.privacy_signal.is_none()
+        })
+        .map(|column| DateColumnPlan {
+            column: column.name.clone(),
+            order: match column.date_order.as_deref() {
+                Some("ambiguous") | None => "dmy".to_owned(),
+                Some(order) => order.to_owned(),
+            },
+        })
+        .collect::<Vec<_>>();
+    let impute = columns
+        .iter()
+        .filter(|column| {
+            let missing = column.null_count + column.sentinel_count.unwrap_or(0);
+            let rows = profile.row_count;
+            if missing == 0 || rows == 0 || missing as f64 / rows as f64 > 0.05 {
+                return false;
+            }
+            if column.privacy_signal.is_some()
+                || column.suggested_type.as_deref() == Some("date")
+                || probe_looks_like_identifier(&column.name)
+            {
+                return false;
+            }
+            let observed = rows - column.null_count;
+            if probe_is_numeric(&column.data_type) {
+                return observed > 0 && column.median.is_some();
+            }
+            probe_is_text(&column.data_type)
+                && column.unique_count < observed
+                && column.unique_count <= 50
+                && column.unique_count as f64 / observed.max(1) as f64 <= 0.05
+                && column.average_length.unwrap_or(0.0) <= 40.0
+        })
+        .map(|column| column.name.clone())
+        .collect::<Vec<_>>();
+    ProbeProposal {
+        trim: has_text && untrimmed != 0,
+        sentinels: columns
+            .iter()
+            .any(|column| column.sentinel_count.unwrap_or(0) > 0),
+        duplicates: profile.duplicate_row_count > 0,
+        impute: (!impute.is_empty()).then_some(impute),
+        cast,
+        dates,
+    }
+}
+
+fn probe_profile(dataset: &LoadedDataset) -> Result<DatasetProfile, String> {
+    if dataset.source_backed {
+        let (path, size, row_count) =
+            current_source_backed_context(dataset).ok_or("la fuente en disco no está")?;
+        let extension = dataset_extension(&path)?;
+        profile_source_backed_with_progress(
+            &path,
+            &extension,
+            size,
+            row_count,
+            |_, _| {},
+            || false,
+            MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+        )
+    } else {
+        profile_dataset(&dataset.frame)
+    }
+}
+
+fn probe_explore(
+    dataset: &LoadedDataset,
+    profile: &DatasetProfile,
+) -> Result<ExplorePanel, String> {
+    let plan = if dataset.source_backed {
+        let (path, _, _) =
+            current_source_backed_context(dataset).ok_or("la fuente en disco no está")?;
+        match dataset_extension(&path)?.as_str() {
+            "parquet" => parquet_scan(&path)?,
+            extension => delimited_scan_with_header(&path, extension, true)?,
+        }
+    } else {
+        dataset.frame.clone().lazy()
+    };
+    explore::explore_panel(plan, profile, &[], &explore::ExploreLayout::default())
+}
+
+/// Runs the main flow on every dataset of a folder, as the app does: load
+/// (in memory or from disk by size), quality profile, Explorar, the Preparar
+/// proposal applied with the code of «Aplicar», the profile again and
+/// Explorar again. A failure is reported and the next file still runs.
+/// `COLUMNIA_PROBE_FLOW_DIR` names the folder; `COLUMNIA_PROBE_FLOW_SKIP`
+/// lists file names to leave out (comma separated).
+#[test]
+#[ignore = "sonda opt-in del flujo completo sobre una carpeta de datasets"]
+fn perf_probe_full_flow() {
+    let Ok(directory) = std::env::var("COLUMNIA_PROBE_FLOW_DIR") else {
+        println!("probe   COLUMNIA_PROBE_FLOW_DIR no definida; nada que medir");
+        return;
+    };
+    let skip = std::env::var("COLUMNIA_PROBE_FLOW_SKIP").unwrap_or_default();
+    let mut files = fs::read_dir(&directory)
+        .expect("carpeta de datasets")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            dataset_extension(path).is_ok_and(|extension| {
+                matches!(
+                    extension.as_str(),
+                    "csv" | "tsv" | "txt" | "parquet" | "xlsx" | "xls" | "json"
+                )
+            }) && !skip
+                .split(',')
+                .any(|name| !name.trim().is_empty() && path.ends_with(name.trim()))
+        })
+        .collect::<Vec<_>>();
+    files.sort_by_key(|path| {
+        fs::metadata(path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0)
+    });
+    let mut failures = Vec::new();
+    for path in files {
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        let size = fs::metadata(&path).unwrap().len();
+        println!(
+            "flow    == {name} ({:.0} MiB)",
+            size as f64 / (1024.0 * 1024.0)
+        );
+        let started = Instant::now();
+        let step = |label: &str| {
+            println!(
+                "flow       {label:<28} {:>7.1} s",
+                started.elapsed().as_secs_f64()
+            );
+        };
+        let result = (|| -> Result<(), String> {
+            let extension = dataset_extension(&path)?;
+            let mut dataset = if should_defer_source_load(&extension, size) {
+                let (schema, _, row_count) = source_backed_load(&path, &extension, || false)?;
+                LoadedDataset {
+                    source_path: Some(path.clone()),
+                    file_name: name.clone(),
+                    file_size_bytes: size,
+                    row_count,
+                    frame: schema,
+                    source_backed: true,
+                    delimited_header_mode: None,
+                    profile: None,
+                    history: HistoryManager::deferred()?,
+                }
+            } else {
+                let (frame, _) = load_dataset_with_progress(&path, |_, _| {}, || false)?;
+                LoadedDataset {
+                    source_path: Some(path.clone()),
+                    file_name: name.clone(),
+                    file_size_bytes: size,
+                    row_count: frame.height(),
+                    history: HistoryManager::new(&frame)?,
+                    frame,
+                    source_backed: false,
+                    delimited_header_mode: None,
+                    profile: None,
+                }
+            };
+            step(if dataset.source_backed {
+                "cargado (en disco)"
+            } else {
+                "cargado (en memoria)"
+            });
+            let profile = probe_profile(&dataset)?;
+            step("perfil");
+            dataset.profile = Some(profile.clone());
+            probe_explore(&dataset, &profile)?;
+            step("Explorar");
+            let proposal = probe_proposal(&profile);
+            println!(
+                "flow       propuesta: espacios={} sin_dato={} duplicados={} numeros={:?} fechas={} rellenar={:?}",
+                proposal.trim,
+                proposal.sentinels,
+                proposal.duplicates,
+                proposal.cast,
+                proposal.dates.len(),
+                proposal.impute
+            );
+            let applied = apply_safe_corrections_to_dataset(
+                &mut dataset,
+                proposal.trim,
+                false,
+                proposal.sentinels,
+                proposal.duplicates,
+                proposal.impute.is_some(),
+                proposal.impute,
+                (!proposal.cast.is_empty()).then_some(proposal.cast),
+                (!proposal.dates.is_empty()).then_some(proposal.dates),
+                &PrepareCancellation::disabled(),
+            )?;
+            step("propuesta aplicada");
+            println!(
+                "flow       resultado: {} celdas, {} a número, {} a fecha, {} rellenas, {} filas quitadas, {} filas",
+                applied.changed_cell_count,
+                applied.typed_column_count,
+                applied.dated_column_count,
+                applied.imputed_cell_count,
+                applied.removed_row_count,
+                applied.dataset.row_count
+            );
+            let profile = probe_profile(&dataset)?;
+            step("perfil tras el cambio");
+            dataset.profile = Some(profile.clone());
+            probe_explore(&dataset, &profile)?;
+            step("Explorar tras el cambio");
+            Ok(())
+        })();
+        if let Err(error) = result {
+            println!("flow       FALLO: {error}");
+            failures.push(format!("{name}: {error}"));
+        }
+    }
+    println!("flow    fallos: {}", failures.len());
+    for failure in &failures {
+        println!("flow    - {failure}");
+    }
 }
