@@ -1,6 +1,6 @@
 # Roadmap de Columnia
 
-**Actualizado:** 2026-10-08 · **Versión:** 1.26.0
+**Actualizado:** 2026-10-14 · **Versión:** 1.26.0
 
 **Estado:** aplicación local funcional para Windows x64, de **uso personal**. No
 se comparte ni se distribuye; las mejoras se eligen por lo que su dueño nota al
@@ -32,8 +32,9 @@ remota. El archivo original no se modifica.
 ## Cola vigente
 
 La revisión del 2026-10-01 quedó aplicada el 2026-10-08. El 2026-10-09 se
-cerraron REN-08 y REN-13 y DAT-12 pasó a aparcado; solo queda REN-01, que no
-bloquea el uso diario.
+cerraron REN-08 y REN-13 y DAT-12 pasó a aparcado. Quedan REN-14 y REN-01,
+que tratan de la velocidad con archivos de varios GB; ninguno bloquea el uso
+diario.
 
 ### Preparar archivos grandes
 
@@ -50,7 +51,10 @@ bloquea el uso diario.
     copia del perfil, y los marcadores sueltos se buscan en una sola lectura.
     `perf_probe_full_flow` en los 11 datasets, 0 fallos: Explorar 2,3 s en
     2019-Oct y 4,2 s en 2019-Nov (antes 55 y 88 s); aplicar la propuesta,
-    195 s y 427 s (antes 272 y 516 s).
+    195 s y 427 s (antes 272 y 516 s). Desde el 2026-10-14 aplicar lee la
+    copia del perfil en lugar del CSV: 6 M filas de unos 26 s a unos 15 s
+    (medido alternando) y 2019-Nov 387 s; la medida de 2019-Oct (273 s) se
+    tomó con el equipo ocupado y no sirve para comparar.
   - Falta: aplicar sigue tardando minutos en 5–9 GB (escribir sin duplicados
     unos 130 s en 2019-Oct), con pausas de hasta unos 30 s sin cambio de
     porcentaje mientras DuckDB cuenta los cambios o arranca la escritura.

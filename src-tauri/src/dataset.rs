@@ -5720,6 +5720,23 @@ fn source_backed_safe_corrections_with_cancellation(
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
+    // REN-14: every read of the plan (lone markers, counts, the write) goes
+    // to the profile's Parquet copy of an unchanged CSV, which holds the same
+    // text values (the CSV view is all_varchar), instead of parsing the CSV
+    // again each time.
+    let profile_copy = matches!(
+        source_format,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { .. }
+    )
+    .then(|| cached_profile_snapshot(&source_path))
+    .flatten();
+    let (source_path, source_format) = match profile_copy.as_deref() {
+        Some(copy) => (
+            copy.to_owned(),
+            crate::duckdb_query::DuckDbFileFormat::Parquet,
+        ),
+        None => (source_path, source_format),
+    };
     let (names, renames) = if normalize_column_names {
         normalized_column_names(&dataset.frame)
     } else {
@@ -11013,6 +11030,7 @@ pub async fn get_explore_panel(
             .profile
             .clone()
             .ok_or_else(|| "Analiza la calidad del dataset antes de explorarlo.".to_owned())?;
+        let explore_snapshot;
         let plan = if dataset.source_backed {
             let (source_path, _, _) = current_source_backed_context(dataset)
                 .ok_or_else(|| "La fuente cambió o ya no está disponible.".to_owned())?;
@@ -11023,8 +11041,9 @@ pub async fn get_explore_panel(
                 // REN-14: the profile's working copy is read instead of the
                 // CSV when the file has not changed.
                 "csv" | "tsv" | "txt" if has_header => {
-                    match cached_profile_snapshot(&source_path) {
-                        Some(snapshot) => parquet_scan(&snapshot)?,
+                    explore_snapshot = cached_profile_snapshot(&source_path);
+                    match explore_snapshot.as_deref() {
+                        Some(snapshot) => parquet_scan(snapshot)?,
                         None => delimited_scan_with_header(
                             &source_path,
                             &dataset_extension(&source_path)?,

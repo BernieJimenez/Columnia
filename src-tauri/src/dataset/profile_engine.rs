@@ -2501,8 +2501,29 @@ struct ProfileSnapshot {
     source: PathBuf,
     size: u64,
     modified: Option<SystemTime>,
-    _directory: tempfile::TempDir,
+    directory: std::sync::Arc<tempfile::TempDir>,
     path: PathBuf,
+}
+
+/// A profile copy in use: it keeps its folder alive even if another profile
+/// replaces it in the cache meanwhile, so a long read never loses its file.
+pub(super) struct CachedProfileSnapshot {
+    path: PathBuf,
+    _directory: std::sync::Arc<tempfile::TempDir>,
+}
+
+impl std::ops::Deref for CachedProfileSnapshot {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl AsRef<Path> for CachedProfileSnapshot {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
 }
 
 static PROFILE_SNAPSHOT: std::sync::Mutex<Vec<ProfileSnapshot>> = std::sync::Mutex::new(Vec::new());
@@ -2519,7 +2540,7 @@ fn file_modified(path: &Path) -> Option<SystemTime> {
 
 /// The working copy of `source` when the profile made one and the file has
 /// not changed since (same size and modification time).
-pub(super) fn cached_profile_snapshot(source: &Path) -> Option<PathBuf> {
+pub(super) fn cached_profile_snapshot(source: &Path) -> Option<CachedProfileSnapshot> {
     use crate::crash_report::LockRecovering;
     let size = fs::metadata(source).ok()?.len();
     let modified = file_modified(source);
@@ -2532,7 +2553,10 @@ pub(super) fn cached_profile_snapshot(source: &Path) -> Option<PathBuf> {
                 && snapshot.modified == modified
                 && snapshot.path.is_file()
         })
-        .map(|snapshot| snapshot.path.clone())
+        .map(|snapshot| CachedProfileSnapshot {
+            path: snapshot.path.clone(),
+            _directory: std::sync::Arc::clone(&snapshot.directory),
+        })
 }
 
 fn remember_profile_snapshot(source: &Path, directory: tempfile::TempDir, path: PathBuf) {
@@ -2549,7 +2573,7 @@ fn remember_profile_snapshot(source: &Path, directory: tempfile::TempDir, path: 
         source: source.to_owned(),
         size: metadata.len(),
         modified: metadata.modified().ok(),
-        _directory: directory,
+        directory: std::sync::Arc::new(directory),
         path,
     });
 }
@@ -2573,9 +2597,13 @@ where
     let cached = cached_profile_snapshot(source_path);
     let (snapshot_directory, snapshot_path) = match extension {
         "parquet" => (None, source_path.to_owned()),
-        "csv" | "tsv" | "txt" if cached.is_some() => {
-            (None, cached.expect("la copia en caché existe"))
-        }
+        "csv" | "tsv" | "txt" if cached.is_some() => (
+            None,
+            cached
+                .as_deref()
+                .expect("la copia en caché existe")
+                .to_owned(),
+        ),
         "csv" | "tsv" | "txt" => {
             report("Preparando una copia de trabajo", 0);
             let mut shown = 0_u8;

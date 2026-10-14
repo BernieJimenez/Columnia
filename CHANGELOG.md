@@ -250,7 +250,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   historial esa misma copia como versión de partida en lugar de convertir el
   CSV otra vez, y los marcadores que aparecen una sola vez se buscan en todas
   las columnas con una sola lectura del archivo, no una por columna (2019-Oct:
-  «Revisando el archivo» de 47 s a 20 s) (REN-14).
+  «Revisando el archivo» de 47 s a 20 s). Aplicar la propuesta también lee
+  esa copia en lugar del CSV: con 6 millones de filas, de unos 26 s a unos
+  15 s; en 2019-Nov, de 427 s a 387 s. Si otro análisis reemplaza la copia
+  mientras se usa, la operación en curso conserva la suya (REN-14).
 - La propuesta de Preparar se aplica entera en disco a un archivo grande:
   convertir a número, convertir a fecha y rellenar huecos siguen las mismas
   reglas que en memoria y se hacen bloque a bloque después de las correcciones

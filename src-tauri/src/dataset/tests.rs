@@ -23368,3 +23368,71 @@ fn the_first_version_of_a_large_csv_reuses_the_profile_copy() {
     };
     assert!(read(&from_copy).equals_missing(&read(&from_csv)));
 }
+
+#[test]
+fn the_plan_reads_the_profile_copy_with_the_same_result() {
+    // REN-14: with the profile's copy of an unchanged CSV in the cache, the
+    // whole plan reads that Parquet instead of the CSV and writes the same
+    // version, markers, duplicates, numbers, dates and fills included.
+    let csv = "nombre,zona,unidades,dia\n\
+               \u{20}Ana ,norte,5,02/03/2024\n\
+               Luis,N/A,7,03/03/2024\n\
+               Ana,norte,5,02/03/2024\n\
+               Eva,,9,\n\
+               Unknown,sur,11,05/03/2024\n\
+               Ana,norte,5,02/03/2024\n";
+    let apply = |dataset: &mut LoadedDataset| {
+        let cast = ["unidades".to_owned()];
+        let dates = [DateColumnPlan {
+            column: "dia".to_owned(),
+            order: "dmy".to_owned(),
+        }];
+        let fill = ["zona".to_owned()];
+        let result = source_backed_safe_corrections_with_cancellation(
+            dataset,
+            true,
+            true,
+            true,
+            true,
+            Some(&cast),
+            Some(&dates),
+            Some(&fill),
+            &PrepareCancellation::disabled(),
+            &mut |_, _| {},
+        )
+        .expect("el plan debe aplicarse")
+        .expect("el CSV debe procesarse en disco");
+        let output = read_parquet_frame(dataset.source_path.as_deref().expect("fuente"))
+            .expect("el resultado Parquet debe leerse");
+        (result, output)
+    };
+
+    let (_csv_path, _, mut from_csv) = source_backed_csv_dataset(csv);
+    let (expected, expected_output) = apply(&mut from_csv);
+
+    let (path, _, mut from_copy) = source_backed_csv_dataset(csv);
+    profile_source_backed_with_progress(
+        &path,
+        "csv",
+        from_copy.file_size_bytes,
+        from_copy.row_count,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("perfil en disco");
+    assert!(cached_profile_snapshot(&path).is_some());
+    let (result, output) = apply(&mut from_copy);
+
+    assert_eq!(result.changed_cell_count, expected.changed_cell_count);
+    assert_eq!(result.removed_row_count, expected.removed_row_count);
+    assert_eq!(result.removed_row_count, 2);
+    assert_eq!(result.renamed_column_count, expected.renamed_column_count);
+    assert_eq!(result.typed_column_count, expected.typed_column_count);
+    assert_eq!(result.dated_column_count, expected.dated_column_count);
+    assert_eq!(result.imputed_cell_count, expected.imputed_cell_count);
+    assert!(
+        output.equals_missing(&expected_output),
+        "{output}\n{expected_output}"
+    );
+}
