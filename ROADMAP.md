@@ -78,6 +78,12 @@ diario.
     detección de filas parecidas, que depende de todas las columnas.
     Reutilizar el perfil de las columnas sin cambios ahorró un 8 % y se
     descartó.
+  - Medido el 2026-10-14 (2019-Oct, con el equipo en uso): 60–62 s en las
+    tandas tranquilas (copia 14 s, filas y columnas 29 s, espera al conteo
+    de distintos 9–11 s) y hasta 78 s con carga. Comprimir la copia sin
+    compresión o con LZ4, o dar 4–6 hilos a DuckDB en el conteo, quedó
+    dentro de ese ruido y se descartó; lo que queda es acelerar la pasada de
+    filas y columnas, que trata todas las columnas como texto.
   - Falta: bajar 2019-Oct a ≤ 60 s (64 s; al final se esperan unos 9 s al
     conteo de valores distintos de DuckDB) y, para reutilizar el perfil tras
     un cambio, actualizar duplicados y filas parecidas sin releer todo. Con
