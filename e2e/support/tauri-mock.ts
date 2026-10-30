@@ -42,6 +42,8 @@ export interface TauriMockOptions {
   project?: { summary: ProjectSummary; workspace?: Partial<ProjectWorkspace>; recover?: boolean };
   /** What the engine answers when a saved task is checked against the schema. */
   taskSchema?: ReusableTaskSchemaCompatibility;
+  /** The reversible history the engine reports; empty by default. */
+  history?: HistoryState;
 }
 
 /** Everything the page script needs, already shaped by the contracts. */
@@ -93,7 +95,7 @@ function fixtures(options: TauriMockOptions): MockFixtures {
     dataset,
     profile: options.profile ?? emptyProfile(dataset),
     explore: options.explore ?? null,
-    history: {
+    history: options.history ?? {
       canUndo: false, canRedo: false, currentIndex: 0, entryCount: 0, entries: [], snapshotsEnabled: true,
       degradedReason: null, maxEntries: 50, diskBytes: 0, diskBudgetBytes: 536_870_912,
     },

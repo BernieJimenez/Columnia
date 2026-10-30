@@ -250,6 +250,8 @@ export function PreparePhase({
           <p className="phase-lead">Corrige y transforma con historial: cada cambio se puede deshacer.</p>
         </div>
       </header>
+      <div className="prepare-layout">
+      <div className="prepare-layout__main">
       <ChangeFeedback status={changeStatus} onCancel={onCancelPrepare} />
       {profileStatus.kind === "idle" && (
         <section className="prepare-analysis-prompt" aria-labelledby="prepare-analysis-title" role="status">
@@ -303,16 +305,9 @@ export function PreparePhase({
       <details className="advanced-corrections prepare-advanced">
         <summary>
           <span>Diagnóstico y herramientas avanzadas</span>
-          <small>Historial, señales individuales y transformaciones</small>
+          <small>Señales, transformaciones y efecto</small>
         </summary>
         <div className="advanced-corrections__content">
-      <HistoryBar
-        status={historyStatus}
-        busy={changing}
-        latestChange={changeStatus.kind === "applied" ? changeStatus.message : undefined}
-        onUndo={onUndo}
-        onRedo={onRedo}
-      />
       <details className="review-tool review-tool--nested prepare-revision-comparison">
         <summary>
           <span>Medir el efecto de los cambios</span>
@@ -530,6 +525,18 @@ export function PreparePhase({
       )}
         </div>
       </details>
+      </div>
+      {/* The history stays in view: every change here can be undone from it. */}
+      <aside className="prepare-layout__aside" aria-label="Versiones del dataset">
+        <HistoryBar
+          status={historyStatus}
+          busy={changing}
+          latestChange={changeStatus.kind === "applied" ? changeStatus.message : undefined}
+          onUndo={onUndo}
+          onRedo={onRedo}
+        />
+      </aside>
+      </div>
       {nearDuplicateConfirmation && nearDuplicateCount !== null && nearDuplicateCount > 0 && (
         <ModalDialog
           role="alertdialog"

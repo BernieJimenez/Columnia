@@ -1126,6 +1126,12 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   de crear la copia» aparece junto a ellos.
 - Los botones deshabilitados del área de trabajo se dibujan con un borde
   discontinuo en lugar de un bloque gris, para no pesar más que los activos.
+- El historial de Preparar sale de «Diagnóstico y herramientas avanzadas» y
+  queda a la vista en una columna a la derecha (debajo en ventanas estrechas).
+  Es una línea de versiones del origen a la última: la actual va resaltada y
+  las deshechas, atenuadas y marcadas «Deshecho · se puede rehacer». Deshacer
+  y Rehacer están siempre ahí, y el uso de disco y la política de retención
+  pasan a «Espacio del historial», plegado.
 - En archivos grandes, la lectura de filas prepara el bloque siguiente mientras
   analiza el actual, calcula a la vez huellas y columnas, y la copia de trabajo
   y el conteo de valores distintos usan hasta 1 GB de memoria en DuckDB (con

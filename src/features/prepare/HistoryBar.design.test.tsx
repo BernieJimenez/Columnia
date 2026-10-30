@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { HistoryState } from "../../bridge";
@@ -55,19 +55,48 @@ describe("HistoryBar design", () => {
 
     expect(screen.getByText("Último resultado")).toBeInTheDocument();
     expect(screen.getByText("Se imputaron 3 valores nulos en: monto.")).toBeInTheDocument();
-    const changes = screen.getByText("Cambios realizados (2)").closest("details");
-    expect(changes).not.toHaveAttribute("open");
-    fireEvent.click(screen.getByText("Cambios realizados (2)"));
-    expect(changes).toHaveAttribute("open");
-    expect(screen.getByText("Cambio 2")).toBeInTheDocument();
-    expect(screen.getByText("Imputación conservadora")).toBeInTheDocument();
+    // The versions are always in view, oldest first, with the current one marked.
+    const versions = screen.getByRole("list", { name: "Versiones del dataset" });
+    expect(within(versions).getAllByRole("listitem").map((item) => item.querySelector(".version-history__label")?.textContent))
+      .toEqual(["Dataset original", "Normalizar nombres", "Imputación conservadora"]);
+    expect(within(versions).getByText("Cambio 2").closest("li")).toHaveAttribute("aria-current", "step");
+    // Retention is a detail: closed until asked for.
+    const space = screen.getByText("Espacio del historial").closest("details");
+    expect(space).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByText("Espacio del historial"));
+    expect(space).toHaveAttribute("open");
     const retention = screen.getByLabelText("Uso y retención del historial");
     expect(retention).toHaveTextContent(/3 \/ 12 estados · 512 B \/ 1[.,]0 KiB de historial local/);
-    fireEvent.click(screen.getByText("Política local"));
     expect(retention).toHaveTextContent("se retiran primero los estados más antiguos");
     expect(retention).toHaveTextContent("la operación puede quedar sin historial reversible");
     fireEvent.click(screen.getByRole("button", { name: "Deshacer" }));
     expect(onUndo).toHaveBeenCalledOnce();
+  });
+});
+
+describe("HistoryBar versiones deshechas", () => {
+  it("marca las versiones que se pueden rehacer y dice cuándo no hay nada que deshacer", () => {
+    const { rerender } = render(
+      <HistoryBar
+        status={{ ...history, currentIndex: 1, canRedo: true, entries: history.entries.map((entry) => ({ ...entry, isCurrent: entry.index === 1 })) }}
+        busy={false}
+        onUndo={() => undefined}
+        onRedo={() => undefined}
+      />,
+    );
+    expect(screen.getByText("Imputación conservadora").closest("li")).toHaveTextContent("Deshecho · se puede rehacer");
+    expect(screen.queryByText("Aún no hay cambios que deshacer.")).not.toBeInTheDocument();
+
+    rerender(
+      <HistoryBar
+        status={{ ...history, canUndo: false, currentIndex: 0, entryCount: 1, entries: [{ id: "history-test-0", index: 0, label: "Dataset original", isCurrent: true }] }}
+        busy={false}
+        onUndo={() => undefined}
+        onRedo={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Deshacer" })).toBeDisabled();
+    expect(screen.getByText("Aún no hay cambios que deshacer.")).toBeVisible();
   });
 });
 
