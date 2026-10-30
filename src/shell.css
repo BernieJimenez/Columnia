@@ -217,18 +217,27 @@
 .app-topbar__sql svg { flex: 0 0 18px; width: 18px; height: 18px; }
 
 /* SQL console: a drawer on the right, full height, over the current phase. */
-.sheet-dialog.sheet-dialog--drawer { place-items: stretch end; padding: 0; }
+.sheet-dialog.sheet-dialog--drawer { place-items: stretch end; padding: 0; overflow: hidden; }
 .sheet-dialog--drawer > .sheet-dialog__panel {
   box-sizing: border-box;
   width: min(820px, 100vw);
   height: 100dvh;
   max-height: none;
   padding: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   border-width: 0 0 0 1px;
   border-radius: 0;
 }
-.sql-console { display: grid; gap: 16px; padding: 24px 28px 32px; }
+/* Grid tracks grow to their widest content by default: a wide query result
+   pushed «Cerrar» out of the window. minmax(0, 1fr) keeps every track to the
+   panel's width, and the result table scrolls inside its own region. */
+.sql-console { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 24px 28px 32px; }
+/* The same holds wherever the query lives, also in Revisar › Más análisis. */
+:is(.local-query, .review-more__content) { grid-template-columns: minmax(0, 1fr); }
+:is(.local-query > *, .review-more__content > *, .local-query__result) { min-width: 0; }
+.sql-console__heading > div { flex: 1 1 auto; min-width: 0; }
+.sql-console__heading > button { flex: 0 0 auto; }
 .sql-console__heading {
   position: sticky;
   top: 0;

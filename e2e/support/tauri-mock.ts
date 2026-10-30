@@ -146,6 +146,15 @@ export async function installTauriMock(page: Page, options: TauriMockOptions): P
         case "get_dataset_profile": return fixture.profile;
         case "get_history_state": return fixture.history;
         case "get_dataset_page": return { offset: args.offset ?? 0, rows: fixture.dataset.rows };
+        // Any query answers with the fixture's rows: the mock never runs SQL.
+        case "query_dataset": return {
+          engine: "polars",
+          columns: fixture.dataset.columns,
+          rowCount: fixture.dataset.rowCount,
+          offset: 0,
+          rows: fixture.dataset.rows,
+          truncated: false,
+        };
         case "get_explore_panel":
           if (!fixture.explore) break;
           return fixture.explore;

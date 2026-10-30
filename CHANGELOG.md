@@ -1143,7 +1143,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   lateral desde cualquier etapa, sin tener que ir a Revisar › Más análisis.
   La consulta aparece abierta, comparte historial y motor (Polars o DuckDB)
   con la de Revisar, no modifica el dataset y se cierra con Esc devolviendo el
-  foco al botón.
+  foco al botón. Un resultado con muchas columnas se desplaza dentro de su
+  tabla: antes ensanchaba el panel y dejaba «Cerrar» fuera de la ventana, y
+  en Revisar › Más análisis ensanchaba toda la página.
 - En una ventana de móvil, «Preferencias y recursos» y «Licencia y
   privacidad» van uno debajo de otro: lado a lado, los botones de tema
   quedaban por debajo de 24 px de ancho.

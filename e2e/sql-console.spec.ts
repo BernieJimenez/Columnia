@@ -38,4 +38,55 @@ test.describe("consulta SQL desde la barra superior", () => {
     await expect(drawer).toHaveCount(0);
     await expect(trigger).toBeFocused();
   });
+
+  // A result as wide as netflix_titles.csv pushed «Cerrar» out of the window.
+  test("un resultado ancho se desplaza dentro de su tabla y «Cerrar» sigue a la vista", async ({ page }) => {
+    const columns = ["show_id", "type", "title", "director", "cast", "country", "date_added", "release_year", "rating", "duration", "listed_in", "description"]
+      .map((name) => ({ name, dataType: "String" }));
+    const wide = {
+      fileName: "netflix_titles.csv",
+      fileSizeBytes: 3_399_671,
+      rowCount: 8807,
+      columnCount: columns.length,
+      columns,
+      rows: Array.from({ length: 6 }, (_, row) => columns.map(({ name }) => `${name} de la fila ${row + 1} con un texto largo`)),
+    } satisfies DatasetPreview;
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await installTauriMock(page, { dataset: wide });
+    await page.goto("/", { waitUntil: "commit" });
+    await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+    await page.getByRole("dialog", { name: /Revisar encabezados/ }).getByRole("button", { name: "Cargar archivo" }).click();
+    await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Consulta SQL" }).click();
+    const drawer = page.getByRole("dialog", { name: "Consulta SQL" });
+    await drawer.getByRole("button", { name: "Ejecutar consulta" }).click();
+    await expect(drawer.getByRole("region", { name: "Resultado de consulta SQL" })).toBeVisible();
+
+    const close = drawer.getByRole("button", { name: "Cerrar" });
+    await expect(close).toBeInViewport({ ratio: 1 });
+    const layout = await drawer.evaluate((dialog) => {
+      const panel = dialog.querySelector(".sheet-dialog__panel") as HTMLElement;
+      const result = dialog.querySelector(".local-query__result .profile-region") as HTMLElement;
+      return {
+        panelOverflow: panel.scrollWidth - panel.clientWidth,
+        dialogOverflow: dialog.scrollWidth - dialog.clientWidth,
+        resultScrolls: result.scrollWidth > result.clientWidth,
+      };
+    });
+    expect(layout.panelOverflow, JSON.stringify(layout)).toBeLessThanOrEqual(1);
+    expect(layout.dialogOverflow, JSON.stringify(layout)).toBeLessThanOrEqual(1);
+    expect(layout.resultScrolls, "la tabla ancha se desplaza dentro de su recuadro").toBe(true);
+
+    await close.click();
+    await expect(drawer).toHaveCount(0);
+
+    // The same query inside Revisar › Más análisis widened the whole page.
+    await page.getByText("Más análisis y herramientas").click();
+    await page.getByText("Explorar con SQL local").click();
+    await page.getByRole("button", { name: "Ejecutar consulta" }).click();
+    await expect(page.getByRole("region", { name: "Resultado de consulta SQL" })).toBeVisible();
+    const pageOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(pageOverflow).toBeLessThanOrEqual(1);
+  });
 });
