@@ -71,6 +71,8 @@ import { WorkspaceNav } from "./features/workspaces/WorkspaceNav";
 import { workflowPhases, type WorkflowPhase } from "./features/workspaces/workspaceModel";
 import { formatBytes } from "./format";
 import { plural } from "./plural";
+import { isRowAuditColumn } from "./rowAudit";
+import type { SqlQueryDraft } from "./features/review/ReviewPhase";
 
 import {
   cancelOperation,
@@ -151,6 +153,12 @@ const PreparePhase = lazy(async () => {
 const ReviewPhase = lazy(async () => {
   const module = await loadReviewPhase();
   return { default: module.ReviewPhase };
+});
+
+// The SQL console of Revisar, opened from the top bar in any phase.
+const SqlConsolePanel = lazy(async () => {
+  const module = await loadReviewPhase();
+  return { default: module.LocalQueryPanel };
 });
 
 function preloadPhase(phase: WorkflowPhase): void {
@@ -254,6 +262,8 @@ export function App() {
     setDatasetRevision(nextRevision);
   }
   const [sidebarUtilitiesOpen, setSidebarUtilitiesOpen] = useState(false);
+  const [sqlConsoleOpen, setSqlConsoleOpen] = useState(false);
+  const [sqlConsoleDraft, setSqlConsoleDraft] = useState<SqlQueryDraft | null>(null);
   const [sidebarLegalOpen, setSidebarLegalOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const delivery = useDeliveryController({
@@ -1389,6 +1399,22 @@ export function App() {
               {status.kind === "error" && `Error del motor: ${status.message}`}
             </div>
             {activeDataset && status.kind === "ready" && (
+              <button
+                type="button"
+                className="secondary-action app-topbar__sql"
+                aria-haspopup="dialog"
+                onMouseEnter={() => void loadReviewPhase()}
+                onFocus={() => void loadReviewPhase()}
+                onClick={() => setSqlConsoleOpen(true)}
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M4 5h16v14H4z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+                  <path d="M7.5 9.5l3 2.5-3 2.5M12.5 15h4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Consulta SQL
+              </button>
+            )}
+            {activeDataset && status.kind === "ready" && (
               <SidebarSave
                 fileName={activeDataset.dataset.fileName}
                 activeProject={projects.activeProject}
@@ -1660,6 +1686,44 @@ export function App() {
           )}
         </section>
       </main>
+
+      {sqlConsoleOpen && activeDataset && (
+        <ModalDialog
+          role="dialog"
+          variant="drawer"
+          labelledBy="sql-console-title"
+          describedBy="sql-console-description"
+          onDismiss={() => setSqlConsoleOpen(false)}
+        >
+          <div className="sql-console">
+            <div className="sql-console__heading">
+              <div>
+                <h2 id="sql-console-title">Consulta SQL</h2>
+                <p id="sql-console-description">
+                  Consulta {activeDataset.dataset.fileName} sin modificarlo. Las consultas y el motor elegido son los mismos que en Revisar.
+                </p>
+              </div>
+              <button type="button" className="secondary-action" onClick={() => setSqlConsoleOpen(false)}>
+                Cerrar
+              </button>
+            </div>
+            <Suspense fallback={<p className="phase-loading" role="status">Cargando la consulta…</p>}>
+              <SqlConsolePanel
+                columnNames={activeDataset.dataset.columns.map((column) => column.name).filter((name) => !isRowAuditColumn(name))}
+                comparisonAvailable={review.comparison.status.kind === "ready"}
+                queryHistory={review.sqlHistory}
+                onQueryHistoryChange={review.setSqlHistory}
+                draft={sqlConsoleDraft}
+                onDraftChange={setSqlConsoleDraft}
+                queryEngine={review.queryEngine}
+                onQueryEngineChange={review.setQueryEngine}
+                datasetRevision={datasetRevision}
+                standalone
+              />
+            </Suspense>
+          </div>
+        </ModalDialog>
+      )}
 
       {reusableTaskApplicationReview && (
         <ModalDialog

@@ -213,6 +213,43 @@
 .dataset-save__status--error::before { background: var(--danger); }
 .dataset-save .secondary-action { min-height: 44px; border-color: var(--control-border); color: var(--text-primary); }
 
+.app-topbar__sql { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; }
+.app-topbar__sql svg { flex: 0 0 18px; width: 18px; height: 18px; }
+
+/* SQL console: a drawer on the right, full height, over the current phase. */
+.sheet-dialog.sheet-dialog--drawer { place-items: stretch end; padding: 0; }
+.sheet-dialog--drawer > .sheet-dialog__panel {
+  box-sizing: border-box;
+  width: min(820px, 100vw);
+  height: 100dvh;
+  max-height: none;
+  padding: 0;
+  overflow-y: auto;
+  border-width: 0 0 0 1px;
+  border-radius: 0;
+}
+.sql-console { display: grid; gap: 16px; padding: 24px 28px 32px; }
+.sql-console__heading {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -24px -28px 0;
+  padding: 20px 28px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface);
+}
+.sql-console__heading h2 { margin: 0; color: var(--text-primary); font-family: var(--font-display); font-size: 1.5rem; font-weight: 600; }
+.sql-console__heading p { margin: 4px 0 0; color: var(--text-secondary); font-size: .875rem; line-height: 1.45; overflow-wrap: anywhere; }
+.sql-console :is(input, select, textarea) { border-color: var(--control-border); background: var(--surface-raised); color: var(--text-primary); }
+@media (max-width: 700px) {
+  .sql-console { padding: 16px 16px 24px; }
+  .sql-console__heading { margin: -16px -16px 0; padding: 14px 16px 12px; }
+}
+
 /* Work area: the surface itself, no card around it ----------------------- */
 
 .app-shell .workspace {

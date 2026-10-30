@@ -86,6 +86,8 @@ interface ModalDialogProps {
   describedBy?: string;
   onDismiss: () => void;
   children: ReactNode;
+  /** "drawer" docks the panel to the right edge at full height. */
+  variant?: "centered" | "drawer";
 }
 
 export function ModalDialog({
@@ -94,6 +96,7 @@ export function ModalDialog({
   describedBy,
   onDismiss,
   children,
+  variant = "centered",
 }: ModalDialogProps) {
   const panelRef = useRef<HTMLDialogElement>(null);
 
@@ -164,7 +167,7 @@ export function ModalDialog({
   return (
     <dialog
       ref={panelRef}
-      className="sheet-dialog"
+      className={variant === "drawer" ? "sheet-dialog sheet-dialog--drawer" : "sheet-dialog"}
       role={role}
       aria-modal="true"
       aria-labelledby={labelledBy}

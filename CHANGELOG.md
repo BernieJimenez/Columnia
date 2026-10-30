@@ -1139,6 +1139,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   «Compacta» estrecha tablas, títulos y márgenes para ver más filas y
   columnas; los botones conservan su tamaño de 44 px. Se recuerda entre
   sesiones.
+- «Consulta SQL» en la barra superior abre la consulta local en un panel
+  lateral desde cualquier etapa, sin tener que ir a Revisar › Más análisis.
+  La consulta aparece abierta, comparte historial y motor (Polars o DuckDB)
+  con la de Revisar, no modifica el dataset y se cierra con Esc devolviendo el
+  foco al botón.
 - En una ventana de móvil, «Preferencias y recursos» y «Licencia y
   privacidad» van uno debajo de otro: lado a lado, los botones de tema
   quedaban por debajo de 24 px de ancho.

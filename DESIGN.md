@@ -44,6 +44,9 @@ Producto
 └──────────────┴──────────────────────────────────────────────┘
 ```
 
+- Las herramientas que sirven en cualquier etapa (hoy, «Consulta SQL») viven en
+  la barra superior y se abren como panel lateral modal (`ModalDialog` con
+  `variant="drawer"`): Esc cierra y el foco vuelve al botón.
 - La barra superior es la única que nombra el dataset activo; las etapas no
   repiten el archivo en su cabecera, salvo Cargar, donde es lo que se elige.
 - Los estados de la barra superior (motor, guardado) son texto con un punto de

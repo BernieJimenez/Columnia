@@ -313,14 +313,14 @@ export function sqlIdentifier(name: string): string {
 }
 
 /** The SQL being written and its last result, kept while Review stays open (FUN-27). */
-type SqlQueryDraft = {
+export type SqlQueryDraft = {
   text: string;
   open: boolean;
   result: DatasetQueryResult | null;
   revision: number;
 };
 
-function LocalQueryPanel({
+export function LocalQueryPanel({
   columnNames,
   comparisonAvailable,
   queryHistory: persistedQueryHistory,
@@ -330,6 +330,7 @@ function LocalQueryPanel({
   queryEngine,
   onQueryEngineChange,
   datasetRevision,
+  standalone = false,
 }: {
   columnNames: string[];
   comparisonAvailable: boolean;
@@ -340,6 +341,8 @@ function LocalQueryPanel({
   queryEngine?: DatasetQueryEngine;
   onQueryEngineChange: (engine: DatasetQueryEngine) => void;
   datasetRevision: number;
+  /** Shown open on its own (the SQL console), not as a disclosure of Revisar. */
+  standalone?: boolean;
 }) {
   // A result belongs to its revision; the text survives a new revision.
   const restoredResult = draft?.revision === datasetRevision ? draft.result : null;
@@ -367,7 +370,7 @@ function LocalQueryPanel({
     | { kind: "cancelled" }
     | { kind: "error"; message: string }
   >(restoredResult ? { kind: "ready", result: restoredResult } : { kind: "idle" });
-  const [queryOpen, setQueryOpen] = useState(draft?.open ?? false);
+  const [queryOpen, setQueryOpen] = useState(standalone || (draft?.open ?? false));
   const [queryHistory, setQueryHistory] = useState<SqlQueryHistoryEntry[]>(persistedQueryHistory);
   const activeQueryRef = useRef(0);
   const cancelledQueryRef = useRef<number | null>(null);
@@ -496,16 +499,7 @@ function LocalQueryPanel({
     }
   }
 
-  return (
-    <details
-      className="review-tool review-tool--nested"
-      open={queryOpen}
-      onToggle={(event) => setQueryOpen(event.currentTarget.open)}
-    >
-      <summary>
-        <span>Explorar con SQL local</span>
-        <small>Opcional · consulta segura y de solo lectura</small>
-      </summary>
+  const panel = (
       <section className="local-query" aria-labelledby="local-query-title">
         <div className="local-query__heading">
           <div>
@@ -625,6 +619,20 @@ function LocalQueryPanel({
         {state.kind === "error" && <p className="notice notice--error" role="alert">No se pudo ejecutar la consulta: {state.message}</p>}
         {state.kind === "ready" && <LocalQueryResult result={state.result} />}
       </section>
+  );
+  // In the SQL console drawer the query is the whole content: no disclosure.
+  if (standalone) return panel;
+  return (
+    <details
+      className="review-tool review-tool--nested"
+      open={queryOpen}
+      onToggle={(event) => setQueryOpen(event.currentTarget.open)}
+    >
+      <summary>
+        <span>Explorar con SQL local</span>
+        <small>Opcional · consulta segura y de solo lectura</small>
+      </summary>
+      {panel}
     </details>
   );
 }
