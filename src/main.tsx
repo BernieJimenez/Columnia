@@ -5,6 +5,7 @@ import { App } from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import "./styles.css";
 import { errorMessage } from "./bridge/errors";
+import { applyDensityPreference, readDensityPreference } from "./features/settings/densityModel";
 
 if (typeof performance !== "undefined") {
   performance.mark("columnia:app-bootstrap");
@@ -31,6 +32,9 @@ function AppFailure({ error }: { error: Error }) {
 
 async function renderApp() {
   await import("./workflow-styles");
+  // Before the first paint, so the layout does not jump. The theme is applied
+  // earlier by the hashed inline script in index.html, which must not change.
+  applyDensityPreference(readDensityPreference());
 
   createRoot(appRoot).render(
     <StrictMode>

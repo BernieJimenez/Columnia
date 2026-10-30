@@ -260,6 +260,31 @@
   .delivery-layout .export-actions-row > button { flex: 1 1 auto; }
 }
 
+/* Density: «Compacta» fits more data on screen. Targets keep 44 px; only
+   spacing, table cells and heading sizes shrink, never under 12 px text. */
+.theme-switcher__subheading { margin: 16px 0 0; color: var(--text-primary); font-size: .9rem; }
+.theme-switcher__density { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.theme-switcher__density .theme-switcher__option { grid-template-columns: minmax(0, 1fr); justify-items: center; min-height: 44px; }
+
+html[data-density="compact"] .app-sidebar { gap: 18px; padding-top: 16px; }
+html[data-density="compact"] .flow-nav__item { padding-block: 4px; }
+html[data-density="compact"] .app-topbar { min-height: 52px; padding-block: 4px; }
+html[data-density="compact"] .app-shell .workspace { padding: 20px 28px 32px; }
+html[data-density="compact"] .app-shell .workspace h2 { font-size: 1.5rem; }
+html[data-density="compact"] .phase-header { padding-bottom: 14px; }
+html[data-density="compact"] .phase-lead { font-size: .875rem; }
+html[data-density="compact"] .workspace :is(th, td) { min-width: 96px; padding: 5px 10px; font-size: .8125rem; }
+html[data-density="compact"] .workspace th small { margin-top: 1px; }
+html[data-density="compact"] .workspace .table-region { max-height: 72vh; }
+html[data-density="compact"] .col-profile { gap: 2px; margin-top: 4px; }
+html[data-density="compact"] .explore { gap: 12px; }
+html[data-density="compact"] .explore__panel { gap: 8px; padding: 12px 14px; }
+html[data-density="compact"] .explore__kpi { padding: 8px 14px; }
+html[data-density="compact"] .explore__kpi dd { font-size: 1.3rem; }
+html[data-density="compact"] .version-history { gap: 10px; padding: 14px 16px; }
+html[data-density="compact"] .version-history__entry { padding-bottom: 8px; }
+html[data-density="compact"] :is(.prepare-layout, .delivery-layout) { gap: 20px; }
+
 /* Short desktop windows: a tighter rail keeps every step and tool in view. */
 @media (min-width: 901px) and (max-height: 700px) {
   .app-sidebar { gap: 14px; padding-top: 14px; padding-bottom: 10px; }
@@ -324,7 +349,8 @@
 
 @media (max-width: 420px) {
   .app-sidebar { grid-template-columns: minmax(0, 1fr); grid-template-areas: "brand" "tools" "nav"; }
-  .app-sidebar .sidebar__tools { justify-content: start; }
+  /* One per row: side by side, an auto column squeezed the theme buttons under 24 px. */
+  .app-sidebar .sidebar__tools { grid-template-columns: minmax(0, 1fr); justify-content: stretch; }
   /* «Motor local listo» is the expected state; a problem is still shown. */
   .engine-status--ready { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
   .flow-nav__copy strong { font-size: .75rem; }

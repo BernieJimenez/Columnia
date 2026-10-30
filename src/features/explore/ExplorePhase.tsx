@@ -280,7 +280,10 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
               const alone = index === panel.categories.length - 1 && panel.categories.length % 2 === 1;
               return (
                 <section key={chart.column} className={`explore__panel${alone ? " explore__panel--wide" : ""}`} aria-label={`Filas por ${chart.column}`}>
-                  <h4>{chart.column}</h4>
+                  <div className="explore__heading">
+                    <h4>{chart.column}</h4>
+                    <p className="explore__kind">Filas por valor</p>
+                  </div>
                   <div className={`explore__bars${active ? " explore__bars--dim" : ""}`}>
                     {chart.bars.map((bar) => {
                       const selected = isValueSelected(filters, chart.column, bar.value);
@@ -324,7 +327,10 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
               const ignored = ignoredRowsText(histogram.ignoredCount);
               return (
                 <section className="explore__panel explore__panel--wide" aria-label={`Distribución de ${histogram.column}`}>
-                  <h4>{histogram.column}</h4>
+                  <div className="explore__heading">
+                    <h4>{histogram.column}</h4>
+                    <p className="explore__kind">Distribución</p>
+                  </div>
                   <div className={`explore__columns${active ? " explore__bars--dim" : ""}`} onKeyDown={moveAmongColumns}>
                     {histogram.bins.map((bin, index) => {
                       const selected = isRangeSelected(filters, histogram.column, bin.lower, bin.upper);
@@ -371,7 +377,10 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
               const active = filters.some((filter) => filter.column === trend.column);
               return (
                 <section className="explore__panel explore__panel--wide" aria-label={`Filas en el tiempo por ${trend.column}`}>
-                  <h4>{trend.column}</h4>
+                  <div className="explore__heading">
+                    <h4>{trend.column}</h4>
+                    <p className="explore__kind">Filas en el tiempo</p>
+                  </div>
                   <div className={`explore__columns${active ? " explore__bars--dim" : ""}`} onKeyDown={moveAmongColumns}>
                     {trend.points.map((point, index) => (
                       <button

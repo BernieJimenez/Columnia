@@ -96,6 +96,15 @@ reserva para selección actual, foco y acción principal. El color nunca es la
   resultados, afecta a coincidencias, solo formato, opcional) y cada elemento
   lo dice con texto; la forma del marcador repite el nivel, no lo sustituye.
 
+## Densidad
+
+- `html[data-density="compact"]` (preferencia en Apariencia, guardada en
+  `columnia.density` y aplicada en `main.tsx` antes del primer pintado) reduce
+  márgenes, celdas de tabla y tamaños de título. Nunca reduce objetivos
+  táctiles por debajo de 44 CSS px ni texto por debajo de 12 CSS px.
+- La densidad no se aplica desde el script en línea de `index.html`: su hash
+  forma parte de la CSP.
+
 ## Tablas de datos
 
 - Una tabla del dataset activo resume cada columna en su cabecera cuando el

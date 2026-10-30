@@ -1132,6 +1132,16 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   las deshechas, atenuadas y marcadas «Deshecho · se puede rehacer». Deshacer
   y Rehacer están siempre ahí, y el uso de disco y la política de retención
   pasan a «Espacio del historial», plegado.
+- Explorar muestra los indicadores en una sola franja en lugar de tarjetas
+  sueltas, cada gráfico dice qué representa («Filas por valor»,
+  «Distribución», «Filas en el tiempo») y las barras tienen más contraste.
+- Nueva preferencia de densidad en Preferencias y recursos › Apariencia:
+  «Compacta» estrecha tablas, títulos y márgenes para ver más filas y
+  columnas; los botones conservan su tamaño de 44 px. Se recuerda entre
+  sesiones.
+- En una ventana de móvil, «Preferencias y recursos» y «Licencia y
+  privacidad» van uno debajo de otro: lado a lado, los botones de tema
+  quedaban por debajo de 24 px de ancho.
 - En archivos grandes, la lectura de filas prepara el bloque siguiente mientras
   analiza el actual, calcula a la vez huellas y columnas, y la copia de trabajo
   y el conteo de valores distintos usan hasta 1 GB de memoria en DuckDB (con

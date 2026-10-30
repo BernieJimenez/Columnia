@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 
 import {
+  applyDensityPreference,
+  readDensityPreference,
+  writeDensityPreference,
+  type DensityPreference,
+} from "../features/settings/densityModel";
+import {
   applyThemePreference,
   readThemePreference,
   writeThemePreference,
@@ -20,6 +26,11 @@ const THEME_OPTIONS: readonly {
   { value: "slate", label: "Pizarra", description: "Neutros sobrios con acento azul" },
 ];
 
+const DENSITY_OPTIONS: readonly { value: DensityPreference; label: string; description: string }[] = [
+  { value: "comfortable", label: "Normal", description: "Espaciado amplio y texto holgado" },
+  { value: "compact", label: "Compacta", description: "Más filas y columnas a la vista; los botones mantienen su tamaño" },
+];
+
 export function ThemeSwitcher() {
   const [preference, setPreference] = useState<ThemePreference>(() => readThemePreference());
 
@@ -32,6 +43,13 @@ export function ThemeSwitcher() {
     query.addEventListener("change", follow);
     return () => query.removeEventListener("change", follow);
   }, [preference]);
+
+  const [density, setDensity] = useState<DensityPreference>(() => readDensityPreference());
+  const chooseDensity = (next: DensityPreference) => {
+    setDensity(next);
+    writeDensityPreference(next);
+    applyDensityPreference(next);
+  };
 
   const chooseTheme = (nextPreference: ThemePreference) => {
     setPreference(nextPreference);
@@ -71,6 +89,24 @@ export function ThemeSwitcher() {
       </div>
       <p className="theme-switcher__status" aria-live="polite">
         {THEME_OPTIONS.find((option) => option.value === preference)?.description}
+      </p>
+
+      <h3 className="theme-switcher__subheading" id="density-title">Densidad</h3>
+      <div className="theme-switcher__density" role="group" aria-labelledby="density-title">
+        {DENSITY_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className={density === option.value ? "theme-switcher__option theme-switcher__option--active" : "theme-switcher__option"}
+            aria-pressed={density === option.value}
+            onClick={() => chooseDensity(option.value)}
+          >
+            <span className="theme-switcher__label">{option.label}</span>
+          </button>
+        ))}
+      </div>
+      <p className="theme-switcher__status" aria-live="polite">
+        {DENSITY_OPTIONS.find((option) => option.value === density)?.description}
       </p>
     </section>
   );
