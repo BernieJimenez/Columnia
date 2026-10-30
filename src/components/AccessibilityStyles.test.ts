@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 
 const baseStyles = readFileSync(join(process.cwd(), "src", "styles.css"), "utf8");
 const workflowStyles = readFileSync(join(process.cwd(), "src", "workflow-styles.css"), "utf8");
-const styles = `${baseStyles}\n${workflowStyles}`;
+const shellStyles = readFileSync(join(process.cwd(), "src", "shell.css"), "utf8");
+const styles = `${baseStyles}\n${workflowStyles}\n${shellStyles}`;
 
 describe("contratos CSS de accesibilidad", () => {
   it("carga el bloque visual diferido antes de renderizar React", () => {
@@ -14,14 +15,15 @@ describe("contratos CSS de accesibilidad", () => {
 
     expect(entrypoint).toContain(styleImport);
     expect(entrypoint.indexOf(styleImport)).toBeLessThan(entrypoint.indexOf("createRoot(appRoot).render"));
-    expect(styleModule.trim()).toBe('import "./workflow-styles.css";');
+    expect(styleModule.trim()).toBe('import "./workflow-styles.css";\nimport "./shell.css";');
   });
 
   it("ajusta la barra lateral y sus paneles a la resolución disponible", () => {
-    const sidebarRule = styles.match(/\.sidebar\s*\{([^}]*)\}/)?.[1] ?? "";
+    const sidebarRule = shellStyles.match(/\.app-sidebar\s*\{([^}]*)\}/)?.[1] ?? "";
 
     expect(sidebarRule).toContain("height: 100dvh");
-    expect(sidebarRule).toContain("overflow-y: visible");
+    // The rail scrolls on its own in a short window; the panels are fixed, so it never clips them.
+    expect(sidebarRule).toContain("overflow-y: auto");
     expect(styles).toMatch(/@media \(min-width: 901px\)[\s\S]*\.sidebar__utilities-content,[\s\S]*\.sidebar__legal-content\s*\{[^}]*position:\s*fixed/);
     expect(styles).toMatch(/\.sidebar__utilities-content,[\s\S]*\.sidebar__legal-content\s*\{[^}]*top:\s*16px/);
     expect(styles).toMatch(/\.sidebar__utilities-content,[\s\S]*\.sidebar__legal-content\s*\{[^}]*max-height:\s*calc\(100dvh - 32px\)/);
@@ -57,7 +59,7 @@ describe("contratos CSS de accesibilidad", () => {
       const [high, low] = [luminance(left), luminance(right)].sort((a, b) => b - a);
       return (high + 0.05) / (low + 0.05);
     };
-    const blocks = [...baseStyles.matchAll(/(?:^|\n)\s*(:root(?:\[data-[a-z-]+="[a-z]+"\])?(?: \.sidebar)?)\s*\{([^}]*)\}/g)]
+    const blocks = [...baseStyles.matchAll(/(?:^|\n)\s*(:root(?:\[data-[a-z-]+="[a-z]+"\])?(?: \.app-sidebar)?)\s*\{([^}]*)\}/g)]
       .map(([, selector, body]) => ({ selector, tokens: Object.fromEntries([...body.matchAll(/--([a-z-]+):\s*(#[0-9a-f]{6})/g)].map(([, name, value]) => [name, value])) }))
       .filter(({ tokens }) => tokens["control-border"]);
     expect(blocks.length).toBeGreaterThanOrEqual(8);
@@ -75,7 +77,7 @@ describe("contratos CSS de accesibilidad", () => {
     expect(styles).not.toMatch(/#93473f/);
     // ACC-15: the updater error uses the sidebar's light danger colour.
     expect(styles).toMatch(/\.update-panel__status--error \{ color: var\(--danger\)/);
-    expect(styles).toMatch(/\.sidebar \{[^}]*--danger: #f4a39b/);
+    expect(styles).toMatch(/\.app-sidebar \{[^}]*--danger: #f4a39b/);
     expect(styles).not.toMatch(/quality-temporal-line__label \{[^}]*fill: var\(--border-subtle\)/);
   });
 });

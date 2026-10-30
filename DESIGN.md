@@ -1,8 +1,10 @@
 # Diseño de Columnia
 
-Esta guía documenta el lenguaje visual que ya existe en la aplicación. No es una
-propuesta de rediseño: sirve para que cambios y contribuciones nuevas conserven
-la misma jerarquía, claridad y accesibilidad.
+Esta guía documenta el lenguaje visual que ya existe en la aplicación: sirve
+para que cambios y contribuciones nuevas conserven la misma jerarquía, claridad
+y accesibilidad. El shell actual (barra lateral ligera, barra superior con el
+dataset y trabajo a todo el ancho) es del 2026-10-30; sus estilos viven en
+`src/shell.css`.
 
 ## Personalidad
 
@@ -26,6 +28,27 @@ Producto
 - Cada vista de contenido tiene una sola acción primaria visible.
 - Estado del runtime, dataset, preferencias y asuntos legales son contexto
   secundario y no compiten con la etapa.
+
+```text
+┌──────────────┬──────────────────────────────────────────────┐
+│ Columnia     │ archivo · filas · columnas · tamaño   estado │  barra superior
+│ Analizar     ├──────────────────────────────────────────────┤
+│ ✓ Cargar     │ Título de la etapa                           │
+│ ▌2 Revisar   │ Una frase de qué se hace aquí                │
+│  3 Preparar  │                                              │
+│  4 Explorar  │ Trabajo a todo el ancho (máx. 1360 px),      │
+│  5 Entregar  │ sobre la superficie, sin tarjeta alrededor   │
+│ ──────────── │                                              │
+│ Preferencias │                                              │
+│ Licencia     │                                              │
+└──────────────┴──────────────────────────────────────────────┘
+```
+
+- La barra superior es la única que nombra el dataset activo; las etapas no
+  repiten el archivo en su cabecera, salvo Cargar, donde es lo que se elige.
+- Los estados de la barra superior (motor, guardado) son texto con un punto de
+  color al lado; el punto nunca es la única señal y el texto nunca usa
+  `--warning` como color, porque no llega a 4,5:1 en el tema claro.
 
 ## Color y superficies
 
@@ -73,20 +96,21 @@ reserva para selección actual, foco y acción principal. El color nunca es la
 
 La barra lateral separa dos conceptos:
 
-1. **Espacios de trabajo:** áreas mayores del producto.
+1. **Espacio de trabajo:** el área mayor del producto, hoy siempre Analizar.
 2. **Flujo:** etapas secuenciales dentro del espacio actual.
 
-Mientras solo Analizar sea accionable, “Espacios de trabajo” es una región
-informativa con lista de estados, no un `nav` ni un conjunto de botones. El copy
-vigente es:
+Mientras solo Analizar sea accionable, el espacio es un rótulo sobre el flujo
+(«Analizar», leído como «Espacio de trabajo: Analizar»), no un `nav` ni un
+conjunto de botones. Automatizar y Preparar para BI no aparecen hasta que tengan
+interfaz.
 
-- `Analizar — Actual`.
-- `Automatizar — CLI disponible · Interfaz en preparación`.
-- `Preparar para BI — Interfaz planificada`.
-
-Los espacios no usan números; la numeración pertenece al flujo Cargar → Revisar
-→ Preparar → Entregar. Cuando exista un segundo espacio accionable se debe revisar
-el modelo de foco, selección, URL o persistencia antes de convertir la región en
+Cada etapa del flujo muestra número y nombre. Solo la actual añade su
+descripción y una marca de acento a la izquierda; una etapa terminada cambia el
+número por ✓ y se anuncia como «Completada»; «Revisar de nuevo» es la única
+etiqueta de estado visible, porque pide una acción. Los espacios no usan
+números; la numeración pertenece al flujo Cargar → Revisar → Preparar →
+Explorar → Entregar. Cuando exista un segundo espacio accionable se debe revisar
+el modelo de foco, selección, URL o persistencia antes de convertir el rótulo en
 navegación.
 
 ## Estados y copy
@@ -101,20 +125,19 @@ navegación.
 
 ## Responsive
 
-- Escritorio: barra lateral vertical, contenido principal amplio y utilidades al
-  final de la barra.
-- Vista compacta: marca y dataset forman la primera franja; los espacios se
-  convierten en dos líneas informativas; las fases conservan la fila horizontal
-  existente.
+- Escritorio: barra lateral vertical de 248 CSS px, utilidades al final de la
+  barra y barra superior fija mientras la ventana mida más de 700 CSS px de alto.
+- Vista compacta (900 CSS px o menos, o zoom 200 %): marca y utilidades forman
+  la primera franja, las cinco etapas la segunda y la barra superior va debajo,
+  sin quedar fija.
 - A 320 CSS px y zoom 200 %, el contenido puede envolver texto pero nunca crear
   scroll horizontal global.
 - No escondas acciones esenciales detrás de hover ni reduzcas objetivos táctiles
   por debajo de 44 CSS px de alto. Excepción: filas de gráficos y opciones de
   listas densas (barras de Explorar, casillas de columnas), que miden al menos
   24 CSS px (WCAG 2.5.8) y tienen alternativa por teclado.
-- Entre 421 y 900 CSS px de ancho (ventana mínima o zoom alto) la barra lateral
-  se compacta en dos o tres franjas para que el trabajo conserve al menos el
-  60 % de la altura (UX-02).
+- En la vista compacta la barra lateral ocupa como mucho el 40 % de la altura,
+  también en la ventana mínima de 640 × 400 (UX-02).
 - Un panel que crece debe poder desplazarse sin volver inaccesibles dataset,
   preferencias o contenido principal.
 
@@ -167,12 +190,12 @@ navegación.
 | `:root[data-theme="slate"]` | `--danger` #aa4646 | `--surface` #fcfdfe | 5.61:1 | 4.5:1 |
 | `:root[data-theme="slate"]` | `--control-border` #7c8790 | `--surface` #fcfdfe | 3.60:1 | 3:1 |
 | `:root[data-theme="slate"]` | `--control-border` #7c8790 | `--canvas` #eef0f2 | 3.21:1 | 3:1 |
-| `:root[data-theme="paper"] .sidebar` | `--accent` #f1b38e | `--surface` #4a3b32 | 5.90:1 | 4.5:1 |
-| `:root[data-theme="paper"] .sidebar` | `--control-border` #9c8f86 | `--surface` #4a3b32 | 3.41:1 | 3:1 |
-| `:root[data-theme="ocean"] .sidebar` | `--accent` #8edced | `--surface` #1b4352 | 6.90:1 | 4.5:1 |
-| `:root[data-theme="ocean"] .sidebar` | `--control-border` #839da5 | `--surface` #1b4352 | 3.72:1 | 3:1 |
-| `:root[data-theme="slate"] .sidebar` | `--accent` #acd2eb | `--surface` #35424d | 6.46:1 | 4.5:1 |
-| `:root[data-theme="slate"] .sidebar` | `--control-border` #8d979f | `--surface` #35424d | 3.46:1 | 3:1 |
+| `:root[data-theme="paper"] .app-sidebar` | `--accent` #f1b38e | `--surface` #4a3b32 | 5.90:1 | 4.5:1 |
+| `:root[data-theme="paper"] .app-sidebar` | `--control-border` #9c8f86 | `--surface` #4a3b32 | 3.41:1 | 3:1 |
+| `:root[data-theme="ocean"] .app-sidebar` | `--accent` #8edced | `--surface` #1b4352 | 6.90:1 | 4.5:1 |
+| `:root[data-theme="ocean"] .app-sidebar` | `--control-border` #839da5 | `--surface` #1b4352 | 3.72:1 | 3:1 |
+| `:root[data-theme="slate"] .app-sidebar` | `--accent` #acd2eb | `--surface` #35424d | 6.46:1 | 4.5:1 |
+| `:root[data-theme="slate"] .app-sidebar` | `--control-border` #8d979f | `--surface` #35424d | 3.46:1 | 3:1 |
 <!-- contrast-table:end -->
 
 - `forced-colors` usa colores del sistema y mantiene bordes, foco y estado.

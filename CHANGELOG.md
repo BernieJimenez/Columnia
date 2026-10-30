@@ -1096,6 +1096,17 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Nuevo shell de trabajo. La barra lateral queda en la marca, el espacio
+  «Analizar» y las cinco etapas: solo la actual lleva descripción, una etapa
+  terminada se marca con ✓ y la etiqueta «Revisar de nuevo» se conserva;
+  desaparecen «Ahora», «Después» y «Hecho». Una barra superior muestra en
+  todas las etapas el archivo activo con filas, columnas y tamaño, el estado
+  de guardado, el estado del motor y «Guardar proyecto»; por eso Revisar,
+  Preparar, Explorar y Entregar ya no repiten el nombre del archivo. El
+  trabajo ocupa todo el ancho, sin tarjeta alrededor. En ventanas estrechas o
+  al 200 % la barra lateral se convierte en una franja sobre el trabajo que
+  deja más del 60 % de la altura libre (UX-02). El estado del motor y del
+  guardado se nombran siempre con texto; el punto de color solo acompaña.
 - En archivos grandes, la lectura de filas prepara el bloque siguiente mientras
   analiza el actual, calcula a la vez huellas y columnas, y la copia de trabajo
   y el conteo de valores distintos usan hasta 1 GB de memoria en DuckDB (con

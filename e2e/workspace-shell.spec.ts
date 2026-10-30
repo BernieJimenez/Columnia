@@ -11,25 +11,23 @@ async function assertNoHorizontalOverflow(page: Page) {
     .toBeLessThanOrEqual(dimensions.viewport + 1);
 }
 
-test.describe("shell informativo de espacios de trabajo", () => {
-  test("muestra estados sin añadir controles ni landmarks de navegación", async ({ page }) => {
+test.describe("shell de trabajo", () => {
+  test("nombra el espacio y el dataset sin añadir controles ni landmarks de navegación", async ({ page }) => {
     await page.goto("/", { waitUntil: "commit" });
 
-    const region = page.getByRole("region", { name: "Espacio actual" });
-
-    await expect(region.getByText("Analizar")).toBeVisible();
-    await expect(region).toContainText("En uso");
-    await expect(region.getByRole("button")).toHaveCount(0);
-    await expect(region.getByRole("link")).toHaveCount(0);
+    const sidebar = page.getByRole("complementary", { name: "Navegación principal" });
+    await expect(sidebar.locator(".workspace-label")).toContainText("Espacio de trabajo: Analizar");
     await expect(page.getByRole("navigation", { name: "Espacios de trabajo" })).toHaveCount(0);
+    // The top bar always says which dataset the work applies to.
+    await expect(page.locator(".dataset-bar__name")).toHaveText("Sin dataset");
   });
 
-  // UX-02: in the compact view brand, dataset and workspace share the first
-  // band and the flow sits below, so the work keeps most of the height.
-  test("mantiene marca y espacio antes del flujo en la vista compacta", async ({ page }) => {
+  // UX-02: in the compact view the brand and the flow form a band above the
+  // top bar, so the work keeps most of the height.
+  test("pone la marca antes del flujo y ambos antes de la barra superior en la vista compacta", async ({ page }) => {
     await page.setViewportSize({ width: 800, height: 900 });
     await page.goto("/", { waitUntil: "commit" });
-    await expect(page.getByRole("region", { name: "Espacio actual" })).toBeVisible();
+    await expect(page.locator(".app-brand")).toBeVisible();
 
     const layout = await page.evaluate(() => {
       const bounds = (selector: string) => {
@@ -39,22 +37,22 @@ test.describe("shell informativo de espacios de trabajo", () => {
         return { top: rect.top, bottom: rect.bottom, left: rect.left };
       };
       return {
-        brand: bounds(".brand"),
-        workspaces: bounds(".workspace-list"),
-        flow: bounds(".side-nav"),
+        brand: bounds(".app-brand"),
+        flow: bounds(".flow-nav__list"),
+        topbar: bounds(".app-topbar"),
       };
     });
 
     expect(layout.flow.top).toBeGreaterThanOrEqual(layout.brand.bottom);
-    expect(layout.flow.top).toBeGreaterThanOrEqual(layout.workspaces.bottom);
+    expect(layout.topbar.top).toBeGreaterThanOrEqual(layout.flow.bottom);
   });
 
   test("la barra lateral deja al menos el 60 % de la altura en la ventana mínima (UX-02)", async ({ page }) => {
     for (const [width, height] of [[900, 640], [640, 400]]) {
       await page.setViewportSize({ width, height });
       await page.goto("/", { waitUntil: "commit" });
-      await expect(page.getByRole("region", { name: "Espacio actual" })).toBeVisible();
-      const sidebarHeight = await page.locator(".sidebar").evaluate((element) => element.getBoundingClientRect().height);
+      await expect(page.locator(".app-brand")).toBeVisible();
+      const sidebarHeight = await page.locator(".app-sidebar").evaluate((element) => element.getBoundingClientRect().height);
       expect(sidebarHeight / height, `${width}x${height}`).toBeLessThanOrEqual(0.4);
     }
   });
@@ -64,9 +62,9 @@ test.describe("shell informativo de espacios de trabajo", () => {
     await page.goto("/", { waitUntil: "commit" });
     await assertNoHorizontalOverflow(page);
 
-    const region = page.getByRole("region", { name: "Espacio actual" });
-    await expect(region.getByText("Analizar")).toBeVisible();
-    await expect(region).toContainText("En uso");
+    const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
+    await expect(workflow.getByRole("button", { name: "Cargar", exact: true })).toBeVisible();
+    await expect(workflow.getByRole("button", { name: "Cargar", exact: true })).toHaveAttribute("aria-current", "step");
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
@@ -75,10 +73,10 @@ test.describe("shell informativo de espacios de trabajo", () => {
       document.documentElement.dataset.columniaZoom = "2";
     });
     await assertNoHorizontalOverflow(page);
-    await expect(region.getByText("Analizar")).toBeVisible();
-    await expect(region).toContainText("En uso");
+    await expect(workflow.getByRole("button", { name: "Entregar", exact: true })).toBeVisible();
+    await expect(page.locator(".dataset-bar__name")).toBeVisible();
     expect(await page.locator(".sidebar__tools").evaluate((element) => getComputedStyle(element).gridArea))
-      .toBe("utilities");
+      .toBe("tools");
     expect(await page.evaluate(() => window.matchMedia("(forced-colors: active)").matches)).toBe(true);
     expect(await page.evaluate(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
   });

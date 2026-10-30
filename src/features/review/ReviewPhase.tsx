@@ -39,7 +39,7 @@ import {
 } from "../prepare/proposalModel";
 import type { QualityActionTarget } from "./qualityActionPlan";
 import type { ReviewComparison } from "./useReviewController";
-import { formatBytes, formatDataType, formatDecimal, formatNumber, formatPercent } from "../../format";
+import { formatDataType, formatDecimal, formatNumber, formatPercent } from "../../format";
 import { isRowAuditColumn } from "../../rowAudit";
 import { isNumericType } from "../../dataTypes";
 import {
@@ -107,10 +107,7 @@ export function ReviewPhase({
       <header className="phase-header phase-header--compact">
         <div>
           <h2>Revisa antes de modificar</h2>
-          <h3 className="phase-file">{datasetStatus.dataset.fileName}</h3>
-          <p className="phase-meta">
-            {datasetStatus.dataset.rowCount.toLocaleString()} filas · {datasetStatus.dataset.columnCount.toLocaleString()} columnas · {formatBytes(datasetStatus.dataset.fileSizeBytes)}
-          </p>
+          <p className="phase-lead">Entiende la calidad y la estructura de los datos. Nada cambia hasta que apruebes una corrección.</p>
         </div>
       </header>
       <ReviewTabList activeTab={reviewTab} onTabChange={onTabChange} />

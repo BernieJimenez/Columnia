@@ -750,7 +750,7 @@ async function inspectPage(page) {
         inputId: element.querySelector("input")?.id ?? null,
         inputLabel: element.querySelector("label[for='project-name']")?.textContent?.trim() ?? null,
         inputDisabled: element.querySelector("#project-name")?.hasAttribute("disabled") ?? false,
-        datasetFileName: document.querySelector(".sidebar__dataset strong")?.textContent?.trim() ?? null,
+        datasetFileName: document.querySelector(".dataset-bar__name")?.textContent?.trim() ?? null,
         saveDisabled: element.querySelector("button[type='submit']")?.hasAttribute("disabled") ?? false,
         actionNames: buttons.map(accessibleName),
         unnamedActions: buttons.filter((button) => !accessibleName(button)).length,

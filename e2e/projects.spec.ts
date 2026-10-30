@@ -63,7 +63,7 @@ test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulad
   await page.getByRole("button", { name: "Abrir" }).click();
   await expect(workflow.getByRole("button", { name: "Revisar", exact: true })).toHaveAttribute("aria-current", "step");
   await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "ventas.csv" })).toBeVisible();
+  await expect(page.locator(".dataset-bar__name")).toHaveText("ventas.csv");
 
   await workflow.getByRole("button", { name: "Cargar", exact: true }).click();
   await page.locator(".load-secondary").filter({ hasText: "Continuar un proyecto" }).locator(":scope > summary").click();
@@ -90,7 +90,7 @@ test("recupera la última sesión, restaura su etapa y actualiza el mismo proyec
   await expect(workflow.getByRole("button", { name: "Preparar", exact: true }))
     .toHaveAttribute("aria-current", "step");
   await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "ventas.csv" })).toBeVisible();
+  await expect(page.locator(".dataset-bar__name")).toHaveText("ventas.csv");
 
   await workflow.getByRole("button", { name: "Cargar", exact: true }).click();
   await projectDetails.locator(":scope > summary").click();

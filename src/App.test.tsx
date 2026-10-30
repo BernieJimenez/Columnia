@@ -263,7 +263,7 @@ describe("App", () => {
       name: /Continuar a Preparar|Ver cambios propuestos/,
     }));
     expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
-    expect(within(screen.getByRole("button", { name: "Revisar" })).getByText("Hecho")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-description", "Completada");
   });
 
   it("invalida Revisar cuando Preparar modifica la revisión del dataset", async () => {
@@ -297,17 +297,17 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", {
       name: /Continuar a Preparar|Ver cambios propuestos/,
     }));
-    expect(within(screen.getByRole("button", { name: "Revisar" })).getByText("Hecho")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-description", "Completada");
 
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("button", { name: /^Aplicar \d+ cambios?$/ }));
     expect(await screen.findByText("Plan aplicado: 1 celda actualizada.")).toBeInTheDocument();
 
-    expect(within(screen.getByRole("button", { name: "Cargar" })).getByText("Hecho")).toBeInTheDocument();
-    expect(within(screen.getByRole("button", { name: "Revisar" })).queryByText("Hecho")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cargar" })).toHaveAttribute("aria-description", "Completada");
+    expect(screen.getByRole("button", { name: "Revisar" })).not.toHaveAttribute("aria-description", "Completada");
     // The data changed after Revisar: it asks to look again instead of «Después».
     expect(within(screen.getByRole("button", { name: "Revisar" })).getByText("Revisar de nuevo")).toBeInTheDocument();
-    expect(within(screen.getByRole("button", { name: "Preparar" })).getByText("Hecho")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-description", "Completada");
   });
 
   it("pide confirmar antes de sustituir un dataset con cambios sin guardar (FUN-09)", async () => {
@@ -409,7 +409,7 @@ describe("App", () => {
     act(() => tauriEvents.handlers.get("columnia://dataset-drop")?.());
 
     await waitFor(() => expect(dropped).toHaveBeenCalledOnce());
-    expect(await screen.findByRole("heading", { name: "arrastrado.csv" })).toBeInTheDocument();
+    expect(await screen.findByText("arrastrado.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
   });
 
   it("no marca Preparar como completada por avanzar solo con el footer genérico", async () => {
@@ -425,14 +425,14 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ });
-    expect(within(screen.getByRole("button", { name: "Cargar" })).getByText("Hecho")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cargar" })).toHaveAttribute("aria-description", "Completada");
 
     fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
     fireEvent.click(screen.getByRole("button", { name: "Continuar a Explorar" }));
 
     expect(screen.getByRole("button", { name: "Explorar" })).toHaveAttribute("aria-current", "step");
-    expect(within(screen.getByRole("button", { name: "Preparar" })).queryByText("Hecho")).not.toBeInTheDocument();
-    expect(within(screen.getByRole("button", { name: "Revisar" })).queryByText("Hecho")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preparar" })).not.toHaveAttribute("aria-description", "Completada");
+    expect(screen.getByRole("button", { name: "Revisar" })).not.toHaveAttribute("aria-description", "Completada");
   });
 
   it("aplica una tarea compatible a la preparación sin ejecutar transformaciones sobre las filas", async () => {
@@ -519,7 +519,7 @@ describe("App", () => {
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    await screen.findByRole("heading", { name: "entrada.csv" });
+    await screen.findByText("entrada.csv", { selector: ".dataset-bar__name" });
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     fireEvent.click(screen.getByText("Reutilizar una tarea"));
     await screen.findByLabelText("Tarea guardada");
@@ -680,7 +680,7 @@ describe("App", () => {
     fireEvent.click(within(importDialog).getByRole("button", { name: "Reintentar esquema" }));
     fireEvent.click(await within(importDialog).findByRole("button", { name: "Cargar archivo" }));
 
-    expect(await screen.findByRole("heading", { name: "reintento.csv" })).toBeInTheDocument();
+    expect(await screen.findByText("reintento.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     expect(loadSpy).toHaveBeenCalledOnce();
   });
 
@@ -715,7 +715,7 @@ describe("App", () => {
     expect(bridge.previewDatasetSelection).toHaveBeenCalledOnce();
     fireEvent.click(loadButton);
 
-    expect(await screen.findByRole("heading", { name: "ventas.parquet" })).toBeInTheDocument();
+    expect(await screen.findByText("ventas.parquet", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     expect(loadSpy).toHaveBeenCalledOnce();
   });
 
@@ -898,7 +898,7 @@ describe("App", () => {
 
     await waitFor(() => expect(loadSpy).toHaveBeenCalledOnce());
     await waitFor(() => expect(screen.getByRole("button", { name: "Seleccionar dataset" })).toBeEnabled());
-    expect(screen.queryByRole("heading", { name: "fallida.csv" })).not.toBeInTheDocument();
+    expect(screen.queryByText("fallida.csv", { selector: ".dataset-bar__name" })).not.toBeInTheDocument();
   });
 
   it("reutiliza un perfil CSV con encabezados generados, conserva la primera fila y no muestra otra confirmación", async () => {
@@ -1084,7 +1084,7 @@ describe("App", () => {
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: /^Abrir\b/ }));
-    expect(await screen.findByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
+    expect(await screen.findByText("ventas.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-current", "step");
     expect(screen.getByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
     expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
@@ -1104,7 +1104,7 @@ describe("App", () => {
 
     await switchPhase("Cargar");
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
-    expect(await screen.findByRole("heading", { name: "externo.csv" })).toBeInTheDocument();
+    expect(await screen.findByText("externo.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
     fireEvent.click(screen.getByText("Preferencias y recursos"));
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Modo de rendimiento" })).toHaveValue("balanced"));
@@ -1144,7 +1144,7 @@ describe("App", () => {
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    expect(await screen.findByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
+    expect(await screen.findByText("ventas.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
 
     const projectName = await screen.findByRole("textbox", { name: "Nombre del proyecto" });
@@ -1169,7 +1169,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Eliminar proyecto" }));
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith(project.id));
     expect(await screen.findByText(`Proyecto “${project.name}” eliminado. El dataset abierto se conserva.`)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
+    expect(screen.getByText("ventas.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     expect(screen.getByText("Todavía no hay proyectos guardados.")).toBeInTheDocument();
   });
 
@@ -1223,7 +1223,7 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /^Abrir\b/ }));
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith(project.id));
-    expect(await screen.findByRole("heading", { name: "clientes.csv" })).toBeInTheDocument();
+    expect(await screen.findByText("clientes.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
     fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
     const comparison = screen.getByRole("region", { name: "Comparar datasets" });
@@ -1447,7 +1447,7 @@ describe("App", () => {
     fireEvent.change(within(headerDialog).getByRole("combobox", { name: "Números" }), { target: { value: "commaDecimalDotGrouping" } });
     fireEvent.click(await within(headerDialog).findByRole("button", { name: "Cargar archivo" }));
 
-    expect(await screen.findByRole("heading", { name: "temperaturas.csv" })).toBeInTheDocument();
+    expect(await screen.findByText("temperaturas.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     expect(loadSpy).toHaveBeenCalledWith(
       "selection-test", null, "generated", expect.any(Function), null, "dmy", "commaDecimalDotGrouping",
     );
@@ -1474,7 +1474,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     expect(screen.getByRole("button", { name: "Seleccionar otro dataset" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "temperaturas.csv" })).toBeInTheDocument();
+    expect(screen.getByText("temperaturas.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
   });
 
   it("requiere confirmar la estimación antes de materializar una fuente grande", async () => {
@@ -1520,7 +1520,7 @@ describe("App", () => {
     expect(loadSpy).not.toHaveBeenCalled();
 
     fireEvent.click(await within(dialog).findByRole("button", { name: "Cargar archivo" }));
-    expect(await screen.findByRole("heading", { name: "clientes-grande.csv" })).toBeInTheDocument();
+    expect(await screen.findByText("clientes-grande.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     expect(loadSpy).toHaveBeenCalledWith("large-source-selection", null, "firstRow", expect.any(Function), null, null, null);
   });
 
@@ -1643,7 +1643,7 @@ describe("App", () => {
       columns: [{ name: "value", dataType: "Int64" }],
       rows: [["1"]],
     });
-    await screen.findByRole("heading", { name: "progreso.csv" });
+    await screen.findByText("progreso.csv", { selector: ".dataset-bar__name" });
     expect(
       await screen.findByRole("progressbar", { name: "Progreso: Analizando columnas" }),
     ).toHaveAttribute("value", "60");
@@ -1685,7 +1685,7 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     const first = await screen.findByRole("dialog", { name: "Revisar encabezados de activo.csv" });
     fireEvent.click(await within(first).findByRole("button", { name: "Cargar archivo" }));
-    await screen.findByRole("heading", { name: "activo.csv" });
+    await screen.findByText("activo.csv", { selector: ".dataset-bar__name" });
 
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     // The button stays disabled while the loaded dataset is still being analysed.
@@ -1744,7 +1744,7 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     const activeHeaderDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de activo.csv" });
     fireEvent.click(await within(activeHeaderDialog).findByRole("button", { name: "Cargar archivo" }));
-    await screen.findByRole("heading", { name: "activo.csv" });
+    await screen.findByText("activo.csv", { selector: ".dataset-bar__name" });
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
     const replacementHeaderDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de nuevo.csv" });
@@ -1758,7 +1758,7 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "Cancelando…" })).toBeDisabled();
     expect(cancelSpy).toHaveBeenNthCalledWith(2, "load");
     rejectReplacement("Operación cancelada por el usuario.");
-    expect(await screen.findByRole("heading", { name: "activo.csv" })).toBeInTheDocument();
+    expect(await screen.findByText("activo.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
   });
 
   it("exporta el dataset activo sin solicitar una ruta en la interfaz", async () => {
@@ -1798,7 +1798,7 @@ describe("App", () => {
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    await screen.findByRole("heading", { name: "ventas.csv" });
+    await screen.findByText("ventas.csv", { selector: ".dataset-bar__name" });
     expect(screen.queryByRole("button", { name: "Exportar Parquet" })).not.toBeInTheDocument();
     await switchPhase("Entregar");
     fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
@@ -1832,7 +1832,7 @@ describe("App", () => {
 
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    await screen.findByRole("heading", { name: "ventas.csv" });
+    await screen.findByText("ventas.csv", { selector: ".dataset-bar__name" });
     await switchPhase("Entregar");
     fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
     const exportButton = screen.getByRole("button", { name: "Exportar CSV" });
@@ -1958,7 +1958,7 @@ describe("App", () => {
 
     expect(await screen.findByText("Plan aplicado: 1 columna renombrada.")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeInTheDocument();
-    expect(within(screen.getByRole("button", { name: "Preparar" })).getByText("Hecho")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-description", "Completada");
     expect(normalizeSpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: false, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false }), expect.any(Function));
 
     await switchPhase("Revisar");
@@ -2442,7 +2442,7 @@ describe("App", () => {
     fireEvent.click(reviewSchema);
     fireEvent.click(await within(dialog).findByRole("button", { name: "Cargar hoja" }));
 
-    expect(await screen.findByRole("heading", { name: "ventas.xlsx" })).toBeInTheDocument();
+    expect(await screen.findByText("ventas.xlsx", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     expect(loadSpy).toHaveBeenCalledWith("opaque-workbook-1", "1", "generated", expect.any(Function), null, null, null);
     expect(JSON.stringify(loadSpy.mock.calls)).not.toContain("C:\\\\");
   });
@@ -2950,13 +2950,13 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Copia lista" })).toBeInTheDocument());
     expect(screen.getByText("entrega.zip")).toBeInTheDocument();
-    expect(within(screen.getByRole("button", { name: "Entregar" })).getByText("Hecho")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Entregar" })).toHaveAttribute("aria-description", "Completada");
     expect(exportSpy).toHaveBeenCalledWith("bundle", [], true, expect.anything(), "none");
 
     exportSpy.mockResolvedValueOnce(null);
     fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Copia lista" })).not.toBeInTheDocument());
-    expect(within(screen.getByRole("button", { name: "Entregar" })).queryByText("Hecho")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Entregar" })).not.toHaveAttribute("aria-description", "Completada");
 
     exportSpy.mockRejectedValueOnce(new Error("Operación cancelada por el usuario."));
     fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
@@ -3167,7 +3167,7 @@ describe("App", () => {
       await resolutionPromise.catch(() => undefined);
     });
 
-    expect(await screen.findByRole("heading", { name: "actual.csv" })).toBeInTheDocument();
+    expect(await screen.findByText("actual.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     expect(screen.getByText("nuevo.csv")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Usar comparado en valor" })).toBeChecked();
     expect(screen.getByRole("button", { name: "Resolver conflictos" })).toBeEnabled();
@@ -3178,7 +3178,7 @@ describe("App", () => {
     expect(resolveSpy).toHaveBeenLastCalledWith([
       { action: "useSource", conflictIndex: 0, column: "valor", source: "compared" },
     ]);
-    expect(await screen.findByRole("heading", { name: "resuelto.csv" })).toBeInTheDocument();
+    expect(await screen.findByText("resuelto.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
   });
 
   it("mantiene exclusión mutua hasta que termina una cancelación tardía", async () => {
@@ -3247,7 +3247,7 @@ describe("App", () => {
       resolveJoin(joinedDataset);
       await joinPromise;
     });
-    expect(await screen.findByRole("heading", { name: "unido.csv" })).toBeInTheDocument();
+    expect(await screen.findByText("unido.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
 
     const compareButton = screen.getByRole("button", { name: "Elegir dataset para comparar" });
     expect(compareButton).toBeDisabled();
@@ -3266,7 +3266,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
     fireEvent.click(screen.getByRole("button", { name: "Elegir fuente y unir" }));
     await waitFor(() => expect(joinSpy).toHaveBeenCalledTimes(2));
-    expect(await screen.findByRole("heading", { name: "unido-segundo.csv" })).toBeInTheDocument();
+    expect(await screen.findByText("unido-segundo.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
   });
 
   it("coordina comparación, descarte, consolidación y unión desde Revisar", async () => {
@@ -3322,7 +3322,7 @@ describe("App", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), { target: { value: "bundle" } });
     fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
     await screen.findByRole("heading", { name: "Copia lista" });
-    expect(within(screen.getByRole("button", { name: "Entregar" })).getByText("Hecho")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Entregar" })).toHaveAttribute("aria-description", "Completada");
     await switchPhase("Revisar");
     await waitFor(() => expect(screen.getByText("Comparar con otro dataset")).toBeInTheDocument());
     fireEvent.click(screen.getByText("Comparar con otro dataset"));
@@ -3338,7 +3338,7 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("nuevo.csv")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Consolidar filas" }));
     await waitFor(() => expect(bridge.adoptConsolidatedDataset).toHaveBeenCalledOnce());
-    expect(within(screen.getByRole("button", { name: "Entregar" })).queryByText("Hecho")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Entregar" })).not.toHaveAttribute("aria-description", "Completada");
 
     fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
     fireEvent.click(screen.getByRole("radio", { name: /^Left/ }));
@@ -3480,7 +3480,7 @@ describe("App", () => {
     expect(within(dialog).getByText(/Lectura source-backed/)).toBeInTheDocument();
     // UX-08: the schema is reviewed on its own; one click loads it.
     fireEvent.click(await within(dialog).findByRole("button", { name: "Cargar archivo" }));
-    expect(await screen.findByRole("heading", { name: "ventas.json" })).toBeInTheDocument();
+    expect(await screen.findByText("ventas.json", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     expect(load).toHaveBeenCalledWith("json-source", null, null, expect.any(Function), null, null, null);
   });
 

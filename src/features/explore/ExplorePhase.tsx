@@ -147,9 +147,8 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
       <header className="phase-header phase-header--compact">
         <div>
           <h2>Explora los datos limpios</h2>
-          <h3 className="phase-file">{dataset.fileName}</h3>
-          <p className="phase-meta">
-            {formatNumber(dataset.rowCount)} filas · {custom ? "Tú elegiste estos gráficos" : "Columnia eligió estos gráficos"}
+          <p className="phase-lead">
+            {custom ? "Tú elegiste estos gráficos" : "Columnia eligió estos gráficos"} sobre las {formatNumber(dataset.rowCount)} filas.
           </p>
         </div>
       </header>

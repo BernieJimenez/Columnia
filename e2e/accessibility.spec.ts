@@ -58,7 +58,7 @@ test.describe("contratos de accesibilidad del shell", () => {
 
     const workspace = page.getByRole("region", { name: "Etapa Cargar" });
     await expect(workspace).toHaveAttribute("aria-busy", "false");
-    const runtime = page.locator(".runtime");
+    const runtime = page.locator(".engine-status");
     await expect(runtime).toHaveAttribute("role", "status");
     await expect(runtime).toHaveAttribute("aria-live", "polite");
     await expect(runtime).toHaveAttribute("aria-atomic", "true");

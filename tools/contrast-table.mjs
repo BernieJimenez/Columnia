@@ -35,7 +35,7 @@ export function contrastRatio(left, right) {
 
 /** Every theme block of the stylesheet that defines colour tokens. */
 export function themeBlocks(css) {
-  return [...css.matchAll(/(?:^|\n)\s*(:root(?:\[data-[a-z-]+="[a-z]+"\])?(?: \.sidebar)?)\s*\{([^}]*)\}/g)]
+  return [...css.matchAll(/(?:^|\n)\s*(:root(?:\[data-[a-z-]+="[a-z]+"\])?(?: \.app-sidebar)?)\s*\{([^}]*)\}/g)]
     .map(([, selector, body]) => ({
       selector,
       tokens: Object.fromEntries([...body.matchAll(/--([a-z-]+):\s*(#[0-9a-f]{6})/gi)].map(([, name, value]) => [name, value.toLowerCase()])),

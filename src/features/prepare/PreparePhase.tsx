@@ -247,7 +247,7 @@ export function PreparePhase({
       <header className="phase-header phase-header--compact">
         <div>
           <h2>Prepara datos consistentes</h2>
-          <h3 className="phase-file">{dataset.fileName}</h3>
+          <p className="phase-lead">Corrige y transforma con historial: cada cambio se puede deshacer.</p>
         </div>
       </header>
       <ChangeFeedback status={changeStatus} onCancel={onCancelPrepare} />

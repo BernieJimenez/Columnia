@@ -35,8 +35,8 @@ export function SidebarSave({ fileName, activeProject, autoSave, operation, disa
   const needsClick = !activeProject || autoSave.kind === "disabled" || autoSave.kind === "error";
 
   return (
-    <div className="sidebar__save">
-      <small role="status">{status}</small>
+    <div className="dataset-save">
+      <small role="status" className={`dataset-save__status dataset-save__status--${saving ? "saving" : autoSave.kind === "error" ? "error" : activeProject ? "saved" : "unsaved"}`}>{status}</small>
       {needsClick && (
         <button
           type="button"

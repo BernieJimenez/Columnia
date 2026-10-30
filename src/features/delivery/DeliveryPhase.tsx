@@ -27,7 +27,6 @@ import {
   type SavedRecipe,
 } from "../../bridge";
 import { OperationProgressView } from "../../components/OperationProgressView";
-import { formatFileSize } from "./DatasetMetrics";
 import {
   type DeliveryContractAction,
   type DeliveryContractState,
@@ -582,10 +581,7 @@ export function DeliveryPhase({
       <header className="phase-header phase-header--compact">
         <div>
           <h2>Valida y crea una copia</h2>
-          <h3 className="phase-file">{dataset.fileName}</h3>
-          <p className="phase-meta">
-            {dataset.rowCount.toLocaleString()} filas · {dataset.columnCount.toLocaleString()} columnas · {formatFileSize(dataset.fileSizeBytes)}
-          </p>
+          <p className="phase-lead">Comprueba las reglas de aceptación y exporta. El archivo original no se modifica.</p>
         </div>
       </header>
       <section className="quality-contract" aria-labelledby="quality-contract-title">

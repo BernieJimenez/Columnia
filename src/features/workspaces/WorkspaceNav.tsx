@@ -4,17 +4,18 @@ interface WorkspaceNavProps {
   activePhase: WorkflowPhase;
 }
 
+/**
+ * Names the workspace the flow belongs to. Only Analizar is actionable, so it
+ * is a label, not navigation (DESIGN.md, «Navegación y espacios de trabajo»).
+ */
 export function WorkspaceNav({ activePhase }: WorkspaceNavProps) {
   const currentWorkspaceId = workspaceForPhase(activePhase);
   const currentWorkspace = workspaces.find((workspace) => workspace.id === currentWorkspaceId);
 
   return (
-    <section className="workspace-list" role="region" aria-labelledby="workspace-list-title">
-      <h2 id="workspace-list-title">Espacio actual</h2>
-      <p>
-        <strong>{currentWorkspace?.label ?? "Analizar"}</strong>
-        <span> · En uso</span>
-      </p>
-    </section>
+    <p className="workspace-label">
+      <span className="visually-hidden">Espacio de trabajo: </span>
+      {currentWorkspace?.label ?? "Analizar"}
+    </p>
   );
 }

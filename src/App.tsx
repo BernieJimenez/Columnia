@@ -69,6 +69,8 @@ import { DiagnosticsDialog } from "./features/diagnostics/DiagnosticsDialog";
 import type { DatasetMetricInput } from "./features/diagnostics/diagnosticsModel";
 import { WorkspaceNav } from "./features/workspaces/WorkspaceNav";
 import { workflowPhases, type WorkflowPhase } from "./features/workspaces/workspaceModel";
+import { formatBytes } from "./format";
+import { plural } from "./plural";
 
 import {
   cancelOperation,
@@ -1215,84 +1217,66 @@ export function App() {
       : { kind: "unavailable" };
 
   return (
-    <div className="shell">
+    <div className="app-shell">
       <a className="skip-link" href="#main-content">Saltar al contenido principal</a>
       <p className="visually-hidden" aria-live="polite" aria-atomic="true">
         Etapa activa: {activePhaseMeta.label}.
       </p>
-      <aside className="sidebar" aria-label="Navegación principal">
+      <aside className="app-sidebar" aria-label="Navegación principal">
         {/* ACC-11: inside the navigation landmark, and only while it applies. */}
         {!activeDataset && (
           <p id="dataset-required-hint" className="visually-hidden">
             Carga un dataset para habilitar las etapas Revisar, Preparar, Explorar y Entregar.
           </p>
         )}
-        <div className="brand">
-          <p className="eyebrow">Estación local de datos</p>
-          <h1 id="app-title"><svg className="brand__mark" viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="2" y="4" width="7" height="24" rx="2" fill="currentColor" /><rect x="12" y="10" width="7" height="18" rx="2" fill="currentColor" opacity=".7" /><rect x="22" y="16" width="7" height="12" rx="2" fill="currentColor" opacity=".45" /></svg>Columnia</h1>
+        <div className="app-brand">
+          <h1 id="app-title"><svg className="app-brand__mark" viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="2" y="4" width="7" height="24" rx="2" fill="currentColor" /><rect x="12" y="10" width="7" height="18" rx="2" fill="currentColor" opacity=".7" /><rect x="22" y="16" width="7" height="12" rx="2" fill="currentColor" opacity=".45" /></svg>Columnia</h1>
         </div>
 
-        <WorkspaceNav activePhase={activePhase} />
-
-        <nav className="side-nav" aria-label="Flujo de preparación de datos">
-          {workflowPhases.map((phase, phaseIndex) => {
-            const available = phase.id === "load" || Boolean(activeDataset);
-            const phaseComplete = isPhaseComplete(phase.id);
-            // Reviewed, then the data changed: «Revisar de nuevo», not «Después».
-            const reviewAgain = phase.id === "review" && !phaseComplete
-              && completedPhaseRevisions.review !== undefined;
-            const phaseState = phaseIndex === activePhaseIndex
-              ? "current"
-              : phaseComplete ? "complete" : "upcoming";
-            return (
-              <button
-                key={phase.id}
-                type="button"
-                aria-description={phaseComplete ? "Completada" : reviewAgain ? "Los datos cambiaron desde la revisión" : undefined}
-                className={`side-nav__item side-nav__item--${phaseState}${activePhase === phase.id ? " side-nav__active" : ""}`}
-                aria-current={activePhase === phase.id ? "step" : undefined}
-                aria-disabled={!available || undefined}
-                aria-describedby={!available ? "dataset-required-hint" : undefined}
-                onMouseEnter={() => preloadPhase(phase.id)}
-                onFocus={() => preloadPhase(phase.id)}
-                onClick={() => available && setActivePhase(phase.id)}
-                disabled={navigationBusy}
-                title={!available ? "Carga un dataset para habilitar esta etapa" : undefined}
-              >
-                <span className="side-nav__marker" aria-hidden="true">
-                  {phaseComplete ? "✓" : phase.number}
-                </span>
-                <span className="side-nav__copy">
-                  <span className="side-nav__label-row">
-                    <strong>{phase.label}</strong>
-                    <small className={`side-nav__state${reviewAgain ? " side-nav__state--again" : ""}`} aria-hidden="true">
-                      {phaseComplete ? "Hecho" : phaseState === "current" ? "Ahora" : reviewAgain ? "Revisar de nuevo" : "Después"}
-                    </small>
+        <div className="flow-nav">
+          <WorkspaceNav activePhase={activePhase} />
+          <nav className="flow-nav__list" aria-label="Flujo de preparación de datos">
+            {workflowPhases.map((phase, phaseIndex) => {
+              const available = phase.id === "load" || Boolean(activeDataset);
+              const phaseComplete = isPhaseComplete(phase.id);
+              // Reviewed, then the data changed: «Revisar de nuevo», not «Después».
+              const reviewAgain = phase.id === "review" && !phaseComplete
+                && completedPhaseRevisions.review !== undefined;
+              const phaseState = phaseIndex === activePhaseIndex
+                ? "current"
+                : phaseComplete ? "complete" : "upcoming";
+              return (
+                <button
+                  key={phase.id}
+                  type="button"
+                  aria-description={phaseComplete ? "Completada" : reviewAgain ? "Los datos cambiaron desde la revisión" : undefined}
+                  className={`flow-nav__item flow-nav__item--${phaseState}`}
+                  aria-current={activePhase === phase.id ? "step" : undefined}
+                  aria-disabled={!available || undefined}
+                  aria-describedby={!available ? "dataset-required-hint" : undefined}
+                  onMouseEnter={() => preloadPhase(phase.id)}
+                  onFocus={() => preloadPhase(phase.id)}
+                  onClick={() => available && setActivePhase(phase.id)}
+                  disabled={navigationBusy}
+                  title={!available ? "Carga un dataset para habilitar esta etapa" : undefined}
+                >
+                  <span className="flow-nav__marker" aria-hidden="true">
+                    {phaseComplete ? "✓" : phaseIndex + 1}
                   </span>
-                  <small aria-hidden="true">{phase.description}</small>
-                </span>
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="sidebar__dataset">
-          <span>Dataset activo</span>
-          <strong>
-            {activeDataset ? activeDataset.dataset.fileName : "Sin dataset"}
-          </strong>
+                  <span className="flow-nav__copy">
+                    <strong>{phase.label}</strong>
+                    {reviewAgain && (
+                      <small className="flow-nav__badge" aria-hidden="true">Revisar de nuevo</small>
+                    )}
+                    {phaseState === "current" && (
+                      <small className="flow-nav__description" aria-hidden="true">{phase.description}</small>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
         </div>
-        {/* Outside the dataset block, which compact windows hide. */}
-        {activeDataset && status.kind === "ready" && (
-          <SidebarSave
-            fileName={activeDataset.dataset.fileName}
-            activeProject={projects.activeProject}
-            autoSave={projects.autoSave}
-            operation={projects.operation}
-            disabled={projects.isBusy || coreOperationBusy || loadSelectionBusy}
-            onSave={(name) => void projects.save(name)}
-          />
-        )}
 
         <div className="sidebar__tools">
           <details
@@ -1372,19 +1356,48 @@ export function App() {
         </div>
       </aside>
 
-      <main id="main-content" className="main-content" tabIndex={-1}>
-        {/* The side navigation already marks the current step; the top bar only reports the engine. */}
-        <header className="topbar">
-          <div
-            className={`runtime runtime--${status.kind}`}
-            role={status.kind === "error" ? "alert" : "status"}
-            aria-live={status.kind === "error" ? "assertive" : "polite"}
-            aria-atomic="true"
-          >
-            {status.kind === "loading" && "Conectando con el motor local…"}
-            {status.kind === "browser" && "Vista web · motor no conectado"}
-            {status.kind === "ready" && "Motor local listo"}
-            {status.kind === "error" && `Error del motor: ${status.message}`}
+      <main id="main-content" className="app-main" tabIndex={-1}>
+        {/* The dataset being worked on, its save state and the engine: context for every phase. */}
+        <header className="app-topbar">
+          <div className="dataset-bar">
+            <svg className="dataset-bar__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 3h8l4 4v14H6z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+              <path d="M14 3v4h4M9 12h6M9 16h6" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+            </svg>
+            <div className="dataset-bar__copy">
+              <p className="visually-hidden">Dataset activo:</p>
+              <p className="dataset-bar__name" title={activeDataset?.dataset.fileName}>
+                {activeDataset ? activeDataset.dataset.fileName : "Sin dataset"}
+              </p>
+              <p className="dataset-bar__meta">
+                {activeDataset
+                  ? `${plural(activeDataset.dataset.rowCount, "fila", "filas")} · ${plural(activeDataset.dataset.columnCount, "columna", "columnas")} · ${formatBytes(activeDataset.dataset.fileSizeBytes)}`
+                  : "Elige un archivo en Cargar para empezar"}
+              </p>
+            </div>
+          </div>
+          <div className="app-topbar__status">
+            <div
+              className={`engine-status engine-status--${status.kind}`}
+              role={status.kind === "error" ? "alert" : "status"}
+              aria-live={status.kind === "error" ? "assertive" : "polite"}
+              aria-atomic="true"
+            >
+              {status.kind === "loading" && "Conectando con el motor local…"}
+              {status.kind === "browser" && "Vista web · motor no conectado"}
+              {status.kind === "ready" && "Motor local listo"}
+              {status.kind === "error" && `Error del motor: ${status.message}`}
+            </div>
+            {activeDataset && status.kind === "ready" && (
+              <SidebarSave
+                fileName={activeDataset.dataset.fileName}
+                activeProject={projects.activeProject}
+                autoSave={projects.autoSave}
+                operation={projects.operation}
+                disabled={projects.isBusy || coreOperationBusy || loadSelectionBusy}
+                onSave={(name) => void projects.save(name)}
+              />
+            )}
           </div>
         </header>
 

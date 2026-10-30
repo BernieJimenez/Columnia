@@ -1,0 +1,343 @@
+/*
+ * Shell (2026-10-30): a light flow rail, a top bar with the active dataset
+ * and a full-width work area. Loaded after workflow-styles.css; the sidebar
+ * colours come from the `.app-sidebar` tokens in styles.css and
+ * workflow-styles.css, so every theme keeps its contrast.
+ */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  width: 100%;
+  max-width: 100%;
+  min-height: 100vh;
+}
+
+/* Sidebar ------------------------------------------------------------- */
+
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  height: 100dvh;
+  min-width: 0;
+  padding: 22px 14px 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--sidebar-surface);
+  color: var(--text-primary);
+}
+
+.app-brand { padding: 0 10px; }
+.app-brand h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -.02em;
+  line-height: 1.1;
+}
+.app-brand__mark { flex: 0 0 24px; width: 24px; height: 24px; color: var(--accent); }
+
+.flow-nav { display: grid; gap: 6px; min-width: 0; }
+.workspace-label {
+  margin: 0;
+  padding: 0 10px;
+  color: var(--text-secondary);
+  font-size: .8125rem;
+  font-weight: 650;
+}
+.flow-nav__list { display: grid; gap: 2px; min-width: 0; }
+.flow-nav__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: .9375rem;
+  font-weight: 600;
+  text-align: left;
+}
+.flow-nav__item:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--surface-raised); color: var(--text-primary); }
+.flow-nav__item[aria-current="step"] {
+  align-items: flex-start;
+  background: var(--surface);
+  box-shadow: inset 3px 0 0 var(--accent);
+  color: var(--text-primary);
+}
+.flow-nav__item:disabled,
+.flow-nav__item[aria-disabled="true"] { cursor: not-allowed; color: var(--disabled-text); }
+.flow-nav__marker {
+  display: grid;
+  flex: 0 0 26px;
+  place-items: center;
+  height: 26px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 50%;
+  font-size: .75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out;
+}
+.flow-nav__item--complete .flow-nav__marker { border-color: var(--accent); color: var(--accent); }
+.flow-nav__item[aria-current="step"] .flow-nav__marker {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--sidebar-surface);
+  font-weight: 800;
+}
+.flow-nav__item[aria-disabled="true"] .flow-nav__marker { border-style: dashed; }
+.flow-nav__copy { display: grid; gap: 1px; min-width: 0; }
+.flow-nav__copy strong { font-weight: 650; overflow-wrap: anywhere; }
+.flow-nav__description { color: var(--text-secondary); font-size: .8125rem; font-weight: 500; line-height: 1.35; }
+.flow-nav__badge {
+  justify-self: start;
+  padding: 0 8px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px currentColor;
+  color: var(--accent);
+  font-size: .75rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+/* Preferences and legal stay at the foot of the rail. */
+.app-sidebar .sidebar__tools {
+  display: grid;
+  gap: 2px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+.app-sidebar :is(.sidebar__utilities, .sidebar__legal) { margin-top: 0; }
+.app-sidebar :is(.sidebar__utilities, .sidebar__legal) > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: .8125rem;
+  font-weight: 650;
+}
+.app-sidebar :is(.sidebar__utilities, .sidebar__legal) > summary:hover { background: var(--surface-raised); color: var(--text-primary); }
+
+@media (min-width: 901px) {
+  .sidebar__utilities-content,
+  .sidebar__legal-content {
+    left: 264px;
+    width: min(420px, calc(100vw - 280px));
+  }
+}
+
+/* Top bar ------------------------------------------------------------- */
+
+.app-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface);
+}
+.app-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 24px;
+  min-height: 64px;
+  padding: 10px 40px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface);
+}
+.dataset-bar { display: flex; flex: 1 1 280px; align-items: center; gap: 12px; min-width: 0; }
+.dataset-bar__icon { flex: 0 0 22px; width: 22px; height: 22px; color: var(--text-secondary); }
+.dataset-bar__copy { min-width: 0; }
+.dataset-bar__copy p { margin: 0; }
+.dataset-bar__name {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: .9375rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dataset-bar__meta { color: var(--text-secondary); font-size: .8125rem; font-variant-numeric: tabular-nums; }
+
+.app-topbar__status { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 20px; min-width: 0; }
+
+/* The dot is the visual cue; the text always names the state. */
+.engine-status,
+.dataset-save__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: .8125rem;
+}
+.engine-status::before,
+.dataset-save__status::before {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+  content: "";
+}
+.engine-status--ready::before { background: var(--success); }
+.engine-status--browser::before { background: var(--text-secondary); }
+.engine-status--error { color: var(--danger); font-weight: 650; }
+.engine-status--error::before { background: var(--danger); }
+
+.dataset-save { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.dataset-save__status--saved::before { background: var(--success); }
+.dataset-save__status--saving::before { background: var(--text-secondary); }
+.dataset-save__status--unsaved { color: var(--text-primary); font-weight: 650; }
+.dataset-save__status--error { color: var(--danger); font-weight: 650; }
+.dataset-save__status--error::before { background: var(--danger); }
+.dataset-save .secondary-action { min-height: 44px; border-color: var(--control-border); color: var(--text-primary); }
+
+/* Work area: the surface itself, no card around it ----------------------- */
+
+.app-shell .workspace {
+  width: 100%;
+  max-width: 1360px;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 32px 40px 48px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.app-shell .workspace h2 { margin-top: 0; font-size: 2rem; }
+.phase-lead { margin: 0; color: var(--text-secondary); max-width: 68ch; }
+
+/* Short desktop windows: a tighter rail keeps every step and tool in view. */
+@media (min-width: 901px) and (max-height: 700px) {
+  .app-sidebar { gap: 14px; padding-top: 14px; padding-bottom: 10px; }
+  .flow-nav__item { padding-block: 6px; }
+  .flow-nav__description { display: none; }
+}
+
+/* The top bar stays in view on tall windows; focus never hides under it. */
+@media (min-width: 901px) and (min-height: 701px) {
+  html { scroll-padding-top: 88px; }
+  .app-topbar { position: sticky; top: 0; z-index: 5; }
+}
+
+/* Compact: the rail becomes a band above the work (UX-02) --------------- */
+
+@media (max-width: 900px) {
+  .app-shell { grid-template-columns: minmax(0, 1fr); }
+  .app-sidebar {
+    position: static;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "brand tools" "nav nav";
+    align-items: center;
+    gap: 10px 16px;
+    height: auto;
+    padding: 12px 16px;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .app-sidebar:has(.sidebar__tools details[open]) { grid-template-areas: "brand brand" "nav nav" "tools tools"; }
+  .app-brand { grid-area: brand; padding: 0; }
+  .app-brand h1 { font-size: 1.375rem; }
+  .flow-nav { grid-area: nav; }
+  .workspace-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .flow-nav__list { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .flow-nav__item { justify-content: center; gap: 6px; padding: 6px 4px; text-align: center; }
+  .flow-nav__item[aria-current="step"] { align-items: center; box-shadow: inset 0 -3px 0 var(--accent); }
+  .flow-nav__marker { flex-basis: 22px; height: 22px; }
+  .flow-nav__description,
+  .flow-nav__badge { display: none; }
+  .app-sidebar .sidebar__tools {
+    grid-area: tools;
+    grid-template-columns: repeat(2, auto);
+    justify-content: end;
+    gap: 4px 8px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .app-sidebar:has(.sidebar__tools details[open]) .sidebar__tools { grid-template-columns: minmax(0, 1fr); justify-content: stretch; }
+  .app-topbar { padding: 10px 16px; }
+  .app-shell .workspace { padding: 24px 16px 32px; }
+  .app-shell .workspace h2 { font-size: 1.75rem; }
+}
+
+@media (max-width: 700px) {
+  .flow-nav__marker { display: none; }
+  .flow-nav__copy strong { font-size: .8125rem; line-height: 1.2; }
+  .app-topbar__status { justify-content: flex-start; }
+}
+
+@media (max-width: 420px) {
+  .app-sidebar { grid-template-columns: minmax(0, 1fr); grid-template-areas: "brand" "tools" "nav"; }
+  .app-sidebar .sidebar__tools { justify-content: start; }
+  /* «Motor local listo» is the expected state; a problem is still shown. */
+  .engine-status--ready { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .flow-nav__copy strong { font-size: .75rem; }
+  .app-shell .workspace { padding-inline: 12px; }
+  .app-topbar { padding-inline: 12px; }
+}
+
+/* The 200 % zoom evidence emulates a narrow viewport on a wide one. */
+html[data-columnia-zoom="2"] .app-shell { grid-template-columns: minmax(0, 1fr); }
+html[data-columnia-zoom="2"] .app-sidebar {
+  position: static;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "brand" "tools" "nav";
+  gap: 10px;
+  height: auto;
+  padding: 12px;
+  overflow: visible;
+  border-right: 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+html[data-columnia-zoom="2"] .app-brand { grid-area: brand; padding: 0; }
+html[data-columnia-zoom="2"] .flow-nav { grid-area: nav; }
+html[data-columnia-zoom="2"] .workspace-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+html[data-columnia-zoom="2"] .flow-nav__list { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+html[data-columnia-zoom="2"] .flow-nav__item { justify-content: center; padding: 6px 2px; text-align: center; }
+html[data-columnia-zoom="2"] .flow-nav__item[aria-current="step"] { align-items: center; box-shadow: inset 0 -3px 0 var(--accent); }
+html[data-columnia-zoom="2"] :is(.flow-nav__marker, .flow-nav__description, .flow-nav__badge) { display: none; }
+html[data-columnia-zoom="2"] .flow-nav__copy strong { font-size: .75rem; line-height: 1.2; }
+html[data-columnia-zoom="2"] .app-sidebar .sidebar__tools { grid-area: tools; grid-template-columns: minmax(0, 1fr); margin: 0; padding: 0; border: 0; }
+html[data-columnia-zoom="2"] .app-topbar { position: static; padding: 8px 12px; }
+html[data-columnia-zoom="2"] .app-topbar__status { justify-content: flex-start; }
+html[data-columnia-zoom="2"] .app-shell .workspace { padding: 16px 12px 28px; }
+html[data-columnia-zoom="2"] .app-shell .workspace h2 { font-size: 1.5rem; }
+
+@media (forced-colors: active) {
+  .app-sidebar,
+  .app-topbar { border-color: CanvasText; background: Canvas; }
+  .flow-nav__marker { border-color: ButtonText; background: Canvas; color: CanvasText; forced-color-adjust: none; }
+  .flow-nav__item[aria-current="step"] { outline: 2px solid Highlight; outline-offset: -2px; box-shadow: none; }
+  .flow-nav__item[aria-current="step"] .flow-nav__marker { border-color: Highlight; background: Highlight; color: HighlightText; }
+  .flow-nav__badge { box-shadow: none; border: 1px solid CanvasText; }
+  :is(.engine-status, .dataset-save__status)::before { forced-color-adjust: none; background: CanvasText; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-nav__marker { transition: none; }
+}

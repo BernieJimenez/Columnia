@@ -680,7 +680,7 @@ async function readDatabaseDelivery(page) {
 // DAT-01: one click saves the dataset as a project from any phase, and a later
 // change (here, undoing the plan) is saved on its own.
 async function readSaveCheck(page, result) {
-  const status = page.locator(".sidebar__save [role='status']");
+  const status = page.locator(".dataset-save [role='status']");
   const before = (await status.innerText()).trim();
   await page.getByRole("button", { name: "Guardar proyecto" }).click();
   await status.filter({ hasText: /Los cambios se guardan solos|Guardado a las/ })

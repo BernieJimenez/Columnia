@@ -82,7 +82,7 @@ for (const fixture of importCases) {
 
     const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
     await expect(workflow.getByRole("button", { name: "Revisar", exact: true })).toHaveAttribute("aria-current", "step");
-    await expect(page.getByRole("heading", { name: fixture.fileName, level: 3 })).toBeVisible();
+    await expect(page.locator(".dataset-bar__name")).toHaveText(fixture.fileName);
 
     const loadCall = (await recordedCalls(page)).find((call) => call.command === "load_dataset_selection") ?? null;
     expect(loadCall).not.toBeNull();
