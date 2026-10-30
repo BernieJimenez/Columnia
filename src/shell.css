@@ -228,6 +228,38 @@
 .app-shell .workspace h2 { margin-top: 0; font-size: 2rem; }
 .phase-lead { margin: 0; color: var(--text-secondary); max-width: 68ch; }
 
+/* Disabled actions: an outline, never a grey block that outweighs the active
+   ones. The text next to the control says what it is waiting for. */
+:root:root .workspace :is(.primary-action, .secondary-action, .pagination button, .history-actions button):disabled {
+  border-width: 1px;
+  border-style: dashed;
+  border-color: var(--control-border);
+  background: transparent;
+  box-shadow: none;
+  color: var(--disabled-text);
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+/* Entregar: contract and export side by side when there is room. */
+.delivery-layout { display: grid; gap: 28px; align-items: start; }
+.app-shell .delivery-layout .quality-contract { margin: 0; padding-top: 4px; }
+.app-shell .delivery-layout .export-panel {
+  margin: 0;
+  padding: 22px 24px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.export-blocked-reason { grid-column: 1 / -1; margin: 0; color: var(--text-secondary); font-size: .875rem; font-weight: 600; }
+.delivery-layout .privacy-signals .quality-rule__check { display: flex; align-items: flex-start; gap: 10px; }
+.delivery-layout .privacy-signals .quality-rule__check input { flex: 0 0 auto; width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
+@media (min-width: 1180px) {
+  .delivery-layout { grid-template-columns: minmax(0, 3fr) minmax(340px, 2fr); }
+  .delivery-layout .export-controls { grid-template-columns: minmax(0, 1fr); }
+  .delivery-layout .export-actions-row > button { flex: 1 1 auto; }
+}
+
 /* Short desktop windows: a tighter rail keeps every step and tool in view. */
 @media (min-width: 901px) and (max-height: 700px) {
   .app-sidebar { gap: 14px; padding-top: 14px; padding-bottom: 10px; }
@@ -336,6 +368,11 @@ html[data-columnia-zoom="2"] .app-shell .workspace h2 { font-size: 1.5rem; }
   .flow-nav__item[aria-current="step"] .flow-nav__marker { border-color: Highlight; background: Highlight; color: HighlightText; }
   .flow-nav__badge { box-shadow: none; border: 1px solid CanvasText; }
   :is(.engine-status, .dataset-save__status)::before { forced-color-adjust: none; background: CanvasText; }
+  :root:root .workspace :is(.primary-action, .secondary-action, .pagination button, .history-actions button):disabled {
+    border-color: GrayText;
+    background: Canvas;
+    color: GrayText;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

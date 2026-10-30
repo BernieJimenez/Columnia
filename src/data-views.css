@@ -57,3 +57,21 @@
   .col-profile__histogram { fill: CanvasText; }
   .col-profile__signal::before { background: CanvasText; forced-color-adjust: none; }
 }
+
+/* Revisar: each problem says what it does to an analysis. The marker shape
+   repeats the level (filled = results, outlined = format, thin = optional);
+   the text below the title always names it. */
+.quality-issues:has(.quality-issue) { gap: 12px; max-width: 680px; }
+.quality-issues > li.quality-issue { display: grid; gap: 2px; padding-left: 22px; }
+.quality-issues > li.quality-issue::before { top: .45em; width: 9px; height: 9px; }
+.quality-issue__title { font-weight: 600; }
+.quality-issue__impact { color: var(--text-secondary); font-size: .875rem; line-height: 1.4; }
+.quality-issues > li.quality-issue--results::before { background: var(--danger); }
+.quality-issues > li.quality-issue--matching::before { background: var(--warning); }
+.quality-issues > li.quality-issue--format::before { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
+.quality-issues > li.quality-issue--optional::before { background: transparent; box-shadow: inset 0 0 0 1px var(--text-secondary); }
+
+@media (forced-colors: active) {
+  .quality-issues > li.quality-issue::before { forced-color-adjust: none; background: Canvas; box-shadow: inset 0 0 0 2px CanvasText; }
+  .quality-issues > li.quality-issue--results::before { background: CanvasText; }
+}

@@ -90,7 +90,11 @@ reserva para selección actual, foco y acción principal. El color nunca es la
 - Los botones primarios representan la siguiente acción segura; las acciones
   destructivas conservan texto explícito y confirmación.
 - Los controles deshabilitados explican el requisito faltante de forma visible,
-  no solo mediante tooltip.
+  no solo mediante tooltip. Un botón deshabilitado del área de trabajo se
+  dibuja con borde discontinuo y fondo transparente, nunca como bloque gris.
+- Una lista de problemas se ordena por lo que le hace al análisis (altera
+  resultados, afecta a coincidencias, solo formato, opcional) y cada elemento
+  lo dice con texto; la forma del marcador repite el nivel, no lo sustituye.
 
 ## Tablas de datos
 

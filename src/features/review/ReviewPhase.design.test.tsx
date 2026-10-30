@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DatasetPreview, DatasetProfile } from "../../bridge";
 import { createReadyDatasetStatus } from "../load/loadModel";
 import { ReviewPhase } from "./ReviewPhase";
+import { byImpact } from "./proposalImpact";
 import { buildPrepareProposal, defaultProposalSelection, proposalItemTitle } from "../prepare/proposalModel";
 
 const dataset: DatasetPreview = {
@@ -89,9 +90,12 @@ describe("ReviewPhase design", () => {
       name: `Encontramos ${proposal.length} ${proposal.length === 1 ? "cosa" : "cosas"} para arreglar`,
     })).toBeInTheDocument();
     const issues = screen.getByLabelText("Resumen de calidad del dataset");
-    expect(within(issues).getAllByRole("listitem").map((item) => item.textContent)).toEqual(
-      proposal.map((item) => proposalItemTitle(item, selection)),
+    // Most serious first; every item names what it does to an analysis.
+    const items = within(issues).getAllByRole("listitem");
+    expect(items.map((item) => item.querySelector(".quality-issue__title")?.textContent)).toEqual(
+      byImpact(proposal).map((item) => proposalItemTitle(item, selection)),
     );
+    for (const item of items) expect(item.querySelector(".quality-issue__impact")?.textContent).toBeTruthy();
     expect(within(issues).queryByText(/duplicad/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Resumen del dataset")).not.toBeInTheDocument();
     expect(screen.getByText("Explorar análisis detallado").closest("details")).not.toHaveAttribute("open");

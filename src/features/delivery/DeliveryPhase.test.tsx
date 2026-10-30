@@ -193,6 +193,17 @@ describe("compuerta de calidad y editor de reglas (QA-11)", () => {
     expect(lastRules(contracts)[0].columns).toEqual(["Nombre completo"]);
   });
 
+  it("explica a la vista qué falta mientras exportar está deshabilitado", () => {
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    const exportButton = screen.getByRole("button", { name: "Exportar CSV" });
+    expect(exportButton).toBeDisabled();
+    expect(screen.getByText("Para exportar, confirma que exportas sin validar.")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    expect(exportButton).toBeEnabled();
+    expect(screen.queryByText(/^Para exportar,/)).not.toBeInTheDocument();
+  });
+
   it("abre Power BI al terminar «Exportar y abrir en Power BI» con Parquet", async () => {
     const onExport = vi.fn();
     const openInPowerBi = vi.spyOn(bridge, "openLastExportInPowerBi").mockResolvedValue(true);

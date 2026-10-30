@@ -302,6 +302,17 @@ export function DeliveryPhase({
     && databasePreflightState.fingerprint === databaseTargetFingerprint
     ? databasePreflightState.result
     : null;
+  // DESIGN.md: a disabled control states, in view, what it is waiting for.
+  const exportBlockers = [
+    validationError !== null && "corrige la regla marcada en el contrato",
+    needsPersonalDataConfirmation && "elige una protección de datos personales o confirma que los exportas sin proteger",
+    needsUnvalidatedConfirmation && "confirma que exportas sin validar",
+  ].filter((blocker): blocker is string => typeof blocker === "string");
+  const exportBlockedReason = exportBlockers.length === 0
+    ? null
+    : `Para exportar, ${exportBlockers.length === 1
+      ? exportBlockers[0]
+      : `${exportBlockers.slice(0, -1).join(", ")} y ${exportBlockers.at(-1)}`}.`;
   const busy = exportState.kind === "loading"
     || contract.gate.kind === "loading"
     || migrationState.kind === "working"
@@ -584,6 +595,7 @@ export function DeliveryPhase({
           <p className="phase-lead">Comprueba las reglas de aceptación y exporta. El archivo original no se modifica.</p>
         </div>
       </header>
+      <div className="delivery-layout">
       <section className="quality-contract" aria-labelledby="quality-contract-title">
         <div className="quality-contract__header">
           <div>
@@ -1012,7 +1024,7 @@ export function DeliveryPhase({
               Confirmo que quiero exportar sin validar la calidad
             </label>
           )}
-          <div className="export-actions-row">
+          <div className="export-actions-row" aria-describedby={exportBlockedReason ? "export-blocked-reason" : undefined}>
             <button
               className="primary-action export-action"
               type="button"
@@ -1040,6 +1052,12 @@ export function DeliveryPhase({
               </button>
             )}
           </div>
+          {exportBlockedReason && (
+            <p id="export-blocked-reason" className="export-blocked-reason">{exportBlockedReason}</p>
+          )}
+          {contract.kind === "with_contract" && !gatePassed && !validationError && (
+            <p className="export-requirement">Las reglas se comprobarán antes de crear la copia.</p>
+          )}
           <DeliveryPresets
             dataset={dataset}
             currentPreset={(name) => ({
@@ -1077,10 +1095,8 @@ export function DeliveryPhase({
               : " No lleva recipe.json porque no hay una receta activa: los cambios aplicados desde la propuesta no forman una receta."}
           </p>
         )}
-        {contract.kind === "with_contract" && !gatePassed && !validationError && (
-          <p className="export-requirement">Las reglas se comprobarán antes de crear la copia.</p>
-        )}
       </section>
+      </div>
       {exportState.kind === "loading" && (
         <OperationProgressView
           progress={exportState.progress}

@@ -1114,6 +1114,18 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   espacios sobrantes, marcadores de vacío o acentos mal leídos. Las cifras son
   de todas las filas, no de la página visible, y aparecen en cuanto termina el
   análisis de calidad.
+- Revisar ordena lo que hay que arreglar por lo que le hace al análisis y lo
+  dice debajo de cada problema: primero lo que altera conteos y sumas
+  (duplicados, marcadores de «sin dato»), luego lo que afecta a filtros y
+  uniones (espacios), después lo que solo mejora el formato (números, fechas)
+  y al final lo opcional (rellenar huecos).
+- Entregar pone el contrato de calidad y la exportación lado a lado en
+  ventanas anchas. Mientras exportar está deshabilitado, debajo de los botones
+  se lee qué falta (confirmar que se exporta sin validar, decidir sobre los
+  datos personales o corregir una regla), y «Las reglas se comprobarán antes
+  de crear la copia» aparece junto a ellos.
+- Los botones deshabilitados del área de trabajo se dibujan con un borde
+  discontinuo en lugar de un bloque gris, para no pesar más que los activos.
 - En archivos grandes, la lectura de filas prepara el bloque siguiente mientras
   analiza el actual, calcula a la vez huellas y columnas, y la copia de trabajo
   y el conteo de valores distintos usan hasta 1 GB de memoria en DuckDB (con

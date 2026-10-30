@@ -33,6 +33,7 @@ import {
 import { DatasetComparisonSection } from "./DatasetComparisonSection";
 import { QualitySnapshot } from "./QualitySnapshot";
 import { buildQualityActionPlan } from "./qualityActionPlan";
+import { byImpact, proposalImpact } from "./proposalImpact";
 import {
   buildPrepareProposal,
   defaultProposalSelection,
@@ -824,9 +825,17 @@ function QualityProfile({
         </h4>
         {proposal.length > 0 && (
           <ul className="quality-issues" aria-label="Resumen de calidad del dataset">
-            {proposal.map((item) => (
-              <li key={item.id}>{proposalItemTitle(item, proposalSelection)}</li>
-            ))}
+            {byImpact(proposal).map((item) => {
+              const impact = proposalImpact(item, profile);
+              return (
+                <li key={item.id} className={`quality-issue quality-issue--${impact.level}`}>
+                  <span className="quality-issue__title">{proposalItemTitle(item, proposalSelection)}</span>
+                  <span className="quality-issue__impact">
+                    {impact.label}{impact.detail ? ` · ${impact.detail}` : ""}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
         {/* No signal focus: the proposal opens on its own, without the advanced tools. */}
