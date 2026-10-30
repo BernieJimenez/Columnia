@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 const baseStyles = readFileSync(join(process.cwd(), "src", "styles.css"), "utf8");
 const workflowStyles = readFileSync(join(process.cwd(), "src", "workflow-styles.css"), "utf8");
 const shellStyles = readFileSync(join(process.cwd(), "src", "shell.css"), "utf8");
-const styles = `${baseStyles}\n${workflowStyles}\n${shellStyles}`;
+const dataViewStyles = readFileSync(join(process.cwd(), "src", "data-views.css"), "utf8");
+const styles = `${baseStyles}\n${workflowStyles}\n${shellStyles}\n${dataViewStyles}`;
 
 describe("contratos CSS de accesibilidad", () => {
   it("carga el bloque visual diferido antes de renderizar React", () => {
@@ -15,7 +16,7 @@ describe("contratos CSS de accesibilidad", () => {
 
     expect(entrypoint).toContain(styleImport);
     expect(entrypoint.indexOf(styleImport)).toBeLessThan(entrypoint.indexOf("createRoot(appRoot).render"));
-    expect(styleModule.trim()).toBe('import "./workflow-styles.css";\nimport "./shell.css";');
+    expect(styleModule.trim()).toBe('import "./workflow-styles.css";\nimport "./shell.css";\nimport "./data-views.css";');
   });
 
   it("ajusta la barra lateral y sus paneles a la resolución disponible", () => {

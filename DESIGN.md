@@ -92,6 +92,19 @@ reserva para selección actual, foco y acción principal. El color nunca es la
 - Los controles deshabilitados explican el requisito faltante de forma visible,
   no solo mediante tooltip.
 
+## Tablas de datos
+
+- Una tabla del dataset activo resume cada columna en su cabecera cuando el
+  perfil de calidad está listo (`ColumnProfileHeader`, estilos en
+  `src/data-views.css`): completitud, valores distintos, rango, mini
+  distribución y señales de calidad. Las cifras son de todas las filas y la
+  tabla lo dice encima.
+- La barra de completitud y el histograma son `aria-hidden`: la línea de texto
+  ya dice cada cifra. El nombre accesible de la cabecera sigue siendo nombre y
+  tipo, para no repetir el perfil en cada celda.
+- Un identificador (todos los valores distintos) no muestra histograma: siempre
+  sería plano.
+
 ## Navegación y espacios de trabajo
 
 La barra lateral separa dos conceptos:

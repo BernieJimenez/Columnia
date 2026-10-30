@@ -1,0 +1,59 @@
+/*
+ * Data views (2026-10-30): how tables summarise their columns. Colours come
+ * from the theme tokens; the bar and the histogram are cues next to text that
+ * already states each figure.
+ */
+
+.table--profiled th { vertical-align: top; }
+.col-profile {
+  display: grid;
+  gap: 3px;
+  min-width: 128px;
+  max-width: 220px;
+  margin-top: 8px;
+  text-align: left;
+}
+.cell--number .col-profile { margin-left: auto; }
+.col-profile__fill {
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text-secondary) 22%, transparent);
+}
+.col-profile__fill > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.col-profile__line {
+  color: var(--text-secondary);
+  font-size: .75rem;
+  font-weight: 500;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  white-space: normal;
+}
+.col-profile__histogram { display: block; width: 100%; height: 20px; fill: color-mix(in srgb, var(--accent) 55%, transparent); }
+.col-profile__signal {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--text-primary);
+  font-size: .75rem;
+  font-weight: 650;
+  line-height: 1.35;
+  white-space: normal;
+}
+.col-profile__signal::before {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warning);
+  content: "";
+  transform: translateY(-1px);
+}
+
+@media (forced-colors: active) {
+  .col-profile__fill { border: 1px solid CanvasText; background: Canvas; forced-color-adjust: none; }
+  .col-profile__fill > span { background: Highlight; }
+  .col-profile__histogram { fill: CanvasText; }
+  .col-profile__signal::before { background: CanvasText; forced-color-adjust: none; }
+}

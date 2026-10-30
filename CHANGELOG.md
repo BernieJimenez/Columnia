@@ -1107,6 +1107,13 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   al 200 % la barra lateral se convierte en una franja sobre el trabajo que
   deja más del 60 % de la altura libre (UX-02). El estado del motor y del
   guardado se nombran siempre con texto; el punto de color solo acompaña.
+- En la vista previa de Revisar, cada columna resume bajo su nombre y tipo
+  cuántas celdas tienen valor (con una barra), cuántos valores distintos hay
+  («todos distintos» en un identificador), su rango y, si es numérica, una
+  mini distribución; también avisa con texto de valores con otro tipo,
+  espacios sobrantes, marcadores de vacío o acentos mal leídos. Las cifras son
+  de todas las filas, no de la página visible, y aparecen en cuanto termina el
+  análisis de calidad.
 - En archivos grandes, la lectura de filas prepara el bloque siguiente mientras
   analiza el actual, calcula a la vez huellas y columnas, y la copia de trabajo
   y el conteo de valores distintos usan hasta 1 GB de memoria en DuckDB (con

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLatest } from "../../useLatest";
 
 import { renderCellValue } from "../../components/CellText";
+import { ColumnProfileHeader } from "../../components/ColumnProfileHeader";
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ReviewTabList, type ReviewTab } from "../../components/ReviewTabList";
 import { cancelOperation, queryDataset } from "../../bridge";
@@ -145,6 +146,7 @@ export function ReviewPhase({
             pageError={datasetStatus.pageError}
             onPageChange={onPageChange}
             onCancelPageChange={onCancelPageChange}
+            profile={profileStatus.kind === "ready" ? profileStatus.profile : undefined}
           />
         </div>
       )}
@@ -658,6 +660,8 @@ interface DatasetPreviewProps {
   pageError?: string;
   onPageChange: (offset: number) => void;
   onCancelPageChange?: () => void;
+  /** With the quality profile, each header summarises its whole column. */
+  profile?: DatasetProfile;
 }
 
 export function DatasetPreviewPanel({
@@ -668,24 +672,35 @@ export function DatasetPreviewPanel({
   pageError,
   onPageChange,
   onCancelPageChange = () => undefined,
+  profile,
 }: DatasetPreviewProps) {
   const { end: pageEnd, hasPrevious, hasNext } = pageRange(dataset, pageOffset);
+  // COD-10: names may repeat, so the position decides when it agrees.
+  const columnProfile = (name: string, index: number) => {
+    if (!profile) return undefined;
+    const atIndex = profile.columns[index];
+    return atIndex?.name === name ? atIndex : profile.columns.find((column) => column.name === name);
+  };
 
   return (
     <>
+      {profile && (
+        <p className="preview-note">
+          Bajo cada columna: cuántas celdas tienen valor, cuántos valores distintos hay y su rango, calculados sobre {dataset.rowCount === 1 ? "la única fila" : `todas las filas (${dataset.rowCount.toLocaleString()})`}.
+        </p>
+      )}
       <div className="table-region" tabIndex={0} aria-label="Vista previa del dataset">
-        <table>
+        <table className={profile ? "table--profiled" : undefined}>
           <thead>
             <tr>
-              {dataset.columns.map((column) => (
+              {dataset.columns.map((column, columnIndex) => (
                 <th
                   key={column.name}
                   scope="col"
                   className={isNumericType(column.dataType) ? "cell--number" : undefined}
                   aria-label={`${column.name} ${formatDataType(column.dataType)}`}
                 >
-                  <span>{column.name}</span>
-                  <small>{formatDataType(column.dataType)}</small>
+                  <ColumnProfileHeader column={column} profile={columnProfile(column.name, columnIndex)} rowCount={dataset.rowCount} />
                 </th>
               ))}
             </tr>

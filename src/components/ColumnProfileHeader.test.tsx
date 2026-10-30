@@ -1,0 +1,82 @@
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import type { ColumnProfile } from "../bridge";
+import { ColumnProfileHeader, columnProfileSignals } from "./ColumnProfileHeader";
+
+function columnProfile(overrides: Partial<ColumnProfile> = {}): ColumnProfile {
+  return {
+    name: "ingresos",
+    dataType: "Float64",
+    nullCount: 10,
+    completenessPercentage: 99.2,
+    uniqueCount: 1204,
+    minimum: "120.5",
+    maximum: "4300",
+    mean: 1500,
+    emptyCount: null,
+    minimumLength: null,
+    maximumLength: null,
+    averageLength: null,
+    suggestedType: null,
+    typeMatchPercentage: null,
+    invalidTypeCount: null,
+    sentinelCount: null,
+    encodingIssueCount: null,
+    privacySignal: null,
+    standardDeviation: null,
+    firstQuartile: null,
+    median: null,
+    thirdQuartile: null,
+    outlierCount: null,
+    histogram: [{ lower: 0, upper: 10, count: 3 }, { lower: 10, upper: 20, count: 9 }, { lower: 20, upper: 30, count: 0 }],
+    dateOrder: null,
+    dateHasTime: null,
+    untrimmedCount: null,
+    ...overrides,
+  };
+}
+
+const column = { name: "ingresos", dataType: "Float64" };
+
+describe("ColumnProfileHeader", () => {
+  it("sin perfil muestra solo nombre y tipo", () => {
+    const { container } = render(<ColumnProfileHeader column={column} rowCount={100} />);
+    expect(container).toHaveTextContent("ingresosDecimal");
+    expect(container.querySelector(".col-profile")).toBeNull();
+  });
+
+  it("resume completitud, valores distintos, rango y distribución de toda la columna", () => {
+    const { container } = render(<ColumnProfileHeader column={column} profile={columnProfile()} rowCount={1284} />);
+    expect(screen.getByText(/con valor/)).toHaveTextContent(/99[,.]2\s?% con valor · 1[.,]?204 valores distintos/);
+    expect(container.querySelector(".col-profile__range")).toHaveTextContent(/120[,.]5 – 4[.,]?300/);
+    expect(container.querySelectorAll(".col-profile__histogram rect")).toHaveLength(3);
+    // The bar and the histogram are decorative: the text already says it.
+    expect(container.querySelector(".col-profile__fill")).toHaveAttribute("aria-hidden", "true");
+    expect(container.querySelector(".col-profile__histogram")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("dice «todos distintos» cuando cada fila tiene un valor propio", () => {
+    const { container } = render(<ColumnProfileHeader column={column} profile={columnProfile({ nullCount: 0, completenessPercentage: 100, uniqueCount: 50 })} rowCount={50} />);
+    expect(container).toHaveTextContent("sin vacíos · todos distintos");
+    expect(container.querySelector(".col-profile__histogram")).toBeNull();
+  });
+
+  it("concuerda en singular con un solo valor distinto (TXT-05)", () => {
+    const { container } = render(<ColumnProfileHeader column={column} profile={columnProfile({ uniqueCount: 1, minimum: "5", maximum: "5", histogram: null })} rowCount={3} />);
+    expect(container).toHaveTextContent(/1 valor distinto/);
+    expect(container.querySelector(".col-profile__range")).toBeNull();
+  });
+
+  it("nombra las señales de calidad con texto", () => {
+    const profile = columnProfile({ invalidTypeCount: 4, untrimmedCount: 37, sentinelCount: 1, encodingIssueCount: 2 });
+    expect(columnProfileSignals(profile)).toEqual([
+      "4 con otro tipo",
+      "37 con espacios",
+      "1 marcador de vacío",
+      "2 con acentos mal leídos",
+    ]);
+    render(<ColumnProfileHeader column={column} profile={profile} rowCount={100} />);
+    expect(screen.getByText(/37 con espacios/)).toHaveClass("col-profile__signal");
+  });
+});
