@@ -14,7 +14,7 @@ import { OperationProgressView } from "../../components/OperationProgressView";
 import { plural } from "../../plural";
 
 /** Row limits offered; the engine accepts up to 5,000,000. */
-export const DATABASE_ROW_LIMITS = [10_000, 100_000, 1_000_000, 5_000_000] as const;
+const DATABASE_ROW_LIMITS = [10_000, 100_000, 1_000_000, 5_000_000] as const;
 const DEFAULT_ROW_LIMIT = 100_000;
 
 type ListState =
