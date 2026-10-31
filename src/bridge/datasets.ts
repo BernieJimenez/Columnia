@@ -1,5 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  DatabaseImportResult,
+  DatabaseSource,
+  DatabaseSourceTable,
   DatasetPreview,
   DatasetImportSchemaPreview,
   DelimitedHeaderReview,
@@ -210,4 +213,26 @@ export function cancelOperation(operation: CancellableOperation): Promise<void> 
 /** Explorar (EX01): the automatic panel of the active dataset, computed over every row. */
 export function getExplorePanel(filters: ExploreFilter[], layout: ExploreLayout = {}): Promise<ExplorePanel> {
   return invoke<ExplorePanel>("get_explore_panel", { filters, layout });
+}
+
+/** Asks Windows to confirm the connection, then lists readable tables and views. */
+export function listDatabaseTables(source: DatabaseSource): Promise<DatabaseSourceTable[]> {
+  return invoke<DatabaseSourceTable[]>("list_database_tables", { source });
+}
+
+/** Reads one listed table into a local file and inspects it like a selected file. */
+export function importDatabaseTable(
+  source: DatabaseSource,
+  schema: string,
+  table: string,
+  rowLimit: number,
+  onProgress?: ProgressHandler,
+): Promise<DatabaseImportResult> {
+  return invoke<DatabaseImportResult>("import_database_table", {
+    source,
+    schema,
+    table,
+    rowLimit,
+    onProgress: progressChannel(onProgress),
+  });
 }

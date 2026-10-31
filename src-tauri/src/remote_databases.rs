@@ -303,7 +303,25 @@ fn remote_target_fingerprint(target: &DatabaseTarget) -> String {
 
 /// Human description of a delivery target without credentials.
 fn describe_remote_target(target: &DatabaseTarget) -> String {
-    let server = odbc_attributes(&target.connection_string)
+    let (server, details) = describe_connection(&target.connection_string);
+    let policy = match target.table_policy {
+        DatabaseTablePolicy::Append => "añadir filas",
+        DatabaseTablePolicy::CreateOnly => "crear la tabla",
+        DatabaseTablePolicy::Replace => "reemplazar la tabla",
+    };
+    format!(
+        "Columnia se conectará a {} en {} y podrá escribir en la tabla {} ({policy}). Los datos del dataset activo saldrán de este equipo.\n\n{}\n\n¿Confirmas este destino?",
+        target.kind.label(),
+        server,
+        qualified_table(target),
+        details
+    )
+}
+
+/// The server and, one per line, the driver, DSN and user of a connection
+/// string, never its password.
+fn describe_connection(connection_string: &str) -> (String, String) {
+    let server = odbc_attributes(connection_string)
         .into_iter()
         .find(|(key, _)| {
             matches!(
@@ -319,13 +337,8 @@ fn describe_remote_target(target: &DatabaseTarget) -> String {
         })
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "un servidor indicado por el controlador".to_owned());
-    let policy = match target.table_policy {
-        DatabaseTablePolicy::Append => "añadir filas",
-        DatabaseTablePolicy::CreateOnly => "crear la tabla",
-        DatabaseTablePolicy::Replace => "reemplazar la tabla",
-    };
     // PROD-15: which driver loads and as whom Columnia signs in.
-    let attributes = odbc_attributes(&target.connection_string);
+    let attributes = odbc_attributes(connection_string);
     let attribute = |names: &[&str]| {
         attributes
             .iter()
@@ -344,13 +357,7 @@ fn describe_remote_target(target: &DatabaseTarget) -> String {
         Some(user) => format!("Usuario: {user}"),
         None => "Usuario: el que indique el controlador o Windows".to_owned(),
     });
-    format!(
-        "Columnia se conectará a {} en {} y podrá escribir en la tabla {} ({policy}). Los datos del dataset activo saldrán de este equipo.\n\n{}\n\n¿Confirmas este destino?",
-        target.kind.label(),
-        server,
-        qualified_table(target),
-        details.join("\n")
-    )
+    (server, details.join("\n"))
 }
 
 fn unbraced(value: &str) -> &str {
@@ -435,8 +442,23 @@ pub(crate) fn confirm_remote_target(
     app: &AppHandle,
     target: &DatabaseTarget,
 ) -> Result<(), String> {
+    confirm_with_native_dialog(
+        app,
+        remote_target_fingerprint(target),
+        describe_remote_target(target),
+        "Confirmar conexión remota",
+    )
+}
+
+/// Asks once per session and fingerprint in a Windows dialog; the answer is
+/// remembered only when accepted.
+fn confirm_with_native_dialog(
+    app: &AppHandle,
+    fingerprint: String,
+    message: String,
+    title: &str,
+) -> Result<(), String> {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-    let fingerprint = remote_target_fingerprint(target);
     let confirmations = app.state::<RemoteTargetConfirmations>();
     let already_confirmed = confirmations.0.lock_recovering().contains(&fingerprint);
     if already_confirmed {
@@ -444,8 +466,8 @@ pub(crate) fn confirm_remote_target(
     }
     let confirmed = app
         .dialog()
-        .message(describe_remote_target(target))
-        .title("Confirmar conexión remota")
+        .message(message)
+        .title(title)
         .kind(MessageDialogKind::Warning)
         .buttons(MessageDialogButtons::OkCancelCustom(
             "Conectar".to_owned(),
@@ -2017,6 +2039,601 @@ fn readable_driver_detail(detail: &str) -> String {
     }
 }
 
+// --- Importing a table from a database (2026-10-30) ---------------------------
+//
+// Columnia only reads: the person picks a table or view the server itself
+// lists, and Columnia builds the one SELECT it runs. A free query could carry
+// DELETE or DROP from a compromised interface, so none is accepted. The rows
+// arrive as text, like a CSV, and are written to a managed Parquet file that
+// then follows the ordinary Cargar flow.
+
+/// The most rows one import brings; the person chooses a smaller limit.
+pub(crate) const MAX_IMPORT_ROWS: usize = 5_000_000;
+/// Longer cells are cut to this many characters and the column is named.
+const MAX_IMPORT_CELL_CHARS: usize = 8_000;
+/// Text kept in memory before the Parquet file is written.
+const MAX_IMPORT_TEXT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// Size of the ODBC fetch buffer; the rows per batch follow from it.
+const IMPORT_BUFFER_BYTES: usize = 64 * 1024 * 1024;
+const MAX_LISTED_TABLES: usize = 5_000;
+const DATABASE_IMPORT_DIRECTORY: &str = "database-imports";
+const SYSTEM_SCHEMAS: [&str; 2] = ["sys", "information_schema"];
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DatabaseSource {
+    pub kind: DatabaseKind,
+    /// The complete ODBC connection string. It is intentionally not persisted.
+    pub connection_string: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseSourceTable {
+    pub schema: String,
+    pub name: String,
+    pub is_view: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseImportResult {
+    pub inspection: crate::dataset::DatasetSourceInspection,
+    pub rows_imported: usize,
+    /// The table had more rows than the chosen limit.
+    pub more_rows_available: bool,
+    /// Columns with a value longer than `MAX_IMPORT_CELL_CHARS`, cut to it.
+    pub truncated_columns: Vec<String>,
+}
+
+struct FetchedTable {
+    path: std::path::PathBuf,
+    rows: usize,
+    more_rows_available: bool,
+    truncated_columns: Vec<String>,
+}
+
+fn validate_database_source(source: &DatabaseSource) -> Result<(), String> {
+    if source.kind != DatabaseKind::SqlServer {
+        return Err("De momento Columnia solo importa tablas desde SQL Server.".to_owned());
+    }
+    if source.connection_string.trim().is_empty() {
+        return Err("Indica una cadena de conexión ODBC antes de continuar.".to_owned());
+    }
+    if source.connection_string.chars().count() > MAX_CONNECTION_STRING_CHARS {
+        return Err(format!(
+            "La cadena de conexión ODBC no puede superar {MAX_CONNECTION_STRING_CHARS} caracteres."
+        ));
+    }
+    if source.connection_string.chars().any(char::is_control) {
+        return Err(
+            "La cadena de conexión ODBC contiene caracteres de control no permitidos.".to_owned(),
+        );
+    }
+    validate_driver_attributes(&source.connection_string)
+}
+
+/// Names come from the server's own catalog and are quoted, so any text is
+/// accepted except control characters; the table must also be listed.
+fn validate_source_object_name(value: &str, label: &str, optional: bool) -> Result<(), String> {
+    if value.is_empty() {
+        return if optional {
+            Ok(())
+        } else {
+            Err(format!("Elige {label}."))
+        };
+    }
+    if value.chars().count() > MAX_IDENTIFIER_CHARS || value.chars().any(char::is_control) {
+        return Err(format!(
+            "{label} no puede superar {MAX_IDENTIFIER_CHARS} caracteres ni contener caracteres de control."
+        ));
+    }
+    Ok(())
+}
+
+fn validate_import_row_limit(row_limit: usize) -> Result<(), String> {
+    if row_limit == 0 || row_limit > MAX_IMPORT_ROWS {
+        return Err(format!(
+            "El límite de filas debe estar entre 1 y {}.",
+            MAX_IMPORT_ROWS
+        ));
+    }
+    Ok(())
+}
+
+/// The helpers shared with deliveries take a target; reading uses its
+/// connection string and kind only.
+fn source_as_target(source: &DatabaseSource) -> DatabaseTarget {
+    DatabaseTarget {
+        kind: source.kind,
+        connection_string: source.connection_string.clone(),
+        schema: String::new(),
+        table: String::new(),
+        table_policy: DatabaseTablePolicy::CreateOnly,
+    }
+}
+
+/// Distinct from every delivery fingerprint: confirming a read never
+/// authorises a write to the same server.
+fn remote_source_fingerprint(source: &DatabaseSource) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for part in [
+        "import",
+        source.kind.label(),
+        source.connection_string.as_str(),
+    ] {
+        hasher.update(part.as_bytes());
+        hasher.update([0]);
+    }
+    hex::encode(hasher.finalize())
+}
+
+fn describe_remote_source(source: &DatabaseSource) -> String {
+    let (server, details) = describe_connection(&source.connection_string);
+    format!(
+        "Columnia se conectará a {} en {} para leer una tabla. Solo leerá: no escribirá ni modificará nada en el servidor. Las filas que elijas se guardarán en este equipo.\n\n{}\n\n¿Confirmas este origen?",
+        source.kind.label(),
+        server,
+        details
+    )
+}
+
+fn confirm_remote_source(app: &AppHandle, source: &DatabaseSource) -> Result<(), String> {
+    confirm_with_native_dialog(
+        app,
+        remote_source_fingerprint(source),
+        describe_remote_source(source),
+        "Confirmar lectura de una base de datos",
+    )
+}
+
+/// Tables and views the person may read, without the server's own schemas.
+fn list_source_tables(
+    connection: &odbc_api::Connection<'_>,
+    target: &DatabaseTarget,
+) -> Result<Vec<DatabaseSourceTable>, String> {
+    let rows = connection
+        .tables("", "", "", "TABLE,VIEW")
+        .map_err(|error| format_driver_error("No se pudieron listar las tablas", error, target))?
+        .collect::<Result<Vec<TablesRow>, _>>()
+        .map_err(|error| format_driver_error("No se pudieron leer las tablas", error, target))?;
+    let mut tables = rows
+        .iter()
+        .filter_map(|row| {
+            let name = row.table.as_str().ok().flatten()?.to_owned();
+            let schema = row
+                .schema
+                .as_str()
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+                .to_owned();
+            let kind = row
+                .table_type
+                .as_str()
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let system = SYSTEM_SCHEMAS
+                .iter()
+                .any(|system| schema.eq_ignore_ascii_case(system));
+            (!system && !name.is_empty()).then(|| DatabaseSourceTable {
+                schema,
+                name,
+                is_view: kind.contains("view"),
+            })
+        })
+        .collect::<Vec<_>>();
+    sort_source_tables(&mut tables);
+    tables.truncate(MAX_LISTED_TABLES);
+    Ok(tables)
+}
+
+fn sort_source_tables(tables: &mut [DatabaseSourceTable]) {
+    tables.sort_by(|left, right| {
+        (left.schema.to_lowercase(), left.name.to_lowercase())
+            .cmp(&(right.schema.to_lowercase(), right.name.to_lowercase()))
+    });
+}
+
+/// The listed object the person chose, matched exactly; a name that is not
+/// listed is never sent to the server.
+fn find_listed_table<'a>(
+    tables: &'a [DatabaseSourceTable],
+    schema: &str,
+    table: &str,
+) -> Option<&'a DatabaseSourceTable> {
+    tables
+        .iter()
+        .find(|listed| listed.name == table && listed.schema == schema)
+}
+
+/// The only statement an import runs: every column of one listed object.
+/// One row more than the limit tells whether the table had more.
+fn select_rows_sql(table: &DatabaseSourceTable, row_limit: usize, kind: DatabaseKind) -> String {
+    let fetch = row_limit.saturating_add(1);
+    let qualified = if table.schema.is_empty() {
+        quote_identifier(&table.name, kind)
+    } else {
+        format!(
+            "{}.{}",
+            quote_identifier(&table.schema, kind),
+            quote_identifier(&table.name, kind)
+        )
+    };
+    match kind {
+        DatabaseKind::SqlServer => format!("SELECT TOP ({fetch}) * FROM {qualified}"),
+        DatabaseKind::Postgresql | DatabaseKind::Mysql => {
+            format!("SELECT * FROM {qualified} LIMIT {fetch}")
+        }
+    }
+}
+
+/// Column names as Columnia needs them: present and unique.
+fn unique_column_names(names: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    names
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| {
+            let base = if name.trim().is_empty() {
+                format!("column_{}", index + 1)
+            } else {
+                name
+            };
+            let mut candidate = base.clone();
+            let mut suffix = 2;
+            while !seen.insert(candidate.to_lowercase()) {
+                candidate = format!("{base}_{suffix}");
+                suffix += 1;
+            }
+            candidate
+        })
+        .collect()
+}
+
+/// A readable, safe file name for the imported table.
+fn import_file_name(table: &DatabaseSourceTable) -> String {
+    let label = if table.schema.is_empty() {
+        table.name.clone()
+    } else {
+        format!("{}.{}", table.schema, table.name)
+    };
+    let mut safe = label
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() || matches!(character, '_' | '-' | '.' | ' ') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches(['.', ' '])
+        .to_owned();
+    if safe.is_empty() {
+        safe = "tabla".to_owned();
+    }
+    let safe = safe.chars().take(100).collect::<String>();
+    format!("{safe}.parquet")
+}
+
+fn read_cursor_to_frame<Cur, F, C>(
+    mut cursor: Cur,
+    row_limit: usize,
+    report: &mut F,
+    is_cancelled: &C,
+    target: &DatabaseTarget,
+) -> Result<(DataFrame, bool, Vec<String>), String>
+where
+    Cur: odbc_api::Cursor + odbc_api::ResultSetMetadata,
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    use odbc_api::buffers::{ColumnarBuffer, TextColumn};
+    use polars::prelude::{IntoColumn, NamedFrom, Series};
+
+    let column_count = cursor
+        .num_result_cols()
+        .map_err(|error| format_driver_error("No se pudieron leer las columnas", error, target))?;
+    let column_count = u16::try_from(column_count)
+        .ok()
+        .filter(|count| *count > 0)
+        .ok_or_else(|| "La tabla no tiene columnas que importar.".to_owned())?;
+    let mut names = Vec::with_capacity(usize::from(column_count));
+    let mut lengths = Vec::with_capacity(usize::from(column_count));
+    for column in 1..=column_count {
+        names.push(cursor.col_name(column).map_err(|error| {
+            format_driver_error("No se pudo leer el nombre de una columna", error, target)
+        })?);
+        let display = cursor
+            .col_display_size(column)
+            .ok()
+            .flatten()
+            .map_or(MAX_IMPORT_CELL_CHARS, std::num::NonZeroUsize::get);
+        lengths.push(display.clamp(1, MAX_IMPORT_CELL_CHARS));
+    }
+    let names = unique_column_names(names);
+    let bytes_per_row = lengths
+        .iter()
+        .map(|length| (length + 1) * 2 + 8)
+        .sum::<usize>()
+        .max(1);
+    let batch_size = (IMPORT_BUFFER_BYTES / bytes_per_row).clamp(1, 10_000);
+    let buffer = ColumnarBuffer::new(
+        lengths
+            .iter()
+            .enumerate()
+            .map(|(index, length)| {
+                // Wide text: the narrow form uses the Windows code page and
+                // would garble accents.
+                (
+                    index as u16 + 1,
+                    TextColumn::<u16>::new(batch_size, *length),
+                )
+            })
+            .collect(),
+    );
+    let mut block = cursor
+        .bind_buffer(buffer)
+        .map_err(|error| format_driver_error("No se pudo preparar la lectura", error, target))?;
+
+    let mut values = vec![Vec::<Option<String>>::new(); names.len()];
+    let mut truncated = vec![false; names.len()];
+    let mut rows = 0usize;
+    let mut more_rows_available = false;
+    let mut text_bytes = 0u64;
+    loop {
+        ensure_not_cancelled(is_cancelled)?;
+        let Some(batch) = block
+            .fetch()
+            .map_err(|error| format_driver_error("No se pudieron leer las filas", error, target))?
+        else {
+            break;
+        };
+        let available = batch.num_rows();
+        let take = available.min(row_limit - rows);
+        for (index, column) in values.iter_mut().enumerate() {
+            let slice = batch.column(index);
+            if slice.has_truncated_values().is_some() {
+                truncated[index] = true;
+            }
+            for value in slice.iter().take(take) {
+                let text = value.map(|text| text.to_string());
+                text_bytes += text.as_ref().map_or(0, |text| text.len() as u64);
+                column.push(text);
+            }
+        }
+        rows += take;
+        if text_bytes > MAX_IMPORT_TEXT_BYTES {
+            return Err(
+                "La tabla ocupa más de 2 GiB de texto: elige un límite de filas menor.".to_owned(),
+            );
+        }
+        let percent = 20 + ((rows as u64 * 60) / row_limit.max(1) as u64).min(60) as u8;
+        report("Leyendo filas", percent);
+        if take < available {
+            more_rows_available = true;
+            break;
+        }
+    }
+
+    let truncated_columns = names
+        .iter()
+        .zip(&truncated)
+        .filter(|(_, truncated)| **truncated)
+        .map(|(name, _)| name.clone())
+        .collect();
+    let columns = names
+        .iter()
+        .zip(values)
+        .map(|(name, column)| Series::new(name.as_str().into(), column).into_column())
+        .collect::<Vec<_>>();
+    let frame = DataFrame::new(rows, columns)
+        .map_err(|error| format!("No se pudo preparar la tabla importada: {error}"))?;
+    Ok((frame, more_rows_available, truncated_columns))
+}
+
+/// Writes the import atomically under app-data and removes earlier imports,
+/// except the file the active dataset still reads.
+fn write_import_parquet(
+    directory: &Path,
+    file_name: &str,
+    keep: Option<&Path>,
+    frame: &mut DataFrame,
+) -> Result<std::path::PathBuf, String> {
+    use polars::prelude::ParquetWriter;
+    match std::fs::symlink_metadata(directory) {
+        Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
+            return Err("La carpeta de importaciones no es una carpeta normal.".to_owned());
+        }
+        Ok(_) => {}
+        Err(_) => std::fs::create_dir_all(directory)
+            .map_err(|_| "No se pudo crear la carpeta de importaciones.".to_owned())?,
+    }
+    let same_file = |path: &Path| keep.is_some_and(|keep| keep == path);
+    if let Ok(entries) = std::fs::read_dir(directory) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let is_parquet = path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("parquet"));
+            if is_parquet && !same_file(&path) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+    let mut destination = directory.join(file_name);
+    if same_file(&destination) {
+        // The active dataset still reads that file: the new import sits beside it.
+        let stem = file_name.trim_end_matches(".parquet");
+        destination = directory.join(format!("{stem} (nueva).parquet"));
+    }
+    let mut temporary = tempfile::NamedTempFile::new_in(directory)
+        .map_err(|_| "No se pudo crear el archivo de la importación.".to_owned())?;
+    ParquetWriter::new(temporary.as_file_mut())
+        .finish(frame)
+        .map_err(|error| format!("No se pudo guardar la tabla importada: {error}"))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|_| "No se pudo guardar la tabla importada.".to_owned())?;
+    temporary
+        .persist(&destination)
+        .map_err(|_| "No se pudo guardar la tabla importada.".to_owned())?;
+    Ok(destination)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn import_table_with_cancel<F, C>(
+    source: &DatabaseSource,
+    schema: &str,
+    table: &str,
+    row_limit: usize,
+    directory: &Path,
+    keep: Option<&Path>,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<FetchedTable, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    validate_database_source(source)?;
+    let target = source_as_target(source);
+    ensure_not_cancelled(&is_cancelled)?;
+    report("Conectando con la base de datos", 5);
+    let environment = Environment::new()
+        .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, &target))?;
+    let connection = connect(&environment, &target);
+    ensure_not_cancelled(&is_cancelled)?;
+    let connection = connection?;
+
+    report("Comprobando la tabla", 10);
+    let tables = list_source_tables(&connection, &target)?;
+    ensure_not_cancelled(&is_cancelled)?;
+    let listed = find_listed_table(&tables, schema, table)
+        .cloned()
+        .ok_or_else(|| {
+            format!("La tabla «{table}» no aparece entre las que el servidor permite leer.")
+        })?;
+
+    report("Leyendo filas", 20);
+    let cursor = connection
+        .execute(
+            &select_rows_sql(&listed, row_limit, source.kind),
+            (),
+            Some(ODBC_STATEMENT_TIMEOUT_SEC),
+        )
+        .map_err(|error| format_driver_error("No se pudo leer la tabla", error, &target))?
+        .ok_or_else(|| "La tabla no devolvió filas.".to_owned())?;
+    let (mut frame, more_rows_available, truncated_columns) =
+        read_cursor_to_frame(cursor, row_limit, &mut report, &is_cancelled, &target)?;
+    let rows = frame.height();
+
+    ensure_not_cancelled(&is_cancelled)?;
+    report("Guardando la tabla en este equipo", 85);
+    let path = write_import_parquet(directory, &import_file_name(&listed), keep, &mut frame)?;
+    Ok(FetchedTable {
+        path,
+        rows,
+        more_rows_available,
+        truncated_columns,
+    })
+}
+
+#[tauri::command]
+pub async fn list_database_tables(
+    app: AppHandle,
+    source: DatabaseSource,
+) -> Result<Vec<DatabaseSourceTable>, String> {
+    validate_database_source(&source)?;
+    let confirmation_app = app.clone();
+    let confirmation_source = source.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        confirm_remote_source(&confirmation_app, &confirmation_source)
+    })
+    .await
+    .map_err(|_| "La confirmación de la conexión se interrumpió.".to_owned())??;
+    let generation = app.state::<DatasetState>().begin_database_connection();
+    let cancellation_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let is_cancelled = || {
+            cancellation_app
+                .state::<DatasetState>()
+                .database_connection_was_cancelled(generation)
+        };
+        let target = source_as_target(&source);
+        ensure_not_cancelled(&is_cancelled)?;
+        let environment = Environment::new()
+            .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, &target))?;
+        let connection = connect(&environment, &target);
+        ensure_not_cancelled(&is_cancelled)?;
+        let tables = list_source_tables(&connection?, &target);
+        ensure_not_cancelled(&is_cancelled)?;
+        tables
+    })
+    .await
+    .map_err(|_| "La lista de tablas se interrumpió inesperadamente.".to_owned())?
+}
+
+#[tauri::command]
+pub async fn import_database_table(
+    app: AppHandle,
+    source: DatabaseSource,
+    schema: String,
+    table: String,
+    row_limit: usize,
+    on_progress: tauri::ipc::Channel<crate::dataset::OperationProgress>,
+) -> Result<DatabaseImportResult, String> {
+    validate_database_source(&source)?;
+    validate_source_object_name(&schema, "El esquema", true)?;
+    validate_source_object_name(&table, "una tabla", false)?;
+    validate_import_row_limit(row_limit)?;
+    let confirmation_app = app.clone();
+    let confirmation_source = source.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        confirm_remote_source(&confirmation_app, &confirmation_source)
+    })
+    .await
+    .map_err(|_| "La confirmación de la conexión se interrumpió.".to_owned())??;
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "No se encontró la carpeta de datos de Columnia.".to_owned())?
+        .join(DATABASE_IMPORT_DIRECTORY);
+    let keep = app.state::<DatasetState>().active_source_path();
+    let generation = app.state::<DatasetState>().begin_database_connection();
+    let cancellation_app = app.clone();
+    let fetched = tauri::async_runtime::spawn_blocking(move || {
+        import_table_with_cancel(
+            &source,
+            &schema,
+            &table,
+            row_limit,
+            &directory,
+            keep.as_deref(),
+            |stage, percent| crate::dataset::send_progress(&on_progress, "load", stage, percent),
+            || {
+                cancellation_app
+                    .state::<DatasetState>()
+                    .database_connection_was_cancelled(generation)
+            },
+        )
+    })
+    .await
+    .map_err(|_| "La importación se interrumpió inesperadamente.".to_owned())??;
+    let inspection = crate::dataset::inspect_dataset_path(&app, fetched.path).await?;
+    Ok(DatabaseImportResult {
+        inspection,
+        rows_imported: fetched.rows,
+        more_rows_available: fetched.more_rows_available,
+        truncated_columns: fetched.truncated_columns,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -3251,5 +3868,227 @@ mod tests {
             &drop_table_sql(&qualified_table(&target), target.kind),
         );
         result.expect("añadir a la tabla creada por Columnia");
+    }
+
+    fn sql_server_source(connection_string: &str) -> DatabaseSource {
+        DatabaseSource {
+            kind: DatabaseKind::SqlServer,
+            connection_string: connection_string.to_owned(),
+        }
+    }
+
+    fn listed(schema: &str, name: &str) -> DatabaseSourceTable {
+        DatabaseSourceTable {
+            schema: schema.to_owned(),
+            name: name.to_owned(),
+            is_view: false,
+        }
+    }
+
+    #[test]
+    fn import_accepts_only_sql_server_and_a_safe_connection_string() {
+        let valid =
+            "Driver={ODBC Driver 18 for SQL Server};Server=localhost;Trusted_Connection=yes";
+        assert!(validate_database_source(&sql_server_source(valid)).is_ok());
+        let mut postgres = sql_server_source(valid);
+        postgres.kind = DatabaseKind::Postgresql;
+        assert!(validate_database_source(&postgres)
+            .unwrap_err()
+            .contains("solo importa tablas desde SQL Server"));
+        assert!(validate_database_source(&sql_server_source("  ")).is_err());
+        assert!(
+            validate_database_source(&sql_server_source("Driver=C:\\x\\evil.dll;Server=a"))
+                .is_err()
+        );
+        assert!(validate_database_source(&sql_server_source("FileDSN=x.dsn")).is_err());
+        assert!(validate_database_source(&sql_server_source("Server=a\u{7};Uid=b")).is_err());
+    }
+
+    #[test]
+    fn import_row_limit_and_names_are_bounded() {
+        assert!(validate_import_row_limit(0).is_err());
+        assert!(validate_import_row_limit(1).is_ok());
+        assert!(validate_import_row_limit(MAX_IMPORT_ROWS).is_ok());
+        assert!(validate_import_row_limit(MAX_IMPORT_ROWS + 1).is_err());
+        assert!(validate_source_object_name("", "El esquema", true).is_ok());
+        assert!(validate_source_object_name("", "una tabla", false).is_err());
+        assert!(validate_source_object_name("Ventas por año", "una tabla", false).is_ok());
+        assert!(validate_source_object_name("a\u{0}b", "una tabla", false).is_err());
+        assert!(validate_source_object_name(
+            &"x".repeat(MAX_IDENTIFIER_CHARS + 1),
+            "una tabla",
+            false
+        )
+        .is_err());
+    }
+
+    /// The only statement an import sends: a quoted SELECT of a listed object.
+    #[test]
+    fn import_reads_one_listed_object_with_quoted_names_and_one_extra_row() {
+        let tables = vec![
+            listed("dbo", "Ventas"),
+            listed("ventas", "Ventas"),
+            listed("dbo", "Clientes]; DROP TABLE x;--"),
+        ];
+        assert_eq!(
+            find_listed_table(&tables, "dbo", "Ventas"),
+            Some(&tables[0])
+        );
+        assert_eq!(
+            find_listed_table(&tables, "ventas", "Ventas"),
+            Some(&tables[1])
+        );
+        assert_eq!(find_listed_table(&tables, "dbo", "Otra"), None);
+        assert_eq!(
+            find_listed_table(&tables, "", "Ventas"),
+            None,
+            "el esquema debe coincidir exactamente"
+        );
+        assert_eq!(
+            select_rows_sql(&tables[0], 1000, DatabaseKind::SqlServer),
+            "SELECT TOP (1001) * FROM [dbo].[Ventas]"
+        );
+        assert_eq!(
+            select_rows_sql(&tables[2], 10, DatabaseKind::SqlServer),
+            "SELECT TOP (11) * FROM [dbo].[Clientes]]; DROP TABLE x;--]"
+        );
+        assert_eq!(
+            select_rows_sql(&listed("", "t"), 5, DatabaseKind::SqlServer),
+            "SELECT TOP (6) * FROM [t]"
+        );
+    }
+
+    #[test]
+    fn imported_columns_and_file_names_are_usable() {
+        assert_eq!(
+            unique_column_names(vec![
+                "id".into(),
+                "".into(),
+                "ID".into(),
+                "id".into(),
+                "nombre".into()
+            ]),
+            vec!["id", "column_2", "ID_2", "id_3", "nombre"]
+        );
+        assert_eq!(
+            import_file_name(&listed("dbo", "Ventas")),
+            "dbo.Ventas.parquet"
+        );
+        assert_eq!(
+            import_file_name(&listed("", "Ventas por año")),
+            "Ventas por año.parquet"
+        );
+        assert_eq!(
+            import_file_name(&listed("dbo", "a/b\\c:*?")),
+            "dbo.a_b_c___.parquet"
+        );
+        assert_eq!(import_file_name(&listed("", "...")), "tabla.parquet");
+    }
+
+    #[test]
+    fn tables_sort_by_schema_and_name_without_regard_to_case() {
+        let mut tables = vec![
+            listed("dbo", "ventas"),
+            listed("audit", "Log"),
+            listed("dbo", "Clientes"),
+        ];
+        sort_source_tables(&mut tables);
+        let order = tables
+            .iter()
+            .map(|table| format!("{}.{}", table.schema, table.name))
+            .collect::<Vec<_>>();
+        assert_eq!(order, vec!["audit.Log", "dbo.Clientes", "dbo.ventas"]);
+    }
+
+    /// Confirming a read never stands for a write to the same server, and the
+    /// dialog never shows the password.
+    #[test]
+    fn reading_is_confirmed_apart_from_writing_and_without_secrets() {
+        let connection =
+            "Driver={ODBC Driver 18 for SQL Server};Server=db.example.com;Uid=ana;Pwd={s3cr;et}";
+        let source = sql_server_source(connection);
+        let target = source_as_target(&source);
+        assert_ne!(
+            remote_source_fingerprint(&source),
+            remote_target_fingerprint(&target)
+        );
+        let message = describe_remote_source(&source);
+        assert!(message.contains("db.example.com"));
+        assert!(message.contains("Usuario: ana"));
+        assert!(message.contains("Solo leerá"));
+        assert!(!message.contains("s3cr"));
+    }
+
+    #[test]
+    fn writing_the_import_keeps_the_active_file_and_replaces_earlier_imports() {
+        use polars::prelude::df;
+        let directory = tempfile::tempdir().expect("carpeta");
+        let imports = directory.path().join(DATABASE_IMPORT_DIRECTORY);
+        let mut frame = df!("nombre" => ["Ana", "Íñigo"]).expect("frame");
+        let first = write_import_parquet(&imports, "dbo.Ventas.parquet", None, &mut frame)
+            .expect("primera");
+        let second = write_import_parquet(&imports, "dbo.Clientes.parquet", None, &mut frame)
+            .expect("segunda");
+        assert!(
+            !first.exists(),
+            "una importación anterior que nadie usa se borra"
+        );
+        assert!(second.exists());
+        // The active dataset reads `second`: a new import of the same table sits beside it.
+        let third =
+            write_import_parquet(&imports, "dbo.Clientes.parquet", Some(&second), &mut frame)
+                .expect("tercera");
+        assert!(second.exists());
+        assert_ne!(third, second);
+        assert!(third
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains("(nueva)"));
+    }
+
+    /// Reads a real table without writing anything. Set COLUMNIA_ODBC_IMPORT
+    /// to a connection string and COLUMNIA_ODBC_IMPORT_TABLE to «schema.table».
+    #[test]
+    #[ignore = "requiere un SQL Server real configurado por variables de sesión"]
+    fn external_odbc_import_reads_a_table_as_text() {
+        let source =
+            sql_server_source(&env::var("COLUMNIA_ODBC_IMPORT").expect("COLUMNIA_ODBC_IMPORT"));
+        let qualified = env::var("COLUMNIA_ODBC_IMPORT_TABLE").expect("COLUMNIA_ODBC_IMPORT_TABLE");
+        let (schema, table) = qualified.split_once('.').expect("esquema.tabla");
+        let directory = tempfile::tempdir().expect("carpeta");
+        let fetched = import_table_with_cancel(
+            &source,
+            schema,
+            table,
+            25,
+            directory.path(),
+            None,
+            |_, _| {},
+            || false,
+        )
+        .expect("la tabla se importa");
+        assert!(fetched.path.exists());
+        assert!(fetched.rows > 0 && fetched.rows <= 25);
+        use polars::prelude::SerReader;
+        let frame = polars::prelude::ParquetReader::new(
+            std::fs::File::open(&fetched.path).expect("parquet"),
+        )
+        .finish()
+        .expect("se lee el Parquet");
+        assert_eq!(frame.height(), fetched.rows);
+        assert!(frame
+            .dtypes()
+            .iter()
+            .all(|dtype| *dtype == DataType::String));
+        eprintln!(
+            "importadas {} filas y {} columnas; más filas: {}; columnas recortadas: {:?}; columnas: {:?}",
+            fetched.rows,
+            frame.width(),
+            fetched.more_rows_available,
+            fetched.truncated_columns,
+            frame.get_column_names()
+        );
+        eprintln!("{frame}");
     }
 }

@@ -9379,7 +9379,7 @@ pub async fn use_consolidated_dataset(app: AppHandle) -> Result<DatasetPreview, 
     .map_err(|error| crate::crash_report::task_interrupted("La consolidación se interrumpió", &error))?
 }
 
-async fn inspect_dataset_path(
+pub(crate) async fn inspect_dataset_path(
     app: &AppHandle,
     path: PathBuf,
 ) -> Result<DatasetSourceInspection, String> {

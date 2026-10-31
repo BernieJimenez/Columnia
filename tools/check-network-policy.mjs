@@ -40,7 +40,7 @@ const networkCrates = ["reqwest", "ureq", "surf", "hyper", "isahc", "attohttpc",
 // Declared, user-initiated network exits. Any other file using these crates is
 // a new outbound channel and must be reviewed before it is added here.
 export const declaredEgress = [
-  { crate: "odbc_api", files: ["src-tauri/src/remote_databases.rs"], reason: "entrega ODBC por acción explícita" },
+  { crate: "odbc_api", files: ["src-tauri/src/remote_databases.rs"], reason: "entrega ODBC e importación de solo lectura desde SQL Server, siempre por acción explícita y confirmada" },
   // QA-24: in lib.rs only the line that registers the plugin.
   { crate: "tauri_plugin_updater", files: ["src-tauri/src/updater.rs"], lines: { "src-tauri/src/lib.rs": /\.plugin\(\s*tauri_plugin_updater::Builder::new\(\)\.build\(\)\s*\)/ }, reason: "updater firmado, solo con endpoint de distribución" },
 ];

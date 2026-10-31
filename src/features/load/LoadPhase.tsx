@@ -43,6 +43,8 @@ function formatFileSize(bytes: number): string {
 interface LoadPhaseProps {
   children?: ReactNode;
   reusableTaskPanel?: ReactNode;
+  /** «Cargar desde SQL Server», shown below the reusable tasks. */
+  databaseImportPanel?: ReactNode;
   pendingTaskName?: string | null;
   runtime: LoadRuntimeState;
   disabled?: boolean;
@@ -85,6 +87,7 @@ interface LoadPhaseProps {
 export function LoadPhase({
   children,
   reusableTaskPanel,
+  databaseImportPanel,
   pendingTaskName = null,
   runtime,
   disabled = false,
@@ -307,6 +310,7 @@ export function LoadPhase({
       )}
 
       {reusableTaskPanel}
+      {databaseImportPanel}
 
       {datasetStatus.kind === "loading" && (
         <OperationProgressView

@@ -12,6 +12,16 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Añadido
 
+- Cargar › «Cargar desde SQL Server» trae una tabla o vista a este equipo.
+  Se pega la cadena de conexión ODBC (no se guarda), Windows pide confirmar la
+  conexión en un diálogo propio de lectura, se elige una de las tablas y vistas
+  que el servidor lista y cuántas filas traer (hasta 5.000.000), y la tabla
+  sigue el flujo normal: se revisan sus columnas, se carga y se prepara como
+  cualquier archivo. Columnia solo lee: genera un único `SELECT` sobre un
+  objeto listado y no acepta SQL libre, así que no puede modificar el
+  servidor. El texto llega en UTF-16, con tildes y eñes intactas; si la tabla
+  tenía más filas que el límite, o textos de más de 8.000 caracteres, lo dice.
+  Probado contra un SQL Server local con autenticación de Windows.
 - Aplicar la propuesta de Preparar a un archivo grande muestra en qué paso va
   (revisar el archivo, contar los cambios, escribir la versión corregida,
   convertir números, fechas y huecos, guardar la versión), su porcentaje y el

@@ -11,6 +11,15 @@ impl DatasetState {
         Ok(self.pending_drop.lock_recovering().take())
     }
 
+    /// The file the active dataset reads, so a new database import does not
+    /// remove it.
+    pub(crate) fn active_source_path(&self) -> Option<PathBuf> {
+        self.current
+            .lock_recovering()
+            .as_ref()
+            .and_then(|dataset| dataset.source_path.clone())
+    }
+
     pub(super) fn begin_load(&self) -> Result<u64, String> {
         let _guard = self.load_commit_lock.lock_recovering();
         Ok(self

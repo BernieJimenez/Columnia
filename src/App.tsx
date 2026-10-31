@@ -6,6 +6,7 @@ import { excelLimitIssues, personalDataColumnNames, suggestQualityRules } from "
 import { useDeliveryController } from "./features/delivery/useDeliveryController";
 import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
 import { ReusableTaskPanel } from "./features/load/ReusableTaskPanel";
+import { DatabaseImportPanel } from "./features/load/DatabaseImportPanel";
 import {
   createReusableTaskExceptionPolicy,
   exceptionPolicyMatchesSchema,
@@ -1459,6 +1460,13 @@ export function App() {
                     pendingTaskId={queuedReusableTask?.id ?? null}
                     pendingTaskName={queuedReusableTask?.task.name ?? null}
                     onClearPendingImport={() => setQueuedReusableTask(null)}
+                  />
+                )}
+                databaseImportPanel={(
+                  <DatabaseImportPanel
+                    connected={loadRuntime.kind === "connected"}
+                    blocked={operationBusy}
+                    onImport={(run) => whenWorkCanBeReplaced(() => void inspectDatasetSource(run()))}
                   />
                 )}
                 pendingTaskName={queuedReusableTask?.task.name ?? null}

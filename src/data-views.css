@@ -154,3 +154,28 @@
   .version-history__entry--done .version-history__marker { background: CanvasText; box-shadow: none; opacity: 1; }
   .version-history__entry::before { border-left-color: CanvasText; }
 }
+
+/* Cargar desde SQL Server: one column of fields, actions below them. */
+.database-import__form { display: grid; gap: 14px; max-width: 760px; }
+.database-import__lead { margin: 0; color: var(--text-secondary); font-size: .9375rem; line-height: 1.5; }
+.database-import__field { display: grid; gap: 6px; min-width: 0; color: var(--text-primary); font-size: .875rem; font-weight: 650; }
+.database-import__field :is(input, select) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 500;
+}
+.database-import__field input { font-family: "Cascadia Mono", Consolas, monospace; font-size: .8125rem; }
+.database-import__field small { color: var(--text-secondary); font-size: .8125rem; font-weight: 500; }
+.database-import__choice { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; }
+.database-import__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.database-import__hint { margin: 0; color: var(--text-secondary); font-size: .875rem; }
+@media (max-width: 700px) {
+  .database-import__choice { grid-template-columns: minmax(0, 1fr); }
+}

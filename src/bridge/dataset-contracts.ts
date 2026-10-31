@@ -39,6 +39,28 @@ export interface DelimitedHeaderReview {
   generated: DelimitedHeaderModePreview;
 }
 
+/** A database to read from; the connection string lives only in this call. */
+export interface DatabaseSource {
+  kind: "sqlserver";
+  connectionString: string;
+}
+
+/** A table or view the server lists as readable. */
+export interface DatabaseSourceTable {
+  schema: string;
+  name: string;
+  isView: boolean;
+}
+
+export interface DatabaseImportResult {
+  inspection: DatasetSourceInspection;
+  rowsImported: number;
+  /** The table had more rows than the chosen limit. */
+  moreRowsAvailable: boolean;
+  /** Columns with values longer than 8,000 characters, cut to that length. */
+  truncatedColumns: string[];
+}
+
 export interface DatasetImportSchemaPreview {
   rowCount: number;
   columns: DatasetColumn[];

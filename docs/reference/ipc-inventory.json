@@ -194,6 +194,16 @@
       "debug": false
     },
     {
+      "name": "list_database_tables",
+      "module": "remote_databases",
+      "debug": false
+    },
+    {
+      "name": "import_database_table",
+      "module": "remote_databases",
+      "debug": false
+    },
+    {
       "name": "preflight_database_export",
       "module": "dataset",
       "debug": false

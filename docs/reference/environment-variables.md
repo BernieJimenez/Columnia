@@ -26,6 +26,7 @@ que aparece en el código esté en esta tabla.
 | `COLUMNIA_PROBE_ODBC` | `tools/probe-webview2-native-selectors.mjs` | Cadena de conexión de SQL Server para que la sonda de la app real pruebe también la entrega remota. |
 | `COLUMNIA_PROBE_SCREENSHOT_DIR` | `tools/probe-webview2-native-selectors.mjs` | Carpeta opcional donde la sonda guarda una captura por fase. |
 | `COLUMNIA_ODBC_SQLSERVER`, `COLUMNIA_ODBC_POSTGRESQL`, `COLUMNIA_ODBC_MYSQL` | Tests ignorados de `src-tauri/src/remote_databases.rs` | Cadenas de conexión de sesión para las pruebas ODBC externas (`cargo test --lib -- --ignored external_`). Usa una base de pruebas propia. |
+| `COLUMNIA_ODBC_IMPORT`, `COLUMNIA_ODBC_IMPORT_TABLE` | Test ignorado `external_odbc_import_reads_a_table_as_text` de `src-tauri/src/remote_databases.rs` | Cadena de conexión de SQL Server y tabla `esquema.tabla` que la importación lee (25 filas). Solo lee: no escribe en el servidor. |
 | `COLUMNIA_DUCKDB_JOIN_TARGET_MIB` | Test de JOIN grande y `tools/benchmark-duckdb-join.ps1` | Tamaño en MiB del CSV generado para medir el JOIN de DuckDB. |
 | `COLUMNIA_BENCHMARK_CANCELLATION_INPUT`, `COLUMNIA_BENCHMARK_CANCELLATION_OUTPUT` | Test de cancelación y `tools/benchmark-datasets.ps1` | Archivo de entrada y carpeta de salida de la medición de cancelación. |
 | `COLUMNIA_CANCELLATION_BENCHMARK_JSON` | Salida, no entrada | Prefijo de la línea con la que el test de cancelación entrega su resultado a `tools/benchmark-datasets.ps1`. |

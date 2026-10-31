@@ -16,7 +16,7 @@
 
 ## Qué hace Columnia
 
-- Abre CSV, TSV, JSON, Parquet, Excel y ODS desde tu equipo.
+- Abre CSV, TSV, JSON, Parquet, Excel y ODS desde tu equipo, o trae una tabla o vista de SQL Server en solo lectura.
 - Detecta nulos, duplicados, tipos incompatibles y otras señales de calidad.
 - Aplica correcciones y transformaciones reversibles.
 - Permite explorar los datos con SQL local mediante Polars o DuckDB.

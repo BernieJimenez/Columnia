@@ -367,6 +367,8 @@ pub fn run() {
             dataset::get_temporal_aggregation,
             dataset::validate_quality_rules,
             remote_databases::test_database_connection,
+            remote_databases::list_database_tables,
+            remote_databases::import_database_table,
             dataset::preflight_database_export,
             dataset::export_dataset_to_database,
             dataset::cancel_operation,
