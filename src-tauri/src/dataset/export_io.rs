@@ -28,6 +28,7 @@ pub(super) fn frame_for_export(
         ExportFormat::Excel => Ok(frame.clone()),
         ExportFormat::Sqlite => Ok(frame.clone()),
         ExportFormat::Bundle => csv_formula_safe_frame(frame),
+        ExportFormat::SqlServerScript | ExportFormat::SqlServerBulk => Ok(frame.clone()),
     }
 }
 
@@ -2079,6 +2080,20 @@ where
             &mut report,
             &is_cancelled,
         )?,
+        ExportFormat::SqlServerScript => write_tsql_script(
+            &protected_frame,
+            temporary.as_file_mut(),
+            &sqlserver_table_for(&destination),
+            |percent| report("Escribiendo T-SQL", percent),
+            &is_cancelled,
+        )?,
+        ExportFormat::SqlServerBulk => write_sqlserver_bulk(
+            &protected_frame,
+            temporary.as_file_mut(),
+            &sqlserver_table_for(&destination),
+            &mut report,
+            &is_cancelled,
+        )?,
     }
 
     temporary
@@ -2484,6 +2499,298 @@ where
         .finish()
         .map_err(|error| format!("No se pudo cerrar el paquete: {error}"))?;
     Ok(())
+}
+
+// --- SQL Server (2026-10-31): «Script T-SQL» and «Paquete BULK INSERT» -------
+
+/// The table a SQL Server export creates: the file name the person chose.
+pub(super) fn sqlserver_table_for(destination: &Path) -> String {
+    crate::tsql_script::tsql_table_name(
+        destination
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("dataset"),
+    )
+}
+
+fn tsql_columns_for_frame(frame: &DataFrame) -> Vec<crate::tsql_script::TsqlColumn> {
+    frame
+        .columns()
+        .iter()
+        .map(|column| crate::tsql_script::TsqlColumn {
+            name: column.name().to_string(),
+            declaration: crate::tsql_script::tsql_type_for_polars(column.dtype()).to_owned(),
+        })
+        .collect()
+}
+
+fn tsql_value_from_any(
+    value: AnyValue<'_>,
+) -> Result<crate::tsql_script::TsqlValue<'static>, String> {
+    use crate::tsql_script::TsqlValue;
+    Ok(match value {
+        AnyValue::Null => TsqlValue::Null,
+        AnyValue::Boolean(value) => TsqlValue::Bit(value),
+        AnyValue::Int8(value) => TsqlValue::Number(value.to_string()),
+        AnyValue::Int16(value) => TsqlValue::Number(value.to_string()),
+        AnyValue::Int32(value) => TsqlValue::Number(value.to_string()),
+        AnyValue::Int64(value) => TsqlValue::Number(value.to_string()),
+        AnyValue::UInt8(value) => TsqlValue::Number(value.to_string()),
+        AnyValue::UInt16(value) => TsqlValue::Number(value.to_string()),
+        AnyValue::UInt32(value) => TsqlValue::Number(value.to_string()),
+        AnyValue::UInt64(value) => TsqlValue::Number(value.to_string()),
+        AnyValue::Float32(value) if value.is_finite() => TsqlValue::Number(value.to_string()),
+        AnyValue::Float64(value) if value.is_finite() => TsqlValue::Number(value.to_string()),
+        AnyValue::Float32(_) | AnyValue::Float64(_) => {
+            return Err(
+                "SQL Server no puede guardar valores numéricos no finitos (NaN o infinito)."
+                    .to_owned(),
+            )
+        }
+        AnyValue::String(value) => TsqlValue::Text(value.to_owned().into()),
+        AnyValue::StringOwned(value) => TsqlValue::Text(value.to_string().into()),
+        other => TsqlValue::Text(other.to_string().into()),
+    })
+}
+
+pub(super) fn write_tsql_script<F, C>(
+    frame: &DataFrame,
+    output: &mut File,
+    table: &str,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    F: FnMut(u8),
+    C: Fn() -> bool,
+{
+    let columns = tsql_columns_for_frame(frame);
+    let buffered = std::io::BufWriter::with_capacity(64 * 1024, output);
+    let mut writer = crate::tsql_script::TsqlScriptWriter::begin(buffered, table, &columns)?;
+    let height = frame.height();
+    for row in 0..height {
+        ensure_not_cancelled(is_cancelled())?;
+        let values = frame
+            .columns()
+            .iter()
+            .map(|column| {
+                column
+                    .get(row)
+                    .map_err(|error| format!("No se pudo leer la fila {row} para T-SQL: {error}"))
+                    .and_then(tsql_value_from_any)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        writer.push_row(values)?;
+        if row % crate::tsql_script::ROWS_PER_INSERT == 0 {
+            report(30 + (((row + 1) * 55) / height.max(1)) as u8);
+        }
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    writer.finish()?;
+    report(85);
+    Ok(())
+}
+
+/// The package ZIP: the CSV, `cargar.sql` and `LEEME.txt`.
+fn assemble_sqlserver_bulk_package<C>(
+    output: &mut File,
+    table: &str,
+    columns: &[crate::tsql_script::TsqlColumn],
+    csv: &Path,
+    rows: Option<usize>,
+    is_cancelled: &C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Clone,
+{
+    let csv_bytes = fs::metadata(csv)
+        .map_err(|error| format!("No se pudo leer el CSV del paquete: {error}"))?
+        .len();
+    let mut archive = ZipWriter::new(output);
+    let zip_error = |error: ::zip::result::ZipError| {
+        format!("No se pudo escribir el paquete BULK INSERT: {error}")
+    };
+    archive
+        .start_file(
+            crate::tsql_script::bulk_csv_name(table),
+            zip_entry_options(csv_bytes),
+        )
+        .map_err(zip_error)?;
+    copy_file_with_cancel(csv, &mut archive, is_cancelled.clone())?;
+    ensure_not_cancelled(is_cancelled())?;
+    let text_options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    archive
+        .start_file("cargar.sql", text_options)
+        .map_err(zip_error)?;
+    archive
+        .write_all(crate::tsql_script::bulk_load_script(table, columns, rows)?.as_bytes())
+        .map_err(|error| format!("No se pudo escribir cargar.sql: {error}"))?;
+    archive
+        .start_file("LEEME.txt", text_options)
+        .map_err(zip_error)?;
+    archive
+        .write_all(crate::tsql_script::bulk_readme(table).as_bytes())
+        .map_err(|error| format!("No se pudo escribir LEEME.txt: {error}"))?;
+    archive.finish().map_err(zip_error)?;
+    Ok(())
+}
+
+pub(super) fn write_sqlserver_bulk<F, C>(
+    frame: &DataFrame,
+    output: &mut File,
+    table: &str,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Clone,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    report("Escribiendo CSV para SQL Server", 30);
+    // BIT loads 1 and 0; the file goes to a database, so cells keep their
+    // text without the spreadsheet formula protection of the CSV export.
+    let bulk_columns = frame
+        .columns()
+        .iter()
+        .map(|column| {
+            if column.dtype() == &DataType::Boolean {
+                column.cast(&DataType::Int64)
+            } else {
+                Ok(column.clone())
+            }
+        })
+        .collect::<PolarsResult<Vec<_>>>()
+        .map_err(|error| format!("No se pudo preparar el CSV del paquete: {error}"))?;
+    let bulk_frame = DataFrame::new(frame.height(), bulk_columns)
+        .map_err(|error| format!("No se pudo preparar el CSV del paquete: {error}"))?;
+    let csv = tempfile::Builder::new()
+        .prefix(".columnia-bulk-")
+        .suffix(".csv")
+        .tempfile()
+        .map_err(|error| format!("No se pudo preparar el CSV del paquete: {error}"))?;
+    {
+        let mut file = csv
+            .reopen()
+            .map_err(|error| format!("No se pudo abrir el CSV del paquete: {error}"))?;
+        let batch_size = std::num::NonZeroUsize::new(EAGER_EXPORT_BATCH_ROWS)
+            .expect("el tamaño de lote CSV debe ser mayor que cero");
+        let mut writer = CsvWriter::new(&mut file)
+            .with_separator(b',')
+            .with_batch_size(batch_size)
+            .batched(bulk_frame.schema().as_ref())
+            .map_err(|error| format!("No se pudo preparar el CSV del paquete: {error}"))?;
+        for_each_export_batch(&bulk_frame, &is_cancelled, |batch| {
+            let mut batch = batch.clone();
+            batch.align_chunks_par();
+            writer
+                .write_batch(&batch)
+                .map_err(|error| format!("No se pudo escribir el CSV del paquete: {error}"))
+        })?;
+        writer
+            .finish()
+            .map_err(|error| format!("No se pudo cerrar el CSV del paquete: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("No se pudo sincronizar el CSV del paquete: {error}"))?;
+    }
+    report("Preparando cargar.sql", 70);
+    assemble_sqlserver_bulk_package(
+        output,
+        table,
+        &tsql_columns_for_frame(frame),
+        csv.path(),
+        Some(frame.height()),
+        &is_cancelled,
+    )?;
+    report("Paquete listo", 88);
+    Ok(())
+}
+
+pub(super) fn export_source_backed_tsql_atomic<F, C>(
+    source_path: &Path,
+    expected_file_size: u64,
+    destination: &Path,
+    report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Clone + Send + 'static,
+{
+    let table = sqlserver_table_for(destination);
+    publish_source_backed_export(
+        source_path,
+        expected_file_size,
+        destination,
+        ExportFormat::SqlServerScript,
+        report,
+        is_cancelled,
+        move |source, temporary, _, cancel| {
+            write_through_scratch(temporary, "sql", cancel, |partial, cancel| {
+                crate::duckdb_query::export_file_to_tsql_with_cancel(
+                    source.path,
+                    source.format,
+                    partial,
+                    table,
+                    cancel,
+                )
+            })
+        },
+    )
+}
+
+pub(super) fn export_source_backed_sqlserver_bulk_atomic<F, C>(
+    source_path: &Path,
+    expected_file_size: u64,
+    row_count: usize,
+    destination: &Path,
+    report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Clone + Send + 'static,
+{
+    let table = sqlserver_table_for(destination);
+    publish_source_backed_export(
+        source_path,
+        expected_file_size,
+        destination,
+        ExportFormat::SqlServerBulk,
+        report,
+        is_cancelled,
+        move |source, temporary, report, cancel| {
+            report("Escribiendo CSV para SQL Server", 30);
+            let parent = temporary
+                .path()
+                .parent()
+                .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?
+                .to_path_buf();
+            let csv = tempfile::Builder::new()
+                .prefix(".columnia-bulk-")
+                .suffix(".csv")
+                .tempfile_in(&parent)
+                .map_err(|error| format!("No se pudo preparar el CSV del paquete: {error}"))?
+                .into_temp_path();
+            let columns = crate::duckdb_query::export_file_to_bulk_csv_with_cancel(
+                source.path,
+                source.format,
+                &csv,
+                cancel.clone(),
+            )?;
+            ensure_not_cancelled(cancel())?;
+            report("Preparando cargar.sql", 70);
+            assemble_sqlserver_bulk_package(
+                temporary.as_file_mut(),
+                &table,
+                &columns,
+                &csv,
+                Some(row_count),
+                &cancel,
+            )?;
+            Ok(0)
+        },
+    )
 }
 
 pub(super) fn write_bundle<F, C>(

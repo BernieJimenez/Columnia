@@ -1,0 +1,186 @@
+//! «Script T-SQL» and «Paquete BULK INSERT» (2026-10-31) by both export paths.
+
+use super::*;
+use ::zip::ZipArchive;
+use std::io::Read;
+
+fn sample_frame() -> DataFrame {
+    df!(
+        "id" => [1i64, 2],
+        "cliente" => ["O'Brien Ñandú", "=SUMA(A1)"],
+        "activo" => [true, false],
+        "precio" => [1.5f64, 20.25],
+    )
+    .expect("frame de prueba")
+}
+
+fn zip_entries(path: &Path) -> Vec<(String, String)> {
+    let mut archive = ZipArchive::new(File::open(path).expect("zip")).expect("zip válido");
+    (0..archive.len())
+        .map(|index| {
+            let mut entry = archive.by_index(index).expect("entrada");
+            let mut text = String::new();
+            entry.read_to_string(&mut text).expect("texto UTF-8");
+            (entry.name().to_owned(), text)
+        })
+        .collect()
+}
+
+fn source_csv(directory: &Path, contents: &str) -> (PathBuf, u64) {
+    let path = directory.join("origen.csv");
+    fs::write(&path, contents).expect("CSV de origen");
+    let size = fs::metadata(&path).expect("tamaño").len();
+    (path, size)
+}
+
+#[test]
+fn the_tsql_script_names_the_table_after_the_file_and_keeps_every_value() {
+    let directory = tempfile::tempdir().expect("carpeta");
+    let destination = directory.path().join("ventas limpias.sql");
+    let result = export_frame_atomic(
+        &sample_frame(),
+        &destination,
+        ExportFormat::SqlServerScript,
+        |_, _| {},
+        || false,
+    )
+    .expect("el script T-SQL se exporta");
+    assert_eq!(result.format, "Script T-SQL");
+    let script = fs::read_to_string(&destination).expect("script");
+    assert!(script.contains("CREATE TABLE [dbo].[ventas_limpias] ("));
+    assert!(script.contains("[id] BIGINT NULL,"));
+    assert!(script.contains("[activo] BIT NULL,"));
+    assert!(script.contains("[precio] FLOAT NULL"));
+    assert!(script.contains("(1, N'O''Brien Ñandú', 1, 1.5)"));
+    // No spreadsheet protection in a database script.
+    assert!(script.contains("N'=SUMA(A1)'"));
+    assert!(!script.contains("DROP TABLE"));
+}
+
+#[test]
+fn the_tsql_script_refuses_values_sql_server_cannot_store() {
+    let directory = tempfile::tempdir().expect("carpeta");
+    let frame = df!("medida" => [1.0f64, f64::NAN]).expect("frame");
+    let error = export_frame_atomic(
+        &frame,
+        &directory.path().join("medidas.sql"),
+        ExportFormat::SqlServerScript,
+        |_, _| {},
+        || false,
+    )
+    .expect_err("NaN no cabe en SQL Server");
+    assert!(error.contains("no finitos"));
+    assert!(
+        !directory.path().join("medidas.sql").exists(),
+        "sin archivo a medias"
+    );
+}
+
+#[test]
+fn the_bulk_package_holds_the_csv_the_load_script_and_the_instructions() {
+    let directory = tempfile::tempdir().expect("carpeta");
+    let destination = directory.path().join("ventas.zip");
+    let result = export_frame_atomic(
+        &sample_frame(),
+        &destination,
+        ExportFormat::SqlServerBulk,
+        |_, _| {},
+        || false,
+    )
+    .expect("el paquete se exporta");
+    assert_eq!(result.format, "Paquete BULK INSERT");
+    let entries = zip_entries(&destination);
+    let names = entries
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["ventas.csv", "cargar.sql", "LEEME.txt"]);
+    let csv = &entries[0].1;
+    assert!(csv.starts_with("id,cliente,activo,precio\n"));
+    assert!(csv.contains("1,O'Brien Ñandú,1,1.5\n"));
+    assert!(
+        csv.contains("2,=SUMA(A1),0,20.25\n"),
+        "sin protección de fórmulas: {csv}"
+    );
+    let load = &entries[1].1;
+    assert!(load.contains("BULK INSERT [dbo].[ventas]\nFROM N'C:\\Columnia\\ventas.csv'"));
+    assert!(load.contains("2 AS filas_esperadas"));
+}
+
+#[test]
+fn large_files_stream_the_tsql_script_through_duckdb() {
+    let directory = tempfile::tempdir().expect("carpeta");
+    let (source, size) = source_csv(directory.path(), "nombre,importe\nO'Brien,10\n=1+1,20\n");
+    let destination = directory.path().join("clientes.sql");
+    let result = export_source_backed_tsql_atomic(&source, size, &destination, |_, _| {}, || false)
+        .expect("el script T-SQL de un archivo grande se exporta");
+    assert_eq!(result.format, "Script T-SQL");
+    let script = fs::read_to_string(&destination).expect("script");
+    assert!(script.contains("CREATE TABLE [dbo].[clientes] ("));
+    assert!(script.contains("N'O''Brien'"));
+    assert!(script.contains("N'=1+1'"));
+    assert!(script.contains("COMMIT TRANSACTION;"));
+    assert!(script.ends_with("-- 2 filas.\n"));
+}
+
+#[test]
+fn large_files_stream_the_bulk_package_through_duckdb() {
+    let directory = tempfile::tempdir().expect("carpeta");
+    let (source, size) = source_csv(directory.path(), "nombre,importe\nO'Brien,10\n=1+1,20\n");
+    let destination = directory.path().join("clientes.zip");
+    export_source_backed_sqlserver_bulk_atomic(&source, size, 2, &destination, |_, _| {}, || false)
+        .expect("el paquete de un archivo grande se exporta");
+    let entries = zip_entries(&destination);
+    assert_eq!(entries[0].0, "clientes.csv");
+    assert!(entries[0].1.starts_with("nombre,importe\n"));
+    assert!(
+        entries[0].1.contains("=1+1,20"),
+        "sin protección de fórmulas: {}",
+        entries[0].1
+    );
+    assert!(entries[1].1.contains("2 AS filas_esperadas"));
+    assert_eq!(entries[2].0, "LEEME.txt");
+    // Nothing left behind next to the destination.
+    let leftovers = fs::read_dir(directory.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".columnia-")
+        })
+        .count();
+    assert_eq!(leftovers, 0);
+}
+
+/// Writes both exports of a sample to `COLUMNIA_TSQL_OUT` to try them
+/// against a real SQL Server.
+#[test]
+#[ignore = "escribe archivos de ejemplo en COLUMNIA_TSQL_OUT para probarlos en SQL Server"]
+fn writes_sqlserver_samples_for_a_real_server() {
+    let directory = PathBuf::from(std::env::var("COLUMNIA_TSQL_OUT").expect("COLUMNIA_TSQL_OUT"));
+    let frame = df!(
+        "id" => [Some(1i64), Some(2), None],
+        "cliente" => [Some("O'Brien Ñandú, \"el viejo\""), Some(""), None],
+        "activo" => [Some(true), Some(false), None],
+        "precio" => [Some(1.5f64), Some(1e-7), Some(123456789.125)],
+    )
+    .expect("frame");
+    export_frame_atomic(
+        &frame,
+        &directory.join("prueba_columnia.sql"),
+        ExportFormat::SqlServerScript,
+        |_, _| {},
+        || false,
+    )
+    .expect("script");
+    export_frame_atomic(
+        &frame,
+        &directory.join("prueba_columnia.zip"),
+        ExportFormat::SqlServerBulk,
+        |_, _| {},
+        || false,
+    )
+    .expect("paquete");
+}

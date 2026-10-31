@@ -134,6 +134,7 @@ mod remote_delivery_ledger;
 mod resource;
 mod reusable_tasks;
 mod session_guard;
+mod tsql_script;
 #[cfg(desktop)]
 mod updater;
 #[cfg(windows)]

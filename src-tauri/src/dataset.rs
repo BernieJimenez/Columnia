@@ -220,6 +220,7 @@ use export_io::{
     export_source_backed_bundle_atomic, export_source_backed_delimited_atomic,
     export_source_backed_json_atomic, export_source_backed_parquet_atomic,
     export_source_backed_sql_atomic, export_source_backed_sqlite_atomic,
+    export_source_backed_sqlserver_bulk_atomic, export_source_backed_tsql_atomic,
     export_source_backed_xlsx_atomic, path_with_extension, privacy_safe_frame,
     privacy_safe_frame_with_cancel, source_backed_privacy_snapshot,
 };
@@ -423,6 +424,12 @@ pub enum ExportFormat {
     Excel,
     Sqlite,
     Bundle,
+    /// A T-SQL script for SQL Server that runs as is in SSMS or sqlcmd.
+    #[serde(rename = "sqlserver_script")]
+    SqlServerScript,
+    /// A ZIP with a UTF-8 CSV and a BULK INSERT script for SQL Server.
+    #[serde(rename = "sqlserver_bulk")]
+    SqlServerBulk,
 }
 
 impl ExportFormat {
@@ -435,6 +442,8 @@ impl ExportFormat {
             Self::Excel => "xlsx",
             Self::Sqlite => "sqlite",
             Self::Bundle => "zip",
+            Self::SqlServerScript => "sql",
+            Self::SqlServerBulk => "zip",
         }
     }
 
@@ -448,6 +457,8 @@ impl ExportFormat {
             Self::Excel => "Excel",
             Self::Sqlite => "SQLite",
             Self::Bundle => "Paquete Columnia",
+            Self::SqlServerScript => "Script T-SQL",
+            Self::SqlServerBulk => "Paquete BULK INSERT",
         }
     }
 }
@@ -10040,6 +10051,8 @@ async fn export_active_dataset(
             | ExportFormat::Excel
             | ExportFormat::Sqlite
             | ExportFormat::Bundle
+            | ExportFormat::SqlServerScript
+            | ExportFormat::SqlServerBulk
     ) && quality_rules.iter().all(source_quality_rule_is_incremental)
     {
         if let Some((
@@ -10234,6 +10247,35 @@ async fn export_active_dataset(
                     ExportFormat::Sqlite => {
                         let cancellation_app = app.clone();
                         export_source_backed_sqlite_atomic(
+                            &effective_source_path,
+                            effective_source_size,
+                            row_count,
+                            &destination,
+                            |stage, percent| send_progress(&on_progress, "export", stage, percent),
+                            move || {
+                                cancellation_app
+                                    .state::<DatasetState>()
+                                    .export_was_cancelled(generation)
+                            },
+                        )
+                    }
+                    ExportFormat::SqlServerScript => {
+                        let cancellation_app = app.clone();
+                        export_source_backed_tsql_atomic(
+                            &effective_source_path,
+                            effective_source_size,
+                            &destination,
+                            |stage, percent| send_progress(&on_progress, "export", stage, percent),
+                            move || {
+                                cancellation_app
+                                    .state::<DatasetState>()
+                                    .export_was_cancelled(generation)
+                            },
+                        )
+                    }
+                    ExportFormat::SqlServerBulk => {
+                        let cancellation_app = app.clone();
+                        export_source_backed_sqlserver_bulk_atomic(
                             &effective_source_path,
                             effective_source_size,
                             row_count,
@@ -13365,6 +13407,10 @@ pub async fn apply_transform_recipe(
 #[cfg(test)]
 #[path = "dataset/delivery_summary_tests.rs"]
 mod delivery_summary_tests;
+
+#[cfg(test)]
+#[path = "dataset/sqlserver_export_tests.rs"]
+mod sqlserver_export_tests;
 
 #[cfg(test)]
 #[path = "dataset/snapshot_comparison_tests.rs"]

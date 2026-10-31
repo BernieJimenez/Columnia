@@ -138,6 +138,21 @@ pub(super) fn export_source_backed_for_automation(
             |_, _| {},
             || false,
         ),
+        ExportFormat::SqlServerScript => export_source_backed_tsql_atomic(
+            &source_path,
+            expected_file_size,
+            output,
+            |_, _| {},
+            || false,
+        ),
+        ExportFormat::SqlServerBulk => export_source_backed_sqlserver_bulk_atomic(
+            &source_path,
+            expected_file_size,
+            row_count,
+            output,
+            |_, _| {},
+            || false,
+        ),
         ExportFormat::Excel => export_source_backed_xlsx_atomic(
             &source_path,
             expected_file_size,

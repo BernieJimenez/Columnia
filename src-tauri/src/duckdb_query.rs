@@ -820,6 +820,177 @@ where
     })
 }
 
+/// A column for SQL Server: dates and times travel as ISO text, which
+/// SQL Server converts to DATE, TIME or DATETIME2; a timestamp with a time
+/// zone is moved to UTC first, since DATETIME2 rejects an offset.
+fn tsql_text_projection(name: &str, data_type: &str) -> String {
+    let identifier = quote_identifier(name);
+    let upper = data_type.to_ascii_uppercase();
+    if upper.starts_with("TIMESTAMP WITH TIME ZONE") || upper == "TIMESTAMPTZ" {
+        format!("CAST(CAST(timezone('UTC', {identifier}) AS TIMESTAMP) AS VARCHAR) AS {identifier}")
+    } else if is_sql_text_projection(data_type) {
+        format!("CAST({identifier} AS VARCHAR) AS {identifier}")
+    } else {
+        identifier
+    }
+}
+
+fn tsql_columns(source_columns: &[(String, String)]) -> Vec<crate::tsql_script::TsqlColumn> {
+    source_columns
+        .iter()
+        .map(|(name, data_type)| crate::tsql_script::TsqlColumn {
+            name: name.clone(),
+            declaration: crate::tsql_script::tsql_type_for_duckdb(data_type),
+        })
+        .collect()
+}
+
+fn duckdb_tsql_value(value: ValueRef<'_>) -> Result<crate::tsql_script::TsqlValue<'_>, String> {
+    use crate::tsql_script::TsqlValue;
+    Ok(match value {
+        ValueRef::Null => TsqlValue::Null,
+        ValueRef::Boolean(value) => TsqlValue::Bit(value),
+        ValueRef::TinyInt(value) => TsqlValue::Number(value.to_string()),
+        ValueRef::SmallInt(value) => TsqlValue::Number(value.to_string()),
+        ValueRef::Int(value) => TsqlValue::Number(value.to_string()),
+        ValueRef::BigInt(value) => TsqlValue::Number(value.to_string()),
+        ValueRef::HugeInt(value) => TsqlValue::Number(value.to_string()),
+        ValueRef::UTinyInt(value) => TsqlValue::Number(value.to_string()),
+        ValueRef::USmallInt(value) => TsqlValue::Number(value.to_string()),
+        ValueRef::UInt(value) => TsqlValue::Number(value.to_string()),
+        ValueRef::UBigInt(value) => TsqlValue::Number(value.to_string()),
+        ValueRef::UHugeInt(value) => TsqlValue::Number(value.to_string()),
+        ValueRef::Decimal(value) => TsqlValue::Number(value.to_string()),
+        ValueRef::Float(value) if value.is_finite() => TsqlValue::Number(value.to_string()),
+        ValueRef::Double(value) if value.is_finite() => TsqlValue::Number(value.to_string()),
+        ValueRef::Float(_) | ValueRef::Double(_) => {
+            return Err(
+                "SQL Server no puede guardar valores numéricos no finitos (NaN o infinito)."
+                    .to_owned(),
+            )
+        }
+        ValueRef::Text(value) => TsqlValue::Text(String::from_utf8_lossy(value)),
+        ValueRef::Blob(value) | ValueRef::Geometry(value) => TsqlValue::Binary(value),
+        ValueRef::Date32(value) => TsqlValue::Text(format_date(value).into()),
+        ValueRef::Time64(unit, value) => TsqlValue::Text(format_time_of_day(unit, value).into()),
+        ValueRef::Timestamp(unit, value) => TsqlValue::Text(format_timestamp(unit, value).into()),
+        other => {
+            return Err(format!(
+                "SQL Server no admite una columna de tipo {:?}; conviértela a texto en Preparar.",
+                other.data_type()
+            ))
+        }
+    })
+}
+
+/// The «Script T-SQL» of a large file, streamed row by row (2026-10-31).
+pub(crate) fn export_file_to_tsql_with_cancel<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    destination: &Path,
+    table: String,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_operation_with_cancel_state(is_cancelled, |connection, cancelled| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el espacio temporal para el script T-SQL: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        let source = file_scan_expression(source_path, source_format)?;
+        let source_columns = describe_source_columns(connection, &source)?;
+        let projection = source_columns
+            .iter()
+            .map(|(name, data_type)| tsql_text_projection(name, data_type))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut query = connection
+            .prepare(&format!("SELECT {projection} FROM {source}"))
+            .map_err(|error| format!("DuckDB no pudo preparar el script T-SQL: {error}"))?;
+        let mut rows = query.query([]).map_err(|error| {
+            format!("DuckDB no pudo leer el archivo para el script T-SQL: {error}")
+        })?;
+        let output = BufWriter::with_capacity(
+            64 * 1024,
+            File::create(destination)
+                .map_err(|error| format!("No se pudo crear el script T-SQL: {error}"))?,
+        );
+        let columns = tsql_columns(&source_columns);
+        let mut writer = crate::tsql_script::TsqlScriptWriter::begin(output, &table, &columns)?;
+        while let Some(row) = rows.next().map_err(|error| {
+            format!("DuckDB no pudo leer una fila para el script T-SQL: {error}")
+        })? {
+            if cancelled.load(Ordering::Acquire) {
+                return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+            }
+            let mut values = Vec::with_capacity(columns.len());
+            for index in 0..columns.len() {
+                let value = row
+                    .get_ref(index)
+                    .map_err(|error| format!("No se pudo leer una columna para T-SQL: {error}"))?;
+                values.push(duckdb_tsql_value(value)?);
+            }
+            writer.push_row(values)?;
+        }
+        if cancelled.load(Ordering::Acquire) {
+            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+        }
+        writer.finish()?;
+        Ok(())
+    })
+}
+
+/// The CSV of the BULK INSERT package for a large file: UTF-8 with header,
+/// booleans as 1 and 0 for BIT, and no spreadsheet formula protection, since
+/// the file goes to a database (2026-10-31). Returns the table's columns.
+pub(crate) fn export_file_to_bulk_csv_with_cancel<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    destination: &Path,
+    is_cancelled: C,
+) -> Result<Vec<crate::tsql_script::TsqlColumn>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el espacio temporal para el paquete BULK INSERT: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        connection
+            .execute_batch("SET threads = 1;")
+            .map_err(|error| {
+                format!("DuckDB no pudo limitar los hilos del paquete BULK INSERT: {error}")
+            })?;
+        let source = file_scan_expression(source_path, source_format)?;
+        let source_columns = describe_source_columns(connection, &source)?;
+        let projection = source_columns
+            .iter()
+            .map(|(name, data_type)| {
+                if data_type.to_ascii_uppercase().starts_with("BOOL") {
+                    let identifier = quote_identifier(name);
+                    format!("CAST({identifier} AS TINYINT) AS {identifier}")
+                } else {
+                    tsql_text_projection(name, data_type)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let destination = destination
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace('\'', "''");
+        connection
+            .execute_batch(&format!(
+                "SET preserve_insertion_order = true; COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT CSV, HEADER, DELIMITER ',', QUOTE '\"')"
+            ))
+            .map_err(|error| format!("DuckDB no pudo crear el CSV del paquete BULK INSERT: {error}"))?;
+        Ok(tsql_columns(&source_columns))
+    })
+}
+
 pub(crate) fn materialize_file_query_to_parquet(
     source_path: &Path,
     source_format: DuckDbFileFormat,
