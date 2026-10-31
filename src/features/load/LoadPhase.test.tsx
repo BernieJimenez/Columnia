@@ -87,6 +87,39 @@ function loadPhaseProps(overrides: Partial<React.ComponentProps<typeof LoadPhase
 }
 
 describe("LoadPhase", () => {
+  it("organiza Cargar por fuentes y muestra solo el panel de la elegida", () => {
+    render(
+      <LoadPhase
+        {...loadPhaseProps({
+          children: <p>Contenido de proyectos</p>,
+          databaseImportPanel: <p>Panel de SQL Server</p>,
+          sampleDatasets: [{ id: "quality", name: "Clientes", format: "csv", description: "Nulos." }],
+        })}
+      />,
+    );
+
+    const sources = screen.getByRole("group", { name: "¿De dónde vienen los datos?" });
+    expect(within(sources).getAllByRole("radio").map((radio) => radio.getAttribute("value")))
+      .toEqual(["file", "sqlserver", "sample", "project"]);
+    expect(screen.getByRole("radio", { name: /^Archivo/ })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Seleccionar dataset" })).toBeInTheDocument();
+    expect(screen.queryByText("Panel de SQL Server")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: /^SQL Server/ }));
+    expect(screen.getByText("Panel de SQL Server")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Seleccionar dataset" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: /^Proyecto/ }));
+    expect(screen.getByText("Contenido de proyectos")).toBeInTheDocument();
+    expect(screen.queryByText("Panel de SQL Server")).not.toBeInTheDocument();
+  });
+
+  it("abre en los proyectos guardados tras un cierre inesperado", () => {
+    render(<LoadPhase {...loadPhaseProps({ children: <p>Contenido de proyectos</p>, previousExitUnclean: true })} />);
+    expect(screen.getByRole("radio", { name: /^Proyecto/ })).toBeChecked();
+    expect(screen.getByText("Contenido de proyectos")).toBeInTheDocument();
+  });
+
   it("mantiene el panel de tareas en su propio disclosure, fuera del de proyectos", () => {
     render(
       <LoadPhase
@@ -103,7 +136,8 @@ describe("LoadPhase", () => {
     );
 
     const tasksPanel = screen.getByText("Reutilizar una tarea").closest("details");
-    const projectsPanel = screen.getByText("Continuar un proyecto").closest("details");
+    fireEvent.click(screen.getByRole("radio", { name: /^Proyecto/ }));
+    const projectsPanel = screen.getByText("Contenido de proyectos").parentElement;
     expect(tasksPanel).not.toBeNull();
     expect(tasksPanel?.open).toBe(false);
     expect(projectsPanel).not.toContainElement(tasksPanel);
@@ -396,6 +430,7 @@ describe("LoadPhase", () => {
         {...loadPhaseProps({ sampleDatasets: samples, onSelectSample })}
       />,
     );
+    fireEvent.click(screen.getByRole("radio", { name: /^Ejemplo/ }));
 
     expect(screen.getByRole("heading", { name: "Explora con un dataset de ejemplo" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Clientes · señales de calidad/ }));

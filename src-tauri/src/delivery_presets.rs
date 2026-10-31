@@ -268,12 +268,15 @@ fn validate_preset(mut preset: DeliveryPreset) -> Result<DeliveryPreset, String>
     if !matches!(
         preset.format.as_str(),
         "csv"
+            | "csv_excel"
             | "json"
             | "parquet"
             | "sql"
             | "excel"
             | "sqlite"
             | "bundle"
+            | "sqlserver_script"
+            | "sqlserver_bulk"
             | "postgresql"
             | "mysql"
             | "sqlserver"

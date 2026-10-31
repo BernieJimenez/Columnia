@@ -52,7 +52,7 @@ test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulad
     .getByRole("navigation", { name: "Flujo de preparación de datos" })
     .getByRole("button", { name: "Cargar", exact: true })
     .click();
-  await page.locator(".load-secondary").filter({ hasText: "Continuar un proyecto" }).locator(":scope > summary").click();
+  await page.getByRole("radio", { name: /^Proyecto/ }).check();
   await expect(page.getByRole("heading", { name: "Proyectos" })).toBeVisible();
   await page.getByText("Guardar y administrar proyectos", { exact: true }).click();
   await page.getByLabel("Nombre del proyecto").fill("Ventas E2E");
@@ -66,7 +66,7 @@ test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulad
   await expect(page.locator(".dataset-bar__name")).toHaveText("ventas.csv");
 
   await workflow.getByRole("button", { name: "Cargar", exact: true }).click();
-  await page.locator(".load-secondary").filter({ hasText: "Continuar un proyecto" }).locator(":scope > summary").click();
+  await page.getByRole("radio", { name: /^Proyecto/ }).check();
   await page.getByText("Guardar y administrar proyectos", { exact: true }).click();
   await expect(page.getByRole("list", { name: "Proyectos guardados" })).toContainText("Ventas E2E · activo");
   await page.getByRole("button", { name: "Eliminar" }).click();
@@ -81,9 +81,7 @@ test("recupera la última sesión, restaura su etapa y actualiza el mismo proyec
   await page.goto("/", { waitUntil: "commit" });
 
   const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
-  const projectDetails = page.locator(".load-secondary")
-    .filter({ hasText: "Continuar un proyecto" });
-  await projectDetails.locator(":scope > summary").click();
+  await page.getByRole("radio", { name: /^Proyecto/ }).check();
   await expect(page.getByRole("button", { name: "Recuperar proyecto" })).toBeVisible();
   await page.getByRole("button", { name: "Recuperar proyecto" }).click();
 
@@ -93,7 +91,7 @@ test("recupera la última sesión, restaura su etapa y actualiza el mismo proyec
   await expect(page.locator(".dataset-bar__name")).toHaveText("ventas.csv");
 
   await workflow.getByRole("button", { name: "Cargar", exact: true }).click();
-  await projectDetails.locator(":scope > summary").click();
+  await page.getByRole("radio", { name: /^Proyecto/ }).check();
   await page.getByText("Guardar y administrar proyectos", { exact: true }).click();
   const projects = page.getByRole("list", { name: "Proyectos guardados" });
   await expect(projects).toContainText("Ventas E2E · activo");

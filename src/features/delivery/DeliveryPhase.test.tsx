@@ -126,6 +126,24 @@ const passingNotNull = {
   rules: [{ ...failingNotNull.rules[0], invalidCount: 0, invalidPct: 0, passed: true }],
 };
 
+const DESTINATION_FOR_FORMAT: Record<string, RegExp> = {
+  postgresql: /^Otra base de datos/,
+  mysql: /^Otra base de datos/,
+  sqlserver: /^SQL Server/,
+  sqlserver_script: /^SQL Server/,
+  sqlserver_bulk: /^SQL Server/,
+};
+
+/** Entregar asks the destination first (2026-10-31), then its format. */
+function selectFormat(format: string) {
+  fireEvent.click(screen.getByRole("radio", { name: DESTINATION_FOR_FORMAT[format] ?? /^Archivo/ }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), { target: { value: format } });
+}
+
+function choosePowerBi() {
+  fireEvent.click(screen.getByRole("radio", { name: /^Power BI/ }));
+}
+
 describe("compuerta de calidad y editor de reglas (QA-11)", () => {
   it("vuelve a validar al exportar cuando el resultado quedó desactualizado", async () => {
     const validate = vi.spyOn(bridge, "validateQualityRules").mockResolvedValue(passingNotNull);
@@ -156,9 +174,7 @@ describe("compuerta de calidad y editor de reglas (QA-11)", () => {
     }} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
-      target: { value: "json" },
-    });
+    selectFormat("json");
     await act(async () => resolveValidation(passingNotNull));
 
     expect(onExport).not.toHaveBeenCalled();
@@ -209,9 +225,8 @@ describe("compuerta de calidad y editor de reglas (QA-11)", () => {
     const openInPowerBi = vi.spyOn(bridge, "openLastExportInPowerBi").mockResolvedValue(true);
     const view = render(<DeliveryHarness onExport={onExport} />);
     fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
-      target: { value: "parquet" },
-    });
+    choosePowerBi();
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), { target: { value: "parquet" } });
     fireEvent.click(screen.getByRole("button", { name: "Exportar y abrir en Power BI" }));
     await waitFor(() => expect(onExport).toHaveBeenCalledWith(expect.objectContaining({ format: "parquet" })));
 
@@ -264,7 +279,7 @@ describe("límites de Excel (RV19)", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), { target: { value: "excel" } });
+    selectFormat("excel");
 
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("Este dataset no cabe en Excel.");
@@ -374,6 +389,7 @@ describe("señales de datos personales en Entregar", () => {
     expect(openInPowerBi).not.toHaveBeenCalled();
 
     view.rerender(<DeliveryHarness onExport={onExport} exportState={{ kind: "idle" }} />);
+    choosePowerBi();
     fireEvent.click(screen.getByRole("button", { name: "Exportar y abrir en Power BI" }));
     await waitFor(() => expect(onExport).toHaveBeenCalledTimes(2));
     expect(onExport).toHaveBeenLastCalledWith(expect.objectContaining({ format: "csv" }));
@@ -389,13 +405,34 @@ describe("señales de datos personales en Entregar", () => {
     expect(openInPowerBi).toHaveBeenCalledOnce();
   });
 
-  it("solo ofrece Exportar y abrir en Power BI para CSV, Excel y Parquet", () => {
+  it("Power BI es un destino propio con CSV, Excel y Parquet", () => {
     render(<DeliveryHarness onExport={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "Exportar y abrir en Power BI" })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("combobox", { name: /Formato/ }), { target: { value: "parquet" } });
-    expect(screen.getByRole("button", { name: "Exportar y abrir en Power BI" })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("combobox", { name: /Formato/ }), { target: { value: "json" } });
+    // A file export never opens Power BI.
     expect(screen.queryByRole("button", { name: "Exportar y abrir en Power BI" })).not.toBeInTheDocument();
+    selectFormat("json");
+    choosePowerBi();
+    const formats = screen.getByRole("combobox", { name: "Formato de exportación" });
+    expect([...formats.querySelectorAll("option")].map((option) => option.value)).toEqual(["parquet", "csv", "excel"]);
+    // JSON is not something Power BI opens: the destination proposes Parquet.
+    expect(formats).toHaveValue("parquet");
+    expect(screen.getByRole("button", { name: "Exportar y abrir en Power BI" })).toBeInTheDocument();
+  });
+
+  it("organiza Entregar por destinos y explica cada formato", () => {
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    expect(screen.getByRole("radio", { name: /^Archivo/ })).toBeChecked();
+    fireEvent.click(screen.getByRole("radio", { name: /^SQL Server/ }));
+    const formats = screen.getByRole("combobox", { name: "Formato de exportación" });
+    expect([...formats.querySelectorAll("option")].map((option) => option.value)).toEqual(["sqlserver_script", "sqlserver", "sqlserver_bulk"]);
+    expect(formats).toHaveValue("sqlserver_script");
+    expect(screen.getByText(/Columnia no necesita conectarse al servidor/)).toHaveTextContent("La tabla se llamará como el archivo");
+    expect(screen.getByRole("button", { name: "Exportar script T-SQL" })).toBeInTheDocument();
+    selectFormat("sqlserver_bulk");
+    expect(screen.getByRole("button", { name: "Exportar paquete BULK INSERT" })).toBeInTheDocument();
+    // The direct connection asks for the server, not for an ODBC string.
+    selectFormat("sqlserver");
+    expect(screen.getByLabelText("Servidor")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Cadena de conexión ODBC")).not.toBeInTheDocument();
   });
 
   it("no pide confirmación cuando se elige una protección", () => {
@@ -455,9 +492,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
-      target: { value: "parquet" },
-    });
+    selectFormat("parquet");
     const exportButton = screen.getByRole("button", { name: "Exportar Parquet" });
     expect(exportButton).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", {
@@ -686,9 +721,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
-      target: { value: "json" },
-    });
+    selectFormat("json");
     fireEvent.click(screen.getByRole("button", { name: "Exportar JSON" }));
 
     expect(onExport).toHaveBeenCalledWith({
@@ -705,9 +738,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
-      target: { value: "sql" },
-    });
+    selectFormat("sql");
     fireEvent.click(screen.getByRole("button", { name: "Exportar SQL" }));
 
     expect(onExport).toHaveBeenCalledWith({
@@ -746,9 +777,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} recipeDraft={recipeDraft} />);
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
-      target: { value: "bundle" },
-    });
+    selectFormat("bundle");
 
     expect(screen.getByRole("note")).toHaveTextContent("recipe.json");
     expect(screen.getByRole("note")).toHaveTextContent("manifest.json");
@@ -782,9 +811,7 @@ describe("DeliveryPhase", () => {
     });
     expect(privacyControl).toHaveAttribute("aria-describedby", "privacy-mode-note");
     expect(screen.getByText(/Es seudonimización, no anonimización/)).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
-      target: { value: "excel" },
-    });
+    selectFormat("excel");
     fireEvent.click(screen.getByRole("button", { name: "Exportar Excel" }));
 
     expect(onExport).toHaveBeenCalledWith({
@@ -802,9 +829,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
-      target: { value: "postgresql" },
-    });
+    selectFormat("postgresql");
     const exportButton = screen.getByRole("button", { name: "Exportar PostgreSQL" });
     expect(exportButton).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
@@ -836,9 +861,8 @@ describe("DeliveryPhase", () => {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
     for (const format of ["mysql", "sqlserver"] as const) {
-      fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
-        target: { value: format },
-      });
+      selectFormat(format);
+      if (format === "sqlserver") fireEvent.click(screen.getByRole("button", { name: "Escribir la cadena ODBC" }));
       fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
         target: { value: `Driver={${format}};Server=localhost` },
       });
@@ -858,9 +882,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
-      target: { value: "mysql" },
-    });
+    selectFormat("mysql");
     fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
       target: { value: "Driver={mysql};Server=A" },
     });
@@ -880,9 +902,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
-      target: { value: "postgresql" },
-    });
+    selectFormat("postgresql");
     fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
       target: { value: "Driver={PostgreSQL Unicode};Server=localhost" },
     });
@@ -1502,9 +1522,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
-      target: { value: "postgresql" },
-    });
+    selectFormat("postgresql");
     const connection = screen.getByLabelText("Cadena de conexión ODBC");
     fireEvent.change(connection, { target: { value: "Driver={PostgreSQL};Server=localhost" } });
 

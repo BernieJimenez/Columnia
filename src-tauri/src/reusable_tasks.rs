@@ -326,7 +326,16 @@ fn validate_reusable_task(mut task: ReusableTask) -> Result<ReusableTask, String
     }
     if !matches!(
         task.output_format.as_str(),
-        "csv" | "csv_excel" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle"
+        "csv"
+            | "csv_excel"
+            | "json"
+            | "parquet"
+            | "sql"
+            | "excel"
+            | "sqlite"
+            | "bundle"
+            | "sqlserver_script"
+            | "sqlserver_bulk"
     ) {
         return Err("La tarea solo puede guardar un formato de archivo local.".to_owned());
     }

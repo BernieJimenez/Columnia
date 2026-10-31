@@ -46,11 +46,15 @@ sugiere después al revisarlo:
 ### `transform`
 
 ```text
-transform --input FILE [--sheet NAME --header first-row|generated] --recipe RECIPE --output FILE --format csv|json|parquet|sql|excel|sqlite|bundle [--force]
+transform --input FILE [--sheet NAME --header first-row|generated] --recipe RECIPE --output FILE --format csv|json|parquet|sql|excel|sqlite|sqlserver-script|sqlserver-bulk|bundle [--force]
 ```
 
 Aplica una receta JSON v1 o v2 de forma atómica y publica CSV, JSON, Parquet, SQL,
-Excel o SQLite. `bundle`/`zip` publica un paquete con dataset CSV, diccionario,
+Excel o SQLite. `sqlserver-script` (alias `tsql`) publica un script T-SQL para
+SSMS o `sqlcmd` que crea la tabla e inserta las filas en una transacción, sin
+`DROP`; `sqlserver-bulk` publica un ZIP con CSV UTF-8, `cargar.sql` y
+`LEEME.txt` para `BULK INSERT`. La tabla toma el nombre del archivo de salida,
+en el esquema `dbo`. `bundle`/`zip` publica un paquete con dataset CSV, diccionario,
 reporte de calidad y manifest con hashes. Los destinos no pueden ser el input ni
 la receta, tampoco a través de `..`, otras mayúsculas o un enlace duro, ni
 siquiera con `--force`. Reemplazar cualquier otro archivo existente exige
@@ -144,7 +148,7 @@ historial sin abrir el proyecto en una sesión.
 ### `project-export`
 
 ```text
-project-export --store DIR --id ID --output FILE --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated] [--force]
+project-export --store DIR --id ID --output FILE --format csv|json|parquet|sql|excel|sqlite|sqlserver-script|sqlserver-bulk|bundle [--allow-unvalidated] [--force]
 ```
 
 Valida reglas guardadas y exporta atómicamente. `--allow-unvalidated` solo

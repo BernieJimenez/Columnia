@@ -194,6 +194,11 @@
       "debug": false
     },
     {
+      "name": "list_sql_server_drivers",
+      "module": "remote_databases",
+      "debug": false
+    },
+    {
       "name": "list_database_tables",
       "module": "remote_databases",
       "debug": false

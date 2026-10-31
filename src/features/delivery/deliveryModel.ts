@@ -113,6 +113,80 @@ export function databaseKindForExportFormat(format: ExportFormat): DatabaseTarge
   }
 }
 
+/** Where the copy goes (2026-10-31): Entregar asks this first, then the format. */
+export type DeliveryDestination = "file" | "sqlserver" | "powerbi" | "database";
+
+interface DeliveryFormatOption {
+  format: ExportFormat;
+  label: string;
+  description: string;
+}
+
+interface DeliveryDestinationOption {
+  id: DeliveryDestination;
+  label: string;
+  description: string;
+  formats: readonly DeliveryFormatOption[];
+}
+
+export const DELIVERY_DESTINATIONS: readonly DeliveryDestinationOption[] = [
+  {
+    id: "file",
+    label: "Archivo",
+    description: "CSV, Excel, Parquet y otros formatos",
+    formats: [
+      { format: "csv_excel", label: "CSV para Excel", description: "Se abre con doble clic en Excel: punto y coma, coma decimal y tildes correctas." },
+      { format: "csv", label: "CSV", description: "Separado por comas, para otras herramientas. Si lo abrirás en Excel, elige «CSV para Excel»." },
+      { format: "excel", label: "Excel (.xlsx)", description: "Un libro con una hoja; las fechas quedan como fechas." },
+      { format: "parquet", label: "Parquet", description: "Columnar y comprimido; conserva los tipos. Lo mejor para análisis." },
+      { format: "json", label: "JSON", description: "Una lista de objetos, para aplicaciones y APIs." },
+      { format: "sqlite", label: "SQLite", description: "Una base de datos completa en un solo archivo." },
+      { format: "sql", label: "SQL portable", description: "CREATE TABLE e INSERT en SQL estándar, para PostgreSQL o SQLite." },
+      { format: "bundle", label: "Paquete ZIP", description: "El dataset con su diccionario de columnas y el resumen de calidad." },
+    ],
+  },
+  {
+    id: "sqlserver",
+    label: "SQL Server",
+    description: "Con un script, por conexión o con BULK INSERT",
+    formats: [
+      { format: "sqlserver_script", label: "Script T-SQL", description: "Un .sql que ejecutas en SSMS o sqlcmd. Columnia no necesita conectarse al servidor." },
+      { format: "sqlserver", label: "Conectar y escribir la tabla", description: "Columnia se conecta por ODBC y crea o completa la tabla directamente." },
+      { format: "sqlserver_bulk", label: "Paquete BULK INSERT", description: "CSV y script de carga rápida, para tablas grandes (SQL Server 2017 o posterior)." },
+    ],
+  },
+  {
+    id: "powerbi",
+    label: "Power BI",
+    description: "Exporta y lo abre en Power BI Desktop",
+    formats: [
+      { format: "parquet", label: "Parquet", description: "Recomendado: Power BI lee los tipos de columna sin adivinarlos." },
+      { format: "csv", label: "CSV", description: "Power BI detectará los tipos al importarlo." },
+      { format: "excel", label: "Excel (.xlsx)", description: "Útil si alguien más lo abrirá en Excel." },
+    ],
+  },
+  {
+    id: "database",
+    label: "Otra base de datos",
+    description: "PostgreSQL o MySQL por ODBC",
+    formats: [
+      { format: "postgresql", label: "PostgreSQL", description: "Columnia se conecta por ODBC y crea o completa la tabla." },
+      { format: "mysql", label: "MySQL", description: "Columnia se conecta por ODBC y crea o completa la tabla." },
+    ],
+  },
+];
+
+export function deliveryDestination(id: DeliveryDestination): DeliveryDestinationOption {
+  return DELIVERY_DESTINATIONS.find((destination) => destination.id === id) ?? DELIVERY_DESTINATIONS[0]!;
+}
+
+/** The destination a format belongs to when nothing else says (Power BI is chosen explicitly). */
+export function destinationForFormat(format: ExportFormat): DeliveryDestination {
+  if (format === "sqlserver" || format === "sqlserver_script" || format === "sqlserver_bulk") return "sqlserver";
+  if (format === "postgresql" || format === "mysql") return "database";
+  return "file";
+}
+
 export function isDatabaseExportFormat(format: ExportFormat): boolean {
   return format === "postgresql" || format === "mysql" || format === "sqlserver";
 }

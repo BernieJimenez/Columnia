@@ -27,6 +27,7 @@ import {
   type SavedRecipe,
 } from "../../bridge";
 import { OperationProgressView } from "../../components/OperationProgressView";
+import { SqlServerConnectionForm } from "../database/SqlServerConnectionForm";
 import {
   type DeliveryContractAction,
   type DeliveryContractState,
@@ -37,6 +38,10 @@ import {
   bundleFileNames,
   databaseKindForExportFormat,
   isDatabaseExportFormat,
+  DELIVERY_DESTINATIONS,
+  deliveryDestination,
+  destinationForFormat,
+  type DeliveryDestination,
   listFileNames,
   validateDatabaseTargetDraft,
   validateQualityRuleDraft,
@@ -327,10 +332,35 @@ export function DeliveryPhase({
     excel: "Excel",
     sqlite: "SQLite",
     bundle: "Paquete ZIP",
+    sqlserver_script: "script T-SQL",
+    sqlserver_bulk: "paquete BULK INSERT",
     postgresql: "PostgreSQL",
     mysql: "MySQL",
-    sqlserver: "SQL Server",
+    sqlserver: "a SQL Server",
   }[selectedExportFormat];
+  // 2026-10-31: Entregar asks where the copy goes, then the format of that place.
+  const [destination, setDestination] = useState<DeliveryDestination>(() => destinationForFormat(selectedExportFormat));
+  const destinationFormats = deliveryDestination(destination).formats;
+  const selectedFormatOption = destinationFormats.find((option) => option.format === selectedExportFormat);
+  const previousExportFormat = useRef(selectedExportFormat);
+  useEffect(() => {
+    // A preset or project can set a format of another destination. Only a new
+    // format moves the destination: in App the format arrives a render after
+    // the destination the person just chose.
+    if (previousExportFormat.current === selectedExportFormat) return;
+    previousExportFormat.current = selectedExportFormat;
+    if (!deliveryDestination(destination).formats.some((option) => option.format === selectedExportFormat)) {
+      setDestination(destinationForFormat(selectedExportFormat));
+    }
+  }, [destination, selectedExportFormat]);
+
+  function chooseDestination(next: DeliveryDestination) {
+    setDestination(next);
+    const formats = deliveryDestination(next).formats;
+    if (!formats.some((option) => option.format === selectedExportFormat)) {
+      changeExportFormat(formats[0]!.format);
+    }
+  }
   const approvedQualitySummary = contract.kind === "with_contract"
     && contract.gate.kind === "ready"
     && contract.gate.result.passed
@@ -824,34 +854,45 @@ export function DeliveryPhase({
         <div>
           <h3 id="export-title">Exportar dataset activo</h3>
         </div>
+        <fieldset className="choice-cards" disabled={busy}>
+          <legend>¿A dónde va la copia?</legend>
+          <div className="choice-cards__options">
+            {DELIVERY_DESTINATIONS.map((option) => (
+              <label key={option.id} className="choice-card" data-selected={destination === option.id || undefined}>
+                <input
+                  type="radio"
+                  name="delivery-destination"
+                  value={option.id}
+                  checked={destination === option.id}
+                  onChange={() => chooseDestination(option.id)}
+                />
+                <span>
+                  <strong>{option.label}</strong>
+                  <small>{option.description}</small>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <div className="export-controls">
           <label className="export-format">
-            Formato
+            {destination === "sqlserver" ? "Cómo llevarlo" : "Formato"}
             <select
               aria-label="Formato de exportación"
+              aria-describedby="export-format-description"
               value={selectedExportFormat}
               onChange={(event) => changeExportFormat(event.target.value as ExportFormat)}
               disabled={busy}
             >
-              <option value="csv">CSV</option>
-              <option value="csv_excel">CSV para Excel (punto y coma, coma decimal, tildes correctas)</option>
-              <option value="json">JSON</option>
-              <option value="parquet">Parquet</option>
-              <option value="sql">SQL</option>
-              <option value="excel">Excel</option>
-              <option value="sqlite">SQLite</option>
-              <option value="bundle">Paquete ZIP (dataset, diccionario y resumen)</option>
-              <optgroup label="Bases de datos mediante ODBC">
-                <option value="postgresql">PostgreSQL</option>
-                <option value="mysql">MySQL</option>
-                <option value="sqlserver">SQL Server</option>
-              </optgroup>
+              {destinationFormats.map((option) => (
+                <option key={option.format} value={option.format}>{option.label}</option>
+              ))}
             </select>
-            {selectedExportFormat === "csv" && (
-              <small className="privacy-mode__note">
-                ¿Lo abrirás con doble clic en Excel? Elige «CSV para Excel» para verlo en columnas y con las tildes bien.
-              </small>
-            )}
+            <small id="export-format-description" className="privacy-mode__note">
+              {selectedFormatOption?.description}
+              {(selectedExportFormat === "sqlserver_script" || selectedExportFormat === "sqlserver_bulk")
+                && ` La tabla se llamará como el archivo que elijas al guardar, en el esquema dbo.`}
+            </small>
           </label>
           <label className="privacy-mode">
             Protección de datos personales
@@ -894,24 +935,33 @@ export function DeliveryPhase({
           )}
           {isDatabaseExportFormat(selectedExportFormat) && (
             <fieldset className="database-target">
-              <legend>Destino remoto · {exportFormatLabel}</legend>
-              <p>
-                Usa el controlador ODBC correspondiente. La cadena y la contraseña solo viven durante esta sesión y no se guardan en el proyecto. El esquema de destino es opcional.
-              </p>
-              <label>
-                Cadena de conexión ODBC
-                <input
-                  aria-label="Cadena de conexión ODBC"
-                  type="password"
-                  autoComplete="off"
-                  value={databaseTarget.connectionString}
-                  aria-invalid={invalidDatabaseTargetField === "connectionString" || undefined}
-                  aria-describedby={invalidDatabaseTargetField === "connectionString" ? "database-target-validation-error" : undefined}
-                  onChange={(event) => changeDatabaseTarget({ connectionString: event.target.value })}
+              <legend>Conexión · {exportFormatLabel}</legend>
+              {databaseTarget.kind === "sqlserver" ? (
+                <SqlServerConnectionForm
                   disabled={busy}
-                  placeholder="Driver={...};Server=...;Database=...;Uid=...;Pwd=..."
+                  onChange={(connectionString) => changeDatabaseTarget({ connectionString: connectionString ?? "" })}
                 />
-              </label>
+              ) : (
+                <>
+                  <p>
+                    Usa el controlador ODBC correspondiente. La cadena y la contraseña solo viven durante esta sesión y no se guardan en el proyecto. El esquema de destino es opcional.
+                  </p>
+                  <label>
+                    Cadena de conexión ODBC
+                    <input
+                      aria-label="Cadena de conexión ODBC"
+                      type="password"
+                      autoComplete="off"
+                      value={databaseTarget.connectionString}
+                      aria-invalid={invalidDatabaseTargetField === "connectionString" || undefined}
+                      aria-describedby={invalidDatabaseTargetField === "connectionString" ? "database-target-validation-error" : undefined}
+                      onChange={(event) => changeDatabaseTarget({ connectionString: event.target.value })}
+                      disabled={busy}
+                      placeholder="Driver={...};Server=...;Database=...;Uid=...;Pwd=..."
+                    />
+                  </label>
+                </>
+              )}
               <div className="database-target__grid">
                 <label>
                   Esquema de destino
@@ -1025,22 +1075,9 @@ export function DeliveryPhase({
             </label>
           )}
           <div className="export-actions-row" aria-describedby={exportBlockedReason ? "export-blocked-reason" : undefined}>
-            <button
-              className="primary-action export-action"
-              type="button"
-              onClick={() => {
-                openPowerBiAfterExportRef.current = false;
-                void requestExport(selectedExportFormat);
-              }}
-              disabled={busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || !databaseReady || exceedsExcel}
-            >
-              {contract.kind === "with_contract" && !gatePassed
-                ? `Validar y exportar ${exportFormatLabel}`
-                : `Exportar ${exportFormatLabel}`}
-            </button>
-            {(selectedExportFormat === "csv" || selectedExportFormat === "excel" || selectedExportFormat === "parquet") && (
+            {destination === "powerbi" ? (
               <button
-                className="secondary-action"
+                className="primary-action export-action"
                 type="button"
                 onClick={() => {
                   openPowerBiAfterExportRef.current = true;
@@ -1048,7 +1085,23 @@ export function DeliveryPhase({
                 }}
                 disabled={busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || exceedsExcel}
               >
-                Exportar y abrir en Power BI
+                {contract.kind === "with_contract" && !gatePassed
+                  ? "Validar, exportar y abrir en Power BI"
+                  : "Exportar y abrir en Power BI"}
+              </button>
+            ) : (
+              <button
+                className="primary-action export-action"
+                type="button"
+                onClick={() => {
+                  openPowerBiAfterExportRef.current = false;
+                  void requestExport(selectedExportFormat);
+                }}
+                disabled={busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || !databaseReady || exceedsExcel}
+              >
+                {contract.kind === "with_contract" && !gatePassed
+                  ? `Validar y exportar ${exportFormatLabel}`
+                  : `Exportar ${exportFormatLabel}`}
               </button>
             )}
           </div>

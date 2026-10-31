@@ -12,21 +12,22 @@ const dataset = {
   rows: [["1", "Lentejas", "San Cristóbal"], ["2", "Pan", "Monseñor Nouel"], ["3", "Café", "Santiago"]],
 } satisfies DatasetPreview;
 
-const connection = "Driver={ODBC Driver 18 for SQL Server};Server=localhost;Database=VentasRetail;Trusted_Connection=yes";
+const connection = "Driver={ODBC Driver 18 for SQL Server};Server=localhost;Database=VentasRetail;Trusted_Connection=yes;Encrypt=yes;";
 
 test.describe("cargar desde SQL Server", () => {
   test("lista las tablas, trae la elegida y la abre por el flujo normal de Cargar", async ({ page }) => {
     await installTauriMock(page, { dataset, format: "parquet" });
     await page.goto("/", { waitUntil: "commit" });
 
-    await page.getByText("Cargar desde SQL Server").click();
-    const connectionInput = page.getByLabel("Cadena de conexión ODBC");
-    await expect(connectionInput).toHaveAttribute("type", "password");
-    await connectionInput.fill(connection);
+    await page.getByRole("radio", { name: /^SQL Server/ }).check();
+    // A form instead of an ODBC string; the driver is the installed one.
+    await expect(page.getByText("Controlador: ODBC Driver 18 for SQL Server.")).toBeVisible();
+    await page.getByLabel("Servidor", { exact: true }).fill("localhost");
+    await page.getByLabel("Base de datos").fill("VentasRetail");
     await page.getByRole("button", { name: "Ver tablas" }).click();
     await expect(page.getByText("2 tablas y vistas disponibles.")).toBeVisible();
 
-    await page.getByLabel("Tabla o vista").selectOption({ label: "Ventas" });
+    await page.getByLabel("Tabla o vista", { exact: true }).selectOption({ label: "Ventas" });
     await page.getByRole("button", { name: "Traer dbo.Ventas" }).click();
     await expect(page.getByText(/Se trajeron 3 filas de dbo\.Ventas/)).toBeVisible();
 

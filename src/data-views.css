@@ -179,3 +179,81 @@
 @media (max-width: 700px) {
   .database-import__choice { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Choice cards (2026-10-31): where Entregar sends a copy and where Cargar reads from. */
+.choice-cards { min-width: 0; margin: 0 0 16px; padding: 0; border: 0; }
+.choice-cards legend { margin-bottom: 8px; padding: 0; color: var(--text-primary); font-size: .875rem; font-weight: 650; }
+.choice-cards__options { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.choice-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.choice-card:hover { background: var(--surface-subtle); }
+.choice-card[data-selected] { border-color: var(--accent); background: var(--accent-soft, var(--surface-subtle)); box-shadow: inset 0 -3px 0 var(--accent); }
+.choice-card input { flex: 0 0 auto; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); }
+.choice-card span { display: grid; gap: 2px; min-width: 0; }
+.choice-card strong { color: var(--text-primary); font-size: .9375rem; }
+.choice-card small { color: var(--text-secondary); font-size: .8125rem; line-height: 1.35; }
+.choice-cards:disabled .choice-card { cursor: not-allowed; opacity: .7; }
+
+/* Guided SQL Server connection, shared by Cargar and Entregar. */
+.connection-form { display: grid; gap: 12px; min-width: 0; }
+.connection-form__row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.connection-form__field { display: grid; gap: 6px; min-width: 0; color: var(--text-primary); font-size: .875rem; font-weight: 650; }
+.connection-form__field :is(input, select) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 500;
+}
+.connection-form__auth { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0; padding: 0; border: 0; }
+.connection-form__auth legend { width: 100%; margin-bottom: 4px; padding: 0; color: var(--text-primary); font-size: .875rem; font-weight: 650; }
+.connection-form__auth label,
+.connection-form__check { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; color: var(--text-primary); font-size: .9375rem; cursor: pointer; }
+.connection-form__auth label { align-items: center; }
+.connection-form :is(input[type="radio"], input[type="checkbox"]) { flex: 0 0 auto; width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
+.connection-form__auth input[type="radio"] { margin: 0; }
+.connection-form__check span { display: grid; gap: 2px; }
+.connection-form__check small { color: var(--text-secondary); font-size: .8125rem; }
+.connection-form__note { margin: 0; color: var(--text-secondary); font-size: .8125rem; }
+.connection-form__footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin: 0; }
+.connection-form__footer small { color: var(--text-secondary); font-size: .8125rem; }
+.connection-form__toggle {
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: .875rem;
+  font-weight: 650;
+  text-decoration: underline;
+  cursor: pointer;
+}
+/* Inside Entregar the older `.database-target label` grid would put the box
+   on its own line; these keep each control beside its text. */
+.connection-form label.connection-form__check,
+.connection-form .connection-form__auth label { display: flex; grid-template-columns: none; font-weight: 600; }
+.connection-form .connection-form__check small { font-weight: 500; }
+.connection-form .connection-form__field label { font-weight: 650; }
+
+/* Cargar by source (2026-10-31): the cards, then only that source's panel. */
+.load-sources { margin: 4px 0 18px; }
+.load-sources .choice-cards__options { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.database-import { display: grid; gap: 12px; margin-top: 4px; }
+.database-import > h3 { margin: 0; color: var(--text-primary); font-size: 1rem; }
+.load-source-panel .projects { margin-top: 0; padding-top: 0; border-top: 0; }
+.load-sources + .sample-datasets { margin-top: 0; padding-top: 0; border-top: 0; }

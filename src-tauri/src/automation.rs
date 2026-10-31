@@ -41,6 +41,8 @@ pub enum AutomationFormat {
     Excel,
     Sqlite,
     Bundle,
+    SqlServerScript,
+    SqlServerBulk,
 }
 
 impl AutomationFormat {
@@ -53,6 +55,8 @@ impl AutomationFormat {
             Self::Excel => "xlsx",
             Self::Sqlite => "sqlite",
             Self::Bundle => "zip",
+            Self::SqlServerScript => "sql",
+            Self::SqlServerBulk => "zip",
         }
     }
 
@@ -65,6 +69,8 @@ impl AutomationFormat {
             Self::Excel => ExportFormat::Excel,
             Self::Sqlite => ExportFormat::Sqlite,
             Self::Bundle => ExportFormat::Bundle,
+            Self::SqlServerScript => ExportFormat::SqlServerScript,
+            Self::SqlServerBulk => ExportFormat::SqlServerBulk,
         }
     }
 
@@ -77,6 +83,8 @@ impl AutomationFormat {
             Self::Excel => "Excel",
             Self::Sqlite => "SQLite",
             Self::Bundle => "Paquete Columnia",
+            Self::SqlServerScript => "Script T-SQL",
+            Self::SqlServerBulk => "Paquete BULK INSERT",
         }
     }
 }
@@ -856,8 +864,10 @@ fn parse_format(value: OsString) -> Result<AutomationFormat, AutomationError> {
         Some("excel" | "xlsx") => Ok(AutomationFormat::Excel),
         Some("sqlite") => Ok(AutomationFormat::Sqlite),
         Some("bundle" | "zip") => Ok(AutomationFormat::Bundle),
+        Some("sqlserver-script" | "tsql") => Ok(AutomationFormat::SqlServerScript),
+        Some("sqlserver-bulk") => Ok(AutomationFormat::SqlServerBulk),
         _ => Err(AutomationError::new(
-            "La opción --format debe ser csv, json, parquet, sql, excel, sqlite o bundle.",
+            "La opción --format debe ser csv, json, parquet, sql, excel, sqlite, bundle, sqlserver-script o sqlserver-bulk.",
         )),
     }
 }

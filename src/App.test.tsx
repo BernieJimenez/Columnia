@@ -848,8 +848,8 @@ describe("App", () => {
     const { unmount } = render(<App />);
     const notice = await screen.findByRole("region", { name: "La sesión anterior se cerró de forma inesperada" });
     expect(notice).toHaveTextContent("no estaban guardados en un proyecto");
-    const projects = screen.getByText("Continuar un proyecto").closest("details");
-    expect(projects).toHaveAttribute("open");
+    // Cargar opens on the saved projects after an unclean exit.
+    expect(screen.getByRole("radio", { name: /^Proyecto/ })).toBeChecked();
     fireEvent.click(within(notice).getByRole("button", { name: "Entendido" }));
     expect(screen.queryByRole("region", { name: "La sesión anterior se cerró de forma inesperada" })).not.toBeInTheDocument();
     unmount();
@@ -1087,10 +1087,11 @@ describe("App", () => {
     });
 
     renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("radio", { name: /^Proyecto/ }));
     fireEvent.click(await screen.findByRole("button", { name: /^Abrir\b/ }));
     expect(await screen.findByText("ventas.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-current", "step");
-    expect(screen.getByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
     expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
 
     await switchPhase("Entregar");
@@ -1119,6 +1120,7 @@ describe("App", () => {
     expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Mi receta");
     expect(screen.getByRole("combobox", { name: "Columna para renombrar 1" })).toHaveValue("");
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
+    fireEvent.click(await screen.findByRole("radio", { name: /^Proyecto/ }));
     expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toBeInTheDocument();
   }, LOADED_MACHINE_TIMEOUT_MS);
 
@@ -1150,6 +1152,7 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     expect(await screen.findByText("ventas.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
+    fireEvent.click(await screen.findByRole("radio", { name: /^Proyecto/ }));
 
     const projectName = await screen.findByRole("textbox", { name: "Nombre del proyecto" });
     fireEvent.change(projectName, { target: { value: project.name } });
@@ -1212,7 +1215,7 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await screen.findByRole("heading", { name: "Revisa antes de modificar" });
     await switchPhase("Cargar");
-    fireEvent.click(screen.getByText("Continuar un proyecto"));
+    fireEvent.click(screen.getByRole("radio", { name: /^Proyecto/ }));
     fireEvent.click(screen.getByText("Guardar y administrar proyectos"));
 
     const projectName = await screen.findByRole("textbox", { name: "Nombre del proyecto" });
@@ -1280,6 +1283,7 @@ describe("App", () => {
     });
 
     renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("radio", { name: /^Proyecto/ }));
     fireEvent.click(await screen.findByRole("button", { name: /^Abrir\b/ }));
 
     expect(await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
@@ -3363,6 +3367,7 @@ describe("App", () => {
     ]));
 
     renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("radio", { name: /^Proyecto/ }));
     await waitFor(() => expect(
       screen.getAllByRole("alert").some((alert) => alert.textContent?.includes("catálogo temporalmente")),
     ).toBe(true));
@@ -3373,6 +3378,7 @@ describe("App", () => {
     fireEvent.focus(screen.getByRole("button", { name: "Preparar" }));
     fireEvent.mouseEnter(screen.getByRole("button", { name: "Entregar" }));
     fireEvent.click(screen.getByText("Preferencias y recursos"));
+    fireEvent.click(screen.getByRole("radio", { name: /^Archivo/ }));
     fireEvent.click(screen.getAllByRole("button", { name: "Elegir de nuevo" })[0]);
     await waitFor(() => expect(pick).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole("button", { name: "Quitar ventas.csv del historial" }));
@@ -3532,6 +3538,8 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Entregar");
     fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    // Entregar asks the destination first (2026-10-31).
+    fireEvent.click(screen.getByRole("radio", { name: /^Otra base de datos/ }));
     fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), { target: { value: "postgresql" } });
     fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), { target: { value: "Driver={PostgreSQL};Server=localhost" } });
     fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));

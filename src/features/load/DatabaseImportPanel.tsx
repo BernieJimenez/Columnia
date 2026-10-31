@@ -11,6 +11,7 @@ import {
 } from "../../bridge";
 import { errorMessage, isCancellationError } from "../../bridge/errors";
 import { OperationProgressView } from "../../components/OperationProgressView";
+import { SqlServerConnectionForm } from "../database/SqlServerConnectionForm";
 import { plural } from "../../plural";
 
 /** Row limits offered; the engine accepts up to 5,000,000. */
@@ -104,12 +105,9 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
   const schemas = [...new Set(tables.map((table) => table.schema))];
 
   return (
-    <details className="load-secondary database-import">
-      <summary>
-        <span>Cargar desde SQL Server</span>
-        <small>Trae una tabla o vista a este equipo, solo lectura</small>
-      </summary>
-      <div className="load-secondary__content">
+    <section className="database-import" aria-labelledby={`${id}-title`}>
+      <h3 id={`${id}-title`}>Cargar desde SQL Server</h3>
+      <div>
         {!connected ? (
           <p className="recipe-hint" role="status">Conectar con SQL Server solo es posible en la aplicación de escritorio.</p>
         ) : (
@@ -118,25 +116,14 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
               Columnia lee la tabla que elijas y la guarda en este equipo para revisarla y prepararla.
               Solo lee: no escribe ni modifica nada en el servidor. Windows te pedirá confirmar la conexión.
             </p>
-            <div className="database-import__field">
-              <label htmlFor={`${id}-connection`}>Cadena de conexión ODBC</label>
-              <input
-                id={`${id}-connection`}
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                value={connectionString}
-                disabled={busy}
-                placeholder="Driver={ODBC Driver 18 for SQL Server};Server=...;Database=...;Trusted_Connection=yes;Encrypt=yes"
-                aria-describedby={`${id}-connection-note`}
-                onChange={(event) => {
-                  setConnectionString(event.target.value);
-                  setList({ kind: "idle" });
-                  setImportState({ kind: "idle" });
-                }}
-              />
-              <small id={`${id}-connection-note`}>No se guarda: solo vive mientras la usas. Usa un controlador ODBC instalado.</small>
-            </div>
+            <SqlServerConnectionForm
+              disabled={busy}
+              onChange={(next) => {
+                setConnectionString(next ?? "");
+                setList({ kind: "idle" });
+                setImportState({ kind: "idle" });
+              }}
+            />
             <div className="database-import__actions">
               <button
                 type="button"
@@ -153,7 +140,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
               )}
             </div>
             {connectionString.trim() === "" && list.kind === "idle" && (
-              <p className="database-import__hint">Pega la cadena de conexión para ver las tablas.</p>
+              <p className="database-import__hint">Completa la conexión para ver las tablas.</p>
             )}
             {list.kind === "error" && <p className="notice notice--error" role="alert">{list.message}</p>}
             {list.kind === "listed" && tables.length === 0 && (
@@ -228,6 +215,6 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
           </div>
         )}
       </div>
-    </details>
+    </section>
   );
 }

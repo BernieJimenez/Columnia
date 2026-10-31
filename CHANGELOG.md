@@ -12,6 +12,21 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Añadido
 
+- Entregar exporta a SQL Server de dos formas más, sin que Columnia se
+  conecte al servidor: «Script T-SQL» genera un `.sql` para SSMS o
+  `sqlcmd` (`CREATE TABLE` con tipos de SQL Server e `INSERT` de hasta 1.000
+  filas, en una sola transacción y sin `DROP`: si la tabla ya existe, el
+  script se detiene sin tocar nada), y «Paquete BULK INSERT» genera un ZIP con
+  el CSV en UTF-8, el `cargar.sql` que crea la tabla y la carga con
+  `BULK INSERT`, y un `LEEME.txt` con los pasos. La tabla se llama como el
+  archivo elegido al guardar, en el esquema `dbo`. También desde la línea de
+  comandos (`--format sqlserver-script|sqlserver-bulk`). Probado contra un
+  SQL Server local sin dejar objetos creados.
+- La conexión a SQL Server, al cargar y al entregar, se rellena con un
+  formulario (servidor, base de datos, Windows o usuario y contraseña,
+  confiar en el certificado) en lugar de escribir la cadena ODBC; el
+  controlador instalado se detecta solo, la conexión siempre pide cifrado, y la
+  cadena manual sigue disponible como opción avanzada. Nada se guarda.
 - Cargar › «Cargar desde SQL Server» trae una tabla o vista a este equipo.
   Se pega la cadena de conexión ODBC (no se guarda), Windows pide confirmar la
   conexión en un diálogo propio de lectura, se elige una de las tablas y vistas
@@ -1105,6 +1120,16 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - RV04: si falla cancelar una importación pendiente o liberar su selección temporal, Columnia conserva el `selectionId`, identifica el paso pendiente y permite reintentarlo sin repetir el paso completado. Las nuevas inspecciones permanecen bloqueadas hasta completar la limpieza.
 
 ### Mejorado
+
+- Entregar empieza por el destino de la copia: Archivo, SQL Server, Power BI u
+  Otra base de datos, cada uno con sus formatos y una línea que explica cada
+  uno. Power BI pasa a ser un destino propio cuyo botón principal exporta y
+  abre el archivo.
+- Cargar empieza por la fuente de los datos: Archivo, SQL Server, Ejemplo o
+  Proyecto, y muestra solo el panel de la elegida. Tras un cierre inesperado
+  abre directamente en los proyectos guardados.
+- En pantallas estrechas, los selectores de formato de Entregar ocupan todo el
+  ancho.
 
 - Nuevo shell de trabajo. La barra lateral queda en la marca, el espacio
   «Analizar» y las cinco etapas: solo la actual lleva descripción, una etapa

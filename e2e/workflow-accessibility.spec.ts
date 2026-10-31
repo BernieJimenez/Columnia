@@ -206,6 +206,8 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await installSyntheticTauriMock(page);
     await loadSyntheticDataset(page);
 
+    // Entregar asks the destination first (2026-10-31).
+    await page.getByRole("radio", { name: /^Otra base de datos/ }).check();
     const format = page.getByRole("combobox", { name: "Formato de exportación" });
     await format.selectOption("postgresql");
     const connectionString = page.getByRole("textbox", { name: "Cadena de conexión ODBC" });
@@ -220,6 +222,7 @@ test.describe("recorrido cargado de accesibilidad", () => {
       return descriptionId ? document.getElementById(descriptionId)?.textContent ?? "" : "";
     })).toContain("Indica la cadena de conexión ODBC.");
 
+    await page.getByRole("radio", { name: /^Archivo/ }).check();
     await format.selectOption("csv");
     const unvalidatedConfirmation = page.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" });
     await activateWithKeyboard(page, unvalidatedConfirmation, "Confirmar exportación sin validación", "Space");

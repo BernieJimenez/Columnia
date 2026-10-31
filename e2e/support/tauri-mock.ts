@@ -147,6 +147,7 @@ export async function installTauriMock(page: Page, options: TauriMockOptions): P
         case "get_history_state": return fixture.history;
         case "get_dataset_page": return { offset: args.offset ?? 0, rows: fixture.dataset.rows };
         // A database import: the listed tables, then the fixture as a Parquet file.
+        case "list_sql_server_drivers": return ["ODBC Driver 18 for SQL Server"];
         case "list_database_tables": return [
           { schema: "dbo", name: "Clientes", isView: false },
           { schema: "dbo", name: "Ventas", isView: false },

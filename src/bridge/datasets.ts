@@ -236,3 +236,8 @@ export function importDatabaseTable(
     onProgress: progressChannel(onProgress),
   });
 }
+
+/** Installed ODBC drivers for SQL Server, newest first; reads the local list only. */
+export function listSqlServerDrivers(): Promise<string[]> {
+  return invoke<string[]>("list_sql_server_drivers");
+}

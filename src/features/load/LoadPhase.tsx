@@ -36,6 +36,14 @@ export type LoadRuntimeState =
   | { kind: "browser" }
   | { kind: "unavailable" };
 
+type LoadSource = "file" | "sqlserver" | "sample" | "project";
+
+interface LoadSourceOption {
+  id: LoadSource;
+  label: string;
+  description: string;
+}
+
 function formatFileSize(bytes: number): string {
   return formatBytes(bytes);
 }
@@ -43,7 +51,7 @@ function formatFileSize(bytes: number): string {
 interface LoadPhaseProps {
   children?: ReactNode;
   reusableTaskPanel?: ReactNode;
-  /** «Cargar desde SQL Server», shown below the reusable tasks. */
+  /** «Cargar desde SQL Server», shown when that source is chosen. */
   databaseImportPanel?: ReactNode;
   pendingTaskName?: string | null;
   runtime: LoadRuntimeState;
@@ -147,6 +155,18 @@ export function LoadPhase({
     inspection.kind === "resource_preflight" ||
     inspection.kind === "schema_mismatch";
 
+  const showSamples = runtime.kind === "connected" && sampleDatasets.length > 0;
+  const sourceOptions: LoadSourceOption[] = [
+    { id: "file", label: "Archivo", description: "CSV, Excel, Parquet, JSON y más" },
+    ...(databaseImportPanel ? [{ id: "sqlserver" as const, label: "SQL Server", description: "Una tabla o vista, solo lectura" }] : []),
+    ...(showSamples ? [{ id: "sample" as const, label: "Ejemplo", description: "Datos de prueba creados en este equipo" }] : []),
+    ...(children ? [{ id: "project" as const, label: "Proyecto", description: current ? "Guarda o retoma un trabajo" : "Retoma un trabajo guardado" }] : []),
+  ];
+  // After an unexpected exit the saved projects come first (DAT-01).
+  const [chosenSource, setChosenSource] = useState<LoadSource | null>(null);
+  const preferredSource = chosenSource ?? (previousExitUnclean && !current && children ? "project" : "file");
+  const source = sourceOptions.some((option) => option.id === preferredSource) ? preferredSource : "file";
+
   const selectionAction = (
     <button className={current ? "secondary-action" : "primary-action"} type="button" onClick={onSelect} disabled={selectionDisabled}>
       {inspection.kind === "inspecting" ? "Inspeccionando…" : current ? "Seleccionar otro dataset" : "Seleccionar dataset"}
@@ -206,13 +226,36 @@ export function LoadPhase({
         </section>
       )}
 
-      {current && runtime.kind === "connected" && (
+      {sourceOptions.length > 1 && (
+        <fieldset className="choice-cards load-sources">
+          <legend>¿De dónde vienen los datos?</legend>
+          <div className="choice-cards__options">
+            {sourceOptions.map((option) => (
+              <label key={option.id} className="choice-card" data-selected={source === option.id || undefined}>
+                <input
+                  type="radio"
+                  name="load-source"
+                  value={option.id}
+                  checked={source === option.id}
+                  onChange={() => setChosenSource(option.id)}
+                />
+                <span>
+                  <strong>{option.label}</strong>
+                  <small>{option.description}</small>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+
+      {source === "file" && current && runtime.kind === "connected" && (
         <p className="load-drop-hint" role="note">
           También puedes arrastrar un archivo compatible a esta ventana.
         </p>
       )}
 
-      {!current && (
+      {source === "file" && !current && (
         <section className="load-brief" aria-labelledby="load-brief-title">
           <svg className="load-brief__illustration" viewBox="0 0 180 144" fill="none" aria-hidden="true">
             <rect x="16" y="12" width="148" height="120" rx="8" fill="var(--surface-raised)" stroke="currentColor" />
@@ -232,7 +275,7 @@ export function LoadPhase({
         </section>
       )}
 
-      {!current && runtime.kind === "connected" && sampleDatasets.length > 0 && (
+      {source === "sample" && (
         <section className="sample-datasets" aria-labelledby="sample-datasets-title">
           <div>
             <p className="eyebrow">Sin preparar archivos</p>
@@ -257,7 +300,7 @@ export function LoadPhase({
         </section>
       )}
 
-      {recentDatasets.length > 0 && (
+      {source === "file" && recentDatasets.length > 0 && (
         <details className="load-secondary">
           <summary>
             <span>Retomar un archivo reciente</span>
@@ -309,8 +352,9 @@ export function LoadPhase({
         </details>
       )}
 
+      {source === "sqlserver" && databaseImportPanel}
+      {source === "project" && <div className="load-source-panel">{children}</div>}
       {reusableTaskPanel}
-      {databaseImportPanel}
 
       {datasetStatus.kind === "loading" && (
         <OperationProgressView
@@ -829,15 +873,6 @@ export function LoadPhase({
         <p className="notice" role="status">
           Abre Columnia con Tauri para seleccionar archivos locales.
         </p>
-      )}
-      {children && (
-        <details className="load-secondary" open={previousExitUnclean && !current ? true : undefined}>
-          <summary>
-            <span>Continuar un proyecto</span>
-            <small>Guardar o retomar un espacio de trabajo</small>
-          </summary>
-          <div className="load-secondary__content">{children}</div>
-        </details>
       )}
       {current && <DatasetMetrics dataset={current} />}
     </>

@@ -20,7 +20,7 @@
 - Detecta nulos, duplicados, tipos incompatibles y otras señales de calidad.
 - Aplica correcciones y transformaciones reversibles.
 - Permite explorar los datos con SQL local mediante Polars o DuckDB.
-- Valida contratos de calidad antes de exportar una copia.
+- Valida contratos de calidad antes de exportar una copia: a un archivo, a Power BI, a SQL Server (por conexión, script T-SQL o paquete BULK INSERT) o a otra base de datos.
 - Guarda proyectos locales para continuar el trabajo después.
 
 ## Recorrido visual

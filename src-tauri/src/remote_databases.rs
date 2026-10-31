@@ -2544,6 +2544,52 @@ where
     })
 }
 
+/// The installed ODBC drivers that reach SQL Server, the newest first, so the
+/// connection form picks one without the person typing its name. It only
+/// reads the local driver list; no connection is opened.
+#[tauri::command]
+pub async fn list_sql_server_drivers() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let environment = Environment::new()
+            .map_err(|error| format!("No se pudo inicializar ODBC: {error:?}"))?;
+        let drivers = environment
+            .drivers()
+            .map_err(|error| format!("No se pudieron listar los controladores ODBC: {error:?}"))?
+            .into_iter()
+            .map(|driver| driver.description)
+            .collect::<Vec<_>>();
+        Ok(sql_server_drivers(drivers))
+    })
+    .await
+    .map_err(|_| "La lista de controladores se interrumpió.".to_owned())?
+}
+
+/// SQL Server drivers by preference: «ODBC Driver N» from the highest N, then
+/// the Native Client, then the legacy «SQL Server» driver of Windows.
+fn sql_server_drivers(drivers: Vec<String>) -> Vec<String> {
+    let rank = |name: &str| -> (u8, u32) {
+        let lower = name.to_ascii_lowercase();
+        if let Some(version) = lower
+            .strip_prefix("odbc driver ")
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|number| number.parse::<u32>().ok())
+        {
+            (0, u32::MAX - version)
+        } else if lower.contains("native client") {
+            (1, 0)
+        } else {
+            (2, 0)
+        }
+    };
+    let mut drivers = drivers
+        .into_iter()
+        .filter(|name| name.to_ascii_lowercase().contains("sql server"))
+        .collect::<Vec<_>>();
+    drivers.sort_by_key(|name| rank(name));
+    drivers.dedup();
+    drivers
+}
+
 #[tauri::command]
 pub async fn list_database_tables(
     app: AppHandle,
@@ -4090,5 +4136,26 @@ mod tests {
             frame.get_column_names()
         );
         eprintln!("{frame}");
+    }
+
+    #[test]
+    fn sql_server_drivers_come_newest_first_without_other_databases() {
+        let installed = vec![
+            "SQL Server".to_owned(),
+            "Microsoft Access Driver (*.mdb, *.accdb)".to_owned(),
+            "ODBC Driver 17 for SQL Server".to_owned(),
+            "PostgreSQL Unicode(x64)".to_owned(),
+            "ODBC Driver 18 for SQL Server".to_owned(),
+            "SQL Server Native Client 11.0".to_owned(),
+        ];
+        assert_eq!(
+            sql_server_drivers(installed),
+            vec![
+                "ODBC Driver 18 for SQL Server",
+                "ODBC Driver 17 for SQL Server",
+                "SQL Server Native Client 11.0",
+                "SQL Server",
+            ]
+        );
     }
 }
