@@ -222,6 +222,10 @@ function applyProposalWithColumnNames() {
   fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
 }
 
+// Long flows (load a dataset, then several phases) take about 2 s alone but
+// passed 5 s in the pre-push hook, which runs them while Rust compiles.
+const LOADED_MACHINE_TIMEOUT_MS = 15_000;
+
 describe("App", () => {
   it("solo dice «Motor local listo» cuando el motor respondió (COD-05)", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
@@ -1116,7 +1120,7 @@ describe("App", () => {
     expect(screen.getByRole("combobox", { name: "Columna para renombrar 1" })).toHaveValue("");
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toBeInTheDocument();
-  });
+  }, LOADED_MACHINE_TIMEOUT_MS);
 
   it("guarda y confirma el borrado de un proyecto sin descartar el dataset", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
@@ -2707,7 +2711,7 @@ describe("App", () => {
       groupSummary: null,
       contactNormalizations: [], textExtractions: [],
     }), null);
-  });
+  }, LOADED_MACHINE_TIMEOUT_MS);
 
   it("actualiza columnas de texto por conversiones y confirma dropSource por sí solo", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
