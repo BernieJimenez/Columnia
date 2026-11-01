@@ -1643,4 +1643,51 @@ describe("DeliveryPhase", () => {
     await waitFor(() => expect(remove).toHaveBeenCalledWith(summary.id));
     expect(screen.getByText("Preset eliminado del catálogo local.")).toBeInTheDocument();
   });
+
+  it("un preset de script T-SQL guarda la tabla, el modo y la clave, y no acorta una clave que falta", async () => {
+    const summary: bridge.DeliveryPresetSummary = {
+      id: "0123456789abcdef0123456789abcdef",
+      name: "Carga semanal",
+      format: "sqlserver_script",
+      updatedAt: "2026-11-01T00:00:00Z",
+      selectedColumnCount: 2,
+      remote: false,
+    };
+    const save = vi.spyOn(bridge, "saveDeliveryPreset").mockResolvedValue(summary);
+    vi.spyOn(bridge, "listDeliveryPresets").mockResolvedValue([summary]);
+    const stored: bridge.DeliveryPreset = {
+      version: 1,
+      name: summary.name,
+      format: "sqlserver_script",
+      selectedColumns: ["id_pedido", "total"],
+      privacyMode: "none",
+      sqlServerScript: { schema: "ventas", table: "Pedidos", mode: "upsert", keyColumns: ["id_pedido", "total"], textSize: "fitted" },
+    };
+    vi.spyOn(bridge, "openDeliveryPreset").mockResolvedValue(stored);
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    selectFormat("sqlserver_script");
+    const target = screen.getByRole("group", { name: "Tabla en SQL Server" });
+    fireEvent.change(within(target).getByRole("textbox", { name: "Tabla" }), { target: { value: "Pedidos" } });
+    fireEvent.click(within(target).getByRole("radio", { name: /^Actualizar por clave/ }));
+    fireEvent.click(within(target).getByRole("checkbox", { name: "total" }));
+
+    fireEvent.click(screen.getByText("Presets de entrega guardados"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Nombre del preset de entrega" }), { target: { value: "Carga semanal" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar preset" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(null, expect.objectContaining({
+      format: "sqlserver_script",
+      sqlServerScript: { schema: "", table: "Pedidos", mode: "upsert", keyColumns: ["total"], textSize: "fitted" },
+    })));
+
+    // The stored key has a column these data lack: the key is cleared, never shortened to «total».
+    fireEvent.click(within(target).getByRole("radio", { name: /^Crear una tabla nueva/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir y verificar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Aplicar tras revisar esquema" }));
+    expect(screen.getByText(/La clave del preset \(id_pedido\) no está en estos datos/)).toBeInTheDocument();
+    expect(within(target).getByRole("radio", { name: /^Actualizar por clave/ })).toBeChecked();
+    expect(within(target).getByRole("textbox", { name: "Esquema" })).toHaveValue("ventas");
+    expect(within(target).getByRole("checkbox", { name: "total" })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Exportar script T-SQL" })).toBeDisabled();
+  });
 });

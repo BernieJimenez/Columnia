@@ -12,6 +12,12 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Añadido
 
+- Los presets de entrega guardan también la tabla de SQL Server del script
+  T-SQL y del paquete BULK INSERT: esquema, tabla, si se crea, se añaden filas
+  o se actualiza por clave, las columnas clave y el largo del texto. Una carga
+  semanal se repite eligiendo el preset. Si los datos ya no tienen alguna
+  columna de la clave, la clave queda vacía y Entregar pide elegirla de nuevo:
+  actualizar con solo parte de una clave compuesta tocaría filas equivocadas.
 - El script T-SQL y el paquete BULK INSERT ya no solo crean tablas: también
   añaden filas a una tabla que existe o la actualizan por clave (actualizan las
   filas cuya clave ya está y añaden las nuevas). Antes de tocar nada, el script

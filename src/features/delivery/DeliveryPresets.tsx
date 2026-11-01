@@ -180,7 +180,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
             }}
           >
             <summary>Presets de entrega guardados</summary>
-            <p>Guarda el formato y la protección para repetirlos; las columnas solo se usan para avisar si el esquema cambió. Las credenciales quedan fuera del preset.</p>
+            <p>Guarda el formato, la protección y la tabla de destino para repetirlos; las columnas solo se usan para avisar si el esquema cambió. Las credenciales quedan fuera del preset.</p>
             <label>
               Preset de entrega local
               <select

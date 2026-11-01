@@ -225,6 +225,8 @@ export interface DeliveryPreset {
   selectedColumns: string[];
   privacyMode: PrivacyMode;
   databaseTarget?: DeliveryPresetDatabaseTarget;
+  /** Only with «Script T-SQL» and «Paquete BULK INSERT». */
+  sqlServerScript?: SqlServerScriptOptions;
 }
 
 export interface DeliveryPresetSummary {

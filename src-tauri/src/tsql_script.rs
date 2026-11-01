@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use std::io::Write;
 
 use polars::prelude::DataType;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// SQL Server accepts at most 1,000 rows in one `INSERT … VALUES`.
 pub(crate) const ROWS_PER_INSERT: usize = 1_000;
@@ -24,7 +24,7 @@ const STAGING_TABLE: &str = "#columnia_carga";
 const FITTED_TEXT_SIZES: [usize; 7] = [50, 100, 255, 500, 1_000, 2_000, 4_000];
 
 /// What the script does with the destination table.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SqlServerLoadMode {
     /// Creates the table; stops if it already exists.
@@ -37,7 +37,7 @@ pub enum SqlServerLoadMode {
 }
 
 /// How long the text columns of a new table are.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SqlServerTextSize {
     /// `NVARCHAR(n)` sized from the longest value, with a margin.
@@ -49,7 +49,7 @@ pub enum SqlServerTextSize {
 
 /// The options Entregar sends for «Script T-SQL» and «Paquete BULK INSERT».
 /// Empty names take the defaults: `dbo` and the name of the saved file.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SqlServerScriptOptions {
     #[serde(default)]
@@ -62,6 +62,17 @@ pub struct SqlServerScriptOptions {
     key_columns: Vec<String>,
     #[serde(default)]
     text_size: SqlServerTextSize,
+}
+
+impl SqlServerScriptOptions {
+    /// The key columns, which only count when updating by key.
+    pub(crate) fn key_columns(&self) -> &[String] {
+        if self.mode == SqlServerLoadMode::Upsert {
+            &self.key_columns
+        } else {
+            &[]
+        }
+    }
 }
 
 /// The destination of a script, checked and with its defaults applied.

@@ -25,6 +25,7 @@ import {
   type QualityRule,
   type QualityRuleKind,
   type SavedRecipe,
+  type SqlServerScriptOptions,
 } from "../../bridge";
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ROW_AUDIT_COLUMN } from "../../rowAudit";
@@ -605,6 +606,7 @@ export function DeliveryPhase({
   /** Applies a delivery preset; returns the notice about its database target, if any. */
   function applyDeliveryPreset(openedPreset: DeliveryPreset): string | null {
     changeExportFormat(openedPreset.format);
+    const scriptNotice = applySqlServerScriptPreset(openedPreset.sqlServerScript);
     setLocalPrivacyMode(openedPreset.privacyMode);
     onPrivacyModeChange?.(openedPreset.privacyMode);
     if (openedPreset.databaseTarget) {
@@ -630,7 +632,28 @@ export function DeliveryPhase({
       setDatabasePreflightState({ kind: "idle" });
       databaseRequestGeneration.current += 1;
     }
-    return null;
+    return scriptNotice;
+  }
+
+  /**
+   * A key that is missing from these data is cleared, not shortened: updating by
+   * part of a composite key would match the wrong rows.
+   */
+  function applySqlServerScriptPreset(stored: SqlServerScriptOptions | undefined): string | null {
+    if (!stored) {
+      setSqlServerScript(DEFAULT_SQL_SERVER_SCRIPT);
+      return null;
+    }
+    const missingKeys = stored.mode === "upsert"
+      ? stored.keyColumns.filter((column) => !dataset.columns.some((item) => item.name === column))
+      : [];
+    setSqlServerScript({
+      ...DEFAULT_SQL_SERVER_SCRIPT,
+      ...stored,
+      keyColumns: stored.mode === "upsert" && missingKeys.length === 0 ? stored.keyColumns : [],
+    });
+    if (missingKeys.length === 0) return null;
+    return `La clave del preset (${missingKeys.join(", ")}) no está en estos datos. Elige de nuevo las columnas clave antes de exportar.`;
   }
 
 
@@ -1168,6 +1191,12 @@ export function DeliveryPhase({
               format: selectedExportFormat,
               selectedColumns: dataset.columns.map((column) => column.name),
               privacyMode: selectedPrivacyMode,
+              ...(isSqlServerFile ? {
+                sqlServerScript: {
+                  ...sqlServerScript,
+                  keyColumns: sqlServerScript.mode === "upsert" ? sqlServerKeys : [],
+                },
+              } : {}),
               ...(isDatabaseExportFormat(selectedExportFormat) ? {
                 databaseTarget: {
                   kind: databaseTarget.kind,

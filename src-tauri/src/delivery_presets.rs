@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::dataset::OPERATION_CANCELLED_MESSAGE;
+use crate::tsql_script::{SqlServerScriptOptions, TsqlTarget};
 
 const PRESET_VERSION: u8 = 1;
 const PRESET_ID_LENGTH: usize = 32;
@@ -33,6 +34,9 @@ pub struct DeliveryPreset {
     pub privacy_mode: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database_target: Option<DeliveryPresetDatabaseTarget>,
+    /// The table of «Script T-SQL» and «Paquete BULK INSERT» (2026-11-01).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sql_server_script: Option<SqlServerScriptOptions>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -321,6 +325,27 @@ fn validate_preset(mut preset: DeliveryPreset) -> Result<DeliveryPreset, String>
         }
         (_, None) => {}
     }
+    if let Some(options) = preset.sql_server_script.as_ref() {
+        if !matches!(
+            preset.format.as_str(),
+            "sqlserver_script" | "sqlserver_bulk"
+        ) {
+            return Err(
+                "Solo un preset de script T-SQL o BULK INSERT guarda la tabla de SQL Server."
+                    .to_owned(),
+            );
+        }
+        TsqlTarget::resolve(Some(options), "preset")?;
+        if let Some(missing) = options
+            .key_columns()
+            .iter()
+            .find(|column| !preset.selected_columns.contains(column))
+        {
+            return Err(format!(
+                "La columna clave «{missing}» no está entre las columnas del preset."
+            ));
+        }
+    }
     let encoded = serde_json::to_vec(&preset)
         .map_err(|_| "No se pudo validar el preset de entrega.".to_owned())?;
     if encoded.len() > MAX_PRESET_BYTES {
@@ -532,7 +557,63 @@ mod tests {
                 table: "cierre".to_owned(),
                 table_policy: "append".to_owned(),
             }),
+            sql_server_script: None,
         }
+    }
+
+    fn script_preset(options: serde_json::Value) -> DeliveryPreset {
+        DeliveryPreset {
+            version: 1,
+            name: "Carga semanal".to_owned(),
+            format: "sqlserver_script".to_owned(),
+            selected_columns: vec!["id".to_owned(), "total".to_owned()],
+            privacy_mode: "none".to_owned(),
+            database_target: None,
+            sql_server_script: Some(serde_json::from_value(options).unwrap()),
+        }
+    }
+
+    #[test]
+    fn preset_keeps_the_sql_server_table_mode_and_key() {
+        let directory = tempdir().unwrap();
+        let store = DeliveryPresetStore::initialize(directory.path().to_owned()).unwrap();
+        let weekly = script_preset(json!({
+            "schema": "ventas", "table": "Pedidos", "mode": "upsert",
+            "keyColumns": ["id"], "textSize": "max"
+        }));
+        let saved = store.save(None, weekly.clone()).unwrap();
+        let reopened = store.open(saved.id).unwrap();
+        assert_eq!(reopened, weekly);
+        let encoded = serde_json::to_value(&reopened).unwrap();
+        assert_eq!(encoded["sqlServerScript"]["mode"], "upsert");
+        assert_eq!(encoded["sqlServerScript"]["keyColumns"], json!(["id"]));
+
+        // A preset saved before this field still opens.
+        let mut old = serde_json::to_value(preset()).unwrap();
+        old.as_object_mut().unwrap().remove("sqlServerScript");
+        assert_eq!(serde_json::from_value::<DeliveryPreset>(old).unwrap(), preset());
+    }
+
+    #[test]
+    fn preset_rejects_a_sql_server_table_that_the_export_would_reject() {
+        let unknown_key = script_preset(json!({ "mode": "upsert", "keyColumns": ["cliente"] }));
+        assert!(validate_preset(unknown_key)
+            .unwrap_err()
+            .contains("«cliente»"));
+        let no_key = script_preset(json!({ "mode": "upsert", "keyColumns": [] }));
+        assert!(validate_preset(no_key).is_err());
+        let temporary = script_preset(json!({ "table": "#tmp" }));
+        assert!(validate_preset(temporary).is_err());
+        let mut csv = script_preset(json!({ "mode": "append" }));
+        csv.format = "csv".to_owned();
+        assert!(validate_preset(csv).is_err());
+        // Key columns of another mode are ignored, as the export ignores them.
+        let append = script_preset(json!({ "mode": "append", "keyColumns": ["cliente"] }));
+        assert!(validate_preset(append).is_ok());
+        assert!(serde_json::from_value::<SqlServerScriptOptions>(
+            json!({ "mode": "create", "connectionString": "x" })
+        )
+        .is_err());
     }
 
     #[test]
