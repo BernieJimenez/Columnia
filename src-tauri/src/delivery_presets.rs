@@ -591,7 +591,10 @@ mod tests {
         // A preset saved before this field still opens.
         let mut old = serde_json::to_value(preset()).unwrap();
         old.as_object_mut().unwrap().remove("sqlServerScript");
-        assert_eq!(serde_json::from_value::<DeliveryPreset>(old).unwrap(), preset());
+        assert_eq!(
+            serde_json::from_value::<DeliveryPreset>(old).unwrap(),
+            preset()
+        );
     }
 
     #[test]
