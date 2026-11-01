@@ -10809,6 +10809,7 @@ fn exports_validated_recipe_with_manifest_reference_and_hash() {
         PrivacyMode::None,
         None,
         Some(&recipe),
+        None,
         |_, _| {},
         || false,
     )

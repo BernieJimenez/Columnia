@@ -194,6 +194,7 @@ mod snapshot_comparison;
 mod source_loading;
 #[path = "dataset/spreadsheet_io.rs"]
 mod spreadsheet_io;
+use crate::tsql_script::{SqlServerScriptOptions, TsqlTarget};
 use categorical_profile::{
     categorical_group_summaries, source_categorical_group_summary, GroupKey, GroupTally,
 };
@@ -9966,6 +9967,7 @@ fn active_dataset_row_count(app: &AppHandle) -> Option<usize> {
     current.as_ref().map(|dataset| dataset.row_count)
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn export_dataset(
     app: AppHandle,
@@ -9974,6 +9976,7 @@ pub async fn export_dataset(
     allow_unvalidated: bool,
     privacy_mode: PrivacyMode,
     recipe: Option<StoredTransformRecipe>,
+    sql_server: Option<SqlServerScriptOptions>,
     on_progress: Channel<OperationProgress>,
 ) -> Result<Option<ExportResult>, String> {
     let row_count = active_dataset_row_count(&app);
@@ -9984,6 +9987,7 @@ pub async fn export_dataset(
         allow_unvalidated,
         privacy_mode,
         recipe,
+        sql_server,
         on_progress,
     )
     .await?;
@@ -9993,6 +9997,7 @@ pub async fn export_dataset(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn export_active_dataset(
     app: AppHandle,
     format: ExportFormat,
@@ -10000,9 +10005,17 @@ async fn export_active_dataset(
     allow_unvalidated: bool,
     privacy_mode: PrivacyMode,
     recipe: Option<StoredTransformRecipe>,
+    sql_server: Option<SqlServerScriptOptions>,
     on_progress: Channel<OperationProgress>,
 ) -> Result<Option<ExportResult>, String> {
     validate_quality_rules_payload(&quality_rules)?;
+    // Names and keys are checked before the save dialog opens.
+    if matches!(
+        format,
+        ExportFormat::SqlServerScript | ExportFormat::SqlServerBulk
+    ) {
+        TsqlTarget::resolve(sql_server.as_ref(), "dataset")?;
+    }
     if let Some(recipe) = recipe.as_ref() {
         validate_stored_recipe(recipe)?;
     }
@@ -10265,6 +10278,7 @@ async fn export_active_dataset(
                             &effective_source_path,
                             effective_source_size,
                             &destination,
+                            sql_server.as_ref(),
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
                             move || {
                                 cancellation_app
@@ -10280,6 +10294,7 @@ async fn export_active_dataset(
                             effective_source_size,
                             row_count,
                             &destination,
+                            sql_server.as_ref(),
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
                             move || {
                                 cancellation_app
@@ -10443,6 +10458,7 @@ async fn export_active_dataset(
             privacy_mode,
             quality_validation.as_ref(),
             recipe.as_ref(),
+            sql_server.as_ref(),
             |stage, percent| send_progress(&on_progress, "export", stage, percent),
             || app.state::<DatasetState>().export_was_cancelled(generation),
         )

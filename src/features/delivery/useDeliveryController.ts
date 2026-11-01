@@ -161,7 +161,9 @@ export function useDeliveryController({
       } else {
         result = recipeDraft && request.format === "bundle"
           ? await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode, recipeDraft)
-          : await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode);
+          : request.sqlServerScript
+            ? await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode, null, request.sqlServerScript)
+            : await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode);
       }
       if (!isCurrentRequest()) {
         // The file exists, but it holds the data from before the change.

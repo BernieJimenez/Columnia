@@ -835,14 +835,60 @@ fn tsql_text_projection(name: &str, data_type: &str) -> String {
     }
 }
 
-fn tsql_columns(source_columns: &[(String, String)]) -> Vec<crate::tsql_script::TsqlColumn> {
-    source_columns
+/// The table's columns. With `fitted_text`, every VARCHAR column is sized
+/// from its longest value, which costs one extra read of the file.
+fn tsql_columns(
+    connection: &Connection,
+    source: &str,
+    source_columns: &[(String, String)],
+    fitted_text: bool,
+) -> Result<Vec<crate::tsql_script::TsqlColumn>, String> {
+    let mut columns = source_columns
         .iter()
         .map(|(name, data_type)| crate::tsql_script::TsqlColumn {
             name: name.clone(),
             declaration: crate::tsql_script::tsql_type_for_duckdb(data_type),
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if !fitted_text {
+        return Ok(columns);
+    }
+    let text_columns = source_columns
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, data_type))| data_type.trim().eq_ignore_ascii_case("VARCHAR"))
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    if text_columns.is_empty() {
+        return Ok(columns);
+    }
+    // strlen counts UTF-8 bytes, never fewer than SQL Server's UTF-16 units.
+    let aggregates = text_columns
+        .iter()
+        .map(|&index| {
+            format!(
+                "max(strlen({}))",
+                quote_identifier(&source_columns[index].0)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let lengths = connection
+        .prepare(&format!("SELECT {aggregates} FROM {source}"))
+        .and_then(|mut statement| {
+            statement.query_row([], |row| {
+                (0..text_columns.len())
+                    .map(|position| row.get::<_, Option<i64>>(position))
+                    .collect::<duckdb::Result<Vec<_>>>()
+            })
+        })
+        .map_err(|error| format!("DuckDB no pudo medir los textos para SQL Server: {error}"))?;
+    for (&index, length) in text_columns.iter().zip(lengths) {
+        columns[index].declaration = crate::tsql_script::fitted_nvarchar(
+            length.map(|length| usize::try_from(length).unwrap_or(usize::MAX)),
+        );
+    }
+    Ok(columns)
 }
 
 fn duckdb_tsql_value(value: ValueRef<'_>) -> Result<crate::tsql_script::TsqlValue<'_>, String> {
@@ -888,7 +934,7 @@ pub(crate) fn export_file_to_tsql_with_cancel<C>(
     source_path: &Path,
     source_format: DuckDbFileFormat,
     destination: &Path,
-    table: String,
+    target: crate::tsql_script::TsqlTarget,
     is_cancelled: C,
 ) -> Result<(), String>
 where
@@ -901,6 +947,9 @@ where
         configure_duckdb_resources(connection, resource_directory.path())?;
         let source = file_scan_expression(source_path, source_format)?;
         let source_columns = describe_source_columns(connection, &source)?;
+        // Measured before the row query: a second query on this connection
+        // would close its stream.
+        let columns = tsql_columns(connection, &source, &source_columns, target.fitted_text())?;
         let projection = source_columns
             .iter()
             .map(|(name, data_type)| tsql_text_projection(name, data_type))
@@ -917,8 +966,7 @@ where
             File::create(destination)
                 .map_err(|error| format!("No se pudo crear el script T-SQL: {error}"))?,
         );
-        let columns = tsql_columns(&source_columns);
-        let mut writer = crate::tsql_script::TsqlScriptWriter::begin(output, &table, &columns)?;
+        let mut writer = crate::tsql_script::TsqlScriptWriter::begin(output, &target, &columns)?;
         while let Some(row) = rows.next().map_err(|error| {
             format!("DuckDB no pudo leer una fila para el script T-SQL: {error}")
         })? {
@@ -949,6 +997,7 @@ pub(crate) fn export_file_to_bulk_csv_with_cancel<C>(
     source_path: &Path,
     source_format: DuckDbFileFormat,
     destination: &Path,
+    fitted_text: bool,
     is_cancelled: C,
 ) -> Result<Vec<crate::tsql_script::TsqlColumn>, String>
 where
@@ -987,7 +1036,7 @@ where
                 "SET preserve_insertion_order = true; COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT CSV, HEADER, DELIMITER ',', QUOTE '\"')"
             ))
             .map_err(|error| format!("DuckDB no pudo crear el CSV del paquete BULK INSERT: {error}"))?;
-        Ok(tsql_columns(&source_columns))
+        tsql_columns(connection, &source, &source_columns, fitted_text)
     })
 }
 

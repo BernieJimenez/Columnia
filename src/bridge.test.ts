@@ -888,6 +888,7 @@ describe("desktop bridge", () => {
       allowUnvalidated: false,
       privacyMode: "none",
       recipe: null,
+      sqlServer: null,
       onProgress: expect.any(Channel),
     });
   });
@@ -914,6 +915,7 @@ describe("desktop bridge", () => {
       allowUnvalidated: true,
       privacyMode: "none",
       recipe: null,
+      sqlServer: null,
       onProgress: expect.any(Channel),
     });
   });
@@ -940,6 +942,7 @@ describe("desktop bridge", () => {
       allowUnvalidated: true,
       privacyMode: "none",
       recipe: null,
+      sqlServer: null,
       onProgress: expect.any(Channel),
     });
   });

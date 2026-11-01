@@ -2001,6 +2001,7 @@ where
         privacy_mode,
         quality_validation,
         None,
+        None,
         report,
         is_cancelled,
     )
@@ -2014,6 +2015,7 @@ pub(super) fn export_frame_atomic_with_privacy_and_quality_and_recipe<F, C>(
     privacy_mode: PrivacyMode,
     quality_validation: Option<&QualityValidationResult>,
     recipe: Option<&StoredTransformRecipe>,
+    sql_server: Option<&SqlServerScriptOptions>,
     mut report: F,
     is_cancelled: C,
 ) -> Result<ExportResult, String>
@@ -2083,14 +2085,14 @@ where
         ExportFormat::SqlServerScript => write_tsql_script(
             &protected_frame,
             temporary.as_file_mut(),
-            &sqlserver_table_for(&destination),
+            &sqlserver_target_for(&destination, sql_server)?,
             |percent| report("Escribiendo T-SQL", percent),
             &is_cancelled,
         )?,
         ExportFormat::SqlServerBulk => write_sqlserver_bulk(
             &protected_frame,
             temporary.as_file_mut(),
-            &sqlserver_table_for(&destination),
+            &sqlserver_target_for(&destination, sql_server)?,
             &mut report,
             &is_cancelled,
         )?,
@@ -2503,9 +2505,14 @@ where
 
 // --- SQL Server (2026-10-31): «Script T-SQL» and «Paquete BULK INSERT» -------
 
-/// The table a SQL Server export creates: the file name the person chose.
-pub(super) fn sqlserver_table_for(destination: &Path) -> String {
-    crate::tsql_script::tsql_table_name(
+/// The table of a SQL Server export: the options chosen in Entregar, with
+/// the saved file's name when the table was left empty.
+pub(super) fn sqlserver_target_for(
+    destination: &Path,
+    options: Option<&SqlServerScriptOptions>,
+) -> Result<TsqlTarget, String> {
+    TsqlTarget::resolve(
+        options,
         destination
             .file_stem()
             .and_then(|stem| stem.to_str())
@@ -2513,13 +2520,32 @@ pub(super) fn sqlserver_table_for(destination: &Path) -> String {
     )
 }
 
-fn tsql_columns_for_frame(frame: &DataFrame) -> Vec<crate::tsql_script::TsqlColumn> {
+/// The longest text of a column in UTF-8 bytes; None when it has no text.
+fn longest_text_bytes(column: &Column) -> Option<usize> {
+    column
+        .as_materialized_series()
+        .str()
+        .ok()?
+        .iter()
+        .flatten()
+        .map(str::len)
+        .max()
+}
+
+fn tsql_columns_for_frame(
+    frame: &DataFrame,
+    target: &TsqlTarget,
+) -> Vec<crate::tsql_script::TsqlColumn> {
     frame
         .columns()
         .iter()
         .map(|column| crate::tsql_script::TsqlColumn {
             name: column.name().to_string(),
-            declaration: crate::tsql_script::tsql_type_for_polars(column.dtype()).to_owned(),
+            declaration: if target.fitted_text() && column.dtype() == &DataType::String {
+                crate::tsql_script::fitted_nvarchar(longest_text_bytes(column))
+            } else {
+                crate::tsql_script::tsql_type_for_polars(column.dtype()).to_owned()
+            },
         })
         .collect()
 }
@@ -2556,7 +2582,7 @@ fn tsql_value_from_any(
 pub(super) fn write_tsql_script<F, C>(
     frame: &DataFrame,
     output: &mut File,
-    table: &str,
+    target: &TsqlTarget,
     mut report: F,
     is_cancelled: C,
 ) -> Result<(), String>
@@ -2564,9 +2590,9 @@ where
     F: FnMut(u8),
     C: Fn() -> bool,
 {
-    let columns = tsql_columns_for_frame(frame);
+    let columns = tsql_columns_for_frame(frame, target);
     let buffered = std::io::BufWriter::with_capacity(64 * 1024, output);
-    let mut writer = crate::tsql_script::TsqlScriptWriter::begin(buffered, table, &columns)?;
+    let mut writer = crate::tsql_script::TsqlScriptWriter::begin(buffered, target, &columns)?;
     let height = frame.height();
     for row in 0..height {
         ensure_not_cancelled(is_cancelled())?;
@@ -2594,7 +2620,7 @@ where
 /// The package ZIP: the CSV, `cargar.sql` and `LEEME.txt`.
 fn assemble_sqlserver_bulk_package<C>(
     output: &mut File,
-    table: &str,
+    target: &TsqlTarget,
     columns: &[crate::tsql_script::TsqlColumn],
     csv: &Path,
     rows: Option<usize>,
@@ -2612,7 +2638,7 @@ where
     };
     archive
         .start_file(
-            crate::tsql_script::bulk_csv_name(table),
+            crate::tsql_script::bulk_csv_name(target),
             zip_entry_options(csv_bytes),
         )
         .map_err(zip_error)?;
@@ -2623,13 +2649,13 @@ where
         .start_file("cargar.sql", text_options)
         .map_err(zip_error)?;
     archive
-        .write_all(crate::tsql_script::bulk_load_script(table, columns, rows)?.as_bytes())
+        .write_all(crate::tsql_script::bulk_load_script(target, columns, rows)?.as_bytes())
         .map_err(|error| format!("No se pudo escribir cargar.sql: {error}"))?;
     archive
         .start_file("LEEME.txt", text_options)
         .map_err(zip_error)?;
     archive
-        .write_all(crate::tsql_script::bulk_readme(table).as_bytes())
+        .write_all(crate::tsql_script::bulk_readme(target).as_bytes())
         .map_err(|error| format!("No se pudo escribir LEEME.txt: {error}"))?;
     archive.finish().map_err(zip_error)?;
     Ok(())
@@ -2638,7 +2664,7 @@ where
 pub(super) fn write_sqlserver_bulk<F, C>(
     frame: &DataFrame,
     output: &mut File,
-    table: &str,
+    target: &TsqlTarget,
     mut report: F,
     is_cancelled: C,
 ) -> Result<(), String>
@@ -2696,8 +2722,8 @@ where
     report("Preparando cargar.sql", 70);
     assemble_sqlserver_bulk_package(
         output,
-        table,
-        &tsql_columns_for_frame(frame),
+        target,
+        &tsql_columns_for_frame(frame, target),
         csv.path(),
         Some(frame.height()),
         &is_cancelled,
@@ -2710,6 +2736,7 @@ pub(super) fn export_source_backed_tsql_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
     destination: &Path,
+    options: Option<&SqlServerScriptOptions>,
     report: F,
     is_cancelled: C,
 ) -> Result<ExportResult, String>
@@ -2717,7 +2744,7 @@ where
     F: FnMut(&'static str, u8),
     C: Fn() -> bool + Clone + Send + 'static,
 {
-    let table = sqlserver_table_for(destination);
+    let target = sqlserver_target_for(destination, options)?;
     publish_source_backed_export(
         source_path,
         expected_file_size,
@@ -2731,7 +2758,7 @@ where
                     source.path,
                     source.format,
                     partial,
-                    table,
+                    target,
                     cancel,
                 )
             })
@@ -2744,6 +2771,7 @@ pub(super) fn export_source_backed_sqlserver_bulk_atomic<F, C>(
     expected_file_size: u64,
     row_count: usize,
     destination: &Path,
+    options: Option<&SqlServerScriptOptions>,
     report: F,
     is_cancelled: C,
 ) -> Result<ExportResult, String>
@@ -2751,7 +2779,7 @@ where
     F: FnMut(&'static str, u8),
     C: Fn() -> bool + Clone + Send + 'static,
 {
-    let table = sqlserver_table_for(destination);
+    let target = sqlserver_target_for(destination, options)?;
     publish_source_backed_export(
         source_path,
         expected_file_size,
@@ -2776,13 +2804,14 @@ where
                 source.path,
                 source.format,
                 &csv,
+                target.fitted_text(),
                 cancel.clone(),
             )?;
             ensure_not_cancelled(cancel())?;
             report("Preparando cargar.sql", 70);
             assemble_sqlserver_bulk_package(
                 temporary.as_file_mut(),
-                &table,
+                &target,
                 &columns,
                 &csv,
                 Some(row_count),

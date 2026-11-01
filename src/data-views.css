@@ -257,3 +257,47 @@
 .database-import > h3 { margin: 0; color: var(--text-primary); font-size: 1rem; }
 .load-source-panel .projects { margin-top: 0; padding-top: 0; border-top: 0; }
 .load-sources + .sample-datasets { margin-top: 0; padding-top: 0; border-top: 0; }
+
+/* SQL Server script target (2026-10-31): mode cards, names, keys, text size. */
+.database-target .sqlserver-script-target__modes,
+.database-target .sqlserver-script-target__keys { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.database-target .sqlserver-script-target__modes legend,
+.database-target .sqlserver-script-target__keys legend { margin-bottom: 6px; padding: 0; color: var(--text-primary); font-size: .875rem; font-weight: 650; }
+.database-target .sqlserver-script-target__mode {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.database-target .sqlserver-script-target__mode:has(input:checked) { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.database-target .sqlserver-script-target__mode span { display: grid; gap: 2px; min-width: 0; }
+.database-target .sqlserver-script-target__mode strong { color: var(--text-primary); font-size: .875rem; }
+.database-target .sqlserver-script-target__mode small,
+.database-target .sqlserver-script-target__text-size small { color: var(--text-secondary); font-size: .8125rem; font-weight: 500; line-height: 1.4; }
+.database-target .sqlserver-script-target__mode input,
+.database-target .sqlserver-script-target__key input { flex: 0 0 auto; width: 18px; height: 18px; min-height: 0; margin: 2px 0 0; padding: 0; accent-color: var(--accent); }
+.database-target .sqlserver-script-target__names { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.database-target .sqlserver-script-target__key-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 2px 12px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.database-target .sqlserver-script-target__key { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 36px; color: var(--text-primary); font-weight: 500; cursor: pointer; }
+.database-target .sqlserver-script-target__key input { margin: 0; }
+.database-target .sqlserver-script-target__key span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sqlserver-script-target:disabled .sqlserver-script-target__mode,
+.sqlserver-script-target:disabled .sqlserver-script-target__key { cursor: not-allowed; opacity: .7; }
+@media (max-width: 700px) {
+  .database-target .sqlserver-script-target__names { grid-template-columns: minmax(0, 1fr); }
+}

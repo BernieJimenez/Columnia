@@ -54,7 +54,9 @@ Excel o SQLite. `sqlserver-script` (alias `tsql`) publica un script T-SQL para
 SSMS o `sqlcmd` que crea la tabla e inserta las filas en una transacción, sin
 `DROP`; `sqlserver-bulk` publica un ZIP con CSV UTF-8, `cargar.sql` y
 `LEEME.txt` para `BULK INSERT`. La tabla toma el nombre del archivo de salida,
-en el esquema `dbo`. `bundle`/`zip` publica un paquete con dataset CSV, diccionario,
+en el esquema `dbo`. Desde la línea de comandos el script siempre crea una tabla
+nueva, con las columnas de texto ajustadas al largo de los datos; añadir filas o
+actualizar por clave se elige en Entregar. `bundle`/`zip` publica un paquete con dataset CSV, diccionario,
 reporte de calidad y manifest con hashes. Los destinos no pueden ser el input ni
 la receta, tampoco a través de `..`, otras mayúsculas o un enlace duro, ni
 siquiera con `--force`. Reemplazar cualquier otro archivo existente exige

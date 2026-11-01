@@ -9,6 +9,7 @@ import type {
   QualityRuleKind,
   PrivacyMode,
   QualityValidationResult,
+  SqlServerScriptOptions,
 } from "../../bridge";
 import { QUALITY_DATASET_COLUMN } from "../../bridge";
 import { isTextType } from "../../dataTypes";
@@ -322,12 +323,14 @@ export type DeliveryExportRequest =
       format: ExportFormat;
       privacyMode: PrivacyMode;
       databaseTarget?: DatabaseTarget;
+      sqlServerScript?: SqlServerScriptOptions;
       validation: { kind: "contract"; rules: QualityRule[] };
     }
   | {
       format: ExportFormat;
       privacyMode: PrivacyMode;
       databaseTarget?: DatabaseTarget;
+      sqlServerScript?: SqlServerScriptOptions;
       validation: { kind: "explicitly_unvalidated" };
     };
 

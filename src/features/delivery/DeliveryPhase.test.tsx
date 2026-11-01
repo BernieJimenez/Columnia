@@ -425,7 +425,8 @@ describe("señales de datos personales en Entregar", () => {
     const formats = screen.getByRole("combobox", { name: "Formato de exportación" });
     expect([...formats.querySelectorAll("option")].map((option) => option.value)).toEqual(["sqlserver_script", "sqlserver", "sqlserver_bulk"]);
     expect(formats).toHaveValue("sqlserver_script");
-    expect(screen.getByText(/Columnia no necesita conectarse al servidor/)).toHaveTextContent("La tabla se llamará como el archivo");
+    expect(screen.getByText(/Columnia no necesita conectarse al servidor/)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Tabla" })).toHaveAttribute("placeholder", "Nombre del archivo");
     expect(screen.getByRole("button", { name: "Exportar script T-SQL" })).toBeInTheDocument();
     selectFormat("sqlserver_bulk");
     expect(screen.getByRole("button", { name: "Exportar paquete BULK INSERT" })).toBeInTheDocument();
@@ -433,6 +434,41 @@ describe("señales de datos personales en Entregar", () => {
     selectFormat("sqlserver");
     expect(screen.getByLabelText("Servidor")).toBeInTheDocument();
     expect(screen.queryByLabelText("Cadena de conexión ODBC")).not.toBeInTheDocument();
+  });
+
+  it("el script de SQL Server puede añadir filas o actualizar por clave en una tabla elegida", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    selectFormat("sqlserver_script");
+
+    const target = screen.getByRole("group", { name: "Tabla en SQL Server" });
+    expect(within(target).getByRole("radio", { name: /^Crear una tabla nueva/ })).toBeChecked();
+    expect(within(target).getByRole("combobox", { name: "Largo de las columnas de texto" })).toHaveValue("fitted");
+    fireEvent.change(within(target).getByRole("textbox", { name: "Esquema" }), { target: { value: "ventas" } });
+    fireEvent.change(within(target).getByRole("textbox", { name: "Tabla" }), { target: { value: "Pedidos" } });
+
+    fireEvent.click(within(target).getByRole("radio", { name: /^Actualizar por clave/ }));
+    expect(within(target).queryByRole("combobox", { name: "Largo de las columnas de texto" })).not.toBeInTheDocument();
+    const button = screen.getByRole("button", { name: "Exportar script T-SQL" });
+    expect(button).toBeDisabled();
+    expect(screen.getByText(/elige al menos una columna clave/)).toBeInTheDocument();
+
+    fireEvent.click(within(target).getByRole("checkbox", { name: "estado" }));
+    fireEvent.click(within(target).getByRole("checkbox", { name: "total" }));
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    expect(onExport).toHaveBeenCalledWith(expect.objectContaining({
+      format: "sqlserver_script",
+      // Keys keep the dataset's column order.
+      sqlServerScript: { schema: "ventas", table: "Pedidos", mode: "upsert", keyColumns: ["total", "estado"], textSize: "fitted" },
+    }));
+
+    fireEvent.click(within(target).getByRole("radio", { name: /^Añadir filas/ }));
+    fireEvent.click(button);
+    expect(onExport).toHaveBeenLastCalledWith(expect.objectContaining({
+      sqlServerScript: expect.objectContaining({ mode: "append", keyColumns: [] }),
+    }));
   });
 
   it("no pide confirmación cuando se elige una protección", () => {

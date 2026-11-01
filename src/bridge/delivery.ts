@@ -13,6 +13,7 @@ import type {
   DeliveryPreset,
   DeliveryPresetSummary,
   RemoteExportPreflight,
+  SqlServerScriptOptions,
 } from "./contracts";
 import { progressChannel, type ProgressHandler } from "./progress";
 
@@ -23,6 +24,7 @@ export function exportDataset(
   onProgress?: ProgressHandler,
   privacyMode: PrivacyMode = "none",
   recipe?: SavedRecipe | null,
+  sqlServer?: SqlServerScriptOptions | null,
 ): Promise<ExportResult | null> {
   return invoke<ExportResult | null>("export_dataset", {
     format,
@@ -31,6 +33,7 @@ export function exportDataset(
     privacyMode,
     onProgress: progressChannel(onProgress),
     recipe: recipe ?? null,
+    sqlServer: sqlServer ?? null,
   });
 }
 

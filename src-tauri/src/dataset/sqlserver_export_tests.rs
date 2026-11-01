@@ -112,8 +112,9 @@ fn large_files_stream_the_tsql_script_through_duckdb() {
     let directory = tempfile::tempdir().expect("carpeta");
     let (source, size) = source_csv(directory.path(), "nombre,importe\nO'Brien,10\n=1+1,20\n");
     let destination = directory.path().join("clientes.sql");
-    let result = export_source_backed_tsql_atomic(&source, size, &destination, |_, _| {}, || false)
-        .expect("el script T-SQL de un archivo grande se exporta");
+    let result =
+        export_source_backed_tsql_atomic(&source, size, &destination, None, |_, _| {}, || false)
+            .expect("el script T-SQL de un archivo grande se exporta");
     assert_eq!(result.format, "Script T-SQL");
     let script = fs::read_to_string(&destination).expect("script");
     assert!(script.contains("CREATE TABLE [dbo].[clientes] ("));
@@ -128,8 +129,16 @@ fn large_files_stream_the_bulk_package_through_duckdb() {
     let directory = tempfile::tempdir().expect("carpeta");
     let (source, size) = source_csv(directory.path(), "nombre,importe\nO'Brien,10\n=1+1,20\n");
     let destination = directory.path().join("clientes.zip");
-    export_source_backed_sqlserver_bulk_atomic(&source, size, 2, &destination, |_, _| {}, || false)
-        .expect("el paquete de un archivo grande se exporta");
+    export_source_backed_sqlserver_bulk_atomic(
+        &source,
+        size,
+        2,
+        &destination,
+        None,
+        |_, _| {},
+        || false,
+    )
+    .expect("el paquete de un archivo grande se exporta");
     let entries = zip_entries(&destination);
     assert_eq!(entries[0].0, "clientes.csv");
     assert!(entries[0].1.starts_with("nombre,importe\n"));
@@ -152,6 +161,155 @@ fn large_files_stream_the_bulk_package_through_duckdb() {
         })
         .count();
     assert_eq!(leftovers, 0);
+}
+
+fn sqlserver_options(json: &str) -> SqlServerScriptOptions {
+    serde_json::from_str(json).expect("opciones de SQL Server")
+}
+
+fn export_with_options(
+    frame: &DataFrame,
+    destination: &Path,
+    format: ExportFormat,
+    options: &SqlServerScriptOptions,
+) -> Result<ExportResult, String> {
+    export_frame_atomic_with_privacy_and_quality_and_recipe(
+        frame,
+        destination,
+        format,
+        PrivacyMode::None,
+        None,
+        None,
+        Some(options),
+        |_, _| {},
+        || false,
+    )
+}
+
+#[test]
+fn text_columns_are_sized_from_the_data_unless_max_is_chosen() {
+    let directory = tempfile::tempdir().expect("carpeta");
+    let destination = directory.path().join("ventas.sql");
+    export_frame_atomic(
+        &sample_frame(),
+        &destination,
+        ExportFormat::SqlServerScript,
+        |_, _| {},
+        || false,
+    )
+    .expect("script");
+    let script = fs::read_to_string(&destination).expect("script");
+    // «O'Brien Ñandú» is 15 UTF-8 bytes: a quarter more fits in 50.
+    assert!(script.contains("[cliente] NVARCHAR(50) NULL,"), "{script}");
+
+    export_with_options(
+        &sample_frame(),
+        &destination,
+        ExportFormat::SqlServerScript,
+        &sqlserver_options(r#"{"textSize":"max"}"#),
+    )
+    .expect("script sin límite");
+    let script = fs::read_to_string(&destination).expect("script");
+    assert!(script.contains("[cliente] NVARCHAR(MAX) NULL,"));
+}
+
+#[test]
+fn the_chosen_table_and_mode_reach_the_in_memory_exports() {
+    let directory = tempfile::tempdir().expect("carpeta");
+    let options = sqlserver_options(
+        r#"{"schema":"ventas","table":"Clientes Finales","mode":"upsert","keyColumns":["id"]}"#,
+    );
+    let script_path = directory.path().join("cualquiera.sql");
+    export_with_options(
+        &sample_frame(),
+        &script_path,
+        ExportFormat::SqlServerScript,
+        &options,
+    )
+    .expect("script por clave");
+    let script = fs::read_to_string(&script_path).expect("script");
+    assert!(script.contains("IF OBJECT_ID(N'[ventas].[Clientes Finales]', N'U') IS NULL"));
+    assert!(script.contains("CREATE TABLE #columnia_carga ("));
+    assert!(script.contains("INNER JOIN #columnia_carga AS s ON t.[id] = s.[id];"));
+
+    let package_path = directory.path().join("cualquiera.zip");
+    export_with_options(
+        &sample_frame(),
+        &package_path,
+        ExportFormat::SqlServerBulk,
+        &sqlserver_options(r#"{"table":"Clientes Finales","mode":"append"}"#),
+    )
+    .expect("paquete para añadir");
+    let entries = zip_entries(&package_path);
+    assert_eq!(entries[0].0, "Clientes_Finales.csv");
+    assert!(entries[1]
+        .1
+        .contains("BULK INSERT #columnia_carga\nFROM N'C:\\Columnia\\Clientes_Finales.csv'"));
+    assert!(entries[1]
+        .1
+        .contains("INSERT INTO [dbo].[Clientes Finales]"));
+    assert!(entries[2]
+        .1
+        .contains("Añade las filas a la tabla [dbo].[Clientes Finales]"));
+}
+
+#[test]
+fn an_unknown_key_column_stops_the_export_without_a_file() {
+    let directory = tempfile::tempdir().expect("carpeta");
+    let destination = directory.path().join("ventas.sql");
+    let error = export_with_options(
+        &sample_frame(),
+        &destination,
+        ExportFormat::SqlServerScript,
+        &sqlserver_options(r#"{"mode":"upsert","keyColumns":["codigo"]}"#),
+    )
+    .expect_err("la clave no existe");
+    assert!(error.contains("«codigo»"));
+    assert!(!destination.exists());
+}
+
+#[test]
+fn large_files_measure_text_and_honour_the_options() {
+    let directory = tempfile::tempdir().expect("carpeta");
+    let (source, size) = source_csv(
+        directory.path(),
+        "nombre,importe\nO'Brien Ñandú,10\nAna,20\n",
+    );
+    let destination = directory.path().join("clientes.sql");
+    let options = sqlserver_options(
+        r#"{"schema":"ventas","table":"clientes_finales","mode":"upsert","keyColumns":["nombre"]}"#,
+    );
+    export_source_backed_tsql_atomic(
+        &source,
+        size,
+        &destination,
+        Some(&options),
+        |_, _| {},
+        || false,
+    )
+    .expect("script por clave de un archivo grande");
+    let script = fs::read_to_string(&destination).expect("script");
+    assert!(
+        script.contains("[nombre] NVARCHAR(50) COLLATE DATABASE_DEFAULT NULL,"),
+        "{script}"
+    );
+    assert!(script
+        .contains("UPDATE t\nSET t.[importe] = s.[importe]\nFROM [ventas].[clientes_finales]"));
+    assert!(script.ends_with("-- 2 filas.\n"));
+
+    let package = directory.path().join("clientes.zip");
+    export_source_backed_sqlserver_bulk_atomic(
+        &source,
+        size,
+        2,
+        &package,
+        Some(&sqlserver_options(r#"{"textSize":"max"}"#)),
+        |_, _| {},
+        || false,
+    )
+    .expect("paquete de un archivo grande");
+    let entries = zip_entries(&package);
+    assert!(entries[1].1.contains("[nombre] NVARCHAR(MAX) NULL,"));
 }
 
 /// Writes both exports of a sample to `COLUMNIA_TSQL_OUT` to try them
@@ -183,4 +341,43 @@ fn writes_sqlserver_samples_for_a_real_server() {
         || false,
     )
     .expect("paquete");
+    // Into an existing [dbo].[prueba_columnia]: id 2 is updated, id 4 is new.
+    let changes = df!(
+        "id" => [2i64, 4],
+        "cliente" => ["Cambiado ñ", "Nuevo"],
+        "activo" => [true, true],
+        "precio" => [9.5f64, 4.0],
+    )
+    .expect("frame de cambios");
+    let target = r#""table":"prueba_columnia""#;
+    for (name, format, options) in [
+        (
+            "prueba_columnia_anadir.sql",
+            ExportFormat::SqlServerScript,
+            format!(r#"{{{target},"mode":"append"}}"#),
+        ),
+        (
+            "prueba_columnia_clave.sql",
+            ExportFormat::SqlServerScript,
+            format!(r#"{{{target},"mode":"upsert","keyColumns":["id"]}}"#),
+        ),
+        (
+            "prueba_columnia_anadir.zip",
+            ExportFormat::SqlServerBulk,
+            format!(r#"{{{target},"mode":"append"}}"#),
+        ),
+        (
+            "prueba_columnia_clave.zip",
+            ExportFormat::SqlServerBulk,
+            format!(r#"{{{target},"mode":"upsert","keyColumns":["id"]}}"#),
+        ),
+    ] {
+        export_with_options(
+            &changes,
+            &directory.join(name),
+            format,
+            &sqlserver_options(&options),
+        )
+        .expect(name);
+    }
 }

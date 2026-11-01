@@ -33,6 +33,20 @@ export type ConflictSource = "current" | "compared";
 export type DatabaseKind = "postgresql" | "mysql" | "sqlserver";
 type DatabaseTablePolicy = "append" | "create_only" | "replace";
 
+/**
+ * «Script T-SQL» and «Paquete BULK INSERT» (2026-10-31): the table the script
+ * fills and what it does with it. Empty names take `dbo` and the file name.
+ */
+export interface SqlServerScriptOptions {
+  schema: string;
+  table: string;
+  mode: "create" | "append" | "upsert";
+  /** Only for `upsert`: the columns that identify a row. */
+  keyColumns: string[];
+  /** `fitted` sizes text columns from the data; `max` keeps NVARCHAR(MAX). */
+  textSize: "fitted" | "max";
+}
+
 /** Credentials remain in the current React/Tauri call and are never persisted. */
 export interface DatabaseTarget {
   kind: DatabaseKind;

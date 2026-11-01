@@ -27,6 +27,7 @@ import {
   type SavedRecipe,
 } from "../../bridge";
 import { OperationProgressView } from "../../components/OperationProgressView";
+import { DEFAULT_SQL_SERVER_SCRIPT, SqlServerScriptTarget } from "./SqlServerScriptTarget";
 import { SqlServerConnectionForm } from "../database/SqlServerConnectionForm";
 import {
   type DeliveryContractAction,
@@ -307,9 +308,15 @@ export function DeliveryPhase({
     && databasePreflightState.fingerprint === databaseTargetFingerprint
     ? databasePreflightState.result
     : null;
+  // 2026-10-31: the table of «Script T-SQL» and «Paquete BULK INSERT».
+  const [sqlServerScript, setSqlServerScript] = useState(DEFAULT_SQL_SERVER_SCRIPT);
+  const isSqlServerFile = selectedExportFormat === "sqlserver_script" || selectedExportFormat === "sqlserver_bulk";
+  const sqlServerKeys = sqlServerScript.keyColumns.filter((column) => dataset.columns.some((item) => item.name === column));
+  const missingSqlServerKey = isSqlServerFile && sqlServerScript.mode === "upsert" && sqlServerKeys.length === 0;
   // DESIGN.md: a disabled control states, in view, what it is waiting for.
   const exportBlockers = [
     validationError !== null && "corrige la regla marcada en el contrato",
+    missingSqlServerKey && "elige al menos una columna clave para actualizar por clave",
     needsPersonalDataConfirmation && "elige una protección de datos personales o confirma que los exportas sin proteger",
     needsUnvalidatedConfirmation && "confirma que exportas sin validar",
   ].filter((blocker): blocker is string => typeof blocker === "string");
@@ -440,7 +447,14 @@ export function DeliveryPhase({
           || databasePreflightState.kind !== "ready"
           || databasePreflightState.fingerprint !== databaseTargetFingerprint
           || !databasePreflightState.result.ready)) return;
-      const databaseOptions = isDatabaseExportFormat(format) ? { databaseTarget } : {};
+      const sqlServerFile = format === "sqlserver_script" || format === "sqlserver_bulk";
+      if (sqlServerFile && sqlServerScript.mode === "upsert" && sqlServerKeys.length === 0) return;
+      const databaseOptions = {
+        ...(isDatabaseExportFormat(format) ? { databaseTarget } : {}),
+        ...(sqlServerFile
+          ? { sqlServerScript: { ...sqlServerScript, keyColumns: sqlServerScript.mode === "upsert" ? sqlServerKeys : [] } }
+          : {}),
+      };
       if (contract.kind === "with_contract") {
         if (validationError) return;
         if (!gatePassed) {
@@ -890,8 +904,6 @@ export function DeliveryPhase({
             </select>
             <small id="export-format-description" className="privacy-mode__note">
               {selectedFormatOption?.description}
-              {(selectedExportFormat === "sqlserver_script" || selectedExportFormat === "sqlserver_bulk")
-                && ` La tabla se llamará como el archivo que elijas al guardar, en el esquema dbo.`}
             </small>
           </label>
           <label className="privacy-mode">
@@ -932,6 +944,14 @@ export function DeliveryPhase({
                 <p>La protección elegida se aplicará a estas columnas en la copia.</p>
               )}
             </div>
+          )}
+          {isSqlServerFile && (
+            <SqlServerScriptTarget
+              value={sqlServerScript}
+              columns={dataset.columns.map((column) => column.name)}
+              disabled={busy}
+              onChange={setSqlServerScript}
+            />
           )}
           {isDatabaseExportFormat(selectedExportFormat) && (
             <fieldset className="database-target">
@@ -1097,7 +1117,7 @@ export function DeliveryPhase({
                   openPowerBiAfterExportRef.current = false;
                   void requestExport(selectedExportFormat);
                 }}
-                disabled={busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || !databaseReady || exceedsExcel}
+                disabled={busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || !databaseReady || exceedsExcel || missingSqlServerKey}
               >
                 {contract.kind === "with_contract" && !gatePassed
                   ? `Validar y exportar ${exportFormatLabel}`

@@ -142,6 +142,7 @@ pub(super) fn export_source_backed_for_automation(
             &source_path,
             expected_file_size,
             output,
+            None,
             |_, _| {},
             || false,
         ),
@@ -150,6 +151,7 @@ pub(super) fn export_source_backed_for_automation(
             expected_file_size,
             row_count,
             output,
+            None,
             |_, _| {},
             || false,
         ),
@@ -298,6 +300,7 @@ pub(crate) fn export_frame_for_automation_with_recipe(
         PrivacyMode::None,
         None,
         recipe,
+        None,
         |_, _| {},
         || false,
     )

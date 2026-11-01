@@ -144,6 +144,7 @@ fn materialized_bundle_includes_safe_aggregate_summary_and_hashes() {
         PrivacyMode::None,
         Some(&validation),
         Some(&recipe),
+        None,
         |_, _| {},
         || false,
     )

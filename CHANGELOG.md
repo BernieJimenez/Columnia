@@ -12,6 +12,18 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Añadido
 
+- El script T-SQL y el paquete BULK INSERT ya no solo crean tablas: también
+  añaden filas a una tabla que existe o la actualizan por clave (actualizan las
+  filas cuya clave ya está y añaden las nuevas). Antes de tocar nada, el script
+  comprueba que la tabla exista y tenga todas las columnas, y que la clave no
+  esté vacía ni repetida en los datos; si algo falla, se detiene sin cambiar la
+  tabla. Al terminar dice cuántas filas actualizó y cuántas añadió. El esquema
+  y el nombre de la tabla se eligen en Entregar (por defecto, `dbo` y el nombre
+  del archivo). Probado contra un SQL Server local en `tempdb`, dentro de
+  transacciones que se deshicieron.
+- Las columnas de texto de una tabla nueva toman el largo de sus datos con
+  margen (por ejemplo `NVARCHAR(100)`) en lugar de `NVARCHAR(MAX)`: la tabla
+  ocupa menos y admite índices. Se puede volver a «Sin límite».
 - Entregar exporta a SQL Server de dos formas más, sin que Columnia se
   conecte al servidor: «Script T-SQL» genera un `.sql` para SSMS o
   `sqlcmd` (`CREATE TABLE` con tipos de SQL Server e `INSERT` de hasta 1.000
