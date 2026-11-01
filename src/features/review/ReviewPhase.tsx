@@ -21,6 +21,7 @@ import {
   commaDecimalColumns,
   nonFiniteColumns,
   nextPageOffset,
+  profileProvenanceText,
   pageRange,
   readAnalysisSampleRowsPreference,
   previousPageOffset,
@@ -823,6 +824,7 @@ function QualityProfile({
   const priorityCount = proposal.length;
   const commaColumns = commaDecimalColumns(profile);
   const nonFinite = nonFiniteColumns(profile);
+  const provenance = profileProvenanceText(profile);
   return (
     <>
       <section className="quality-overview quality-overview--plain" aria-labelledby="quality-overview-title">
@@ -831,6 +833,7 @@ function QualityProfile({
             ? "No encontramos nada que arreglar"
             : `Encontramos ${priorityCount} ${priorityCount === 1 ? "cosa" : "cosas"} para arreglar`}
         </h4>
+        {provenance && <p className="quality-overview__provenance">{provenance}</p>}
         {proposal.length > 0 && (
           <ul className="quality-issues" aria-label="Resumen de calidad del dataset">
             {byImpact(proposal).map((item) => {

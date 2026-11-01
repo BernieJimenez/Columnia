@@ -1133,6 +1133,13 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Revisar dice cómo se calculó el perfil: de todas las filas, en memoria con
+  Polars o por bloques con Polars y DuckDB, cuánto tardó y a qué hora. Los
+  perfiles guardados antes en un proyecto no lo muestran.
+- Entregar resume junto al botón lo que va a exportar: destino y formato, la
+  tabla y qué se hará con ella, filas y columnas, la calidad validada y cómo
+  salen los datos personales. En pantallas anchas queda fijo abajo mientras se
+  recorren las opciones.
 - Entregar empieza por el destino de la copia: Archivo, SQL Server, Power BI u
   Otra base de datos, cada uno con sus formatos y una línea que explica cada
   uno. Power BI pasa a ser un destino propio cuyo botón principal exporta y

@@ -106,6 +106,34 @@ export function commaDecimalColumns(profile: DatasetProfile): string[] {
  * Decimal columns with NaN or infinite values, which the statistics and
  * charts leave out (FUN-43), as «name: count».
  */
+function profileDuration(milliseconds: number): string {
+  if (milliseconds < 1_000) return "menos de 1 s";
+  const seconds = milliseconds / 1_000;
+  if (seconds < 60) return `${seconds.toLocaleString(undefined, { maximumFractionDigits: 1 })} s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds - minutes * 60);
+  return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`;
+}
+
+/**
+ * How the profile was computed, in one sentence (2026-11-01): every row, the
+ * engine, how long it took and when. Null for profiles saved before it was
+ * recorded.
+ */
+export function profileProvenanceText(profile: DatasetProfile): string | null {
+  const provenance = profile.provenance;
+  if (!provenance) return null;
+  const rows = profile.rowCount === 1 ? "la única fila" : `las ${profile.rowCount.toLocaleString()} filas`;
+  const engine = provenance.mode === "by_blocks"
+    ? "por bloques, con Polars y DuckDB"
+    : "en memoria, con Polars";
+  const computedAt = new Date(provenance.computedAt);
+  const time = Number.isNaN(computedAt.getTime())
+    ? ""
+    : ` a las ${computedAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+  return `Perfil de ${rows} ${engine}, en ${profileDuration(provenance.durationMs)}${time}.`;
+}
+
 export function nonFiniteColumns(profile: DatasetProfile): Array<{ name: string; count: number }> {
   return profile.columns
     .filter((column) => (column.nonFiniteCount ?? 0) > 0)

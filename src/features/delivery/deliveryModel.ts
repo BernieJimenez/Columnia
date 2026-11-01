@@ -13,6 +13,7 @@ import type {
 } from "../../bridge";
 import { QUALITY_DATASET_COLUMN } from "../../bridge";
 import { isTextType } from "../../dataTypes";
+import { plural } from "../../plural";
 import { ROW_AUDIT_COLUMN } from "../../rowAudit";
 
 export const MAX_QUALITY_RULES = 16;
@@ -186,6 +187,85 @@ export function destinationForFormat(format: ExportFormat): DeliveryDestination 
   if (format === "sqlserver" || format === "sqlserver_script" || format === "sqlserver_bulk") return "sqlserver";
   if (format === "postgresql" || format === "mysql") return "database";
   return "file";
+}
+
+interface DeliverySummaryItem {
+  label: string;
+  value: string;
+}
+
+interface DeliverySummaryInput {
+  /** The destination and format labels, as the cards and the select show them. */
+  destination: string;
+  format: string;
+  rowCount: number;
+  columnCount: number;
+  /** Where the rows land in a database, already described; null for a file. */
+  table: string | null;
+  quality: { kind: "rules"; count: number; passed: boolean } | { kind: "unvalidated" };
+  privacyMode: PrivacyMode;
+  personalDataColumnCount: number;
+}
+
+const SQL_SERVER_MODE_LABEL: Record<SqlServerScriptOptions["mode"], string> = {
+  create: "crear tabla nueva",
+  append: "añadir filas",
+  upsert: "actualizar por clave",
+};
+
+const TABLE_POLICY_LABEL: Record<DatabaseTarget["tablePolicy"], string> = {
+  create_only: "crear; fallar si existe",
+  append: "añadir filas",
+  replace: "reemplazar la tabla",
+};
+
+/** The table line of a SQL Server script or package. */
+export function sqlServerScriptTable(options: SqlServerScriptOptions, keyColumns: readonly string[]): string {
+  const name = `${options.schema.trim() || "dbo"}.${options.table.trim() || "(nombre del archivo)"}`;
+  const keys = options.mode === "upsert" && keyColumns.length > 0 ? ` (${keyColumns.join(", ")})` : "";
+  return `${name} · ${SQL_SERVER_MODE_LABEL[options.mode]}${keys}`;
+}
+
+/** The table line of a direct database delivery. */
+export function databaseTargetTable(target: DatabaseTarget): string {
+  const name = [target.schema.trim(), target.table.trim() || "(sin tabla)"].filter(Boolean).join(".");
+  return `${name} · ${TABLE_POLICY_LABEL[target.tablePolicy]}`;
+}
+
+/**
+ * What the export will do, in a few lines beside its button (2026-11-01):
+ * where the copy goes, which table, how many rows, what was validated and how
+ * personal data leaves.
+ */
+export function deliverySummary(input: DeliverySummaryInput): DeliverySummaryItem[] {
+  const items: DeliverySummaryItem[] = [
+    { label: "Destino", value: `${input.destination} · ${input.format}` },
+  ];
+  if (input.table) items.push({ label: "Tabla", value: input.table });
+  items.push({
+    label: "Datos",
+    value: `${plural(input.rowCount, "fila", "filas")} · ${plural(input.columnCount, "columna", "columnas")}`,
+  });
+  items.push({
+    label: "Calidad",
+    value: input.quality.kind === "unvalidated"
+      ? "sin validar"
+      : input.quality.passed
+        ? plural(input.quality.count, "regla aprobada", "reglas aprobadas")
+        : `${plural(input.quality.count, "regla", "reglas")}, se comprueban al exportar`,
+  });
+  const columns = plural(input.personalDataColumnCount, "columna", "columnas");
+  items.push({
+    label: "Datos personales",
+    value: input.personalDataColumnCount === 0
+      ? "no se detectaron"
+      : input.privacyMode === "mask"
+        ? `enmascarados en ${columns}`
+        : input.privacyMode === "hash"
+          ? `seudonimizados en ${columns}`
+          : `sin proteger en ${columns}`,
+  });
+  return items;
 }
 
 export function isDatabaseExportFormat(format: ExportFormat): boolean {

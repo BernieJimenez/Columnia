@@ -1155,3 +1155,6 @@ button:active:not(:disabled) { transform: translateY(1px); }
   color: var(--disabled-text);
   cursor: not-allowed;
 }
+/* 2026-11-01: how the profile was computed, under the Revisar heading. */
+.quality-overview--plain > h4:has(+ .quality-overview__provenance) { margin-bottom: 4px; }
+.quality-overview__provenance { margin: 0 0 16px; color: var(--text-secondary); font-size: .8125rem; }

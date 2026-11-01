@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import { QUALITY_DATASET_COLUMN, type ColumnProfile, type DatasetPreview, type QualityRule, type QualityValidationResult } from "../../bridge";
 import {
   INITIAL_DELIVERY_CONTRACT,
+  databaseTargetTable,
+  deliverySummary,
+  sqlServerScriptTable,
   MAX_QUALITY_RULES,
   bundleFileNames,
   listFileNames,
@@ -338,5 +341,51 @@ describe("contenido del paquete (TXT-07)", () => {
     ]);
     expect(listFileNames(["a", "b", "c"])).toBe("a, b y c");
     expect(listFileNames(["a"])).toBe("a");
+  });
+});
+
+describe("resumen de la entrega", () => {
+  it("dice destino, tabla, datos, calidad y datos personales", () => {
+    const table = sqlServerScriptTable(
+      { schema: "", table: "Pedidos", mode: "upsert", keyColumns: ["id"], textSize: "fitted" },
+      ["id"],
+    );
+    expect(table).toBe("dbo.Pedidos · actualizar por clave (id)");
+    expect(deliverySummary({
+      destination: "SQL Server",
+      format: "Script T-SQL",
+      rowCount: 1_000,
+      columnCount: 1,
+      table,
+      quality: { kind: "rules", count: 3, passed: true },
+      privacyMode: "mask",
+      personalDataColumnCount: 2,
+    }).map((item) => [item.label, item.value])).toEqual([
+      ["Destino", "SQL Server · Script T-SQL"],
+      ["Tabla", "dbo.Pedidos · actualizar por clave (id)"],
+      ["Datos", `${(1_000).toLocaleString()} filas · 1 columna`],
+      ["Calidad", "3 reglas aprobadas"],
+      ["Datos personales", "enmascarados en 2 columnas"],
+    ]);
+  });
+
+  it("un archivo no tiene tabla y avisa de lo que sale sin validar o sin proteger", () => {
+    const items = deliverySummary({
+      destination: "Archivo",
+      format: "CSV",
+      rowCount: 2,
+      columnCount: 4,
+      table: null,
+      quality: { kind: "unvalidated" },
+      privacyMode: "none",
+      personalDataColumnCount: 1,
+    });
+    expect(items.map((item) => item.label)).not.toContain("Tabla");
+    expect(items.find((item) => item.label === "Calidad")?.value).toBe("sin validar");
+    expect(items.find((item) => item.label === "Datos personales")?.value).toBe("sin proteger en 1 columna");
+    expect(sqlServerScriptTable({ schema: "", table: "", mode: "create", keyColumns: [], textSize: "fitted" }, []))
+      .toBe("dbo.(nombre del archivo) · crear tabla nueva");
+    expect(databaseTargetTable({ kind: "postgresql", connectionString: "", schema: "public", table: "ventas", tablePolicy: "append" }))
+      .toBe("public.ventas · añadir filas");
   });
 });

@@ -11,6 +11,7 @@ import {
   beginPageLoad,
   beginProfileAnalysis,
   nonFiniteColumns,
+  profileProvenanceText,
   commaDecimalColumns,
   completePageLoad,
   failPageLoad,
@@ -154,5 +155,22 @@ describe("nonFiniteColumns (FUN-43)", () => {
     const column = (name: string, nonFiniteCount?: number) => ({ name, nonFiniteCount }) as ColumnProfile;
     const profile = { rowCount: 4, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [column("a"), column("b", 2)] } as DatasetProfile;
     expect(nonFiniteColumns(profile)).toEqual([{ name: "b", count: 2 }]);
+  });
+});
+
+describe("profileProvenanceText", () => {
+  const base = { rowCount: 3_000_000, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] } satisfies DatasetProfile;
+
+  it("dice el motor, la duración y que se leyeron todas las filas", () => {
+    const text = profileProvenanceText({ ...base, provenance: { mode: "by_blocks", durationMs: 42_300, computedAt: "2026-11-01T14:05:00Z" } });
+    expect(text).toMatch(/^Perfil de las 3.000.000 filas por bloques, con Polars y DuckDB, en 42.3 s a las /);
+    expect(profileProvenanceText({ ...base, rowCount: 1, provenance: { mode: "in_memory", durationMs: 120, computedAt: "x" } }))
+      .toBe("Perfil de la única fila en memoria, con Polars, en menos de 1 s.");
+    expect(profileProvenanceText({ ...base, provenance: { mode: "in_memory", durationMs: 125_000, computedAt: "x" } }))
+      .toContain("en 2 min 5 s.");
+  });
+
+  it("calla en los perfiles guardados antes de registrarlo", () => {
+    expect(profileProvenanceText(base)).toBeNull();
   });
 });

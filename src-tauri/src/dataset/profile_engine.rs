@@ -1787,6 +1787,7 @@ where
         numeric_correlations,
         categorical_group_summaries,
         temporal_series,
+        provenance: None,
     })
 }
 
@@ -2756,6 +2757,7 @@ where
         numeric_correlations,
         categorical_group_summaries,
         temporal_series,
+        provenance: None,
     })
 }
 

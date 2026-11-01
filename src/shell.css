@@ -453,3 +453,24 @@ html[data-columnia-zoom="2"] .app-shell .workspace h2 { font-size: 1.5rem; }
 @media (prefers-reduced-motion: reduce) {
   .flow-nav__marker { transition: none; }
 }
+
+/* 2026-11-01: what the export will do, beside its button. On wide screens it
+   stays at the bottom while the options scroll; the scroll padding keeps a
+   focused field from hiding behind it. */
+.delivery-commit { display: grid; gap: 10px; grid-column: 1 / -1; min-width: 0; padding: 12px 0 0; border-top: 1px solid var(--border-subtle); }
+.delivery-commit__title { margin: 0; color: var(--text-primary); font-size: .875rem; font-weight: 650; }
+.delivery-summary { display: grid; gap: 4px; margin: 0; font-size: .8125rem; }
+.delivery-summary > div { display: grid; grid-template-columns: minmax(7.5rem, auto) minmax(0, 1fr); gap: 8px; }
+.delivery-summary dt { color: var(--text-secondary); }
+.delivery-summary dd { margin: 0; overflow-wrap: anywhere; color: var(--text-primary); font-weight: 600; }
+@media (min-width: 1180px) {
+  .delivery-commit {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    padding: 12px 0 14px;
+    background: var(--surface);
+    box-shadow: 0 -10px 12px -12px rgb(0 0 0 / .35);
+  }
+  html:has(.delivery-commit) { scroll-padding-bottom: 260px; }
+}

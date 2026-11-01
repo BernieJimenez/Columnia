@@ -23437,3 +23437,26 @@ fn the_plan_reads_the_profile_copy_with_the_same_result() {
         "{output}\n{expected_output}"
     );
 }
+
+#[test]
+fn profile_provenance_reaches_the_interface_and_old_profiles_still_load() {
+    let frame = df!["valor" => &[1_i64, 2]].unwrap();
+    let mut profile = profile_dataset(&frame).unwrap();
+    assert_eq!(profile.provenance, None);
+    profile.provenance = Some(ProfileProvenance::now(
+        ProfileMode::ByBlocks,
+        std::time::Duration::from_millis(4_250),
+    ));
+    let json = serde_json::to_value(&profile).unwrap();
+    assert_eq!(json["provenance"]["mode"], "by_blocks");
+    assert_eq!(json["provenance"]["durationMs"], 4_250);
+    assert!(json["provenance"]["computedAt"]
+        .as_str()
+        .unwrap()
+        .ends_with('Z'));
+    // A profile saved in a project before 2026-11-01 has no provenance.
+    let mut saved = json.clone();
+    saved.as_object_mut().unwrap().remove("provenance");
+    let restored: DatasetProfile = serde_json::from_value(saved).unwrap();
+    assert_eq!(restored.provenance, None);
+}

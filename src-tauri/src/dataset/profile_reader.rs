@@ -101,7 +101,12 @@ pub(super) async fn get_dataset_profile_impl(
             (work, DatasetMutationStamp::capture(dataset))
         };
 
-        let profile = match work {
+        let started = std::time::Instant::now();
+        let mode = match work {
+            ProfileWork::Source { .. } => ProfileMode::ByBlocks,
+            ProfileWork::Frame(_) => ProfileMode::InMemory,
+        };
+        let mut profile = match work {
             ProfileWork::Source {
                 path,
                 extension,
@@ -123,6 +128,7 @@ pub(super) async fn get_dataset_profile_impl(
                 correlation_sample_rows,
             )?,
         };
+        profile.provenance = Some(ProfileProvenance::now(mode, started.elapsed()));
 
         let mut current = state.current.lock_recovering();
         if let Some(dataset) = current.as_mut().filter(|dataset| stamp.matches(dataset)) {

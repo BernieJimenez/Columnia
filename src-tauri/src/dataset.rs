@@ -1117,6 +1117,37 @@ pub struct DatasetProfile {
     categorical_group_summaries: Option<Vec<CategoricalGroupSummary>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     temporal_series: Option<Vec<TemporalSeriesSummary>>,
+    /// How and when it was computed; absent in profiles saved before 2026-11-01.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provenance: Option<ProfileProvenance>,
+}
+
+/// How a profile was computed (2026-11-01), so Revisar can say it: with
+/// Polars in memory, or by blocks with Polars and DuckDB. Both read every row.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileProvenance {
+    mode: ProfileMode,
+    duration_ms: u64,
+    /// RFC 3339, UTC.
+    computed_at: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileMode {
+    InMemory,
+    ByBlocks,
+}
+
+impl ProfileProvenance {
+    pub(crate) fn now(mode: ProfileMode, duration: std::time::Duration) -> Self {
+        Self {
+            mode,
+            duration_ms: u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
+            computed_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, PartialEq)]

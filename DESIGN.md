@@ -100,6 +100,10 @@ reserva para selección actual, foco y acción principal. El color nunca es la
   (`.choice-card`: radio, nombre y una línea de descripción) y debajo solo
   aparece lo de la opción elegida. Los formatos de esa opción van en un
   selector con la descripción del elegido debajo.
+- Antes de una acción que saca datos del equipo, un resumen en pocas líneas
+  (`.delivery-summary`) dice qué va a pasar junto al botón. Si queda fijo en
+  pantalla, la página reserva su alto con `scroll-padding-bottom` para que no
+  tape el foco.
 - Una conexión a SQL Server se pide con campos (servidor, base de datos,
   autenticación), no con una cadena ODBC; la cadena queda como opción avanzada.
 - Una lista de problemas se ordena por lo que le hace al análisis (altera

@@ -340,6 +340,16 @@ export interface DatasetProfile {
   numericCorrelations?: NumericCorrelationMatrix;
   categoricalGroupSummaries?: CategoricalGroupSummary[];
   temporalSeries?: TemporalSeriesSummary[];
+  /** How and when it was computed; absent in profiles saved before 2026-11-01. */
+  provenance?: ProfileProvenance;
+}
+
+/** Polars in memory, or by blocks with Polars and DuckDB; both read every row. */
+interface ProfileProvenance {
+  mode: "in_memory" | "by_blocks";
+  durationMs: number;
+  /** RFC 3339, UTC. */
+  computedAt: string;
 }
 
 export interface DatasetMutation {

@@ -27,6 +27,7 @@ import {
   type SavedRecipe,
 } from "../../bridge";
 import { OperationProgressView } from "../../components/OperationProgressView";
+import { ROW_AUDIT_COLUMN } from "../../rowAudit";
 import { DEFAULT_SQL_SERVER_SCRIPT, SqlServerScriptTarget } from "./SqlServerScriptTarget";
 import { SqlServerConnectionForm } from "../database/SqlServerConnectionForm";
 import {
@@ -40,8 +41,11 @@ import {
   databaseKindForExportFormat,
   isDatabaseExportFormat,
   DELIVERY_DESTINATIONS,
+  databaseTargetTable,
   deliveryDestination,
+  deliverySummary,
   destinationForFormat,
+  sqlServerScriptTable,
   type DeliveryDestination,
   listFileNames,
   validateDatabaseTargetDraft,
@@ -368,6 +372,20 @@ export function DeliveryPhase({
       changeExportFormat(formats[0]!.format);
     }
   }
+  const summary = deliverySummary({
+    destination: deliveryDestination(destination).label,
+    format: selectedFormatOption?.label ?? exportFormatLabel,
+    rowCount: dataset.rowCount,
+    columnCount: dataset.columns.filter((column) => column.name !== ROW_AUDIT_COLUMN).length,
+    table: isSqlServerFile
+      ? sqlServerScriptTable(sqlServerScript, sqlServerKeys)
+      : isDatabaseExportFormat(selectedExportFormat) ? databaseTargetTable(databaseTarget) : null,
+    quality: contract.kind === "with_contract"
+      ? { kind: "rules", count: contract.rules.length, passed: gatePassed }
+      : { kind: "unvalidated" },
+    privacyMode: selectedPrivacyMode,
+    personalDataColumnCount: personalDataColumns.length,
+  });
   const approvedQualitySummary = contract.kind === "with_contract"
     && contract.gate.kind === "ready"
     && contract.gate.result.passed
@@ -1094,6 +1112,16 @@ export function DeliveryPhase({
               Confirmo que quiero exportar sin validar la calidad
             </label>
           )}
+          <section className="delivery-commit" aria-labelledby="delivery-summary-title">
+          <h4 id="delivery-summary-title" className="delivery-commit__title">Vas a exportar</h4>
+          <dl className="delivery-summary">
+            {summary.map((item) => (
+              <div key={item.label}>
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
           <div className="export-actions-row" aria-describedby={exportBlockedReason ? "export-blocked-reason" : undefined}>
             {destination === "powerbi" ? (
               <button
@@ -1131,6 +1159,7 @@ export function DeliveryPhase({
           {contract.kind === "with_contract" && !gatePassed && !validationError && (
             <p className="export-requirement">Las reglas se comprobarán antes de crear la copia.</p>
           )}
+          </section>
           <DeliveryPresets
             dataset={dataset}
             currentPreset={(name) => ({
