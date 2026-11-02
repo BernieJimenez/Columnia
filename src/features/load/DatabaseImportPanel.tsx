@@ -5,14 +5,21 @@ import {
   importDatabaseTable,
   listDatabaseTables,
   type DatabaseImportResult,
+  type DatabaseKind,
   type DatabaseSourceTable,
   type DatasetSourceInspection,
   type OperationProgress,
 } from "../../bridge";
 import { errorMessage, isCancellationError } from "../../bridge/errors";
 import { OperationProgressView } from "../../components/OperationProgressView";
-import { SqlServerConnectionForm } from "../database/SqlServerConnectionForm";
+import { DatabaseConnectionForm } from "../database/DatabaseConnectionForm";
 import { plural } from "../../plural";
+
+const ENGINES: ReadonlyArray<{ kind: DatabaseKind; label: string }> = [
+  { kind: "sqlserver", label: "SQL Server" },
+  { kind: "postgresql", label: "PostgreSQL" },
+  { kind: "mysql", label: "MySQL" },
+];
 
 /** Row limits offered; the engine accepts up to 5,000,000. */
 const DATABASE_ROW_LIMITS = [10_000, 100_000, 1_000_000, 5_000_000] as const;
@@ -47,18 +54,20 @@ function tableLabel(table: DatabaseSourceTable): string {
 }
 
 /**
- * Cargar desde SQL Server: lists the tables the server allows to read and
+ * Cargar desde una base de datos (SQL Server, PostgreSQL or MySQL, 2026-11-02):
+ * lists the tables the server allows to read and
  * brings one into this computer. Columnia only reads; there is no free SQL.
  */
 export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseImportPanelProps) {
   const id = useId();
+  const [kind, setKind] = useState<DatabaseKind>("sqlserver");
   const [connectionString, setConnectionString] = useState("");
   const [list, setList] = useState<ListState>({ kind: "idle" });
   const [selected, setSelected] = useState(0);
   const [rowLimit, setRowLimit] = useState<number>(DEFAULT_ROW_LIMIT);
   const [importState, setImportState] = useState<ImportState>({ kind: "idle" });
 
-  const source = { kind: "sqlserver" as const, connectionString };
+  const source = { kind, connectionString };
   const busy = blocked || list.kind === "listing" || importState.kind === "importing";
   const tables = list.kind === "listed" ? list.tables : [];
   const chosen = tables[selected];
@@ -106,17 +115,39 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
 
   return (
     <section className="database-import" aria-labelledby={`${id}-title`}>
-      <h3 id={`${id}-title`}>Cargar desde SQL Server</h3>
+      <h3 id={`${id}-title`}>Cargar desde una base de datos</h3>
       <div>
         {!connected ? (
-          <p className="recipe-hint" role="status">Conectar con SQL Server solo es posible en la aplicación de escritorio.</p>
+          <p className="recipe-hint" role="status">Conectar con una base de datos solo es posible en la aplicación de escritorio.</p>
         ) : (
           <div className="database-import__form">
             <p className="database-import__lead">
               Columnia lee la tabla que elijas y la guarda en este equipo para revisarla y prepararla.
               Solo lee: no escribe ni modifica nada en el servidor. Windows te pedirá confirmar la conexión.
             </p>
-            <SqlServerConnectionForm
+            <fieldset className="database-import__engines">
+              <legend>Motor</legend>
+              {ENGINES.map((engine) => (
+                <label key={engine.kind}>
+                  <input
+                    type="radio"
+                    name={`${id}-engine`}
+                    value={engine.kind}
+                    checked={kind === engine.kind}
+                    disabled={busy}
+                    onChange={() => {
+                      setKind(engine.kind);
+                      setConnectionString("");
+                      setList({ kind: "idle" });
+                      setImportState({ kind: "idle" });
+                    }}
+                  />
+                  {engine.label}
+                </label>
+              ))}
+            </fieldset>
+            <DatabaseConnectionForm
+              kind={kind}
               disabled={busy}
               onChange={(next) => {
                 setConnectionString(next ?? "");

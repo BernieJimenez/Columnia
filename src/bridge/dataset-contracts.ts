@@ -1,4 +1,4 @@
-import type { QualityRuleKind } from "./delivery-contracts";
+import type { DatabaseKind, QualityRuleKind } from "./delivery-contracts";
 
 export interface DatasetColumn {
   name: string;
@@ -41,7 +41,7 @@ export interface DelimitedHeaderReview {
 
 /** A database to read from; the connection string lives only in this call. */
 export interface DatabaseSource {
-  kind: "sqlserver";
+  kind: DatabaseKind;
   connectionString: string;
 }
 

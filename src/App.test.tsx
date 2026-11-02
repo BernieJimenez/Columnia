@@ -3541,6 +3541,7 @@ describe("App", () => {
     // Entregar asks the destination first (2026-10-31).
     fireEvent.click(screen.getByRole("radio", { name: /^Otra base de datos/ }));
     fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), { target: { value: "postgresql" } });
+    fireEvent.click(screen.getByRole("button", { name: "Escribir la cadena ODBC" }));
     fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), { target: { value: "Driver={PostgreSQL};Server=localhost" } });
     fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
     await screen.findByText(/Preflight completo/);

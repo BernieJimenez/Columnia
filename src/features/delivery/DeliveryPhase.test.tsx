@@ -135,6 +135,13 @@ const DESTINATION_FOR_FORMAT: Record<string, RegExp> = {
 };
 
 /** Entregar asks the destination first (2026-10-31), then its format. */
+/** The ODBC string mode of the connection form (2026-11-02: every engine has a form). */
+function typeConnectionString(value: string) {
+  const manual = screen.queryByRole("button", { name: "Escribir la cadena ODBC" });
+  if (manual) fireEvent.click(manual);
+  fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), { target: { value } });
+}
+
 function selectFormat(format: string) {
   fireEvent.click(screen.getByRole("radio", { name: DESTINATION_FOR_FORMAT[format] ?? /^Archivo/ }));
   fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), { target: { value: format } });
@@ -868,9 +875,7 @@ describe("DeliveryPhase", () => {
     selectFormat("postgresql");
     const exportButton = screen.getByRole("button", { name: "Exportar PostgreSQL" });
     expect(exportButton).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
-      target: { value: "Driver={PostgreSQL Unicode};Server=localhost;Pwd=secret" },
-    });
+    typeConnectionString("Driver={PostgreSQL Unicode};Server=localhost;Pwd=secret");
     fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
 
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preflight completo"));
@@ -898,10 +903,7 @@ describe("DeliveryPhase", () => {
     }));
     for (const format of ["mysql", "sqlserver"] as const) {
       selectFormat(format);
-      if (format === "sqlserver") fireEvent.click(screen.getByRole("button", { name: "Escribir la cadena ODBC" }));
-      fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
-        target: { value: `Driver={${format}};Server=localhost` },
-      });
+      typeConnectionString(`Driver={${format}};Server=localhost`);
       fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
       await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preflight completo"));
     }
@@ -919,13 +921,9 @@ describe("DeliveryPhase", () => {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
     selectFormat("mysql");
-    fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
-      target: { value: "Driver={mysql};Server=A" },
-    });
+    typeConnectionString("Driver={mysql};Server=A");
     fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
-    fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
-      target: { value: "Driver={mysql};Server=B" },
-    });
+    typeConnectionString("Driver={mysql};Server=B");
     resolvePreflight(preflightResult("mysql"));
     await Promise.resolve();
     expect(screen.queryByText("Preflight completo para dataset.")).not.toBeInTheDocument();
@@ -939,9 +937,7 @@ describe("DeliveryPhase", () => {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
     selectFormat("postgresql");
-    fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
-      target: { value: "Driver={PostgreSQL Unicode};Server=localhost" },
-    });
+    typeConnectionString("Driver={PostgreSQL Unicode};Server=localhost");
     fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Preflight bloqueado");
@@ -991,7 +987,7 @@ describe("DeliveryPhase", () => {
     expect(screen.getByLabelText("Esquema de destino")).toHaveValue("analytics");
     expect(screen.getByLabelText("Tabla")).toHaveValue("ventas");
     expect(screen.getByLabelText("Política de tabla")).toHaveValue("create_only");
-    expect(screen.getByLabelText("Cadena de conexión ODBC")).toHaveValue("");
+    expect(screen.getByLabelText("Servidor")).toHaveValue("");
     expect(screen.getByText(/El preset proponía reemplazar la tabla/)).toHaveTextContent("Se cargó Crear sin reemplazar");
     expect(screen.getByRole("button", { name: "Exportar PostgreSQL" })).toBeDisabled();
   });
@@ -1559,8 +1555,7 @@ describe("DeliveryPhase", () => {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
     selectFormat("postgresql");
-    const connection = screen.getByLabelText("Cadena de conexión ODBC");
-    fireEvent.change(connection, { target: { value: "Driver={PostgreSQL};Server=localhost" } });
+    typeConnectionString("Driver={PostgreSQL};Server=localhost");
 
     preflight.mockResolvedValueOnce(preflightResult("mysql"));
     fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));

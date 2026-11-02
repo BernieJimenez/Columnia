@@ -276,7 +276,7 @@ export function validateDatabaseTargetDraft(target: DatabaseTarget): string | nu
   if (target.kind === "mysql" && target.tablePolicy === "replace") {
     return "La política Reemplazar está deshabilitada para MySQL hasta validar una sustitución atómica segura.";
   }
-  if (!target.connectionString.trim()) return "Indica la cadena de conexión ODBC.";
+  if (!target.connectionString.trim()) return "Completa la conexión con el servidor.";
   if (target.connectionString.length > 16 * 1024) return "La cadena ODBC no puede superar 16 KiB.";
   if ([...target.connectionString].some((character) => /\p{Cc}/u.test(character))) {
     return "La cadena ODBC contiene caracteres de control no permitidos.";

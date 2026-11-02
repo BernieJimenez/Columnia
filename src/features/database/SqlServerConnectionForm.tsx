@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from "react";
 
-import { listSqlServerDrivers } from "../../bridge";
+import { listDatabaseDrivers } from "../../bridge";
 import {
   buildSqlServerConnectionString,
   EMPTY_SQL_SERVER_CONNECTION,
@@ -12,6 +12,8 @@ interface SqlServerConnectionFormProps {
   disabled: boolean;
   /** The connection string, or null while something is missing. */
   onChange: (connectionString: string | null) => void;
+  /** The id of a message saying the connection is incomplete; marks its first field. */
+  errorId?: string;
 }
 
 /**
@@ -19,7 +21,7 @@ interface SqlServerConnectionFormProps {
  * The driver is the newest installed one; «Escribir la cadena ODBC» stays for
  * cases the fields do not cover. Nothing is saved.
  */
-export function SqlServerConnectionForm({ disabled, onChange }: SqlServerConnectionFormProps) {
+export function SqlServerConnectionForm({ disabled, onChange, errorId }: SqlServerConnectionFormProps) {
   const id = useId();
   const [fields, setFields] = useState<SqlServerConnectionFields>(EMPTY_SQL_SERVER_CONNECTION);
   const [drivers, setDrivers] = useState<string[] | null>(null);
@@ -28,7 +30,7 @@ export function SqlServerConnectionForm({ disabled, onChange }: SqlServerConnect
 
   useEffect(() => {
     let active = true;
-    listSqlServerDrivers()
+    listDatabaseDrivers("sqlserver")
       .then((found) => {
         if (!active) return;
         setDrivers(found);
@@ -66,6 +68,8 @@ export function SqlServerConnectionForm({ disabled, onChange }: SqlServerConnect
               <input
                 id={`${id}-server`}
                 value={fields.server}
+                aria-invalid={errorId ? true : undefined}
+                aria-describedby={errorId}
                 disabled={disabled}
                 autoComplete="off"
                 spellCheck={false}
@@ -172,6 +176,8 @@ export function SqlServerConnectionForm({ disabled, onChange }: SqlServerConnect
           <input
             id={`${id}-manual`}
             type="password"
+            aria-invalid={errorId ? true : undefined}
+            aria-describedby={errorId}
             autoComplete="off"
             spellCheck={false}
             value={manualString}

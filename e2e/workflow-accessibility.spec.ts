@@ -210,8 +210,9 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await page.getByRole("radio", { name: /^Otra base de datos/ }).check();
     const format = page.getByRole("combobox", { name: "Formato de exportación" });
     await format.selectOption("postgresql");
-    const connectionString = page.getByRole("textbox", { name: "Cadena de conexión ODBC" });
-    const connectionError = page.getByRole("alert").filter({ hasText: "Indica la cadena de conexión ODBC." });
+    // The guided form marks its first field (2026-11-02).
+    const connectionString = page.getByLabel("Servidor", { exact: true });
+    const connectionError = page.getByRole("alert").filter({ hasText: "Completa la conexión con el servidor." });
     await expect(connectionError).toBeVisible();
     await expect(connectionString).toHaveAttribute("aria-invalid", "true");
     const errorId = await connectionError.getAttribute("id");
@@ -220,7 +221,7 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await expect.poll(() => connectionString.evaluate((field) => {
       const descriptionId = field.getAttribute("aria-describedby");
       return descriptionId ? document.getElementById(descriptionId)?.textContent ?? "" : "";
-    })).toContain("Indica la cadena de conexión ODBC.");
+    })).toContain("Completa la conexión con el servidor.");
 
     await page.getByRole("radio", { name: /^Archivo/ }).check();
     await format.selectOption("csv");

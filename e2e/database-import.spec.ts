@@ -19,11 +19,12 @@ test.describe("cargar desde SQL Server", () => {
     await installTauriMock(page, { dataset, format: "parquet" });
     await page.goto("/", { waitUntil: "commit" });
 
-    await page.getByRole("radio", { name: /^SQL Server/ }).check();
+    await page.getByRole("radio", { name: /^Base de datos/ }).check();
+    await expect(page.getByRole("radio", { name: "SQL Server", exact: true })).toBeChecked();
     // A form instead of an ODBC string; the driver is the installed one.
     await expect(page.getByText("Controlador: ODBC Driver 18 for SQL Server.")).toBeVisible();
     await page.getByLabel("Servidor", { exact: true }).fill("localhost");
-    await page.getByLabel("Base de datos").fill("VentasRetail");
+    await page.getByLabel("Base de datos", { exact: true }).fill("VentasRetail");
     await page.getByRole("button", { name: "Ver tablas" }).click();
     await expect(page.getByText("2 tablas y vistas disponibles.")).toBeVisible();
 

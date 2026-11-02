@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   DatabaseImportResult,
+  DatabaseKind,
   DatabaseSource,
   DatabaseSourceTable,
   DatasetPreview,
@@ -237,7 +238,7 @@ export function importDatabaseTable(
   });
 }
 
-/** Installed ODBC drivers for SQL Server, newest first; reads the local list only. */
-export function listSqlServerDrivers(): Promise<string[]> {
-  return invoke<string[]>("list_sql_server_drivers");
+/** Installed ODBC drivers for one engine, the preferred first; reads the local list only. */
+export function listDatabaseDrivers(kind: DatabaseKind): Promise<string[]> {
+  return invoke<string[]>("list_database_drivers", { kind });
 }

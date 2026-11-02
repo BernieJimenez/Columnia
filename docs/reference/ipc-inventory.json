@@ -194,7 +194,7 @@
       "debug": false
     },
     {
-      "name": "list_sql_server_drivers",
+      "name": "list_database_drivers",
       "module": "remote_databases",
       "debug": false
     },

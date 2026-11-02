@@ -20,7 +20,9 @@ const inspection = {
 } as DatasetSourceInspection;
 
 beforeEach(() => {
-  vi.spyOn(bridge, "listSqlServerDrivers").mockResolvedValue(["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"]);
+  vi.spyOn(bridge, "listDatabaseDrivers").mockImplementation(async (kind) => kind === "sqlserver"
+    ? ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"]
+    : kind === "postgresql" ? ["PostgreSQL Unicode(x64)"] : []);
 });
 
 afterEach(() => {
@@ -126,9 +128,42 @@ describe("DatabaseImportPanel", () => {
   });
 
   it("sin controlador de SQL Server explica qué instalar", async () => {
-    vi.spyOn(bridge, "listSqlServerDrivers").mockResolvedValue([]);
+    vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue([]);
     renderPanel();
     expect(await screen.findByText(/Instala «ODBC Driver 18 for SQL Server»/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ver tablas" })).toBeDisabled();
+  });
+
+  it("lee de PostgreSQL con usuario, contraseña y cifrado obligatorio", async () => {
+    const list = vi.spyOn(bridge, "listDatabaseTables").mockResolvedValue([{ schema: "public", name: "pedidos", isView: false }]);
+    renderPanel();
+    fireEvent.click(screen.getByRole("radio", { name: "PostgreSQL" }));
+    await waitFor(() => expect(screen.getByText("Controlador: PostgreSQL Unicode(x64).")).toBeInTheDocument());
+    expect(screen.queryByRole("radio", { name: "Windows (tu usuario actual)" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Puerto")).toHaveAttribute("placeholder", "5432");
+    fireEvent.change(screen.getByLabelText("Servidor"), { target: { value: "db.ejemplo.com" } });
+    fireEvent.change(screen.getByLabelText("Puerto"), { target: { value: "70000" } });
+    fireEvent.change(screen.getByLabelText("Usuario"), { target: { value: "ana" } });
+    expect(screen.getByText("El puerto es un número entre 1 y 65535.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ver tablas" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Puerto"), { target: { value: "5433" } });
+    fireEvent.change(screen.getByLabelText("Base de datos"), { target: { value: "tienda" } });
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "a;b" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
+    await waitFor(() => expect(list).toHaveBeenCalledWith({
+      kind: "postgresql",
+      connectionString: "Driver={PostgreSQL Unicode(x64)};Server=db.ejemplo.com;Port=5433;Database=tienda;Uid=ana;Pwd={a;b};SSLmode=require;",
+    }));
+    expect(await screen.findByRole("button", { name: "Traer public.pedidos" })).toBeEnabled();
+  });
+
+  it("al cambiar de motor vacía la conexión y dice qué controlador instalar", async () => {
+    renderPanel();
+    await fillConnection();
+    expect(screen.getByRole("button", { name: "Ver tablas" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("radio", { name: "MySQL" }));
+    expect(await screen.findByText(/No hay un controlador ODBC de MySQL instalado\. Instala MySQL Connector\/ODBC/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Servidor")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Ver tablas" })).toBeDisabled();
   });
 });

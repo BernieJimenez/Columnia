@@ -36,7 +36,7 @@ export type LoadRuntimeState =
   | { kind: "browser" }
   | { kind: "unavailable" };
 
-type LoadSource = "file" | "sqlserver" | "sample" | "project";
+type LoadSource = "file" | "database" | "sample" | "project";
 
 interface LoadSourceOption {
   id: LoadSource;
@@ -51,7 +51,7 @@ function formatFileSize(bytes: number): string {
 interface LoadPhaseProps {
   children?: ReactNode;
   reusableTaskPanel?: ReactNode;
-  /** «Cargar desde SQL Server», shown when that source is chosen. */
+  /** «Cargar desde una base de datos», shown when that source is chosen. */
   databaseImportPanel?: ReactNode;
   pendingTaskName?: string | null;
   runtime: LoadRuntimeState;
@@ -158,7 +158,7 @@ export function LoadPhase({
   const showSamples = runtime.kind === "connected" && sampleDatasets.length > 0;
   const sourceOptions: LoadSourceOption[] = [
     { id: "file", label: "Archivo", description: "CSV, Excel, Parquet, JSON y más" },
-    ...(databaseImportPanel ? [{ id: "sqlserver" as const, label: "SQL Server", description: "Una tabla o vista, solo lectura" }] : []),
+    ...(databaseImportPanel ? [{ id: "database" as const, label: "Base de datos", description: "SQL Server, PostgreSQL o MySQL; solo lectura" }] : []),
     ...(showSamples ? [{ id: "sample" as const, label: "Ejemplo", description: "Datos de prueba creados en este equipo" }] : []),
     ...(children ? [{ id: "project" as const, label: "Proyecto", description: current ? "Guarda o retoma un trabajo" : "Retoma un trabajo guardado" }] : []),
   ];
@@ -352,7 +352,7 @@ export function LoadPhase({
         </details>
       )}
 
-      {source === "sqlserver" && databaseImportPanel}
+      {source === "database" && databaseImportPanel}
       {source === "project" && <div className="load-source-panel">{children}</div>}
       {reusableTaskPanel}
 

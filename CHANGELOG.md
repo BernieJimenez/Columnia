@@ -12,6 +12,18 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Añadido
 
+- Cargar trae tablas también desde PostgreSQL y MySQL, no solo desde SQL Server.
+  La tarjeta pasa a llamarse «Base de datos» y se elige el motor. Cada motor
+  tiene un formulario (servidor, puerto, base de datos, usuario y contraseña)
+  con el controlador ODBC instalado ya elegido, y si falta, dice cuál
+  instalar. La lectura sigue siendo de solo lectura: Columnia lista las tablas
+  que el servidor permite leer, sin las propias del motor, y solo consulta la
+  elegida. Pide cifrado salvo que se marque conectar sin él. Probado con
+  pruebas automáticas; todavía no contra un servidor PostgreSQL o MySQL real.
+- Entregar usa el mismo formulario para exportar directo a PostgreSQL y MySQL
+  en lugar de pedir la cadena ODBC; «Escribir la cadena ODBC» sigue disponible.
+  Al cambiar de motor o aplicar un preset, la conexión se vacía en lugar de
+  quedarse con la anterior.
 - Los presets de entrega guardan también la tabla de SQL Server del script
   T-SQL y del paquete BULK INSERT: esquema, tabla, si se crea, se añaden filas
   o se actualiza por clave, las columnas clave y el largo del texto. Una carga

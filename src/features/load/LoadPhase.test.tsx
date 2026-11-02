@@ -100,12 +100,12 @@ describe("LoadPhase", () => {
 
     const sources = screen.getByRole("group", { name: "¿De dónde vienen los datos?" });
     expect(within(sources).getAllByRole("radio").map((radio) => radio.getAttribute("value")))
-      .toEqual(["file", "sqlserver", "sample", "project"]);
+      .toEqual(["file", "database", "sample", "project"]);
     expect(screen.getByRole("radio", { name: /^Archivo/ })).toBeChecked();
     expect(screen.getByRole("button", { name: "Seleccionar dataset" })).toBeInTheDocument();
     expect(screen.queryByText("Panel de SQL Server")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("radio", { name: /^SQL Server/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Base de datos/ }));
     expect(screen.getByText("Panel de SQL Server")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Seleccionar dataset" })).not.toBeInTheDocument();
 

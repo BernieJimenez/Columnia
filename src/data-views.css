@@ -176,6 +176,18 @@
 .database-import__choice { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; }
 .database-import__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .database-import__hint { margin: 0; color: var(--text-secondary); font-size: .875rem; }
+/* Motor (2026-11-02): SQL Server, PostgreSQL or MySQL, as one row of choices. */
+.database-import__engines { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.database-import__engines legend { width: 100%; margin-bottom: 6px; padding: 0; color: var(--text-primary); font-size: .875rem; font-weight: 650; }
+.database-import__engines label {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
+  border: 1px solid var(--control-border); border-radius: 8px; background: var(--surface);
+  color: var(--text-primary); font-size: .9375rem; font-weight: 600; cursor: pointer;
+}
+.database-import__engines label:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.database-import__engines label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.database-import__engines label:has(input:disabled) { cursor: not-allowed; opacity: .6; }
+.database-import__engines input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
 @media (max-width: 700px) {
   .database-import__choice { grid-template-columns: minmax(0, 1fr); }
 }
@@ -206,6 +218,7 @@
 /* Guided SQL Server connection, shared by Cargar and Entregar. */
 .connection-form { display: grid; gap: 12px; min-width: 0; }
 .connection-form__row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.connection-form__row--server { grid-template-columns: minmax(0, 1fr) 7.5rem; }
 .connection-form__field { display: grid; gap: 6px; min-width: 0; color: var(--text-primary); font-size: .875rem; font-weight: 650; }
 .connection-form__field :is(input, select) {
   box-sizing: border-box;

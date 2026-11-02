@@ -2057,7 +2057,6 @@ const MAX_IMPORT_TEXT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const IMPORT_BUFFER_BYTES: usize = 64 * 1024 * 1024;
 const MAX_LISTED_TABLES: usize = 5_000;
 const DATABASE_IMPORT_DIRECTORY: &str = "database-imports";
-const SYSTEM_SCHEMAS: [&str; 2] = ["sys", "information_schema"];
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -2094,9 +2093,6 @@ struct FetchedTable {
 }
 
 fn validate_database_source(source: &DatabaseSource) -> Result<(), String> {
-    if source.kind != DatabaseKind::SqlServer {
-        return Err("De momento Columnia solo importa tablas desde SQL Server.".to_owned());
-    }
     if source.connection_string.trim().is_empty() {
         return Err("Indica una cadena de conexión ODBC antes de continuar.".to_owned());
     }
@@ -2198,37 +2194,65 @@ fn list_source_tables(
         .map_err(|error| format_driver_error("No se pudieron listar las tablas", error, target))?
         .collect::<Result<Vec<TablesRow>, _>>()
         .map_err(|error| format_driver_error("No se pudieron leer las tablas", error, target))?;
+    let text = |value: &odbc_api::parameter::VarCharArray<128>| {
+        value.as_str().ok().flatten().unwrap_or_default().to_owned()
+    };
     let mut tables = rows
         .iter()
         .filter_map(|row| {
-            let name = row.table.as_str().ok().flatten()?.to_owned();
-            let schema = row
-                .schema
-                .as_str()
-                .ok()
-                .flatten()
-                .unwrap_or_default()
-                .to_owned();
-            let kind = row
-                .table_type
-                .as_str()
-                .ok()
-                .flatten()
-                .unwrap_or_default()
-                .to_ascii_lowercase();
-            let system = SYSTEM_SCHEMAS
-                .iter()
-                .any(|system| schema.eq_ignore_ascii_case(system));
-            (!system && !name.is_empty()).then(|| DatabaseSourceTable {
-                schema,
-                name,
-                is_view: kind.contains("view"),
-            })
+            source_table(
+                target.kind,
+                &text(&row.catalog),
+                &text(&row.schema),
+                row.table.as_str().ok().flatten()?,
+                row.table_type.as_str().ok().flatten().unwrap_or_default(),
+            )
         })
         .collect::<Vec<_>>();
     sort_source_tables(&mut tables);
     tables.truncate(MAX_LISTED_TABLES);
     Ok(tables)
+}
+
+/// One row of the server's table list as Columnia shows it; None for the
+/// server's own schemas. MySQL names its databases as catalogs, without
+/// schemas: the database takes the schema's place, so `base`.`tabla` reads
+/// exactly the listed table.
+fn source_table(
+    kind: DatabaseKind,
+    catalog: &str,
+    schema: &str,
+    name: &str,
+    table_type: &str,
+) -> Option<DatabaseSourceTable> {
+    if name.is_empty() {
+        return None;
+    }
+    let schema = if kind == DatabaseKind::Mysql && schema.is_empty() {
+        catalog
+    } else {
+        schema
+    };
+    if is_system_schema(kind, schema) {
+        return None;
+    }
+    Some(DatabaseSourceTable {
+        schema: schema.to_owned(),
+        name: name.to_owned(),
+        is_view: table_type.to_ascii_lowercase().contains("view"),
+    })
+}
+
+fn is_system_schema(kind: DatabaseKind, schema: &str) -> bool {
+    let lower = schema.to_ascii_lowercase();
+    match kind {
+        DatabaseKind::SqlServer => matches!(lower.as_str(), "sys" | "information_schema"),
+        DatabaseKind::Postgresql => lower == "information_schema" || lower.starts_with("pg_"),
+        DatabaseKind::Mysql => matches!(
+            lower.as_str(),
+            "information_schema" | "mysql" | "performance_schema" | "sys"
+        ),
+    }
 }
 
 fn sort_source_tables(tables: &mut [DatabaseSourceTable]) {
@@ -2544,12 +2568,12 @@ where
     })
 }
 
-/// The installed ODBC drivers that reach SQL Server, the newest first, so the
-/// connection form picks one without the person typing its name. It only
+/// The installed ODBC drivers that reach one engine, the preferred first, so
+/// the connection form picks one without the person typing its name. It only
 /// reads the local driver list; no connection is opened.
 #[tauri::command]
-pub async fn list_sql_server_drivers() -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(|| {
+pub async fn list_database_drivers(kind: DatabaseKind) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
         let environment = Environment::new()
             .map_err(|error| format!("No se pudo inicializar ODBC: {error:?}"))?;
         let drivers = environment
@@ -2558,10 +2582,58 @@ pub async fn list_sql_server_drivers() -> Result<Vec<String>, String> {
             .into_iter()
             .map(|driver| driver.description)
             .collect::<Vec<_>>();
-        Ok(sql_server_drivers(drivers))
+        Ok(database_drivers(kind, drivers))
     })
     .await
     .map_err(|_| "La lista de controladores se interrumpió.".to_owned())?
+}
+
+fn database_drivers(kind: DatabaseKind, drivers: Vec<String>) -> Vec<String> {
+    match kind {
+        DatabaseKind::SqlServer => sql_server_drivers(drivers),
+        // psqlODBC: Unicode keeps accents; ANSI uses the Windows code page.
+        DatabaseKind::Postgresql => ranked_drivers(
+            drivers,
+            |lower| lower.contains("postgres"),
+            |lower| (u8::from(!lower.contains("unicode")), 0, 0),
+        ),
+        // Connector/ODBC by version, Unicode before ANSI; MariaDB's after.
+        DatabaseKind::Mysql => ranked_drivers(
+            drivers,
+            |lower| lower.contains("mysql") || lower.contains("mariadb"),
+            |lower| {
+                (
+                    u8::from(!lower.contains("mysql")),
+                    u8::from(lower.contains("ansi")),
+                    u32::MAX - driver_version(lower),
+                )
+            },
+        ),
+    }
+}
+
+fn ranked_drivers(
+    drivers: Vec<String>,
+    reaches: impl Fn(&str) -> bool,
+    rank: impl Fn(&str) -> (u8, u8, u32),
+) -> Vec<String> {
+    let mut drivers = drivers
+        .into_iter()
+        .filter(|name| reaches(&name.to_ascii_lowercase()))
+        .collect::<Vec<_>>();
+    drivers.sort_by_key(|name| rank(&name.to_ascii_lowercase()));
+    drivers.dedup();
+    drivers
+}
+
+/// «MySQL ODBC 9.1 Unicode Driver» → 9001; 0 without a version.
+fn driver_version(name: &str) -> u32 {
+    name.split_whitespace()
+        .find_map(|word| {
+            let (major, minor) = word.split_once('.')?;
+            Some(major.parse::<u32>().ok()? * 1000 + minor.parse::<u32>().ok()?)
+        })
+        .unwrap_or(0)
 }
 
 /// SQL Server drivers by preference: «ODBC Driver N» from the highest N, then
@@ -3932,15 +4004,18 @@ mod tests {
     }
 
     #[test]
-    fn import_accepts_only_sql_server_and_a_safe_connection_string() {
+    fn import_accepts_the_three_engines_and_only_a_safe_connection_string() {
         let valid =
             "Driver={ODBC Driver 18 for SQL Server};Server=localhost;Trusted_Connection=yes";
         assert!(validate_database_source(&sql_server_source(valid)).is_ok());
-        let mut postgres = sql_server_source(valid);
-        postgres.kind = DatabaseKind::Postgresql;
-        assert!(validate_database_source(&postgres)
-            .unwrap_err()
-            .contains("solo importa tablas desde SQL Server"));
+        for kind in [DatabaseKind::Postgresql, DatabaseKind::Mysql] {
+            let source = DatabaseSource {
+                kind,
+                connection_string: "Driver={PostgreSQL Unicode(x64)};Server=db;Uid=ana;Pwd=x"
+                    .to_owned(),
+            };
+            assert!(validate_database_source(&source).is_ok());
+        }
         assert!(validate_database_source(&sql_server_source("  ")).is_err());
         assert!(
             validate_database_source(&sql_server_source("Driver=C:\\x\\evil.dll;Server=a"))
@@ -4001,6 +4076,57 @@ mod tests {
         assert_eq!(
             select_rows_sql(&listed("", "t"), 5, DatabaseKind::SqlServer),
             "SELECT TOP (6) * FROM [t]"
+        );
+        assert_eq!(
+            select_rows_sql(
+                &listed("public", "ventas\"; DROP"),
+                10,
+                DatabaseKind::Postgresql
+            ),
+            "SELECT * FROM \"public\".\"ventas\"\"; DROP\" LIMIT 11"
+        );
+        assert_eq!(
+            select_rows_sql(&listed("tienda", "pedidos`x"), 10, DatabaseKind::Mysql),
+            "SELECT * FROM `tienda`.`pedidos``x` LIMIT 11"
+        );
+    }
+
+    /// Each engine hides its own schemas; MySQL lists databases as catalogs.
+    #[test]
+    fn listed_tables_skip_each_engines_own_schemas() {
+        let row = |kind, catalog: &str, schema: &str| {
+            source_table(kind, catalog, schema, "t", "TABLE").map(|table| table.schema)
+        };
+        assert_eq!(
+            row(DatabaseKind::SqlServer, "Ventas", "dbo"),
+            Some("dbo".to_owned())
+        );
+        assert_eq!(row(DatabaseKind::SqlServer, "Ventas", "sys"), None);
+        assert_eq!(
+            row(DatabaseKind::Postgresql, "ventas", "public"),
+            Some("public".to_owned())
+        );
+        assert_eq!(row(DatabaseKind::Postgresql, "ventas", "pg_catalog"), None);
+        assert_eq!(row(DatabaseKind::Postgresql, "ventas", "pg_toast"), None);
+        assert_eq!(
+            row(DatabaseKind::Postgresql, "ventas", "information_schema"),
+            None
+        );
+        assert_eq!(
+            row(DatabaseKind::Mysql, "tienda", ""),
+            Some("tienda".to_owned())
+        );
+        assert_eq!(row(DatabaseKind::Mysql, "mysql", ""), None);
+        assert_eq!(row(DatabaseKind::Mysql, "performance_schema", ""), None);
+        assert_eq!(row(DatabaseKind::Mysql, "", ""), Some(String::new()));
+        assert_eq!(
+            source_table(DatabaseKind::Mysql, "tienda", "", "", "TABLE"),
+            None
+        );
+        assert!(
+            source_table(DatabaseKind::Postgresql, "", "public", "v", "VIEW")
+                .unwrap()
+                .is_view
         );
     }
 
@@ -4136,6 +4262,38 @@ mod tests {
             frame.get_column_names()
         );
         eprintln!("{frame}");
+    }
+
+    #[test]
+    fn postgresql_and_mysql_drivers_prefer_unicode_and_the_newest() {
+        let installed = vec![
+            "ODBC Driver 18 for SQL Server".to_owned(),
+            "PostgreSQL ANSI(x64)".to_owned(),
+            "PostgreSQL Unicode(x64)".to_owned(),
+            "MariaDB ODBC 3.1 Driver".to_owned(),
+            "MySQL ODBC 8.0 ANSI Driver".to_owned(),
+            "MySQL ODBC 8.0 Unicode Driver".to_owned(),
+            "MySQL ODBC 9.1 Unicode Driver".to_owned(),
+        ];
+        assert_eq!(
+            database_drivers(DatabaseKind::Postgresql, installed.clone()),
+            vec!["PostgreSQL Unicode(x64)", "PostgreSQL ANSI(x64)"]
+        );
+        assert_eq!(
+            database_drivers(DatabaseKind::Mysql, installed.clone()),
+            vec![
+                "MySQL ODBC 9.1 Unicode Driver",
+                "MySQL ODBC 8.0 Unicode Driver",
+                "MySQL ODBC 8.0 ANSI Driver",
+                "MariaDB ODBC 3.1 Driver",
+            ]
+        );
+        assert_eq!(
+            database_drivers(DatabaseKind::SqlServer, installed),
+            vec!["ODBC Driver 18 for SQL Server"]
+        );
+        assert_eq!(driver_version("mysql odbc 10.12 unicode driver"), 10012);
+        assert_eq!(driver_version("postgresql unicode(x64)"), 0);
     }
 
     #[test]

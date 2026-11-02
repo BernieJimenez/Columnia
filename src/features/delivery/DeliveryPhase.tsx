@@ -30,7 +30,7 @@ import {
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ROW_AUDIT_COLUMN } from "../../rowAudit";
 import { DEFAULT_SQL_SERVER_SCRIPT, SqlServerScriptTarget } from "./SqlServerScriptTarget";
-import { SqlServerConnectionForm } from "../database/SqlServerConnectionForm";
+import { DatabaseConnectionForm } from "../database/DatabaseConnectionForm";
 import {
   type DeliveryContractAction,
   type DeliveryContractState,
@@ -176,7 +176,7 @@ function databaseTargetErrorField(
   message: string | null,
 ): "connectionString" | "schema" | "table" | null {
   if (!message) return null;
-  if (message.startsWith("Indica la cadena") || message.startsWith("La cadena ODBC")) {
+  if (message.startsWith("Completa la conexión") || message.startsWith("La cadena ODBC")) {
     return "connectionString";
   }
   if (message.startsWith("El esquema")) return "schema";
@@ -219,6 +219,8 @@ export function DeliveryPhase({
   const selectedExportFormat = exportFormat ?? localExportFormat;
   const exceedsExcel = selectedExportFormat === "excel" && excelLimitIssues.length > 0;
   const [databaseTarget, setDatabaseTarget] = useState<DatabaseTarget>(INITIAL_DATABASE_TARGET);
+  // Remounts the connection form whenever the target is reset, so it never shows a dropped connection.
+  const [connectionFormKey, setConnectionFormKey] = useState(0);
   const [databasePreflightState, setDatabasePreflightState] = useState<
     | { kind: "idle" }
     | { kind: "working" }
@@ -243,6 +245,7 @@ export function DeliveryPhase({
   // A new dataset resets the remote target for the format chosen at that moment.
   const resetDatabaseTarget = useEffectEvent(() => {
     exportRequestGeneration.current += 1;
+    setConnectionFormKey((current) => current + 1);
     const kind = databaseKindForExportFormat(selectedExportFormat);
     setDatabaseTarget({ ...INITIAL_DATABASE_TARGET, ...(kind ? { kind } : {}) });
     setDatabasePreflightState({ kind: "idle" });
@@ -523,6 +526,8 @@ export function DeliveryPhase({
       setDatabaseTarget((current) => ({
         ...current,
         kind,
+        // Another engine starts with an empty form: the old connection is dropped.
+        ...(current.kind !== kind ? { connectionString: "" } : {}),
         ...(kind === "mysql" && current.tablePolicy === "replace"
           ? { tablePolicy: "create_only" as const }
           : {}),
@@ -606,6 +611,7 @@ export function DeliveryPhase({
   /** Applies a delivery preset; returns the notice about its database target, if any. */
   function applyDeliveryPreset(openedPreset: DeliveryPreset): string | null {
     changeExportFormat(openedPreset.format);
+    setConnectionFormKey((current) => current + 1);
     const scriptNotice = applySqlServerScriptPreset(openedPreset.sqlServerScript);
     setLocalPrivacyMode(openedPreset.privacyMode);
     onPrivacyModeChange?.(openedPreset.privacyMode);
@@ -997,32 +1003,13 @@ export function DeliveryPhase({
           {isDatabaseExportFormat(selectedExportFormat) && (
             <fieldset className="database-target">
               <legend>Conexión · {exportFormatLabel}</legend>
-              {databaseTarget.kind === "sqlserver" ? (
-                <SqlServerConnectionForm
-                  disabled={busy}
-                  onChange={(connectionString) => changeDatabaseTarget({ connectionString: connectionString ?? "" })}
-                />
-              ) : (
-                <>
-                  <p>
-                    Usa el controlador ODBC correspondiente. La cadena y la contraseña solo viven durante esta sesión y no se guardan en el proyecto. El esquema de destino es opcional.
-                  </p>
-                  <label>
-                    Cadena de conexión ODBC
-                    <input
-                      aria-label="Cadena de conexión ODBC"
-                      type="password"
-                      autoComplete="off"
-                      value={databaseTarget.connectionString}
-                      aria-invalid={invalidDatabaseTargetField === "connectionString" || undefined}
-                      aria-describedby={invalidDatabaseTargetField === "connectionString" ? "database-target-validation-error" : undefined}
-                      onChange={(event) => changeDatabaseTarget({ connectionString: event.target.value })}
-                      disabled={busy}
-                      placeholder="Driver={...};Server=...;Database=...;Uid=...;Pwd=..."
-                    />
-                  </label>
-                </>
-              )}
+              <DatabaseConnectionForm
+                key={connectionFormKey}
+                kind={databaseTarget.kind}
+                disabled={busy}
+                errorId={invalidDatabaseTargetField === "connectionString" ? "database-target-validation-error" : undefined}
+                onChange={(connectionString) => changeDatabaseTarget({ connectionString: connectionString ?? "" })}
+              />
               <div className="database-target__grid">
                 <label>
                   Esquema de destino
