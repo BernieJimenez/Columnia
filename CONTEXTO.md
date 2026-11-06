@@ -71,6 +71,13 @@ La interfaz sigue cinco fases declaradas en `src/features/workspaces/workspaceMo
 
 Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una operación activa bloquea la navegación que pueda competir con ella. Si el dataset cambia, cualquier validación de entrega previa queda obsoleta y debe ejecutarse de nuevo.
 
+Falsos positivos verificados en la auditoría del 2026-11-05 (no se vuelven a
+reportar salvo que el código cambie): el resumen de Entregar sí queda fijo abajo
+en ventanas de 1536×864 o más (en una de 640 px de alto mide más que el hueco);
+de 640 a 1180 px de ancho ninguna fase desborda en horizontal; con
+`forced-colors: active` la pestaña activa de Revisar conserva su subrayado; y
+`npm test` es `vitest run`, la misma suite que `test:coverage`.
+
 ## Arquitectura por archivo
 
 | Ruta | Responsabilidad |
@@ -266,6 +273,28 @@ DuckDB conserva fechas, horas sin offset y valores con sufijo UTC `Z`, mientras
 los offsets distintos de UTC o valores inválidos vuelven al fallback eager
 estricto.
 
+Falsos positivos verificados en la auditoría del 2026-11-05 (no se vuelven a
+reportar salvo que el código cambie):
+
+- La copia de trabajo Parquet del perfil de un CSV grande y quienes la leen
+  toman el delimitador de la misma función y del contenido del archivo
+  (`detect_delimiter`); reinterpretar una selección escribe un archivo nuevo,
+  con otra ruta y otra entrada de caché. Lo que sí puede divergir es el modo de
+  encabezado (AUD-022 del ROADMAP).
+- La fusión en paralelo del perfil de texto da el mismo resultado con cualquier
+  número de hilos y de bloques: las fusiones son asociativas, las partes se
+  combinan en el orden de las filas y repartir el presupuesto de fechas
+  fallidas no cambia el tipo sugerido.
+- La FFI nativa de DuckDB (`NativeDuckDb`) no tiene defectos de memoria:
+  `Connection::open_from_raw` no cierra la base (`close_on_drop = false`), la
+  base se cierra una sola vez en `Drop`, los `SET` de recursos son de la base y
+  la vista es un objeto del catálogo, así que la conexión que ejecuta los ve; y
+  `duckdb_interrupt` y `duckdb_query_progress` se pueden llamar desde otro hilo.
+- Ninguna ruta de snapshot del historial se reutiliza con otro contenido
+  (`next_snapshot_destination` salta las existentes y `next_id` solo crece), y
+  la caché del perfil, de capacidad 1, solo la escribe el perfil del dataset
+  activo: Explorar, la propuesta y la comparación no la expulsan.
+
 ### Historial y atomicidad
 
 Las recetas IQR compatibles con lazy/streaming también pueden usar
@@ -393,6 +422,20 @@ No rompas estas reglas sin una decisión explícita documentada:
 - No añadas CI, GitHub Actions, telemetría o servicios de pago como requisito sin revertir expresamente las decisiones vigentes.
 
 La canonicalización cubre todos los puntos actuales de entrada por diálogo para datasets, recetas y exportaciones, con pruebas de segmentos `..`, directorios, symlinks en Unix y reparse points válidos o colgantes en Windows. La prueba Windows se omite limpiamente si el sistema no concede permiso para crear symlinks. Rust limita los payloads semánticos de receta a 4.096 caracteres por campo y 65.536 acumulados; las reglas de calidad conservan el máximo de 16 y admiten hasta 256 caracteres por columna y 2.048 acumulados. Estos presupuestos se aplican antes de validar/exportar o aplicar/guardar, pero no sustituyen un límite de memoria del transporte IPC.
+
+Falsos positivos verificados en la auditoría del 2026-11-05 (no se vuelven a
+reportar salvo que el código cambie):
+
+- El script en línea de `index.html` no necesita un hash escrito en
+  `tauri.conf.json`: `tauri-codegen` añade el `sha256` de cada script en línea a
+  `script-src` al compilar, salvo con `dangerousDisableAssetCspModification`.
+- El SQL de DuckDB que arma Rust escapa literales y rutas (comilla duplicada) e
+  identificadores (`quote_identifier`); salvo la consola, endurecida con
+  `restrict_external_access`, ninguna conexión recibe SQL escrito por la
+  persona.
+- La protección de datos personales (`mask` o `hash`) se aplica antes de
+  escribir el script T-SQL y el paquete BULK INSERT, tanto con el dataset en
+  disco como en memoria.
 
 ## Desarrollo y validación
 
