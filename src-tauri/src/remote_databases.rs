@@ -65,10 +65,15 @@ impl<J: DeliveryJournal> DeliveryJournal for Option<J> {
 
 /// Identity of a destination table without credentials, stable across sessions.
 pub(crate) fn remote_target_identity(target: &DatabaseTarget) -> String {
-    let mut attributes = odbc_attributes(&target.connection_string)
+    // An invalid connection never reaches this point (it is validated before
+    // anything is delivered); the empty list only keeps the function total.
+    let mut attributes = target
+        .connection
+        .attributes(target.kind)
+        .unwrap_or_default()
         .into_iter()
-        .filter(|(key, _)| !is_secret_attribute(key))
-        .map(|(key, value)| format!("{key}={value}"))
+        .filter(|(key, _)| *key != "Pwd")
+        .map(|(key, value)| format!("{}={value}", key.to_ascii_lowercase()))
         .collect::<Vec<_>>();
     attributes.sort();
     format!(
@@ -284,17 +289,19 @@ pub struct RemoteTargetConfirmations(std::sync::Mutex<std::collections::HashSet<
 fn remote_target_fingerprint(target: &DatabaseTarget) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    for part in [
-        target.kind.label(),
-        target.connection_string.as_str(),
-        target.schema.as_str(),
-        target.table.as_str(),
-        match target.table_policy {
-            DatabaseTablePolicy::Append => "append",
-            DatabaseTablePolicy::CreateOnly => "create_only",
-            DatabaseTablePolicy::Replace => "replace",
-        },
-    ] {
+    let parts = [target.kind.label()]
+        .into_iter()
+        .chain(target.connection.fingerprint_parts())
+        .chain([
+            target.schema.as_str(),
+            target.table.as_str(),
+            match target.table_policy {
+                DatabaseTablePolicy::Append => "append",
+                DatabaseTablePolicy::CreateOnly => "create_only",
+                DatabaseTablePolicy::Replace => "replace",
+            },
+        ]);
+    for part in parts {
         hasher.update(part.as_bytes());
         hasher.update([0]);
     }
@@ -303,7 +310,7 @@ fn remote_target_fingerprint(target: &DatabaseTarget) -> String {
 
 /// Human description of a delivery target without credentials.
 fn describe_remote_target(target: &DatabaseTarget) -> String {
-    let (server, details) = describe_connection(&target.connection_string);
+    let (server, details) = describe_connection(&target.connection);
     let policy = match target.table_policy {
         DatabaseTablePolicy::Append => "añadir filas",
         DatabaseTablePolicy::CreateOnly => "crear la tabla",
@@ -318,92 +325,43 @@ fn describe_remote_target(target: &DatabaseTarget) -> String {
     )
 }
 
-/// The server and, one per line, the driver, DSN and user of a connection
-/// string, never its password.
-fn describe_connection(connection_string: &str) -> (String, String) {
-    let server = odbc_attributes(connection_string)
-        .into_iter()
-        .find(|(key, _)| {
-            matches!(
-                key.as_str(),
-                "server" | "host" | "servername" | "data source"
-            )
-        })
-        .map(|(_, value)| {
-            value
-                .trim_start_matches('{')
-                .trim_end_matches('}')
-                .to_owned()
-        })
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "un servidor indicado por el controlador".to_owned());
+/// The server and, one per line, the driver and user of a connection, never
+/// its password.
+fn describe_connection(connection: &DatabaseConnection) -> (String, String) {
     // PROD-15: which driver loads and as whom Columnia signs in.
-    let attributes = odbc_attributes(connection_string);
-    let attribute = |names: &[&str]| {
-        attributes
-            .iter()
-            .find(|(key, _)| names.contains(&key.as_str()))
-            .map(|(_, value)| unbraced(value).to_owned())
-            .filter(|value| !value.is_empty())
+    let server = trimmed(&connection.server).to_owned();
+    let user = trimmed(&connection.user);
+    let user_line = match connection.authentication {
+        DatabaseAuthentication::Password if !user.is_empty() => format!("Usuario: {user}"),
+        _ => "Usuario: el que indique el controlador o Windows".to_owned(),
     };
-    let mut details = Vec::new();
-    if let Some(driver) = attribute(&["driver"]) {
-        details.push(format!("Controlador: {driver}"));
-    }
-    if let Some(dsn) = attribute(&["dsn"]) {
-        details.push(format!("Origen de datos (DSN): {dsn}"));
-    }
-    details.push(match attribute(&["uid", "user id", "user", "username"]) {
-        Some(user) => format!("Usuario: {user}"),
-        None => "Usuario: el que indique el controlador o Windows".to_owned(),
-    });
+    let details = [
+        format!("Controlador: {}", trimmed(&connection.driver)),
+        user_line,
+    ];
     (server, details.join("\n"))
 }
 
-fn unbraced(value: &str) -> &str {
-    value
-        .trim()
-        .trim_start_matches('{')
-        .trim_end_matches('}')
-        .trim()
-}
-
-/// PROD-15: `Driver=` names an installed driver; a path would load any
-/// library, and a file DSN can name one too.
-fn validate_driver_attributes(connection_string: &str) -> Result<(), String> {
-    for (key, value) in odbc_attributes(connection_string) {
-        match key.as_str() {
-            "filedsn" | "savefile" => {
-                return Err("La cadena de conexión ODBC no puede usar FileDSN ni SaveFile; usa Driver= o DSN= con un controlador instalado.".to_owned());
-            }
-            "driver" => {
-                let driver = unbraced(&value);
-                let lower = driver.to_ascii_lowercase();
-                if driver.contains(['\\', '/', ':'])
-                    || lower.ends_with(".dll")
-                    || lower.ends_with(".so")
-                {
-                    return Err("El controlador ODBC debe ser el nombre de uno instalado (por ejemplo, ODBC Driver 18 for SQL Server), no la ruta de un archivo.".to_owned());
-                }
-            }
-            _ => {}
-        }
+/// PROD-15: the driver is the name of an installed one; a path would load any
+/// library.
+fn validate_driver_name(driver: &str) -> Result<(), String> {
+    let driver = trimmed(driver);
+    if driver.is_empty() {
+        return Err("Elige el controlador ODBC.".to_owned());
+    }
+    let lower = driver.to_ascii_lowercase();
+    if driver.contains(['\\', '/', ':']) || lower.ends_with(".dll") || lower.ends_with(".so") {
+        return Err("El controlador ODBC debe ser el nombre de uno instalado (por ejemplo, ODBC Driver 18 for SQL Server), no la ruta de un archivo.".to_owned());
     }
     Ok(())
 }
 
-/// PROD-15: `Driver=` must be one of the drivers Windows lists as installed.
-fn ensure_installed_driver(connection_string: &str, installed: &[String]) -> Result<(), String> {
-    let Some(driver) = odbc_attributes(connection_string)
-        .into_iter()
-        .find(|(key, _)| key == "driver")
-        .map(|(_, value)| unbraced(&value).to_owned())
-    else {
-        return Ok(());
-    };
+/// PROD-15: the driver must be one of the drivers Windows lists as installed.
+fn ensure_installed_driver(driver: &str, installed: &[String]) -> Result<(), String> {
+    let driver = trimmed(driver);
     if installed
         .iter()
-        .any(|name| name.trim().eq_ignore_ascii_case(&driver))
+        .any(|name| name.trim().eq_ignore_ascii_case(driver))
     {
         Ok(())
     } else {
@@ -418,6 +376,7 @@ fn connect<'env>(
     environment: &'env Environment,
     target: &DatabaseTarget,
 ) -> Result<odbc_api::Connection<'env>, String> {
+    let connection_string = target.connection.connection_string(target.kind)?;
     let installed = environment
         .drivers()
         .map_err(|error| {
@@ -430,9 +389,9 @@ fn connect<'env>(
         .into_iter()
         .map(|driver| driver.description)
         .collect::<Vec<_>>();
-    ensure_installed_driver(&target.connection_string, &installed)?;
+    ensure_installed_driver(&target.connection.driver, &installed)?;
     environment
-        .connect_with_connection_string(&target.connection_string, odbc_connection_options())
+        .connect_with_connection_string(&connection_string, odbc_connection_options())
         .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))
 }
 
@@ -514,12 +473,274 @@ pub enum DatabaseTablePolicy {
     Replace,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DatabaseAuthentication {
+    /// Windows sign-in (`Trusted_Connection`); SQL Server only.
+    Windows,
+    /// User and password.
+    Password,
+}
+
+const MAX_DRIVER_CHARS: usize = 256;
+const MAX_SERVER_CHARS: usize = 255;
+const MAX_USER_CHARS: usize = 256;
+const MAX_PASSWORD_CHARS: usize = 1_024;
+
+/// The fields of a remote connection, as the interface sends them. Rust builds
+/// the ODBC connection string from them, so no field can add, repeat or
+/// replace an attribute of it. It is intentionally not persisted and has no
+/// `Serialize`.
+#[derive(Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DatabaseConnection {
+    /// Name of an installed ODBC driver.
+    pub driver: String,
+    /// On SQL Server, `host`, `host,port` or `host\instance`.
+    pub server: String,
+    /// PostgreSQL and MySQL only; empty is the engine's usual port.
+    #[serde(default)]
+    pub port: String,
+    #[serde(default)]
+    pub database: String,
+    pub authentication: DatabaseAuthentication,
+    #[serde(default)]
+    pub user: String,
+    #[serde(default)]
+    pub password: String,
+    /// SQL Server only: accept any certificate of the server.
+    #[serde(default)]
+    pub trust_server_certificate: bool,
+    /// PostgreSQL and MySQL only: connect without encryption when the server
+    /// offers none.
+    #[serde(default)]
+    pub allow_unencrypted: bool,
+}
+
+impl std::fmt::Debug for DatabaseConnection {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DatabaseConnection")
+            .field("driver", &self.driver)
+            .field("server", &self.server)
+            .field("port", &self.port)
+            .field("database", &self.database)
+            .field("authentication", &self.authentication)
+            .field("user", &self.user)
+            .field("password", &"[REDACTED]")
+            .field("trust_server_certificate", &self.trust_server_certificate)
+            .field("allow_unencrypted", &self.allow_unencrypted)
+            .finish()
+    }
+}
+
+/// An ODBC attribute value. A value with `;`, `{`, `}` or `=`, or with white
+/// space at either end, goes in braces with `}` doubled, so it can never end
+/// itself, add attributes or repeat one.
+fn odbc_value(value: &str) -> String {
+    let needs_braces = value.contains([';', '{', '}', '='])
+        || value.starts_with(is_odbc_space)
+        || value.ends_with(is_odbc_space);
+    if needs_braces {
+        format!("{{{}}}", value.replace('}', "}}"))
+    } else {
+        value.to_owned()
+    }
+}
+
+/// White space as the interface's own `trim` and `\s` understand it.
+fn is_odbc_space(character: char) -> bool {
+    character.is_whitespace() || character == '\u{feff}'
+}
+
+fn trimmed(value: &str) -> &str {
+    value.trim_matches(is_odbc_space)
+}
+
+fn field_text_issue(value: &str, label: &str, limit: usize) -> Option<String> {
+    if value.chars().count() > limit {
+        return Some(format!("{label} no puede superar {limit} caracteres."));
+    }
+    if value
+        .chars()
+        .any(|character| character.is_control() || matches!(character, '\u{2028}' | '\u{2029}'))
+    {
+        return Some(format!(
+            "{label} contiene caracteres de control no permitidos; bórralos y vuelve a intentarlo."
+        ));
+    }
+    None
+}
+
+impl DatabaseConnection {
+    /// Checks every field for the engine and, if they are valid, returns the
+    /// attributes of the connection string in order, with each value already
+    /// written for ODBC (braced when it needs it).
+    fn attributes(&self, kind: DatabaseKind) -> Result<Vec<(&'static str, String)>, String> {
+        let is_sql_server = kind == DatabaseKind::SqlServer;
+        for (value, label, limit) in [
+            (&self.driver, "El controlador", MAX_DRIVER_CHARS),
+            (&self.server, "El servidor", MAX_SERVER_CHARS),
+            (&self.port, "El puerto", 16),
+            (&self.database, "La base de datos", MAX_IDENTIFIER_CHARS * 2),
+            (&self.user, "El usuario", MAX_USER_CHARS),
+            (&self.password, "La contraseña", MAX_PASSWORD_CHARS),
+        ] {
+            if let Some(issue) = field_text_issue(value, label, limit) {
+                return Err(issue);
+            }
+        }
+        validate_driver_name(&self.driver)?;
+        let server = trimmed(&self.server);
+        if server.is_empty() {
+            return Err("Indica el servidor antes de continuar.".to_owned());
+        }
+        let port = trimmed(&self.port);
+        if is_sql_server {
+            if !port.is_empty() {
+                return Err("En SQL Server el puerto va en el servidor (por ejemplo, servidor,1433); deja el campo del puerto vacío.".to_owned());
+            }
+        } else if !port.is_empty()
+            && (!port.chars().all(|character| character.is_ascii_digit())
+                || !(1..=65_535).contains(&port.parse::<u32>().unwrap_or(0)))
+        {
+            return Err("El puerto es un número entre 1 y 65535.".to_owned());
+        }
+        match self.authentication {
+            DatabaseAuthentication::Windows => {
+                if !is_sql_server {
+                    return Err(format!(
+                        "{} no admite la autenticación de Windows; indica un usuario y una contraseña.",
+                        kind.label()
+                    ));
+                }
+                if !trimmed(&self.user).is_empty() || !self.password.is_empty() {
+                    return Err("Con la autenticación de Windows no se indica usuario ni contraseña; bórralos o elige la autenticación con usuario.".to_owned());
+                }
+            }
+            DatabaseAuthentication::Password => {
+                if trimmed(&self.user).is_empty() {
+                    return Err(format!("Indica el usuario de {}.", kind.label()));
+                }
+            }
+        }
+        if self.trust_server_certificate && !is_sql_server {
+            return Err(format!(
+                "Aceptar cualquier certificado solo se aplica a SQL Server, no a {}.",
+                kind.label()
+            ));
+        }
+        if self.allow_unencrypted && is_sql_server {
+            return Err(
+                "Conectar sin cifrado solo se aplica a PostgreSQL y MySQL; SQL Server siempre cifra."
+                    .to_owned(),
+            );
+        }
+
+        let mut attributes = vec![
+            (
+                "Driver",
+                format!("{{{}}}", trimmed(&self.driver).replace('}', "}}")),
+            ),
+            ("Server", odbc_value(server)),
+        ];
+        if !port.is_empty() {
+            attributes.push(("Port", port.to_owned()));
+        }
+        let database = trimmed(&self.database);
+        if !database.is_empty() {
+            attributes.push(("Database", odbc_value(database)));
+        }
+        match self.authentication {
+            DatabaseAuthentication::Windows => {
+                attributes.push(("Trusted_Connection", "yes".to_owned()));
+            }
+            DatabaseAuthentication::Password => {
+                attributes.push(("Uid", odbc_value(trimmed(&self.user))));
+                attributes.push(("Pwd", odbc_value(&self.password)));
+            }
+        }
+        match kind {
+            DatabaseKind::SqlServer => {
+                attributes.push(("Encrypt", "yes".to_owned()));
+                if self.trust_server_certificate {
+                    attributes.push(("TrustServerCertificate", "yes".to_owned()));
+                }
+            }
+            DatabaseKind::Postgresql => attributes.push((
+                "SSLmode",
+                if self.allow_unencrypted {
+                    "prefer"
+                } else {
+                    "require"
+                }
+                .to_owned(),
+            )),
+            DatabaseKind::Mysql => attributes.push((
+                "SSLMODE",
+                if self.allow_unencrypted {
+                    "PREFERRED"
+                } else {
+                    "REQUIRED"
+                }
+                .to_owned(),
+            )),
+        }
+        Ok(attributes)
+    }
+
+    /// The only place a connection string is made: from validated fields.
+    fn connection_string(&self, kind: DatabaseKind) -> Result<String, String> {
+        let attributes = self.attributes(kind)?;
+        let text = format!(
+            "{};",
+            attributes
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join(";")
+        );
+        if text.chars().count() > MAX_CONNECTION_STRING_CHARS {
+            return Err(format!(
+                "Los datos de la conexión son demasiado largos: la cadena ODBC no puede superar {MAX_CONNECTION_STRING_CHARS} caracteres."
+            ));
+        }
+        Ok(text)
+    }
+
+    fn validate(&self, kind: DatabaseKind) -> Result<(), String> {
+        self.connection_string(kind).map(|_| ())
+    }
+
+    /// Every field, for the confirmation fingerprints.
+    fn fingerprint_parts(&self) -> [&str; 9] {
+        [
+            &self.driver,
+            &self.server,
+            &self.port,
+            &self.database,
+            match self.authentication {
+                DatabaseAuthentication::Windows => "windows",
+                DatabaseAuthentication::Password => "password",
+            },
+            &self.user,
+            &self.password,
+            if self.trust_server_certificate {
+                "1"
+            } else {
+                "0"
+            },
+            if self.allow_unencrypted { "1" } else { "0" },
+        ]
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DatabaseTarget {
     pub kind: DatabaseKind,
-    /// The complete ODBC connection string. It is intentionally not persisted.
-    pub connection_string: String,
+    /// The fields of the connection. They are intentionally not persisted.
+    pub connection: DatabaseConnection,
     pub schema: String,
     pub table: String,
     pub table_policy: DatabaseTablePolicy,
@@ -978,23 +1199,6 @@ fn inspect_destination(
     Ok((table_exists, is_base_table, columns))
 }
 
-/// SEG-09: same split as the driver (`;` inside braces is part of a value),
-/// so `Pwd={a;Encrypt=yes}` does not read as an encrypted channel.
-fn connection_string_pairs(connection_string: &str) -> Vec<(String, String)> {
-    odbc_attributes(connection_string)
-        .into_iter()
-        .map(|(key, value)| {
-            (
-                key,
-                value
-                    .trim_start_matches('{')
-                    .trim_end_matches('}')
-                    .to_ascii_lowercase(),
-            )
-        })
-        .collect()
-}
-
 /// SEG-09: whether the server is this machine. The host is compared whole,
 /// after removing the protocol (`tcp:`), the port (`,1433` or `:5432`) and the
 /// instance (`\SQLEXPRESS`), so `localhost.example.com` is a remote host.
@@ -1017,55 +1221,26 @@ fn is_local_server(server: &str) -> bool {
 }
 
 /// Personal data may travel to the remote server; the delivery must state
-/// whether the channel is encrypted. Missing settings block the write, an
-/// explicit opt-out stays visible as a warning, and a local server is noted.
+/// whether the channel is encrypted. Rust builds the connection string, so
+/// the channel is always encrypted unless the person allowed otherwise: that
+/// stays visible as a warning, and a local server is noted.
 fn transport_encryption_issue(target: &DatabaseTarget) -> Option<(&'static str, String)> {
-    let pairs = connection_string_pairs(&target.connection_string);
-    let value_of = |keys: &[&str]| {
-        pairs
-            .iter()
-            .find(|(key, _)| keys.contains(&key.as_str()))
-            .map(|(_, value)| value.as_str())
-    };
-    let setting = value_of(&["encrypt", "sslmode", "ssl-mode", "ssl_mode"]);
-    let enabled = setting.is_some_and(|value| {
-        matches!(
-            value,
-            "yes"
-                | "true"
-                | "mandatory"
-                | "strict"
-                | "require"
-                | "required"
-                | "verify-ca"
-                | "verify-full"
-                | "verify_ca"
-                | "verify_identity"
-        )
-    });
-    let trusts_any_certificate =
-        value_of(&["trustservercertificate"]).is_some_and(|value| matches!(value, "yes" | "true"));
-    let server = value_of(&["server", "host", "servername", "data source"]).unwrap_or_default();
-    let is_local = is_local_server(server);
+    let connection = &target.connection;
     let label = target.kind.label();
-    if enabled {
-        return trusts_any_certificate.then(|| ("warning", format!(
+    let is_sql_server = target.kind == DatabaseKind::SqlServer;
+    if is_sql_server || !connection.allow_unencrypted {
+        return (is_sql_server && connection.trust_server_certificate).then(|| ("warning", format!(
             "La conexión con {label} cifra el canal pero acepta cualquier certificado (TrustServerCertificate); valida el certificado del servidor si los datos contienen información personal."
         )));
     }
-    if is_local {
+    if is_local_server(&connection.server) {
         return Some((
             "info",
             format!("La conexión con {label} apunta a este equipo y no exige cifrado del canal."),
         ));
     }
-    if setting.is_some() {
-        return Some(("warning", format!(
-            "La cadena de conexión desactiva expresamente el cifrado con {label}: los datos viajarán sin cifrar por la red."
-        )));
-    }
-    Some(("blocking", format!(
-        "La cadena de conexión no exige cifrado con {label}. Añade Encrypt=yes (SQL Server), sslmode=require (PostgreSQL) o SSLMODE=REQUIRED (MySQL), o indica expresamente que no quieres cifrado."
+    Some(("warning", format!(
+        "Se permitió conectar sin cifrado con {label}: si el servidor no ofrece cifrado, los datos viajarán sin cifrar por la red."
     )))
 }
 
@@ -1370,21 +1545,7 @@ fn type_family(data_type: &str) -> TypeFamily {
 }
 
 pub(crate) fn validate_database_target(target: &DatabaseTarget) -> Result<(), String> {
-    let connection_length = target.connection_string.chars().count();
-    if target.connection_string.trim().is_empty() {
-        return Err("Indica una cadena de conexión ODBC antes de continuar.".to_owned());
-    }
-    if connection_length > MAX_CONNECTION_STRING_CHARS {
-        return Err(format!(
-            "La cadena de conexión ODBC no puede superar {MAX_CONNECTION_STRING_CHARS} caracteres."
-        ));
-    }
-    if target.connection_string.chars().any(char::is_control) {
-        return Err(
-            "La cadena de conexión ODBC contiene caracteres de control no permitidos.".to_owned(),
-        );
-    }
-    validate_driver_attributes(&target.connection_string)?;
+    target.connection.validate(target.kind)?;
     validate_identifier(&target.schema, "el esquema", true)?;
     validate_identifier(&target.table, "la tabla", false)?;
     if target.kind == DatabaseKind::Mysql && target.table_policy == DatabaseTablePolicy::Replace {
@@ -1919,69 +2080,28 @@ fn is_decimal_dtype(dtype: &str) -> bool {
         || matches!(dtype, "f32" | "f64")
 }
 
-/// Splits an ODBC connection string into `key=value` attributes. Values in
-/// braces may contain `;`, so separators are only honored outside braces.
-fn odbc_attributes(connection_string: &str) -> Vec<(String, String)> {
-    let mut attributes = Vec::new();
-    let mut current = String::new();
-    let mut in_braces = false;
-    for character in connection_string.chars() {
-        match character {
-            '{' => {
-                in_braces = true;
-                current.push(character);
-            }
-            '}' => {
-                in_braces = false;
-                current.push(character);
-            }
-            ';' if !in_braces => {
-                attributes.push(std::mem::take(&mut current));
-            }
-            _ => current.push(character),
-        }
-    }
-    attributes.push(current);
-    attributes
-        .into_iter()
-        .filter_map(|part| {
-            part.split_once('=')
-                .map(|(key, value)| (key.trim().to_ascii_lowercase(), value.trim().to_owned()))
-        })
-        .collect()
-}
-
-fn is_secret_attribute(key: &str) -> bool {
-    matches!(
-        key,
-        "pwd"
-            | "password"
-            | "pass"
-            | "secret"
-            | "token"
-            | "accesstoken"
-            | "access_token"
-            | "apikey"
-            | "api_key"
-            | "sslpassword"
-            | "clientsecret"
-            | "client_secret"
-    )
+/// The password, as the person typed it and as it is written in the
+/// connection string (braced, `}` doubled), longest first so a longer form is
+/// never left half redacted by a shorter one.
+fn password_forms(password: &str) -> Vec<String> {
+    let written = odbc_value(password);
+    let inner = written
+        .strip_prefix('{')
+        .and_then(|rest| rest.strip_suffix('}'))
+        .unwrap_or(&written)
+        .to_owned();
+    let mut forms = vec![written, inner, password.to_owned()];
+    forms.retain(|form| !form.is_empty());
+    forms.sort_by_key(|form| std::cmp::Reverse(form.len()));
+    forms.dedup();
+    forms
 }
 
 fn format_driver_error<E: Debug>(context: &str, error: E, target: &DatabaseTarget) -> String {
     let mut detail = format!("{error:?}");
-    for (key, value) in odbc_attributes(&target.connection_string) {
-        if !is_secret_attribute(&key) {
-            continue;
-        }
-        // Redact both the braced form and the bare value the driver may echo.
-        let bare = value.trim_start_matches('{').trim_end_matches('}');
-        for candidate in [value.as_str(), bare] {
-            if !candidate.is_empty() {
-                detail = detail.replace(candidate, "[REDACTED]");
-            }
-        }
+    // Redact both the written form and the bare value the driver may echo.
+    for form in password_forms(&target.connection.password) {
+        detail = detail.replace(&form, "[REDACTED]");
     }
     let readable = readable_driver_detail(&detail);
     if detail.contains("HYT00") || detail.contains("HYT01") {
@@ -2062,8 +2182,8 @@ const DATABASE_IMPORT_DIRECTORY: &str = "database-imports";
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DatabaseSource {
     pub kind: DatabaseKind,
-    /// The complete ODBC connection string. It is intentionally not persisted.
-    pub connection_string: String,
+    /// The fields of the connection. They are intentionally not persisted.
+    pub connection: DatabaseConnection,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -2093,20 +2213,7 @@ struct FetchedTable {
 }
 
 fn validate_database_source(source: &DatabaseSource) -> Result<(), String> {
-    if source.connection_string.trim().is_empty() {
-        return Err("Indica una cadena de conexión ODBC antes de continuar.".to_owned());
-    }
-    if source.connection_string.chars().count() > MAX_CONNECTION_STRING_CHARS {
-        return Err(format!(
-            "La cadena de conexión ODBC no puede superar {MAX_CONNECTION_STRING_CHARS} caracteres."
-        ));
-    }
-    if source.connection_string.chars().any(char::is_control) {
-        return Err(
-            "La cadena de conexión ODBC contiene caracteres de control no permitidos.".to_owned(),
-        );
-    }
-    validate_driver_attributes(&source.connection_string)
+    source.connection.validate(source.kind)
 }
 
 /// Names come from the server's own catalog and are quoted, so any text is
@@ -2138,11 +2245,11 @@ fn validate_import_row_limit(row_limit: usize) -> Result<(), String> {
 }
 
 /// The helpers shared with deliveries take a target; reading uses its
-/// connection string and kind only.
+/// connection and kind only.
 fn source_as_target(source: &DatabaseSource) -> DatabaseTarget {
     DatabaseTarget {
         kind: source.kind,
-        connection_string: source.connection_string.clone(),
+        connection: source.connection.clone(),
         schema: String::new(),
         table: String::new(),
         table_policy: DatabaseTablePolicy::CreateOnly,
@@ -2154,11 +2261,10 @@ fn source_as_target(source: &DatabaseSource) -> DatabaseTarget {
 fn remote_source_fingerprint(source: &DatabaseSource) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    for part in [
-        "import",
-        source.kind.label(),
-        source.connection_string.as_str(),
-    ] {
+    let parts = ["import", source.kind.label()]
+        .into_iter()
+        .chain(source.connection.fingerprint_parts());
+    for part in parts {
         hasher.update(part.as_bytes());
         hasher.update([0]);
     }
@@ -2166,7 +2272,7 @@ fn remote_source_fingerprint(source: &DatabaseSource) -> String {
 }
 
 fn describe_remote_source(source: &DatabaseSource) -> String {
-    let (server, details) = describe_connection(&source.connection_string);
+    let (server, details) = describe_connection(&source.connection);
     format!(
         "Columnia se conectará a {} en {} para leer una tabla. Solo leerá: no escribirá ni modificará nada en el servidor. Las filas que elijas se guardarán en este equipo.\n\n{}\n\n¿Confirmas este origen?",
         source.kind.label(),
@@ -2851,14 +2957,156 @@ mod tests {
 
     use super::*;
 
+    /// A valid connection by user and password to the local machine; the
+    /// encryption is relaxed for PostgreSQL and MySQL, so it is only noted.
+    fn connection(kind: DatabaseKind) -> DatabaseConnection {
+        DatabaseConnection {
+            driver: "test".to_owned(),
+            server: "localhost".to_owned(),
+            port: String::new(),
+            database: String::new(),
+            authentication: DatabaseAuthentication::Password,
+            user: "ana".to_owned(),
+            password: "secret".to_owned(),
+            trust_server_certificate: false,
+            allow_unencrypted: kind != DatabaseKind::SqlServer,
+        }
+    }
+
     fn target(kind: DatabaseKind) -> DatabaseTarget {
         DatabaseTarget {
             kind,
-            connection_string: "Driver={test};Server=localhost;Pwd=secret".to_owned(),
+            connection: connection(kind),
             schema: "public".to_owned(),
             table: "ventas".to_owned(),
             table_policy: DatabaseTablePolicy::CreateOnly,
         }
+    }
+
+    /// An ODBC connection string split by the grammar of the Driver Manager:
+    /// a brace opens a value only at its start, `}}` inside it is a literal
+    /// `}` and a single `}` closes it. Keys come in lower case.
+    fn parse_odbc_connection_string(text: &str) -> Result<Vec<(String, String)>, String> {
+        let characters = text.chars().collect::<Vec<_>>();
+        let mut position = 0;
+        let mut attributes = Vec::new();
+        while position < characters.len() {
+            let start = position;
+            while position < characters.len() && characters[position] != '=' {
+                if characters[position] == ';' {
+                    return Err(format!("atributo sin «=» en la posición {start}"));
+                }
+                position += 1;
+            }
+            if position == characters.len() {
+                return Err(format!("atributo sin «=» en la posición {start}"));
+            }
+            let key = characters[start..position]
+                .iter()
+                .collect::<String>()
+                .trim()
+                .to_ascii_lowercase();
+            position += 1;
+            let mut value = String::new();
+            if characters.get(position) == Some(&'{') {
+                position += 1;
+                loop {
+                    match characters.get(position) {
+                        None => return Err("llave sin cerrar".to_owned()),
+                        Some('}') if characters.get(position + 1) == Some(&'}') => {
+                            value.push('}');
+                            position += 2;
+                        }
+                        Some('}') => {
+                            position += 1;
+                            break;
+                        }
+                        Some(character) => {
+                            value.push(*character);
+                            position += 1;
+                        }
+                    }
+                }
+                match characters.get(position) {
+                    None => {}
+                    Some(';') => position += 1,
+                    Some(other) => return Err(format!("«{other}» tras cerrar la llave")),
+                }
+            } else {
+                while position < characters.len() && characters[position] != ';' {
+                    value.push(characters[position]);
+                    position += 1;
+                }
+                position += 1;
+            }
+            attributes.push((key, value));
+        }
+        Ok(attributes)
+    }
+
+    /// The only value of a key; fails if it is missing or repeated.
+    fn only_value<'a>(attributes: &'a [(String, String)], key: &str) -> &'a str {
+        let found = attributes
+            .iter()
+            .filter(|(name, _)| name == key)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            found.len(),
+            1,
+            "{key} debe aparecer una vez: {attributes:?}"
+        );
+        found[0].1.as_str()
+    }
+
+    /// The session's connection string of the external tests, as the fields
+    /// Rust now takes. Only the attributes the guided form can produce are
+    /// understood.
+    fn connection_from_odbc_string(kind: DatabaseKind, text: &str) -> DatabaseConnection {
+        let mut connection = DatabaseConnection {
+            driver: String::new(),
+            server: String::new(),
+            port: String::new(),
+            database: String::new(),
+            authentication: DatabaseAuthentication::Password,
+            user: String::new(),
+            password: String::new(),
+            trust_server_certificate: false,
+            allow_unencrypted: false,
+        };
+        for (key, value) in
+            parse_odbc_connection_string(text).expect("cadena ODBC de sesión válida")
+        {
+            match key.as_str() {
+                "driver" => connection.driver = value,
+                "server" | "host" => connection.server = value,
+                "port" => connection.port = value,
+                "database" | "db" => connection.database = value,
+                "uid" | "user" | "user id" => connection.user = value,
+                "pwd" | "password" => connection.password = value,
+                "trusted_connection" if value.eq_ignore_ascii_case("yes") => {
+                    connection.authentication = DatabaseAuthentication::Windows;
+                }
+                "trustservercertificate" => {
+                    connection.trust_server_certificate = value.eq_ignore_ascii_case("yes");
+                }
+                "sslmode"
+                    if matches!(value.to_ascii_lowercase().as_str(), "prefer" | "preferred") =>
+                {
+                    connection.allow_unencrypted = true;
+                }
+                "sslmode"
+                    if matches!(value.to_ascii_lowercase().as_str(), "require" | "required") => {}
+                "encrypt" if value.eq_ignore_ascii_case("yes") => {}
+                other => panic!(
+                    "La cadena de sesión usa «{other}», que la conexión por campos no admite."
+                ),
+            }
+        }
+        assert!(
+            !(kind == DatabaseKind::SqlServer && connection.allow_unencrypted),
+            "SQL Server siempre cifra"
+        );
+        connection
     }
 
     #[test]
@@ -2875,9 +3123,12 @@ mod tests {
     fn target_identity_ignores_secrets_and_attribute_order() {
         let mut first = target(DatabaseKind::SqlServer);
         first.table_policy = DatabaseTablePolicy::Append;
-        first.connection_string = "Driver={ODBC};Server=db1;Database=ventas;Pwd=uno".to_owned();
+        first.connection.driver = "ODBC".to_owned();
+        first.connection.server = "db1".to_owned();
+        first.connection.database = "ventas".to_owned();
+        first.connection.password = "uno".to_owned();
         let mut second = first.clone();
-        second.connection_string = "Database=ventas;PWD=dos;Server=db1;Driver={ODBC}".to_owned();
+        second.connection.password = "dos".to_owned();
         assert_eq!(
             remote_target_identity(&first),
             remote_target_identity(&second)
@@ -2890,10 +3141,84 @@ mod tests {
             remote_target_identity(&other_table)
         );
         let mut other_server = first.clone();
-        other_server.connection_string = "Driver={ODBC};Server=db2;Database=ventas".to_owned();
+        other_server.connection.server = "db2".to_owned();
         assert_ne!(
             remote_target_identity(&first),
             remote_target_identity(&other_server)
+        );
+    }
+
+    /// The identity is what `remote-deliveries.json` stores: for the same data
+    /// it must stay exactly what it was when Rust analyzed the connection
+    /// string the interface sent. These literals were produced by that code.
+    #[test]
+    fn target_identity_keeps_the_literal_the_ledger_already_stores() {
+        let identity = |kind, connection: DatabaseConnection, schema: &str| {
+            remote_target_identity(&DatabaseTarget {
+                kind,
+                connection,
+                schema: schema.to_owned(),
+                table: "ventas".to_owned(),
+                table_policy: DatabaseTablePolicy::Append,
+            })
+        };
+        let base = |driver: &str, server: &str| DatabaseConnection {
+            driver: driver.to_owned(),
+            server: server.to_owned(),
+            ..connection(DatabaseKind::SqlServer)
+        };
+        assert_eq!(
+            identity(
+                DatabaseKind::SqlServer,
+                DatabaseConnection {
+                    database: "Ventas".to_owned(),
+                    user: "ana".to_owned(),
+                    password: "p;w".to_owned(),
+                    ..base("ODBC Driver 18 for SQL Server", "tcp:db.example.com,1433")
+                },
+                "dbo"
+            ),
+            "SQL Server\u{1f}database=Ventas\u{1e}driver={ODBC Driver 18 for SQL Server}\u{1e}encrypt=yes\u{1e}server=tcp:db.example.com,1433\u{1e}uid=ana\u{1f}[dbo].[ventas]"
+        );
+        assert_eq!(
+            identity(
+                DatabaseKind::SqlServer,
+                DatabaseConnection {
+                    authentication: DatabaseAuthentication::Windows,
+                    user: String::new(),
+                    password: String::new(),
+                    trust_server_certificate: true,
+                    ..base("ODBC Driver 18 for SQL Server", "localhost")
+                },
+                ""
+            ),
+            "SQL Server\u{1f}driver={ODBC Driver 18 for SQL Server}\u{1e}encrypt=yes\u{1e}server=localhost\u{1e}trusted_connection=yes\u{1e}trustservercertificate=yes\u{1f}[ventas]"
+        );
+        assert_eq!(
+            identity(
+                DatabaseKind::Postgresql,
+                DatabaseConnection {
+                    port: "5433".to_owned(),
+                    database: "ventas".to_owned(),
+                    password: "x".to_owned(),
+                    allow_unencrypted: false,
+                    ..base("PostgreSQL Unicode(x64)", "db.example.com")
+                },
+                "public"
+            ),
+            "PostgreSQL\u{1f}database=ventas\u{1e}driver={PostgreSQL Unicode(x64)}\u{1e}port=5433\u{1e}server=db.example.com\u{1e}sslmode=require\u{1e}uid=ana\u{1f}\"public\".\"ventas\""
+        );
+        assert_eq!(
+            identity(
+                DatabaseKind::Mysql,
+                DatabaseConnection {
+                    password: "x".to_owned(),
+                    allow_unencrypted: true,
+                    ..base("MySQL ODBC 9.1 Unicode Driver", "a;b")
+                },
+                ""
+            ),
+            "MySQL\u{1f}driver={MySQL ODBC 9.1 Unicode Driver}\u{1e}server={a;b}\u{1e}sslmode=PREFERRED\u{1e}uid=ana\u{1f}`ventas`"
         );
     }
 
@@ -2938,9 +3263,8 @@ mod tests {
     #[test]
     fn confirmation_describes_the_target_without_secrets() {
         let mut value = target(DatabaseKind::SqlServer);
-        value.connection_string =
-            "Driver={ODBC Driver 18};Server=tcp:db.example.com,1433;Uid=ana;Pwd=secret;Encrypt=yes"
-                .to_owned();
+        value.connection.driver = "ODBC Driver 18".to_owned();
+        value.connection.server = "tcp:db.example.com,1433".to_owned();
         let message = describe_remote_target(&value);
         assert!(message.contains("SQL Server"), "{message}");
         assert!(message.contains("tcp:db.example.com,1433"), "{message}");
@@ -2949,11 +3273,11 @@ mod tests {
     }
 
     #[test]
-    fn confirmation_names_the_driver_the_dsn_and_the_user() {
+    fn confirmation_names_the_driver_and_the_user() {
         // PROD-15: the native dialog said where, not which driver nor as whom.
         let mut value = target(DatabaseKind::SqlServer);
-        value.connection_string =
-            "Driver={ODBC Driver 18 for SQL Server};Server=db;Uid=ana;Pwd=secret".to_owned();
+        value.connection.driver = "ODBC Driver 18 for SQL Server".to_owned();
+        value.connection.server = "db".to_owned();
         let message = describe_remote_target(&value);
         assert!(
             message.contains("Controlador: ODBC Driver 18 for SQL Server"),
@@ -2961,13 +3285,12 @@ mod tests {
         );
         assert!(message.contains("Usuario: ana"), "{message}");
         assert!(!message.contains("secret"), "{message}");
+        assert!(!message.contains("DSN"), "{message}");
 
-        value.connection_string = "DSN=Ventas;Trusted_Connection=yes".to_owned();
+        value.connection.authentication = DatabaseAuthentication::Windows;
+        value.connection.user = String::new();
+        value.connection.password = String::new();
         let message = describe_remote_target(&value);
-        assert!(
-            message.contains("Origen de datos (DSN): Ventas"),
-            "{message}"
-        );
         assert!(
             message.contains("Usuario: el que indique el controlador o Windows"),
             "{message}"
@@ -2975,26 +3298,93 @@ mod tests {
     }
 
     #[test]
-    fn a_driver_given_as_a_file_path_or_a_file_dsn_is_rejected() {
+    fn a_driver_given_as_a_file_path_is_rejected() {
         let mut value = target(DatabaseKind::Postgresql);
-        for connection_string in [
-            r"Driver={C:\Temp\malicioso.dll};Server=db",
-            "Driver=/tmp/libmal.so;Server=db",
-            r"Driver=\\servidor\compartido\driver;Server=db",
-            "Driver=malicioso.DLL;Server=db",
-            "FileDSN=C:/dsn/ventas.dsn",
-            "DSN=Ventas;SaveFile=C:/dsn/copia.dsn",
+        for driver in [
+            r"C:\Temp\malicioso.dll",
+            "/tmp/libmal.so",
+            r"\\servidor\compartido\driver",
+            "malicioso.DLL",
+            "   ",
+            "",
         ] {
-            value.connection_string = connection_string.to_owned();
-            let error = validate_database_target(&value).expect_err(connection_string);
+            value.connection.driver = driver.to_owned();
+            let error = validate_database_target(&value).expect_err(driver);
             assert!(
-                error.contains("controlador instalado")
-                    || error.contains("no la ruta de un archivo"),
-                "{connection_string}: {error}"
+                error.contains("no la ruta de un archivo")
+                    || error.contains("Elige el controlador"),
+                "{driver}: {error}"
             );
         }
-        value.connection_string = "Driver={PostgreSQL Unicode(x64)};Server=db".to_owned();
+        value.connection.driver = "PostgreSQL Unicode(x64)".to_owned();
         assert!(validate_database_target(&value).is_ok());
+    }
+
+    /// AUD-002: the interface sends fields; a connection string, a DSN or any
+    /// other attribute is not a field and does not deserialize.
+    #[test]
+    fn the_interface_cannot_send_a_connection_string() {
+        let connection = serde_json::json!({
+            "driver": "ODBC Driver 18 for SQL Server",
+            "server": "localhost",
+            "authentication": "windows",
+        });
+        let target_json = |connection: serde_json::Value| {
+            serde_json::json!({
+                "kind": "sqlserver",
+                "connection": connection,
+                "schema": "dbo",
+                "table": "ventas",
+                "tablePolicy": "create_only",
+            })
+        };
+        let parsed =
+            serde_json::from_value::<DatabaseTarget>(target_json(connection.clone())).unwrap();
+        assert_eq!(
+            parsed.connection.authentication,
+            DatabaseAuthentication::Windows
+        );
+        assert!(parsed.connection.port.is_empty());
+
+        let mut legacy = target_json(connection.clone());
+        legacy["connectionString"] =
+            serde_json::json!("Driver={ODBC Driver 17 for SQL Server};Server=localhost;");
+        assert!(serde_json::from_value::<DatabaseTarget>(legacy).is_err());
+        let mut without_connection = target_json(connection.clone());
+        without_connection
+            .as_object_mut()
+            .unwrap()
+            .remove("connection");
+        without_connection["connectionString"] = serde_json::json!("Driver={x};Server=db;");
+        assert!(serde_json::from_value::<DatabaseTarget>(without_connection).is_err());
+
+        let mut extra = connection.clone();
+        extra["dsn"] = serde_json::json!("Ventas");
+        assert!(serde_json::from_value::<DatabaseTarget>(target_json(extra)).is_err());
+        let mut unknown_authentication = connection.clone();
+        unknown_authentication["authentication"] = serde_json::json!("kerberos");
+        assert!(
+            serde_json::from_value::<DatabaseTarget>(target_json(unknown_authentication)).is_err()
+        );
+
+        let source = |extra: Option<(&str, serde_json::Value)>| {
+            let mut value = serde_json::json!({ "kind": "sqlserver", "connection": connection });
+            if let Some((key, entry)) = extra {
+                value[key] = entry;
+            }
+            serde_json::from_value::<DatabaseSource>(value)
+        };
+        assert!(source(None).is_ok());
+        assert!(source(Some(("connectionString", serde_json::json!("Server=x;")))).is_err());
+    }
+
+    #[test]
+    fn debug_output_never_shows_the_password() {
+        let mut value = target(DatabaseKind::Postgresql);
+        value.connection.password = "contraseña-única-123".to_owned();
+        let shown = format!("{value:?} {:?}", value.connection);
+        assert!(!shown.contains("contraseña-única-123"), "{shown}");
+        assert!(shown.contains("[REDACTED]"), "{shown}");
     }
 
     #[test]
@@ -3003,16 +3393,8 @@ mod tests {
             "ODBC Driver 18 for SQL Server".to_owned(),
             "PostgreSQL Unicode(x64)".to_owned(),
         ];
-        assert!(ensure_installed_driver(
-            "Driver={odbc driver 18 for sql server};Server=db",
-            &installed
-        )
-        .is_ok());
-        assert!(
-            ensure_installed_driver("DSN=Ventas", &installed).is_ok(),
-            "un DSN no nombra el controlador"
-        );
-        let error = ensure_installed_driver("Driver={Otro};Server=db", &installed).unwrap_err();
+        assert!(ensure_installed_driver("odbc driver 18 for sql server", &installed).is_ok());
+        let error = ensure_installed_driver("Otro", &installed).unwrap_err();
         assert!(error.contains("«Otro» no está instalado"), "{error}");
     }
 
@@ -3023,104 +3405,498 @@ mod tests {
         other_table.table = "otra".to_owned();
         let mut other_policy = base.clone();
         other_policy.table_policy = DatabaseTablePolicy::Append;
+        let mut other_server = base.clone();
+        other_server.connection.server = "otro".to_owned();
+        let mut other_user = base.clone();
+        other_user.connection.user = "luis".to_owned();
+        let mut other_password = base.clone();
+        other_password.connection.password = "otra".to_owned();
+        let mut other_encryption = base.clone();
+        other_encryption.connection.allow_unencrypted = false;
         let fingerprint = remote_target_fingerprint(&base);
         assert_eq!(fingerprint, remote_target_fingerprint(&base.clone()));
-        assert_ne!(fingerprint, remote_target_fingerprint(&other_table));
-        assert_ne!(fingerprint, remote_target_fingerprint(&other_policy));
+        for other in [
+            other_table,
+            other_policy,
+            other_server,
+            other_user,
+            other_password,
+            other_encryption,
+        ] {
+            assert_ne!(fingerprint, remote_target_fingerprint(&other));
+        }
         assert!(!fingerprint.contains("secret"));
+
+        // Confirming a read never authorizes a write to the same server.
+        let source = DatabaseSource {
+            kind: base.kind,
+            connection: base.connection.clone(),
+        };
+        assert_eq!(
+            remote_source_fingerprint(&source),
+            remote_source_fingerprint(&source.clone())
+        );
+        assert_ne!(remote_source_fingerprint(&source), fingerprint);
+        let mut other_source = source.clone();
+        other_source.connection.server = "otro".to_owned();
+        assert_ne!(
+            remote_source_fingerprint(&source),
+            remote_source_fingerprint(&other_source)
+        );
     }
 
     #[test]
     fn redacts_braced_secrets_that_contain_separators() {
         let mut value = target(DatabaseKind::SqlServer);
-        value.connection_string =
-            "Driver={ODBC Driver 18};Server=db;PWD={p;a=ss};AccessToken=tok-123".to_owned();
+        value.connection.password = "p;a=ss".to_owned();
+        let error = format_driver_error("falló", "Login failed; PWD={p;a=ss} p;a=ss", &value);
+        assert!(!error.contains("p;a=ss"), "{error}");
+        assert!(error.contains("[REDACTED]"), "{error}");
+
+        // A closing brace is written doubled, and the driver may echo either form.
+        value.connection.password = "{a}b;Encrypt=yes}".to_owned();
         let error = format_driver_error(
             "falló",
-            "Login failed; PWD={p;a=ss} p;a=ss AccessToken=tok-123",
+            "Pwd={{a}}b;Encrypt=yes}}} o {a}b;Encrypt=yes}",
             &value,
         );
-        assert!(!error.contains("p;a=ss"), "{error}");
-        assert!(!error.contains("tok-123"), "{error}");
+        assert!(!error.contains("Encrypt=yes"), "{error}");
+        assert!(!error.contains("a}b"), "{error}");
         assert!(error.contains("[REDACTED]"), "{error}");
     }
 
     #[test]
-    fn transport_encryption_is_required_stated_or_local() {
-        let with = |kind, connection_string: &str| {
+    fn transport_encryption_is_always_requested_unless_allowed_otherwise() {
+        let with = |kind, change: &dyn Fn(&mut DatabaseConnection)| {
             let mut value = target(kind);
-            value.connection_string = connection_string.to_owned();
+            value.connection.allow_unencrypted = false;
+            value.connection.server = "db.example.com".to_owned();
+            change(&mut value.connection);
             transport_encryption_issue(&value).map(|(severity, _)| severity)
         };
+        for kind in [
+            DatabaseKind::SqlServer,
+            DatabaseKind::Postgresql,
+            DatabaseKind::Mysql,
+        ] {
+            assert_eq!(with(kind, &|_| {}), None, "{kind:?}");
+            // A local server is no reason to skip the encryption that was asked for.
+            assert_eq!(
+                with(kind, &|connection| connection.server =
+                    "localhost".to_owned()),
+                None
+            );
+        }
         assert_eq!(
-            with(
-                DatabaseKind::SqlServer,
-                "Driver={x};Server=db.example.com;Encrypt=yes"
-            ),
-            None
-        );
-        assert_eq!(
-            with(
-                DatabaseKind::Postgresql,
-                "Driver={x};Server=db.example.com;SSLMode=verify-full"
-            ),
-            None
-        );
-        assert_eq!(
-            with(
-                DatabaseKind::Mysql,
-                "Driver={x};Server=db.example.com;SSLMODE=REQUIRED"
-            ),
-            None
-        );
-        assert_eq!(
-            with(DatabaseKind::SqlServer, "Driver={x};Server=db.example.com"),
-            Some("blocking")
-        );
-        assert_eq!(
-            with(
-                DatabaseKind::SqlServer,
-                "Driver={x};Server=db.example.com;Encrypt=no"
-            ),
+            with(DatabaseKind::SqlServer, &|connection| connection
+                .trust_server_certificate =
+                true),
             Some("warning")
         );
-        assert_eq!(
-            with(
-                DatabaseKind::SqlServer,
-                "Driver={x};Server=db.example.com;Encrypt=yes;TrustServerCertificate=yes"
-            ),
-            Some("warning")
-        );
-        assert_eq!(
-            with(DatabaseKind::Postgresql, "Driver={x};Server=localhost"),
-            Some("info")
-        );
-        // SEG-09: the host is compared whole, and a value in braces is one value.
+        for kind in [DatabaseKind::Postgresql, DatabaseKind::Mysql] {
+            assert_eq!(
+                with(kind, &|connection| connection.allow_unencrypted = true),
+                Some("warning")
+            );
+            assert_eq!(
+                with(kind, &|connection| {
+                    connection.allow_unencrypted = true;
+                    connection.server = "localhost".to_owned();
+                }),
+                Some("info")
+            );
+        }
+        // SEG-09: the host is compared whole, so lookalikes stay remote.
         for remote in [
-            "Driver={x};Server=localhost.example.com;Uid=a;Pwd=b",
-            "Driver={x};Server=mi-localhost.red",
-            "Driver={x};Server=127.0.0.1.nip.io",
-            "Driver={x};Server=db.example.com;Pwd={a;Encrypt=yes}",
+            "localhost.example.com",
+            "mi-localhost.red",
+            "127.0.0.1.nip.io",
         ] {
             assert_eq!(
-                with(DatabaseKind::SqlServer, remote),
-                Some("blocking"),
+                with(DatabaseKind::Postgresql, &|connection| {
+                    connection.allow_unencrypted = true;
+                    connection.server = remote.to_owned();
+                }),
+                Some("warning"),
                 "{remote}"
             );
         }
         for local in [
-            "Driver={x};Server=tcp:localhost,1433",
-            "Driver={x};Server=.\\SQLEXPRESS",
-            "Driver={x};Server=(localdb)\\MSSQLLocalDB",
-            "Driver={x};Server=[::1]:5432",
-            "Driver={x};Host=127.0.0.1:3306",
+            "tcp:localhost,1433",
+            ".\\SQLEXPRESS",
+            "(localdb)\\MSSQLLocalDB",
+            "[::1]:5432",
+            "127.0.0.1:3306",
         ] {
             assert_eq!(
-                with(DatabaseKind::SqlServer, local),
+                with(DatabaseKind::Mysql, &|connection| {
+                    connection.allow_unencrypted = true;
+                    connection.server = local.to_owned();
+                }),
                 Some("info"),
                 "{local}"
             );
         }
+    }
+
+    /// AUD-002: whatever the fields hold, the string Rust builds says exactly
+    /// the attributes Rust chose, each once, and every value is what the field
+    /// said, read with the grammar of the Driver Manager.
+    #[test]
+    fn hostile_fields_cannot_add_repeat_or_replace_attributes() {
+        let hostile = DatabaseConnection {
+            driver: "ODBC Driver 18 for SQL Server".to_owned(),
+            server: r"a{b;Driver=C:\x.dll".to_owned(),
+            port: String::new(),
+            database: r"Ventas;FileDSN=C:\x.dsn".to_owned(),
+            authentication: DatabaseAuthentication::Password,
+            user: "sa}};Server=X};Server=Y".to_owned(),
+            password: "{a}}b;Encrypt=yes}".to_owned(),
+            trust_server_certificate: false,
+            allow_unencrypted: false,
+        };
+        let text = hostile.connection_string(DatabaseKind::SqlServer).unwrap();
+        let attributes = parse_odbc_connection_string(&text).unwrap();
+        assert_eq!(
+            attributes
+                .iter()
+                .map(|(key, _)| key.as_str())
+                .collect::<Vec<_>>(),
+            ["driver", "server", "database", "uid", "pwd", "encrypt"],
+            "{text}"
+        );
+        assert_eq!(
+            only_value(&attributes, "driver"),
+            "ODBC Driver 18 for SQL Server"
+        );
+        assert_eq!(only_value(&attributes, "server"), r"a{b;Driver=C:\x.dll");
+        assert_eq!(
+            only_value(&attributes, "database"),
+            r"Ventas;FileDSN=C:\x.dsn"
+        );
+        assert_eq!(only_value(&attributes, "uid"), "sa}};Server=X};Server=Y");
+        assert_eq!(only_value(&attributes, "pwd"), "{a}}b;Encrypt=yes}");
+        assert_eq!(only_value(&attributes, "encrypt"), "yes");
+
+        // The same holds in the other engines, whose encryption setting is
+        // Rust's, not the password's.
+        for (kind, key, required) in [
+            (DatabaseKind::Postgresql, "sslmode", "require"),
+            (DatabaseKind::Mysql, "sslmode", "REQUIRED"),
+        ] {
+            let connection = DatabaseConnection {
+                port: "5432".to_owned(),
+                ..hostile.clone()
+            };
+            let text = connection.connection_string(kind).unwrap();
+            let attributes = parse_odbc_connection_string(&text).unwrap();
+            assert_eq!(only_value(&attributes, "server"), r"a{b;Driver=C:\x.dll");
+            assert_eq!(only_value(&attributes, "port"), "5432");
+            assert_eq!(only_value(&attributes, "pwd"), "{a}}b;Encrypt=yes}");
+            assert_eq!(only_value(&attributes, key), required);
+            assert_eq!(attributes.len(), 7, "{text}");
+        }
+
+        // The case of the audit's evidence: it never reaches the driver as such.
+        let evidence = DatabaseConnection {
+            driver: "ODBC Driver 17 for SQL Server".to_owned(),
+            server: "localhost".to_owned(),
+            database: "VentasRetail".to_owned(),
+            authentication: DatabaseAuthentication::Password,
+            user: "sa}};Server=SERVIDOR_FALSO};Server=localhost".to_owned(),
+            ..hostile.clone()
+        };
+        let attributes = parse_odbc_connection_string(
+            &evidence.connection_string(DatabaseKind::SqlServer).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(only_value(&attributes, "server"), "localhost");
+        assert_eq!(
+            only_value(&attributes, "uid"),
+            "sa}};Server=SERVIDOR_FALSO};Server=localhost"
+        );
+    }
+
+    /// The external tests keep taking a whole connection string from the
+    /// session; it becomes fields, and what Rust builds from them is the same
+    /// connection the driver read (the string of the audit's evidence included).
+    #[test]
+    fn session_connection_strings_become_fields_and_back() {
+        let session = "Driver={ODBC Driver 17 for SQL Server};Uid={sa}};Server=SERVIDOR_FALSO};Server=localhost;Database=VentasRetail;Trusted_Connection=yes;";
+        let parsed = parse_odbc_connection_string(session).unwrap();
+        assert_eq!(only_value(&parsed, "uid"), "sa};Server=SERVIDOR_FALSO");
+        assert_eq!(parsed.iter().filter(|(key, _)| key == "server").count(), 1);
+
+        let connection = connection_from_odbc_string(
+            DatabaseKind::SqlServer,
+            "Driver={ODBC Driver 18 for SQL Server};Server=db,1433;Uid=ana;Pwd={s;x};Encrypt=yes;TrustServerCertificate=yes;",
+        );
+        assert_eq!(connection.server, "db,1433");
+        assert_eq!(connection.password, "s;x");
+        assert!(connection.trust_server_certificate);
+        assert_eq!(
+            connection.connection_string(DatabaseKind::SqlServer).unwrap(),
+            "Driver={ODBC Driver 18 for SQL Server};Server=db,1433;Uid=ana;Pwd={s;x};Encrypt=yes;TrustServerCertificate=yes;"
+        );
+        assert!(parse_odbc_connection_string("Server={sin cerrar").is_err());
+        assert!(parse_odbc_connection_string("Server={a}b;X=1").is_err());
+    }
+
+    #[test]
+    fn the_connection_string_is_the_one_the_interface_used_to_build() {
+        // The cases of the TypeScript builders this replaces.
+        let sql_server = DatabaseConnection {
+            authentication: DatabaseAuthentication::Windows,
+            user: String::new(),
+            password: String::new(),
+            database: "VentasRetail".to_owned(),
+            ..DatabaseConnection {
+                driver: "ODBC Driver 18 for SQL Server".to_owned(),
+                server: "localhost".to_owned(),
+                ..connection(DatabaseKind::SqlServer)
+            }
+        };
+        assert_eq!(
+            sql_server.connection_string(DatabaseKind::SqlServer).unwrap(),
+            "Driver={ODBC Driver 18 for SQL Server};Server=localhost;Database=VentasRetail;Trusted_Connection=yes;Encrypt=yes;"
+        );
+        let with_user = DatabaseConnection {
+            server: "db.example.com,1433".to_owned(),
+            authentication: DatabaseAuthentication::Password,
+            user: "ana".to_owned(),
+            password: "s3creta".to_owned(),
+            database: String::new(),
+            trust_server_certificate: true,
+            ..sql_server.clone()
+        };
+        assert_eq!(
+            with_user.connection_string(DatabaseKind::SqlServer).unwrap(),
+            "Driver={ODBC Driver 18 for SQL Server};Server=db.example.com,1433;Uid=ana;Pwd=s3creta;Encrypt=yes;TrustServerCertificate=yes;"
+        );
+        let braced_password = DatabaseConnection {
+            password: "a;Encrypt=no".to_owned(),
+            trust_server_certificate: false,
+            ..with_user.clone()
+        };
+        assert!(braced_password
+            .connection_string(DatabaseKind::SqlServer)
+            .unwrap()
+            .contains("Pwd={a;Encrypt=no};Encrypt=yes;"));
+
+        for (value, written) in [
+            ("a;Encrypt=no", "{a;Encrypt=no}"),
+            ("x}y", "{x}}y}"),
+            (" espacio", "{ espacio}"),
+            ("espacio ", "{espacio }"),
+            ("a=b", "{a=b}"),
+            ("a{b", "{a{b}"),
+            ("normal", "normal"),
+            ("con espacio dentro", "con espacio dentro"),
+            ("", ""),
+        ] {
+            assert_eq!(odbc_value(value), written, "{value:?}");
+        }
+
+        let mysql = DatabaseConnection {
+            driver: "MySQL ODBC 9.1 Unicode Driver".to_owned(),
+            server: "localhost".to_owned(),
+            user: "root".to_owned(),
+            password: "x".to_owned(),
+            allow_unencrypted: false,
+            ..connection(DatabaseKind::Mysql)
+        };
+        assert_eq!(
+            mysql.connection_string(DatabaseKind::Mysql).unwrap(),
+            "Driver={MySQL ODBC 9.1 Unicode Driver};Server=localhost;Uid=root;Pwd=x;SSLMODE=REQUIRED;"
+        );
+        let mysql_open = DatabaseConnection {
+            database: "tienda".to_owned(),
+            password: String::new(),
+            allow_unencrypted: true,
+            ..mysql.clone()
+        };
+        assert_eq!(
+            mysql_open.connection_string(DatabaseKind::Mysql).unwrap(),
+            "Driver={MySQL ODBC 9.1 Unicode Driver};Server=localhost;Database=tienda;Uid=root;Pwd=;SSLMODE=PREFERRED;"
+        );
+        let postgres = DatabaseConnection {
+            driver: "PostgreSQL Unicode(x64)".to_owned(),
+            port: " 5433 ".to_owned(),
+            user: " root ".to_owned(),
+            password: "a}b;Driver=x".to_owned(),
+            allow_unencrypted: true,
+            ..mysql.clone()
+        };
+        assert_eq!(
+            postgres.connection_string(DatabaseKind::Postgresql).unwrap(),
+            "Driver={PostgreSQL Unicode(x64)};Server=localhost;Port=5433;Uid=root;Pwd={a}}b;Driver=x};SSLmode=prefer;"
+        );
+        let postgres_strict = DatabaseConnection {
+            allow_unencrypted: false,
+            ..postgres
+        };
+        assert!(postgres_strict
+            .connection_string(DatabaseKind::Postgresql)
+            .unwrap()
+            .ends_with("SSLmode=require;"));
+    }
+
+    #[test]
+    fn invalid_field_combinations_are_rejected_with_a_way_out() {
+        let sql_server = DatabaseConnection {
+            driver: "ODBC Driver 18 for SQL Server".to_owned(),
+            ..connection(DatabaseKind::SqlServer)
+        };
+        let postgres = DatabaseConnection {
+            driver: "PostgreSQL Unicode(x64)".to_owned(),
+            ..connection(DatabaseKind::Postgresql)
+        };
+        assert!(sql_server.validate(DatabaseKind::SqlServer).is_ok());
+        assert!(postgres.validate(DatabaseKind::Postgresql).is_ok());
+
+        let rejected = |kind, connection: DatabaseConnection, expected: &str| {
+            let error = connection.validate(kind).unwrap_err();
+            assert!(error.contains(expected), "{error}");
+        };
+        let windows = DatabaseConnection {
+            authentication: DatabaseAuthentication::Windows,
+            user: String::new(),
+            password: String::new(),
+            ..postgres.clone()
+        };
+        rejected(
+            DatabaseKind::Postgresql,
+            windows.clone(),
+            "no admite la autenticación de Windows",
+        );
+        rejected(
+            DatabaseKind::Mysql,
+            windows.clone(),
+            "no admite la autenticación de Windows",
+        );
+        assert!(DatabaseConnection {
+            allow_unencrypted: false,
+            ..windows.clone()
+        }
+        .validate(DatabaseKind::SqlServer)
+        .is_ok());
+        rejected(
+            DatabaseKind::SqlServer,
+            DatabaseConnection {
+                user: "ana".to_owned(),
+                allow_unencrypted: false,
+                ..windows.clone()
+            },
+            "no se indica usuario",
+        );
+        for port in ["70000", "0", "65536", "33a", "-1", "1.5", "٣"] {
+            rejected(
+                DatabaseKind::Postgresql,
+                DatabaseConnection {
+                    port: port.to_owned(),
+                    ..postgres.clone()
+                },
+                "entre 1 y 65535",
+            );
+        }
+        for port in ["", " ", "1", "5432", "65535"] {
+            assert!(DatabaseConnection {
+                port: port.to_owned(),
+                ..postgres.clone()
+            }
+            .validate(DatabaseKind::Mysql)
+            .is_ok());
+        }
+        rejected(
+            DatabaseKind::SqlServer,
+            DatabaseConnection {
+                port: "1433".to_owned(),
+                ..sql_server.clone()
+            },
+            "servidor,1433",
+        );
+        rejected(
+            DatabaseKind::SqlServer,
+            DatabaseConnection {
+                allow_unencrypted: true,
+                ..sql_server.clone()
+            },
+            "solo se aplica a PostgreSQL y MySQL",
+        );
+        rejected(
+            DatabaseKind::Postgresql,
+            DatabaseConnection {
+                trust_server_certificate: true,
+                ..postgres.clone()
+            },
+            "solo se aplica a SQL Server",
+        );
+        rejected(
+            DatabaseKind::Mysql,
+            DatabaseConnection {
+                user: "  ".to_owned(),
+                ..postgres.clone()
+            },
+            "Indica el usuario de MySQL",
+        );
+        rejected(
+            DatabaseKind::Mysql,
+            DatabaseConnection {
+                server: " ".to_owned(),
+                ..postgres.clone()
+            },
+            "Indica el servidor",
+        );
+        // C:\x.dll is a file, not an installed driver.
+        rejected(
+            DatabaseKind::SqlServer,
+            DatabaseConnection {
+                driver: r"C:\x.dll".to_owned(),
+                ..sql_server.clone()
+            },
+            "no la ruta de un archivo",
+        );
+        for control in ['\u{7}', '\n', '\r', '\0', '\u{2028}', '\u{2029}', '\u{85}'] {
+            for field in 0..6 {
+                let mut connection = DatabaseConnection {
+                    port: "5432".to_owned(),
+                    ..postgres.clone()
+                };
+                let value = format!("a{control}b");
+                match field {
+                    0 => connection.driver = value,
+                    1 => connection.server = value,
+                    2 => connection.port = value,
+                    3 => connection.database = value,
+                    4 => connection.user = value,
+                    _ => connection.password = value,
+                }
+                rejected(DatabaseKind::Postgresql, connection, "control");
+            }
+        }
+        rejected(
+            DatabaseKind::Postgresql,
+            DatabaseConnection {
+                password: "x".repeat(MAX_PASSWORD_CHARS + 1),
+                ..postgres.clone()
+            },
+            "no puede superar",
+        );
+        rejected(
+            DatabaseKind::Postgresql,
+            DatabaseConnection {
+                server: "x".repeat(MAX_SERVER_CHARS + 1),
+                ..postgres.clone()
+            },
+            "no puede superar",
+        );
+        // A password with a closing brace or a semicolon is a password, not a rejection.
+        assert!(DatabaseConnection {
+            password: "}};{".to_owned(),
+            ..postgres.clone()
+        }
+        .validate(DatabaseKind::Postgresql)
+        .is_ok());
     }
 
     #[test]
@@ -3190,7 +3966,13 @@ mod tests {
     fn unreachable_server_fails_within_the_login_timeout() {
         let target = DatabaseTarget {
             kind: DatabaseKind::SqlServer,
-            connection_string: "Driver={ODBC Driver 18 for SQL Server};Server=tcp:10.255.255.1,1433;Uid=auditoria;Pwd=no-es-real;Encrypt=yes;TrustServerCertificate=no".to_owned(),
+            connection: DatabaseConnection {
+                driver: "ODBC Driver 18 for SQL Server".to_owned(),
+                server: "tcp:10.255.255.1,1433".to_owned(),
+                user: "auditoria".to_owned(),
+                password: "no-es-real".to_owned(),
+                ..connection(DatabaseKind::SqlServer)
+            },
             schema: String::new(),
             table: "ventas".to_owned(),
             table_policy: DatabaseTablePolicy::CreateOnly,
@@ -3538,7 +4320,7 @@ mod tests {
         })
         .collect::<Vec<_>>();
         let mut destination = target(DatabaseKind::SqlServer);
-        destination.connection_string = "Driver={test};Server=db;Encrypt=yes".to_owned();
+        destination.connection.server = "db".to_owned();
         destination.table_policy = DatabaseTablePolicy::Append;
         let report = assess_remote_export(&destination, &input, true, true, &existing);
         let blocking = report
@@ -3582,14 +4364,14 @@ mod tests {
     }
 
     fn external_target(kind: DatabaseKind, variable: &str) -> DatabaseTarget {
-        let connection_string = env::var(variable).unwrap_or_else(|_| {
+        let session_connection = env::var(variable).unwrap_or_else(|_| {
             panic!(
                 "La prueba ODBC externa requiere la variable {variable} con una cadena de conexión de sesión."
             )
         });
         DatabaseTarget {
             kind,
-            connection_string,
+            connection: connection_from_odbc_string(kind, &session_connection),
             schema: match kind {
                 DatabaseKind::Postgresql => "public".to_owned(),
                 DatabaseKind::Mysql => String::new(),
@@ -3598,6 +4380,14 @@ mod tests {
             table: "columnia_t6_external".to_owned(),
             table_policy: DatabaseTablePolicy::CreateOnly,
         }
+    }
+
+    /// The string the external tests hand straight to the driver.
+    fn external_connection_string(target: &DatabaseTarget) -> String {
+        target
+            .connection
+            .connection_string(target.kind)
+            .expect("la conexión de sesión debe ser válida")
     }
 
     fn adversarial_frame() -> DataFrame {
@@ -3627,7 +4417,10 @@ mod tests {
     ) -> Result<(), String> {
         let environment = Environment::new().map_err(|error| format!("ODBC: {error:?}"))?;
         let connection = environment
-            .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
+            .connect_with_connection_string(
+                &external_connection_string(target),
+                ConnectionOptions::default(),
+            )
             .map_err(|error| format!("conexión ODBC: {error:?}"))?;
         let ordinal = quote_identifier("ordinal", target.kind);
         let text = quote_identifier("text", target.kind);
@@ -3696,7 +4489,10 @@ mod tests {
     fn execute_external_sql(target: &DatabaseTarget, sql: &str) -> Result<(), String> {
         let environment = Environment::new().map_err(|error| format!("ODBC: {error:?}"))?;
         let connection = environment
-            .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
+            .connect_with_connection_string(
+                &external_connection_string(target),
+                ConnectionOptions::default(),
+            )
             .map_err(|error| format!("conexión ODBC: {error:?}"))?;
         connection
             .execute(sql, (), None)
@@ -3793,7 +4589,10 @@ mod tests {
             .expect("tabla de medición");
         let environment = Environment::new().expect("ODBC");
         let connection = environment
-            .connect_with_connection_string(&target.connection_string, odbc_connection_options())
+            .connect_with_connection_string(
+                &external_connection_string(&target),
+                odbc_connection_options(),
+            )
             .expect("conexión ODBC");
         let columns = frame
             .get_column_names()
@@ -3912,7 +4711,7 @@ mod tests {
             let environment = Environment::new().map_err(|error| format!("ODBC: {error:?}"))?;
             let connection = environment
                 .connect_with_connection_string(
-                    &target.connection_string,
+                    &external_connection_string(&target),
                     ConnectionOptions::default(),
                 )
                 .map_err(|error| format!("conexión ODBC: {error:?}"))?;
@@ -3988,10 +4787,11 @@ mod tests {
         result.expect("añadir a la tabla creada por Columnia");
     }
 
+    /// A SQL Server source from the connection string of a session variable.
     fn sql_server_source(connection_string: &str) -> DatabaseSource {
         DatabaseSource {
             kind: DatabaseKind::SqlServer,
-            connection_string: connection_string.to_owned(),
+            connection: connection_from_odbc_string(DatabaseKind::SqlServer, connection_string),
         }
     }
 
@@ -4004,25 +4804,33 @@ mod tests {
     }
 
     #[test]
-    fn import_accepts_the_three_engines_and_only_a_safe_connection_string() {
-        let valid =
-            "Driver={ODBC Driver 18 for SQL Server};Server=localhost;Trusted_Connection=yes";
-        assert!(validate_database_source(&sql_server_source(valid)).is_ok());
+    fn import_accepts_the_three_engines_and_only_safe_connection_fields() {
+        let valid = sql_server_source(
+            "Driver={ODBC Driver 18 for SQL Server};Server=localhost;Trusted_Connection=yes",
+        );
+        assert!(validate_database_source(&valid).is_ok());
         for kind in [DatabaseKind::Postgresql, DatabaseKind::Mysql] {
             let source = DatabaseSource {
                 kind,
-                connection_string: "Driver={PostgreSQL Unicode(x64)};Server=db;Uid=ana;Pwd=x"
-                    .to_owned(),
+                connection: DatabaseConnection {
+                    driver: "PostgreSQL Unicode(x64)".to_owned(),
+                    server: "db".to_owned(),
+                    ..connection(kind)
+                },
             };
             assert!(validate_database_source(&source).is_ok());
         }
-        assert!(validate_database_source(&sql_server_source("  ")).is_err());
-        assert!(
-            validate_database_source(&sql_server_source("Driver=C:\\x\\evil.dll;Server=a"))
-                .is_err()
-        );
-        assert!(validate_database_source(&sql_server_source("FileDSN=x.dsn")).is_err());
-        assert!(validate_database_source(&sql_server_source("Server=a\u{7};Uid=b")).is_err());
+        let with = |change: &dyn Fn(&mut DatabaseConnection)| {
+            let mut source = valid.clone();
+            change(&mut source.connection);
+            validate_database_source(&source)
+        };
+        assert!(with(&|connection| connection.server = "  ".to_owned()).is_err());
+        assert!(with(&|connection| connection.driver = r"C:\x\evil.dll".to_owned()).is_err());
+        assert!(with(&|connection| connection.server = "a\u{7}".to_owned()).is_err());
+        assert!(with(&|connection| connection.port = "1433".to_owned()).is_err());
+        // A value that looks like attributes is only a value.
+        assert!(with(&|connection| connection.server = "a;FileDSN=x.dsn".to_owned()).is_ok());
     }
 
     #[test]

@@ -988,7 +988,17 @@ describe("desktop bridge", () => {
   it("envía la conexión de base de datos solo al comando explícito", async () => {
     const target: DatabaseTarget = {
       kind: "postgresql",
-      connectionString: "Driver={PostgreSQL Unicode};Server=localhost;Pwd=secret",
+      connection: {
+        driver: "PostgreSQL Unicode(x64)",
+        server: "localhost",
+        port: "",
+        database: "",
+        authentication: "password",
+        user: "ana",
+        password: "secret",
+        trustServerCertificate: false,
+        allowUnencrypted: false,
+      },
       schema: "public",
       table: "ventas",
       tablePolicy: "create_only",
@@ -1013,7 +1023,17 @@ describe("desktop bridge", () => {
   it("preflight remoto usa destino y protección y devuelve el contrato de compatibilidad", async () => {
     const target: DatabaseTarget = {
       kind: "postgresql",
-      connectionString: "Driver={PostgreSQL Unicode};Server=localhost;Pwd=secret",
+      connection: {
+        driver: "PostgreSQL Unicode(x64)",
+        server: "localhost",
+        port: "",
+        database: "",
+        authentication: "password",
+        user: "ana",
+        password: "secret",
+        trustServerCertificate: false,
+        allowUnencrypted: false,
+      },
       schema: "public",
       table: "ventas",
       tablePolicy: "append",

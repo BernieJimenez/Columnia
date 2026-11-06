@@ -105,7 +105,7 @@ reserva para selección actual, foco y acción principal. El color nunca es la
   pantalla, la página reserva su alto con `scroll-padding-bottom` para que no
   tape el foco.
 - Una conexión a SQL Server se pide con campos (servidor, base de datos,
-  autenticación), no con una cadena ODBC; la cadena queda como opción avanzada.
+  autenticación), no con una cadena ODBC: la interfaz manda campos y Rust arma la cadena; no hay cadena libre ni DSN.
 - Una lista de problemas se ordena por lo que le hace al análisis (altera
   resultados, afecta a coincidencias, solo formato, opcional) y cada elemento
   lo dice con texto; la forma del marcador repite el nivel, no lo sustituye.

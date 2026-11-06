@@ -4,8 +4,10 @@ import {
   cancelOperation,
   importDatabaseTable,
   listDatabaseTables,
+  type DatabaseConnection,
   type DatabaseImportResult,
   type DatabaseKind,
+  type DatabaseSource,
   type DatabaseSourceTable,
   type DatasetSourceInspection,
   type OperationProgress,
@@ -61,18 +63,19 @@ function tableLabel(table: DatabaseSourceTable): string {
 export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseImportPanelProps) {
   const id = useId();
   const [kind, setKind] = useState<DatabaseKind>("sqlserver");
-  const [connectionString, setConnectionString] = useState("");
+  const [connection, setConnection] = useState<DatabaseConnection | null>(null);
   const [list, setList] = useState<ListState>({ kind: "idle" });
   const [selected, setSelected] = useState(0);
   const [rowLimit, setRowLimit] = useState<number>(DEFAULT_ROW_LIMIT);
   const [importState, setImportState] = useState<ImportState>({ kind: "idle" });
 
-  const source = { kind, connectionString };
+  const source: DatabaseSource | null = connection ? { kind, connection } : null;
   const busy = blocked || list.kind === "listing" || importState.kind === "importing";
   const tables = list.kind === "listed" ? list.tables : [];
   const chosen = tables[selected];
 
   async function showTables() {
+    if (!source) return;
     setList({ kind: "listing" });
     setImportState({ kind: "idle" });
     try {
@@ -85,7 +88,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
   }
 
   function importChosen() {
-    if (!chosen) return;
+    if (!chosen || !source) return;
     const table = tableLabel(chosen);
     onImport(async () => {
       setImportState({
@@ -137,7 +140,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
                     disabled={busy}
                     onChange={() => {
                       setKind(engine.kind);
-                      setConnectionString("");
+                      setConnection(null);
                       setList({ kind: "idle" });
                       setImportState({ kind: "idle" });
                     }}
@@ -150,7 +153,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
               kind={kind}
               disabled={busy}
               onChange={(next) => {
-                setConnectionString(next ?? "");
+                setConnection(next);
                 setList({ kind: "idle" });
                 setImportState({ kind: "idle" });
               }}
@@ -159,7 +162,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
               <button
                 type="button"
                 className="secondary-action"
-                disabled={busy || connectionString.trim() === ""}
+                disabled={busy || connection === null}
                 onClick={() => void showTables()}
               >
                 {list.kind === "listing" ? "Conectando…" : "Ver tablas"}
@@ -170,7 +173,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
                 </button>
               )}
             </div>
-            {connectionString.trim() === "" && list.kind === "idle" && (
+            {connection === null && list.kind === "idle" && (
               <p className="database-import__hint">Completa la conexión para ver las tablas.</p>
             )}
             {list.kind === "error" && <p className="notice notice--error" role="alert">{list.message}</p>}

@@ -12,7 +12,18 @@ const dataset = {
   rows: [["1", "Lentejas", "San Cristóbal"], ["2", "Pan", "Monseñor Nouel"], ["3", "Café", "Santiago"]],
 } satisfies DatasetPreview;
 
-const connection = "Driver={ODBC Driver 18 for SQL Server};Server=localhost;Database=VentasRetail;Trusted_Connection=yes;Encrypt=yes;";
+// The interface sends fields; Rust builds the ODBC connection string.
+const connection = {
+  driver: "ODBC Driver 18 for SQL Server",
+  server: "localhost",
+  port: "",
+  database: "VentasRetail",
+  authentication: "windows",
+  user: "",
+  password: "",
+  trustServerCertificate: false,
+  allowUnencrypted: false,
+};
 
 test.describe("cargar desde SQL Server", () => {
   test("lista las tablas, trae la elegida y la abre por el flujo normal de Cargar", async ({ page }) => {
@@ -35,7 +46,7 @@ test.describe("cargar desde SQL Server", () => {
     const calls = await recordedCalls(page);
     const importCall = calls.find((call) => call.command === "import_database_table");
     expect(importCall?.args).toMatchObject({
-      source: { kind: "sqlserver", connectionString: connection },
+      source: { kind: "sqlserver", connection },
       schema: "dbo",
       table: "Ventas",
       rowLimit: 100_000,

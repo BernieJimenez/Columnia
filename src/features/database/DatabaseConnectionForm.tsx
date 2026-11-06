@@ -1,12 +1,12 @@
-import type { DatabaseKind } from "../../bridge";
+import type { DatabaseConnection, DatabaseKind } from "../../bridge";
 import { ServerConnectionForm } from "./ServerConnectionForm";
 import { SqlServerConnectionForm } from "./SqlServerConnectionForm";
 
 interface DatabaseConnectionFormProps {
   kind: DatabaseKind;
   disabled: boolean;
-  /** The connection string, or null while something is missing. */
-  onChange: (connectionString: string | null) => void;
+  /** The connection fields, or null while something is missing. */
+  onChange: (connection: DatabaseConnection | null) => void;
   /** The id of a message saying the connection is incomplete; marks its first field. */
   errorId?: string;
 }

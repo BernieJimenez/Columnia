@@ -51,7 +51,7 @@ resultado en el mismo cambio.
 Las dependencias se resuelven desde `crates.io` mediante `Cargo.lock` y el gate
 de supply chain verifica checksums y fuentes. Las versiones declaradas son:
 
-`calamine 0.36.1`, `chrono 0.4.45`, `duckdb 1.10505.0`, `encoding_rs 0.8.41`, `fs4 1.1.0` (espacio libre del disco temporal, REN-14), `hex 0.4.3`, `libmimalloc-sys 0.1.49`, `mimalloc 0.1.52` (asignador de memoria, REN-02), `polars 0.55.2`, `odbc-api 29.1.0`, `rayon 1.12`, `getrandom 0.3`, `regex 1`, `rusqlite 0.40.2`, `same-file 1.0.6`, `serde 1`, `serde_json 1`, `semver 1.0.28`, `sha2 0.11.0`, `sysinfo 0.39.6`, `tauri 2`, `tauri-plugin-dialog 2.7.3`, `tempfile 3`, `tokio 1.53.1`, `tokio-util 0.7.19`, `unicode-normalization 0.1`, `xxhash-rust 0.8.18`, `zip 8.6.0`;
+`calamine 0.38.0`, `chrono 0.4.45`, `duckdb 1.10505.0`, `encoding_rs 0.8.41`, `fs4 1.1.0` (espacio libre del disco temporal, REN-14), `hex 0.4.3`, `libmimalloc-sys 0.1.49`, `mimalloc 0.1.52` (asignador de memoria, REN-02), `polars 0.55.2`, `odbc-api 29.1.0`, `rayon 1.12`, `getrandom 0.3`, `regex 1`, `rusqlite 0.40.2`, `same-file 1.0.6`, `serde 1`, `serde_json 1`, `semver 1.0.28`, `sha2 0.11.0`, `sysinfo 0.39.6`, `tauri 2`, `tauri-plugin-dialog 2.7.3`, `tempfile 3`, `tokio 1.53.1`, `tokio-util 0.7.19`, `unicode-normalization 0.1`, `xxhash-rust 0.8.18`, `zip 8.6.0`;
 `tauri-plugin-single-instance 2`, `tauri-plugin-updater 2.12.0` para escritorio, `webview2-com 0.38.2` solo en Windows (la misma versión que usa wry; detecta la caída del WebView), y `tauri-build 2` como dependencia de build.
 
 ### Auditorías ejecutadas
@@ -64,7 +64,7 @@ el del inventario IPC está en [`ipc-inventory.json`](docs/reference/ipc-invento
 
 | Comando | Resultado (2026-10-04, `11dc27d`) | Interpretación |
 | --- | --- | --- |
-| `npm audit --json --omit=optional` | 0 vulnerabilidades; 202 dependencias del lockfile (repetido el 2026-10-08 al añadir `@axe-core/playwright`) | Desde OPS-01, una vulnerabilidad hace fallar `supply-chain:check` |
+| `npm audit --json --omit=optional` | 0 vulnerabilidades; 200 dependencias del lockfile (repetido el 2026-11-06 al subir `vite` 8.3.6, `vitest` 5.0.5 y `undici` 7.30.2, AUD-006) | Desde OPS-01, una vulnerabilidad hace fallar `supply-chain:check` |
 | `cargo audit --json` | 0 vulnerabilidades; avisos informativos (7 crates sin mantenimiento, 1 unsound) con 2 excepciones documentadas | `quick-xml` llega transitivamente por `object_store`; Columnia no habilita los features cloud. La razón vigente está en `src-tauri/deny.toml` |
 | `cargo deny --format json check` | Aprobado | Política explícita en `src-tauri/deny.toml`; las excepciones upstream tienen razón y se revisan al actualizar Tauri/Polars |
 | `cargo outdated --version` | Herramienta no instalada | No se inventa un estado de actualización Cargo |

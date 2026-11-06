@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { QUALITY_DATASET_COLUMN, type ColumnProfile, type DatasetPreview, type QualityRule, type QualityValidationResult } from "../../bridge";
+import { QUALITY_DATASET_COLUMN, type ColumnProfile, type DatabaseConnection, type DatasetPreview, type QualityRule, type QualityValidationResult } from "../../bridge";
 import {
+  INITIAL_DATABASE_TARGET,
   INITIAL_DELIVERY_CONTRACT,
+  completeDatabaseTarget,
   databaseTargetTable,
   deliverySummary,
   sqlServerScriptTable,
@@ -194,12 +196,25 @@ describe("estado de entrega", () => {
     expect(validateDatabaseTargetDraft({
       ...{
         kind: "mysql",
-        connectionString: "Driver={MySQL};Server=localhost",
+        connection: null,
         schema: "public",
         table: "dataset",
         tablePolicy: "replace",
       },
     })).toMatch(/Reemplazar está deshabilitada/);
+  });
+
+  it("pide completar la conexión mientras el formulario no la entrega, y la envía cuando está completa", () => {
+    const draft = { ...INITIAL_DATABASE_TARGET, schema: "public", table: "dataset" };
+    expect(validateDatabaseTargetDraft(draft)).toBe("Completa la conexión con el servidor.");
+    expect(completeDatabaseTarget(draft)).toBeNull();
+    const connection: DatabaseConnection = {
+      driver: "PostgreSQL Unicode(x64)", server: "localhost", port: "", database: "", authentication: "password",
+      user: "ana", password: "x", trustServerCertificate: false, allowUnencrypted: false,
+    };
+    const complete = { ...draft, connection };
+    expect(validateDatabaseTargetDraft(complete)).toBeNull();
+    expect(completeDatabaseTarget(complete)).toEqual(complete);
   });
 
   it("invalida un gate aprobado cuando cambian las reglas", () => {
@@ -385,7 +400,7 @@ describe("resumen de la entrega", () => {
     expect(items.find((item) => item.label === "Datos personales")?.value).toBe("sin proteger en 1 columna");
     expect(sqlServerScriptTable({ schema: "", table: "", mode: "create", keyColumns: [], textSize: "fitted" }, []))
       .toBe("dbo.(nombre del archivo) · crear tabla nueva");
-    expect(databaseTargetTable({ kind: "postgresql", connectionString: "", schema: "public", table: "ventas", tablePolicy: "append" }))
+    expect(databaseTargetTable({ schema: "public", table: "ventas", tablePolicy: "append" }))
       .toBe("public.ventas · añadir filas");
   });
 });

@@ -420,6 +420,8 @@ No rompas estas reglas sin una decisión explícita documentada:
 - Un fallo o cancelación de exportación no debe destruir un archivo previo.
 - Una transformación compuesta debe ser atómica.
 - No añadas CI, GitHub Actions, telemetría o servicios de pago como requisito sin revertir expresamente las decisiones vigentes.
+- Una conexión ODBC (Cargar y Entregar) viaja por IPC como campos (`DatabaseConnection` en `remote_databases.rs`), y Rust es el único que arma la cadena tras validar cada campo. Decisión del 2026-11-06 (AUD-002): no se vuelve a aceptar una cadena libre ni un DSN desde la interfaz, porque un valor con llaves podía añadir o repetir atributos y hacer que la confirmación nativa mostrara un servidor distinto del usado. `remote_target_identity` sale de esos mismos pares, así que cambiar su orden o su escapado deja de reconocer las entregas ya registradas en `remote-deliveries.json`.
+- DuckDB no instala ni carga extensiones: `configure_duckdb_resources_with_limits` lo apaga para toda la base (el ajuste es de la base, así que lo heredan las conexiones `open_from_raw` que la comparten), y la consola además lo bloquea con `lock_configuration`. Solo están `json` y `parquet`, compiladas dentro; ICU no, así que el SQL que arma Rust no usa `timezone()`, `AT TIME ZONE` ni otras funciones de ICU (el UTC sale de `make_timestamp(epoch_us(..))`; como `epoch_us` da NULL con ±infinity, esos valores se escriben aparte con `isinf`) (AUD-005).
 
 La canonicalización cubre todos los puntos actuales de entrada por diálogo para datasets, recetas y exportaciones, con pruebas de segmentos `..`, directorios, symlinks en Unix y reparse points válidos o colgantes en Windows. La prueba Windows se omite limpiamente si el sistema no concede permiso para crear symlinks. Rust limita los payloads semánticos de receta a 4.096 caracteres por campo y 65.536 acumulados; las reglas de calidad conservan el máximo de 16 y admiten hasta 256 caracteres por columna y 2.048 acumulados. Estos presupuestos se aplican antes de validar/exportar o aplicar/guardar, pero no sustituyen un límite de memoria del transporte IPC.
 
@@ -570,6 +572,10 @@ Las pruebas frontend verifican además que `package-lock.json` refleje exactamen
 Los gates estáticos verifican que la CSP de producción permanezca local, que desarrollo solo añada el servidor loopback configurado y que la ventana `main` conserve exclusivamente `core:default`, sin permisos de filesystem, shell, HTTP u opener.
 
 Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del registro oficial, crates sin checksum o fuera de crates.io, fuentes Git e identidades contradictorias. Release genera el SBOM sin red, timestamps, UUID, rutas locales ni URLs de descarga.
+
+Al subir dependencias: `vitest` y `@vitest/coverage-v8` comparten versión exacta (una es dependencia par de la otra), así que `npm update` sin nombres no las sube y hay que nombrar las dos; `THIRD_PARTY_NOTICES.md` se regenera con `tools/generate-third-party-notices.ps1` y `notices:check` exige su texto exacto; y `docs:check` compara el recuento de dependencias del lockfile que cita `AUDITORIA.md` (fila de `npm audit`), que hay que actualizar a mano si el lockfile gana o pierde paquetes.
+
+Vitest recoge cualquier `*.spec.ts` fuera de `e2e/` (`vitest.config.ts` solo excluye esa carpeta y las de artefactos): una prueba de Playwright guardada en otro sitio hace fallar `npm test` al cargarla.
 
 Las ramas específicas de symlinks/reparse points dependen de la plataforma; en Windows se prueban con una unión de directorio, que no requiere privilegios.
 

@@ -19,21 +19,24 @@ con sus 97 objetivos y casillas, en
 Re-auditoría de lo cambiado desde la revisión anterior (`0a89c09`..`e48ecab`):
 97 defectos (ningún Crítico ni Alto; 32 Medio y 65 Bajo) y 1 propuesta, con IDs
 `AUD-NNN` en las secciones «Tier» de más abajo. El informe, con la evidencia de
-cada uno, está en la carpeta local de auditorías, que git no versiona.
+cada uno, está en la carpeta local de auditorías, que git no versiona. Sin
+histórico aparte: lo cerrado se queda marcado `[x]` con su línea *Cierre* y pasa
+al CHANGELOG. El 2026-11-06 se cerró la tanda 1 (AUD-001, 002, 004, 005 y 006)
+y se abrió AUD-099, aparecida al aplicarla.
 
 <!-- indice:inicio -->
-**Última actualización:** 2026-11-06 · **Siguiente ID libre:** AUD-099 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
+**Última actualización:** 2026-11-06 · **Siguiente ID libre:** AUD-100 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
 
 | Tier | Abiertas | Cerradas | Esfuerzo de las abiertas (Bajo · Medio · Alto) |
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
-| 2 · Medio | 32 | 0 | 20 · 12 · 0 |
-| 3 · Bajo | 65 | 0 | 63 · 2 · 0 |
+| 2 · Medio | 27 | 5 | 16 · 11 · 0 |
+| 3 · Bajo | 66 | 0 | 64 · 2 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **98** | **0** | **84 · 14 · 0** |
+| **Total** | **94** | **5** | **81 · 13 · 0** |
 
-**Abiertas por área:** UI/UX 18 · Arquitectura 12 · Código 12 · Accesibilidad 12 · QA y testing 11 · Rendimiento 10 · Seguridad 9 · Documentación 9 · Redacción 5
+**Abiertas por área:** UI/UX 18 · Arquitectura 12 · Código 12 · Accesibilidad 12 · QA y testing 12 · Rendimiento 10 · Documentación 9 · Redacción 5 · Seguridad 4
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -130,21 +133,23 @@ Sin tareas abiertas.
 
 ### Seguridad
 
-- [ ] **AUD-001 · Las columnas clave van sin validar a un comentario `--` del script T-SQL: una cabecera con salto de línea inyecta SQL**
+- [x] **AUD-001 · Las columnas clave van sin validar a un comentario `--` del script T-SQL: una cabecera con salto de línea inyecta SQL**
   - **Área:** Seguridad · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/tsql_script.rs:192-214`
   - **Qué hacer:** (1) no escribir nombres de datos en comentarios: dejar el resumen sin `key_list()` o pasar el texto por un filtro que sustituya `\r`, `\n`, U+0085, U+2028 y U+2029 y cualquier `char::is_control`; (2) validar los nombres de columna en `check_columns` (sin controles ni separadores de línea Unicode, 1 a 128 caracteres) y devolver un error claro; (3) añadir tests con cabeceras `a\nDROP…`, `]`, `'` y U+2028.
   - **Criterio de aceptación:** exportar con una clave llamada `id\nSELECT 1;--` o falla con un mensaje claro o genera un script cuyo único texto fuera de literales e identificadores citados es el esperado; hay un test que lo comprueba en `script` y en `cargar.sql`.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-06 · tanda 1 de la Fase 2 (rama `auditoria/2026-11-05`). `check_columns` rechaza nombres de columna vacíos, de más de 128 caracteres o con saltos de línea y controles (también U+2028/U+2029, igual que esquema y tabla), y los comentarios del script pasan por un filtro que quita esos caracteres.
 
-- [ ] **AUD-002 · `odbc_attributes` no sigue la gramática de las cadenas ODBC: los controles de Rust (diálogo, controlador, FileDSN, cifrado, redacción) se pueden esquivar con `}}` o con `{` a mitad de valor**
+- [x] **AUD-002 · `odbc_attributes` no sigue la gramática de las cadenas ODBC: los controles de Rust (diálogo, controlador, FileDSN, cifrado, redacción) se pueden esquivar con `}}` o con `{` a mitad de valor**
   - **Área:** Seguridad · **Severidad:** Medio · **Esfuerzo:** Medio
   - **Ubicación:** `src-tauri/src/remote_databases.rs:1924-1952`
   - **Qué hacer:** estructural: que Rust construya la cadena a partir de campos (motor, controlador listado, servidor, puerto, base, autenticación, usuario, contraseña, cifrado) y no acepte la cadena de la interfaz; así desaparecen el parser propio y la superficie de atributos (ver AUD-003). Si se mantiene la cadena libre: parser conforme (llave solo al inicio del valor, `}}` escapado) y rechazo de cadenas con llaves desbalanceadas o con claves repetidas.
   - **Criterio de aceptación:** tests con `Uid={sa}};Server=X};Server=Y`, `Server=a{b;Driver=C:\x.dll` y una contraseña `{a}}b;Encrypt=yes}` en `Pwd` que Rust rechaza o interpreta igual que el controlador; la cadena de la evidencia en ejecución no llega a abrirse.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-06 · tanda 1 de la Fase 2 (rama `auditoria/2026-11-05`). Enfoque estructural elegido por el usuario: la interfaz manda `DatabaseConnection` (campos) y Rust arma la cadena; desaparecen «Escribir la cadena ODBC», los DSN y el parser propio. La identidad del registro de entregas no cambia (fijada con literales del código anterior). Pendiente de AUD-003: el contenido del diálogo nativo.
 
 - [ ] **AUD-003 · La cadena ODBC no tiene lista de atributos permitidos: «Solo leerá» depende de la interfaz y el diálogo omite lo que más importa**
   - **Área:** Seguridad · **Severidad:** Medio · **Esfuerzo:** Medio
@@ -154,29 +159,32 @@ Sin tareas abiertas.
   - **Depende de:** AUD-002 (el mismo cambio: que Rust construya la cadena ODBC)
   - **Origen:** auditoría 2026-11-05
 
-- [ ] **AUD-004 · `calamine` 0.36.1 (RUSTSEC-2026-0436): pánico y OOM en XLS/XLSB con archivos hostiles, ruta alcanzable**
+- [x] **AUD-004 · `calamine` 0.36.1 (RUSTSEC-2026-0436): pánico y OOM en XLS/XLSB con archivos hostiles, ruta alcanzable**
   - **Área:** Seguridad · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset/spreadsheet_io.rs:22,41,684,939,1034,1150`
   - **Qué hacer:** subir `calamine` a ≥ 0.38.0 (revisar cambios de API; ya usa `quick-xml` 0.41.0). Mientras tanto, limitar el tamaño de los libros `.xls`/`.xlsb` antes de abrirlos.
   - **Criterio de aceptación:** `cargo audit` sin RUSTSEC-2026-0436 y la suite de importación de hojas pasa.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-06 · tanda 1 de la Fase 2 (rama `auditoria/2026-11-05`). `calamine` 0.38.0 sin cambios de API; `cargo audit` ya no lista RUSTSEC-2026-0436.
 
-- [ ] **AUD-005 · Las conexiones DuckDB nuevas (y las anteriores salvo la de la consola) no desactivan la instalación y carga automática de extensiones; `timezone()` sin ICU puede provocar una descarga**
+- [x] **AUD-005 · Las conexiones DuckDB nuevas (y las anteriores salvo la de la consola) no desactivan la instalación y carga automática de extensiones; `timezone()` sin ICU puede provocar una descarga**
   - **Área:** Seguridad · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/duckdb_query.rs:2683-2702`
   - **Qué hacer:** mover `SET autoinstall_known_extensions = false; SET autoload_known_extensions = false;` a `configure_duckdb_resources_with_limits` para que lo hereden todas las conexiones; calcular el UTC sin ICU o habilitar `icu` en `duckdb`; añadir un test que exporte una columna con zona horaria; opcional: `allowed_paths` y `lock_configuration` también en las conexiones de escritura de Parquet. Endurecimiento que dejó apuntado la revisión del escapado del SQL de DuckDB (correcto en todo el diff): `allowed_directories` y `lock_configuration` también en las conexiones que escriben Parquet, para que la barrera no sea solo el escape.
   - **Criterio de aceptación:** un test (o `SELECT current_setting('autoload_known_extensions')`) en cada tipo de conexión devuelve `false`, y la exportación de un Parquet con `TIMESTAMPTZ` produce el script sin red.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-06 · tanda 1 de la Fase 2 (rama `auditoria/2026-11-05`). El ajuste va en `configure_duckdb_resources_with_limits` (es de la base: lo heredan las conexiones que la comparten) y el UTC se calcula sin ICU; ±infinity conserva su texto. La parte opcional (`allowed_paths`, `lock_configuration`) no se hizo: rompería los `SET` posteriores.
 
-- [ ] **AUD-006 · `vite` 8.3.0 con avisos altos de servidor de desarrollo, en loopback pero accesible desde cualquier página web abierta en la misma máquina**
+- [x] **AUD-006 · `vite` 8.3.0 con avisos altos de servidor de desarrollo, en loopback pero accesible desde cualquier página web abierta en la misma máquina**
   - **Área:** Seguridad · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `package.json:93`
   - **Qué hacer:** `npm update vite` y repetir `npm audit`. `vitest`/`@vitest/mocker`/`@vitest/coverage-v8` 5.0.1 y `undici` 7.29.1 (vía `jsdom`) se actualizan en el mismo paso (hoy sin alcance: ver la sección 5).
   - **Criterio de aceptación:** `npm audit` sin vulnerabilidades altas y `tools/check-supply-chain.ps1 -RequireAuditTools` pasa su tramo de npm.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-06 · tanda 1 de la Fase 2 (rama `auditoria/2026-11-05`). `vite` 8.3.6, `vitest` y `@vitest/coverage-v8` 5.0.5, `undici` 7.30.2, sin cambiar los rangos de `package.json`; `npm audit` sin vulnerabilidades.
 
 ### Arquitectura, datos y resiliencia
 
@@ -821,6 +829,14 @@ Sin tareas abiertas.
   - **Criterio de aceptación:** las reglas de layout críticas del shell tienen al menos una comprobación medida en E2E.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+
+- [ ] **AUD-099 · El generador de `THIRD_PARTY_NOTICES.md` no ordena: cada cambio de un lockfile reordena el archivo entero**
+  - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `tools/generate-third-party-notices.ps1:111`
+  - **Qué hacer:** construir las filas como `[pscustomobject]@{…}` en lugar de `[ordered]@{…}`: con diccionarios, `Sort-Object ecosystem, name, version, source` no ordena por clave (comprobado en Windows PowerShell 5.1 y en PowerShell 7), así que el orden depende de la agrupación. Regenerar el archivo una vez y añadir una prueba que compruebe que la tabla sale ordenada.
+  - **Criterio de aceptación:** regenerar dos veces seguidas no cambia nada, y tras subir un solo paquete solo cambian sus filas; la tabla queda ordenada por ecosistema, nombre y versión. (Al subir `calamine` en AUD-004, 7 filas de contenido dieron unas 590 líneas de diff.)
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-004
 
 ### Ortografía y redacción
 

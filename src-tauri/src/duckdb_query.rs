@@ -827,7 +827,13 @@ fn tsql_text_projection(name: &str, data_type: &str) -> String {
     let identifier = quote_identifier(name);
     let upper = data_type.to_ascii_uppercase();
     if upper.starts_with("TIMESTAMP WITH TIME ZONE") || upper == "TIMESTAMPTZ" {
-        format!("CAST(CAST(timezone('UTC', {identifier}) AS TIMESTAMP) AS VARCHAR) AS {identifier}")
+        // `make_timestamp(epoch_us(..))` is a UTC TIMESTAMP built with core
+        // functions; `timezone('UTC', ..)` would need the ICU extension.
+        // `epoch_us` of ±infinity is NULL, so those keep their own text and
+        // SQL Server rejects them instead of receiving an empty cell.
+        format!(
+            "CASE WHEN isinf({identifier}) THEN CAST({identifier} AS VARCHAR) ELSE CAST(make_timestamp(epoch_us({identifier})) AS VARCHAR) END AS {identifier}"
+        )
     } else if is_sql_text_projection(data_type) {
         format!("CAST({identifier} AS VARCHAR) AS {identifier}")
     } else {
@@ -2686,6 +2692,8 @@ fn configure_duckdb_resources_with_limits(
     memory_limit: &str,
     temp_directory_limit: &str,
 ) -> Result<(), String> {
+    // Never install or autoload extensions (no network access); the setting
+    // belongs to the database, so connections that share it inherit it.
     let spill_directory = directory.join("duckdb-spill");
     fs::create_dir_all(&spill_directory)
         .map_err(|error| format!("No se pudo preparar el derrame temporal de DuckDB: {error}"))?;
@@ -2694,7 +2702,7 @@ fn configure_duckdb_resources_with_limits(
         .replace('\\', "/")
         .replace('\'', "''");
     let query = format!(
-        "SET memory_limit = '{memory_limit}'; SET max_temp_directory_size = '{temp_directory_limit}'; SET temp_directory = '{escaped_spill_directory}'; SET preserve_insertion_order = true;"
+        "SET autoinstall_known_extensions = false; SET autoload_known_extensions = false; SET memory_limit = '{memory_limit}'; SET max_temp_directory_size = '{temp_directory_limit}'; SET temp_directory = '{escaped_spill_directory}'; SET preserve_insertion_order = true;"
     );
     connection
         .execute_batch(&query)
@@ -3765,6 +3773,40 @@ mod tests {
         assert!(!directory.path().join("dataset.parquet").exists());
     }
 
+    fn write_timestamptz_parquet(directory: &Path, value: &str) -> std::path::PathBuf {
+        let source = directory.join("tz.parquet");
+        let connection = Connection::open_in_memory().expect("DuckDB debe iniciar");
+        let path = source.to_string_lossy().replace('\\', "/");
+        connection
+            .execute_batch(&format!(
+                "COPY (SELECT TIMESTAMPTZ '{value}' AS t, 1 AS id) TO '{path}' (FORMAT parquet)"
+            ))
+            .expect("se debe escribir el Parquet con TIMESTAMPTZ");
+        source
+    }
+
+    #[test]
+    fn tsql_script_of_a_timestamptz_parquet_is_utc_without_network() {
+        let directory = tempfile::tempdir().expect("directorio temporal");
+        let source = write_timestamptz_parquet(directory.path(), "2026-01-02 03:04:05+02");
+        let destination = directory.path().join("tz.sql");
+        let target = crate::tsql_script::TsqlTarget::resolve(None, "tz").expect("destino");
+
+        export_file_to_tsql_with_cancel(
+            &source,
+            DuckDbFileFormat::Parquet,
+            &destination,
+            target,
+            || false,
+        )
+        .expect("el script T-SQL debe generarse sin ICU ni red");
+
+        let script = fs::read_to_string(&destination).expect("script legible");
+        assert!(script.contains("N'2026-01-02 01:04:05'"), "{script}");
+        let declared = crate::tsql_script::tsql_type_for_duckdb("TIMESTAMP WITH TIME ZONE");
+        assert!(script.contains(&format!("[t] {declared}")), "{script}");
+    }
+
     #[test]
     fn joins_two_existing_parquet_snapshots_without_reencoding_them() {
         let current = df![
@@ -3824,6 +3866,77 @@ mod tests {
         );
         assert!(current_path.is_file());
         assert!(compared_path.is_file());
+    }
+
+    fn extension_autoload_settings(connection: &Connection) -> (String, String) {
+        let read = |name: &str| -> String {
+            connection
+                .query_row(&format!("SELECT current_setting('{name}')"), [], |row| {
+                    row.get::<_, bool>(0).map(|value| value.to_string())
+                })
+                .expect("se debe consultar el ajuste")
+        };
+        (
+            read("autoinstall_known_extensions"),
+            read("autoload_known_extensions"),
+        )
+    }
+
+    #[test]
+    fn resource_configuration_disables_extension_install_and_autoload() {
+        let connection = Connection::open_in_memory().expect("DuckDB debe iniciar");
+        let directory = tempfile::tempdir().expect("directorio temporal");
+        configure_duckdb_resources(&connection, directory.path()).expect("configuración");
+        assert_eq!(
+            extension_autoload_settings(&connection),
+            ("false".to_owned(), "false".to_owned())
+        );
+    }
+
+    #[test]
+    fn shared_native_database_connections_inherit_extension_settings() {
+        let native = NativeDuckDb::open().expect("DuckDB nativo debe iniciar");
+        let directory = tempfile::tempdir().expect("directorio temporal");
+        {
+            // SAFETY: `native` outlives this connection, which does not close it.
+            let connection = unsafe { Connection::open_from_raw(native.database) }
+                .expect("conexión sobre la base nativa");
+            configure_duckdb_resources(&connection, directory.path()).expect("configuración");
+        }
+        // SAFETY: as above.
+        let other = unsafe { Connection::open_from_raw(native.database) }
+            .expect("segunda conexión sobre la base nativa");
+        assert_eq!(
+            extension_autoload_settings(&other),
+            ("false".to_owned(), "false".to_owned())
+        );
+    }
+
+    #[test]
+    fn tsql_export_moves_timestamptz_to_utc_without_extensions() {
+        let connection = Connection::open_in_memory().expect("DuckDB debe iniciar");
+        let directory = tempfile::tempdir().expect("directorio temporal");
+        configure_duckdb_resources(&connection, directory.path()).expect("configuración");
+        let projection = tsql_text_projection("t", "TIMESTAMP WITH TIME ZONE");
+        let values: Vec<Option<String>> = connection
+            .prepare(&format!(
+                "SELECT {projection} FROM (VALUES (TIMESTAMPTZ '2026-01-02 03:04:05+02'), (TIMESTAMPTZ '2026-01-02 03:04:05.123456+00'), (NULL::TIMESTAMPTZ), (TIMESTAMPTZ 'infinity'), (TIMESTAMPTZ '-infinity')) v(t)"
+            ))
+            .expect("la proyección debe funcionar sin ICU ni red")
+            .query_map([], |row| row.get::<_, Option<String>>(0))
+            .expect("consulta")
+            .collect::<Result<_, _>>()
+            .expect("filas");
+        assert_eq!(
+            values,
+            vec![
+                Some("2026-01-02 01:04:05".to_owned()),
+                Some("2026-01-02 03:04:05.123456".to_owned()),
+                None,
+                Some("infinity".to_owned()),
+                Some("-infinity".to_owned())
+            ]
+        );
     }
 
     #[test]

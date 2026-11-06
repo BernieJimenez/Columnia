@@ -144,7 +144,17 @@ async function answerRemoteConfirmation(page, target, button) {
 async function runRemoteConfirmationFlow(page) {
   const target = {
     kind: "sqlserver",
-    connectionString: `Driver={ODBC Driver 18 for SQL Server};Server=tcp:127.0.0.1,9;Database=columnia_probe;Encrypt=yes;UID=probe;PWD=${remoteProbeSecret}`,
+    connection: {
+      driver: "ODBC Driver 18 for SQL Server",
+      server: "tcp:127.0.0.1,9",
+      port: "",
+      database: "columnia_probe",
+      authentication: "password",
+      user: "probe",
+      password: remoteProbeSecret,
+      trustServerCertificate: false,
+      allowUnencrypted: false,
+    },
     schema: "dbo",
     table: "columnia_t10_05_probe",
     tablePolicy: "create_only",
@@ -657,13 +667,53 @@ async function announcedVersusApplied(page, { proposal, fillPreview, typesBefore
   return checks;
 }
 
+// The IPC takes connection fields, not a string: the session's connection
+// string (Driver, Server, Database, Uid, Pwd, Trusted_Connection,
+// TrustServerCertificate) is split here with the ODBC grammar of braces.
+function connectionFromOdbcString(text) {
+  const attributes = new Map();
+  for (let index = 0; index < text.length;) {
+    const equals = text.indexOf("=", index);
+    if (equals < 0) break;
+    const key = text.slice(index, equals).trim().toLowerCase();
+    let value = "";
+    index = equals + 1;
+    if (text[index] === "{") {
+      index += 1;
+      while (index < text.length) {
+        if (text[index] === "}" && text[index + 1] === "}") { value += "}"; index += 2; }
+        else if (text[index] === "}") { index += 1; break; }
+        else { value += text[index]; index += 1; }
+      }
+      index = text.indexOf(";", index) < 0 ? text.length : text.indexOf(";", index) + 1;
+    } else {
+      const end = text.indexOf(";", index);
+      value = text.slice(index, end < 0 ? text.length : end);
+      index = end < 0 ? text.length : end + 1;
+    }
+    attributes.set(key, value);
+  }
+  const windows = (attributes.get("trusted_connection") ?? "").toLowerCase() === "yes";
+  return {
+    driver: attributes.get("driver") ?? "",
+    server: attributes.get("server") ?? "",
+    port: "",
+    database: attributes.get("database") ?? "",
+    authentication: windows ? "windows" : "password",
+    user: windows ? "" : attributes.get("uid") ?? "",
+    password: windows ? "" : attributes.get("pwd") ?? "",
+    trustServerCertificate: (attributes.get("trustservercertificate") ?? "").toLowerCase() === "yes",
+    allowUnencrypted: false,
+  };
+}
+
 // RV18: with COLUMNIA_PROBE_ODBC (a SQL Server connection string without
 // secrets, e.g. Trusted_Connection), deliver the prepared dataset through the
 // real IPC so the created table's column types can be checked afterwards.
 async function readDatabaseDelivery(page) {
-  const connectionString = process.env.COLUMNIA_PROBE_ODBC;
-  if (!connectionString) return null;
-  const target = { kind: "sqlserver", connectionString, schema: "dbo", table: "columnia_rv18", tablePolicy: "replace" };
+  const odbcString = process.env.COLUMNIA_PROBE_ODBC;
+  if (!odbcString) return null;
+  const target = { kind: "sqlserver", connection: connectionFromOdbcString(odbcString), schema: "dbo", table: "columnia_rv18", tablePolicy: "replace" };
   const connection = await answerRemoteConfirmation(page, target, "Conectar");
   if (!connection.ok) return { status: "connection_failed", error: connection.error.slice(0, 200) };
   const preflight = await invoke(page, "preflight_database_export", { target, privacyMode: "none" });

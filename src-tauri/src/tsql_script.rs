@@ -85,6 +85,25 @@ pub(crate) struct TsqlTarget {
     fitted_text: bool,
 }
 
+/// A character that ends a line (CR, LF, NEL, U+2028, U+2029) or any other
+/// control character, which could break out of a `--` comment or a one-line name.
+fn is_line_breaking(c: char) -> bool {
+    c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')
+}
+
+fn breaks_a_line(value: &str) -> bool {
+    value.chars().any(is_line_breaking)
+}
+
+/// Text that is safe inside a `--` comment: line breaks and control
+/// characters become a space, so data can never start a new line of code.
+fn comment_text(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| if is_line_breaking(c) { ' ' } else { c })
+        .collect()
+}
+
 fn checked_identifier(value: &str, what: &str) -> Result<Option<String>, String> {
     let value = value.trim();
     if value.is_empty() {
@@ -95,7 +114,7 @@ fn checked_identifier(value: &str, what: &str) -> Result<Option<String>, String>
             "El nombre de {what} supera los 128 caracteres que admite SQL Server."
         ));
     }
-    if value.chars().any(char::is_control) {
+    if breaks_a_line(value) {
         return Err(format!(
             "El nombre de {what} no puede tener saltos de línea ni caracteres de control."
         ));
@@ -176,13 +195,29 @@ impl TsqlTarget {
         if columns.is_empty() {
             return Err("SQL Server requiere al menos una columna.".to_owned());
         }
+        for column in columns {
+            let length = column.name.chars().count();
+            if length == 0 || length > MAX_IDENTIFIER_CHARS {
+                return Err(format!(
+                    "La columna «{}» tiene un nombre vacío o de más de 128 caracteres; cámbiale el nombre en Preparar antes de exportar a SQL Server.",
+                    column.name.escape_debug()
+                ));
+            }
+            if breaks_a_line(&column.name) {
+                return Err(format!(
+                    "La columna «{}» tiene un salto de línea o un carácter de control en el nombre; cámbiale el nombre en Preparar antes de exportar a SQL Server.",
+                    column.name.escape_debug()
+                ));
+            }
+        }
         if let Some(missing) = self
             .key_columns
             .iter()
             .find(|key| !columns.iter().any(|column| &column.name == *key))
         {
             return Err(format!(
-                "La columna clave «{missing}» no está en los datos que se exportan."
+                "La columna clave «{}» no está en los datos que se exportan.",
+                missing.escape_debug()
             ));
         }
         Ok(())
@@ -190,6 +225,10 @@ impl TsqlTarget {
 
     /// What the script does, in one sentence for its comments.
     fn summary(&self) -> String {
+        comment_text(&self.raw_summary())
+    }
+
+    fn raw_summary(&self) -> String {
         let qualified = self.qualified();
         match self.mode {
             SqlServerLoadMode::Create => format!(
@@ -772,6 +811,66 @@ mod tests {
             ])
             .unwrap();
         String::from_utf8(writer.finish().unwrap()).unwrap()
+    }
+
+    fn hostile_columns(name: &str) -> Vec<TsqlColumn> {
+        vec![TsqlColumn {
+            name: name.into(),
+            declaration: "BIGINT".into(),
+        }]
+    }
+
+    #[test]
+    fn hostile_column_names_are_rejected_in_script_and_bulk() {
+        for name in [
+            "id\nSELECT 1;--",
+            "a\r\nDROP TABLE x;--",
+            "a\u{2028}DROP TABLE x;--",
+            "a\u{2029}b",
+            "a\u{85}b",
+            "",
+        ] {
+            let target =
+                TsqlTarget::resolve(Some(&options(SqlServerLoadMode::Upsert, &[name])), "t")
+                    .unwrap();
+            let hostile = hostile_columns(name);
+            let error = TsqlScriptWriter::begin(Vec::new(), &target, &hostile)
+                .err()
+                .expect("script must be rejected");
+            assert!(
+                !error.contains('\n') && !error.contains('\u{2028}'),
+                "{error}"
+            );
+            assert!(error.contains("cámbiale el nombre"), "{error}");
+            let error = bulk_load_script(&target, &hostile, Some(1)).unwrap_err();
+            assert!(
+                !error.contains('\n') && !error.contains('\u{2028}'),
+                "{error}"
+            );
+        }
+        let long = "x".repeat(129);
+        let target = target("t");
+        assert!(TsqlScriptWriter::begin(Vec::new(), &target, &hostile_columns(&long)).is_err());
+    }
+
+    #[test]
+    fn quotes_and_brackets_in_column_names_stay_inside_the_identifier() {
+        let name = "a]'b";
+        let target =
+            TsqlTarget::resolve(Some(&options(SqlServerLoadMode::Upsert, &[name])), "t").unwrap();
+        let columns = hostile_columns(name);
+        let script = TsqlScriptWriter::begin(Vec::new(), &target, &columns).unwrap();
+        let script = String::from_utf8(script.finish().unwrap()).unwrap();
+        assert!(script.contains("[a]]'b]"));
+        let bulk = bulk_load_script(&target, &columns, Some(1)).unwrap();
+        assert!(bulk.contains("[a]]'b]"));
+    }
+
+    #[test]
+    fn comments_never_carry_line_breaks_from_data() {
+        assert_eq!(comment_text("a\nb\r\u{2028}c\u{85}d"), "a b  c d");
+        assert!(breaks_a_line("a\u{2029}b"));
+        assert!(!breaks_a_line("normal ñ"));
     }
 
     #[test]

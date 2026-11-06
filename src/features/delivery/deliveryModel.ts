@@ -1,5 +1,6 @@
 import type {
   ColumnProfile,
+  DatabaseConnection,
   DatabaseTarget,
   DatasetPreview,
   ExportFormat,
@@ -96,13 +97,21 @@ export function suggestQualityRules(
   return rules.slice(0, MAX_SUGGESTED_QUALITY_RULES);
 }
 
-export const INITIAL_DATABASE_TARGET: DatabaseTarget = {
+/** The target being filled in: the connection is null until its form is complete. */
+export type DatabaseTargetDraft = Omit<DatabaseTarget, "connection"> & { connection: DatabaseConnection | null };
+
+export const INITIAL_DATABASE_TARGET: DatabaseTargetDraft = {
   kind: "postgresql",
-  connectionString: "",
+  connection: null,
   schema: "public",
   table: "dataset",
   tablePolicy: "create_only",
 };
+
+/** The target to send, once its connection is complete. */
+export function completeDatabaseTarget(draft: DatabaseTargetDraft): DatabaseTarget | null {
+  return draft.connection ? { ...draft, connection: draft.connection } : null;
+}
 
 export function databaseKindForExportFormat(format: ExportFormat): DatabaseTarget["kind"] | null {
   switch (format) {
@@ -227,7 +236,7 @@ export function sqlServerScriptTable(options: SqlServerScriptOptions, keyColumns
 }
 
 /** The table line of a direct database delivery. */
-export function databaseTargetTable(target: DatabaseTarget): string {
+export function databaseTargetTable(target: Pick<DatabaseTarget, "schema" | "table" | "tablePolicy">): string {
   const name = [target.schema.trim(), target.table.trim() || "(sin tabla)"].filter(Boolean).join(".");
   return `${name} · ${TABLE_POLICY_LABEL[target.tablePolicy]}`;
 }
@@ -272,15 +281,11 @@ export function isDatabaseExportFormat(format: ExportFormat): boolean {
   return format === "postgresql" || format === "mysql" || format === "sqlserver";
 }
 
-export function validateDatabaseTargetDraft(target: DatabaseTarget): string | null {
+export function validateDatabaseTargetDraft(target: DatabaseTargetDraft): string | null {
   if (target.kind === "mysql" && target.tablePolicy === "replace") {
     return "La política Reemplazar está deshabilitada para MySQL hasta validar una sustitución atómica segura.";
   }
-  if (!target.connectionString.trim()) return "Completa la conexión con el servidor.";
-  if (target.connectionString.length > 16 * 1024) return "La cadena ODBC no puede superar 16 KiB.";
-  if ([...target.connectionString].some((character) => /\p{Cc}/u.test(character))) {
-    return "La cadena ODBC contiene caracteres de control no permitidos.";
-  }
+  if (!target.connection) return "Completa la conexión con el servidor.";
   const identifier = (value: string, label: string, optional: boolean) => {
     if (optional && !value.trim()) return null;
     if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(value.trim())) {

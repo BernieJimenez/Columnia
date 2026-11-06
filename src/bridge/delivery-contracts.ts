@@ -32,6 +32,30 @@ export type PrivacyMode = "none" | "mask" | "hash";
 export type ConflictSource = "current" | "compared";
 export type DatabaseKind = "postgresql" | "mysql" | "sqlserver";
 type DatabaseTablePolicy = "append" | "create_only" | "replace";
+type DatabaseAuthentication = "windows" | "password";
+
+/**
+ * The fields of a remote connection. Rust builds the ODBC connection string
+ * from them and checks every field; the interface never sends a string.
+ * It lives only in the current React/Tauri call and is never persisted.
+ */
+export interface DatabaseConnection {
+  /** The name of an installed ODBC driver. */
+  driver: string;
+  /** On SQL Server, host, host,port or host\instance. */
+  server: string;
+  /** PostgreSQL and MySQL only; empty is the engine's usual port. */
+  port: string;
+  database: string;
+  /** Windows sign-in is SQL Server only. */
+  authentication: DatabaseAuthentication;
+  user: string;
+  password: string;
+  /** SQL Server only: accept any certificate of the server. */
+  trustServerCertificate: boolean;
+  /** PostgreSQL and MySQL only: connect without encryption if the server offers none. */
+  allowUnencrypted: boolean;
+}
 
 /**
  * «Script T-SQL» and «Paquete BULK INSERT» (2026-10-31): the table the script
@@ -50,7 +74,7 @@ export interface SqlServerScriptOptions {
 /** Credentials remain in the current React/Tauri call and are never persisted. */
 export interface DatabaseTarget {
   kind: DatabaseKind;
-  connectionString: string;
+  connection: DatabaseConnection;
   schema: string;
   table: string;
   tablePolicy: DatabaseTablePolicy;

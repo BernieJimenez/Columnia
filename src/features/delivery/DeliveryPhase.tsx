@@ -14,7 +14,6 @@ import {
   pickQualityRulesMigration,
   saveQualityRulesDocument,
   validateQualityRules,
-  type DatabaseTarget,
   type DeliveryPreset,
   type DatasetPreview,
   type ExportFormat,
@@ -38,6 +37,8 @@ import {
   type DeliveryExportState,
   INITIAL_DATABASE_TARGET,
   QUALITY_RULE_SUMMARY,
+  type DatabaseTargetDraft,
+  completeDatabaseTarget,
   bundleFileNames,
   databaseKindForExportFormat,
   isDatabaseExportFormat,
@@ -174,10 +175,10 @@ function summarizeQualityRule(rule: QualityRule): string {
 
 function databaseTargetErrorField(
   message: string | null,
-): "connectionString" | "schema" | "table" | null {
+): "connection" | "schema" | "table" | null {
   if (!message) return null;
-  if (message.startsWith("Completa la conexión") || message.startsWith("La cadena ODBC")) {
-    return "connectionString";
+  if (message.startsWith("Completa la conexión")) {
+    return "connection";
   }
   if (message.startsWith("El esquema")) return "schema";
   if (message.startsWith("La tabla")) return "table";
@@ -218,7 +219,7 @@ export function DeliveryPhase({
   const selectedPrivacyMode = privacyMode ?? localPrivacyMode;
   const selectedExportFormat = exportFormat ?? localExportFormat;
   const exceedsExcel = selectedExportFormat === "excel" && excelLimitIssues.length > 0;
-  const [databaseTarget, setDatabaseTarget] = useState<DatabaseTarget>(INITIAL_DATABASE_TARGET);
+  const [databaseTarget, setDatabaseTarget] = useState<DatabaseTargetDraft>(INITIAL_DATABASE_TARGET);
   // Remounts the connection form whenever the target is reset, so it never shows a dropped connection.
   const [connectionFormKey, setConnectionFormKey] = useState(0);
   const [databasePreflightState, setDatabasePreflightState] = useState<
@@ -464,15 +465,17 @@ export function DeliveryPhase({
     exportRequestGeneration.current = requestId;
     const requestedGeneration = requestId;
     try {
+      const completeTarget = completeDatabaseTarget(databaseTarget);
       if (isDatabaseExportFormat(format)
         && (databaseTargetError !== null
+          || completeTarget === null
           || databasePreflightState.kind !== "ready"
           || databasePreflightState.fingerprint !== databaseTargetFingerprint
           || !databasePreflightState.result.ready)) return;
       const sqlServerFile = format === "sqlserver_script" || format === "sqlserver_bulk";
       if (sqlServerFile && sqlServerScript.mode === "upsert" && sqlServerKeys.length === 0) return;
       const databaseOptions = {
-        ...(isDatabaseExportFormat(format) ? { databaseTarget } : {}),
+        ...(isDatabaseExportFormat(format) && completeTarget ? { databaseTarget: completeTarget } : {}),
         ...(sqlServerFile
           ? { sqlServerScript: { ...sqlServerScript, keyColumns: sqlServerScript.mode === "upsert" ? sqlServerKeys : [] } }
           : {}),
@@ -527,7 +530,7 @@ export function DeliveryPhase({
         ...current,
         kind,
         // Another engine starts with an empty form: the old connection is dropped.
-        ...(current.kind !== kind ? { connectionString: "" } : {}),
+        ...(current.kind !== kind ? { connection: null } : {}),
         ...(kind === "mysql" && current.tablePolicy === "replace"
           ? { tablePolicy: "create_only" as const }
           : {}),
@@ -537,7 +540,7 @@ export function DeliveryPhase({
     }
   }
 
-  function changeDatabaseTarget(update: Partial<DatabaseTarget>) {
+  function changeDatabaseTarget(update: Partial<DatabaseTargetDraft>) {
     exportRequestGeneration.current += 1;
     setDatabaseTarget((current) => ({ ...current, ...update }));
     setDatabasePreflightState({ kind: "idle" });
@@ -545,11 +548,11 @@ export function DeliveryPhase({
   }
 
   async function preflightDatabaseTarget() {
-    if (databaseTargetError || databasePreflightState.kind === "working") return;
+    const requestedTarget = completeDatabaseTarget(databaseTarget);
+    if (databaseTargetError || !requestedTarget || databasePreflightState.kind === "working") return;
     const requestGeneration = databaseRequestGeneration.current + 1;
     databaseRequestGeneration.current = requestGeneration;
     const requestFingerprint = databaseTargetFingerprint;
-    const requestedTarget = databaseTarget;
     const previousState = databasePreflightState;
     setDatabasePreflightCancellationPending(false);
     setDatabasePreflightCancellationError(null);
@@ -1007,8 +1010,8 @@ export function DeliveryPhase({
                 key={connectionFormKey}
                 kind={databaseTarget.kind}
                 disabled={busy}
-                errorId={invalidDatabaseTargetField === "connectionString" ? "database-target-validation-error" : undefined}
-                onChange={(connectionString) => changeDatabaseTarget({ connectionString: connectionString ?? "" })}
+                errorId={invalidDatabaseTargetField === "connection" ? "database-target-validation-error" : undefined}
+                onChange={(connection) => changeDatabaseTarget({ connection })}
               />
               <div className="database-target__grid">
                 <label>
@@ -1036,7 +1039,7 @@ export function DeliveryPhase({
                   <select
                     aria-label="Política de tabla"
                     value={databaseTarget.tablePolicy}
-                    onChange={(event) => changeDatabaseTarget({ tablePolicy: event.target.value as DatabaseTarget["tablePolicy"] })}
+                    onChange={(event) => changeDatabaseTarget({ tablePolicy: event.target.value as DatabaseTargetDraft["tablePolicy"] })}
                     disabled={busy}
                   >
                     <option value="create_only">Crear; fallar si existe</option>

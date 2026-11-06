@@ -2,11 +2,21 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../bridge";
-import type { DatabaseImportResult, DatasetSourceInspection } from "../../bridge";
+import type { DatabaseConnection, DatabaseImportResult, DatasetSourceInspection } from "../../bridge";
 import { DatabaseImportPanel } from "./DatabaseImportPanel";
 
-/** What the form builds for localhost and VentasRetail with Windows sign-in. */
-const connection = "Driver={ODBC Driver 18 for SQL Server};Server=localhost;Database=VentasRetail;Trusted_Connection=yes;Encrypt=yes;";
+/** What the form sends for localhost and VentasRetail with Windows sign-in: fields, never a string. */
+const connection: DatabaseConnection = {
+  driver: "ODBC Driver 18 for SQL Server",
+  server: "localhost",
+  port: "",
+  database: "VentasRetail",
+  authentication: "windows",
+  user: "",
+  password: "",
+  trustServerCertificate: false,
+  allowUnencrypted: false,
+};
 
 const inspection = {
   selectionId: "selection-1",
@@ -63,15 +73,32 @@ describe("DatabaseImportPanel", () => {
     expect(screen.getByText("Indica el usuario de SQL Server.")).toBeInTheDocument();
   });
 
-  it("deja escribir la cadena ODBC a mano, en un campo de contraseña", async () => {
+  it("no ofrece escribir una cadena ODBC: solo campos, y el usuario hostil viaja como un valor más", async () => {
     const list = vi.spyOn(bridge, "listDatabaseTables").mockResolvedValue([]);
     renderPanel();
-    fireEvent.click(screen.getByRole("button", { name: "Escribir la cadena ODBC" }));
-    const manual = screen.getByLabelText("Cadena de conexión ODBC");
-    expect(manual).toHaveAttribute("type", "password");
-    fireEvent.change(manual, { target: { value: "DSN=Ventas" } });
+    await fillConnection();
+    expect(screen.queryByRole("button", { name: "Escribir la cadena ODBC" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Cadena de conexión ODBC")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Usuario y contraseña de SQL Server" }));
+    fireEvent.change(screen.getByLabelText("Usuario"), { target: { value: "sa}};Server=X};Server=Y" } });
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "{a}}b;Encrypt=yes}" } });
     fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
-    await waitFor(() => expect(list).toHaveBeenCalledWith({ kind: "sqlserver", connectionString: "DSN=Ventas" }));
+    await waitFor(() => expect(list).toHaveBeenCalledWith({
+      kind: "sqlserver",
+      connection: { ...connection, authentication: "password", user: "sa}};Server=X};Server=Y", password: "{a}}b;Encrypt=yes}" },
+    }));
+  });
+
+  it("con Windows no envía el usuario ni la contraseña que se escribieron antes", async () => {
+    const list = vi.spyOn(bridge, "listDatabaseTables").mockResolvedValue([]);
+    renderPanel();
+    await fillConnection();
+    fireEvent.click(screen.getByRole("radio", { name: "Usuario y contraseña de SQL Server" }));
+    fireEvent.change(screen.getByLabelText("Usuario"), { target: { value: "ana" } });
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "secreta" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Windows (tu usuario actual)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
+    await waitFor(() => expect(list).toHaveBeenCalledWith({ kind: "sqlserver", connection }));
   });
 
   it("lista las tablas por esquema y trae la elegida con el límite de filas", async () => {
@@ -90,7 +117,7 @@ describe("DatabaseImportPanel", () => {
     await fillConnection();
     fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
     expect(await screen.findByText("3 tablas y vistas disponibles.")).toBeInTheDocument();
-    expect(list).toHaveBeenCalledWith({ kind: "sqlserver", connectionString: connection });
+    expect(list).toHaveBeenCalledWith({ kind: "sqlserver", connection });
     expect(screen.getByRole("option", { name: "VentasPorMes (vista)" })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Tabla o vista"), { target: { value: "1" } });
@@ -98,7 +125,7 @@ describe("DatabaseImportPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Traer dbo.Ventas" }));
 
     await waitFor(() => expect(importTable).toHaveBeenCalledWith(
-      { kind: "sqlserver", connectionString: connection }, "dbo", "Ventas", 10_000, expect.any(Function),
+      { kind: "sqlserver", connection }, "dbo", "Ventas", 10_000, expect.any(Function),
     ));
     const done = await screen.findByText(/Se trajeron/);
     expect(done).toHaveTextContent(/Se trajeron 1[.,]?000 filas de dbo\.Ventas/);
@@ -152,7 +179,17 @@ describe("DatabaseImportPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
     await waitFor(() => expect(list).toHaveBeenCalledWith({
       kind: "postgresql",
-      connectionString: "Driver={PostgreSQL Unicode(x64)};Server=db.ejemplo.com;Port=5433;Database=tienda;Uid=ana;Pwd={a;b};SSLmode=require;",
+      connection: {
+        driver: "PostgreSQL Unicode(x64)",
+        server: "db.ejemplo.com",
+        port: "5433",
+        database: "tienda",
+        authentication: "password",
+        user: "ana",
+        password: "a;b",
+        trustServerCertificate: false,
+        allowUnencrypted: false,
+      },
     }));
     expect(await screen.findByRole("button", { name: "Traer public.pedidos" })).toBeEnabled();
   });

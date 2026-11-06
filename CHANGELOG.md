@@ -21,7 +21,7 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   elegida. Pide cifrado salvo que se marque conectar sin él. Probado con
   pruebas automáticas; todavía no contra un servidor PostgreSQL o MySQL real.
 - Entregar usa el mismo formulario para exportar directo a PostgreSQL y MySQL
-  en lugar de pedir la cadena ODBC; «Escribir la cadena ODBC» sigue disponible.
+  en lugar de pedir la cadena ODBC.
   Al cambiar de motor o aplicar un preset, la conexión se vacía en lugar de
   quedarse con la anterior.
 - Los presets de entrega guardan también la tabla de SQL Server del script
@@ -203,6 +203,24 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Seguridad
 
+- Las conexiones con SQL Server, PostgreSQL y MySQL, en Cargar y en Entregar,
+  solo se hacen con el formulario: desaparecen «Escribir la cadena ODBC» y los
+  DSN. Columnia arma la cadena a partir de los campos, así que un usuario, una
+  contraseña o un servidor con llaves o punto y coma ya no pueden añadir ni
+  cambiar atributos, ni hacer que la confirmación muestre un servidor distinto
+  del que se usa (AUD-002).
+- Exportar a SQL Server (script T-SQL o paquete BULK INSERT) se detiene con un
+  mensaje claro si una columna tiene un nombre vacío, de más de 128 caracteres
+  o con un salto de línea; antes, un salto de línea en el nombre de una columna
+  clave podía añadir una línea de SQL al comentario del script (AUD-001).
+- DuckDB ya no instala ni carga extensiones por su cuenta en ninguna consulta,
+  y el script T-SQL pasa a UTC las fechas con zona horaria sin la extensión ICU
+  ni conexión a internet (AUD-005).
+- calamine 0.38.0: un .xls o .xlsb malformado ya no puede cerrar Columnia ni
+  agotar la memoria (RUSTSEC-2026-0436, AUD-004).
+- vite 8.3.6, vitest 5.0.5 y undici 7.30.2 en el lockfile, con los arreglos de
+  sus avisos (solo herramientas de desarrollo; no llegan al instalador)
+  (AUD-006).
 - .gitignore deja fuera los secretos típicos y los artefactos de publicación
   (.env, *.pem, *.key, *.pfx, *.p12, .tauri/ y *.sha256); .gitattributes ya
   fijaba LF desde OPS-03 (OPS-23).

@@ -3526,6 +3526,7 @@ describe("App", () => {
       fileName: "remoto.csv", fileSizeBytes: 128, rowCount: 1, columnCount: 1,
       columns: [{ name: "id", dataType: "Int64" }], rows: [["1"]],
     };
+    vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue(["PostgreSQL Unicode(x64)"]);
     mockDatasetLoad(dataset);
     vi.spyOn(bridge, "preflightDatabaseExport").mockResolvedValue({
       kind: "postgresql", schema: "public", table: "dataset", tablePolicy: "create_only",
@@ -3541,8 +3542,9 @@ describe("App", () => {
     // Entregar asks the destination first (2026-10-31).
     fireEvent.click(screen.getByRole("radio", { name: /^Otra base de datos/ }));
     fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), { target: { value: "postgresql" } });
-    fireEvent.click(screen.getByRole("button", { name: "Escribir la cadena ODBC" }));
-    fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), { target: { value: "Driver={PostgreSQL};Server=localhost" } });
+    await waitFor(() => expect(screen.getByText("Controlador: PostgreSQL Unicode(x64).")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Servidor"), { target: { value: "localhost" } });
+    fireEvent.change(screen.getByLabelText("Usuario"), { target: { value: "ana" } });
     fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
     await screen.findByText(/Preflight completo/);
     fireEvent.click(screen.getByRole("button", { name: "Exportar PostgreSQL" }));

@@ -244,18 +244,6 @@
 .connection-form__note { margin: 0; color: var(--text-secondary); font-size: .8125rem; }
 .connection-form__footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin: 0; }
 .connection-form__footer small { color: var(--text-secondary); font-size: .8125rem; }
-.connection-form__toggle {
-  min-height: 44px;
-  padding: 0 4px;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  font-size: .875rem;
-  font-weight: 650;
-  text-decoration: underline;
-  cursor: pointer;
-}
 /* Inside Entregar the older `.database-target label` grid would put the box
    on its own line; these keep each control beside its text. */
 .connection-form label.connection-form__check,

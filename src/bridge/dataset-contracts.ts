@@ -1,4 +1,4 @@
-import type { DatabaseKind, QualityRuleKind } from "./delivery-contracts";
+import type { DatabaseConnection, DatabaseKind, QualityRuleKind } from "./delivery-contracts";
 
 export interface DatasetColumn {
   name: string;
@@ -39,10 +39,10 @@ export interface DelimitedHeaderReview {
   generated: DelimitedHeaderModePreview;
 }
 
-/** A database to read from; the connection string lives only in this call. */
+/** A database to read from; the connection fields live only in this call. */
 export interface DatabaseSource {
   kind: DatabaseKind;
-  connectionString: string;
+  connection: DatabaseConnection;
 }
 
 /** A table or view the server lists as readable. */
