@@ -84,6 +84,17 @@ pub(super) struct HistoryCommitResult {
 /// Folders of the reversible history in the system temp directory start
 /// with this, so that a later start can find the ones left behind (DAT-04).
 const HISTORY_DIRECTORY_PREFIX: &str = "columnia-history-";
+/// AUD-010: the working copy of a profile and the conflict index live in
+/// static caches, which a normal exit never drops. Their folders have their
+/// own prefix and the same lock, so the next start purges what is left.
+pub(super) const PROFILE_DIRECTORY_PREFIX: &str = "columnia-profile-";
+pub(super) const CONFLICTS_DIRECTORY_PREFIX: &str = "columnia-conflicts-";
+/// Every prefix `purge_finished_history_directories` looks after.
+const LOCKED_DIRECTORY_PREFIXES: [&str; 3] = [
+    HISTORY_DIRECTORY_PREFIX,
+    PROFILE_DIRECTORY_PREFIX,
+    CONFLICTS_DIRECTORY_PREFIX,
+];
 /// Held open while a session uses its folder; a folder whose lock can be
 /// deleted belongs to a session that is over.
 const HISTORY_LOCK_FILE: &str = "en-uso.lock";
@@ -100,12 +111,14 @@ pub(super) struct HistoryDirectory {
 }
 
 pub(super) fn history_directory() -> Result<HistoryDirectory, String> {
-    let directory = tempfile::Builder::new()
-        .prefix(HISTORY_DIRECTORY_PREFIX)
-        .tempdir()
-        .map_err(|error| format!("No se pudo crear el historial temporal: {error}"))?;
-    let lock = open_history_lock(&directory.path().join(HISTORY_LOCK_FILE))
-        .map_err(|error| format!("No se pudo crear el historial temporal: {error}"))?;
+    locked_directory(HISTORY_DIRECTORY_PREFIX)
+        .map_err(|error| format!("No se pudo crear el historial temporal: {error}"))
+}
+
+/// A new temp folder named with `prefix` and its open lock (DAT-04, AUD-010).
+pub(super) fn locked_directory(prefix: &str) -> std::io::Result<HistoryDirectory> {
+    let directory = tempfile::Builder::new().prefix(prefix).tempdir()?;
+    let lock = open_history_lock(&directory.path().join(HISTORY_LOCK_FILE))?;
     Ok(HistoryDirectory { lock, directory })
 }
 
@@ -145,7 +158,10 @@ pub(crate) fn purge_finished_history_directories() -> usize {
             }
             continue;
         }
-        if !name.starts_with(HISTORY_DIRECTORY_PREFIX) {
+        if !LOCKED_DIRECTORY_PREFIXES
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+        {
             continue;
         }
         let Ok(metadata) = std::fs::symlink_metadata(entry.path()) else {

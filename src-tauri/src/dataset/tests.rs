@@ -22268,6 +22268,150 @@ fn finished_history_folders_are_purged_and_live_ones_kept() {
     );
 }
 
+/// AUD-010: the folders of the profile copy and of the conflict index are
+/// purged like the history's: the one without a live lock goes, the one a
+/// running session holds stays.
+#[cfg(windows)]
+#[test]
+fn finished_profile_and_conflict_folders_are_purged_and_live_ones_kept() {
+    let live_profile = locked_directory(PROFILE_DIRECTORY_PREFIX).expect("copia en uso");
+    let live_conflicts = locked_directory(CONFLICTS_DIRECTORY_PREFIX).expect("índice en uso");
+    let mut finished = Vec::new();
+    for (prefix, file) in [
+        (PROFILE_DIRECTORY_PREFIX, "compared.parquet"),
+        (CONFLICTS_DIRECTORY_PREFIX, "conflictos.bin"),
+    ] {
+        let folder = tempfile::Builder::new()
+            .prefix(prefix)
+            .tempdir()
+            .expect("carpeta terminada")
+            .keep();
+        fs::write(folder.join("en-uso.lock"), b"").unwrap();
+        fs::write(folder.join(file), b"datos").unwrap();
+        finished.push(folder);
+    }
+    // Without a lock file (the process died before creating it).
+    let unlocked = tempfile::Builder::new()
+        .prefix(PROFILE_DIRECTORY_PREFIX)
+        .tempdir()
+        .expect("carpeta sin bloqueo")
+        .keep();
+
+    purge_finished_history_directories();
+
+    for folder in finished.iter().chain([&unlocked]) {
+        assert!(!folder.exists(), "{} se elimina", folder.display());
+    }
+    assert!(live_profile.directory.path().exists());
+    assert!(live_conflicts.directory.path().exists());
+}
+
+/// AUD-010: clearing the cached profile copy deletes its folder, but a read
+/// that still holds the copy keeps the file until it lets go.
+#[test]
+fn clearing_the_profile_copy_deletes_its_folder_after_the_last_reader() {
+    let source = temporary_csv(
+        "a
+1
+",
+    );
+    let directory = locked_directory(PROFILE_DIRECTORY_PREFIX).expect("carpeta de la copia");
+    let folder = directory.directory.path().to_owned();
+    let copy = folder.join("compared.parquet");
+    fs::write(&copy, b"datos").unwrap();
+    let metadata = fs::metadata(&source).unwrap();
+    remember_profile_snapshot(
+        &source,
+        metadata.len(),
+        metadata.modified().ok(),
+        directory,
+        copy.clone(),
+    );
+
+    let reader = cached_profile_snapshot(&source).expect("la copia queda en caché");
+    clear_profile_snapshot_of(&source);
+    assert!(cached_profile_snapshot(&source).is_none());
+    assert!(copy.exists(), "una lectura en curso conserva el archivo");
+
+    drop(reader);
+    assert!(!folder.exists(), "sin lectores la carpeta se elimina");
+}
+
+/// AUD-010: a size or time taken before the copy that no longer matches the
+/// file makes the cache miss, instead of being refreshed after the profile.
+#[test]
+fn a_profile_copy_remembered_with_stale_metadata_is_not_reused() {
+    let source = temporary_csv(
+        "a
+1
+",
+    );
+    let directory = locked_directory(PROFILE_DIRECTORY_PREFIX).expect("carpeta de la copia");
+    let copy = directory.directory.path().join("compared.parquet");
+    fs::write(&copy, b"datos").unwrap();
+    let size = fs::metadata(&source).unwrap().len();
+    remember_profile_snapshot(&source, size + 1, None, directory, copy);
+    assert!(cached_profile_snapshot(&source).is_none());
+    clear_profile_snapshot_of(&source);
+}
+
+/// AUD-010: the working copies a profile and a conflict check make are in
+/// folders with their own prefix, not anonymous `.tmp*` ones.
+#[test]
+fn working_copies_use_their_own_folder_prefix() {
+    let path = temporary_csv(
+        "zona,importe
+norte,10
+sur,20
+",
+    );
+    let size = fs::metadata(&path).expect("fuente").len();
+    let (_, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe abrirse en disco");
+    profile_source_backed_with_progress(
+        &path,
+        "csv",
+        size,
+        row_count,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("perfil en disco");
+    let copy = cached_profile_snapshot(&path).expect("la copia queda en caché");
+    let folder = copy.parent().expect("carpeta de la copia");
+    let name = folder.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.starts_with("columnia-profile-"), "{name}");
+    assert!(folder.join("en-uso.lock").exists());
+    drop(copy);
+    clear_profile_snapshot_of(&path);
+
+    let context = SourceBackedJoinContext {
+        source_path: path.to_path_buf(),
+        source_format: crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
+        source_size_bytes: size,
+        schema: DataFrame::empty(),
+        file_name: "fuente.csv".to_owned(),
+        row_count,
+        original_source_path: path.to_path_buf(),
+        original_file_size_bytes: size,
+        history_directory: PathBuf::new(),
+        snapshot_only: false,
+    };
+    let (snapshot, _, directory) = source_backed_parquet_snapshot_with_cancel(&context, || false)
+        .expect("copia del índice")
+        .expect("copia del índice disponible");
+    let name = snapshot
+        .parent()
+        .unwrap()
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    assert!(name.starts_with("columnia-conflicts-"), "{name}");
+    assert!(directory.is_some());
+}
+
 /// DAT-07: a change whose result is over the history budget keeps the
 /// earlier versions, says so before anything is lost, and undo returns to
 /// the last saved version.

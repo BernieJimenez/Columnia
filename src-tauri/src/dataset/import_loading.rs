@@ -308,6 +308,7 @@ pub(super) async fn load_dataset_selection_impl(
             *current = Some(loaded);
             *comparison = None;
             clear_conflict_index();
+            clear_profile_snapshot();
             *selection = None;
             Ok(())
         })?;

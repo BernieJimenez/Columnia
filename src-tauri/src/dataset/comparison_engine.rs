@@ -2311,8 +2311,8 @@ struct ConflictIndexKey {
 /// (current row, compared row) pair of every conflict.
 struct ConflictIndex {
     key: ConflictIndexKey,
-    _directory: tempfile::TempDir,
-    _current_snapshot: Option<tempfile::TempDir>,
+    _directory: HistoryDirectory,
+    _current_snapshot: Option<HistoryDirectory>,
     current_path: PathBuf,
     current_row_count: usize,
     pairs_path: PathBuf,
@@ -2516,7 +2516,7 @@ fn shared_columns_between(current: &Path, compared: &Path) -> Result<Vec<String>
 pub(super) fn source_backed_parquet_snapshot_with_cancel<C>(
     context: &SourceBackedJoinContext,
     is_cancelled: C,
-) -> Result<Option<(PathBuf, usize, Option<tempfile::TempDir>)>, String>
+) -> Result<Option<(PathBuf, usize, Option<HistoryDirectory>)>, String>
 where
     C: Fn() -> bool + Clone + Send + 'static,
 {
@@ -2526,10 +2526,10 @@ where
     ) {
         return Ok(Some((context.source_path.clone(), context.row_count, None)));
     }
-    let directory = tempfile::tempdir().map_err(|error| {
+    let directory = locked_directory(CONFLICTS_DIRECTORY_PREFIX).map_err(|error| {
         format!("No se pudo preparar el snapshot temporal source-backed: {error}")
     })?;
-    let path = directory.path().join("current.parquet");
+    let path = directory.directory.path().join("current.parquet");
     if crate::duckdb_query::materialize_file_to_parquet_with_projection(
         &context.source_path,
         context.source_format,
@@ -2627,9 +2627,9 @@ where
             };
             let shared_columns = shared_columns_between(&current_path, compared_path)?;
             ensure_not_cancelled(is_cancelled())?;
-            let directory = tempfile::tempdir()
+            let directory = locked_directory(CONFLICTS_DIRECTORY_PREFIX)
                 .map_err(|error| format!("No se pudo preparar el índice de conflictos: {error}"))?;
-            let pairs_path = directory.path().join("conflictos.bin");
+            let pairs_path = directory.directory.path().join("conflictos.bin");
             let count = write_key_conflict_pairs(
                 ParquetComparisonSource {
                     path: &current_path,

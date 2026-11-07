@@ -22,21 +22,23 @@ Re-auditoría de lo cambiado desde la revisión anterior (`0a89c09`..`e48ecab`):
 cada uno, está en la carpeta local de auditorías, que git no versiona. Sin
 histórico aparte: lo cerrado se queda marcado `[x]` con su línea *Cierre* y pasa
 al CHANGELOG. El 2026-11-06 se cerró la tanda 1 (AUD-001, 002, 004, 005 y 006)
-y se abrió AUD-099, aparecida al aplicarla.
+y se abrió AUD-099, aparecida al aplicarla. Ese mismo día se cerró la tanda 2
+(AUD-003, 010, 011, 013 y 014) y se abrieron AUD-100 a AUD-103, aparecidas al
+aplicarla.
 
 <!-- indice:inicio -->
-**Última actualización:** 2026-11-06 · **Siguiente ID libre:** AUD-100 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
+**Última actualización:** 2026-11-06 · **Siguiente ID libre:** AUD-104 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
 
 | Tier | Abiertas | Cerradas | Esfuerzo de las abiertas (Bajo · Medio · Alto) |
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
-| 2 · Medio | 27 | 5 | 16 · 11 · 0 |
-| 3 · Bajo | 66 | 0 | 64 · 2 · 0 |
+| 2 · Medio | 22 | 10 | 12 · 10 · 0 |
+| 3 · Bajo | 70 | 0 | 68 · 2 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **94** | **5** | **81 · 13 · 0** |
+| **Total** | **93** | **10** | **81 · 12 · 0** |
 
-**Abiertas por área:** UI/UX 18 · Arquitectura 12 · Código 12 · Accesibilidad 12 · QA y testing 12 · Rendimiento 10 · Documentación 9 · Redacción 5 · Seguridad 4
+**Abiertas por área:** UI/UX 19 · Código 12 · Accesibilidad 12 · QA y testing 12 · Arquitectura 10 · Rendimiento 10 · Documentación 9 · Redacción 5 · Seguridad 4
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -151,13 +153,14 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-06 · tanda 1 de la Fase 2 (rama `auditoria/2026-11-05`). Enfoque estructural elegido por el usuario: la interfaz manda `DatabaseConnection` (campos) y Rust arma la cadena; desaparecen «Escribir la cadena ODBC», los DSN y el parser propio. La identidad del registro de entregas no cambia (fijada con literales del código anterior). Pendiente de AUD-003: el contenido del diálogo nativo.
 
-- [ ] **AUD-003 · La cadena ODBC no tiene lista de atributos permitidos: «Solo leerá» depende de la interfaz y el diálogo omite lo que más importa**
+- [x] **AUD-003 · La cadena ODBC no tiene lista de atributos permitidos: «Solo leerá» depende de la interfaz y el diálogo omite lo que más importa**
   - **Área:** Seguridad · **Severidad:** Medio · **Esfuerzo:** Medio
   - **Ubicación:** `src-tauri/src/remote_databases.rs:373-393`
   - **Qué hacer:** el mismo cambio estructural de AUD-002 (Rust arma la cadena con una lista cerrada de claves por motor: `Driver`, `Server`, `Port`, `Database`, `Uid`, `Pwd`, `Trusted_Connection`, cifrado, `TrustServerCertificate`) y que el diálogo muestre servidor, puerto, base, usuario o «tu usuario de Windows», cifrado y certificado, truncando cada valor a unos 100 caracteres. Para la importación, añadir `ApplicationIntent=ReadOnly` en SQL Server y documentar que la garantía real es un usuario con permiso de lectura.
   - **Criterio de aceptación:** una cadena con `ConnSettings`, `INITSTMT`, `PLUGIN_DIR`, `Address` o claves repetidas se rechaza antes de abrir el diálogo; el diálogo de una conexión con `Trusted_Connection` lo dice explícitamente.
   - **Depende de:** AUD-002 (el mismo cambio: que Rust construya la cadena ODBC)
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-06 · tanda 2 de la Fase 2 (rama `auditoria/2026-11-05`). Con la cadena por campos de AUD-002, el criterio se cumple porque esas cadenas no se pueden escribir: un campo extra no se deserializa y ningún valor añade ni repite claves (pruebas con `Address`, `INITSTMT`, `ConnSettings`, `PLUGIN_DIR` y claves repetidas en los tres motores). El diálogo muestra servidor, puerto, base, usuario o «tu usuario de Windows», cifrado, certificado (también «no se verifica» en PostgreSQL y MySQL) y controlador, cortados a 100 caracteres. La importación de SQL Server lleva `ApplicationIntent=ReadOnly` y se comprobó contra el SQL Server local. El aspecto del diálogo nativo no se vio en la app real.
 
 - [x] **AUD-004 · `calamine` 0.36.1 (RUSTSEC-2026-0436): pánico y OOM en XLS/XLSB con archivos hostiles, ruta alcanzable**
   - **Área:** Seguridad · **Severidad:** Medio · **Esfuerzo:** Bajo
@@ -188,21 +191,23 @@ Sin tareas abiertas.
 
 ### Arquitectura, datos y resiliencia
 
-- [ ] **AUD-010 · Las copias de trabajo del perfil y del índice de conflictos viven en `static` y quedan en `%TEMP%` tras cerrar la app**
+- [x] **AUD-010 · Las copias de trabajo del perfil y del índice de conflictos viven en `static` y quedan en `%TEMP%` tras cerrar la app**
   - **Área:** Arquitectura · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset/profile_engine.rs:2530`
   - **Qué hacer:** (1) crear estas carpetas con un prefijo propio (`columnia-profile-`, `columnia-conflicts-`) y un archivo de bloqueo igual al del historial, y extender `purge_finished_history_directories`; o bien crearlas dentro de la carpeta del historial del dataset (`dataset.history.directory`), que ya se purga; (2) vaciar `PROFILE_SNAPSHOT` en `RunEvent::Exit` y al cargar otro dataset (`clear_profile_snapshot()` junto a `clear_conflict_index()` en `import_loading.rs:310`); (3) de paso, anotar tamaño y fecha de modificación del origen **antes** de la copia y pasarlos a `remember_profile_snapshot`, que hoy los lee después (`profile_engine.rs:2563-2576`).
   - **Criterio de aceptación:** tras perfilar un CSV grande, cerrar con normalidad y arrancar de nuevo no queda ninguna carpeta `.tmp*` con `compared.parquet`, `current.parquet` ni `conflictos.bin` en `%TEMP%`; una prueba cubre la purga de la carpeta nueva.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-06 · tanda 2 de la Fase 2 (rama `auditoria/2026-11-05`). Las dos copias van en carpetas `columnia-profile-` y `columnia-conflicts-` con el mismo bloqueo que el historial, y la purga del arranque las recorre. Las cachés se vacían en `RunEvent::Exit` y al cargar otro archivo. El tamaño y la fecha del origen se toman antes de la copia. Hay pruebas de la purga, del vaciado y de los prefijos. No se comprobó en la app real perfilar un CSV grande, cerrar y volver a arrancar. Abrir un proyecto queda para AUD-102.
 
-- [ ] **AUD-011 · Importar otra tabla borra el archivo del dataset activo antes de confirmar: la protección `keep` compara rutas de distinto formato en Windows**
+- [x] **AUD-011 · Importar otra tabla borra el archivo del dataset activo antes de confirmar: la protección `keep` compara rutas de distinto formato en Windows**
   - **Área:** Arquitectura · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:2465-2511`
   - **Qué hacer:** comparar por identidad de archivo y no por texto de ruta: canonicalizar cada entrada (`fs::canonicalize(entry.path())`) antes de compararla con `keep`, o comparar el identificador de archivo (`same_file`). Mover el borrado de importaciones anteriores a después de `persist` correcto, para no perder nada si la escritura falla.
   - **Criterio de aceptación:** una prueba que pasa a `keep` la ruta canónica (`fs::canonicalize`) del archivo recién escrito conserva ese archivo y crea `(nueva)`; un fallo al escribir no borra las importaciones anteriores. La prueba existente, con la ruta canónica, falla con el código actual de `same_file` y pasa tras el arreglo.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-06 · tanda 2 de la Fase 2 (rama `auditoria/2026-11-05`). `write_import_parquet` compara rutas canonicalizadas y borra las importaciones anteriores solo después de `persist`. La prueba con la ruta canónica y la del fallo de escritura fallaban con el código anterior y pasan ahora. No se repitió en la app real.
 
 - [ ] **AUD-012 · La importación desde una base de datos no acota de verdad la memoria: el tope de 2 GiB cuenta solo los bytes de texto**
   - **Área:** Arquitectura · **Severidad:** Medio · **Esfuerzo:** Medio
@@ -212,21 +217,23 @@ Sin tareas abiertas.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
 
-- [ ] **AUD-013 · Listar tablas y conectar no tienen timeout de sentencia, y Cancelar solo se observa entre llamadas del controlador**
+- [x] **AUD-013 · Listar tablas y conectar no tienen timeout de sentencia, y Cancelar solo se observa entre llamadas del controlador**
   - **Área:** Arquitectura · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:2188-2196`
   - **Qué hacer:** listar con una sentencia preparada con `set_query_timeout_sec` (por ejemplo `SQLTables` por `preallocate()` + `tables` del cursor o una consulta al catálogo con timeout de 30 s), o fijar `SQL_ATTR_CONNECTION_TIMEOUT`; y devolver el control a la interfaz al cancelar (que el comando devuelva `Cancelado` aunque el hilo siga, o mostrar que la cancelación está pendiente).
   - **Criterio de aceptación:** con un servidor que no responde al catálogo, «Ver tablas» falla con un mensaje en menos de 45 s y Cancelar devuelve la interfaz a su estado en menos de 2 s.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-06 · tanda 2 de la Fase 2 (rama `auditoria/2026-11-05`). Listar las tablas usa una sentencia con un timeout de 30 s; con los 15 s de conexión suma 45 s, y una aserción en compilación lo comprueba. «Ver tablas» devuelve la cancelación en menos de 2 s aunque el controlador siga bloqueado (prueba unitaria con un trabajo de 10 s). El listado con timeout se comprobó contra el SQL Server local; un servidor que no responda al catálogo no. Cancelar una importación queda para AUD-103.
 
-- [ ] **AUD-014 · El script T-SQL va en un solo lote sin `GO` y no avisa del límite de tamaño de lote de SQL Server**
+- [x] **AUD-014 · El script T-SQL va en un solo lote sin `GO` y no avisa del límite de tamaño de lote de SQL Server**
   - **Área:** Arquitectura · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/tsql_script.rs:16-17`
   - **Qué hacer:** estimar el tamaño (filas × columnas) y, por encima de un umbral (por ejemplo 100 MB), mostrar en Entregar «Este script será muy grande; usa el paquete BULK INSERT» y proponerlo; o dividir en lotes con `GO` entre bloques de INSERT conservando la transacción (los `GO` no cierran una transacción abierta, pero `XACT_ABORT` y las variables `@nuevas` habría que repetirlas por lote).
   - **Criterio de aceptación:** exportar más de N filas a «Script T-SQL» muestra el aviso antes del selector de destino; un script de la longitud documentada se parsea sin error del tamaño del lote.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-06 · tanda 2 de la Fase 2 (rama `auditoria/2026-11-05`). Se eligió el aviso y no partir el script con `GO`. Entregar estima el lote en UTF-16 y, a partir de 100 MiB (el límite es 256 MB con el paquete de red por defecto), avisa antes de exportar y ofrece cambiar al paquete BULK INSERT. El aviso no bloquea. Con 10 columnas aparece desde unas 210.000 filas: avisa de más, porque Entregar no conoce la longitud de cada columna. El límite está documentado en `docs/reference/cli.md`. Hay pruebas de la estimación y del aviso. No se ejecutó en un SQL Server real un script de esa longitud.
 
 ### Código
 
@@ -434,6 +441,14 @@ Sin tareas abiertas.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
 
+- [ ] **AUD-100 · Los campos de conexión aceptan caracteres de formato bidireccional, que pueden invertir lo que muestra el diálogo nativo**
+  - **Área:** Seguridad · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/remote_databases.rs:619`
+  - **Qué hacer:** `field_text_issue` ya rechaza los caracteres de control y U+2028/U+2029; que rechace también los de formato bidireccional (U+200E, U+200F, U+202A-U+202E, U+2066-U+2069) en servidor, base, usuario y controlador, con el mismo mensaje.
+  - **Criterio de aceptación:** un servidor con U+202E se rechaza antes de abrir el diálogo, con una prueba; los nombres con tildes o `ñ` siguen valiendo.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-003
+
 ### Arquitectura, datos y resiliencia
 
 - [ ] **AUD-015 · Los `FLOAT` se escriben como literales decimales de hasta cientos de dígitos y SQL Server los rechaza fuera de 38 dígitos**
@@ -491,6 +506,22 @@ Sin tareas abiertas.
   - **Criterio de aceptación:** exportar con `mask` o `hash` y una clave personal muestra el error con el nombre de la columna.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+
+- [ ] **AUD-102 · Abrir un proyecto no vacía las copias de trabajo, y las copias de comparación siguen en carpetas `.tmp*` que la purga no ve**
+  - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/dataset.rs:12813`
+  - **Qué hacer:** que `commit_project_open_with_candidate` y `activate_project_candidate` (`dataset.rs:13207`) vacíen el índice de conflictos y la copia del perfil, como `import_loading.rs:311`, y comprobar si dejan la comparación pendiente (allí `comparison = None`). Que las copias de comparación (`comparison_io.rs`, funciones `persist_*`, y `dataset.rs:2059`) usen `locked_directory` con su prefijo. Cuidado: las pruebas llaman a esas funciones en paralelo, y vaciar la caché global sin más vuelve inestables las que comprueban aciertos de caché.
+  - **Criterio de aceptación:** tras abrir un proyecto no queda la copia del perfil del dataset anterior; matar el proceso con una comparación abierta y volver a arrancar no deja `compared.parquet` en `%TEMP%`.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-010
+
+- [ ] **AUD-103 · Cancelar una importación desde base de datos espera al controlador, y no puede volver antes sin riesgo**
+  - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/remote_databases.rs:2711`
+  - **Qué hacer:** comprobar la cancelación justo antes de `persist` en `write_import_parquet`, para que un hilo cancelado no escriba ni borre nada, y después usar `run_blocking_unless_cancelled` (AUD-013) también en `import_database_table`.
+  - **Criterio de aceptación:** con un servidor que no responde, Cancelar una importación devuelve la interfaz a su estado en menos de 2 s, y el hilo que vuelve después no deja ningún Parquet nuevo ni borra los anteriores (prueba con un trabajo simulado).
+  - **Depende de:** AUD-012 (cambia el mismo camino de escritura)
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-013
 
 ### Código
 
@@ -779,6 +810,14 @@ Sin tareas abiertas.
   - **Criterio de aceptación:** `DESIGN.md` describe todas las pantallas del flujo y coincide con `shell.css`.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+
+- [ ] **AUD-101 · El selector ofrece el controlador antiguo «SQL Server», que no puede conectar con el cifrado obligatorio**
+  - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/remote_databases.rs:2850`
+  - **Qué hacer:** no listar el controlador antiguo de Windows («SQL Server», `sqlsrv32`), o avisar al elegirlo. Traducir su error («Error de seguridad de SSL», SQLSTATE 08001) a «Este controlador no admite el cifrado; elige ODBC Driver 17 o 18».
+  - **Criterio de aceptación:** con ODBC Driver 17 instalado, el selector no ofrece «SQL Server», o al elegirlo explica por qué no conecta. Hoy falla contra el SQL Server local con «Error de seguridad de SSL» aunque se marque «Aceptar cualquier certificado» (comprobado el 2026-11-06), porque no admite `TrustServerCertificate`.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-003
 
 ### QA y testing
 

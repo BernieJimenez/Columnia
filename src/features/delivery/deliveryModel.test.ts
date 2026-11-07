@@ -8,6 +8,9 @@ import {
   databaseTargetTable,
   deliverySummary,
   sqlServerScriptTable,
+  TSQL_SCRIPT_WARNING_BYTES,
+  estimateTsqlScriptBytes,
+  tsqlScriptIsTooLarge,
   MAX_QUALITY_RULES,
   bundleFileNames,
   listFileNames,
@@ -244,6 +247,27 @@ describe("estado de entrega", () => {
     expect(restored).toEqual({ kind: "with_contract", rules: [validRule], gate: { kind: "idle" } });
     expect(deliveryRules(restored)).toEqual([validRule]);
     expect(deliveryContractFromRules([])).toEqual(INITIAL_DELIVERY_CONTRACT);
+  });
+});
+
+describe("tamaño estimado del script T-SQL", () => {
+  it("un dataset pequeño queda por debajo del umbral y uno grande lo supera", () => {
+    expect(estimateTsqlScriptBytes(10_000, 10)).toBeLessThan(TSQL_SCRIPT_WARNING_BYTES);
+    expect(tsqlScriptIsTooLarge(10_000, 10)).toBe(false);
+    expect(estimateTsqlScriptBytes(3_000_000, 20)).toBeGreaterThan(TSQL_SCRIPT_WARNING_BYTES);
+    expect(tsqlScriptIsTooLarge(3_000_000, 20)).toBe(true);
+  });
+
+  it("crece con las filas, las columnas y la longitud de las celdas", () => {
+    const base = estimateTsqlScriptBytes(1_000, 5);
+    expect(estimateTsqlScriptBytes(2_000, 5)).toBeGreaterThan(base);
+    expect(estimateTsqlScriptBytes(1_000, 6)).toBeGreaterThan(base);
+    expect(estimateTsqlScriptBytes(1_000, 5, 40)).toBeGreaterThan(base);
+  });
+
+  it("no estima nada sin filas ni columnas", () => {
+    expect(estimateTsqlScriptBytes(0, 5)).toBe(0);
+    expect(estimateTsqlScriptBytes(5, 0)).toBe(0);
   });
 });
 

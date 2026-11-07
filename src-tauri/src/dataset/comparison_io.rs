@@ -155,16 +155,16 @@ pub(super) fn persist_delimited_source_file_with_progress<C, P>(
     extension: &str,
     is_cancelled: &C,
     progress: P,
-) -> Result<(tempfile::TempDir, PathBuf), String>
+) -> Result<(HistoryDirectory, PathBuf), String>
 where
     C: Fn() -> bool,
     P: FnMut(f64),
 {
     ensure_not_cancelled(is_cancelled())?;
     let delimiter = detect_delimiter(path, extension)?;
-    let directory = tempfile::tempdir()
+    let directory = locked_directory(PROFILE_DIRECTORY_PREFIX)
         .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
-    let temporary = directory.path().join("compared.partial.parquet");
+    let temporary = directory.directory.path().join("compared.partial.parquet");
     crate::duckdb_query::materialize_file_to_parquet_with_progress(
         path,
         crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter },
@@ -173,7 +173,7 @@ where
         progress,
     )?;
     ensure_not_cancelled(is_cancelled())?;
-    let destination = directory.path().join("compared.parquet");
+    let destination = directory.directory.path().join("compared.parquet");
     fs::rename(&temporary, &destination)
         .map_err(|error| format!("No se pudo publicar el snapshot comparado: {error}"))?;
     Ok((directory, destination))

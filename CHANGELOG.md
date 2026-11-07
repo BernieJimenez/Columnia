@@ -55,8 +55,8 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - La conexión a SQL Server, al cargar y al entregar, se rellena con un
   formulario (servidor, base de datos, Windows o usuario y contraseña,
   confiar en el certificado) en lugar de escribir la cadena ODBC; el
-  controlador instalado se detecta solo, la conexión siempre pide cifrado, y la
-  cadena manual sigue disponible como opción avanzada. Nada se guarda.
+  controlador instalado se detecta solo y la conexión siempre pide cifrado.
+  Nada se guarda.
 - Cargar › «Cargar desde SQL Server» trae una tabla o vista a este equipo.
   Se pega la cadena de conexión ODBC (no se guarda), Windows pide confirmar la
   conexión en un diálogo propio de lectura, se elige una de las tablas y vistas
@@ -203,6 +203,13 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Seguridad
 
+- La confirmación nativa de una conexión dice, una cosa por línea, servidor,
+  puerto, base de datos, usuario (o «tu usuario de Windows»), cifrado,
+  certificado y controlador. Cada valor se corta a 100 caracteres y la
+  contraseña nunca aparece. En PostgreSQL y MySQL avisa de que el certificado
+  no se verifica. Al leer de SQL Server, Columnia pide una conexión de solo
+  lectura (`ApplicationIntent=ReadOnly`), y el diálogo recomienda usar un
+  usuario que solo pueda leer, que es la garantía real (AUD-003).
 - Las conexiones con SQL Server, PostgreSQL y MySQL, en Cargar y en Entregar,
   solo se hacen con el formulario: desaparecen «Escribir la cadena ODBC» y los
   DSN. Columnia arma la cadena a partir de los campos, así que un usuario, una
@@ -227,9 +234,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - La comparación de dos revisiones en Preparar ya no muestra por nombre las
   columnas con datos personales: aparecen como «Columna personal 1», «Columna
   personal 2»…, también en sus reglas de calidad (LIM-16).
-- La confirmación nativa de una conexión remota muestra el controlador ODBC, el
-  DSN y el usuario; Columnia rechaza un Driver= con ruta de archivo, FileDSN y
-  SaveFile, y solo acepta controladores instalados en Windows (PROD-15).
+- La confirmación nativa de una conexión remota muestra el controlador ODBC y el
+  usuario; Columnia rechaza un controlador con ruta de archivo y solo acepta
+  controladores instalados en Windows (PROD-15).
 - Verificado: abrir un preset de entrega que proponía reemplazar la tabla carga
   «Crear sin reemplazar» y pide elegir Reemplazar de nuevo en esa sesión
   (cubierto por la prueba de DeliveryPhase); el comentario de
@@ -316,6 +323,17 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Importar otra tabla desde una base de datos ya no borra el archivo del
+  dataset que estás usando antes de que confirmes. Las importaciones anteriores
+  solo se borran cuando la nueva está guardada, así que un fallo al escribir no
+  hace perder nada (AUD-011).
+- «Ver tablas» falla con un mensaje a los 45 s como mucho si el servidor no
+  responde a la lista de tablas, y Cancelar devuelve el formulario al momento,
+  aunque el controlador siga esperando (AUD-013).
+- La copia de trabajo del perfil y la del índice de conflictos ya no se quedan
+  en la carpeta temporal de Windows después de cerrar Columnia: se borran al
+  salir y al cargar otro archivo, y si el proceso se cierra de golpe, el
+  siguiente arranque las limpia (AUD-010).
 - Explorar un CSV grande ya analizado lee la copia de trabajo que hizo el
   perfil en lugar de volver a interpretar el CSV (2019-Oct: de unos 55 s a
   pocos segundos), y un segundo perfil del mismo archivo se ahorra la copia.
@@ -1169,6 +1187,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Con «Script T-SQL», Entregar avisa antes de exportar cuando el script puede
+  ser demasiado grande para que SQL Server lo acepte en un solo lote (unos
+  100 MB estimados; el límite es 256 MB), y ofrece cambiar al paquete BULK
+  INSERT con un botón. El aviso no impide exportar (AUD-014).
 - Revisar dice cómo se calculó el perfil: de todas las filas, en memoria con
   Polars o por bloques con Polars y DuckDB, cuánto tardó y a qué hora. Los
   perfiles guardados antes en un proyecto no lo muestran.

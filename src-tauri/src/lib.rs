@@ -457,6 +457,8 @@ pub fn run() {
         .run(|app, event| {
             // A normal exit clears the session marker (DAT-01).
             if let tauri::RunEvent::Exit = event {
+                // AUD-010: the static caches are never dropped on exit.
+                dataset::clear_working_copies();
                 if let Some(guard) = app.try_state::<session_guard::SessionGuard>() {
                     guard.end();
                 }

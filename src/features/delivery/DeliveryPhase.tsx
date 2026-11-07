@@ -48,6 +48,8 @@ import {
   deliverySummary,
   destinationForFormat,
   sqlServerScriptTable,
+  estimateTsqlScriptBytes,
+  tsqlScriptIsTooLarge,
   type DeliveryDestination,
   listFileNames,
   validateDatabaseTargetDraft,
@@ -321,6 +323,10 @@ export function DeliveryPhase({
   const [sqlServerScript, setSqlServerScript] = useState(DEFAULT_SQL_SERVER_SCRIPT);
   const isSqlServerFile = selectedExportFormat === "sqlserver_script" || selectedExportFormat === "sqlserver_bulk";
   const sqlServerKeys = sqlServerScript.keyColumns.filter((column) => dataset.columns.some((item) => item.name === column));
+  // 2026-11-06: a script without GO is one batch, and SQL Server caps its size.
+  const exportedColumnCount = dataset.columns.filter((column) => column.name !== ROW_AUDIT_COLUMN).length;
+  const tsqlScriptTooLarge = selectedExportFormat === "sqlserver_script"
+    && tsqlScriptIsTooLarge(dataset.rowCount, exportedColumnCount);
   const missingSqlServerKey = isSqlServerFile && sqlServerScript.mode === "upsert" && sqlServerKeys.length === 0;
   // DESIGN.md: a disabled control states, in view, what it is waiting for.
   const exportBlockers = [
@@ -1002,6 +1008,23 @@ export function DeliveryPhase({
               disabled={busy}
               onChange={setSqlServerScript}
             />
+          )}
+          {tsqlScriptTooLarge && (
+            <div className="notice notice--warning" role="status">
+              <p>
+                Este script será muy grande para SQL Server (unos{" "}
+                {Math.round(estimateTsqlScriptBytes(dataset.rowCount, exportedColumnCount) / (1024 * 1024)).toLocaleString("es-ES")} MB):
+                puede rechazarlo al ejecutarlo en un solo lote. Usa el paquete BULK INSERT.
+              </p>
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={() => changeExportFormat("sqlserver_bulk")}
+                disabled={busy}
+              >
+                Cambiar a Paquete BULK INSERT
+              </button>
+            </div>
           )}
           {isDatabaseExportFormat(selectedExportFormat) && (
             <fieldset className="database-target">

@@ -56,11 +56,21 @@ mod delimited_header_import;
 mod file_validation;
 mod history;
 pub(crate) use history::purge_finished_history_directories;
+
+/// AUD-010: drops the working copies kept in static caches (the profile's
+/// and the conflict index's) so their folders leave %TEMP% on a normal exit.
+pub(crate) fn clear_working_copies() {
+    clear_conflict_index();
+    clear_profile_snapshot();
+}
 #[allow(unused_imports)] // Mantiene la ruta pública del contrato serializado.
 pub use history::HistoryEntryState;
 use history::{
     get_history_state_impl, redo_last_change_impl, undo_last_change_impl, HistoryCommitResult,
     HistoryEntry, HistoryManager, PreparedHistorySnapshot,
+};
+use history::{
+    locked_directory, HistoryDirectory, CONFLICTS_DIRECTORY_PREFIX, PROFILE_DIRECTORY_PREFIX,
 };
 #[cfg(test)]
 use history::{redo_dataset, undo_dataset};

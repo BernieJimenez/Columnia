@@ -2502,7 +2502,7 @@ struct ProfileSnapshot {
     source: PathBuf,
     size: u64,
     modified: Option<SystemTime>,
-    directory: std::sync::Arc<tempfile::TempDir>,
+    directory: std::sync::Arc<HistoryDirectory>,
     path: PathBuf,
 }
 
@@ -2510,7 +2510,7 @@ struct ProfileSnapshot {
 /// replaces it in the cache meanwhile, so a long read never loses its file.
 pub(super) struct CachedProfileSnapshot {
     path: PathBuf,
-    _directory: std::sync::Arc<tempfile::TempDir>,
+    _directory: std::sync::Arc<HistoryDirectory>,
 }
 
 impl std::ops::Deref for CachedProfileSnapshot {
@@ -2560,11 +2560,33 @@ pub(super) fn cached_profile_snapshot(source: &Path) -> Option<CachedProfileSnap
         })
 }
 
-fn remember_profile_snapshot(source: &Path, directory: tempfile::TempDir, path: PathBuf) {
+/// Drops the cached working copy, which deletes its folder once no read
+/// still uses it (AUD-010).
+pub(super) fn clear_profile_snapshot() {
     use crate::crash_report::LockRecovering;
-    let Ok(metadata) = fs::metadata(source) else {
-        return;
-    };
+    PROFILE_SNAPSHOT.lock_recovering().clear();
+}
+
+/// Like `clear_profile_snapshot` for one source: tests share the cache and
+/// run in parallel, so they cannot empty all of it.
+#[cfg(test)]
+pub(super) fn clear_profile_snapshot_of(source: &Path) {
+    use crate::crash_report::LockRecovering;
+    PROFILE_SNAPSHOT
+        .lock_recovering()
+        .retain(|snapshot| snapshot.source != source);
+}
+
+/// `size` and `modified` are those of the source before the copy began, so a
+/// change of the file during the profile fails the cache check later.
+pub(super) fn remember_profile_snapshot(
+    source: &Path,
+    size: u64,
+    modified: Option<SystemTime>,
+    directory: HistoryDirectory,
+    path: PathBuf,
+) {
+    use crate::crash_report::LockRecovering;
     let mut snapshots = PROFILE_SNAPSHOT.lock_recovering();
     snapshots.retain(|snapshot| snapshot.source != source);
     if snapshots.len() >= PROFILE_SNAPSHOT_CAPACITY {
@@ -2572,8 +2594,8 @@ fn remember_profile_snapshot(source: &Path, directory: tempfile::TempDir, path: 
     }
     snapshots.push(ProfileSnapshot {
         source: source.to_owned(),
-        size: metadata.len(),
-        modified: metadata.modified().ok(),
+        size,
+        modified,
         directory: std::sync::Arc::new(directory),
         path,
     });
@@ -2593,6 +2615,11 @@ where
     C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
+    // Taken before the copy; see `remember_profile_snapshot`.
+    let size_before_copy = fs::metadata(source_path)
+        .ok()
+        .map(|metadata| metadata.len());
+    let modified_before_copy = file_modified(source_path);
     // REN-01: copying a large delimited file to Parquet takes a while, so
     // DuckDB's own progress of the copy moves the bar from 0 to 9 %.
     let cached = cached_profile_snapshot(source_path);
@@ -2745,8 +2772,14 @@ where
     if final_size != expected_file_size {
         return Err("El archivo source-backed cambió durante el perfilado.".to_owned());
     }
-    if let Some(directory) = snapshot_directory {
-        remember_profile_snapshot(source_path, directory, snapshot_path.clone());
+    if let (Some(directory), Some(size)) = (snapshot_directory, size_before_copy) {
+        remember_profile_snapshot(
+            source_path,
+            size,
+            modified_before_copy,
+            directory,
+            snapshot_path.clone(),
+        );
     }
     Ok(DatasetProfile {
         row_count,

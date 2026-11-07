@@ -15,6 +15,8 @@ use crate::remote_delivery_ledger::{DeliveryRecord, DeliveryStatus};
 
 const MAX_CONNECTION_STRING_CHARS: usize = 16 * 1024;
 const MAX_IDENTIFIER_CHARS: usize = 128;
+/// Longest value of a field the native dialog shows whole.
+const MAX_SHOWN_CHARS: usize = 100;
 const PREFLIGHT_CANCEL_CHECK_ROWS: usize = 1_024;
 /// A remote server that never answers must not block a delivery forever:
 /// cancellation is only observed between driver calls.
@@ -24,6 +26,9 @@ const ODBC_STATEMENT_TIMEOUT_SEC: usize = 300;
 /// longer is blocked, usually by a lock; giving up sooner lets Cancelar and
 /// the error reach the person without waiting the full statement limit.
 const ODBC_BATCH_TIMEOUT_SEC: usize = 30;
+/// AUD-013: listing tables queries the server's catalog; one that does not
+/// answer in this time fails with a message (login + catalog stay under 45 s).
+const ODBC_CATALOG_TIMEOUT_SEC: usize = 30;
 
 const REMOTE_TARGET_NOT_CONFIRMED: &str =
     "La conexión remota se canceló: no se confirmó el destino en el diálogo de Windows.";
@@ -310,7 +315,7 @@ fn remote_target_fingerprint(target: &DatabaseTarget) -> String {
 
 /// Human description of a delivery target without credentials.
 fn describe_remote_target(target: &DatabaseTarget) -> String {
-    let (server, details) = describe_connection(&target.connection);
+    let (server, details) = describe_connection(&target.connection, target.kind);
     let policy = match target.table_policy {
         DatabaseTablePolicy::Append => "añadir filas",
         DatabaseTablePolicy::CreateOnly => "crear la tabla",
@@ -325,21 +330,62 @@ fn describe_remote_target(target: &DatabaseTarget) -> String {
     )
 }
 
-/// The server and, one per line, the driver and user of a connection, never
-/// its password.
-fn describe_connection(connection: &DatabaseConnection) -> (String, String) {
-    // PROD-15: which driver loads and as whom Columnia signs in.
-    let server = trimmed(&connection.server).to_owned();
-    let user = trimmed(&connection.user);
-    let user_line = match connection.authentication {
-        DatabaseAuthentication::Password if !user.is_empty() => format!("Usuario: {user}"),
-        _ => "Usuario: el que indique el controlador o Windows".to_owned(),
-    };
-    let details = [
-        format!("Controlador: {}", trimmed(&connection.driver)),
-        user_line,
-    ];
-    (server, details.join("\n"))
+/// A field's value as the native dialog shows it: cut to `MAX_SHOWN_CHARS`
+/// so a long value cannot push the rest of the text out of sight.
+fn shown(value: &str) -> String {
+    let value = trimmed(value);
+    if value.chars().count() > MAX_SHOWN_CHARS {
+        format!(
+            "{}…",
+            value.chars().take(MAX_SHOWN_CHARS).collect::<String>()
+        )
+    } else {
+        value.to_owned()
+    }
+}
+
+/// The server and, one per line, everything that decides where and as whom
+/// Columnia signs in (server, port, database, user, encryption, certificate
+/// and driver), never the password. It describes a connection already
+/// validated, so it never shows a value that is then rejected.
+fn describe_connection(connection: &DatabaseConnection, kind: DatabaseKind) -> (String, String) {
+    let is_sql_server = kind == DatabaseKind::SqlServer;
+    let server = shown(&connection.server);
+    let mut lines = vec![format!("Servidor: {server}")];
+    let port = trimmed(&connection.port);
+    if !port.is_empty() {
+        lines.push(format!("Puerto: {}", shown(port)));
+    }
+    let database = trimmed(&connection.database);
+    lines.push(if database.is_empty() {
+        "Base de datos: la predeterminada del usuario".to_owned()
+    } else {
+        format!("Base de datos: {}", shown(database))
+    });
+    lines.push(match connection.authentication {
+        DatabaseAuthentication::Windows => {
+            "Usuario: tu usuario de Windows (autenticación de Windows)".to_owned()
+        }
+        DatabaseAuthentication::Password => format!("Usuario: {}", shown(&connection.user)),
+    });
+    lines.push(if is_sql_server {
+        "Cifrado: siempre".to_owned()
+    } else if connection.allow_unencrypted {
+        "Cifrado: solo si el servidor lo ofrece (puede conectar sin cifrar)".to_owned()
+    } else {
+        "Cifrado: obligatorio".to_owned()
+    });
+    // `SSLmode=require` and `SSLMODE=REQUIRED` encrypt without checking the
+    // certificate, so PostgreSQL and MySQL say so too.
+    lines.push(if !is_sql_server {
+        "Certificado: no se verifica".to_owned()
+    } else if connection.trust_server_certificate {
+        "Certificado: acepta cualquier certificado del servidor, sin verificarlo".to_owned()
+    } else {
+        "Certificado: se verifica".to_owned()
+    });
+    lines.push(format!("Controlador: {}", shown(&connection.driver)));
+    (server, lines.join("\n"))
 }
 
 /// PROD-15: the driver is the name of an installed one; a path would load any
@@ -371,12 +417,25 @@ fn ensure_installed_driver(driver: &str, installed: &[String]) -> Result<(), Str
     }
 }
 
+/// Why a connection is opened. Only the connection string differs, and only
+/// for SQL Server; the identity of a delivery destination never depends on it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ConnectionPurpose {
+    /// Write into a table, or test the connection of a delivery.
+    Delivery,
+    /// Read tables to import them.
+    Import,
+}
+
 /// Opens the connection after checking the driver against the installed ones.
 fn connect<'env>(
     environment: &'env Environment,
     target: &DatabaseTarget,
+    purpose: ConnectionPurpose,
 ) -> Result<odbc_api::Connection<'env>, String> {
-    let connection_string = target.connection.connection_string(target.kind)?;
+    let connection_string = target
+        .connection
+        .connection_string_for(target.kind, purpose)?;
     let installed = environment
         .drivers()
         .map_err(|error| {
@@ -689,9 +748,24 @@ impl DatabaseConnection {
         Ok(attributes)
     }
 
-    /// The only place a connection string is made: from validated fields.
+    /// The connection string of a delivery.
     fn connection_string(&self, kind: DatabaseKind) -> Result<String, String> {
-        let attributes = self.attributes(kind)?;
+        self.connection_string_for(kind, ConnectionPurpose::Delivery)
+    }
+
+    /// The only place a connection string is made: from validated fields.
+    /// Importing from SQL Server asks for a read-only connection
+    /// (`ApplicationIntent=ReadOnly`); it is a request to the server, not a
+    /// guarantee: that is the permission of the user the person signs in as.
+    fn connection_string_for(
+        &self,
+        kind: DatabaseKind,
+        purpose: ConnectionPurpose,
+    ) -> Result<String, String> {
+        let mut attributes = self.attributes(kind)?;
+        if purpose == ConnectionPurpose::Import && kind == DatabaseKind::SqlServer {
+            attributes.push(("ApplicationIntent", "ReadOnly".to_owned()));
+        }
         let text = format!(
             "{};",
             attributes
@@ -852,7 +926,7 @@ where
     let environment = environment
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
 
-    let connection = connect(&environment, target);
+    let connection = connect(&environment, target, ConnectionPurpose::Delivery);
     ensure_connection_test_not_cancelled(&is_cancelled)?;
     let connection = connection?;
 
@@ -886,7 +960,7 @@ where
     validate_database_target(target)?;
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
-    let connection = connect(&environment, target)?;
+    let connection = connect(&environment, target, ConnectionPurpose::Delivery)?;
     ensure_not_cancelled(is_cancelled)?;
     connection
         .execute("SELECT 1", (), Some(10))
@@ -1573,7 +1647,7 @@ where
     let input_columns = input_shape_from_frame_with_cancel(frame, &is_cancelled)?;
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
-    let connection = connect(&environment, target)?;
+    let connection = connect(&environment, target, ConnectionPurpose::Delivery)?;
     ensure_not_cancelled(&is_cancelled)?;
     connection
         .execute("SELECT 1", (), Some(10))
@@ -1689,7 +1763,7 @@ where
     )?;
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
-    let connection = connect(&environment, target)?;
+    let connection = connect(&environment, target, ConnectionPurpose::Delivery)?;
     connection
         .execute("SELECT 1", (), Some(10))
         .map_err(|error| format_driver_error("La prueba SELECT 1 falló", error, target))?;
@@ -2106,7 +2180,7 @@ fn format_driver_error<E: Debug>(context: &str, error: E, target: &DatabaseTarge
     let readable = readable_driver_detail(&detail);
     if detail.contains("HYT00") || detail.contains("HYT01") {
         return format!(
-            "{context} para {}: la base remota no respondió a tiempo (conexión {ODBC_LOGIN_TIMEOUT_SEC} s, lote {ODBC_BATCH_TIMEOUT_SEC} s, sentencia {ODBC_STATEMENT_TIMEOUT_SEC} s). Comprueba la red o los bloqueos de la tabla y vuelve a intentarlo. {readable}",
+            "{context} para {}: la base remota no respondió a tiempo (conexión {ODBC_LOGIN_TIMEOUT_SEC} s, lista de tablas {ODBC_CATALOG_TIMEOUT_SEC} s, lote {ODBC_BATCH_TIMEOUT_SEC} s, sentencia {ODBC_STATEMENT_TIMEOUT_SEC} s). Comprueba la red o los bloqueos de la tabla y vuelve a intentarlo. {readable}",
             target.kind.label()
         );
     }
@@ -2272,9 +2346,10 @@ fn remote_source_fingerprint(source: &DatabaseSource) -> String {
 }
 
 fn describe_remote_source(source: &DatabaseSource) -> String {
-    let (server, details) = describe_connection(&source.connection);
+    let (server, details) = describe_connection(&source.connection, source.kind);
+    // The promise is what Columnia does; the guarantee is the user's permission.
     format!(
-        "Columnia se conectará a {} en {} para leer una tabla. Solo leerá: no escribirá ni modificará nada en el servidor. Las filas que elijas se guardarán en este equipo.\n\n{}\n\n¿Confirmas este origen?",
+        "Columnia se conectará a {} en {} para leer una tabla. Solo leerá: no escribirá ni modificará nada en el servidor. Para asegurarlo, usa un usuario que solo tenga permiso de lectura. Las filas que elijas se guardarán en este equipo.\n\n{}\n\n¿Confirmas este origen?",
         source.kind.label(),
         server,
         details
@@ -2295,7 +2370,15 @@ fn list_source_tables(
     connection: &odbc_api::Connection<'_>,
     target: &DatabaseTarget,
 ) -> Result<Vec<DatabaseSourceTable>, String> {
-    let rows = connection
+    // A statement of its own, so the catalog query carries a timeout: a server
+    // that never answers the catalog fails here instead of hanging (AUD-013).
+    let mut statement = connection
+        .preallocate()
+        .map_err(|error| format_driver_error("No se pudieron listar las tablas", error, target))?;
+    statement
+        .set_query_timeout_sec(ODBC_CATALOG_TIMEOUT_SEC)
+        .map_err(|error| format_driver_error("No se pudieron listar las tablas", error, target))?;
+    let rows = statement
         .tables("", "", "", "TABLE,VIEW")
         .map_err(|error| format_driver_error("No se pudieron listar las tablas", error, target))?
         .collect::<Result<Vec<TablesRow>, _>>()
@@ -2583,18 +2666,14 @@ fn write_import_parquet(
         Err(_) => std::fs::create_dir_all(directory)
             .map_err(|_| "No se pudo crear la carpeta de importaciones.".to_owned())?,
     }
-    let same_file = |path: &Path| keep.is_some_and(|keep| keep == path);
-    if let Ok(entries) = std::fs::read_dir(directory) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let is_parquet = path
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("parquet"));
-            if is_parquet && !same_file(&path) {
-                let _ = std::fs::remove_file(path);
-            }
-        }
-    }
+    // Compare by file identity, not by path text: the active dataset reports a
+    // canonical path (`\\?\C:\...` on Windows) while `read_dir` does not.
+    let canonical_keep = keep.and_then(|keep| std::fs::canonicalize(keep).ok());
+    let same_file = |path: &Path| {
+        canonical_keep.as_ref().is_some_and(|keep| {
+            std::fs::canonicalize(path).is_ok_and(|canonical| &canonical == keep)
+        })
+    };
     let mut destination = directory.join(file_name);
     if same_file(&destination) {
         // The active dataset still reads that file: the new import sits beside it.
@@ -2613,6 +2692,18 @@ fn write_import_parquet(
     temporary
         .persist(&destination)
         .map_err(|_| "No se pudo guardar la tabla importada.".to_owned())?;
+    // Only now that the new file is in place are earlier imports removed.
+    if let Ok(entries) = std::fs::read_dir(directory) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let is_parquet = path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("parquet"));
+            if is_parquet && path != destination && !same_file(&path) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
     Ok(destination)
 }
 
@@ -2637,7 +2728,7 @@ where
     report("Conectando con la base de datos", 5);
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, &target))?;
-    let connection = connect(&environment, &target);
+    let connection = connect(&environment, &target, ConnectionPurpose::Import);
     ensure_not_cancelled(&is_cancelled)?;
     let connection = connection?;
 
@@ -2768,6 +2859,46 @@ fn sql_server_drivers(drivers: Vec<String>) -> Vec<String> {
     drivers
 }
 
+const CANCEL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Runs blocking `work` and gives the result back, or the cancellation error
+/// as soon as `is_cancelled` turns true, even while the driver call inside
+/// `work` has not returned (AUD-013). The thread keeps running until the
+/// driver gives up (the timeouts bound it); its result is discarded.
+async fn run_blocking_unless_cancelled<T, W, C>(
+    work: W,
+    is_cancelled: C,
+    interrupted_message: &'static str,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+    W: FnOnce() -> Result<T, String> + Send + 'static,
+    C: Fn() -> bool + Send + 'static,
+{
+    let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (cancel_sender, mut cancel_receiver) = tokio::sync::oneshot::channel::<()>();
+    let watcher_finished = std::sync::Arc::clone(&finished);
+    std::thread::spawn(move || {
+        while !watcher_finished.load(std::sync::atomic::Ordering::Acquire) {
+            if is_cancelled() {
+                let _ = cancel_sender.send(());
+                return;
+            }
+            std::thread::sleep(CANCEL_POLL_INTERVAL);
+        }
+    });
+    let mut handle = tauri::async_runtime::spawn_blocking(work);
+    let outcome = tokio::select! {
+        joined = &mut handle => Some(joined),
+        Ok(()) = &mut cancel_receiver => None,
+    };
+    finished.store(true, std::sync::atomic::Ordering::Release);
+    match outcome {
+        Some(joined) => joined.map_err(|_| interrupted_message.to_owned())?,
+        None => Err(crate::dataset::OPERATION_CANCELLED_MESSAGE.to_owned()),
+    }
+}
+
 #[tauri::command]
 pub async fn list_database_tables(
     app: AppHandle,
@@ -2783,24 +2914,33 @@ pub async fn list_database_tables(
     .map_err(|_| "La confirmación de la conexión se interrumpió.".to_owned())??;
     let generation = app.state::<DatasetState>().begin_database_connection();
     let cancellation_app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let is_cancelled = || {
-            cancellation_app
+    let watcher_app = app.clone();
+    run_blocking_unless_cancelled(
+        move || {
+            let is_cancelled = || {
+                cancellation_app
+                    .state::<DatasetState>()
+                    .database_connection_was_cancelled(generation)
+            };
+            let target = source_as_target(&source);
+            ensure_not_cancelled(&is_cancelled)?;
+            let environment = Environment::new().map_err(|error| {
+                format_driver_error("No se pudo inicializar ODBC", error, &target)
+            })?;
+            let connection = connect(&environment, &target, ConnectionPurpose::Import);
+            ensure_not_cancelled(&is_cancelled)?;
+            let tables = list_source_tables(&connection?, &target);
+            ensure_not_cancelled(&is_cancelled)?;
+            tables
+        },
+        move || {
+            watcher_app
                 .state::<DatasetState>()
                 .database_connection_was_cancelled(generation)
-        };
-        let target = source_as_target(&source);
-        ensure_not_cancelled(&is_cancelled)?;
-        let environment = Environment::new()
-            .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, &target))?;
-        let connection = connect(&environment, &target);
-        ensure_not_cancelled(&is_cancelled)?;
-        let tables = list_source_tables(&connection?, &target);
-        ensure_not_cancelled(&is_cancelled)?;
-        tables
-    })
+        },
+        "La lista de tablas se interrumpió inesperadamente.",
+    )
     .await
-    .map_err(|_| "La lista de tablas se interrumpió inesperadamente.".to_owned())?
 }
 
 #[tauri::command]
@@ -3292,8 +3432,137 @@ mod tests {
         value.connection.password = String::new();
         let message = describe_remote_target(&value);
         assert!(
-            message.contains("Usuario: el que indique el controlador o Windows"),
+            message.contains("Usuario: tu usuario de Windows"),
             "{message}"
+        );
+        assert!(!message.contains("Usuario: ana"), "{message}");
+    }
+
+    /// AUD-003: the dialog says every decision of the connection, one per
+    /// line, and the password in none.
+    #[test]
+    fn confirmation_shows_server_port_database_user_encryption_and_certificate() {
+        let lines = |message: &str| {
+            message
+                .lines()
+                .map(str::to_owned)
+                .collect::<std::collections::HashSet<_>>()
+        };
+
+        let mut sql_server = target(DatabaseKind::SqlServer);
+        sql_server.connection.driver = "ODBC Driver 18 for SQL Server".to_owned();
+        sql_server.connection.server = "db.example.com,1433".to_owned();
+        sql_server.connection.database = "Ventas".to_owned();
+        sql_server.connection.password = "contraseña-secreta".to_owned();
+        let message = describe_remote_target(&sql_server);
+        let shown_lines = lines(&message);
+        for expected in [
+            "Servidor: db.example.com,1433",
+            "Base de datos: Ventas",
+            "Usuario: ana",
+            "Cifrado: siempre",
+            "Certificado: se verifica",
+            "Controlador: ODBC Driver 18 for SQL Server",
+        ] {
+            assert!(shown_lines.contains(expected), "{expected}: {message}");
+        }
+        assert!(!message.contains("Puerto:"), "{message}");
+        assert!(!message.contains("contraseña-secreta"), "{message}");
+
+        sql_server.connection.authentication = DatabaseAuthentication::Windows;
+        sql_server.connection.user = String::new();
+        sql_server.connection.password = String::new();
+        sql_server.connection.database = String::new();
+        sql_server.connection.trust_server_certificate = true;
+        let message = describe_remote_target(&sql_server);
+        let shown_lines = lines(&message);
+        assert!(
+            shown_lines.contains("Usuario: tu usuario de Windows (autenticación de Windows)"),
+            "{message}"
+        );
+        assert!(
+            shown_lines.contains("Base de datos: la predeterminada del usuario"),
+            "{message}"
+        );
+        assert!(
+            shown_lines.contains(
+                "Certificado: acepta cualquier certificado del servidor, sin verificarlo"
+            ),
+            "{message}"
+        );
+
+        let mut postgres = target(DatabaseKind::Postgresql);
+        postgres.connection.port = "5433".to_owned();
+        postgres.connection.database = "ventas".to_owned();
+        postgres.connection.allow_unencrypted = false;
+        let message = describe_remote_target(&postgres);
+        let shown_lines = lines(&message);
+        assert!(shown_lines.contains("Puerto: 5433"), "{message}");
+        assert!(shown_lines.contains("Cifrado: obligatorio"), "{message}");
+        assert!(
+            shown_lines.contains("Certificado: no se verifica"),
+            "{message}"
+        );
+        postgres.connection.allow_unencrypted = true;
+        let message = describe_remote_target(&postgres);
+        assert!(
+            lines(&message)
+                .contains("Cifrado: solo si el servidor lo ofrece (puede conectar sin cifrar)"),
+            "{message}"
+        );
+        let mut mysql = target(DatabaseKind::Mysql);
+        mysql.connection.allow_unencrypted = false;
+        let message = describe_remote_target(&mysql);
+        assert!(message.contains("Cifrado: obligatorio"), "{message}");
+        assert!(
+            lines(&message).contains("Certificado: no se verifica"),
+            "{message}"
+        );
+    }
+
+    /// AUD-003: a long field cannot push the rest of the text out of sight.
+    #[test]
+    fn confirmation_cuts_long_values_to_about_a_hundred_characters() {
+        let long_server = "s".repeat(MAX_SERVER_CHARS);
+        let mut value = target(DatabaseKind::SqlServer);
+        value.connection.server = long_server.clone();
+        value.connection.database = "d".repeat(200);
+        value.connection.user = "u".repeat(200);
+        value.connection.driver = "c".repeat(200);
+        value.connection.trust_server_certificate = true;
+        validate_database_target(&value).expect("campos largos pero válidos");
+        let message = describe_remote_target(&value);
+        assert!(!message.contains(&long_server), "{message}");
+        let cut = format!("{}…", "s".repeat(MAX_SHOWN_CHARS));
+        // The server appears in the sentence and in its line, both cut.
+        assert_eq!(message.matches(&cut).count(), 2, "{message}");
+        for (label, letter) in [
+            ("Base de datos", "d"),
+            ("Usuario", "u"),
+            ("Controlador", "c"),
+        ] {
+            let cut = format!("{label}: {}…", letter.repeat(MAX_SHOWN_CHARS));
+            assert!(message.contains(&cut), "{label}: {message}");
+            assert!(
+                !message.contains(&letter.repeat(MAX_SHOWN_CHARS + 1)),
+                "{label}: {message}"
+            );
+        }
+        // The cut keeps what the person needs to decide: the rest is still there.
+        assert!(message.contains("Cifrado: siempre"), "{message}");
+        assert!(
+            message.contains("Certificado: acepta cualquier"),
+            "{message}"
+        );
+        assert!(message.contains("¿Confirmas este destino?"), "{message}");
+
+        // A value within the limit is shown whole and without the mark.
+        assert_eq!(shown("  corto  "), "corto");
+        let exactly = "x".repeat(MAX_SHOWN_CHARS);
+        assert_eq!(shown(&exactly), exactly);
+        assert_eq!(
+            shown(&"ñ".repeat(MAX_SHOWN_CHARS + 1)).chars().count(),
+            MAX_SHOWN_CHARS + 1
         );
     }
 
@@ -3615,6 +3884,207 @@ mod tests {
             only_value(&attributes, "uid"),
             "sa}};Server=SERVIDOR_FALSO};Server=localhost"
         );
+    }
+
+    /// AUD-003: the keys of the string are a closed list per engine. Whatever a
+    /// field holds (attributes of the drivers that run statements, load
+    /// libraries or redirect the host, or a repeated key), the string has
+    /// exactly those keys, each once, in the same order.
+    #[test]
+    fn the_keys_of_the_string_are_a_closed_list_whatever_the_fields_hold() {
+        let payloads = [
+            ";Address=localhost",
+            ";INITSTMT=DROP TABLE x",
+            ";ConnSettings=SET search_path=evil",
+            ";PLUGIN_DIR=C:\\evil",
+            ";Server=otro",
+            ";Uid=sa",
+            "x;Server=otro;Uid=sa;Pwd=;Driver={y}",
+            "x};Address=localhost;INITSTMT=1;{",
+            "{a};ConnSettings=1",
+            "=Server=otro",
+        ];
+        let engines = [
+            (
+                DatabaseKind::SqlServer,
+                "ODBC Driver 18 for SQL Server",
+                "",
+                vec!["driver", "server", "database", "uid", "pwd", "encrypt"],
+            ),
+            (
+                DatabaseKind::Postgresql,
+                "PostgreSQL Unicode(x64)",
+                "5432",
+                vec![
+                    "driver", "server", "port", "database", "uid", "pwd", "sslmode",
+                ],
+            ),
+            (
+                DatabaseKind::Mysql,
+                "MySQL ODBC 9.1 Unicode Driver",
+                "3306",
+                vec![
+                    "driver", "server", "port", "database", "uid", "pwd", "sslmode",
+                ],
+            ),
+        ];
+        for (kind, driver, port, keys) in engines {
+            for purpose in [ConnectionPurpose::Delivery, ConnectionPurpose::Import] {
+                let mut expected = keys.clone();
+                if purpose == ConnectionPurpose::Import && kind == DatabaseKind::SqlServer {
+                    expected.push("applicationintent");
+                }
+                for payload in payloads {
+                    for field in ["server", "database", "user", "password"] {
+                        let mut value = DatabaseConnection {
+                            driver: driver.to_owned(),
+                            server: "localhost".to_owned(),
+                            port: port.to_owned(),
+                            database: "ventas".to_owned(),
+                            authentication: DatabaseAuthentication::Password,
+                            user: "ana".to_owned(),
+                            password: "secreta".to_owned(),
+                            ..connection(kind)
+                        };
+                        match field {
+                            "server" => value.server = payload.to_owned(),
+                            "database" => value.database = payload.to_owned(),
+                            "user" => value.user = payload.to_owned(),
+                            _ => value.password = payload.to_owned(),
+                        }
+                        let text = value.connection_string_for(kind, purpose).unwrap();
+                        let attributes = parse_odbc_connection_string(&text)
+                            .unwrap_or_else(|e| panic!("{kind:?} {field} {payload}: {e}: {text}"));
+                        assert_eq!(
+                            attributes
+                                .iter()
+                                .map(|(key, _)| key.as_str())
+                                .collect::<Vec<_>>(),
+                            expected,
+                            "{kind:?} {purpose:?} {field} {payload}: {text}"
+                        );
+                        let key = match field {
+                            "user" => "uid",
+                            "password" => "pwd",
+                            other => other,
+                        };
+                        assert_eq!(only_value(&attributes, key), payload, "{field}: {text}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// AUD-003: a connection with one more field than Rust knows (a connection
+    /// string, an attribute of the driver) does not deserialize, in a delivery
+    /// target and in an import source alike.
+    #[test]
+    fn a_connection_with_an_extra_field_does_not_deserialize() {
+        let connection = serde_json::json!({
+            "driver": "ODBC Driver 18 for SQL Server",
+            "server": "localhost",
+            "authentication": "password",
+            "user": "ana",
+            "password": "secreta",
+        });
+        let target_with = |connection: serde_json::Value| {
+            serde_json::from_value::<DatabaseTarget>(serde_json::json!({
+                "kind": "sqlserver",
+                "connection": connection,
+                "schema": "dbo",
+                "table": "ventas",
+                "tablePolicy": "create_only",
+            }))
+        };
+        let source_with = |connection: serde_json::Value| {
+            serde_json::from_value::<DatabaseSource>(
+                serde_json::json!({ "kind": "sqlserver", "connection": connection }),
+            )
+        };
+        assert!(target_with(connection.clone()).is_ok());
+        assert!(source_with(connection.clone()).is_ok());
+        for (name, entry) in [
+            ("connectionString", "Driver={x};Server=otro;"),
+            ("connection_string", "Driver={x};Server=otro;"),
+            ("address", "otro"),
+            ("initstmt", "DROP TABLE x"),
+            ("INITSTMT", "DROP TABLE x"),
+            ("connSettings", "SET x=1"),
+            ("pluginDir", "C:\\evil"),
+            ("applicationIntent", "ReadWrite"),
+            ("encrypt", "no"),
+        ] {
+            let mut extra = connection.clone();
+            extra[name] = serde_json::json!(entry);
+            assert!(target_with(extra.clone()).is_err(), "{name}");
+            assert!(source_with(extra).is_err(), "{name}");
+        }
+        // A field repeated in the JSON text is as invalid as an unknown one.
+        let repeated = r#"{"driver":"d","server":"a","server":"b","authentication":"windows"}"#;
+        assert!(serde_json::from_str::<DatabaseConnection>(repeated).is_err());
+    }
+
+    /// AUD-003: importing from SQL Server asks for a read-only connection; a
+    /// delivery, its test and the other engines never carry the attribute, and
+    /// the identity stored for deliveries does not know about it.
+    #[test]
+    fn only_the_import_from_sql_server_asks_for_a_read_only_connection() {
+        let sql_server = DatabaseConnection {
+            driver: "ODBC Driver 18 for SQL Server".to_owned(),
+            ..connection(DatabaseKind::SqlServer)
+        };
+        let delivery = sql_server
+            .connection_string(DatabaseKind::SqlServer)
+            .unwrap();
+        let import = sql_server
+            .connection_string_for(DatabaseKind::SqlServer, ConnectionPurpose::Import)
+            .unwrap();
+        assert!(!delivery.to_ascii_lowercase().contains("applicationintent"));
+        assert_eq!(import, format!("{delivery}ApplicationIntent=ReadOnly;"));
+        assert_eq!(
+            delivery,
+            sql_server
+                .connection_string_for(DatabaseKind::SqlServer, ConnectionPurpose::Delivery)
+                .unwrap()
+        );
+        let parsed = parse_odbc_connection_string(&import).unwrap();
+        assert_eq!(only_value(&parsed, "applicationintent"), "ReadOnly");
+
+        for (kind, driver) in [
+            (DatabaseKind::Postgresql, "PostgreSQL Unicode(x64)"),
+            (DatabaseKind::Mysql, "MySQL ODBC 9.1 Unicode Driver"),
+        ] {
+            let value = DatabaseConnection {
+                driver: driver.to_owned(),
+                ..connection(kind)
+            };
+            for purpose in [ConnectionPurpose::Delivery, ConnectionPurpose::Import] {
+                let text = value.connection_string_for(kind, purpose).unwrap();
+                assert!(
+                    !text.to_ascii_lowercase().contains("applicationintent"),
+                    "{kind:?} {purpose:?}: {text}"
+                );
+            }
+        }
+
+        // An invalid connection is rejected for either purpose.
+        let invalid = DatabaseConnection {
+            server: String::new(),
+            ..sql_server.clone()
+        };
+        assert!(invalid
+            .connection_string_for(DatabaseKind::SqlServer, ConnectionPurpose::Import)
+            .is_err());
+
+        // The delivery identity is made of the delivery attributes only.
+        let identity = remote_target_identity(&DatabaseTarget {
+            kind: DatabaseKind::SqlServer,
+            connection: sql_server,
+            schema: "dbo".to_owned(),
+            table: "ventas".to_owned(),
+            table_policy: DatabaseTablePolicy::Append,
+        });
+        assert!(!identity.to_ascii_lowercase().contains("applicationintent"));
     }
 
     /// The external tests keep taking a whole connection string from the
@@ -3939,6 +4409,57 @@ mod tests {
         );
         assert!(error.contains("no respondió a tiempo"), "{error}");
         assert!(!error.contains("secret"), "{error}");
+    }
+
+    #[test]
+    fn listing_tables_has_its_own_short_timeout() {
+        // AUD-013: login plus catalog query must fail within 45 s.
+        const { assert!(ODBC_CATALOG_TIMEOUT_SEC < ODBC_STATEMENT_TIMEOUT_SEC) };
+        const { assert!(ODBC_LOGIN_TIMEOUT_SEC as usize + ODBC_CATALOG_TIMEOUT_SEC <= 45) };
+        let error = format_driver_error(
+            "No se pudieron listar las tablas",
+            "State: HYT00, Native error: 0, Message: Query timeout expired",
+            &target(DatabaseKind::SqlServer),
+        );
+        assert!(error.contains("no respondió a tiempo"), "{error}");
+        assert!(
+            error.contains(&format!("lista de tablas {ODBC_CATALOG_TIMEOUT_SEC} s")),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn cancelling_returns_control_while_the_driver_call_is_still_blocked() {
+        let started = std::time::Instant::now();
+        let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = std::sync::Arc::clone(&cancelled);
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        let result = tauri::async_runtime::block_on(run_blocking_unless_cancelled(
+            || {
+                std::thread::sleep(std::time::Duration::from_secs(10));
+                Ok(1)
+            },
+            move || cancelled.load(std::sync::atomic::Ordering::SeqCst),
+            "interrumpido",
+        ));
+        assert_eq!(
+            result,
+            Err(crate::dataset::OPERATION_CANCELLED_MESSAGE.to_owned())
+        );
+        assert!(started.elapsed().as_secs() < 2, "{:?}", started.elapsed());
+    }
+
+    #[test]
+    fn without_cancelling_the_blocking_work_returns_its_result() {
+        let result = tauri::async_runtime::block_on(run_blocking_unless_cancelled(
+            || Ok(7),
+            || false,
+            "interrumpido",
+        ));
+        assert_eq!(result, Ok(7));
     }
 
     #[test]
@@ -4996,6 +5517,12 @@ mod tests {
         assert!(message.contains("db.example.com"));
         assert!(message.contains("Usuario: ana"));
         assert!(message.contains("Solo leerá"));
+        // AUD-003: the promise is Columnia's; the guarantee is the permission.
+        assert!(
+            message.contains("usa un usuario que solo tenga permiso de lectura"),
+            "{message}"
+        );
+        assert!(message.contains("Cifrado: siempre"), "{message}");
         assert!(!message.contains("s3cr"));
     }
 
@@ -5025,6 +5552,74 @@ mod tests {
             .unwrap()
             .to_string_lossy()
             .contains("(nueva)"));
+    }
+
+    #[test]
+    fn writing_the_import_keeps_the_active_file_given_as_a_canonical_path() {
+        use polars::prelude::df;
+        let directory = tempfile::tempdir().expect("carpeta");
+        let imports = directory.path().join(DATABASE_IMPORT_DIRECTORY);
+        let mut frame = df!("nombre" => ["Ana"]).expect("frame");
+        let second = write_import_parquet(&imports, "dbo.Clientes.parquet", None, &mut frame)
+            .expect("segunda");
+        // The active dataset reports the canonical path (`\\?\C:\...` on Windows).
+        let canonical = std::fs::canonicalize(&second).expect("ruta canónica");
+        let third = write_import_parquet(
+            &imports,
+            "dbo.Clientes.parquet",
+            Some(&canonical),
+            &mut frame,
+        )
+        .expect("tercera");
+        assert!(second.exists(), "el archivo del dataset activo se conserva");
+        assert_ne!(third, second);
+        assert!(third
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains("(nueva)"));
+        // Another table imported while the canonical file is active keeps it too.
+        let fourth =
+            write_import_parquet(&imports, "dbo.Otra.parquet", Some(&canonical), &mut frame)
+                .expect("cuarta");
+        assert!(second.exists());
+        assert!(fourth.exists());
+        assert!(!third.exists(), "la importación sin uso anterior se borra");
+    }
+
+    #[test]
+    fn a_failed_write_does_not_delete_earlier_imports() {
+        use polars::prelude::df;
+        let directory = tempfile::tempdir().expect("carpeta");
+        let imports = directory.path().join(DATABASE_IMPORT_DIRECTORY);
+        let mut frame = df!("nombre" => ["Ana"]).expect("frame");
+        let earlier =
+            write_import_parquet(&imports, "dbo.X.parquet", None, &mut frame).expect("anterior");
+        // A folder with the destination's name makes `persist` fail.
+        let blocker = imports.join("dbo.Y.parquet");
+        std::fs::create_dir(&blocker).expect("bloqueo");
+        let result = write_import_parquet(&imports, "dbo.Y.parquet", None, &mut frame);
+        assert!(result.is_err());
+        assert!(earlier.exists(), "la importación anterior sigue ahí");
+        let names: Vec<String> = std::fs::read_dir(&imports)
+            .expect("carpeta")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names.len(), 2, "sin temporales sueltos: {names:?}");
+    }
+
+    #[test]
+    fn the_new_import_never_deletes_itself() {
+        use polars::prelude::df;
+        let directory = tempfile::tempdir().expect("carpeta");
+        let imports = directory.path().join(DATABASE_IMPORT_DIRECTORY);
+        let mut frame = df!("nombre" => ["Ana"]).expect("frame");
+        write_import_parquet(&imports, "dbo.Z.parquet", None, &mut frame).expect("primera");
+        let again =
+            write_import_parquet(&imports, "dbo.Z.parquet", None, &mut frame).expect("misma tabla");
+        assert!(again.exists());
+        assert_eq!(std::fs::read_dir(&imports).expect("carpeta").count(), 1);
     }
 
     /// Reads a real table without writing anything. Set COLUMNIA_ODBC_IMPORT

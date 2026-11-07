@@ -235,6 +235,48 @@ export function sqlServerScriptTable(options: SqlServerScriptOptions, keyColumns
   return `${name} · ${SQL_SERVER_MODE_LABEL[options.mode]}${keys}`;
 }
 
+/**
+ * SQL Server runs a script without `GO` as one batch, and a batch is at most
+ * 65,536 x the network packet size: 256 MB with the default 4 KB packet. The
+ * text travels as UTF-16 (2 bytes per character). The notice starts at 100 MB,
+ * well under that limit, because the estimate is approximate and the packet
+ * size may have been changed.
+ */
+export const TSQL_SCRIPT_WARNING_BYTES = 100 * 1024 * 1024;
+/** Rows per `INSERT … VALUES` in the script (`ROWS_PER_INSERT` in tsql_script.rs). */
+const TSQL_ROWS_PER_INSERT = 1_000;
+/**
+ * Entregar has no per-column lengths, so each cell counts as 20 characters of
+ * value: above what most spreadsheets hold, so the estimate errs on the side
+ * of warning.
+ */
+const TSQL_ASSUMED_CELL_CHARS = 20;
+
+/**
+ * Estimated size, in bytes of UTF-16, of the «Script T-SQL» batch. Per cell:
+ * the value, `N'…'` (3, counted for every cell) and `, ` (2). Per row: four
+ * spaces, `(`, `),` and a line break (8). Per block of 1,000 rows: the
+ * `INSERT INTO [esquema].[tabla] ([col], …) VALUES` header (about 100 plus 20
+ * per column). The fixed part of the script (checks, `CREATE TABLE`) is small
+ * and not counted.
+ */
+export function estimateTsqlScriptBytes(
+  rowCount: number,
+  columnCount: number,
+  averageCellChars: number = TSQL_ASSUMED_CELL_CHARS,
+): number {
+  if (rowCount <= 0 || columnCount <= 0) return 0;
+  const cellChars = averageCellChars + 3 + 2;
+  const blocks = Math.ceil(rowCount / TSQL_ROWS_PER_INSERT);
+  const chars = rowCount * (8 + columnCount * cellChars) + blocks * (100 + columnCount * 20);
+  return chars * 2;
+}
+
+/** Whether the script is large enough for SQL Server to refuse it as one batch. */
+export function tsqlScriptIsTooLarge(rowCount: number, columnCount: number): boolean {
+  return estimateTsqlScriptBytes(rowCount, columnCount) > TSQL_SCRIPT_WARNING_BYTES;
+}
+
 /** The table line of a direct database delivery. */
 export function databaseTargetTable(target: Pick<DatabaseTarget, "schema" | "table" | "tablePolicy">): string {
   const name = [target.schema.trim(), target.table.trim() || "(sin tabla)"].filter(Boolean).join(".");

@@ -50,7 +50,9 @@ function DeliveryHarness({
   personalDataColumns = [],
   suggestedRules = [],
   excelLimitIssues = [],
+  rowCount = dataset.rowCount,
 }: {
+  rowCount?: number;
   onExport: (request: DeliveryExportRequest) => void;
   recipeDraft?: SavedRecipe | null;
   preparationChanges?: string[];
@@ -64,7 +66,7 @@ function DeliveryHarness({
   const [contract, setContract] = useState<DeliveryContractState>(initialContract);
   return (
     <DeliveryPhase
-      dataset={dataset}
+      dataset={{ ...dataset, rowCount }}
       recipeDraft={recipeDraft}
       preparationChanges={preparationChanges}
       contract={contract}
@@ -487,6 +489,27 @@ describe("señales de datos personales en Entregar", () => {
     expect(onExport).toHaveBeenLastCalledWith(expect.objectContaining({
       sqlServerScript: expect.objectContaining({ mode: "append", keyColumns: [] }),
     }));
+  });
+
+  it("avisa antes del botón de que el script T-SQL será demasiado grande y propone el paquete BULK INSERT", () => {
+    render(<DeliveryHarness onExport={vi.fn()} rowCount={3_000_000} />);
+    selectFormat("sqlserver_script");
+    const notice = screen.getByText(/Este script será muy grande/).closest<HTMLElement>("[role='status']")!;
+    expect(notice).toHaveTextContent(/Este script será muy grande para SQL Server \(unos [\d.]+ MB\)/);
+    expect(notice).toHaveTextContent("Usa el paquete BULK INSERT.");
+    // It does not block the export.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    expect(screen.getByRole("button", { name: "Exportar script T-SQL" })).toBeEnabled();
+
+    fireEvent.click(within(notice).getByRole("button", { name: "Cambiar a Paquete BULK INSERT" }));
+    expect(screen.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("sqlserver_bulk");
+    expect(screen.queryByText(/Este script será muy grande/)).not.toBeInTheDocument();
+  });
+
+  it("no avisa del tamaño del script T-SQL con pocas filas", () => {
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    selectFormat("sqlserver_script");
+    expect(screen.queryByText(/Este script será muy grande/)).not.toBeInTheDocument();
   });
 
   it("no pide confirmación cuando se elige una protección", () => {

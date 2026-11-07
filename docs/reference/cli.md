@@ -56,7 +56,10 @@ SSMS o `sqlcmd` que crea la tabla e inserta las filas en una transacción, sin
 `LEEME.txt` para `BULK INSERT`. La tabla toma el nombre del archivo de salida,
 en el esquema `dbo`. Desde la línea de comandos el script siempre crea una tabla
 nueva, con las columnas de texto ajustadas al largo de los datos; añadir filas o
-actualizar por clave se elige en Entregar. `bundle`/`zip` publica un paquete con dataset CSV, diccionario,
+actualizar por clave se elige en Entregar. El script va en un solo lote (sin
+`GO`) y SQL Server rechaza un lote de más de 256 MB con el paquete de red por
+defecto; Entregar avisa a partir de unos 100 MB estimados y propone el paquete
+BULK INSERT para esos casos. `bundle`/`zip` publica un paquete con dataset CSV, diccionario,
 reporte de calidad y manifest con hashes. Los destinos no pueden ser el input ni
 la receta, tampoco a través de `..`, otras mayúsculas o un enlace duro, ni
 siquiera con `--force`. Reemplazar cualquier otro archivo existente exige
