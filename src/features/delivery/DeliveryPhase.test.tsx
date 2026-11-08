@@ -938,6 +938,28 @@ describe("DeliveryPhase", () => {
     }));
   });
 
+  it("descarta la conexión al pasar a un formato de archivo y volver al mismo motor", async () => {
+    const preflight = vi.spyOn(bridge, "preflightDatabaseExport").mockResolvedValue(preflightResult("postgresql"));
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: "Confirmo que quiero exportar sin validar la calidad",
+    }));
+    selectFormat("postgresql");
+    await fillConnection("localhost", "ana", "secret");
+    expect(screen.getByRole("button", { name: "Analizar compatibilidad" })).toBeEnabled();
+
+    selectFormat("csv");
+    selectFormat("postgresql");
+
+    await screen.findByText(/^Controlador: /);
+    expect(screen.getByLabelText("Servidor")).toHaveValue("");
+    const analyze = screen.getByRole("button", { name: "Analizar compatibilidad" });
+    expect(analyze).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Completa la conexión con el servidor.");
+    fireEvent.click(analyze);
+    expect(preflight).not.toHaveBeenCalled();
+  });
+
   it("deriva el motor ODBC del formato remoto seleccionado", async () => {
     const preflight = vi.spyOn(bridge, "preflightDatabaseExport")
       .mockImplementation(async (target) => preflightResult(target.kind));

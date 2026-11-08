@@ -344,6 +344,8 @@ Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o
 - UTF-8 estricto con BOM opcional; los fines de línea solo-CR se detectan en la muestra y se leen con `eol_char = \r` sin reescribir el archivo. Si el archivo no es UTF-8, Rust devuelve `LEGACY_ENCODING_PREFIX` con una línea de ejemplo decodificada como Windows-1252 y Cargar propone «Convertir y continuar»; solo tras ese clic `convert_dataset_selection_encoding` escribe una copia UTF-8 privada con el mismo nombre, la selección pasa a apuntarla y el original no se toca. Las copias viven en `DatasetState::converted_sources` mientras el dataset activo o la selección las usen; al arrancar se borran las carpetas `columnia-utf8-*` que dejó un cierre forzado.
 - Detección conservadora de coma, punto y coma, tabulador o `|`; TSV fuerza tabulador.
 
+La importación desde una base de datos (`remote_databases.rs`) escribe cada lote ODBC al Parquet temporal en cuanto llega (`read_cursor_to_parquet` → `ImportParquetWriter`), sin tener la tabla en memoria; los lotes se juntan en grupos de `parquet_row_group_rows`, y solo `ImportParquetWriter::finish` hace `persist` y borra las importaciones anteriores. Topes: 5.000.000 de filas, 2.000 columnas (antes de reservar búferes) y 100.000 filas de catálogo (AUD-012, AUD-037). El catálogo y las filas se leen en ancho (`TextColumn::<u16>`): con `TablesRow` (SQL_C_CHAR) el controlador entrega la página de códigos de Windows y los nombres con `ñ` se perdían (AUD-024). `inspect_destination` sigue con `TablesRow` porque los destinos de Entregar solo admiten nombres ASCII.
+
 CSV y otros formatos delimitados se conservan físicamente como texto para no inventar un esquema. El perfil puede detectar semántica numérica segura sin convertir identificadores con ceros iniciales o enteros que perderían precisión. Parquet conserva su esquema nativo compatible.
 
 ### Revisión
@@ -579,6 +581,8 @@ Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del regis
 Al subir dependencias: `vitest` y `@vitest/coverage-v8` comparten versión exacta (una es dependencia par de la otra), así que `npm update` sin nombres no las sube y hay que nombrar las dos; `THIRD_PARTY_NOTICES.md` se regenera con `tools/generate-third-party-notices.ps1` y `notices:check` exige su texto exacto; y `docs:check` compara el recuento de dependencias del lockfile que cita `AUDITORIA.md` (fila de `npm audit`), que hay que actualizar a mano si el lockfile gana o pierde paquetes.
 
 Vitest recoge cualquier `*.spec.ts` fuera de `e2e/` (`vitest.config.ts` solo excluye esa carpeta y las de artefactos): una prueba de Playwright guardada en otro sitio hace fallar `npm test` al cargarla.
+
+Dos trampas de dependencias en la importación ODBC. En odbc-api 29.1.0, `TextColumnView::<u16>::iter()` hace `expect` y entra en pánico con UTF-16 inválido (un sustituto suelto, que SQL Server admite en `nvarchar`); `get(row)` devuelve `&[u16]` sin pánico (AUD-104 sigue abierta para las filas). En polars 0.55.2, `BatchedWriter::write_batch` escribe un grupo de filas por chunk e ignora `with_row_group_size`, así que hay que juntar y hacer `rechunk` antes de escribir. Las pruebas externas de importación (`--ignored`) se miden contra una base de pruebas propia; `COLUMNIA_ODBC_IMPORT_ROWS` por encima de 25 lee solo el pie del Parquet para que el pico de memoria sea el de la importación.
 
 Las ramas específicas de symlinks/reparse points dependen de la plataforma; en Windows se prueban con una unión de directorio, que no requiere privilegios.
 

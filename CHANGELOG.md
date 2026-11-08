@@ -323,6 +323,19 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Importar una tabla grande desde una base de datos ya no carga la tabla entera
+  en memoria: las filas se guardan por lotes según llegan. 5.000.000 de filas
+  por 20 columnas se importan sin superar unos 110 MB, y el límite de 2 GiB de
+  texto desaparece. Una tabla de más de 2.000 columnas, o un servidor que
+  lista más de 100.000 tablas, se rechazan con un mensaje claro (AUD-012).
+- Las tablas y esquemas con tildes, `ñ` u otros caracteres fuera del alfabeto
+  inglés (`Año`, `Ventas_ñ.Pedidos`) aparecen en «Ver tablas» con su nombre
+  exacto y se pueden importar. Antes podían desaparecer de la lista o quedar
+  sin esquema (AUD-024).
+- En Entregar, si rellenas la conexión de una base de datos, pasas a un formato
+  de archivo y vuelves, la conexión anterior ya no sigue guardada a escondidas
+  con el formulario vacío: hay que volver a escribirla antes de analizar
+  (AUD-023).
 - Importar otra tabla desde una base de datos ya no borra el archivo del
   dataset que estás usando antes de que confirmes. Las importaciones anteriores
   solo se borran cuando la nueva está guardada, así que un fallo al escribir no
@@ -1191,6 +1204,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   ser demasiado grande para que SQL Server lo acepte en un solo lote (unos
   100 MB estimados; el límite es 256 MB), y ofrece cambiar al paquete BULK
   INSERT con un botón. El aviso no impide exportar (AUD-014).
+- Las tablas importadas desde una base de datos se guardan en bloques del mismo
+  tamaño que el resto de Columnia, así que se leen y exportan más rápido
+  (AUD-037).
 - Revisar dice cómo se calculó el perfil: de todas las filas, en memoria con
   Polars o por bloques con Polars y DuckDB, cuánto tardó y a qué hora. Los
   perfiles guardados antes en un proyecto no lo muestran.

@@ -543,6 +543,12 @@ export function DeliveryPhase({
       }));
       setDatabasePreflightState({ kind: "idle" });
       databaseRequestGeneration.current += 1;
+    } else {
+      // Leaving database destinations unmounts the form (it keeps its fields inside),
+      // so the connection held here must be dropped too or it would outlive the form.
+      setDatabaseTarget((current) => (current.connection ? { ...current, connection: null } : current));
+      setDatabasePreflightState({ kind: "idle" });
+      databaseRequestGeneration.current += 1;
     }
   }
 

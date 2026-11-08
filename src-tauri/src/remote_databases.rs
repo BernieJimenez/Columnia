@@ -2245,11 +2245,17 @@ fn readable_driver_detail(detail: &str) -> String {
 pub(crate) const MAX_IMPORT_ROWS: usize = 5_000_000;
 /// Longer cells are cut to this many characters and the column is named.
 const MAX_IMPORT_CELL_CHARS: usize = 8_000;
-/// Text kept in memory before the Parquet file is written.
-const MAX_IMPORT_TEXT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
-/// Size of the ODBC fetch buffer; the rows per batch follow from it.
+/// The most columns one import reads; a server that reports more is refused
+/// before any buffer is reserved for them.
+const MAX_IMPORT_COLUMNS: usize = 2_000;
+/// Size of the ODBC fetch buffer; the rows per batch follow from it. Each batch
+/// goes to the Parquet file as soon as it arrives, so memory is bounded by one
+/// batch, not by the table.
 const IMPORT_BUFFER_BYTES: usize = 64 * 1024 * 1024;
 const MAX_LISTED_TABLES: usize = 5_000;
+/// Catalog rows read before giving up: far above the tables shown, so a server
+/// that never stops listing objects ends with an error instead of filling memory.
+const MAX_CATALOG_ROWS: usize = 100_000;
 const DATABASE_IMPORT_DIRECTORY: &str = "database-imports";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -2378,28 +2384,154 @@ fn list_source_tables(
     statement
         .set_query_timeout_sec(ODBC_CATALOG_TIMEOUT_SEC)
         .map_err(|error| format_driver_error("No se pudieron listar las tablas", error, target))?;
-    let rows = statement
-        .tables("", "", "", "TABLE,VIEW")
-        .map_err(|error| format_driver_error("No se pudieron listar las tablas", error, target))?
-        .collect::<Result<Vec<TablesRow>, _>>()
+    let cursor = statement
+        .tables_cursor("", "", "", "TABLE,VIEW")
+        .map_err(|error| format_driver_error("No se pudieron listar las tablas", error, target))?;
+    let rows = catalog_rows(cursor)
         .map_err(|error| format_driver_error("No se pudieron leer las tablas", error, target))?;
-    let text = |value: &odbc_api::parameter::VarCharArray<128>| {
-        value.as_str().ok().flatten().unwrap_or_default().to_owned()
-    };
-    let mut tables = rows
-        .iter()
-        .filter_map(|row| {
-            source_table(
-                target.kind,
-                &text(&row.catalog),
-                &text(&row.schema),
-                row.table.as_str().ok().flatten()?,
-                row.table_type.as_str().ok().flatten().unwrap_or_default(),
-            )
-        })
-        .collect::<Vec<_>>();
+    let mut unreadable = 0usize;
+    let mut tables = read_catalog_tables(rows, MAX_CATALOG_ROWS, |row: CatalogRow| {
+        if row.unreadable {
+            unreadable += 1;
+            return None;
+        }
+        source_table(
+            target.kind,
+            &row.catalog.unwrap_or_default(),
+            &row.schema.unwrap_or_default(),
+            &row.table.unwrap_or_default(),
+            &row.table_type.unwrap_or_default(),
+        )
+    })
+    .map_err(|error| match error {
+        CatalogReadError::Driver(error) => {
+            format_driver_error("No se pudieron leer las tablas", error, target)
+        }
+        CatalogReadError::TooManyRows => catalog_too_large_message(),
+    })?;
+    if unreadable > 0 {
+        return Err(unreadable_catalog_message(unreadable));
+    }
     sort_source_tables(&mut tables);
     tables.truncate(MAX_LISTED_TABLES);
+    Ok(tables)
+}
+
+/// One row of the catalog read in wide text. A cell is None when the server
+/// sent NULL. A row with a cell that could not be decoded (or was cut) is
+/// flagged `unreadable`, so it is counted instead of shown wrong.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct CatalogRow {
+    catalog: Option<String>,
+    schema: Option<String>,
+    table: Option<String>,
+    table_type: Option<String>,
+    /// Some cell was not valid UTF-16 or was cut: nothing of the row is trusted.
+    unreadable: bool,
+}
+
+/// NULL stays None; UTF-16 that is not valid is an Err, never replaced.
+fn decode_catalog_cell(cell: Option<&[u16]>) -> Result<Option<String>, ()> {
+    cell.map(|units| String::from_utf16(units).map_err(|_| ()))
+        .transpose()
+}
+
+fn unreadable_catalog_message(count: usize) -> String {
+    format!(
+        "El servidor devolvió {count} tablas o vistas con un nombre que Columnia no puede leer. No se muestra la lista para no ocultarlas en silencio."
+    )
+}
+
+/// The catalog columns TABLE_CAT, TABLE_SCHEM, TABLE_NAME and TABLE_TYPE as
+/// UTF-16: the narrow form goes through the Windows code page and loses or
+/// garbles accents, `ñ` or any character outside it.
+fn catalog_rows<C: odbc_api::Cursor>(
+    cursor: C,
+) -> Result<impl Iterator<Item = Result<CatalogRow, odbc_api::Error>>, odbc_api::Error> {
+    use odbc_api::buffers::{ColumnarBuffer, TextColumn};
+
+    const BATCH_ROWS: usize = 1_000;
+    // Above the 128 characters of the longest identifiers of the three engines.
+    const CELL_UNITS: usize = 256;
+    let buffer = ColumnarBuffer::new(
+        (1u16..=4)
+            .map(|column| (column, TextColumn::<u16>::new(BATCH_ROWS, CELL_UNITS)))
+            .collect(),
+    );
+    let mut block = cursor.bind_buffer(buffer)?;
+    let mut queue = std::collections::VecDeque::new();
+    let mut finished = false;
+    Ok(std::iter::from_fn(move || loop {
+        if let Some(row) = queue.pop_front() {
+            return Some(Ok(row));
+        }
+        if finished {
+            return None;
+        }
+        match block.fetch() {
+            Err(error) => {
+                finished = true;
+                return Some(Err(error));
+            }
+            Ok(None) => finished = true,
+            Ok(Some(batch)) => {
+                let cut =
+                    (0..4).any(|column| batch.column(column).has_truncated_values().is_some());
+                let columns: Vec<_> = (0..4).map(|column| batch.column(column)).collect();
+                for row in 0..batch.num_rows() {
+                    let mut unreadable = cut;
+                    let mut text = |index: usize| {
+                        // `get`, not `iter`: the iterator panics on invalid UTF-16.
+                        let cell = columns[index].get(row);
+                        decode_catalog_cell(cell).unwrap_or_else(|()| {
+                            unreadable = true;
+                            None
+                        })
+                    };
+                    let (catalog, schema, table, table_type) = (text(0), text(1), text(2), text(3));
+                    queue.push_back(CatalogRow {
+                        catalog,
+                        schema,
+                        table,
+                        table_type,
+                        unreadable,
+                    });
+                }
+            }
+        }
+    }))
+}
+
+enum CatalogReadError<E> {
+    Driver(E),
+    TooManyRows,
+}
+
+fn catalog_too_large_message() -> String {
+    format!(
+        "El servidor lista más de {MAX_CATALOG_ROWS} tablas y vistas; Columnia no puede mostrarlas todas. Usa un usuario con acceso a menos objetos."
+    )
+}
+
+/// Reads the server's catalog row by row, keeping only what `convert` accepts,
+/// and stops with an error once `limit` rows went by: a catalog that never
+/// ends must not fill the memory.
+fn read_catalog_tables<R, E>(
+    rows: impl Iterator<Item = Result<R, E>>,
+    limit: usize,
+    mut convert: impl FnMut(R) -> Option<DatabaseSourceTable>,
+) -> Result<Vec<DatabaseSourceTable>, CatalogReadError<E>> {
+    let mut tables = Vec::new();
+    let mut seen = 0usize;
+    for row in rows {
+        seen += 1;
+        if seen > limit {
+            return Err(CatalogReadError::TooManyRows);
+        }
+        if let Some(table) = convert(row.map_err(CatalogReadError::Driver)?) {
+            tables.push(table);
+        }
+    }
     Ok(tables)
 }
 
@@ -2533,28 +2665,64 @@ fn import_file_name(table: &DatabaseSourceTable) -> String {
     format!("{safe}.parquet")
 }
 
-fn read_cursor_to_frame<Cur, F, C>(
+/// The number of columns to read, or the reason the table is refused. Checked
+/// before any buffer is reserved, so a server that reports thousands of
+/// columns cannot make Columnia allocate for them.
+fn check_import_column_count(count: usize) -> Result<u16, String> {
+    if count == 0 {
+        return Err("La tabla no tiene columnas que importar.".to_owned());
+    }
+    if count > MAX_IMPORT_COLUMNS {
+        return Err(format!(
+            "La tabla tiene {count} columnas; Columnia importa como mucho {MAX_IMPORT_COLUMNS}."
+        ));
+    }
+    u16::try_from(count).map_err(|_| "La tabla tiene demasiadas columnas.".to_owned())
+}
+
+/// One ODBC batch as a small all-text frame; `None` stays null.
+fn import_batch_frame(
+    names: &[String],
+    columns: Vec<Vec<Option<String>>>,
+) -> Result<DataFrame, String> {
+    use polars::prelude::{IntoColumn, NamedFrom, Series};
+    let rows = columns.first().map_or(0, Vec::len);
+    let columns = names
+        .iter()
+        .zip(columns)
+        .map(|(name, column)| Series::new(name.as_str().into(), column).into_column())
+        .collect::<Vec<_>>();
+    DataFrame::new(rows, columns)
+        .map_err(|error| format!("No se pudo preparar la tabla importada: {error}"))
+}
+
+struct ImportRead {
+    rows: usize,
+    more_rows_available: bool,
+    truncated_columns: Vec<String>,
+    /// Every row is already in the temporary file; it still has to be persisted.
+    writer: ImportParquetWriter,
+}
+
+fn read_cursor_to_parquet<Cur, F, C>(
     mut cursor: Cur,
     row_limit: usize,
+    pending: PendingImport,
     report: &mut F,
     is_cancelled: &C,
     target: &DatabaseTarget,
-) -> Result<(DataFrame, bool, Vec<String>), String>
+) -> Result<ImportRead, String>
 where
     Cur: odbc_api::Cursor + odbc_api::ResultSetMetadata,
     F: FnMut(&'static str, u8),
     C: Fn() -> bool,
 {
     use odbc_api::buffers::{ColumnarBuffer, TextColumn};
-    use polars::prelude::{IntoColumn, NamedFrom, Series};
 
     let column_count = cursor
         .num_result_cols()
         .map_err(|error| format_driver_error("No se pudieron leer las columnas", error, target))?;
-    let column_count = u16::try_from(column_count)
-        .ok()
-        .filter(|count| *count > 0)
-        .ok_or_else(|| "La tabla no tiene columnas que importar.".to_owned())?;
+    let column_count = check_import_column_count(usize::try_from(column_count).unwrap_or(0))?;
     let mut names = Vec::with_capacity(usize::from(column_count));
     let mut lengths = Vec::with_capacity(usize::from(column_count));
     for column in 1..=column_count {
@@ -2593,11 +2761,13 @@ where
         .bind_buffer(buffer)
         .map_err(|error| format_driver_error("No se pudo preparar la lectura", error, target))?;
 
-    let mut values = vec![Vec::<Option<String>>::new(); names.len()];
+    // Each batch is written to the temporary Parquet as soon as it arrives:
+    // memory holds one batch, never the table. If the read fails or is
+    // cancelled, the writer is dropped and the temporary file goes with it.
+    let mut writer = pending.start(&names)?;
     let mut truncated = vec![false; names.len()];
     let mut rows = 0usize;
     let mut more_rows_available = false;
-    let mut text_bytes = 0u64;
     loop {
         ensure_not_cancelled(is_cancelled)?;
         let Some(batch) = block
@@ -2608,23 +2778,22 @@ where
         };
         let available = batch.num_rows();
         let take = available.min(row_limit - rows);
-        for (index, column) in values.iter_mut().enumerate() {
+        let mut columns = Vec::with_capacity(names.len());
+        for (index, flag) in truncated.iter_mut().enumerate() {
             let slice = batch.column(index);
             if slice.has_truncated_values().is_some() {
-                truncated[index] = true;
+                *flag = true;
             }
-            for value in slice.iter().take(take) {
-                let text = value.map(|text| text.to_string());
-                text_bytes += text.as_ref().map_or(0, |text| text.len() as u64);
-                column.push(text);
-            }
-        }
-        rows += take;
-        if text_bytes > MAX_IMPORT_TEXT_BYTES {
-            return Err(
-                "La tabla ocupa más de 2 GiB de texto: elige un límite de filas menor.".to_owned(),
+            columns.push(
+                slice
+                    .iter()
+                    .take(take)
+                    .map(|value| value.map(|text| text.to_string()))
+                    .collect::<Vec<_>>(),
             );
         }
+        writer.write_rows(columns)?;
+        rows += take;
         let percent = 20 + ((rows as u64 * 60) / row_limit.max(1) as u64).min(60) as u8;
         report("Leyendo filas", percent);
         if take < available {
@@ -2639,72 +2808,185 @@ where
         .filter(|(_, truncated)| **truncated)
         .map(|(name, _)| name.clone())
         .collect();
-    let columns = names
-        .iter()
-        .zip(values)
-        .map(|(name, column)| Series::new(name.as_str().into(), column).into_column())
-        .collect::<Vec<_>>();
-    let frame = DataFrame::new(rows, columns)
-        .map_err(|error| format!("No se pudo preparar la tabla importada: {error}"))?;
-    Ok((frame, more_rows_available, truncated_columns))
+    Ok(ImportRead {
+        rows,
+        more_rows_available,
+        truncated_columns,
+        writer,
+    })
 }
 
-/// Writes the import atomically under app-data and removes earlier imports,
-/// except the file the active dataset still reads.
-fn write_import_parquet(
-    directory: &Path,
-    file_name: &str,
-    keep: Option<&Path>,
-    frame: &mut DataFrame,
-) -> Result<std::path::PathBuf, String> {
-    use polars::prelude::ParquetWriter;
-    match std::fs::symlink_metadata(directory) {
-        Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
-            return Err("La carpeta de importaciones no es una carpeta normal.".to_owned());
+/// The destination of an import and the temporary file beside it, ready before
+/// the first row is read. Nothing earlier is touched until `finish`.
+struct PendingImport {
+    directory: std::path::PathBuf,
+    destination: std::path::PathBuf,
+    temporary: tempfile::NamedTempFile,
+    /// The file the active dataset reads, by identity, never to be deleted.
+    canonical_keep: Option<std::path::PathBuf>,
+}
+
+impl PendingImport {
+    /// Checks the imports folder and creates the temporary file. When the
+    /// active dataset reads the file this import would replace, the new one
+    /// sits beside it as «(nueva)».
+    fn prepare(directory: &Path, file_name: &str, keep: Option<&Path>) -> Result<Self, String> {
+        match std::fs::symlink_metadata(directory) {
+            Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
+                return Err("La carpeta de importaciones no es una carpeta normal.".to_owned());
+            }
+            Ok(_) => {}
+            Err(_) => std::fs::create_dir_all(directory)
+                .map_err(|_| "No se pudo crear la carpeta de importaciones.".to_owned())?,
         }
-        Ok(_) => {}
-        Err(_) => std::fs::create_dir_all(directory)
-            .map_err(|_| "No se pudo crear la carpeta de importaciones.".to_owned())?,
-    }
-    // Compare by file identity, not by path text: the active dataset reports a
-    // canonical path (`\\?\C:\...` on Windows) while `read_dir` does not.
-    let canonical_keep = keep.and_then(|keep| std::fs::canonicalize(keep).ok());
-    let same_file = |path: &Path| {
-        canonical_keep.as_ref().is_some_and(|keep| {
-            std::fs::canonicalize(path).is_ok_and(|canonical| &canonical == keep)
+        // Compare by file identity, not by path text: the active dataset reports a
+        // canonical path (`\\?\C:\...` on Windows) while `read_dir` does not.
+        let canonical_keep = keep.and_then(|keep| std::fs::canonicalize(keep).ok());
+        let mut destination = directory.join(file_name);
+        if is_same_file(canonical_keep.as_deref(), &destination) {
+            // The active dataset still reads that file: the new import sits beside it.
+            let stem = file_name.trim_end_matches(".parquet");
+            destination = directory.join(format!("{stem} (nueva).parquet"));
+        }
+        let temporary = tempfile::NamedTempFile::new_in(directory)
+            .map_err(|_| "No se pudo crear el archivo de la importación.".to_owned())?;
+        Ok(Self {
+            directory: directory.to_path_buf(),
+            destination,
+            temporary,
+            canonical_keep,
         })
-    };
-    let mut destination = directory.join(file_name);
-    if same_file(&destination) {
-        // The active dataset still reads that file: the new import sits beside it.
-        let stem = file_name.trim_end_matches(".parquet");
-        destination = directory.join(format!("{stem} (nueva).parquet"));
     }
-    let mut temporary = tempfile::NamedTempFile::new_in(directory)
-        .map_err(|_| "No se pudo crear el archivo de la importación.".to_owned())?;
-    ParquetWriter::new(temporary.as_file_mut())
-        .finish(frame)
-        .map_err(|error| format!("No se pudo guardar la tabla importada: {error}"))?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|_| "No se pudo guardar la tabla importada.".to_owned())?;
-    temporary
-        .persist(&destination)
-        .map_err(|_| "No se pudo guardar la tabla importada.".to_owned())?;
-    // Only now that the new file is in place are earlier imports removed.
-    if let Ok(entries) = std::fs::read_dir(directory) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let is_parquet = path
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("parquet"));
-            if is_parquet && path != destination && !same_file(&path) {
-                let _ = std::fs::remove_file(path);
+
+    /// Opens the Parquet writer with every column as text.
+    fn start(self, names: &[String]) -> Result<ImportParquetWriter, String> {
+        use polars::prelude::ParquetWriter;
+        let schema_frame = import_batch_frame(names, vec![Vec::new(); names.len()])?;
+        let file = self
+            .temporary
+            .as_file()
+            .try_clone()
+            .map_err(|_| "No se pudo crear el archivo de la importación.".to_owned())?;
+        let writer = ParquetWriter::new(file)
+            .batched(schema_frame.schema())
+            .map_err(|error| format!("No se pudo guardar la tabla importada: {error}"))?;
+        Ok(ImportParquetWriter {
+            writer,
+            names: names.to_vec(),
+            buffered: None,
+            group_rows: usize::MAX,
+            pending: self,
+        })
+    }
+}
+
+fn is_same_file(canonical_keep: Option<&Path>, path: &Path) -> bool {
+    canonical_keep
+        .is_some_and(|keep| std::fs::canonicalize(path).is_ok_and(|canonical| canonical == keep))
+}
+
+/// A Parquet file written batch by batch into a temporary file.
+struct ImportParquetWriter {
+    writer: polars::io::parquet::write::BatchedWriter<std::fs::File>,
+    names: Vec<String>,
+    /// Rows waiting to fill a row group; never more than `group_rows`.
+    buffered: Option<DataFrame>,
+    /// Rows per row group: the smallest `parquet_row_group_rows` seen so far.
+    group_rows: usize,
+    pending: PendingImport,
+}
+
+impl ImportParquetWriter {
+    /// The one place a batch reaches the file. Batches are gathered into row
+    /// groups of `parquet_row_group_rows` rows (as the rest of the project
+    /// writes them) and a group is written as soon as it is full.
+    fn write_rows(&mut self, columns: Vec<Vec<Option<String>>>) -> Result<(), String> {
+        if columns.first().is_none_or(Vec::is_empty) {
+            return Ok(());
+        }
+        let mut frame = import_batch_frame(&self.names, columns)?;
+        self.group_rows = self
+            .group_rows
+            .min(crate::dataset::parquet_row_group_rows(&frame));
+        if self
+            .buffered
+            .as_ref()
+            .is_some_and(|buffered| buffered.height() >= self.group_rows)
+        {
+            self.flush()?;
+        }
+        while frame.height() > 0 {
+            let held = self.buffered.as_ref().map_or(0, DataFrame::height);
+            let take = (self.group_rows - held).min(frame.height());
+            let part = frame.slice(0, take);
+            frame = frame.slice(take as i64, frame.height() - take);
+            match self.buffered.as_mut() {
+                Some(buffered) => buffered
+                    .vstack_mut(&part)
+                    .map(|_| ())
+                    .map_err(|error| format!("No se pudo preparar la tabla importada: {error}"))?,
+                None => self.buffered = Some(part),
+            }
+            if held + take >= self.group_rows {
+                self.flush()?;
             }
         }
+        Ok(())
     }
-    Ok(destination)
+
+    /// Writes the gathered rows as one row group (`write_batch` writes one
+    /// group per chunk, so the frame is first made a single chunk).
+    fn flush(&mut self) -> Result<(), String> {
+        let Some(mut group) = self.buffered.take() else {
+            return Ok(());
+        };
+        group.rechunk_mut();
+        self.writer
+            .write_batch(&group)
+            .map_err(|error| format!("No se pudo guardar la tabla importada: {error}"))
+    }
+
+    /// Closes the file, puts it in place atomically and only then removes
+    /// earlier imports, except the file the active dataset still reads.
+    fn finish(mut self) -> Result<std::path::PathBuf, String> {
+        self.flush()?;
+        let Self {
+            writer, pending, ..
+        } = self;
+        writer
+            .finish()
+            .map_err(|error| format!("No se pudo guardar la tabla importada: {error}"))?;
+        drop(writer);
+        let PendingImport {
+            directory,
+            destination,
+            temporary,
+            canonical_keep,
+        } = pending;
+        temporary
+            .as_file()
+            .sync_all()
+            .map_err(|_| "No se pudo guardar la tabla importada.".to_owned())?;
+        temporary
+            .persist(&destination)
+            .map_err(|_| "No se pudo guardar la tabla importada.".to_owned())?;
+        // Only now that the new file is in place are earlier imports removed.
+        if let Ok(entries) = std::fs::read_dir(&directory) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let is_parquet = path
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("parquet"));
+                if is_parquet
+                    && path != destination
+                    && !is_same_file(canonical_keep.as_deref(), &path)
+                {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+        }
+        Ok(destination)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2741,6 +3023,9 @@ where
             format!("La tabla «{table}» no aparece entre las que el servidor permite leer.")
         })?;
 
+    // The temporary file exists before the query runs; if anything fails from
+    // here on it is discarded and no earlier import is touched.
+    let pending = PendingImport::prepare(directory, &import_file_name(&listed), keep)?;
     report("Leyendo filas", 20);
     let cursor = connection
         .execute(
@@ -2750,18 +3035,23 @@ where
         )
         .map_err(|error| format_driver_error("No se pudo leer la tabla", error, &target))?
         .ok_or_else(|| "La tabla no devolvió filas.".to_owned())?;
-    let (mut frame, more_rows_available, truncated_columns) =
-        read_cursor_to_frame(cursor, row_limit, &mut report, &is_cancelled, &target)?;
-    let rows = frame.height();
+    let read = read_cursor_to_parquet(
+        cursor,
+        row_limit,
+        pending,
+        &mut report,
+        &is_cancelled,
+        &target,
+    )?;
 
     ensure_not_cancelled(&is_cancelled)?;
     report("Guardando la tabla en este equipo", 85);
-    let path = write_import_parquet(directory, &import_file_name(&listed), keep, &mut frame)?;
+    let path = read.writer.finish()?;
     Ok(FetchedTable {
         path,
-        rows,
-        more_rows_available,
-        truncated_columns,
+        rows: read.rows,
+        more_rows_available: read.more_rows_available,
+        truncated_columns: read.truncated_columns,
     })
 }
 
@@ -5526,6 +5816,397 @@ mod tests {
         assert!(!message.contains("s3cr"));
     }
 
+    /// Writes a text frame the way an import does: one batch through the
+    /// streaming writer, then persisted.
+    fn write_import_parquet(
+        directory: &Path,
+        file_name: &str,
+        keep: Option<&Path>,
+        frame: &mut DataFrame,
+    ) -> Result<std::path::PathBuf, String> {
+        let names = frame
+            .get_column_names()
+            .iter()
+            .map(|name| name.to_string())
+            .collect::<Vec<_>>();
+        let columns = frame
+            .columns()
+            .iter()
+            .map(|column| {
+                column
+                    .str()
+                    .expect("texto")
+                    .iter()
+                    .map(|value| value.map(str::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let mut writer = PendingImport::prepare(directory, file_name, keep)?.start(&names)?;
+        writer.write_rows(columns)?;
+        writer.finish()
+    }
+
+    /// Rows and row groups of a Parquet file, read from its footer only.
+    fn parquet_footer(path: &Path) -> (usize, usize) {
+        use polars::prelude::SerReader;
+        let mut reader =
+            polars::prelude::ParquetReader::new(fs::File::open(path).expect("parquet"));
+        let metadata = reader.get_metadata().expect("metadatos");
+        (metadata.num_rows, metadata.row_groups.len())
+    }
+
+    /// Rows of every row group of a Parquet file, read from its footer only.
+    fn parquet_group_rows(path: &Path) -> Vec<usize> {
+        use polars::prelude::SerReader;
+        let mut reader =
+            polars::prelude::ParquetReader::new(fs::File::open(path).expect("parquet"));
+        let metadata = reader.get_metadata().expect("metadatos");
+        metadata
+            .row_groups
+            .iter()
+            .map(|group| group.num_rows())
+            .collect()
+    }
+
+    /// `rows` rows by `columns` short text columns, with a null every 7th row.
+    fn wide_text_batch(first: usize, rows: usize, columns: usize) -> Vec<Vec<Option<String>>> {
+        (0..columns)
+            .map(|column| {
+                (first..first + rows)
+                    .map(|row| (row % 7 != column % 7).then(|| format!("v{row}-{column}")))
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn text_batch(first: usize, rows: usize) -> Vec<Vec<Option<String>>> {
+        let ids = (first..first + rows)
+            .map(|row| Some(format!("id-{row}")))
+            .collect();
+        let names = (first..first + rows)
+            .map(|row| (row % 3 != 0).then(|| format!("Íñigo {row}")))
+            .collect();
+        vec![ids, names]
+    }
+
+    /// AUD-012: a server that reports thousands of columns is refused before
+    /// any buffer is reserved for them.
+    #[test]
+    fn an_import_with_too_many_columns_is_refused_with_a_clear_message() {
+        let message = check_import_column_count(100_000).expect_err("100.000 columnas");
+        assert!(message.contains("100000 columnas"), "{message}");
+        assert!(message.contains("como mucho 2000"), "{message}");
+        assert!(check_import_column_count(MAX_IMPORT_COLUMNS + 1).is_err());
+        assert_eq!(check_import_column_count(MAX_IMPORT_COLUMNS), Ok(2_000));
+        assert_eq!(check_import_column_count(1), Ok(1));
+        let empty = check_import_column_count(0).expect_err("sin columnas");
+        assert!(empty.contains("no tiene columnas"), "{empty}");
+    }
+
+    /// AUD-012: a catalog that never ends stops at the limit, reading no more
+    /// rows than the limit allows.
+    #[test]
+    fn a_catalog_without_end_stops_with_an_error() {
+        let mut read = 0usize;
+        let rows = std::iter::repeat_with(|| {
+            read += 1;
+            Ok::<_, String>(read)
+        });
+        let result = read_catalog_tables(rows, 1_000, |number| {
+            Some(listed("dbo", &format!("t{number}")))
+        });
+        assert!(matches!(result, Err(CatalogReadError::TooManyRows)));
+        assert_eq!(read, 1_001, "se deja de leer al pasar el tope");
+        assert!(catalog_too_large_message().contains("100000 tablas y vistas"));
+    }
+
+    /// AUD-024: the catalog is read in UTF-16, so accents, `ñ` and characters
+    /// outside the Windows code page arrive intact; NULL stays NULL.
+    #[test]
+    fn catalog_cells_decode_from_utf16_keeping_nulls() {
+        let wide = |text: &str| text.encode_utf16().collect::<Vec<u16>>();
+        for text in ["Año", "Ventas_ñ", "Zona_Ω", "dbo", ""] {
+            let units = wide(text);
+            assert_eq!(decode_catalog_cell(Some(&units)), Ok(Some(text.to_owned())));
+        }
+        assert_eq!(decode_catalog_cell(None), Ok(None));
+    }
+
+    #[test]
+    fn a_catalog_cell_that_is_not_utf16_is_an_error_not_an_empty_schema() {
+        let lone_surrogate = [0x0064, 0xD800, 0x0062];
+        assert_eq!(decode_catalog_cell(Some(&lone_surrogate)), Err(()));
+        let message = unreadable_catalog_message(2);
+        assert!(message.contains("2 tablas o vistas"), "{message}");
+    }
+
+    #[test]
+    fn listed_names_with_wide_characters_reach_the_select_intact() {
+        let table = source_table(DatabaseKind::SqlServer, "", "Ventas_ñ", "Zona_Ω", "TABLE")
+            .expect("tabla");
+        assert_eq!(
+            (table.schema.as_str(), table.name.as_str()),
+            ("Ventas_ñ", "Zona_Ω")
+        );
+        assert!(find_listed_table(std::slice::from_ref(&table), "Ventas_ñ", "Zona_Ω").is_some());
+        let sql = select_rows_sql(&table, 5, DatabaseKind::SqlServer);
+        assert!(sql.contains("Ventas_ñ") && sql.contains("Zona_Ω"), "{sql}");
+    }
+
+    #[test]
+    fn a_catalog_within_the_limit_keeps_only_the_accepted_rows() {
+        let rows = (0..10).map(Ok::<_, String>);
+        let tables = read_catalog_tables(rows, 10, |number| {
+            (number % 2 == 0).then(|| listed("dbo", &format!("t{number}")))
+        })
+        .unwrap_or_else(|_| panic!("el catálogo cabe en el tope"));
+        assert_eq!(tables.len(), 5);
+        let failing = vec![Ok(1), Err("se cayó".to_owned()), Ok(2)].into_iter();
+        let result = read_catalog_tables(failing, 10, |_| None);
+        assert!(matches!(result, Err(CatalogReadError::Driver(message)) if message == "se cayó"));
+    }
+
+    #[test]
+    fn a_batch_becomes_an_all_text_frame_that_keeps_its_nulls() {
+        let names = vec!["id".to_owned(), "nombre".to_owned()];
+        let frame = import_batch_frame(&names, text_batch(0, 4)).expect("frame");
+        assert_eq!((frame.height(), frame.width()), (4, 2));
+        assert!(frame
+            .dtypes()
+            .iter()
+            .all(|dtype| *dtype == DataType::String));
+        let names_column = frame.column("nombre").expect("columna");
+        assert_eq!(names_column.null_count(), 2, "las filas 0 y 3 son nulas");
+        assert_eq!(
+            frame
+                .column("id")
+                .expect("columna")
+                .str()
+                .expect("texto")
+                .get(2),
+            Some("id-2")
+        );
+    }
+
+    /// AUD-012: every batch goes to the file as it arrives; the file holds all
+    /// the rows with their values and nulls, gathered into one row group.
+    #[test]
+    fn batches_are_streamed_into_one_parquet_with_values_and_nulls() {
+        use polars::prelude::SerReader;
+        let directory = tempfile::tempdir().expect("carpeta");
+        let imports = directory.path().join(DATABASE_IMPORT_DIRECTORY);
+        let names = vec!["id".to_owned(), "nombre".to_owned()];
+        let mut writer = PendingImport::prepare(&imports, "dbo.Lotes.parquet", None)
+            .expect("destino")
+            .start(&names)
+            .expect("escritor");
+        writer.write_rows(text_batch(0, 4)).expect("lote 1");
+        writer
+            .write_rows(vec![Vec::new(), Vec::new()])
+            .expect("un lote vacío no escribe nada");
+        writer.write_rows(text_batch(4, 1)).expect("lote 2");
+        writer.write_rows(text_batch(5, 6)).expect("lote 3");
+        let path = writer.finish().expect("se guarda");
+        assert_eq!(
+            parquet_footer(&path),
+            (11, 1),
+            "11 filas de 3 lotes caben en un solo grupo"
+        );
+
+        let frame = polars::prelude::ParquetReader::new(fs::File::open(&path).expect("parquet"))
+            .finish()
+            .expect("se lee");
+        assert_eq!(frame.get_column_names(), vec!["id", "nombre"]);
+        let ids = frame.column("id").expect("id");
+        let ids = ids.str().expect("texto");
+        let people = frame.column("nombre").expect("nombre");
+        let people = people.str().expect("texto");
+        for row in 0..11 {
+            assert_eq!(ids.get(row).map(str::to_owned), Some(format!("id-{row}")));
+            let expected = (row % 3 != 0).then(|| format!("Íñigo {row}"));
+            assert_eq!(people.get(row).map(str::to_owned), expected, "fila {row}");
+        }
+    }
+
+    /// AUD-012: many batches stream through without the table being held.
+    #[test]
+    fn many_batches_land_in_the_file_one_after_another() {
+        let directory = tempfile::tempdir().expect("carpeta");
+        let imports = directory.path().join(DATABASE_IMPORT_DIRECTORY);
+        let names = vec!["id".to_owned(), "nombre".to_owned()];
+        let mut writer = PendingImport::prepare(&imports, "dbo.Muchos.parquet", None)
+            .expect("destino")
+            .start(&names)
+            .expect("escritor");
+        for batch in 0..20 {
+            writer
+                .write_rows(text_batch(batch * 10_000, 10_000))
+                .expect("lote");
+        }
+        let path = writer.finish().expect("se guarda");
+        let groups = parquet_group_rows(&path);
+        assert_eq!(groups.iter().sum::<usize>(), 200_000);
+        assert!(groups.iter().all(|rows| *rows <= 65_536), "{groups:?}");
+        assert!(groups.len() < 20, "menos grupos que lotes: {groups:?}");
+    }
+
+    /// AUD-037: 100.000 rows by 60 text columns in batches of 10.000 are
+    /// regrouped into row groups of at most 65.536 rows, with every value and
+    /// null intact.
+    #[test]
+    fn wide_import_batches_are_regrouped_into_row_groups_of_the_project_size() {
+        use polars::prelude::SerReader;
+        let directory = tempfile::tempdir().expect("carpeta");
+        let imports = directory.path().join(DATABASE_IMPORT_DIRECTORY);
+        let names = (0..60)
+            .map(|column| format!("c{column}"))
+            .collect::<Vec<_>>();
+        let mut writer = PendingImport::prepare(&imports, "dbo.Ancha.parquet", None)
+            .expect("destino")
+            .start(&names)
+            .expect("escritor");
+        for batch in 0..10 {
+            writer
+                .write_rows(wide_text_batch(batch * 10_000, 10_000, 60))
+                .expect("lote");
+        }
+        let path = writer.finish().expect("se guarda");
+        let groups = parquet_group_rows(&path);
+        assert_eq!(groups.iter().sum::<usize>(), 100_000);
+        assert!(groups.iter().all(|rows| *rows <= 65_536), "{groups:?}");
+        assert!(groups.len() < 10, "menos grupos que lotes: {groups:?}");
+
+        let frame = polars::prelude::ParquetReader::new(fs::File::open(&path).expect("parquet"))
+            .finish()
+            .expect("se lee");
+        assert_eq!((frame.height(), frame.width()), (100_000, 60));
+        for (row, column) in [(0, 0), (7, 3), (65_536, 17), (99_999, 59)] {
+            let values = frame.column(&format!("c{column}")).expect("columna");
+            let values = values.str().expect("texto");
+            let value = (row % 7 != column % 7).then(|| format!("v{row}-{column}"));
+            assert_eq!(values.get(row).map(str::to_owned), value, "fila {row}");
+        }
+        let nulls: usize = frame
+            .columns()
+            .iter()
+            .map(|column| column.null_count())
+            .sum();
+        let expected_nulls: usize = (0..60)
+            .map(|column| (0..100_000).filter(|row| row % 7 == column % 7).count())
+            .sum();
+        assert_eq!(nulls, expected_nulls);
+    }
+
+    /// AUD-037: rows wide enough to pass the byte target get fewer rows per
+    /// group, and no group passes `HISTORY_SNAPSHOT_BATCH_ROWS`.
+    #[test]
+    fn very_wide_rows_get_smaller_row_groups() {
+        let directory = tempfile::tempdir().expect("carpeta");
+        let imports = directory.path().join(DATABASE_IMPORT_DIRECTORY);
+        let names = vec!["texto".to_owned()];
+        let mut writer = PendingImport::prepare(&imports, "dbo.Texto.parquet", None)
+            .expect("destino")
+            .start(&names)
+            .expect("escritor");
+        for batch in 0..4 {
+            let long = (0..2_000)
+                .map(|row| Some(format!("{batch}-{row}-{}", "x".repeat(20_000))))
+                .collect();
+            writer.write_rows(vec![long]).expect("lote");
+        }
+        let path = writer.finish().expect("se guarda");
+        let groups = parquet_group_rows(&path);
+        assert_eq!(groups.iter().sum::<usize>(), 8_000);
+        assert!(groups.iter().all(|rows| *rows <= 1_700), "{groups:?}");
+        assert!(groups.len() >= 5, "{groups:?}");
+    }
+
+    /// AUD-037: the T-SQL script of the regrouped import is generated through
+    /// DuckDB without running out of memory.
+    #[test]
+    fn tsql_script_of_a_wide_import_runs_within_the_memory_limit() {
+        let directory = tempfile::tempdir().expect("carpeta");
+        let imports = directory.path().join(DATABASE_IMPORT_DIRECTORY);
+        let names = (0..60)
+            .map(|column| format!("c{column}"))
+            .collect::<Vec<_>>();
+        let mut writer = PendingImport::prepare(&imports, "dbo.Ancha.parquet", None)
+            .expect("destino")
+            .start(&names)
+            .expect("escritor");
+        for batch in 0..10 {
+            writer
+                .write_rows(wide_text_batch(batch * 10_000, 10_000, 60))
+                .expect("lote");
+        }
+        let path = writer.finish().expect("se guarda");
+        let script = directory.path().join("ancha.sql");
+        let target = crate::tsql_script::TsqlTarget::resolve(None, "ancha").expect("destino");
+        crate::duckdb_query::export_file_to_tsql_with_cancel(
+            &path,
+            crate::duckdb_query::DuckDbFileFormat::Parquet,
+            &script,
+            target,
+            || false,
+        )
+        .expect("el script T-SQL debe generarse");
+        assert!(fs::metadata(&script).expect("script").len() > 1_000_000);
+    }
+
+    /// A table without rows still gives a valid Parquet with its columns.
+    #[test]
+    fn a_table_without_rows_gives_a_valid_parquet_with_its_columns() {
+        use polars::prelude::SerReader;
+        let directory = tempfile::tempdir().expect("carpeta");
+        let imports = directory.path().join(DATABASE_IMPORT_DIRECTORY);
+        let names = vec!["id".to_owned(), "nombre".to_owned()];
+        let writer = PendingImport::prepare(&imports, "dbo.Vacia.parquet", None)
+            .expect("destino")
+            .start(&names)
+            .expect("escritor");
+        let path = writer.finish().expect("se guarda");
+        assert_eq!(parquet_footer(&path).0, 0);
+        let frame = polars::prelude::ParquetReader::new(fs::File::open(&path).expect("parquet"))
+            .finish()
+            .expect("se lee");
+        assert_eq!(frame.height(), 0);
+        assert_eq!(frame.get_column_names(), vec!["id", "nombre"]);
+        assert!(frame
+            .dtypes()
+            .iter()
+            .all(|dtype| *dtype == DataType::String));
+    }
+
+    /// If the read fails or is cancelled midway, the temporary file is
+    /// discarded, no new Parquet appears and earlier imports stay.
+    #[test]
+    fn an_import_abandoned_midway_leaves_no_new_file_and_keeps_earlier_ones() {
+        use polars::prelude::df;
+        let directory = tempfile::tempdir().expect("carpeta");
+        let imports = directory.path().join(DATABASE_IMPORT_DIRECTORY);
+        let mut frame = df!("nombre" => ["Ana"]).expect("frame");
+        let earlier =
+            write_import_parquet(&imports, "dbo.X.parquet", None, &mut frame).expect("anterior");
+        let names = vec!["id".to_owned(), "nombre".to_owned()];
+        let mut writer = PendingImport::prepare(&imports, "dbo.Nueva.parquet", None)
+            .expect("destino")
+            .start(&names)
+            .expect("escritor");
+        writer.write_rows(text_batch(0, 100)).expect("primer lote");
+        drop(writer);
+        assert!(earlier.exists(), "la importación anterior sigue ahí");
+        let names: Vec<String> = fs::read_dir(&imports)
+            .expect("carpeta")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["dbo.X.parquet"],
+            "sin temporales ni Parquet nuevo"
+        );
+    }
+
     #[test]
     fn writing_the_import_keeps_the_active_file_and_replaces_earlier_imports() {
         use polars::prelude::df;
@@ -5624,19 +6305,30 @@ mod tests {
 
     /// Reads a real table without writing anything. Set COLUMNIA_ODBC_IMPORT
     /// to a connection string and COLUMNIA_ODBC_IMPORT_TABLE to «schema.table».
+    /// COLUMNIA_ODBC_IMPORT_ROWS sets the row limit (25 by default). With a
+    /// limit above 25 the test only reads the Parquet footer and prints no
+    /// frame, so the process memory shows what the import itself used.
     #[test]
     #[ignore = "requiere un SQL Server real configurado por variables de sesión"]
     fn external_odbc_import_reads_a_table_as_text() {
         let source =
             sql_server_source(&env::var("COLUMNIA_ODBC_IMPORT").expect("COLUMNIA_ODBC_IMPORT"));
         let qualified = env::var("COLUMNIA_ODBC_IMPORT_TABLE").expect("COLUMNIA_ODBC_IMPORT_TABLE");
+        let row_limit = env::var("COLUMNIA_ODBC_IMPORT_ROWS")
+            .map(|value| {
+                value
+                    .trim()
+                    .parse::<usize>()
+                    .expect("COLUMNIA_ODBC_IMPORT_ROWS")
+            })
+            .unwrap_or(25);
         let (schema, table) = qualified.split_once('.').expect("esquema.tabla");
         let directory = tempfile::tempdir().expect("carpeta");
         let fetched = import_table_with_cancel(
             &source,
             schema,
             table,
-            25,
+            row_limit,
             directory.path(),
             None,
             |_, _| {},
@@ -5644,7 +6336,16 @@ mod tests {
         )
         .expect("la tabla se importa");
         assert!(fetched.path.exists());
-        assert!(fetched.rows > 0 && fetched.rows <= 25);
+        assert!(fetched.rows > 0 && fetched.rows <= row_limit);
+        if row_limit > 25 {
+            let (rows, row_groups) = parquet_footer(&fetched.path);
+            assert_eq!(rows, fetched.rows);
+            eprintln!(
+                "importadas {} filas en {} grupos de filas; más filas: {}; columnas recortadas: {:?}",
+                fetched.rows, row_groups, fetched.more_rows_available, fetched.truncated_columns
+            );
+            return;
+        }
         use polars::prelude::SerReader;
         let frame = polars::prelude::ParquetReader::new(
             std::fs::File::open(&fetched.path).expect("parquet"),
@@ -5665,6 +6366,64 @@ mod tests {
             frame.get_column_names()
         );
         eprintln!("{frame}");
+    }
+
+    /// AUD-024: lists the tables of a real server and checks that the names
+    /// with accents, `ñ` or `Ω` appear exactly, then imports one of them.
+    /// Launch (PowerShell, from src-tauri/):
+    ///   $env:COLUMNIA_TEST_HARNESS_MANIFEST = "1"
+    ///   $env:COLUMNIA_ODBC_IMPORT = "<connection string>"
+    ///   $env:COLUMNIA_ODBC_EXPECT_TABLES = "dbo.Año;Ventas_ñ.Pedidos;dbo.Zona_Ω"
+    ///   cargo test --lib external_odbc_catalog_lists_wide_names -- --ignored --nocapture
+    /// COLUMNIA_ODBC_EXPECT_ROWS (optional) is the row count the first
+    /// expected table must have (the import limit is 1000 rows).
+    #[test]
+    #[ignore = "requiere un SQL Server real configurado por variables de sesión"]
+    fn external_odbc_catalog_lists_wide_names() {
+        let source =
+            sql_server_source(&env::var("COLUMNIA_ODBC_IMPORT").expect("COLUMNIA_ODBC_IMPORT"));
+        let expected =
+            env::var("COLUMNIA_ODBC_EXPECT_TABLES").expect("COLUMNIA_ODBC_EXPECT_TABLES");
+        let target = source_as_target(&source);
+        let environment = Environment::new().expect("entorno ODBC");
+        let connection =
+            connect(&environment, &target, ConnectionPurpose::Import).expect("conexión");
+        let tables = list_source_tables(&connection, &target).expect("lista de tablas");
+        let mut first = None;
+        for qualified in expected.split(';').filter(|item| !item.trim().is_empty()) {
+            let (schema, name) = qualified.trim().split_once('.').expect("esquema.tabla");
+            assert!(
+                find_listed_table(&tables, schema, name).is_some(),
+                "no aparece {qualified}; listadas: {:?}",
+                tables
+                    .iter()
+                    .map(|table| format!("{}.{}", table.schema, table.name))
+                    .collect::<Vec<_>>()
+            );
+            first.get_or_insert((schema.to_owned(), name.to_owned()));
+        }
+        let (schema, name) = first.expect("al menos una tabla esperada");
+        let directory = tempfile::tempdir().expect("carpeta");
+        let fetched = import_table_with_cancel(
+            &source,
+            &schema,
+            &name,
+            1_000,
+            directory.path(),
+            None,
+            |_, _| {},
+            || false,
+        )
+        .expect("la tabla se importa");
+        if let Ok(rows) = env::var("COLUMNIA_ODBC_EXPECT_ROWS") {
+            assert_eq!(
+                fetched.rows,
+                rows.trim()
+                    .parse::<usize>()
+                    .expect("COLUMNIA_ODBC_EXPECT_ROWS")
+            );
+        }
+        eprintln!("{schema}.{name}: {} filas importadas", fetched.rows);
     }
 
     #[test]

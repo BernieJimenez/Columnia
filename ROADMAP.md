@@ -1,6 +1,6 @@
 # Roadmap de Columnia
 
-**Actualizado:** 2026-11-06 · **Versión:** 1.26.0
+**Actualizado:** 2026-11-08 · **Versión:** 1.26.0
 
 **Estado:** aplicación local funcional para Windows x64, de **uso personal**. No
 se comparte ni se distribuye; las mejoras se eligen por lo que su dueño nota al
@@ -24,21 +24,22 @@ histórico aparte: lo cerrado se queda marcado `[x]` con su línea *Cierre* y pa
 al CHANGELOG. El 2026-11-06 se cerró la tanda 1 (AUD-001, 002, 004, 005 y 006)
 y se abrió AUD-099, aparecida al aplicarla. Ese mismo día se cerró la tanda 2
 (AUD-003, 010, 011, 013 y 014) y se abrieron AUD-100 a AUD-103, aparecidas al
-aplicarla.
+aplicarla. El 2026-11-08 se cerró la tanda 3 (AUD-012, 037, 023 y 024) y se
+abrió AUD-104, aparecida al aplicarla.
 
 <!-- indice:inicio -->
-**Última actualización:** 2026-11-06 · **Siguiente ID libre:** AUD-104 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
+**Última actualización:** 2026-11-08 · **Siguiente ID libre:** AUD-105 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
 
 | Tier | Abiertas | Cerradas | Esfuerzo de las abiertas (Bajo · Medio · Alto) |
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
-| 2 · Medio | 22 | 10 | 12 · 10 · 0 |
-| 3 · Bajo | 70 | 0 | 68 · 2 · 0 |
+| 2 · Medio | 18 | 14 | 9 · 9 · 0 |
+| 3 · Bajo | 71 | 0 | 69 · 2 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **93** | **10** | **81 · 12 · 0** |
+| **Total** | **90** | **14** | **79 · 11 · 0** |
 
-**Abiertas por área:** UI/UX 19 · Código 12 · Accesibilidad 12 · QA y testing 12 · Arquitectura 10 · Rendimiento 10 · Documentación 9 · Redacción 5 · Seguridad 4
+**Abiertas por área:** UI/UX 19 · Accesibilidad 12 · QA y testing 12 · Código 11 · Rendimiento 9 · Arquitectura 9 · Documentación 9 · Redacción 5 · Seguridad 4
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -209,13 +210,14 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-06 · tanda 2 de la Fase 2 (rama `auditoria/2026-11-05`). `write_import_parquet` compara rutas canonicalizadas y borra las importaciones anteriores solo después de `persist`. La prueba con la ruta canónica y la del fallo de escritura fallaban con el código anterior y pasan ahora. No se repitió en la app real.
 
-- [ ] **AUD-012 · La importación desde una base de datos no acota de verdad la memoria: el tope de 2 GiB cuenta solo los bytes de texto**
+- [x] **AUD-012 · La importación desde una base de datos no acota de verdad la memoria: el tope de 2 GiB cuenta solo los bytes de texto**
   - **Área:** Arquitectura · **Severidad:** Medio · **Esfuerzo:** Medio
   - **Ubicación:** `src-tauri/src/remote_databases.rs:2407-2437`
   - **Qué hacer:** escribir Parquet por lotes (`ParquetWriter::batched` con un frame por lote ODBC) en lugar de acumular columnas enteras; el tope de filas ya no necesita el de bytes. Si se mantiene la acumulación, contar el sobrecoste (`24 + len` por celda) y aplicar `ensure_materialization_budget` con la estimación. Con un servidor hostil: truncar la lista de tablas mientras se lee y limitar el número de columnas (por ejemplo, 2.000).
   - **Criterio de aceptación:** importar 1.000.000 filas por 30 columnas de texto corto mantiene el pico de memoria por debajo de unos 1,5 GB (medido con el monitor de recursos) y 5.000.000 filas por 20 columnas no aborta el proceso. Un cursor simulado de 100.000 columnas, o con tablas sin fin, termina con un error claro.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-08 · tanda 3 de la Fase 2 (rama `auditoria/2026-11-05`). Cada lote leído del servidor se escribe al Parquet temporal en cuanto llega, sin acumular la tabla; la escritura sigue siendo atómica y las importaciones anteriores se borran solo después. Se quitó el tope de 2 GiB de texto. Una tabla de más de 2.000 columnas se rechaza antes de reservar memoria, y un catálogo de más de 100.000 objetos se corta con un mensaje claro (pruebas con 100.000 columnas y con un catálogo sin fin). Medido con la prueba externa contra una base de pruebas en el SQL Server local, ya borrada: 1.000.000 × 30 columnas de texto corto, pico de 134 MB; 5.000.000 × 20, pico de 108 MB y sin abortar. No se midió en la app abierta.
 
 - [x] **AUD-013 · Listar tablas y conectar no tienen timeout de sentencia, y Cancelar solo se observa entre llamadas del controlador**
   - **Área:** Arquitectura · **Severidad:** Medio · **Esfuerzo:** Bajo
@@ -245,21 +247,23 @@ Sin tareas abiertas.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
 
-- [ ] **AUD-023 · Al volver a un destino de base de datos, el formulario aparece vacío pero la cadena de conexión anterior sigue en el estado y se puede usar**
+- [x] **AUD-023 · Al volver a un destino de base de datos, el formulario aparece vacío pero la cadena de conexión anterior sigue en el estado y se puede usar**
   - **Área:** Código · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/delivery/DeliveryPhase.tsx:520-536`
   - **Qué hacer:** limpiar `connectionString` y subir `connectionFormKey` cada vez que el formato deja de ser de base de datos (en `changeExportFormat`, rama `else`), o guardar los campos en el padre. Un cambio de una línea: `if (!kind) { setDatabaseTarget(c => ({...c, connectionString: ""})); setConnectionFormKey(k => k + 1); }`.
   - **Criterio de aceptación:** tras rellenar PostgreSQL, pasar a «Archivo» y volver, el botón "Analizar destino" queda deshabilitado con el aviso "Completa la conexión con el servidor." y el estado `databaseTarget.connectionString` es `""`. Prueba de componente nueva.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-08 · tanda 3 de la Fase 2 (rama `auditoria/2026-11-05`). Al pasar a un formato que no es de base de datos se descarta la conexión (desde AUD-002 es `databaseTarget.connection`, que queda en `null`) y el análisis vuelve a cero. Prueba de componente: PostgreSQL → CSV → PostgreSQL deja el servidor vacío, «Analizar compatibilidad» (el nombre actual del botón) deshabilitado con «Completa la conexión con el servidor.» y sin llamar al análisis. Falla con el código anterior y pasa ahora.
 
-- [ ] **AUD-024 · Las tablas y esquemas con acentos o `ñ` pueden desaparecer de la lista (o quedar sin esquema) porque el catálogo ODBC se lee como UTF-8 estricto**
+- [x] **AUD-024 · Las tablas y esquemas con acentos o `ñ` pueden desaparecer de la lista (o quedar sin esquema) porque el catálogo ODBC se lee como UTF-8 estricto**
   - **Área:** Código · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:2197-2209`
   - **Qué hacer:** leer el catálogo en ancho (`SQLTablesW` mediante un cursor propio: `connection.tables_cursor(...)` y `bind_buffer` con `TextColumn::<u16>`), o al menos distinguir el fallo: si `as_str()` da error, no omitir la tabla en silencio sino devolver "N tablas con nombres que no se pueden leer" y no usar `unwrap_or_default()` para el esquema (rechazar la fila). Añadir una prueba con `Año` y `ñ` contra un servidor local, aunque sea `#[ignore]`.
   - **Criterio de aceptación:** con una tabla `[dbo].[Año]` y otra `[Ventas_ñ].[Pedidos]` en SQL Server local, ambas aparecen en "Ver tablas" con su nombre exacto, y se importan las filas correctas.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-08 · tanda 3 de la Fase 2 (rama `auditoria/2026-11-05`). El catálogo se lee como texto Unicode (UTF-16) con un cursor propio, y un nombre que no se puede leer da un error claro en vez de desaparecer o quedar sin esquema. Comprobado contra una base de pruebas en el SQL Server local, ya borrada: `[dbo].[Año]`, `[Ventas_ñ].[Pedidos]` y `[dbo].[Zona_Ω]` aparecen con su nombre exacto, y se importan sus 3 y 4 filas con las tildes intactas (prueba externa `external_odbc_catalog_lists_wide_names`). No se vio en la app abierta.
 
 - [ ] **AUD-025 · Fechas y huecos de la etapa en disco copian la lógica de la ruta en memoria en lugar de compartirla (regresión parcial de COD-03)**
   - **Área:** Código · **Severidad:** Medio · **Esfuerzo:** Medio
@@ -303,13 +307,14 @@ Sin tareas abiertas.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
 
-- [ ] **AUD-037 · La importación de una base de datos escribe el Parquet sin la configuración de grupos de filas que el resto del proyecto aplica a propósito**
+- [x] **AUD-037 · La importación de una base de datos escribe el Parquet sin la configuración de grupos de filas que el resto del proyecto aplica a propósito**
   - **Área:** Rendimiento · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:2500-2502`
   - **Qué hacer:** `ParquetWriter::new(...).with_row_group_size(Some(crate::dataset::parquet_row_group_rows(frame))).finish(frame)`. Un cambio de una línea; se puede añadir una prueba que lea `ParquetMetaData` del archivo importado y compruebe que ningún grupo supera `HISTORY_SNAPSHOT_BATCH_ROWS`.
   - **Criterio de aceptación:** el Parquet importado de una tabla de 100.000 filas por 60 columnas de texto tiene grupos de a lo sumo 65.536 filas, y la exportación a script T-SQL desde ese dataset no agota el límite de memoria de DuckDB.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-08 · tanda 3 de la Fase 2 (rama `auditoria/2026-11-05`). Con la escritura por lotes de AUD-012, los lotes se juntan en grupos de `parquet_row_group_rows` (como mucho 65.536 filas, menos en filas anchas) antes de escribirlos. 100.000 × 60 columnas de texto dan grupos de 65.536 y 34.464, y el script T-SQL de ese Parquet se genera dentro del límite de DuckDB (pruebas). Contra el SQL Server local, 1.000.000 filas quedan en 16 grupos (eran 100 de 10.000) y la importación pasa de 7,8 s a 6,4 s.
 
 ### Accesibilidad y semántica
 
@@ -518,7 +523,7 @@ Sin tareas abiertas.
 - [ ] **AUD-103 · Cancelar una importación desde base de datos espera al controlador, y no puede volver antes sin riesgo**
   - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:2711`
-  - **Qué hacer:** comprobar la cancelación justo antes de `persist` en `write_import_parquet`, para que un hilo cancelado no escriba ni borre nada, y después usar `run_blocking_unless_cancelled` (AUD-013) también en `import_database_table`.
+  - **Qué hacer:** comprobar la cancelación justo antes de `persist` en `ImportParquetWriter::finish` (era `write_import_parquet` antes de AUD-012), para que un hilo cancelado no escriba ni borre nada, y después usar `run_blocking_unless_cancelled` (AUD-013) también en `import_database_table`.
   - **Criterio de aceptación:** con un servidor que no responde, Cancelar una importación devuelve la interfaz a su estado en menos de 2 s, y el hilo que vuelve después no deja ningún Parquet nuevo ni borra los anteriores (prueba con un trabajo simulado).
   - **Depende de:** AUD-012 (cambia el mismo camino de escritura)
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-013
@@ -580,6 +585,14 @@ Sin tareas abiertas.
   - **Criterio de aceptación:** el compilador impide llamar a `execute` desde un `Arc` compartido, o el comentario nombra la restricción.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+
+- [ ] **AUD-104 · Importar una celda de texto con un sustituto UTF-16 suelto hace entrar en pánico la lectura y la importación termina con un error genérico**
+  - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/remote_databases.rs`, `read_cursor_to_parquet` (`slice.iter()`, ≈`:2789`)
+  - **Qué hacer:** leer cada celda con `get(row)` (que devuelve `&[u16]` sin pánico), como ya hace el catálogo desde AUD-024, y decidir qué hacer con un valor que no es UTF-16 válido: sustituir el carácter con `String::from_utf16_lossy` y nombrar la columna en el resultado, igual que `truncated_columns`, o rechazar la importación con un mensaje que diga la columna. `TextColumnView::<u16>::iter()` de odbc-api 29.1.0 hace `expect("Wide character encoding must be UTF-16")` (`text_column.rs:582`). SQL Server guarda en `nvarchar` sustitutos sueltos sin quejarse.
+  - **Criterio de aceptación:** importar una tabla con una celda `NCHAR(0xD800) + N'x'` no entra en pánico: termina con las filas importadas y la columna señalada, o con un error que la nombra. Prueba unitaria de la decodificación y prueba externa `#[ignore]`.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-024. Reproducido el 2026-11-08 contra la base de pruebas: la prueba externa de importación entra en pánico en `text_column.rs:582`. Ya pasaba antes de la tanda 3; en la app, el pánico dentro de `spawn_blocking` llega como «La importación se interrumpió inesperadamente.» (perfil `panic = "unwind"`).
 
 ### Rendimiento
 
