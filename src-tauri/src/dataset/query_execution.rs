@@ -1118,7 +1118,7 @@ where
         let block = read_parquet_query_block(path, start, length)?;
         if block.height() != length {
             return Err(format!(
-                "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot Parquet cambió durante la lectura (se esperaban {length} filas en el bloque y se obtuvieron {}).",
+                "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot Parquet no corresponde con el dataset (se esperaban {length} filas en el bloque y se obtuvieron {}).",
                 block.height()
             ));
         }
@@ -1157,7 +1157,7 @@ where
                         Ok((start, block))
                     } else {
                         Err(format!(
-                            "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot Parquet cambió durante la lectura (se esperaban {length} filas en el bloque y se obtuvieron {}).",
+                            "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot Parquet no corresponde con el dataset (se esperaban {length} filas en el bloque y se obtuvieron {}).",
                             block.height()
                         ))
                     }
@@ -1208,7 +1208,7 @@ where
         let block = read_parquet_query_block_with_cancel(path, start, length, is_cancelled)?;
         if block.height() != length {
             return Err(format!(
-                "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot Parquet cambió durante la lectura (se esperaban {length} filas en el bloque y se obtuvieron {}).",
+                "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot Parquet no corresponde con el dataset (se esperaban {length} filas en el bloque y se obtuvieron {}).",
                 block.height()
             ));
         }

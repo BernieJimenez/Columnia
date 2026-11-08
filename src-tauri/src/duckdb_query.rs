@@ -52,7 +52,7 @@ enum DatasetSource<'a> {
     },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DuckDbFileFormat {
     Parquet,
     Delimited { delimiter: u8 },
@@ -406,18 +406,25 @@ where
 
 /// REN-01: DuckDB's progress of a running native count, readable from the
 /// thread that waits for it.
-pub(crate) struct NativeProgress(Arc<NativeDuckDb>);
+pub(crate) struct NativeProgress {
+    native: Arc<NativeDuckDb>,
+    /// AUD-026: set by [`NativeProgress::interrupt`] and read by the count's
+    /// fallback, which runs on connections `native.interrupt` does not reach.
+    cancelled: Arc<AtomicBool>,
+}
 
 impl NativeProgress {
     /// How far the running statement has gone (0.0 to 1.0), if DuckDB knows.
     pub(crate) fn fraction(&self) -> Option<f64> {
-        let percentage = self.0.progress();
+        let percentage = self.native.progress();
         (percentage >= 0.0).then(|| (percentage / 100.0).clamp(0.0, 1.0))
     }
 
-    /// Stops the running statement; the count then ends with an error.
+    /// Stops the running statement, or the fallback count that replaced it;
+    /// the count then ends with an error.
     pub(crate) fn interrupt(&self) {
-        self.0.interrupt();
+        self.cancelled.store(true, Ordering::Release);
+        self.native.interrupt();
     }
 }
 
@@ -432,8 +439,19 @@ pub(crate) fn spawn_parquet_distinct_count(
     path: &Path,
     columns: &[String],
 ) -> Result<(NativeProgress, DistinctCountWorker), String> {
+    spawn_parquet_distinct_count_with_limit(path, columns, DUCKDB_LARGE_FILE_MEMORY_LIMIT)
+}
+
+fn spawn_parquet_distinct_count_with_limit(
+    path: &Path,
+    columns: &[String],
+    memory_limit: &str,
+) -> Result<(NativeProgress, DistinctCountWorker), String> {
     let native = Arc::new(NativeDuckDb::open()?);
     let worker_native = Arc::clone(&native);
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let worker_cancelled = Arc::clone(&cancelled);
+    let memory_limit = memory_limit.to_owned();
     let path = path.to_owned();
     let columns = columns.to_vec();
     let handle = thread::spawn(move || {
@@ -450,7 +468,7 @@ pub(crate) fn spawn_parquet_distinct_count(
         configure_duckdb_resources_with_limit(
             &connection,
             resource_directory.path(),
-            DUCKDB_LARGE_FILE_MEMORY_LIMIT,
+            &memory_limit,
         )?;
         register_file_view(
             &connection,
@@ -476,13 +494,17 @@ pub(crate) fn spawn_parquet_distinct_count(
             "CREATE TABLE distinct_counts AS SELECT {projections} FROM dataset"
         )) {
             Ok(()) => {}
+            // The cancellation interrupted this very statement.
+            Err(_) if worker_cancelled.load(Ordering::Acquire) => {
+                return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+            }
             Err(error) if error.contains("Out of Memory Error") => {
                 drop(connection);
                 return count_file_distinct_non_null(
                     &path,
                     DuckDbFileFormat::Parquet,
                     &columns,
-                    || false,
+                    move || worker_cancelled.load(Ordering::Acquire),
                 );
             }
             Err(error) => {
@@ -508,7 +530,7 @@ pub(crate) fn spawn_parquet_distinct_count(
             })
             .collect()
     });
-    Ok((NativeProgress(native), handle))
+    Ok((NativeProgress { native, cancelled }, handle))
 }
 
 /// REN-01: an in-memory DuckDB database and connection opened through the C
@@ -1615,7 +1637,9 @@ pub(crate) enum NumericCastTarget {
     Integer,
     /// Every value is a whole number written as a decimal (`10.0`, `1e+05`).
     IntegerFromDecimal,
-    /// Every value is a finite decimal with at most 15 significant digits.
+    /// Every value is a finite decimal that f64 holds exactly (the shortest
+    /// f64 form keeps its digits, as in `decimal_fits_in_f64`), or is written
+    /// in scientific notation.
     Decimal,
 }
 
@@ -4183,5 +4207,53 @@ mod tests {
             .expect("la señal de cancelación debe terminar");
 
         assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+    }
+
+    /// AUD-026: cancelling while the distinct count runs its out-of-memory
+    /// fallback stops that fallback instead of waiting for it to end.
+    #[test]
+    fn cancelling_the_distinct_count_reaches_its_out_of_memory_fallback() {
+        const ROWS: u32 = 1_000_000;
+        let directory = tempfile::tempdir().expect("directorio de prueba");
+        let parquet_path = directory.path().join("texto_libre.parquet");
+        {
+            let connection = Connection::open_in_memory().expect("DuckDB de prueba");
+            let destination = parquet_path.to_string_lossy().replace('\\', "/");
+            // Free text, distinct in every row: the fallback has to fingerprint
+            // a million long values per column, one column after another.
+            connection
+                .execute_batch(&format!(
+                    "SET preserve_insertion_order = false; \
+                     COPY (SELECT lpad(i::VARCHAR, 120, 'a') AS a, \
+                     lpad((i * 7)::VARCHAR, 120, 'b') AS b, \
+                     lpad((i * 11)::VARCHAR, 120, 'c') AS c \
+                     FROM range({ROWS}) AS r(i)) TO '{destination}' (FORMAT PARQUET)"
+                ))
+                .expect("parquet de prueba");
+        }
+        let columns = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
+
+        // A memory limit this low makes the first count run out of memory at
+        // once, so the count goes on with its fallback.
+        let (progress, handle) =
+            spawn_parquet_distinct_count_with_limit(&parquet_path, &columns, "16MB")
+                .expect("el conteo debe arrancar");
+        // The fallback fingerprints a million long values per column, which
+        // takes seconds: the cancellation reaches it halfway through.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let cancelled_at = std::time::Instant::now();
+        progress.interrupt();
+        while !handle.is_finished() && cancelled_at.elapsed() < std::time::Duration::from_secs(10) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let waited = cancelled_at.elapsed();
+        assert!(
+            handle.is_finished(),
+            "el conteo debe terminar poco después de cancelar ({waited:?})"
+        );
+        assert_eq!(
+            handle.join().expect("el hilo no debe entrar en pánico"),
+            Err(OPERATION_CANCELLED_MESSAGE.to_owned())
+        );
     }
 }

@@ -339,9 +339,15 @@ fn perf_probe_profile() {
             started.elapsed().as_secs_f64()
         );
         profile_started = Instant::now();
+        let source_format = match extension.as_str() {
+            "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+            _ => crate::duckdb_query::DuckDbFileFormat::Delimited {
+                delimiter: detect_delimiter(&path, &extension).expect("delimitador"),
+            },
+        };
         let profile = profile_source_backed_with_progress(
             &path,
-            &extension,
+            source_format,
             size,
             row_count,
             &mut report,
@@ -785,12 +791,13 @@ fn probe_proposal(profile: &DatasetProfile) -> ProbeProposal {
 
 fn probe_profile(dataset: &LoadedDataset) -> Result<DatasetProfile, String> {
     if dataset.source_backed {
-        let (path, size, row_count) =
+        let (_, size, row_count) =
             current_source_backed_context(dataset).ok_or("la fuente en disco no está")?;
-        let extension = dataset_extension(&path)?;
+        let (path, source_format) =
+            current_duckdb_file_source(dataset).ok_or("la fuente en disco no está")?;
         profile_source_backed_with_progress(
             &path,
-            &extension,
+            source_format,
             size,
             row_count,
             |_, _| {},
@@ -811,7 +818,9 @@ fn probe_explore(
             current_source_backed_context(dataset).ok_or("la fuente en disco no está")?;
         match dataset_extension(&path)?.as_str() {
             "parquet" => parquet_scan(&path)?,
-            extension => match cached_profile_snapshot(&path) {
+            extension => match current_duckdb_file_source(dataset)
+                .and_then(|(_, format)| cached_profile_snapshot(&path, format))
+            {
                 Some(snapshot) => parquet_scan(&snapshot)?,
                 None => delimited_scan_with_header(&path, extension, true)?,
             },

@@ -323,6 +323,13 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- El perfil y «Validar contrato» de un CSV grande sin fila de encabezado
+  usan los nombres generados (`column_1`, `column_2`…) y ya no fallan al
+  final con «el snapshot Parquet cambió durante la lectura». Antes leían la
+  primera fila de datos como encabezado (AUD-022).
+- Cancelar el perfil mientras cuenta valores distintos responde enseguida
+  también cuando el conteo se queda sin memoria y pasa a contar columna a
+  columna. Antes esperaba a que terminara la cuenta entera (AUD-026).
 - Importar una tabla grande desde una base de datos ya no carga la tabla entera
   en memoria: las filas se guardan por lotes según llegan. 5.000.000 de filas
   por 20 columnas se importan sin superar unos 110 MB, y el límite de 2 GiB de
@@ -1501,6 +1508,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- La conversión de columnas a fecha y el relleno de huecos se escriben en un
+  solo sitio (`dataset/column_typing.rs`), compartido por la ruta en memoria y
+  la etapa en disco. Prueba nueva de la mediana de DuckDB contra la de la ruta
+  en memoria (AUD-025).
 - El roadmap solo lista lo pendiente: la revisión del 2026-10-01, aplicada, se
   archiva con sus casillas en docs/archive/2026-10/ y quedan seis hallazgos de
   rendimiento y de MySQL con lo hecho y lo que falta.

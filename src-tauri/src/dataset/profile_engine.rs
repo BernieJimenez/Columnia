@@ -2469,29 +2469,38 @@ pub(super) fn source_profile_snapshot(
     source_path: &Path,
     extension: &str,
 ) -> Result<(Option<tempfile::TempDir>, PathBuf), String> {
-    source_profile_snapshot_with_cancel(source_path, extension, || false)
+    let source_format = match extension {
+        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+        _ => crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(source_path, extension)?,
+        },
+    };
+    source_profile_snapshot_with_cancel(source_path, source_format, || false)
 }
 
+/// `source_format` is how the loaded dataset reads the file (see
+/// `current_duckdb_file_source`), so the copy has the columns the dataset has.
 pub(super) fn source_profile_snapshot_with_cancel<C>(
     source_path: &Path,
-    extension: &str,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     is_cancelled: C,
 ) -> Result<(Option<tempfile::TempDir>, PathBuf), String>
 where
     C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
+    use crate::duckdb_query::DuckDbFileFormat;
     ensure_not_cancelled(is_cancelled())?;
-    match extension {
-        "parquet" => Ok((None, source_path.to_owned())),
-        "csv" | "tsv" | "txt" => {
+    match source_format {
+        DuckDbFileFormat::Parquet => Ok((None, source_path.to_owned())),
+        DuckDbFileFormat::Delimited { .. } | DuckDbFileFormat::DelimitedWithoutHeader { .. } => {
             let (directory, snapshot) = persist_delimited_comparison_source_file_with_cancel(
                 source_path,
-                extension,
+                source_format,
                 is_cancelled,
             )?;
             Ok((Some(directory), snapshot))
         }
-        _ => Err("El formato no admite un perfil source-backed.".to_owned()),
+        DuckDbFileFormat::Json => Err("El formato no admite un perfil source-backed.".to_owned()),
     }
 }
 
@@ -2500,6 +2509,10 @@ where
 /// read it instead of parsing the CSV again (2019-Oct: 55 s against 3 s).
 struct ProfileSnapshot {
     source: PathBuf,
+    /// How the source was read to make the copy (delimiter and header
+    /// decision). A copy only answers for that reading: this is the one place
+    /// that decides it, whoever asks for the copy.
+    format: crate::duckdb_query::DuckDbFileFormat,
     size: u64,
     modified: Option<SystemTime>,
     directory: std::sync::Arc<HistoryDirectory>,
@@ -2539,9 +2552,13 @@ fn file_modified(path: &Path) -> Option<SystemTime> {
         .ok()
 }
 
-/// The working copy of `source` when the profile made one and the file has
-/// not changed since (same size and modification time).
-pub(super) fn cached_profile_snapshot(source: &Path) -> Option<CachedProfileSnapshot> {
+/// The working copy of `source` when the profile made one reading it with
+/// `format` and the file has not changed since (same size and modification
+/// time).
+pub(super) fn cached_profile_snapshot(
+    source: &Path,
+    format: crate::duckdb_query::DuckDbFileFormat,
+) -> Option<CachedProfileSnapshot> {
     use crate::crash_report::LockRecovering;
     let size = fs::metadata(source).ok()?.len();
     let modified = file_modified(source);
@@ -2550,6 +2567,7 @@ pub(super) fn cached_profile_snapshot(source: &Path) -> Option<CachedProfileSnap
         .iter()
         .find(|snapshot| {
             snapshot.source == source
+                && snapshot.format == format
                 && snapshot.size == size
                 && snapshot.modified == modified
                 && snapshot.path.is_file()
@@ -2577,10 +2595,12 @@ pub(super) fn clear_profile_snapshot_of(source: &Path) {
         .retain(|snapshot| snapshot.source != source);
 }
 
-/// `size` and `modified` are those of the source before the copy began, so a
-/// change of the file during the profile fails the cache check later.
+/// `format` is the reading the copy was made with. `size` and `modified` are
+/// those of the source before the copy began, so a change of the file during
+/// the profile fails the cache check later.
 pub(super) fn remember_profile_snapshot(
     source: &Path,
+    format: crate::duckdb_query::DuckDbFileFormat,
     size: u64,
     modified: Option<SystemTime>,
     directory: HistoryDirectory,
@@ -2594,6 +2614,7 @@ pub(super) fn remember_profile_snapshot(
     }
     snapshots.push(ProfileSnapshot {
         source: source.to_owned(),
+        format,
         size,
         modified,
         directory: std::sync::Arc::new(directory),
@@ -2601,9 +2622,12 @@ pub(super) fn remember_profile_snapshot(
     });
 }
 
+/// `source_format` is how the loaded dataset reads `source_path` (from
+/// `current_duckdb_file_source`), so a delimited file without a header gets
+/// its generated `column_N` names in the copy too.
 pub(super) fn profile_source_backed_with_progress<F, C>(
     source_path: &Path,
-    extension: &str,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     expected_file_size: u64,
     row_count: usize,
     mut report: F,
@@ -2622,22 +2646,27 @@ where
     let modified_before_copy = file_modified(source_path);
     // REN-01: copying a large delimited file to Parquet takes a while, so
     // DuckDB's own progress of the copy moves the bar from 0 to 9 %.
-    let cached = cached_profile_snapshot(source_path);
-    let (snapshot_directory, snapshot_path) = match extension {
-        "parquet" => (None, source_path.to_owned()),
-        "csv" | "tsv" | "txt" if cached.is_some() => (
-            None,
-            cached
-                .as_deref()
-                .expect("la copia en caché existe")
-                .to_owned(),
-        ),
-        "csv" | "tsv" | "txt" => {
+    use crate::duckdb_query::DuckDbFileFormat;
+    let cached = cached_profile_snapshot(source_path, source_format);
+    let (snapshot_directory, snapshot_path) = match source_format {
+        DuckDbFileFormat::Parquet => (None, source_path.to_owned()),
+        DuckDbFileFormat::Delimited { .. } | DuckDbFileFormat::DelimitedWithoutHeader { .. }
+            if cached.is_some() =>
+        {
+            (
+                None,
+                cached
+                    .as_deref()
+                    .expect("la copia en caché existe")
+                    .to_owned(),
+            )
+        }
+        DuckDbFileFormat::Delimited { .. } | DuckDbFileFormat::DelimitedWithoutHeader { .. } => {
             report("Preparando una copia de trabajo", 0);
             let mut shown = 0_u8;
             let (directory, snapshot) = persist_delimited_source_file_with_progress(
                 source_path,
-                extension,
+                source_format,
                 &is_cancelled,
                 |fraction| {
                     let percent = ((fraction * 10.0) as u8).min(9);
@@ -2649,7 +2678,9 @@ where
             )?;
             (Some(directory), snapshot)
         }
-        _ => return Err("El formato no admite un perfil source-backed.".to_owned()),
+        DuckDbFileFormat::Json => {
+            return Err("El formato no admite un perfil source-backed.".to_owned())
+        }
     };
     let schema = read_parquet_schema_frame(&snapshot_path)?;
 
@@ -2775,6 +2806,7 @@ where
     if let (Some(directory), Some(size)) = (snapshot_directory, size_before_copy) {
         remember_profile_snapshot(
             source_path,
+            source_format,
             size,
             modified_before_copy,
             directory,

@@ -39,6 +39,7 @@ use xxhash_rust::xxh3::xxh3_64;
 mod automation;
 mod categorical_profile;
 mod column_cleanup;
+mod column_typing;
 #[path = "dataset/comparison_engine.rs"]
 mod comparison_engine;
 #[path = "dataset/comparison_io.rs"]
@@ -2693,16 +2694,11 @@ where
     // REN-14: the profile's working copy of an unchanged CSV is the same
     // Parquet this function would write; copying it saves reading the CSV
     // again (2019-Oct: about 40 s). A failed copy falls back to the CSV.
-    if let (None, crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }) =
+    // The copy is only returned for the reading it was made with.
+    if let (None, crate::duckdb_query::DuckDbFileFormat::Delimited { .. }) =
         (history.source_snapshot_path.as_deref(), source_format)
     {
-        let same_reading = dataset_extension(source_path)
-            .and_then(|extension| detect_delimiter(source_path, &extension))
-            .is_ok_and(|detected| detected == delimiter);
-        if let Some(cached) = same_reading
-            .then(|| cached_profile_snapshot(source_path))
-            .flatten()
-        {
+        if let Some(cached) = cached_profile_snapshot(source_path, source_format) {
             match history.prepare_parquet_snapshot(&cached, is_cancelled.clone()) {
                 Ok(prepared) => return Ok(prepared),
                 Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
@@ -5781,7 +5777,7 @@ fn source_backed_safe_corrections_with_cancellation(
         source_format,
         crate::duckdb_query::DuckDbFileFormat::Delimited { .. }
     )
-    .then(|| cached_profile_snapshot(&source_path))
+    .then(|| cached_profile_snapshot(&source_path, source_format))
     .flatten();
     let (source_path, source_format) = match profile_copy.as_deref() {
         Some(copy) => (
@@ -6261,46 +6257,23 @@ fn cast_fully_dated_columns(
         let values = column
             .str()
             .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
-        let parsed = values
-            .iter()
-            .map(|value| value.map(|value| date_inference::parse_ordered_date(value, order)))
-            .collect::<Vec<_>>();
-        if parsed.iter().all(Option::is_none)
-            || parsed.iter().any(|value| matches!(value, Some(None)))
-        {
+        let mut present = false;
+        let mut fits = true;
+        for value in values.iter().flatten() {
+            present = true;
+            if date_inference::parse_ordered_date(value, order).is_none() {
+                fits = false;
+                break;
+            }
+        }
+        if !present || !fits {
             continue;
         }
         let has_time = values.iter().flatten().any(|value| value.contains(':'));
-        let converted = if has_time {
-            Series::new(
-                name.into(),
-                parsed
-                    .into_iter()
-                    .map(|value| {
-                        value
-                            .flatten()
-                            .map(|value| value.and_utc().timestamp_millis())
-                    })
-                    .collect::<Vec<_>>(),
-            )
-            .cast(&DataType::Datetime(TimeUnit::Milliseconds, None))
-        } else {
-            let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("fecha fija válida");
-            Series::new(
-                name.into(),
-                parsed
-                    .into_iter()
-                    .map(|value| {
-                        value
-                            .flatten()
-                            .and_then(|value| i32::try_from((value.date() - epoch).num_days()).ok())
-                    })
-                    .collect::<Vec<_>>(),
-            )
-            .cast(&DataType::Date)
-        }
-        .map_err(|error| format!("No se pudo convertir la columna '{name}' a fecha: {error}"))?
-        .into_column();
+        let converted =
+            column_typing::typed_date_column(name, values, order, has_time).map_err(|error| {
+                format!("No se pudo convertir la columna '{name}' a fecha: {error}")
+            })?;
         cast.replace(name, converted).map_err(|error| {
             format!("No se pudo convertir la columna '{name}' a fecha: {error}")
         })?;
@@ -6750,6 +6723,18 @@ fn imputation_number_label(value: f64, dtype: &DataType) -> String {
     }
 }
 
+/// Flags in `changed_rows` the rows where `column` is empty; returns how many.
+fn mark_gap_rows(column: &Column, changed_rows: &mut [bool]) -> usize {
+    let mut gaps = 0;
+    for (row_index, is_gap) in column.is_null().iter().enumerate() {
+        if is_gap == Some(true) {
+            gaps += 1;
+            changed_rows[row_index] = true;
+        }
+    }
+    gaps
+}
+
 /// Median/mode imputation. `columns` limits it to the listed names; the
 /// one-click proposal always passes the columns it announced (RV17). The last
 /// element holds the value written into each changed column, in the same
@@ -6809,22 +6794,15 @@ fn impute_missing_values_in_columns(
                 continue;
             };
 
-            let mut column_changes = 0;
-            let transformed = values
-                .iter()
-                .enumerate()
-                .map(|(row_index, value)| {
-                    value.or_else(|| {
-                        column_changes += 1;
-                        changed_cell_count += 1;
-                        changed_rows[row_index] = true;
-                        Some(mode)
-                    })
-                })
-                .collect::<Vec<_>>();
+            let column_changes = mark_gap_rows(column, &mut changed_rows);
+            changed_cell_count += column_changes;
+            let transformed = column_typing::fill_column(
+                column,
+                &column_typing::Fill::Text(std::borrow::Cow::Borrowed(mode)),
+            )?;
             let mode = mode.to_owned();
             cleaned
-                .replace(&name, Column::new(name.clone().into(), transformed))
+                .replace(&name, transformed)
                 .map_err(|error| format!("No se pudo imputar la columna '{name}': {error}"))?;
             changed_columns.push(ChangedTextColumn {
                 name,
@@ -6850,21 +6828,12 @@ fn impute_missing_values_in_columns(
             }
             observed.sort_unstable();
             let replacement = observed[(observed.len() - 1) / 2];
-            let mut column_changes = 0;
-            let transformed = integers
-                .iter()
-                .enumerate()
-                .map(|(row_index, value)| {
-                    value.or_else(|| {
-                        column_changes += 1;
-                        changed_cell_count += 1;
-                        changed_rows[row_index] = true;
-                        Some(replacement)
-                    })
-                })
-                .collect::<Vec<_>>();
+            let column_changes = mark_gap_rows(column, &mut changed_rows);
+            changed_cell_count += column_changes;
+            let transformed =
+                column_typing::fill_column(column, &column_typing::Fill::Integer(replacement))?;
             cleaned
-                .replace(&name, Column::new(name.clone().into(), transformed))
+                .replace(&name, transformed)
                 .map_err(|error| format!("No se pudo imputar la columna '{name}': {error}"))?;
             changed_columns.push(ChangedTextColumn {
                 name,
@@ -6895,23 +6864,10 @@ fn impute_missing_values_in_columns(
         observed
             .sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
         let replacement = observed[(observed.len() - 1) / 2];
-        let mut column_changes = 0;
-        let transformed = values
-            .into_iter()
-            .enumerate()
-            .map(|(row_index, value)| match value {
-                Some(value) => Some(value),
-                None => {
-                    column_changes += 1;
-                    changed_cell_count += 1;
-                    changed_rows[row_index] = true;
-                    Some(replacement)
-                }
-            })
-            .collect::<Vec<_>>();
-        let replacement_column = Column::new(name.clone().into(), transformed)
-            .cast(column.dtype())
-            .map_err(|error| format!("No se pudo conservar el tipo de '{name}': {error}"))?;
+        let column_changes = mark_gap_rows(column, &mut changed_rows);
+        changed_cell_count += column_changes;
+        let replacement_column =
+            column_typing::fill_column(column, &column_typing::Fill::Number(replacement))?;
         cleaned
             .replace(&name, replacement_column)
             .map_err(|error| format!("No se pudo imputar la columna '{name}': {error}"))?;
@@ -9928,19 +9884,29 @@ pub async fn validate_quality_rules(
         let current = state.current.lock_recovering();
         current.as_ref().and_then(|dataset| {
             if dataset.source_backed {
-                current_source_backed_context(dataset)
+                // The reading the dataset was loaded with, header decision included.
+                let (_, source_format) = current_duckdb_file_source(dataset)?;
+                let (source_path, source_size, row_count) = current_source_backed_context(dataset)?;
+                Some((source_path, source_size, row_count, source_format))
             } else {
-                current_history_parquet_snapshot(dataset)
+                let (source_path, source_size, row_count) =
+                    current_history_parquet_snapshot(dataset)?;
+                Some((
+                    source_path,
+                    source_size,
+                    row_count,
+                    crate::duckdb_query::DuckDbFileFormat::Parquet,
+                ))
             }
         })
     };
     cancellation.ensure()?;
     if quality_rules.iter().all(source_quality_rule_is_incremental) {
-        if let Some((source_path, expected_file_size, row_count)) = source_context {
+        if let Some((source_path, expected_file_size, row_count, source_format)) = source_context {
             let cancellation = cancellation.clone();
             return tauri::async_runtime::spawn_blocking(move || {
                 cancellation.ensure()?;
-                let (source_path, source_size, extension) = validate_dataset_file(&source_path)?;
+                let (source_path, source_size, _) = validate_dataset_file(&source_path)?;
                 cancellation.ensure()?;
                 if source_size != expected_file_size || source_modified_since_load(&source_path) {
                     return Err(
@@ -9950,7 +9916,7 @@ pub async fn validate_quality_rules(
                 }
                 let result = evaluate_source_quality_rules_with_cancel(
                     &source_path,
-                    &extension,
+                    source_format,
                     expected_file_size,
                     row_count,
                     &quality_rules,
@@ -10065,10 +10031,12 @@ async fn export_active_dataset(
         let current = state.current.lock_recovering();
         current.as_ref().and_then(|dataset| {
             if dataset.source_backed {
-                let (source_path, source_size, row_count) = current_source_backed_context(dataset)?;
+                let (_, source_size, row_count) = current_source_backed_context(dataset)?;
+                let (source_path, source_format) = current_duckdb_file_source(dataset)?;
                 let original_source_path = dataset.source_path.as_ref()?.clone();
                 Some((
                     source_path,
+                    source_format,
                     dataset.file_name.clone(),
                     source_size,
                     row_count,
@@ -10081,6 +10049,7 @@ async fn export_active_dataset(
                     current_history_parquet_snapshot(dataset)?;
                 Some((
                     source_path.clone(),
+                    crate::duckdb_query::DuckDbFileFormat::Parquet,
                     dataset.file_name.clone(),
                     source_size,
                     row_count,
@@ -10111,6 +10080,7 @@ async fn export_active_dataset(
     {
         if let Some((
             source_path,
+            source_format,
             file_name,
             expected_file_size,
             row_count,
@@ -10135,8 +10105,7 @@ async fn export_active_dataset(
                             .to_owned(),
                     );
                 }
-                let (source_path, source_size, extension) =
-                    validate_dataset_file(&validation_source_path)?;
+                let (source_path, source_size, _) = validate_dataset_file(&validation_source_path)?;
                 if source_size != expected_file_size {
                     return Err(
                         "El archivo source-backed cambió desde la carga; vuelve a seleccionarlo."
@@ -10146,7 +10115,7 @@ async fn export_active_dataset(
                 let quality_validation_app = validation_app.clone();
                 enforce_source_quality_with_cancel(
                     &source_path,
-                    &extension,
+                    source_format,
                     expected_file_size,
                     row_count,
                     &source_quality_rules,
@@ -10851,7 +10820,7 @@ async fn export_active_dataset_to_database(
                             .to_owned(),
                     );
                 }
-                let (source_path, source_size, extension) = validate_dataset_file(&source_path)?;
+                let (source_path, source_size, _) = validate_dataset_file(&source_path)?;
                 if source_size != expected_file_size {
                     return Err(
                         "El archivo source-backed cambió desde la carga; vuelve a seleccionarlo."
@@ -10861,7 +10830,7 @@ async fn export_active_dataset_to_database(
                 let quality_validation_app = validation_app.clone();
                 enforce_source_quality_with_cancel(
                     &source_path,
-                    &extension,
+                    source_format,
                     expected_file_size,
                     row_count,
                     &source_quality_rules,
@@ -11140,7 +11109,8 @@ pub async fn get_explore_panel(
                 // REN-14: the profile's working copy is read instead of the
                 // CSV when the file has not changed.
                 "csv" | "tsv" | "txt" if has_header => {
-                    explore_snapshot = cached_profile_snapshot(&source_path);
+                    explore_snapshot = current_duckdb_file_source(dataset)
+                        .and_then(|(_, format)| cached_profile_snapshot(&source_path, format));
                     match explore_snapshot.as_deref() {
                         Some(snapshot) => parquet_scan(snapshot)?,
                         None => delimited_scan_with_header(
@@ -12898,13 +12868,14 @@ impl DatasetState {
         let dataset = current
             .as_ref()
             .ok_or_else(|| "El proyecto no contiene un dataset activo.".to_owned())?;
-        let (source_path, _) = current_duckdb_file_source(dataset).ok_or_else(|| {
-            "La fuente source-backed del proyecto ya no está disponible.".to_owned()
-        })?;
-        let (source_path, expected_file_size, extension) = validate_dataset_file(&source_path)?;
+        let (source_path, source_format) =
+            current_duckdb_file_source(dataset).ok_or_else(|| {
+                "La fuente source-backed del proyecto ya no está disponible.".to_owned()
+            })?;
+        let (source_path, expected_file_size, _) = validate_dataset_file(&source_path)?;
         evaluate_source_quality_rules_with_cancel(
             &source_path,
-            &extension,
+            source_format,
             expected_file_size,
             dataset.row_count,
             quality_rules,
@@ -12955,14 +12926,15 @@ impl DatasetState {
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
         let profile = if dataset.source_backed {
-            let (source_path, _) = current_duckdb_file_source(dataset).ok_or_else(|| {
-                "La fuente source-backed ya no está disponible para perfilar el proyecto."
-                    .to_owned()
-            })?;
-            let (source_path, expected_file_size, extension) = validate_dataset_file(&source_path)?;
+            let (source_path, source_format) =
+                current_duckdb_file_source(dataset).ok_or_else(|| {
+                    "La fuente source-backed ya no está disponible para perfilar el proyecto."
+                        .to_owned()
+                })?;
+            let (source_path, expected_file_size, _) = validate_dataset_file(&source_path)?;
             profile_source_backed_with_progress(
                 &source_path,
-                &extension,
+                source_format,
                 expected_file_size,
                 dataset.row_count,
                 report,

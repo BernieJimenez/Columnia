@@ -25,19 +25,20 @@ al CHANGELOG. El 2026-11-06 se cerró la tanda 1 (AUD-001, 002, 004, 005 y 006)
 y se abrió AUD-099, aparecida al aplicarla. Ese mismo día se cerró la tanda 2
 (AUD-003, 010, 011, 013 y 014) y se abrieron AUD-100 a AUD-103, aparecidas al
 aplicarla. El 2026-11-08 se cerró la tanda 3 (AUD-012, 037, 023 y 024) y se
-abrió AUD-104, aparecida al aplicarla.
+abrió AUD-104, aparecida al aplicarla. Ese mismo día se cerró la tanda 4
+(AUD-022, 025 y 026) y se abrieron AUD-105 a AUD-107, aparecidas al aplicarla.
 
 <!-- indice:inicio -->
-**Última actualización:** 2026-11-08 · **Siguiente ID libre:** AUD-105 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
+**Última actualización:** 2026-11-08 · **Siguiente ID libre:** AUD-108 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
 
 | Tier | Abiertas | Cerradas | Esfuerzo de las abiertas (Bajo · Medio · Alto) |
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
-| 2 · Medio | 18 | 14 | 9 · 9 · 0 |
-| 3 · Bajo | 71 | 0 | 69 · 2 · 0 |
+| 2 · Medio | 16 | 17 | 9 · 7 · 0 |
+| 3 · Bajo | 73 | 0 | 71 · 2 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **90** | **14** | **79 · 11 · 0** |
+| **Total** | **90** | **17** | **81 · 9 · 0** |
 
 **Abiertas por área:** UI/UX 19 · Accesibilidad 12 · QA y testing 12 · Código 11 · Rendimiento 9 · Arquitectura 9 · Documentación 9 · Redacción 5 · Seguridad 4
 <!-- indice:fin -->
@@ -239,13 +240,14 @@ Sin tareas abiertas.
 
 ### Código
 
-- [ ] **AUD-022 · El perfil y la validación de contrato de un CSV grande sin encabezado leen una copia con el encabezado equivocado y fallan al final de la lectura**
+- [x] **AUD-022 · El perfil y la validación de contrato de un CSV grande sin encabezado leen una copia con el encabezado equivocado y fallan al final de la lectura**
   - **Área:** Código · **Severidad:** Medio · **Esfuerzo:** Medio
   - **Ubicación:** `src-tauri/src/dataset/profile_engine.rs:2582-2626`
   - **Qué hacer:** pasar el `DuckDbFileFormat` que ya calcula `current_duckdb_file_source` (que incluye `DelimitedWithoutHeader { column_count }`) a `profile_source_backed_with_progress`, a `source_profile_snapshot_with_cancel` y a `persist_delimited_*`, en lugar de reconstruirlo desde la extensión. Guardar ese formato (delimitador y encabezado) en `ProfileSnapshot` y compararlo en `cached_profile_snapshot`; así la coincidencia de lectura queda comprobada en un solo sitio para todos los consumidores (y se cierra por construcción lo que H-01-1 temía del delimitador). Además, que la comprobación de filas no diga que el snapshot «cambió» cuando no consta ningún cambio del origen: distinguir «la copia no corresponde con el dataset» de «el archivo cambió durante la lectura».
   - **Criterio de aceptación:** una prueba que cargue un CSV de dos líneas de datos como `source_backed` con `Generated` (con el umbral de carga diferida bajado en la prueba) y lo perfile obtiene `column_1`, `column_2`, el mismo `row_count` que la carga y ningún error; «Validar contrato» sobre el mismo origen evalúa las columnas `column_N`.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-08 · tanda 4 de la Fase 2 (rama `auditoria/2026-11-05`). La copia de trabajo del perfil guarda el formato con que se leyó el origen (delimitador y encabezado), y `cached_profile_snapshot` solo la devuelve para ese mismo formato: es el único sitio que lo decide. El perfil, «Validar contrato», la calidad al exportar y las copias reciben el formato del dataset cargado en vez de rehacerlo desde la extensión. Un desajuste de filas en la lectura por bloques dice ahora «no corresponde con el dataset». Prueba nueva: un CSV sin encabezado cargado como `source_backed` con nombres generados se perfila con `column_1`, `column_2` y el mismo número de filas, y su contrato evalúa esas columnas; con el código anterior el perfil fallaba y el contrato leía «001» y «Ana». El umbral de carga diferida es una constante: la prueba construye el dataset `source_backed` directamente. No comprobado en la app abierta.
 
 - [x] **AUD-023 · Al volver a un destino de base de datos, el formulario aparece vacío pero la cadena de conexión anterior sigue en el estado y se puede usar**
   - **Área:** Código · **Severidad:** Medio · **Esfuerzo:** Bajo
@@ -265,21 +267,31 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-08 · tanda 3 de la Fase 2 (rama `auditoria/2026-11-05`). El catálogo se lee como texto Unicode (UTF-16) con un cursor propio, y un nombre que no se puede leer da un error claro en vez de desaparecer o quedar sin esquema. Comprobado contra una base de pruebas en el SQL Server local, ya borrada: `[dbo].[Año]`, `[Ventas_ñ].[Pedidos]` y `[dbo].[Zona_Ω]` aparecen con su nombre exacto, y se importan sus 3 y 4 filas con las tildes intactas (prueba externa `external_odbc_catalog_lists_wide_names`). No se vio en la app abierta.
 
-- [ ] **AUD-025 · Fechas y huecos de la etapa en disco copian la lógica de la ruta en memoria en lugar de compartirla (regresión parcial de COD-03)**
+- [x] **AUD-025 · Fechas y huecos de la etapa en disco copian la lógica de la ruta en memoria en lugar de compartirla (regresión parcial de COD-03)**
   - **Área:** Código · **Severidad:** Medio · **Esfuerzo:** Medio
   - **Ubicación:** `src-tauri/src/dataset/source_stage.rs:182-300`
   - **Qué hacer:** extraer `typed_date_column(name, values: &StringChunked, order, with_time) -> PolarsResult<Column>` y `fill_column(column, Fill)` a un módulo compartido (p. ej. `column_typing.rs`) que usen `cast_fully_dated_columns`, `impute_missing_values_in_columns` y `convert_block`; dejar en `parquet_lower_median` solo la parte que no se puede compartir (SQL) con una prueba de propiedades contra la ruta en memoria. Corregir el comentario de `NumericCastTarget::Decimal`.
   - **Criterio de aceptación:** una sola función construye la columna de fechas y una sola aplica un `Fill`; las dos rutas la llaman; el comentario de `NumericCastTarget` coincide con `decimal_fits_in_f64`; las pruebas existentes de paridad pasan sin cambios.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-08 · tanda 4 de la Fase 2 (rama `auditoria/2026-11-05`). El módulo nuevo `dataset/column_typing.rs` tiene `typed_date_column` y `fill_column`, y los usan la ruta en memoria (`cast_fully_dated_columns`, `impute_missing_values_in_columns`) y la etapa en disco (`convert_block`). El comentario de `NumericCastTarget::Decimal` describe ya lo que comprueba `decimal_fits_in_f64`. Prueba nueva de la mediana SQL contra la imputación en memoria (par, impar, `i64::MAX`, NaN, infinitos, todo nulo y cero filas); las pruebas de paridad pasan sin cambios. Coste aceptado: en memoria, una columna que sí es de fechas se analiza dos veces.
 
-- [ ] **AUD-026 · Cancelar el conteo de distintos no alcanza al respaldo por falta de memoria: `join` espera a que termine una cuenta sin cancelación**
+- [x] **AUD-026 · Cancelar el conteo de distintos no alcanza al respaldo por falta de memoria: `join` espera a que termine una cuenta sin cancelación**
   - **Área:** Código · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/duckdb_query.rs:478-487`
   - **Qué hacer:** pasar al respaldo el estado de cancelación real (un `Arc<AtomicBool>` que `NativeProgress::interrupt` también active y que el respaldo consulte), o hacer que `BackgroundDistinctCount` use un `Arc<AtomicBool>` compartido con el hilo y sustituya `|| false` por `move || flag.load(Ordering::Acquire)`. Sin eso, al menos no esperar con `join` en `Drop` cuando se cancela: soltar el hilo (ya conserva su propio `Arc` de la base) y dejar que borre su carpeta temporal.
   - **Criterio de aceptación:** una prueba fuerza el respaldo (`SET memory_limit` muy bajo o un Parquet con texto libre) y cancela a mitad: `finish` devuelve el error de cancelación en menos de unos segundos y el hilo termina.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-08 · tanda 4 de la Fase 2 (rama `auditoria/2026-11-05`). `NativeProgress::interrupt` activa también un `Arc<AtomicBool>` que el hilo del conteo pasa al respaldo por falta de memoria, en lugar de `|| false`; si la cancelación llega en la primera consulta, el hilo devuelve igualmente el error de cancelación. Prueba nueva: un Parquet de 1.000.000 de filas de texto libre con `memory_limit` de 16 MB fuerza el respaldo, y al cancelar el hilo termina con el error de cancelación en unos 20 ms (el respaldo entero tarda unos 1,5 s); con el código anterior terminaba con el recuento completo.
+
+- [ ] **AUD-105 · La tendencia numérica de un CSV grande sin encabezado lee la proyección con el encabezado equivocado**
+  - **Área:** Código · **Severidad:** Medio · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/dataset/profile_engine.rs`, `source_temporal_projection_snapshot` (≈`:2433`), llamada desde `get_temporal_aggregation_impl` (`profile_reader.rs`)
+  - **Qué hacer:** pasar a `source_temporal_projection_snapshot` el `DuckDbFileFormat` de `current_duckdb_file_source`, como hizo AUD-022 con el perfil, en lugar de rehacer `Delimited { detect_delimiter }` desde la extensión. Si se aplica antes AUD-034 (que cambia esa proyección por una lectura de la copia del perfil), comprobar que el caso sin copia también recibe el formato.
+  - **Criterio de aceptación:** una prueba con un CSV sin encabezado cargado como `source_backed` con nombres generados pide la tendencia de `column_2` sobre `column_1` y obtiene los puntos de las dos filas de datos, sin error y sin tratar la primera fila como encabezado.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-022 (visto en el código, no reproducido).
 
 ### Rendimiento
 
@@ -288,7 +300,8 @@ Sin tareas abiertas.
   - **Ubicación:** `src-tauri/src/dataset/comparison_engine.rs:2516-2547`
   - **Qué hacer:** una función `reusable_profile_copy(source_path, source_format) -> Option<CachedProfileSnapshot>` que aplique la misma condición que `prepare_source_backed_baseline_snapshot` (`Delimited` con encabezado y mismo delimitador; ver H-01 del área 7 para `DelimitedWithoutHeader`) y llamarla al principio de `source_backed_parquet_snapshot_with_cancel`, `source_profile_snapshot_with_cancel` y `get_temporal_aggregation_impl` (sustituyendo la proyección de dos columnas por `parquet_scan` de la copia). En la tendencia numérica, soltar el mutex antes de leer, como hizo ARQ-04 con Explorar. Para el texto «a la medida», `max(strlen())` sobre la copia es una lectura de una columna por Parquet en vez de reinterpretar el CSV.
   - **Criterio de aceptación:** tras perfilar un CSV de 512 MiB o más, «Validar contrato», la primera página de conflictos, «Resolver» y la tendencia numérica no crean ninguna carpeta con `current.parquet` ni `compared.parquet` nuevos y su primera fase no relee el CSV (medible con el Monitor de procesos: sin lectura del CSV); una prueba con un CSV de más de un bloque comprueba que el resultado es idéntico con y sin la copia.
-  - **Depende de:** AUD-022 (la copia del perfil tiene que guardar el formato de lectura antes de reutilizarla)
+  - **Depende de:** AUD-022 (la copia del perfil tiene que guardar el formato de lectura antes de reutilizarla; cumplida el 2026-11-08)
+  - **Nota (2026-11-08, al aplicar AUD-022):** con el formato ya en la copia, `cached_profile_snapshot(source, format)` es la comprobación; las condiciones propias de las correcciones seguras (`dataset.rs`, solo `Delimited`), de Explorar (`get_explore_panel`, solo con encabezado) y de la línea base del historial (`prepare_source_backed_baseline_snapshot`, solo `Delimited`) se pueden ampliar a `DelimitedWithoutHeader` sin riesgo.
   - **Origen:** auditoría 2026-11-05
 
 - [ ] **AUD-035 · La etapa de huecos lanza una consulta DuckDB por columna, con conexión nueva y ordenación completa de la columna**
@@ -593,6 +606,22 @@ Sin tareas abiertas.
   - **Criterio de aceptación:** importar una tabla con una celda `NCHAR(0xD800) + N'x'` no entra en pánico: termina con las filas importadas y la columna señalada, o con un error que la nombra. Prueba unitaria de la decodificación y prueba externa `#[ignore]`.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-024. Reproducido el 2026-11-08 contra la base de pruebas: la prueba externa de importación entra en pánico en `text_column.rs:582`. Ya pasaba antes de la tanda 3; en la app, el pánico dentro de `spawn_blocking` llega como «La importación se interrumpió inesperadamente.» (perfil `panic = "unwind"`).
+
+- [ ] **AUD-106 · Los errores de la comparación dicen que el snapshot «cambió durante la lectura» cuando solo no coincide el número de filas**
+  - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/dataset/comparison_engine.rs` (≈`:1941`, `:2093`, `:2461` y `:2473`)
+  - **Qué hacer:** usar la redacción que dejó AUD-022 en `query_execution.rs` («no corresponde con el dataset») cuando lo que falla es el recuento de filas de un bloque, y reservar «cambió durante la lectura» para cuando consta un cambio del origen (tamaño o fecha).
+  - **Criterio de aceptación:** ningún mensaje de desajuste de filas en `comparison_engine.rs` dice «cambió»; las pruebas que comprueban esos errores siguen pasando (ajustando solo el texto esperado).
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-022.
+
+- [ ] **AUD-107 · La barra «Contando valores distintos» se queda quieta mientras corre el respaldo por falta de memoria**
+  - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/duckdb_query.rs`, `NativeProgress::fraction`; `BackgroundDistinctCount::finish` (`dataset/profile_engine.rs`)
+  - **Qué hacer:** que el respaldo informe de su avance (por ejemplo, columnas terminadas sobre el total, en un `AtomicUsize` compartido como la bandera de cancelación de AUD-026) y que `fraction` lo use cuando la conexión nativa ya no está contando.
+  - **Criterio de aceptación:** con el respaldo forzado (límite de memoria bajo, como en la prueba de AUD-026), la fracción que devuelve `NativeProgress` sube a medida que el respaldo termina columnas.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-026.
 
 ### Rendimiento
 

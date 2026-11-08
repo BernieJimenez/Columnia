@@ -4,7 +4,7 @@ use crate::crash_report::LockRecovering;
 enum ProfileWork {
     Source {
         path: PathBuf,
-        extension: String,
+        format: crate::duckdb_query::DuckDbFileFormat,
         size: u64,
         row_count: usize,
     },
@@ -81,14 +81,18 @@ pub(super) async fn get_dataset_profile_impl(
             }
 
             let work = if dataset.source_backed {
-                let (source_path, source_size, row_count) = current_source_backed_context(dataset)
+                let (_, source_size, row_count) = current_source_backed_context(dataset)
                     .ok_or_else(|| {
                         "La fuente source-backed cambió o ya no está disponible.".to_owned()
                     })?;
-                let extension = dataset_extension(&source_path)?;
+                // The reading the dataset was loaded with, header decision included.
+                let (source_path, format) =
+                    current_duckdb_file_source(dataset).ok_or_else(|| {
+                        "La fuente source-backed cambió o ya no está disponible.".to_owned()
+                    })?;
                 ProfileWork::Source {
                     path: source_path,
-                    extension,
+                    format,
                     size: source_size,
                     row_count,
                 }
@@ -109,12 +113,12 @@ pub(super) async fn get_dataset_profile_impl(
         let mut profile = match work {
             ProfileWork::Source {
                 path,
-                extension,
+                format,
                 size,
                 row_count,
             } => profile_source_backed_with_progress(
                 &path,
-                &extension,
+                format,
                 size,
                 row_count,
                 |stage, percent| send_progress(&on_progress, "profile", stage, percent),

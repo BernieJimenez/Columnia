@@ -5,6 +5,7 @@
 //! of `cast_fully_numeric_columns`, `cast_fully_dated_columns` and
 //! `impute_missing_values_in_columns`, in that order.
 
+use super::column_typing::{fill_column, typed_date_column, Fill};
 use super::date_inference::{parse_ordered_date, DateOrder};
 use super::*;
 
@@ -68,13 +69,6 @@ struct DateTarget {
     name: String,
     order: DateOrder,
     with_time: bool,
-}
-
-enum Fill {
-    Text(String, String),
-    Integer(String, i64),
-    /// Any other number: filled as `f64` and cast back to the column type.
-    Number(String, f64, DataType),
 }
 
 const SOURCE_STAGE_BLOCK_ROWS: usize = 4 * LOCAL_QUERY_BLOCK_ROWS;
@@ -183,7 +177,7 @@ fn convert_block(
     block: &DataFrame,
     numbers: &[(String, NumericCastKind)],
     dates: &[DateTarget],
-    fills: &[Fill],
+    fills: &[(String, Fill<'static>)],
 ) -> Result<(DataFrame, usize), String> {
     let mut converted = block.clone();
     for (name, kind) in numbers {
@@ -197,102 +191,27 @@ fn convert_block(
     }
     // Fills read the typed columns.
     let block = &converted.clone();
-    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("fecha fija válida");
     for target in dates {
         let name = target.name.as_str();
         let values = block
             .column(name)
             .and_then(|column| column.str().cloned())
             .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
-        let parsed = values
-            .iter()
-            .map(|value| value.and_then(|value| parse_ordered_date(value, target.order)));
-        let column = if target.with_time {
-            Series::new(
-                name.into(),
-                parsed
-                    .map(|value| value.map(|value| value.and_utc().timestamp_millis()))
-                    .collect::<Vec<_>>(),
-            )
-            .cast(&DataType::Datetime(TimeUnit::Milliseconds, None))
-        } else {
-            Series::new(
-                name.into(),
-                parsed
-                    .map(|value| {
-                        value
-                            .and_then(|value| i32::try_from((value.date() - epoch).num_days()).ok())
-                    })
-                    .collect::<Vec<_>>(),
-            )
-            .cast(&DataType::Date)
-        }
-        .map_err(|error| format!("No se pudo convertir la columna '{name}' a fecha: {error}"))?
-        .into_column();
+        let column =
+            typed_date_column(name, &values, target.order, target.with_time).map_err(|error| {
+                format!("No se pudo convertir la columna '{name}' a fecha: {error}")
+            })?;
         converted.replace(name, column).map_err(|error| {
             format!("No se pudo convertir la columna '{name}' a fecha: {error}")
         })?;
     }
     let mut filled = 0usize;
-    for fill in fills {
-        let (name, column) = match fill {
-            Fill::Text(name, value) => {
-                let column = block
-                    .column(name)
-                    .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
-                filled += column.null_count();
-                let values = column
-                    .str()
-                    .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
-                let column = Column::new(
-                    name.as_str().into(),
-                    values
-                        .iter()
-                        .map(|cell| cell.or(Some(value.as_str())))
-                        .collect::<Vec<_>>(),
-                );
-                (name, column)
-            }
-            Fill::Integer(name, value) => {
-                let column = block
-                    .column(name)
-                    .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
-                filled += column.null_count();
-                let values = column.i64().map_err(|error| {
-                    format!("No se pudo leer la columna numérica '{name}': {error}")
-                })?;
-                let column = Column::new(
-                    name.as_str().into(),
-                    values
-                        .iter()
-                        .map(|cell| cell.or(Some(*value)))
-                        .collect::<Vec<_>>(),
-                );
-                (name, column)
-            }
-            Fill::Number(name, value, data_type) => {
-                let column = block
-                    .column(name)
-                    .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
-                filled += column.null_count();
-                let numbers = column.cast(&DataType::Float64).map_err(|error| {
-                    format!("No se pudo preparar la columna numérica '{name}': {error}")
-                })?;
-                let values = numbers.f64().map_err(|error| {
-                    format!("No se pudo leer la columna numérica '{name}': {error}")
-                })?;
-                let column = Column::new(
-                    name.as_str().into(),
-                    values
-                        .iter()
-                        .map(|cell| cell.or(Some(*value)))
-                        .collect::<Vec<_>>(),
-                )
-                .cast(data_type)
-                .map_err(|error| format!("No se pudo conservar el tipo de '{name}': {error}"))?;
-                (name, column)
-            }
-        };
+    for (name, fill) in fills {
+        let column = block
+            .column(name)
+            .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
+        filled += column.null_count();
+        let column = fill_column(column, fill)?;
         converted
             .replace(name, column)
             .map_err(|error| format!("No se pudo imputar la columna '{name}': {error}"))?;
@@ -368,19 +287,19 @@ where
         let cast = typed.map(duckdb_cast_target);
         if data_type == DataType::String {
             if let Some(value) = text_fill(input, row_count, name, is_cancelled)? {
-                fills.push(Fill::Text(name.clone(), value));
+                fills.push((name.clone(), Fill::Text(value.into())));
             }
         } else if data_type == DataType::Int64 {
             if let Some(value) =
                 crate::duckdb_query::parquet_lower_median_integer(input, name, cast)?
             {
-                fills.push(Fill::Integer(name.clone(), value));
+                fills.push((name.clone(), Fill::Integer(value)));
             }
         } else if data_type.is_primitive_numeric() {
             if let Some(value) =
                 crate::duckdb_query::parquet_lower_median_number(input, name, cast)?
             {
-                fills.push(Fill::Number(name.clone(), value, data_type));
+                fills.push((name.clone(), Fill::Number(value)));
             }
         }
     }

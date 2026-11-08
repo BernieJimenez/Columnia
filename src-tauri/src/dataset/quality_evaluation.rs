@@ -1922,7 +1922,7 @@ pub(super) fn source_quality_rule_is_incremental(rule: &QualityRule) -> bool {
 
 pub(super) fn evaluate_source_quality_rules_with_cancel<C>(
     source_path: &Path,
-    extension: &str,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     expected_file_size: u64,
     row_count: usize,
     quality_rules: &[QualityRule],
@@ -1934,7 +1934,7 @@ where
     ensure_not_cancelled(is_cancelled())?;
     validate_quality_rules_payload(quality_rules)?;
     let (_snapshot_directory, snapshot_path) =
-        source_profile_snapshot_with_cancel(source_path, extension, is_cancelled.clone())?;
+        source_profile_snapshot_with_cancel(source_path, source_format, is_cancelled.clone())?;
     ensure_not_cancelled(is_cancelled())?;
     let schema = read_parquet_schema_frame(&snapshot_path)?;
 
@@ -2118,7 +2118,7 @@ where
 
 pub(super) fn enforce_source_quality_with_cancel<C>(
     source_path: &Path,
-    extension: &str,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     expected_file_size: u64,
     row_count: usize,
     quality_rules: &[QualityRule],
@@ -2139,7 +2139,7 @@ where
     }
     let validation = evaluate_source_quality_rules_with_cancel(
         source_path,
-        extension,
+        source_format,
         expected_file_size,
         row_count,
         quality_rules,

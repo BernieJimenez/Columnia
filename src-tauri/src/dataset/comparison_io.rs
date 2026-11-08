@@ -51,7 +51,13 @@ pub(super) fn persist_delimited_comparison_source_file(
     path: &Path,
     extension: &str,
 ) -> Result<(tempfile::TempDir, PathBuf), String> {
-    persist_delimited_comparison_source_file_with_cancel(path, extension, || false)
+    persist_delimited_comparison_source_file_with_cancel(
+        path,
+        crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(path, extension)?,
+        },
+        || false,
+    )
 }
 
 #[cfg(test)]
@@ -119,23 +125,23 @@ where
     Ok((directory, destination))
 }
 
+/// `format` is how the file is read (delimiter and header decision): the copy
+/// has the columns of that reading and no other.
 pub(super) fn persist_delimited_comparison_source_file_with_cancel<C>(
     path: &Path,
-    extension: &str,
+    format: crate::duckdb_query::DuckDbFileFormat,
     is_cancelled: C,
 ) -> Result<(tempfile::TempDir, PathBuf), String>
 where
     C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
     ensure_not_cancelled(is_cancelled())?;
-    let delimiter = detect_delimiter(path, extension)?;
-    ensure_not_cancelled(is_cancelled())?;
     let directory = tempfile::tempdir()
         .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
     let temporary = directory.path().join("compared.partial.parquet");
     crate::duckdb_query::materialize_file_to_parquet_with_cancel(
         path,
-        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter },
+        format,
         &temporary,
         None,
         is_cancelled.clone(),
@@ -149,10 +155,11 @@ where
 }
 
 /// REN-01: the delimited snapshot of a source profile, passing DuckDB's
-/// progress of the copy (0.0 to 1.0) to `progress`.
+/// progress of the copy (0.0 to 1.0) to `progress`. `format` is the reading
+/// the loaded dataset uses (delimiter and header decision).
 pub(super) fn persist_delimited_source_file_with_progress<C, P>(
     path: &Path,
-    extension: &str,
+    format: crate::duckdb_query::DuckDbFileFormat,
     is_cancelled: &C,
     progress: P,
 ) -> Result<(HistoryDirectory, PathBuf), String>
@@ -161,13 +168,12 @@ where
     P: FnMut(f64),
 {
     ensure_not_cancelled(is_cancelled())?;
-    let delimiter = detect_delimiter(path, extension)?;
     let directory = locked_directory(PROFILE_DIRECTORY_PREFIX)
         .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
     let temporary = directory.directory.path().join("compared.partial.parquet");
     crate::duckdb_query::materialize_file_to_parquet_with_progress(
         path,
-        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter },
+        format,
         &temporary,
         is_cancelled,
         progress,
@@ -349,9 +355,10 @@ where
             (directory, snapshot_path, row_count)
         }
         "csv" | "tsv" | "txt" => {
+            let delimiter = detect_delimiter(path, extension)?;
             let (directory, snapshot_path) = persist_delimited_comparison_source_file_with_cancel(
                 path,
-                extension,
+                crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter },
                 is_cancelled.clone(),
             )?;
             ensure_not_cancelled(is_cancelled())?;

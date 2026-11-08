@@ -585,6 +585,85 @@ fn duckdb_source_backed_query_uses_generated_polars_column_names() {
     assert_eq!(exported.lines().next(), Some("column_1,column_2"));
 }
 
+/// AUD-022: the profile and the contract read the working copy with the
+/// header decision of the load. Without it the copy took the first data row
+/// as the header and the profile failed at the end with a row-count mismatch.
+#[test]
+fn profile_and_contract_of_a_headerless_source_backed_csv_use_the_generated_names() {
+    let path = temporary_delimited("csv", "001,Ana\n002,Luis\n");
+    let (schema, _, row_count) =
+        source_backed_load_with_header_mode(&path, "csv", SpreadsheetHeaderMode::Generated, || {
+            false
+        })
+        .expect("la fuente debe abrirse sin tratar la primera fila como encabezado");
+    assert_eq!(row_count, 2);
+    let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+    let dataset = LoadedDataset {
+        source_path: Some(path.path_buf()),
+        file_name: "headerless.csv".to_owned(),
+        file_size_bytes,
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: Some(SpreadsheetHeaderMode::Generated),
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+    };
+    let (source_path, source_format) = current_duckdb_file_source(&dataset)
+        .expect("el CSV sin encabezados debe quedar disponible para DuckDB");
+
+    let profile = profile_source_backed_with_progress(
+        &source_path,
+        source_format,
+        file_size_bytes,
+        row_count,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("el perfil de un CSV sin encabezados no debe fallar");
+    assert_eq!(profile.row_count, row_count);
+    assert_eq!(
+        profile
+            .columns
+            .iter()
+            .map(|column| column.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["column_1", "column_2"]
+    );
+
+    // The copy is kept for the format it was read with and for no other one.
+    let delimiter = match source_format {
+        crate::duckdb_query::DuckDbFileFormat::DelimitedWithoutHeader { delimiter, .. } => {
+            delimiter
+        }
+        _ => panic!("un CSV sin encabezados se lee con el formato sin encabezado"),
+    };
+    assert!(cached_profile_snapshot(&source_path, source_format).is_some());
+    assert!(cached_profile_snapshot(
+        &source_path,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }
+    )
+    .is_none());
+
+    let mut contract = quality_rule(QUALITY_DATASET_COLUMN, QualityRuleKind::SchemaContract);
+    contract.columns = Some(vec!["column_1".to_owned(), "column_2".to_owned()]);
+    contract.required_order = contract.columns.clone();
+    contract.allow_additional = Some(false);
+    let result = evaluate_source_quality_rules_with_cancel(
+        &source_path,
+        source_format,
+        file_size_bytes,
+        row_count,
+        &[contract],
+        || false,
+    )
+    .expect("la validación de contrato debe leer las columnas generadas");
+    assert!(result.passed);
+    assert_eq!(result.row_count, row_count);
+    clear_profile_snapshot_of(&source_path);
+}
+
 #[test]
 fn sample_dataset_catalog_is_static_and_paths_stay_native() {
     let samples = list_sample_datasets();
@@ -4751,7 +4830,7 @@ fn source_backed_profile_matches_the_in_memory_profile_without_retaining_rows() 
     let mut updates = Vec::new();
     let actual = profile_source_backed_with_progress(
         &path,
-        "csv",
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
         fs::metadata(&path).expect("la fuente debe existir").len(),
         row_count,
         |stage, percent| updates.push((stage, percent)),
@@ -4801,7 +4880,7 @@ fn source_backed_exact_duplicates_from_fingerprints_match_the_in_memory_count() 
         source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let actual = profile_source_backed_with_progress(
         &path,
-        "csv",
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
         fs::metadata(&path).expect("la fuente debe existir").len(),
         row_count,
         |_, _| {},
@@ -4844,7 +4923,7 @@ fn materialized_history_snapshot_profiles_without_using_the_active_frame() {
         .expect("el cursor durable debe exponer un snapshot Parquet");
     let actual = profile_source_backed_with_progress(
         &snapshot_path,
-        "parquet",
+        crate::duckdb_query::DuckDbFileFormat::Parquet,
         snapshot_size,
         row_count,
         |_, _| {},
@@ -4939,7 +5018,7 @@ fn source_backed_quality_validation_matches_the_in_memory_contract() {
         evaluate_quality_rules(&frame, &rules).expect("la validación en memoria debe funcionar");
     let actual = evaluate_source_quality_rules_with_cancel(
         &path,
-        "csv",
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
         fs::metadata(&path).expect("la fuente debe existir").len(),
         frame.height(),
         &rules,
@@ -5185,7 +5264,7 @@ fn source_backed_global_quality_rules_count_duplicates_across_blocks() {
         evaluate_quality_rules(&frame, &rules).expect("la validación en memoria debe funcionar");
     let actual = evaluate_source_quality_rules_with_cancel(
         &path,
-        "csv",
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
         fs::metadata(&path).expect("la fuente debe existir").len(),
         row_count,
         &rules,
@@ -13720,7 +13799,7 @@ fn loads_xlsx_through_a_source_backed_parquet_snapshot() {
         .len();
     let profile = profile_source_backed_with_progress(
         &snapshot_path,
-        "parquet",
+        crate::duckdb_query::DuckDbFileFormat::Parquet,
         snapshot_size,
         row_count,
         |_, _| {},
@@ -19907,7 +19986,7 @@ fn sin_dato_markers_do_not_hide_a_numeric_column_from_the_first_proposal() {
     let size = fs::metadata(&path).unwrap().len();
     let profile = profile_source_backed_with_progress(
         &path,
-        "csv",
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
         size,
         6,
         |_, _| {},
@@ -20324,7 +20403,7 @@ fn free_text_keeps_its_statistics_without_being_parsed_as_data() {
     let size = fs::metadata(&path).unwrap().len();
     let from_disk = profile_source_backed_with_progress(
         &path,
-        "csv",
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
         size,
         6,
         |_, _| {},
@@ -22061,7 +22140,7 @@ fn aggregate_rules_count_unreadable_cells_and_absorb_rounding_in_both_paths() {
 
     let actual = evaluate_source_quality_rules_with_cancel(
         &path,
-        "csv",
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
         fs::metadata(&path).expect("la fuente debe existir").len(),
         frame.height(),
         &rules,
@@ -22322,15 +22401,24 @@ fn clearing_the_profile_copy_deletes_its_folder_after_the_last_reader() {
     let metadata = fs::metadata(&source).unwrap();
     remember_profile_snapshot(
         &source,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
         metadata.len(),
         metadata.modified().ok(),
         directory,
         copy.clone(),
     );
 
-    let reader = cached_profile_snapshot(&source).expect("la copia queda en caché");
+    let reader = cached_profile_snapshot(
+        &source,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
+    )
+    .expect("la copia queda en caché");
     clear_profile_snapshot_of(&source);
-    assert!(cached_profile_snapshot(&source).is_none());
+    assert!(cached_profile_snapshot(
+        &source,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' }
+    )
+    .is_none());
     assert!(copy.exists(), "una lectura en curso conserva el archivo");
 
     drop(reader);
@@ -22350,8 +22438,19 @@ fn a_profile_copy_remembered_with_stale_metadata_is_not_reused() {
     let copy = directory.directory.path().join("compared.parquet");
     fs::write(&copy, b"datos").unwrap();
     let size = fs::metadata(&source).unwrap().len();
-    remember_profile_snapshot(&source, size + 1, None, directory, copy);
-    assert!(cached_profile_snapshot(&source).is_none());
+    remember_profile_snapshot(
+        &source,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
+        size + 1,
+        None,
+        directory,
+        copy,
+    );
+    assert!(cached_profile_snapshot(
+        &source,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' }
+    )
+    .is_none());
     clear_profile_snapshot_of(&source);
 }
 
@@ -22370,7 +22469,7 @@ sur,20
         source_backed_load(&path, "csv", || false).expect("la fuente debe abrirse en disco");
     profile_source_backed_with_progress(
         &path,
-        "csv",
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
         size,
         row_count,
         |_, _| {},
@@ -22378,7 +22477,11 @@ sur,20
         MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
     )
     .expect("perfil en disco");
-    let copy = cached_profile_snapshot(&path).expect("la copia queda en caché");
+    let copy = cached_profile_snapshot(
+        &path,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
+    )
+    .expect("la copia queda en caché");
     let folder = copy.parent().expect("carpeta de la copia");
     let name = folder.file_name().unwrap().to_string_lossy().into_owned();
     assert!(name.starts_with("columnia-profile-"), "{name}");
@@ -22477,7 +22580,7 @@ fn profiles_agree_on_big_integers_non_finite_floats_and_padded_numbers() {
         .unwrap();
     let actual = profile_source_backed_with_progress(
         &path,
-        "parquet",
+        crate::duckdb_query::DuckDbFileFormat::Parquet,
         fs::metadata(&path).unwrap().len(),
         frame.height(),
         |_, _| {},
@@ -22564,7 +22667,7 @@ fn comma_decimal_numbers_are_counted_in_both_profiles() {
         .unwrap();
     let actual = profile_source_backed_with_progress(
         &path,
-        "parquet",
+        crate::duckdb_query::DuckDbFileFormat::Parquet,
         fs::metadata(&path).unwrap().len(),
         frame.height(),
         |_, _| {},
@@ -22726,7 +22829,12 @@ fn compared_file_persistence_stops_on_cancellation() {
     export_frame_atomic(&frame, &workbook, ExportFormat::Excel, |_, _| {}, || false).unwrap();
     let cancelled = || true;
     assert_eq!(
-        persist_delimited_comparison_source_file_with_cancel(&csv, "csv", cancelled).unwrap_err(),
+        persist_delimited_comparison_source_file_with_cancel(
+            &csv,
+            crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
+            cancelled
+        )
+        .unwrap_err(),
         OPERATION_CANCELLED_MESSAGE
     );
     assert_eq!(
@@ -23440,6 +23548,89 @@ fn source_backed_dates_and_fills_match_the_in_memory_plan() {
 }
 
 #[test]
+fn parquet_lower_median_matches_the_in_memory_imputation() {
+    // AUD-025: the SQL median that fills gaps on disk is the lower median that
+    // `impute_missing_values_in_columns` writes in memory.
+    let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+    let integer_cases: [&[Option<i64>]; 5] = [
+        &[Some(3), None, Some(1), Some(2)],
+        &[Some(4), Some(1), None, Some(3), Some(2)],
+        &[Some(-5), Some(i64::MAX), None, Some(0), Some(7), Some(7)],
+        &[None, None, None],
+        &[Some(9), Some(8)],
+    ];
+    let number_cases: [&[Option<f64>]; 7] = [
+        &[Some(2.5), None, Some(1.5), Some(0.5)],
+        &[Some(4.0), Some(1.0), None, Some(3.0), Some(2.0)],
+        &[Some(f64::NAN), Some(1.0), None, Some(3.0)],
+        &[
+            Some(f64::INFINITY),
+            Some(f64::NEG_INFINITY),
+            Some(5.0),
+            None,
+        ],
+        &[Some(f64::NAN), Some(f64::INFINITY), None],
+        &[None, None],
+        &[Some(1.0), Some(2.0)],
+    ];
+    let mut checked = 0;
+    for (index, case) in integer_cases.iter().enumerate() {
+        let frame =
+            DataFrame::new(case.len(), vec![Column::new("v".into(), case.to_vec())]).unwrap();
+        let (filled, ..) = impute_missing_values_in_columns(&frame, None).unwrap();
+        let path = directory.path().join(format!("entero-{index}.parquet"));
+        let mut written = frame.clone();
+        ParquetWriter::new(File::create(&path).unwrap())
+            .finish(&mut written)
+            .unwrap();
+        let sql = crate::duckdb_query::parquet_lower_median_integer(&path, "v", None).unwrap();
+        match sql {
+            Some(median) => {
+                let position = case.iter().position(Option::is_none).unwrap();
+                assert_eq!(
+                    filled.column("v").unwrap().i64().unwrap().get(position),
+                    Some(median)
+                );
+            }
+            None => assert!(filled.equals_missing(&frame), "caso entero {index}"),
+        }
+        checked += 1;
+    }
+    for (index, case) in number_cases.iter().enumerate() {
+        let frame =
+            DataFrame::new(case.len(), vec![Column::new("v".into(), case.to_vec())]).unwrap();
+        let (filled, ..) = impute_missing_values_in_columns(&frame, None).unwrap();
+        let path = directory.path().join(format!("numero-{index}.parquet"));
+        let mut written = frame.clone();
+        ParquetWriter::new(File::create(&path).unwrap())
+            .finish(&mut written)
+            .unwrap();
+        let sql = crate::duckdb_query::parquet_lower_median_number(&path, "v", None).unwrap();
+        match sql {
+            Some(median) => {
+                let position = case.iter().position(Option::is_none).unwrap();
+                let memory = filled.column("v").unwrap().f64().unwrap().get(position);
+                assert_eq!(memory, Some(median), "caso decimal {index}");
+            }
+            None => assert!(filled.equals_missing(&frame), "caso decimal {index}"),
+        }
+        checked += 1;
+    }
+    // No rows: nothing to fill on either path.
+    let empty = DataFrame::new(0, vec![Column::new("v".into(), Vec::<i64>::new())]).unwrap();
+    let path = directory.path().join("vacio.parquet");
+    let mut written = empty.clone();
+    ParquetWriter::new(File::create(&path).unwrap())
+        .finish(&mut written)
+        .unwrap();
+    assert_eq!(
+        crate::duckdb_query::parquet_lower_median_integer(&path, "v", None).unwrap(),
+        None
+    );
+    assert_eq!(checked, 12);
+}
+
+#[test]
 fn explore_reads_the_profile_copy_of_an_unchanged_large_csv() {
     // REN-14: Explorar reuses the profile's Parquet copy instead of parsing the
     // CSV again; the panel is the same, and a changed file is read again.
@@ -23450,7 +23641,7 @@ fn explore_reads_the_profile_copy_of_an_unchanged_large_csv() {
         source_backed_load(&path, "csv", || false).expect("la fuente debe abrirse en disco");
     let profile = profile_source_backed_with_progress(
         &path,
-        "csv",
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
         size,
         row_count,
         |_, _| {},
@@ -23458,7 +23649,11 @@ fn explore_reads_the_profile_copy_of_an_unchanged_large_csv() {
         MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
     )
     .expect("perfil en disco");
-    let snapshot = cached_profile_snapshot(&path).expect("la copia queda en caché");
+    let snapshot = cached_profile_snapshot(
+        &path,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
+    )
+    .expect("la copia queda en caché");
     let layout = explore::ExploreLayout::default();
     let from_copy =
         explore::explore_panel(parquet_scan(&snapshot).unwrap(), &profile, &[], &layout)
@@ -23476,7 +23671,11 @@ fn explore_reads_the_profile_copy_of_an_unchanged_large_csv() {
     );
 
     fs::write(&path, "zona,importe\nnorte,10\n").expect("cambiar la fuente");
-    assert!(cached_profile_snapshot(&path).is_none());
+    assert!(cached_profile_snapshot(
+        &path,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' }
+    )
+    .is_none());
 }
 
 #[test]
@@ -23493,7 +23692,7 @@ fn the_first_version_of_a_large_csv_reuses_the_profile_copy() {
         .expect("versión de partida desde el CSV");
     profile_source_backed_with_progress(
         &path,
-        "csv",
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
         size,
         row_count,
         |_, _| {},
@@ -23501,7 +23700,11 @@ fn the_first_version_of_a_large_csv_reuses_the_profile_copy() {
         MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
     )
     .expect("perfil en disco");
-    let cached = cached_profile_snapshot(&path).expect("la copia queda en caché");
+    let cached = cached_profile_snapshot(
+        &path,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
+    )
+    .expect("la copia queda en caché");
     let from_copy = prepare_source_backed_baseline_snapshot(&history, &path, format, || false)
         .expect("versión de partida desde la copia");
     assert_eq!(
@@ -23558,7 +23761,7 @@ fn the_plan_reads_the_profile_copy_with_the_same_result() {
     let (path, _, mut from_copy) = source_backed_csv_dataset(csv);
     profile_source_backed_with_progress(
         &path,
-        "csv",
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
         from_copy.file_size_bytes,
         from_copy.row_count,
         |_, _| {},
@@ -23566,7 +23769,11 @@ fn the_plan_reads_the_profile_copy_with_the_same_result() {
         MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
     )
     .expect("perfil en disco");
-    assert!(cached_profile_snapshot(&path).is_some());
+    assert!(cached_profile_snapshot(
+        &path,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' }
+    )
+    .is_some());
     let (result, output) = apply(&mut from_copy);
 
     assert_eq!(result.changed_cell_count, expected.changed_cell_count);

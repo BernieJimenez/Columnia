@@ -230,12 +230,12 @@ pub(crate) fn evaluate_source_backed_quality_rules_for_automation(
     quality_rules: &[QualityRule],
 ) -> Result<QualityValidationResult, String> {
     let (dataset, _) = load_source_backed_dataset_for_automation(input, sheet_name, header_mode)?;
-    let (source_path, _) = current_duckdb_file_source(&dataset)
+    let (source_path, source_format) = current_duckdb_file_source(&dataset)
         .ok_or_else(|| "La fuente source-backed ya no está disponible para validar.".to_owned())?;
-    let (source_path, expected_file_size, extension) = validate_dataset_file(&source_path)?;
+    let (source_path, expected_file_size, _) = validate_dataset_file(&source_path)?;
     evaluate_source_quality_rules_with_cancel(
         &source_path,
-        &extension,
+        source_format,
         expected_file_size,
         dataset.row_count,
         quality_rules,
