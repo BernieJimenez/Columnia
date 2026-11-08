@@ -10026,9 +10026,14 @@ fn temporal_projection_snapshot_preserves_quoted_column_order_and_aggregation() 
         ],
     )
     .expect("el frame materializado debe conservar los nombres de columna");
-    let (projection_directory, projection_path) =
-        source_temporal_projection_snapshot(&path, "csv", date_column, "amount", || false)
-            .expect("el snapshot debe proyectar las columnas elegidas con escape SQL seguro");
+    let (projection_directory, projection_path) = source_temporal_projection_snapshot(
+        &path,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' },
+        date_column,
+        "amount",
+        || false,
+    )
+    .expect("el snapshot debe proyectar las columnas elegidas con escape SQL seguro");
     let projected_frame =
         read_parquet_frame(&projection_path).expect("el Parquet proyectado debe poder leerse");
     let projected_columns = projected_frame
@@ -10067,6 +10072,58 @@ fn temporal_projection_snapshot_preserves_quoted_column_order_and_aggregation() 
     }
 
     drop(projection_directory);
+}
+
+#[test]
+fn temporal_projection_of_a_headerless_source_backed_csv_uses_the_generated_names() {
+    let path = temporary_delimited(
+        "csv",
+        "2024-01-01,5
+2024-01-03,7
+",
+    );
+    let (schema, _, row_count) =
+        source_backed_load_with_header_mode(&path, "csv", SpreadsheetHeaderMode::Generated, || {
+            false
+        })
+        .expect("la fuente debe abrirse sin tratar la primera fila como encabezado");
+    assert_eq!(row_count, 2);
+    let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+    let dataset = LoadedDataset {
+        source_path: Some(path.path_buf()),
+        file_name: "headerless.csv".to_owned(),
+        file_size_bytes,
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: Some(SpreadsheetHeaderMode::Generated),
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+    };
+    let (source_path, source_format) = current_duckdb_file_source(&dataset)
+        .expect("el CSV sin encabezados debe quedar disponible para DuckDB");
+
+    let (directory, snapshot) = source_temporal_projection_snapshot(
+        &source_path,
+        source_format,
+        "column_1",
+        "column_2",
+        || false,
+    )
+    .expect("la proyección debe leer las columnas generadas");
+    let series = source_temporal_aggregation_summary(
+        &snapshot,
+        row_count,
+        "column_1",
+        "column_2",
+        TemporalAggregationKind::Sum,
+        false,
+        &|| false,
+    )
+    .expect("la tendencia debe calcularse sobre las dos filas de datos");
+    drop(directory);
+    assert_eq!(series.parsed_row_count, 2);
+    assert_eq!(series.unparsed_row_count, 0);
 }
 
 #[test]
@@ -22515,6 +22572,224 @@ sur,20
     assert!(directory.is_some());
 }
 
+/// A delimited file with more rows than one block of the block reader, with
+/// blank and non-numeric amounts and dates of every month.
+fn csv_longer_than_one_block(with_header: bool) -> String {
+    let rows = SOURCE_PROFILE_BLOCK_ROWS + 1_500;
+    let mut text = if with_header {
+        String::from("id,created_at,amount,region,unused\n")
+    } else {
+        String::new()
+    };
+    for index in 0..rows {
+        let amount = match index % 7 {
+            0 => String::new(),
+            3 => "n/d".to_owned(),
+            _ => format!("{}.5", index % 90),
+        };
+        text.push_str(&format!(
+            "{index},2024-{:02}-{:02},{amount},zona-{},x{index}\n",
+            index % 12 + 1,
+            index % 28 + 1,
+            index % 5
+        ));
+    }
+    text
+}
+
+/// AUD-034: a contract check, the conflict snapshot and the trend of a
+/// profiled CSV read the profile's working copy of the unchanged file instead
+/// of parsing the CSV again (and writing another Parquet), and give the same
+/// figures as without the copy. The file is longer than one block.
+#[test]
+fn reads_of_a_profiled_csv_use_the_profile_copy_and_give_the_same_results() {
+    let path = temporary_csv(&csv_longer_than_one_block(true));
+    let size = fs::metadata(&path).expect("fuente").len();
+    let format = crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' };
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe abrirse en disco");
+    assert!(row_count > SOURCE_PROFILE_BLOCK_ROWS);
+    clear_profile_snapshot_of(&path);
+    assert!(reusable_profile_copy(&path, format).is_none());
+    let context = SourceBackedJoinContext {
+        source_path: path.to_path_buf(),
+        source_format: format,
+        source_size_bytes: size,
+        schema,
+        file_name: "fuente.csv".to_owned(),
+        row_count,
+        original_source_path: path.to_path_buf(),
+        original_file_size_bytes: size,
+        history_directory: PathBuf::new(),
+        snapshot_only: false,
+    };
+    let mut rules = vec![
+        quality_rule("region", QualityRuleKind::Unique),
+        quality_rule("amount", QualityRuleKind::NotNull),
+        quality_rule("amount", QualityRuleKind::NonEmpty),
+    ];
+    for rule in &mut rules {
+        rule.max_invalid = Some(1_000_000);
+    }
+    let validate = || {
+        evaluate_source_quality_rules_with_cancel(&path, format, size, row_count, &rules, || false)
+            .expect("la validación debe leer la fuente")
+    };
+    let trend = |snapshot: &Path, count: usize| {
+        source_temporal_aggregation_summary(
+            snapshot,
+            count,
+            "created_at",
+            "amount",
+            TemporalAggregationKind::Sum,
+            false,
+            &|| false,
+        )
+        .expect("la tendencia debe calcularse")
+    };
+
+    // Without the copy: each read makes its own Parquet from the CSV.
+    let validation_without_copy = validate();
+    let (projection_directory, projection) =
+        source_temporal_projection_snapshot(&path, format, "created_at", "amount", || false)
+            .expect("la proyección debe leer el CSV");
+    let trend_without_copy = trend(
+        &projection,
+        parquet_row_count(&projection).expect("filas de la proyección"),
+    );
+    drop(projection_directory);
+    let (own_path, own_rows, own_hold) =
+        source_backed_parquet_snapshot_with_cancel(&context, || false)
+            .expect("copia propia")
+            .expect("copia propia disponible");
+    assert!(matches!(own_hold, Some(WorkingCopyHold::Locked(_))));
+    let own_frame = read_parquet_frame(&own_path).expect("copia propia legible");
+    let (own_profile_hold, own_profile_path) =
+        source_profile_snapshot_with_cancel(&path, format, || false).expect("copia del contrato");
+    assert!(matches!(
+        own_profile_hold,
+        Some(WorkingCopyHold::Temporary(_))
+    ));
+    let own_profile_frame = read_parquet_frame(&own_profile_path).expect("copia del contrato");
+
+    // The profile leaves its copy.
+    profile_source_backed_with_progress(
+        &path,
+        format,
+        size,
+        row_count,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("perfil en disco");
+    let copy = reusable_profile_copy(&path, format).expect("la copia queda en caché");
+    let copy_path = copy.to_path_buf();
+
+    // With it: the same results, from the copy and with no new Parquet.
+    assert_eq!(validate(), validation_without_copy);
+    assert_eq!(
+        trend(
+            &copy_path,
+            parquet_row_count(&copy_path).expect("filas de la copia")
+        ),
+        trend_without_copy
+    );
+    let (shared_path, shared_rows, shared_hold) =
+        source_backed_parquet_snapshot_with_cancel(&context, || false)
+            .expect("snapshot con copia")
+            .expect("snapshot con copia disponible");
+    assert_eq!(shared_path, copy_path, "no se materializa otro Parquet");
+    assert!(matches!(shared_hold, Some(WorkingCopyHold::ProfileCopy(_))));
+    assert_eq!(shared_rows, own_rows);
+    assert!(read_parquet_frame(&shared_path)
+        .expect("snapshot con copia legible")
+        .equals_missing(&own_frame));
+    let (contract_hold, contract_path) =
+        source_profile_snapshot_with_cancel(&path, format, || false).expect("contrato con copia");
+    assert_eq!(contract_path, copy_path, "no se materializa otro Parquet");
+    assert!(matches!(
+        contract_hold,
+        Some(WorkingCopyHold::ProfileCopy(_))
+    ));
+    assert!(read_parquet_frame(&contract_path)
+        .expect("contrato con copia legible")
+        .equals_missing(&own_profile_frame));
+
+    // The hold keeps the file when another profile replaces the cached copy.
+    clear_profile_snapshot_of(&path);
+    assert!(shared_path.is_file());
+    drop(shared_hold);
+    drop(contract_hold);
+    drop(copy);
+    assert!(!shared_path.exists(), "sin lectores la carpeta se elimina");
+    assert!(reusable_profile_copy(&path, format).is_none());
+}
+
+/// AUD-034: a file without header profiled with the generated names has a
+/// copy with those names; the trend reads it and agrees with the projection.
+#[test]
+fn the_trend_of_a_headerless_csv_reads_the_profile_copy_with_the_generated_names() {
+    let path = temporary_csv(&csv_longer_than_one_block(false));
+    let size = fs::metadata(&path).expect("fuente").len();
+    let (_, _, row_count) =
+        source_backed_load_with_header_mode(&path, "csv", SpreadsheetHeaderMode::Generated, || {
+            false
+        })
+        .expect("la fuente debe abrirse sin encabezado");
+    assert!(row_count > SOURCE_PROFILE_BLOCK_ROWS);
+    let format = crate::duckdb_query::DuckDbFileFormat::DelimitedWithoutHeader {
+        delimiter: b',',
+        column_count: 5,
+    };
+    clear_profile_snapshot_of(&path);
+    let trend = |snapshot: &Path, count: usize| {
+        source_temporal_aggregation_summary(
+            snapshot,
+            count,
+            "column_2",
+            "column_3",
+            TemporalAggregationKind::Sum,
+            false,
+            &|| false,
+        )
+        .expect("la tendencia debe calcularse")
+    };
+    let (projection_directory, projection) =
+        source_temporal_projection_snapshot(&path, format, "column_2", "column_3", || false)
+            .expect("la proyección debe leer las columnas generadas");
+    let trend_without_copy = trend(
+        &projection,
+        parquet_row_count(&projection).expect("filas de la proyección"),
+    );
+    drop(projection_directory);
+    assert!(trend_without_copy.parsed_row_count > 0);
+
+    profile_source_backed_with_progress(
+        &path,
+        format,
+        size,
+        row_count,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("perfil de un CSV sin encabezado");
+    let copy = reusable_profile_copy(&path, format).expect("la copia queda en caché");
+    assert_eq!(
+        trend(&copy, parquet_row_count(&copy).expect("filas de la copia")),
+        trend_without_copy
+    );
+    // Another reading of the same file does not get this copy.
+    assert!(reusable_profile_copy(
+        &path,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' }
+    )
+    .is_none());
+    drop(copy);
+    clear_profile_snapshot_of(&path);
+}
+
 /// DAT-07: a change whose result is over the history budget keeps the
 /// earlier versions, says so before anything is lost, and undo returns to
 /// the last saved version.
@@ -23548,6 +23823,90 @@ fn source_backed_dates_and_fills_match_the_in_memory_plan() {
 }
 
 #[test]
+fn the_gap_stage_computes_every_median_in_one_duckdb_query() {
+    // AUD-035: k columns to fill cost one DuckDB query, not k, and fill the
+    // same values as the in-memory plan.
+    let path = temporary_csv(
+        "cantidad_a,cantidad_b,cantidad_c,cantidad_d,zona
+1,10,1.5,5,x
+N/A,20,N/A,6,N/A
+3,N/A,2.5,N/A,x
+4,40,3.5,8,y
+5,50,4.5,9,x
+6,N/A,5.5,N/A,z
+",
+    );
+    let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
+    let mut dataset = LoadedDataset {
+        source_path: Some(path.path_buf()),
+        file_name: "huecos.csv".to_owned(),
+        file_size_bytes: fs::metadata(&path).expect("la fuente debe existir").len(),
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial debe inicializarse"),
+    };
+    let cast = ["cantidad_a", "cantidad_b", "cantidad_c", "cantidad_d"].map(str::to_owned);
+    let fill = [
+        "cantidad_a",
+        "cantidad_b",
+        "cantidad_c",
+        "cantidad_d",
+        "zona",
+    ]
+    .map(str::to_owned);
+    let expected = safe_corrected_plan_frame(
+        &source_frame,
+        true,
+        false,
+        true,
+        false,
+        true,
+        Some(&fill),
+        Some(&cast),
+        None,
+    )
+    .expect("el plan en memoria debe aplicarse");
+    let result = source_backed_safe_corrections_with_cancellation(
+        &mut dataset,
+        true,
+        false,
+        true,
+        false,
+        Some(&cast),
+        None,
+        Some(&fill),
+        &PrepareCancellation::disabled(),
+        &mut |_, _| {},
+    )
+    .expect("el plan en disco debe aplicarse")
+    .expect("el CSV debe procesarse en disco");
+    let output = read_parquet_frame(dataset.source_path.as_deref().expect("fuente"))
+        .expect("el resultado Parquet debe leerse");
+
+    let queries = crate::duckdb_query::LOWER_MEDIAN_QUERIES
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|columns| columns.iter().any(|name| name.starts_with("cantidad_")))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(
+        queries.len(),
+        1,
+        "{:?}",
+        crate::duckdb_query::LOWER_MEDIAN_QUERIES.lock().unwrap()
+    );
+    assert_eq!(queries[0].len(), 4);
+    assert_eq!(result.imputed_cell_count, expected.imputed_cell_count);
+    assert!(output.equals_missing(&expected.frame));
+}
+
+#[test]
 fn parquet_lower_median_matches_the_in_memory_imputation() {
     // AUD-025: the SQL median that fills gaps on disk is the lower median that
     // `impute_missing_values_in_columns` writes in memory.
@@ -23810,4 +24169,338 @@ fn profile_provenance_reaches_the_interface_and_old_profiles_still_load() {
     saved.as_object_mut().unwrap().remove("provenance");
     let restored: DatasetProfile = serde_json::from_value(saved).unwrap();
     assert_eq!(restored.provenance, None);
+}
+
+#[test]
+fn the_source_stage_checks_numbers_dates_and_text_gaps_in_one_read_per_block() {
+    // AUD-036: k candidate columns cost one read of the file per block, not k
+    // reads; a column already rejected leaves the next reads, and the verdicts
+    // are those of a column checked alone.
+    let rows = 2 * SOURCE_STAGE_BLOCK_ROWS + 100;
+    let last = rows - 1;
+    let column = |value: &dyn Fn(usize) -> Option<String>| (0..rows).map(value).collect::<Vec<_>>();
+    let frame = df![
+        "aud036_one_num_a" => column(&|row| Some(row.to_string())),
+        "aud036_one_num_b" => column(&|row| Some(format!("{row}.5"))),
+        "aud036_one_date" => column(&|row| Some(format!("{:02}/02/2024", row % 28 + 1))),
+        "aud036_one_text" => column(&|row| Some(if row == 0 { "abc".to_owned() } else { row.to_string() })),
+        "aud036_one_late_num" => column(&|row| Some(if row == last { "abc".to_owned() } else { row.to_string() })),
+        "aud036_one_late_date" => column(&|row| Some(if row == last { "99/99/2024".to_owned() } else { "01/02/2024".to_owned() })),
+        "aud036_one_zone" => column(&|row| (row % 7 != 3).then(|| if row % 5 == 0 { "sur" } else { "norte" }.to_owned())),
+    ]
+    .expect("la tabla debe crearse");
+    let gaps = (0..rows).filter(|row| row % 7 == 3).count();
+    let (_directory, input) = persist_comparison_snapshot(&frame).expect("snapshot");
+    let output_directory = tempfile::tempdir().expect("carpeta de salida");
+    let output = output_directory.path().join("salida.parquet");
+    let plan = SourceStagePlan {
+        numbers: [
+            "aud036_one_num_a",
+            "aud036_one_num_b",
+            "aud036_one_text",
+            "aud036_one_late_num",
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+        dates: ["aud036_one_date", "aud036_one_late_date"]
+            .map(|column| DateColumnPlan {
+                column: column.to_owned(),
+                order: "dmy".to_owned(),
+            })
+            .to_vec(),
+        impute: Some(vec!["aud036_one_zone".to_owned()]),
+    };
+    let outcome = source_date_and_impute_stage(&input, &output, &plan, &|| false, &mut |_| {})
+        .expect("la etapa debe aplicarse")
+        .expect("hay columnas que convertir");
+    assert_eq!(outcome.typed_column_count, 2);
+    assert_eq!(outcome.dated_column_count, 1);
+    assert_eq!(outcome.imputed_cell_count, gaps);
+
+    let written = read_parquet_frame(&output).expect("el resultado debe leerse");
+    let dtype = |name: &str| written.column(name).unwrap().dtype().clone();
+    assert_eq!(dtype("aud036_one_num_a"), DataType::Int64);
+    assert_eq!(dtype("aud036_one_num_b"), DataType::Float64);
+    assert_eq!(dtype("aud036_one_date"), DataType::Date);
+    for name in [
+        "aud036_one_text",
+        "aud036_one_late_num",
+        "aud036_one_late_date",
+    ] {
+        assert_eq!(dtype(name), DataType::String, "{name}");
+    }
+    let zone = written.column("aud036_one_zone").unwrap();
+    assert_eq!(zone.null_count(), 0);
+    assert_eq!(zone.get(3).unwrap().get_str(), Some("norte"));
+
+    // Reads of the check pass hold the number and date candidates; the text
+    // pass reads the gap column alone. Other tests use other column names.
+    let reads = WANTED_COLUMNS_READS
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|read| read.iter().any(|name| name.starts_with("aud036_one_")))
+        .cloned()
+        .collect::<Vec<_>>();
+    let (zone_reads, check_reads): (Vec<_>, Vec<_>) = reads
+        .into_iter()
+        .partition(|read| read == &["aud036_one_zone".to_owned()]);
+    assert_eq!(check_reads.len(), 3, "{check_reads:?}");
+    assert_eq!(zone_reads.len(), 3, "{zone_reads:?}");
+    assert_eq!(check_reads[0].len(), 6);
+    assert!(check_reads.iter().all(|read| read.len() <= 6));
+}
+
+#[test]
+fn the_source_stage_stops_reading_once_every_candidate_is_rejected() {
+    // AUD-036: with all columns decided in the first block the rest of the
+    // file is not read, and the stage has nothing to write.
+    let blocks = 8;
+    let rows = blocks * SOURCE_STAGE_BLOCK_ROWS;
+    let frame = df![
+        "aud036_stop_a" => (0..rows).map(|row| if row == 0 { "abc".to_owned() } else { row.to_string() }).collect::<Vec<_>>(),
+        "aud036_stop_b" => (0..rows).map(|row| if row == 1 { String::new() } else { row.to_string() }).collect::<Vec<_>>(),
+        "aud036_stop_c" => (0..rows).map(|_| "no es fecha".to_owned()).collect::<Vec<_>>(),
+    ]
+    .expect("la tabla debe crearse");
+    let (_directory, input) = persist_comparison_snapshot(&frame).expect("snapshot");
+    let output_directory = tempfile::tempdir().expect("carpeta de salida");
+    let output = output_directory.path().join("salida.parquet");
+    let plan = SourceStagePlan {
+        numbers: ["aud036_stop_a", "aud036_stop_b"]
+            .map(str::to_owned)
+            .to_vec(),
+        dates: vec![DateColumnPlan {
+            column: "aud036_stop_c".to_owned(),
+            order: "dmy".to_owned(),
+        }],
+        impute: None,
+    };
+    let outcome = source_date_and_impute_stage(&input, &output, &plan, &|| false, &mut |_| {})
+        .expect("la etapa debe aplicarse");
+    assert!(outcome.is_none());
+    assert!(!output.exists());
+    let reads = WANTED_COLUMNS_READS
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|read| read.iter().any(|name| name.starts_with("aud036_stop_")))
+        .count();
+    // The next blocks may be read ahead, never the whole file.
+    assert!((1..blocks).contains(&reads), "{reads} lecturas");
+}
+
+#[test]
+fn the_source_stage_stops_between_blocks_when_cancelled() {
+    // AUD-036: the check pass honours the cancellation on every block.
+    let rows = 3 * SOURCE_STAGE_BLOCK_ROWS;
+    let frame = df!["aud036_cancel" => (0..rows).map(|row| row.to_string()).collect::<Vec<_>>()]
+        .expect("la tabla debe crearse");
+    let (_directory, input) = persist_comparison_snapshot(&frame).expect("snapshot");
+    let output_directory = tempfile::tempdir().expect("carpeta de salida");
+    let output = output_directory.path().join("salida.parquet");
+    let plan = SourceStagePlan {
+        numbers: vec!["aud036_cancel".to_owned()],
+        dates: Vec::new(),
+        impute: None,
+    };
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = std::sync::Arc::clone(&calls);
+    // True from the fourth check: the first ones precede the first block.
+    let error = source_date_and_impute_stage(
+        &input,
+        &output,
+        &plan,
+        &move || counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= 3,
+        &mut |_| {},
+    )
+    .err()
+    .expect("debe cancelarse");
+    assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+    assert!(!output.exists());
+}
+
+/// `decimal_fits_in_f64` as it was before AUD-036 (the text of the number
+/// built every time).
+fn decimal_fits_in_f64_reference(value: &str) -> bool {
+    let value = value.trim();
+    if value.contains(['e', 'E']) {
+        return true;
+    }
+    value
+        .parse::<f64>()
+        .is_ok_and(|number| canonical_decimal(value) == canonical_decimal(&number.to_string()))
+}
+
+#[test]
+fn decimal_fits_in_f64_answers_as_before_without_building_the_text() {
+    // AUD-036: a battery of spellings and a pseudo-random sweep give the same
+    // answer as the original check.
+    let long_integer = format!("1{}", "0".repeat(400));
+    let long_nines = "9".repeat(330);
+    let tiny = format!("0.{}5", "0".repeat(330));
+    let mut cases: Vec<String> = [
+        "0",
+        "-0",
+        "+0",
+        "0.0",
+        "-0.0",
+        "00.00",
+        "1",
+        "-1",
+        "+1",
+        "007",
+        "007.50",
+        "+007.50",
+        "7.5",
+        "7.50",
+        ".5",
+        "-.5",
+        "5.",
+        "-5.",
+        ".",
+        "-",
+        "+",
+        "",
+        "  1.5  ",
+        "1e5",
+        "1E-5",
+        "1.5e300",
+        "inf",
+        "-inf",
+        "NaN",
+        "nan",
+        "infinity",
+        "0.1",
+        "0.2",
+        "0.30000000000000004",
+        "54.88135039273247",
+        "123456789012345",
+        "1234567890123456",
+        "12345678901234567890",
+        "100000000000000000000",
+        "1000000000000000000000",
+        "123450000000000000000000",
+        "0.000000000000000000001",
+        "0.1234567890123456789",
+        "9007199254740993",
+        "9007199254740992",
+        "1.7976931348623157",
+        "1 2",
+        "1,5",
+        "1_0",
+        "0x10",
+        "--1",
+        "+-1",
+        "1.2.3",
+        "1.5f",
+        "12abc",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    cases.extend([long_integer, long_nines, tiny]);
+    // Doubles written as Rust prints them, and digit strings of every shape.
+    let mut seed = 0x9E37_79B9_7F4A_7C15_u64;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    for _ in 0..20_000 {
+        let number = f64::from_bits(next());
+        if number.is_finite() {
+            cases.push(number.to_string());
+        }
+        let scaled =
+            (next() % 1_000_000_000_000_000_000) as f64 / 10_f64.powi((next() % 22) as i32);
+        cases.push(scaled.to_string());
+        cases.push(format!("{scaled:.17}"));
+        let length = 1 + (next() % 25) as usize;
+        let mut digits = (0..length)
+            .map(|_| char::from(b'0' + (next() % 10) as u8))
+            .collect::<String>();
+        let mut spelled = String::new();
+        match next() % 4 {
+            0 => spelled.push('-'),
+            1 => spelled.push('+'),
+            _ => {}
+        }
+        spelled.push_str(&"0".repeat((next() % 3) as usize));
+        let dot = (next() % (length as u64 + 2)) as usize;
+        if dot <= length {
+            digits.insert(dot, '.');
+        }
+        spelled.push_str(&digits);
+        spelled.push_str(&"0".repeat((next() % 4) as usize));
+        cases.push(spelled);
+    }
+    for case in &cases {
+        assert_eq!(
+            decimal_fits_in_f64(case),
+            decimal_fits_in_f64_reference(case),
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn source_backed_numeric_typing_treats_empty_and_blank_cells_like_the_in_memory_plan() {
+    // AUD-036: an empty CSV cell is a null on disk and in memory (it does not
+    // block the typing); a blank or quoted-empty cell is text in both, so it
+    // blocks the typing unless «sin dato» turns it into a null.
+    for (csv, normalize_sentinels, typed) in [
+        ("cantidad,otra\n1,x\n,y\n3,z\n", false, 1),
+        ("cantidad,otra\n1,x\n\"   \",y\n3,z\n", true, 1),
+        ("cantidad,otra\n1,x\n\"   \",y\n3,z\n", false, 0),
+        ("cantidad,otra\n1,x\n\"\",y\n3,z\n", false, 0),
+    ] {
+        let path = temporary_csv(csv);
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) =
+            source_backed_load(&path, "csv", || false).expect("la fuente debe leerse en disco");
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.path_buf()),
+            file_name: "vacias.csv".to_owned(),
+            file_size_bytes: fs::metadata(&path).expect("la fuente debe existir").len(),
+            row_count,
+            frame: schema,
+            source_backed: true,
+            delimited_header_mode: None,
+            profile: None,
+            history: HistoryManager::deferred().expect("el historial debe inicializarse"),
+        };
+        let columns = ["cantidad".to_owned()];
+        let expected = safe_corrected_plan_frame(
+            &source_frame,
+            true,
+            false,
+            normalize_sentinels,
+            true,
+            false,
+            None,
+            Some(&columns),
+            None,
+        )
+        .expect("el plan en memoria debe aplicarse");
+        let result = source_backed_safe_corrections_with_cancellation(
+            &mut dataset,
+            true,
+            false,
+            normalize_sentinels,
+            true,
+            Some(&columns),
+            None,
+            None,
+            &PrepareCancellation::disabled(),
+            &mut |_, _| {},
+        )
+        .expect("el plan en disco debe aplicarse")
+        .expect("el CSV debe procesarse en disco");
+        let output = read_parquet_frame(dataset.source_path.as_deref().expect("fuente"))
+            .expect("el resultado Parquet debe leerse");
+        assert_eq!(result.typed_column_count, typed, "{csv:?}");
+        assert_eq!(expected.typed_column_count, typed, "{csv:?}");
+        assert!(output.equals_missing(&expected.frame), "{csv:?}");
+    }
 }

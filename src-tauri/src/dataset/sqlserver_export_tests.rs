@@ -124,6 +124,71 @@ fn large_files_stream_the_tsql_script_through_duckdb() {
     assert!(script.ends_with("-- 2 filas.\n"));
 }
 
+/// AUD-034: with the profile's copy of the unchanged file, the script and the
+/// package (with their text sizes taken from the longest value) are the ones
+/// the file itself gives.
+#[test]
+fn the_profile_copy_gives_the_same_tsql_script_and_bulk_package_as_the_file() {
+    let directory = tempfile::tempdir().expect("carpeta");
+    let (source, size) = source_csv(
+        directory.path(),
+        "nombre,importe,nota\nO'Brien Ñandú,10,corta\n=1+1,20,una nota bastante más larga\n,,\n",
+    );
+    let format = crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' };
+    // The cache is keyed by the path the dataset and the export both resolve.
+    let (canonical, _, _) = validate_dataset_file(&source).expect("fuente válida");
+    clear_profile_snapshot_of(&canonical);
+    let export = |name: &str| {
+        let script = directory.path().join(format!("{name}.sql"));
+        export_source_backed_tsql_atomic(&source, size, &script, None, |_, _| {}, || false)
+            .expect("script");
+        let package = directory.path().join(format!("{name}.zip"));
+        export_source_backed_sqlserver_bulk_atomic(
+            &source,
+            size,
+            3,
+            &package,
+            None,
+            |_, _| {},
+            || false,
+        )
+        .expect("paquete");
+        (
+            fs::read_to_string(script).expect("script"),
+            zip_entries(&package),
+        )
+    };
+    let without_copy = export("sin-copia");
+
+    profile_source_backed_with_progress(
+        &canonical,
+        format,
+        size,
+        3,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("perfil en disco");
+    assert!(reusable_profile_copy(&canonical, format).is_some());
+    let with_copy = export("con-copia");
+    clear_profile_snapshot_of(&canonical);
+
+    // Only the table name (the file name) differs between the two runs.
+    let rename = |text: &str, name: &str| text.replace(name, "tabla");
+    assert_eq!(
+        rename(&with_copy.0, "con_copia"),
+        rename(&without_copy.0, "sin_copia")
+    );
+    assert_eq!(with_copy.1.len(), without_copy.1.len());
+    for (with, without) in with_copy.1.iter().zip(&without_copy.1) {
+        assert_eq!(
+            rename(&rename(&with.1, "con_copia"), "con-copia"),
+            rename(&rename(&without.1, "sin_copia"), "sin-copia")
+        );
+    }
+}
+
 #[test]
 fn large_files_stream_the_bulk_package_through_duckdb() {
     let directory = tempfile::tempdir().expect("carpeta");

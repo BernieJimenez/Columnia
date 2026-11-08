@@ -2753,10 +2753,18 @@ where
         report,
         is_cancelled,
         move |source, temporary, _, cancel| {
+            // AUD-034: the script sizes the text from the longest value of
+            // each column, a second read of the whole file; the profile's
+            // copy of an unchanged file answers it by column.
+            let profile_copy = reusable_profile_copy(source.path, source.format);
+            let (read_path, read_format) = match profile_copy.as_deref() {
+                Some(copy) => (copy, crate::duckdb_query::DuckDbFileFormat::Parquet),
+                None => (source.path, source.format),
+            };
             write_through_scratch(temporary, "sql", cancel, |partial, cancel| {
                 crate::duckdb_query::export_file_to_tsql_with_cancel(
-                    source.path,
-                    source.format,
+                    read_path,
+                    read_format,
                     partial,
                     target,
                     cancel,
@@ -2800,9 +2808,16 @@ where
                 .tempfile_in(&parent)
                 .map_err(|error| format!("No se pudo preparar el CSV del paquete: {error}"))?
                 .into_temp_path();
+            // AUD-034: like the T-SQL script, the package reads the profile's
+            // copy of an unchanged file for the text sizes and the rows.
+            let profile_copy = reusable_profile_copy(source.path, source.format);
+            let (read_path, read_format) = match profile_copy.as_deref() {
+                Some(copy) => (copy, crate::duckdb_query::DuckDbFileFormat::Parquet),
+                None => (source.path, source.format),
+            };
             let columns = crate::duckdb_query::export_file_to_bulk_csv_with_cancel(
-                source.path,
-                source.format,
+                read_path,
+                read_format,
                 &csv,
                 target.fitted_text(),
                 cancel.clone(),

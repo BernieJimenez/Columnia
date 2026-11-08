@@ -2312,7 +2312,7 @@ struct ConflictIndexKey {
 struct ConflictIndex {
     key: ConflictIndexKey,
     _directory: HistoryDirectory,
-    _current_snapshot: Option<HistoryDirectory>,
+    _current_snapshot: Option<WorkingCopyHold>,
     current_path: PathBuf,
     current_row_count: usize,
     pairs_path: PathBuf,
@@ -2516,7 +2516,7 @@ fn shared_columns_between(current: &Path, compared: &Path) -> Result<Vec<String>
 pub(super) fn source_backed_parquet_snapshot_with_cancel<C>(
     context: &SourceBackedJoinContext,
     is_cancelled: C,
-) -> Result<Option<(PathBuf, usize, Option<HistoryDirectory>)>, String>
+) -> Result<Option<(PathBuf, usize, Option<WorkingCopyHold>)>, String>
 where
     C: Fn() -> bool + Clone + Send + 'static,
 {
@@ -2525,6 +2525,23 @@ where
         crate::duckdb_query::DuckDbFileFormat::Parquet
     ) {
         return Ok(Some((context.source_path.clone(), context.row_count, None)));
+    }
+    // AUD-034: the profile's working copy of an unchanged file is the same
+    // Parquet this would write; reading it saves parsing the file again and
+    // writing a second copy. The hold keeps it alive for as long as the
+    // caller uses the path.
+    if let Some(copy) = reusable_profile_copy(&context.source_path, context.source_format) {
+        let path = copy.to_path_buf();
+        let row_count = crate::duckdb_query::count_file_rows(
+            &path,
+            crate::duckdb_query::DuckDbFileFormat::Parquet,
+            is_cancelled,
+        )?;
+        return Ok(Some((
+            path,
+            row_count,
+            Some(WorkingCopyHold::ProfileCopy(copy)),
+        )));
     }
     let directory = locked_directory(CONFLICTS_DIRECTORY_PREFIX).map_err(|error| {
         format!("No se pudo preparar el snapshot temporal source-backed: {error}")
@@ -2547,7 +2564,11 @@ where
         crate::duckdb_query::DuckDbFileFormat::Parquet,
         is_cancelled,
     )?;
-    Ok(Some((path, row_count, Some(directory))))
+    Ok(Some((
+        path,
+        row_count,
+        Some(WorkingCopyHold::Locked(directory)),
+    )))
 }
 
 #[cfg(test)]

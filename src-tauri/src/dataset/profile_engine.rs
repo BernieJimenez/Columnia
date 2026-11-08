@@ -2432,7 +2432,7 @@ where
 
 pub(super) fn source_temporal_projection_snapshot<C>(
     source_path: &Path,
-    extension: &str,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     date_column: &str,
     value_column: &str,
     is_cancelled: C,
@@ -2440,12 +2440,15 @@ pub(super) fn source_temporal_projection_snapshot<C>(
 where
     C: Fn() -> bool + Send + 'static,
 {
-    let source_format = match extension {
-        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
-            delimiter: detect_delimiter(source_path, extension)?,
-        },
-        _ => return Err("El formato source-backed no admite tendencias temporales.".to_owned()),
-    };
+    use crate::duckdb_query::DuckDbFileFormat;
+    // `source_format` is how the loaded dataset reads the file (see
+    // `current_duckdb_file_source`), so a headerless CSV keeps its generated names.
+    if matches!(
+        source_format,
+        DuckDbFileFormat::Parquet | DuckDbFileFormat::Json
+    ) {
+        return Err("El formato source-backed no admite tendencias temporales.".to_owned());
+    }
     let directory = tempfile::tempdir()
         .map_err(|error| format!("No se pudo preparar el agregado temporal: {error}"))?;
     let snapshot = directory.path().join("temporal-aggregation.parquet");
@@ -2464,11 +2467,21 @@ where
     Ok((directory, snapshot))
 }
 
+/// What keeps the Parquet file of a read alive until the read ends: a folder
+/// the read made, or the profile's working copy (which another profile may
+/// replace in the cache meanwhile).
+#[allow(dead_code)] // The variants only hold their folder; nobody reads them.
+pub(super) enum WorkingCopyHold {
+    Temporary(tempfile::TempDir),
+    Locked(HistoryDirectory),
+    ProfileCopy(CachedProfileSnapshot),
+}
+
 #[cfg(test)]
 pub(super) fn source_profile_snapshot(
     source_path: &Path,
     extension: &str,
-) -> Result<(Option<tempfile::TempDir>, PathBuf), String> {
+) -> Result<(Option<WorkingCopyHold>, PathBuf), String> {
     let source_format = match extension {
         "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
         _ => crate::duckdb_query::DuckDbFileFormat::Delimited {
@@ -2480,11 +2493,14 @@ pub(super) fn source_profile_snapshot(
 
 /// `source_format` is how the loaded dataset reads the file (see
 /// `current_duckdb_file_source`), so the copy has the columns the dataset has.
+/// AUD-034: the profile's working copy of an unchanged file is the very
+/// Parquet this would write, so it is returned instead of reading the file
+/// again.
 pub(super) fn source_profile_snapshot_with_cancel<C>(
     source_path: &Path,
     source_format: crate::duckdb_query::DuckDbFileFormat,
     is_cancelled: C,
-) -> Result<(Option<tempfile::TempDir>, PathBuf), String>
+) -> Result<(Option<WorkingCopyHold>, PathBuf), String>
 where
     C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
@@ -2493,12 +2509,16 @@ where
     match source_format {
         DuckDbFileFormat::Parquet => Ok((None, source_path.to_owned())),
         DuckDbFileFormat::Delimited { .. } | DuckDbFileFormat::DelimitedWithoutHeader { .. } => {
+            if let Some(copy) = reusable_profile_copy(source_path, source_format) {
+                let path = copy.to_path_buf();
+                return Ok((Some(WorkingCopyHold::ProfileCopy(copy)), path));
+            }
             let (directory, snapshot) = persist_delimited_comparison_source_file_with_cancel(
                 source_path,
                 source_format,
                 is_cancelled,
             )?;
-            Ok((Some(directory), snapshot))
+            Ok((Some(WorkingCopyHold::Temporary(directory)), snapshot))
         }
         DuckDbFileFormat::Json => Err("El formato no admite un perfil source-backed.".to_owned()),
     }
@@ -2576,6 +2596,23 @@ pub(super) fn cached_profile_snapshot(
             path: snapshot.path.clone(),
             _directory: std::sync::Arc::clone(&snapshot.directory),
         })
+}
+
+/// AUD-034: the profile's working copy for a read that would otherwise parse
+/// the whole delimited file again (a contract check, a conflict snapshot, a
+/// trend). Only a delimited reading has one; `cached_profile_snapshot` is the
+/// single place that decides whether it is still valid for `source_format`.
+pub(super) fn reusable_profile_copy(
+    source_path: &Path,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
+) -> Option<CachedProfileSnapshot> {
+    use crate::duckdb_query::DuckDbFileFormat;
+    match source_format {
+        DuckDbFileFormat::Delimited { .. } | DuckDbFileFormat::DelimitedWithoutHeader { .. } => {
+            cached_profile_snapshot(source_path, source_format)
+        }
+        DuckDbFileFormat::Parquet | DuckDbFileFormat::Json => None,
+    }
 }
 
 /// Drops the cached working copy, which deletes its folder once no read

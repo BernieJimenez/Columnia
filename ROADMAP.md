@@ -26,19 +26,21 @@ y se abrió AUD-099, aparecida al aplicarla. Ese mismo día se cerró la tanda 2
 (AUD-003, 010, 011, 013 y 014) y se abrieron AUD-100 a AUD-103, aparecidas al
 aplicarla. El 2026-11-08 se cerró la tanda 3 (AUD-012, 037, 023 y 024) y se
 abrió AUD-104, aparecida al aplicarla. Ese mismo día se cerró la tanda 4
-(AUD-022, 025 y 026) y se abrieron AUD-105 a AUD-107, aparecidas al aplicarla.
+(AUD-022, 025 y 026) y se abrieron AUD-105 a AUD-107, aparecidas al aplicarla. Ese
+mismo día se cerró la tanda 5 (AUD-105, 034, 035 y 036) y se abrieron AUD-108
+a AUD-111, aparecidas al aplicarla.
 
 <!-- indice:inicio -->
-**Última actualización:** 2026-11-08 · **Siguiente ID libre:** AUD-108 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
+**Última actualización:** 2026-11-08 · **Siguiente ID libre:** AUD-112 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
 
 | Tier | Abiertas | Cerradas | Esfuerzo de las abiertas (Bajo · Medio · Alto) |
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
-| 2 · Medio | 16 | 17 | 9 · 7 · 0 |
-| 3 · Bajo | 73 | 0 | 71 · 2 · 0 |
+| 2 · Medio | 13 | 21 | 9 · 4 · 0 |
+| 3 · Bajo | 76 | 0 | 73 · 3 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **90** | **17** | **81 · 9 · 0** |
+| **Total** | **90** | **21** | **83 · 7 · 0** |
 
 **Abiertas por área:** UI/UX 19 · Accesibilidad 12 · QA y testing 12 · Código 11 · Rendimiento 9 · Arquitectura 9 · Documentación 9 · Redacción 5 · Seguridad 4
 <!-- indice:fin -->
@@ -285,17 +287,26 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-08 · tanda 4 de la Fase 2 (rama `auditoria/2026-11-05`). `NativeProgress::interrupt` activa también un `Arc<AtomicBool>` que el hilo del conteo pasa al respaldo por falta de memoria, en lugar de `|| false`; si la cancelación llega en la primera consulta, el hilo devuelve igualmente el error de cancelación. Prueba nueva: un Parquet de 1.000.000 de filas de texto libre con `memory_limit` de 16 MB fuerza el respaldo, y al cancelar el hilo termina con el error de cancelación en unos 20 ms (el respaldo entero tarda unos 1,5 s); con el código anterior terminaba con el recuento completo.
 
-- [ ] **AUD-105 · La tendencia numérica de un CSV grande sin encabezado lee la proyección con el encabezado equivocado**
+- [x] **AUD-105 · La tendencia numérica de un CSV grande sin encabezado lee la proyección con el encabezado equivocado**
   - **Área:** Código · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset/profile_engine.rs`, `source_temporal_projection_snapshot` (≈`:2433`), llamada desde `get_temporal_aggregation_impl` (`profile_reader.rs`)
   - **Qué hacer:** pasar a `source_temporal_projection_snapshot` el `DuckDbFileFormat` de `current_duckdb_file_source`, como hizo AUD-022 con el perfil, en lugar de rehacer `Delimited { detect_delimiter }` desde la extensión. Si se aplica antes AUD-034 (que cambia esa proyección por una lectura de la copia del perfil), comprobar que el caso sin copia también recibe el formato.
   - **Criterio de aceptación:** una prueba con un CSV sin encabezado cargado como `source_backed` con nombres generados pide la tendencia de `column_2` sobre `column_1` y obtiene los puntos de las dos filas de datos, sin error y sin tratar la primera fila como encabezado.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-022 (visto en el código, no reproducido).
+  - **Cierre:** 2026-11-08 · tanda 5 de la Fase 2 (rama `auditoria/2026-11-05`). `source_temporal_projection_snapshot` recibe el `DuckDbFileFormat` de `current_duckdb_file_source` en lugar de rehacerlo desde la extensión; Parquet y JSON siguen sin admitir la proyección, y si el dataset no da formato se devuelve el mismo error que antes. Prueba nueva: la tendencia de `column_2` sobre `column_1` de un CSV sin encabezado cargado como `source_backed` lee las dos filas de datos; con el código anterior fallaba con «column_1 not found» porque tomaba la primera fila como encabezado. No comprobado en la app abierta.
+
+- [ ] **AUD-108 · Exportar un CSV grande sin encabezado puede tomar la primera fila de datos como encabezado**
+  - **Área:** Código · **Severidad:** Medio · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/dataset/export_io.rs`, `publish_source_backed_export` (≈`:864`)
+  - **Qué hacer:** tomar el formato de lectura de `current_duckdb_file_source(dataset)` (que respeta `delimited_header_mode`), como hicieron AUD-022 y AUD-105, en lugar de rehacer `Delimited { detect_delimiter }` desde la extensión. Así el script T-SQL y el paquete BULK INSERT de un CSV sin encabezado también podrán leer la copia del perfil (AUD-034).
+  - **Criterio de aceptación:** una prueba exporta un CSV sin encabezado cargado como `source_backed` con nombres generados y el resultado tiene las columnas `column_1`… y todas las filas de datos, incluida la primera.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-034 (visto en el código, no reproducido).
 
 ### Rendimiento
 
-- [ ] **AUD-034 · Cinco rutas vuelven a leer o a copiar el CSV entero aunque la copia de trabajo de REN-14 ya existe**
+- [x] **AUD-034 · Cinco rutas vuelven a leer o a copiar el CSV entero aunque la copia de trabajo de REN-14 ya existe**
   - **Área:** Rendimiento · **Severidad:** Medio · **Esfuerzo:** Medio
   - **Ubicación:** `src-tauri/src/dataset/comparison_engine.rs:2516-2547`
   - **Qué hacer:** una función `reusable_profile_copy(source_path, source_format) -> Option<CachedProfileSnapshot>` que aplique la misma condición que `prepare_source_backed_baseline_snapshot` (`Delimited` con encabezado y mismo delimitador; ver H-01 del área 7 para `DelimitedWithoutHeader`) y llamarla al principio de `source_backed_parquet_snapshot_with_cancel`, `source_profile_snapshot_with_cancel` y `get_temporal_aggregation_impl` (sustituyendo la proyección de dos columnas por `parquet_scan` de la copia). En la tendencia numérica, soltar el mutex antes de leer, como hizo ARQ-04 con Explorar. Para el texto «a la medida», `max(strlen())` sobre la copia es una lectura de una columna por Parquet en vez de reinterpretar el CSV.
@@ -303,22 +314,25 @@ Sin tareas abiertas.
   - **Depende de:** AUD-022 (la copia del perfil tiene que guardar el formato de lectura antes de reutilizarla; cumplida el 2026-11-08)
   - **Nota (2026-11-08, al aplicar AUD-022):** con el formato ya en la copia, `cached_profile_snapshot(source, format)` es la comprobación; las condiciones propias de las correcciones seguras (`dataset.rs`, solo `Delimited`), de Explorar (`get_explore_panel`, solo con encabezado) y de la línea base del historial (`prepare_source_backed_baseline_snapshot`, solo `Delimited`) se pueden ampliar a `DelimitedWithoutHeader` sin riesgo.
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-08 · tanda 5 de la Fase 2 (rama `auditoria/2026-11-05`). `reusable_profile_copy(source, format)` delega en `cached_profile_snapshot` (lecturas delimitadas con y sin encabezado) y `WorkingCopyHold` mantiene vivo el Parquet mientras se lee, aunque otro perfil sustituya la copia. Leen la copia en lugar del CSV: «Validar contrato», la primera página de conflictos y «Resolver» (sin carpeta `columnia-conflicts-*` nueva), la tendencia numérica (que ahora suelta el mutex durante el cálculo y comprueba al final que el dataset no cambió) y el texto «a la medida» del script T-SQL y del paquete BULK INSERT. Pruebas nuevas: con un CSV de 66.536 filas (más de un bloque), el contrato, la tendencia y la copia de comparación dan lo mismo con y sin la copia, y con copia la ruta devuelta es la de la copia; lo mismo para la tendencia de un CSV sin encabezado; el script y el paquete son idénticos con y sin copia. No medido en la app real con un CSV de 512 MiB y el Monitor de procesos. Las tres condiciones de la nota no se ampliaron (AUD-110).
 
-- [ ] **AUD-035 · La etapa de huecos lanza una consulta DuckDB por columna, con conexión nueva y ordenación completa de la columna**
+- [x] **AUD-035 · La etapa de huecos lanza una consulta DuckDB por columna, con conexión nueva y ordenación completa de la columna**
   - **Área:** Rendimiento · **Severidad:** Medio · **Esfuerzo:** Medio
   - **Ubicación:** `src-tauri/src/duckdb_query.rs:1638-1680`
   - **Qué hacer:** una sola consulta para todas las columnas a rellenar, por ejemplo `SELECT count(*) FILTER (WHERE c1 IS NULL), quantile_disc(x1, 0.5), count(*) FILTER (WHERE c2 IS NULL), quantile_disc(x2, 0.5), ... FROM dataset` (una lectura, sin ordenación completa; AUD-017 ya señala que `quantile_disc(x, 0.5)` devuelve el mismo valor, a confirmar con la prueba de paridad `source_backed_dates_and_fills_match_the_in_memory_plan`), pasando el cierre de cancelación. Si se prefiere mantener Rust, calcular las medianas en la pasada de comprobación de `numeric_target` (ver AUD-036) con un histograma por columna.
   - **Criterio de aceptación:** una propuesta con k columnas a rellenar ejecuta una sola consulta de medianas (comprobable por el número de conexiones DuckDB abiertas o por una prueba que cuente llamadas), los resultados de las pruebas de paridad con la ruta en memoria no cambian, y la fase tarda en 2019-Oct lo mismo con k = 1 que con k = 6 salvo la lectura adicional.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-08 · tanda 5 de la Fase 2 (rama `auditoria/2026-11-05`). `parquet_lower_medians` calcula los huecos y la mediana inferior de todas las columnas a rellenar en una sola conexión y una sola consulta con `quantile_disc(x, 0.5)` (sin ordenar cada columna; los enteros no pasan por DOUBLE; NaN e infinitos fuera, como en memoria), y recibe la cancelación de la etapa. Las pruebas de paridad con la ruta en memoria pasan sin cambios; prueba nueva: cuatro columnas a rellenar hacen una sola consulta y dan el mismo resultado que el plan en memoria. No medido en 2019-Oct con k = 1 y k = 6.
 
-- [ ] **AUD-036 · La etapa a disco comprueba cada columna en una pasada propia, en serie, sin parar cuando ya hay veredicto y asignando por fila**
+- [x] **AUD-036 · La etapa a disco comprueba cada columna en una pasada propia, en serie, sin parar cuando ya hay veredicto y asignando por fila**
   - **Área:** Rendimiento · **Severidad:** Medio · **Esfuerzo:** Medio
   - **Ubicación:** `src-tauri/src/dataset/source_stage.rs:323-349`
   - **Qué hacer:** (a) una sola pasada de comprobación que lea todas las columnas candidatas del bloque y las reparta con `rayon` por columna, con una bandera `AtomicBool` por columna para saltar las ya decididas y, si todas lo están, terminar la lectura devolviendo un error centinela como hace `CONFLICT_PAGE_FILLED` en `comparison_engine.rs:2294`; (b) `if let Some(entry) = counts.get_mut(value) { entry.0 += 1 } else { counts.insert(value.to_owned(), (1, position)) }` en `text_fill`; (c) en `decimal_fits_in_f64`, evitar `to_string()`: comprobar que el número tiene ≤ 15 dígitos significativos contando dígitos del texto; (d) usar la lectura anticipada en las pasadas de comprobación.
   - **Criterio de aceptación:** las pruebas de paridad (`source_backed_numeric_typing_matches_the_in_memory_plan` y las dos hermanas) pasan sin cambios, y con 5 columnas numéricas candidatas y un CSV de 6 millones de filas la fase de comprobación tarda menos que k = 1 multiplicado por 2 (medido con la sonda `perf_probe_apply_proposal`).
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-08 · tanda 5 de la Fase 2 (rama `auditoria/2026-11-05`). (a) Números y fechas candidatos se comprueban en una sola lectura por bloques, repartidos por columna con `rayon`; una columna rechazada deja de leerse y, si todas lo están, la lectura termina con el centinela `SOURCE_CHECKS_DECIDED`. Los rellenos de texto se cuentan también en una sola lectura. (b) `text_fill` ya no copia el texto en cada fila repetida. (c) `decimal_fits_in_f64` responde sin construir el texto del número cuando tiene 15 dígitos significativos o menos (prueba contra la versión anterior con unos 100.000 casos). (d) Las dos pasadas leen el bloque siguiente mientras se procesa el actual (`for_each_parquet_wanted_columns_block_prefetched`). Pruebas de paridad sin cambios; 5 pruebas nuevas (una lectura por bloque, corte cuando todas se rechazan, cancelación entre bloques, `decimal_fits_in_f64` y celdas vacías: llegan como nulo en las dos rutas, sin divergencia). No medido con 6 millones de filas y `perf_probe_apply_proposal`.
 
 - [x] **AUD-037 · La importación de una base de datos escribe el Parquet sin la configuración de grupos de filas que el resto del proyecto aplica a propósito**
   - **Área:** Rendimiento · **Severidad:** Medio · **Esfuerzo:** Bajo
@@ -492,6 +506,7 @@ Sin tareas abiertas.
   - **Criterio de aceptación:** cancelar durante el cálculo de una mediana en un archivo grande devuelve el control en menos de 2 s.
   - **Depende de:** ninguna; AUD-035 la resuelve si se hace antes
   - **Origen:** auditoría 2026-11-05
+  - **Nota (2026-11-08, al aplicar AUD-035):** la consulta de medianas recibe ya el cierre de cancelación de la etapa y usa `quantile_disc(x, 0.5)` en una sola consulta para todas las columnas. Falta comprobar el criterio (cancelar en menos de 2 s con un archivo grande) antes de cerrarla.
 
 - [ ] **AUD-018 · La mediana de una columna con espacios Unicode en los bordes falla, aunque la etapa la considera numérica**
   - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo
@@ -672,6 +687,30 @@ Sin tareas abiertas.
   - **Criterio de aceptación:** con `POLARS_PARQUET_METRICS=1` en una pasada del perfil sobre un Parquet de la copia, la suma de `num_decompressed_pages` por columna es igual al número de grupos (1 visita por grupo) y el tiempo de «Analizando filas y columnas» en 2019-Oct con la copia alineada no empeora respecto al actual; `parquet_metadata()` de DuckDB muestra grupos de 65.536 filas.
   - **Depende de:** ninguna; AUD-037 aplica la misma regla a la importación
   - **Origen:** auditoría 2026-11-05
+
+- [ ] **AUD-109 · Las demás exportaciones de un CSV grande vuelven a leer el archivo aunque exista la copia del perfil**
+  - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Medio
+  - **Ubicación:** `src-tauri/src/dataset/export_io.rs` (exportaciones `source_backed` a CSV, JSON, Excel, SQL, SQLite, Parquet y paquete)
+  - **Qué hacer:** leer `reusable_profile_copy(source, format)` cuando exista, como ya hacen el script T-SQL y el paquete BULK INSERT desde AUD-034, y comprobar formato por formato que el resultado no cambia (tipos de las columnas de la copia frente a la lectura del CSV).
+  - **Criterio de aceptación:** tras perfilar un CSV de más de un bloque, cada exportación da el mismo archivo con y sin la copia, y con la copia no relee el CSV.
+  - **Depende de:** AUD-108 (formato de lectura de la exportación)
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-034.
+
+- [ ] **AUD-110 · Correcciones seguras, Explorar y la línea base del historial no reutilizan la copia del perfil de un CSV sin encabezado**
+  - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/dataset.rs`, `source_backed_safe_corrections_with_cancellation`; `get_explore_panel`; `dataset/comparison_engine.rs`, `prepare_source_backed_baseline_snapshot`
+  - **Qué hacer:** sustituir sus condiciones propias (solo `Delimited`, o solo con encabezado) por `reusable_profile_copy(source, format)`, que ya admite `DelimitedWithoutHeader` y decide la validez en un solo sitio.
+  - **Criterio de aceptación:** con un CSV sin encabezado perfilado, las tres rutas leen la copia (la ruta devuelta es la de la copia) y dan el mismo resultado que sin ella.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, nota de AUD-022 no aplicada en AUD-034.
+
+- [ ] **AUD-111 · Las estadísticas de imputación lanzan una subconsulta por columna y calculan la mediana pasando por DOUBLE**
+  - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/duckdb_query.rs`, `count_file_imputation_stats` (≈`:2081-2146`), usada por `source_backed_imputation_with_cancellation` (`dataset.rs`)
+  - **Qué hacer:** calcular cada mediana con `quantile_disc(x, 0.5) FILTER (...)` dentro de la misma agregación, como `parquet_lower_medians` desde AUD-035, en lugar de `(SELECT quantile_disc(CAST(col AS DOUBLE), 0.5) FROM dataset WHERE ...)` por columna, y sin pasar los enteros por DOUBLE.
+  - **Criterio de aceptación:** k columnas cuestan una sola lectura del archivo, y un entero mayor que 2^53 da la misma mediana que la ruta en memoria.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-035 (visto en el código).
 
 ### Accesibilidad y semántica
 

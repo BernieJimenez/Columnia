@@ -1661,80 +1661,149 @@ pub(crate) fn numeric_cast_sql(expression: &str, target: NumericCastTarget) -> S
     }
 }
 
-/// REN-14: the lower median (`observed[(n - 1) / 2]` once sorted) of a
-/// Parquet column, as `impute_missing_values_in_columns` fills a gap: of the
-/// integers, or of the finite values read as `f64`. `None` when the column
-/// has no gap to fill or no value.
-fn parquet_lower_median(
-    path: &Path,
-    column: &str,
-    as_double: bool,
-    cast: Option<NumericCastTarget>,
-) -> Result<Option<String>, String> {
-    execute_duckdb_operation(
-        || false,
-        |connection| {
-            let resource_directory = tempfile::tempdir().map_err(|error| {
-                format!("No se pudo preparar el cálculo de la mediana: {error}")
-            })?;
-            configure_duckdb_resources(connection, resource_directory.path())?;
-            register_file_view(connection, "dataset", path, DuckDbFileFormat::Parquet, None)?;
-            let column = quote_identifier(column);
-            // A text column that the same plan types reads its numbers with
-            // the conversion the plan applies.
-            let base = cast.map_or_else(
-                || column.clone(),
-                |target| numeric_cast_sql(&column, target),
-            );
-            let (value, condition) = if as_double {
-                (
-                    format!("CAST({base} AS DOUBLE)"),
-                    "x IS NOT NULL AND isfinite(x)",
-                )
-            } else {
-                (base, "x IS NOT NULL")
-            };
-            let query = format!(
-            "WITH v AS (SELECT {column} IS NULL AS gap, {value} AS x FROM dataset), \
-             s AS (SELECT count(*) FILTER (WHERE gap) AS gaps, count(*) FILTER (WHERE {condition}) AS n FROM v) \
-             SELECT (SELECT gaps FROM s), CAST((SELECT x FROM (SELECT x, row_number() OVER (ORDER BY x) AS rn FROM v WHERE {condition}) WHERE rn = ((SELECT n FROM s) - 1) // 2 + 1) AS VARCHAR)"
-        );
-            let (gaps, median) = connection
-                .query_row(&query, [], |row| {
-                    Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
-                })
-                .map_err(|error| format!("DuckDB no pudo calcular la mediana: {error}"))?;
-            Ok(if gaps == 0 { None } else { median })
-        },
-    )
+/// One column whose gap is filled with its lower median.
+pub(crate) struct LowerMedianRequest<'a> {
+    pub(crate) column: &'a str,
+    /// Read the finite values as `f64` (otherwise as 64-bit integers).
+    pub(crate) as_double: bool,
+    /// The conversion the same plan applies to a text column.
+    pub(crate) cast: Option<NumericCastTarget>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum LowerMedian {
+    Integer(i64),
+    Number(f64),
+}
+
+/// Test log of the DuckDB queries that compute lower medians: the columns
+/// each one reads (the stage may run on any thread).
+#[cfg(test)]
+pub(crate) static LOWER_MEDIAN_QUERIES: std::sync::Mutex<Vec<Vec<String>>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// REN-14 / AUD-035: the lower median (`observed[(n - 1) / 2]` once sorted)
+/// of each requested Parquet column, as `impute_missing_values_in_columns`
+/// fills a gap: of the integers, or of the finite values read as `f64`. One
+/// DuckDB connection and one pass read every column; `quantile_disc(x, 0.5)`
+/// is the element at `ceil(n / 2) - 1`, the lower median, and keeps the
+/// column type (no detour through DOUBLE for integers). An entry is `None`
+/// when its column has no gap to fill or no value.
+pub(crate) fn parquet_lower_medians<C>(
+    path: &Path,
+    requests: &[LowerMedianRequest<'_>],
+    is_cancelled: C,
+) -> Result<Vec<Option<LowerMedian>>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    if requests.is_empty() {
+        return Ok(Vec::new());
+    }
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir()
+            .map_err(|error| format!("No se pudo preparar el cálculo de la mediana: {error}"))?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", path, DuckDbFileFormat::Parquet, None)?;
+        let select = requests
+            .iter()
+            .flat_map(|request| {
+                let column = quote_identifier(request.column);
+                // A text column that the same plan types reads its numbers
+                // with the conversion the plan applies.
+                let base = request.cast.map_or_else(
+                    || column.clone(),
+                    |target| numeric_cast_sql(&column, target),
+                );
+                let median = if request.as_double {
+                    let value = format!("CAST({base} AS DOUBLE)");
+                    format!("quantile_disc({value}, 0.5) FILTER (WHERE isfinite({value}))")
+                } else {
+                    format!("quantile_disc({base}, 0.5)")
+                };
+                [
+                    format!("count(*) FILTER (WHERE {column} IS NULL)"),
+                    format!("CAST({median} AS VARCHAR)"),
+                ]
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!("SELECT {select} FROM dataset");
+        #[cfg(test)]
+        if let Ok(mut log) = LOWER_MEDIAN_QUERIES.lock() {
+            log.push(requests.iter().map(|r| r.column.to_owned()).collect());
+        }
+        let values = connection
+            .query_row(&query, [], |row| {
+                (0..requests.len())
+                    .map(|index| {
+                        Ok((
+                            row.get::<_, i64>(index * 2)?,
+                            row.get::<_, Option<String>>(index * 2 + 1)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map_err(|error| format!("DuckDB no pudo calcular la mediana: {error}"))?;
+        values
+            .into_iter()
+            .zip(requests)
+            .map(|((gaps, median), request)| {
+                let Some(median) = median.filter(|_| gaps > 0) else {
+                    return Ok(None);
+                };
+                if request.as_double {
+                    median
+                        .parse::<f64>()
+                        .map(|value| Some(LowerMedian::Number(value)))
+                        .map_err(|_| format!("La mediana '{median}' no es un número."))
+                } else {
+                    median
+                        .parse::<i64>()
+                        .map(|value| Some(LowerMedian::Integer(value)))
+                        .map_err(|_| format!("La mediana '{median}' no es un entero."))
+                }
+            })
+            .collect()
+    })
+}
+
+#[cfg(test)]
 pub(crate) fn parquet_lower_median_integer(
     path: &Path,
     column: &str,
     cast: Option<NumericCastTarget>,
 ) -> Result<Option<i64>, String> {
-    parquet_lower_median(path, column, false, cast)?
-        .map(|value| {
-            value
-                .parse::<i64>()
-                .map_err(|_| format!("La mediana '{value}' no es un entero."))
-        })
-        .transpose()
+    let request = LowerMedianRequest {
+        column,
+        as_double: false,
+        cast,
+    };
+    Ok(
+        match parquet_lower_medians(path, &[request], || false)?.pop() {
+            Some(Some(LowerMedian::Integer(value))) => Some(value),
+            _ => None,
+        },
+    )
 }
 
+#[cfg(test)]
 pub(crate) fn parquet_lower_median_number(
     path: &Path,
     column: &str,
     cast: Option<NumericCastTarget>,
 ) -> Result<Option<f64>, String> {
-    parquet_lower_median(path, column, true, cast)?
-        .map(|value| {
-            value
-                .parse::<f64>()
-                .map_err(|_| format!("La mediana '{value}' no es un número."))
-        })
-        .transpose()
+    let request = LowerMedianRequest {
+        column,
+        as_double: true,
+        cast,
+    };
+    Ok(
+        match parquet_lower_medians(path, &[request], || false)?.pop() {
+            Some(Some(LowerMedian::Number(value))) => Some(value),
+            _ => None,
+        },
+    )
 }
 
 pub(crate) fn count_file_expression_changes<C>(

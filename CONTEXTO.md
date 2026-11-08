@@ -358,6 +358,8 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
 - resumen acotado de grupos por columnas categóricas no sensibles, con top 8 y “Resto”, sin categorías raras;
 - caché del perfil durante la sesión hasta que el dataset cambia.
 - copia de trabajo del perfil (Parquet de un CSV grande, REN-14): guarda el `DuckDbFileFormat` con que se leyó (delimitador y decisión de encabezado), y `cached_profile_snapshot(source, format)` solo la devuelve para ese mismo formato. Es el único sitio que decide si la copia vale para quien la pide; el formato se toma siempre de `current_duckdb_file_source(dataset)`, nunca de la extensión del archivo, porque un CSV sin encabezado tiene nombres `column_N` (AUD-022, 2026-11-08).
+- quien quiera leer esa copia en lugar del CSV usa `reusable_profile_copy(source, format)` y guarda el `WorkingCopyHold` que acompaña a la ruta mientras lee: si otro perfil sustituye la copia en la caché, el archivo sigue vivo hasta que se suelta (AUD-034, 2026-11-08).
+- etapa a disco de Preparar: las columnas candidatas se comprueban en una sola lectura (`check_candidate_columns`); una columna solo se da por decidida cuando queda rechazada, porque una válida puede fallar en el último bloque, así que la lectura solo se corta antes de tiempo si todas se rechazan (AUD-036, 2026-11-08).
 
 ### Preparación
 

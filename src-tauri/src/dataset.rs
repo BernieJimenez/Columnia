@@ -5968,7 +5968,10 @@ fn source_backed_safe_corrections_with_cancellation(
     let stage_cancellation = cancellation.clone();
     let report = std::cell::RefCell::new(report);
     let mut stage = |input: &Path, output: &Path| -> Result<bool, String> {
-        let is_cancelled = || stage_cancellation.is_cancelled();
+        let is_cancelled = {
+            let cancellation = stage_cancellation.clone();
+            move || cancellation.is_cancelled()
+        };
         report.borrow_mut()("Convirtiendo números, fechas y huecos", 80);
         let mut shown = 80_u8;
         let mut progress = |fraction: f64| {
@@ -6094,6 +6097,12 @@ impl NumericCastCheck {
         }
     }
 
+    /// True once no further value can make the column numeric, so `kind` is
+    /// `None` whatever follows (AUD-036: the rest of the column need not be read).
+    pub(super) fn is_rejected(&self) -> bool {
+        self.blocked || !(self.integer || self.whole || self.decimal)
+    }
+
     pub(super) fn kind(&self) -> Option<NumericCastKind> {
         if !self.present || self.blocked {
             None
@@ -6188,9 +6197,40 @@ fn decimal_fits_in_f64(value: &str) -> bool {
     if value.contains(['e', 'E']) {
         return true;
     }
-    value
-        .parse::<f64>()
-        .is_ok_and(|number| canonical_decimal(value) == canonical_decimal(&number.to_string()))
+    let Ok(number) = value.parse::<f64>() else {
+        return false;
+    };
+    // AUD-036: a normal number written with at most 15 significant digits
+    // always prints back with the same digits (DBL_DIG), so the text of the
+    // number need not be built.
+    if number.is_normal() && has_at_most_15_significant_digits(value) {
+        return true;
+    }
+    canonical_decimal(value) == canonical_decimal(&number.to_string())
+}
+
+/// True for `[sign]digits[.digits]` whose digits, from the first non-zero to
+/// the last non-zero one, are at most 15. Any other text is not decided here.
+fn has_at_most_15_significant_digits(text: &str) -> bool {
+    let unsigned = text.strip_prefix(['-', '+']).unwrap_or(text);
+    let mut seen_dot = false;
+    let mut position = 0usize;
+    let mut first = None;
+    let mut last = 0usize;
+    for byte in unsigned.bytes() {
+        match byte {
+            b'0'..=b'9' => {
+                if byte != b'0' {
+                    first.get_or_insert(position);
+                    last = position;
+                }
+                position += 1;
+            }
+            b'.' if !seen_dot => seen_dot = true,
+            _ => return false,
+        }
+    }
+    first.is_none_or(|first| last - first < 15)
 }
 
 /// A decimal written without sign noise, leading zeros or trailing zeros of

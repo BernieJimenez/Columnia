@@ -8,6 +8,7 @@
 use super::column_typing::{fill_column, typed_date_column, Fill};
 use super::date_inference::{parse_ordered_date, DateOrder};
 use super::*;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 /// What the stage converts (names as in the input): the text columns to type
 /// as numbers, the date columns and the columns whose gaps it fills.
@@ -22,37 +23,6 @@ pub(super) struct SourceStageOutcome {
     pub(super) typed_column_count: usize,
     pub(super) dated_column_count: usize,
     pub(super) imputed_cell_count: usize,
-}
-
-/// The numeric kind of a text column, checked block by block with the rules
-/// of `cast_fully_numeric_columns`.
-fn numeric_target<C>(
-    input: &Path,
-    row_count: usize,
-    name: &str,
-    is_cancelled: &C,
-) -> Result<Option<NumericCastKind>, String>
-where
-    C: Fn() -> bool + Sync,
-{
-    let mut check = NumericCastCheck::new();
-    for_each_parquet_column_block_with_size(
-        input,
-        row_count,
-        name,
-        SOURCE_STAGE_BLOCK_ROWS,
-        |_, column| {
-            ensure_not_cancelled(is_cancelled())?;
-            let values = column
-                .str()
-                .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
-            for value in values.iter().flatten() {
-                check.observe(value);
-            }
-            Ok(())
-        },
-    )?;
-    Ok(check.kind())
 }
 
 fn duckdb_cast_target(kind: NumericCastKind) -> crate::duckdb_query::NumericCastTarget {
@@ -71,106 +41,298 @@ struct DateTarget {
     with_time: bool,
 }
 
-const SOURCE_STAGE_BLOCK_ROWS: usize = 4 * LOCAL_QUERY_BLOCK_ROWS;
+pub(super) const SOURCE_STAGE_BLOCK_ROWS: usize = 4 * LOCAL_QUERY_BLOCK_ROWS;
 
-/// Every non-null value of `column` read with `order`, and whether one has a
-/// time; `None` when a value is not a date or the column has none.
-fn date_target<C>(
-    input: &Path,
-    row_count: usize,
-    name: &str,
-    order: DateOrder,
-    is_cancelled: &C,
-) -> Result<Option<DateTarget>, String>
-where
-    C: Fn() -> bool + Sync,
-{
-    let mut present = false;
-    let mut with_time = false;
-    let mut fits = true;
-    for_each_parquet_column_block_with_size(
-        input,
-        row_count,
-        name,
-        SOURCE_STAGE_BLOCK_ROWS,
-        |_, column| {
-            ensure_not_cancelled(is_cancelled())?;
-            if !fits {
-                return Ok(());
-            }
-            let values = column
-                .str()
-                .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
-            for value in values.iter().flatten() {
-                present = true;
-                with_time |= value.contains(':');
-                if parse_ordered_date(value, order).is_none() {
-                    fits = false;
-                    break;
-                }
-            }
-            Ok(())
-        },
-    )?;
-    Ok((fits && present).then(|| DateTarget {
-        name: name.to_owned(),
-        order,
-        with_time,
-    }))
+/// Returned by the visit of a check pass to end the read once every column
+/// has its verdict; the pass then ends as a success.
+const SOURCE_CHECKS_DECIDED: &str = "Todas las columnas tienen veredicto.";
+
+/// What a pass over a block asks of a candidate column.
+enum ColumnCheck {
+    /// The column types as numbers when every value converts.
+    Number(NumericCastCheck),
+    /// Every non-null value read with `order`, and whether one has a time.
+    Date {
+        order: DateOrder,
+        present: bool,
+        with_time: bool,
+        fits: bool,
+    },
 }
 
-/// The most frequent non-blank text, the first seen on a tie, when it is
-/// there at least twice and the column has a gap to fill.
-fn text_fill<C>(
+/// A text column whose verdict (number or date) the check pass finds.
+struct CandidateCheck {
+    name: String,
+    /// Position of `name` among the names the pass reads.
+    slot: usize,
+    check: ColumnCheck,
+}
+
+impl CandidateCheck {
+    fn number(name: &str, slot: usize) -> Self {
+        Self {
+            name: name.to_owned(),
+            slot,
+            check: ColumnCheck::Number(NumericCastCheck::new()),
+        }
+    }
+
+    fn date(name: &str, slot: usize, order: DateOrder) -> Self {
+        Self {
+            name: name.to_owned(),
+            slot,
+            check: ColumnCheck::Date {
+                order,
+                present: false,
+                with_time: false,
+                fits: true,
+            },
+        }
+    }
+
+    /// True once no later value can change the verdict.
+    fn is_decided(&self) -> bool {
+        match &self.check {
+            ColumnCheck::Number(check) => check.is_rejected(),
+            ColumnCheck::Date { fits, .. } => !fits,
+        }
+    }
+
+    fn observe(&mut self, values: &StringChunked) {
+        match &mut self.check {
+            ColumnCheck::Number(check) => {
+                for value in values.iter().flatten() {
+                    check.observe(value);
+                    if check.is_rejected() {
+                        break;
+                    }
+                }
+            }
+            ColumnCheck::Date {
+                order,
+                present,
+                with_time,
+                fits,
+            } => {
+                for value in values.iter().flatten() {
+                    *present = true;
+                    *with_time |= value.contains(':');
+                    if parse_ordered_date(value, *order).is_none() {
+                        *fits = false;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /// The numeric kind the column takes, if it is a number candidate that
+    /// qualifies.
+    fn numeric_kind(&self) -> Option<NumericCastKind> {
+        match &self.check {
+            ColumnCheck::Number(check) => check.kind(),
+            ColumnCheck::Date { .. } => None,
+        }
+    }
+
+    /// The date target of the column, if it is a date candidate that
+    /// qualifies.
+    fn date_target(&self) -> Option<DateTarget> {
+        match &self.check {
+            ColumnCheck::Date {
+                order,
+                present,
+                with_time,
+                fits,
+            } => (*fits && *present).then(|| DateTarget {
+                name: self.name.clone(),
+                order: *order,
+                with_time: *with_time,
+            }),
+            ColumnCheck::Number(_) => None,
+        }
+    }
+}
+
+/// The position of `name` in `names`, adding it when it is new.
+fn slot_of(names: &mut Vec<String>, name: &str) -> usize {
+    if let Some(slot) = names.iter().position(|seen| seen == name) {
+        slot
+    } else {
+        names.push(name.to_owned());
+        names.len() - 1
+    }
+}
+
+/// AUD-036: gives every candidate its verdict in one read of the file. Each
+/// block holds only the columns still undecided; they are checked in parallel,
+/// one task per column, and the read ends when all are decided. The verdict of
+/// a column does not depend on the others or on the order of the tasks.
+fn check_candidate_columns<C>(
     input: &Path,
     row_count: usize,
-    name: &str,
+    checks: &mut [CandidateCheck],
+    names: &[String],
     is_cancelled: &C,
-) -> Result<Option<String>, String>
+) -> Result<(), String>
 where
     C: Fn() -> bool + Sync,
 {
-    let mut counts = HashMap::<String, (usize, usize)>::new();
-    let mut gaps = 0usize;
-    let mut position = 0usize;
-    for_each_parquet_column_block_with_size(
+    if checks.is_empty() {
+        return Ok(());
+    }
+    let settled = names
+        .iter()
+        .map(|_| AtomicBool::new(false))
+        .collect::<Vec<_>>();
+    let walked = for_each_parquet_wanted_columns_block_prefetched(
         input,
         row_count,
-        name,
+        names,
         SOURCE_STAGE_BLOCK_ROWS,
-        |_, column| {
+        &|index| !settled[index].load(AtomicOrdering::Acquire),
+        |_, block| {
             ensure_not_cancelled(is_cancelled())?;
-            let values = column
-                .str()
-                .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
-            for value in values.iter() {
-                match value {
-                    None => gaps += 1,
-                    Some(value) if !value.trim().is_empty() => {
-                        let entry = counts.entry(value.to_owned()).or_insert((0, position));
-                        entry.0 += 1;
+            let results = checks
+                .par_iter_mut()
+                .map(|candidate| {
+                    if candidate.is_decided() {
+                        return Ok(());
                     }
-                    Some(_) => {}
+                    let values = block
+                        .column(&candidate.name)
+                        .and_then(|column| column.str())
+                        .map_err(|error| {
+                            format!("No se pudo leer la columna '{}': {error}", candidate.name)
+                        })?;
+                    candidate.observe(values);
+                    Ok(())
+                })
+                .collect::<Vec<Result<(), String>>>();
+            for result in results {
+                result?;
+            }
+            // A column nobody needs any more is left out of the next reads.
+            for (slot, flag) in settled.iter().enumerate() {
+                if checks
+                    .iter()
+                    .all(|candidate| candidate.slot != slot || candidate.is_decided())
+                {
+                    flag.store(true, AtomicOrdering::Release);
                 }
-                position += 1;
+            }
+            if checks.iter().all(CandidateCheck::is_decided) {
+                return Err(SOURCE_CHECKS_DECIDED.to_owned());
+            }
+            Ok(())
+        },
+    );
+    match walked {
+        Err(error) if error == SOURCE_CHECKS_DECIDED => Ok(()),
+        other => other,
+    }
+}
+
+/// How often a non-blank text appears in a column, and the gaps it has.
+struct TextFillCount {
+    name: String,
+    /// Each text with how many times it appears and where it first did.
+    counts: HashMap<String, (usize, usize)>,
+    gaps: usize,
+}
+
+impl TextFillCount {
+    fn observe(&mut self, start: usize, values: &StringChunked) {
+        for (offset, value) in values.iter().enumerate() {
+            match value {
+                None => self.gaps += 1,
+                Some(value) if !value.trim().is_empty() => {
+                    if let Some(entry) = self.counts.get_mut(value) {
+                        entry.0 += 1;
+                    } else {
+                        self.counts.insert(value.to_owned(), (1, start + offset));
+                    }
+                }
+                Some(_) => {}
+            }
+        }
+    }
+
+    /// The most frequent non-blank text, the first seen on a tie, when it is
+    /// there at least twice and the column has a gap to fill.
+    fn fill(self) -> Option<String> {
+        if self.gaps == 0 {
+            return None;
+        }
+        self.counts
+            .into_iter()
+            .filter(|(_, (count, _))| *count >= 2)
+            .max_by(
+                |(_, (left_count, left_first)), (_, (right_count, right_first))| {
+                    left_count
+                        .cmp(right_count)
+                        .then(right_first.cmp(left_first))
+                },
+            )
+            .map(|(value, _)| value)
+    }
+}
+
+/// The text to fill each of `names` with (see [`TextFillCount::fill`]), in
+/// the order of `names`, all counted in one read of the file, one task per
+/// column.
+fn text_fills<C>(
+    input: &Path,
+    row_count: usize,
+    names: &[&str],
+    is_cancelled: &C,
+) -> Result<Vec<Option<String>>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut distinct = Vec::new();
+    for name in names {
+        slot_of(&mut distinct, name);
+    }
+    let mut counts = names
+        .iter()
+        .map(|name| TextFillCount {
+            name: (*name).to_owned(),
+            counts: HashMap::new(),
+            gaps: 0,
+        })
+        .collect::<Vec<_>>();
+    for_each_parquet_wanted_columns_block_prefetched(
+        input,
+        row_count,
+        &distinct,
+        SOURCE_STAGE_BLOCK_ROWS,
+        &|_| true,
+        |start, block| {
+            ensure_not_cancelled(is_cancelled())?;
+            let results = counts
+                .par_iter_mut()
+                .map(|count| {
+                    let values = block
+                        .column(&count.name)
+                        .and_then(|column| column.str())
+                        .map_err(|error| {
+                            format!("No se pudo leer la columna '{}': {error}", count.name)
+                        })?;
+                    count.observe(start, values);
+                    Ok(())
+                })
+                .collect::<Vec<Result<(), String>>>();
+            for result in results {
+                result?;
             }
             Ok(())
         },
     )?;
-    if gaps == 0 {
-        return Ok(None);
-    }
-    Ok(counts
-        .into_iter()
-        .filter(|(_, (count, _))| *count >= 2)
-        .max_by(
-            |(_, (left_count, left_first)), (_, (right_count, right_first))| {
-                left_count
-                    .cmp(right_count)
-                    .then(right_first.cmp(left_first))
-            },
-        )
-        .map(|(value, _)| value))
+    Ok(counts.into_iter().map(TextFillCount::fill).collect())
 }
 
 fn convert_block(
@@ -229,7 +391,7 @@ pub(super) fn source_date_and_impute_stage<C>(
     progress: &mut dyn FnMut(f64),
 ) -> Result<Option<SourceStageOutcome>, String>
 where
-    C: Fn() -> bool + Sync,
+    C: Fn() -> bool + Sync + Send + Clone + 'static,
 {
     ensure_not_cancelled(is_cancelled())?;
     let schema = read_parquet_schema_frame(input)?;
@@ -238,7 +400,9 @@ where
         crate::duckdb_query::DuckDbFileFormat::Parquet,
         || false,
     )?;
-    let mut numbers = Vec::new();
+    // AUD-036: numbers and dates are checked together, in one read.
+    let mut names = Vec::new();
+    let mut checks = Vec::new();
     for name in &plan.numbers {
         if name == "_cambios"
             || privacy_signal(name) == Some("identifier")
@@ -248,11 +412,9 @@ where
         {
             continue;
         }
-        if let Some(kind) = numeric_target(input, row_count, name, is_cancelled)? {
-            numbers.push((name.clone(), kind));
-        }
+        let slot = slot_of(&mut names, name);
+        checks.push(CandidateCheck::number(name, slot));
     }
-    let mut dates = Vec::new();
     for date in &plan.dates {
         let order = DateOrder::from_label(&date.order)
             .ok_or_else(|| format!("Orden de fecha no válido: '{}'.", date.order))?;
@@ -260,13 +422,25 @@ where
             .column(&date.column)
             .is_ok_and(|column| column.dtype() == &DataType::String)
         {
-            if let Some(target) = date_target(input, row_count, &date.column, order, is_cancelled)?
-            {
-                dates.push(target);
-            }
+            let slot = slot_of(&mut names, &date.column);
+            checks.push(CandidateCheck::date(&date.column, slot, order));
         }
     }
+    check_candidate_columns(input, row_count, &mut checks, &names, is_cancelled)?;
+    let numbers = checks
+        .iter()
+        .filter_map(|check| Some((check.name.clone(), check.numeric_kind()?)))
+        .collect::<Vec<_>>();
+    let dates = checks
+        .iter()
+        .filter_map(CandidateCheck::date_target)
+        .collect::<Vec<_>>();
     let mut fills = Vec::new();
+    // The columns filled with a median: one DuckDB query reads them all.
+    let mut medians = Vec::new();
+    // The text columns filled with the most frequent value: one read counts
+    // them all.
+    let mut texts = Vec::new();
     for name in plan.impute.iter().flatten() {
         if name == "_cambios" || dates.iter().any(|target| &target.name == name) {
             continue;
@@ -286,21 +460,44 @@ where
         };
         let cast = typed.map(duckdb_cast_target);
         if data_type == DataType::String {
-            if let Some(value) = text_fill(input, row_count, name, is_cancelled)? {
-                fills.push((name.clone(), Fill::Text(value.into())));
+            texts.push(name.as_str());
+        } else if data_type == DataType::Int64 || data_type.is_primitive_numeric() {
+            medians.push((
+                name.as_str(),
+                crate::duckdb_query::LowerMedianRequest {
+                    column: name,
+                    as_double: data_type != DataType::Int64,
+                    cast,
+                },
+            ));
+        }
+    }
+    for (name, value) in texts
+        .iter()
+        .zip(text_fills(input, row_count, &texts, is_cancelled)?)
+    {
+        if let Some(value) = value {
+            fills.push(((*name).to_owned(), Fill::Text(value.into())));
+        }
+    }
+    let requests = medians
+        .iter()
+        .map(|(_, request)| crate::duckdb_query::LowerMedianRequest {
+            column: request.column,
+            as_double: request.as_double,
+            cast: request.cast,
+        })
+        .collect::<Vec<_>>();
+    let found = crate::duckdb_query::parquet_lower_medians(input, &requests, is_cancelled.clone())?;
+    for ((name, _), median) in medians.iter().zip(found) {
+        match median {
+            Some(crate::duckdb_query::LowerMedian::Integer(value)) => {
+                fills.push(((*name).to_owned(), Fill::Integer(value)));
             }
-        } else if data_type == DataType::Int64 {
-            if let Some(value) =
-                crate::duckdb_query::parquet_lower_median_integer(input, name, cast)?
-            {
-                fills.push((name.clone(), Fill::Integer(value)));
+            Some(crate::duckdb_query::LowerMedian::Number(value)) => {
+                fills.push(((*name).to_owned(), Fill::Number(value)));
             }
-        } else if data_type.is_primitive_numeric() {
-            if let Some(value) =
-                crate::duckdb_query::parquet_lower_median_number(input, name, cast)?
-            {
-                fills.push((name.clone(), Fill::Number(value)));
-            }
+            None => {}
         }
     }
     if numbers.is_empty() && dates.is_empty() && fills.is_empty() {

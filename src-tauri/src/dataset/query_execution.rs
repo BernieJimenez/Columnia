@@ -1184,6 +1184,91 @@ where
     Ok(())
 }
 
+/// Every projected read of [`for_each_parquet_wanted_columns_block_prefetched`]
+/// (the column names asked for), kept so a test can prove how many times the
+/// file was read.
+#[cfg(test)]
+pub(super) static WANTED_COLUMNS_READS: std::sync::Mutex<Vec<Vec<String>>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// AUD-036: like [`for_each_parquet_block_prefetched`], but each block holds
+/// only the `column_names` that `is_wanted` (asked by position) accepts when
+/// the block is read, in their original order. A column is not wanted again
+/// once it was not, so a caller that settles columns while it visits can stop
+/// reading them; the walk ends when none is wanted. The file is not checked
+/// for extra rows after that early end. `visit` may return an error to stop.
+pub(super) fn for_each_parquet_wanted_columns_block_prefetched<F>(
+    path: &Path,
+    row_count: usize,
+    column_names: &[String],
+    block_rows: usize,
+    is_wanted: &(dyn Fn(usize) -> bool + Sync),
+    mut visit: F,
+) -> Result<(), String>
+where
+    F: FnMut(usize, &DataFrame) -> Result<(), String>,
+{
+    let block_count = row_count.div_ceil(block_rows);
+    let walked = std::thread::scope(|scope| {
+        let (sender, receiver) =
+            std::sync::mpsc::sync_channel::<Result<(usize, DataFrame), String>>(1);
+        scope.spawn(move || {
+            for block_index in 0..block_count {
+                let start = block_index * block_rows;
+                let length = block_rows.min(row_count - start);
+                let wanted = column_names
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| is_wanted(*index))
+                    .map(|(_, name)| name.clone())
+                    .collect::<Vec<_>>();
+                if wanted.is_empty() {
+                    return;
+                }
+                #[cfg(test)]
+                WANTED_COLUMNS_READS
+                    .lock()
+                    .expect("registro de lecturas")
+                    .push(wanted.clone());
+                let block = read_parquet_columns_block(path, &wanted, start, length).and_then(
+                    |block| {
+                        if block.height() == length && block.width() == wanted.len() {
+                            Ok((start, block))
+                        } else {
+                            Err(
+                                "No se pudo leer el bloque de columnas Parquet con el tamaño esperado."
+                                    .to_owned(),
+                            )
+                        }
+                    },
+                );
+                let failed = block.is_err();
+                // The receiver is gone when `visit` stopped.
+                if sender.send(block).is_err() || failed {
+                    return;
+                }
+            }
+        });
+        for block in receiver {
+            let (start, block) = block?;
+            visit(start, &block)?;
+        }
+        Ok::<_, String>(())
+    });
+    walked?;
+    // Every column asked for was read to the end: no row may be left over.
+    if (0..column_names.len()).any(is_wanted) {
+        let trailing_block = read_parquet_columns_block(path, column_names, row_count, 1)?;
+        if trailing_block.height() != 0 {
+            return Err(
+                "El snapshot Parquet contiene más filas que las registradas para las columnas del perfil."
+                    .to_owned(),
+            );
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn for_each_parquet_block_with_cancel<C, F>(
     path: &Path,
     row_count: usize,

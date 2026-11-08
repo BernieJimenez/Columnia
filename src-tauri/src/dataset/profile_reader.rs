@@ -220,13 +220,31 @@ pub(super) async fn get_temporal_aggregation_impl(
                     "La fuente source-backed cambió o ya no está disponible.".to_owned()
                 })?;
             let extension = dataset_extension(&source_path)?;
-            let (_snapshot_directory, snapshot_path) = if extension == "parquet" {
+            let source_format = current_duckdb_file_source(dataset).map(|(_, format)| format);
+            // The lock only covers reading the plan: the series is computed
+            // without it, so paging, undo or saving do not wait (ARQ-04).
+            // `stamp` tells afterwards whether the dataset is still the one
+            // the series was computed for.
+            let stamp = DatasetMutationStamp::capture(dataset);
+            drop(current);
+            // AUD-034: the profile's working copy of an unchanged file has
+            // every column under the dataset's names (the generated ones of a
+            // file without header too), so it is read instead of parsing the
+            // file again for two columns.
+            let profile_copy =
+                source_format.and_then(|format| reusable_profile_copy(&source_path, format));
+            let (_snapshot_directory, snapshot_path) = if let Some(copy) = &profile_copy {
+                (None, copy.to_path_buf())
+            } else if extension == "parquet" {
                 (None, source_path.clone())
             } else {
                 let snapshot_cancellation_app = app.clone();
+                let source_format = source_format.ok_or_else(|| {
+                    "El formato source-backed no admite tendencias temporales.".to_owned()
+                })?;
                 let (directory, snapshot) = source_temporal_projection_snapshot(
                     &source_path,
-                    &extension,
+                    source_format,
                     &date_column,
                     &value_column,
                     move || {
@@ -250,6 +268,16 @@ pub(super) async fn get_temporal_aggregation_impl(
             if final_file_size != expected_file_size {
                 return Err(
                     "La fuente source-backed cambió durante el cálculo de la tendencia.".to_owned(),
+                );
+            }
+            if !state
+                .current
+                .lock_recovering()
+                .as_ref()
+                .is_some_and(|dataset| stamp.matches(dataset))
+            {
+                return Err(
+                    "El dataset activo cambió durante el cálculo de la tendencia.".to_owned(),
                 );
             }
             Ok(series)

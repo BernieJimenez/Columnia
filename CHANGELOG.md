@@ -330,6 +330,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - Cancelar el perfil mientras cuenta valores distintos responde enseguida
   también cuando el conteo se queda sin memoria y pasa a contar columna a
   columna. Antes esperaba a que terminara la cuenta entera (AUD-026).
+- La tendencia numérica de un CSV grande sin fila de encabezado usa los
+  nombres generados (`column_1`, `column_2`…). Antes leía la primera fila de
+  datos como encabezado y fallaba (AUD-105).
 - Importar una tabla grande desde una base de datos ya no carga la tabla entera
   en memoria: las filas se guardan por lotes según llegan. 5.000.000 de filas
   por 20 columnas se importan sin superar unos 110 MB, y el límite de 2 GiB de
@@ -1207,6 +1210,15 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Tras analizar la calidad de un CSV grande, «Validar contrato», ver y
+  resolver conflictos, la tendencia numérica y el largo del texto del script
+  T-SQL y del paquete BULK INSERT leen la copia que dejó el perfil en lugar de
+  volver a leer el CSV entero. La tendencia ya no bloquea el resto de la app
+  mientras se calcula (AUD-034).
+- Preparar un archivo grande convierte números, fechas y huecos más rápido:
+  comprueba todas las columnas en una sola lectura y en paralelo, deja de leer
+  las que ya no pueden convertirse y calcula todas las medianas en una sola
+  consulta, que además se puede cancelar (AUD-035, AUD-036).
 - Con «Script T-SQL», Entregar avisa antes de exportar cuando el script puede
   ser demasiado grande para que SQL Server lo acepte en un solo lote (unos
   100 MB estimados; el límite es 256 MB), y ofrece cambiar al paquete BULK
