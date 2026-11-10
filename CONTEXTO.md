@@ -412,7 +412,7 @@ Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, 
 - importación de reglas en el formato del nombre anterior del proyecto (retirado en
   0.114.0) y guardado como `columnia-quality-rules` v1, con diálogos nativos y rutas
   privadas en Rust.
-- las exportaciones `source_backed` reciben el formato de lectura de `current_duckdb_file_source(dataset)`, igual que el perfil: rehacerlo desde la extensión toma la primera fila de un CSV sin encabezado como nombres (AUD-108, 2026-11-09). El snapshot de privacidad aún lo rehace (AUD-112).
+- las exportaciones `source_backed` reciben el formato de lectura de `current_duckdb_file_source(dataset)`, igual que el perfil: rehacerlo desde la extensión toma la primera fila de un CSV sin encabezado como nombres (AUD-108, 2026-11-09). El snapshot de privacidad también lo recibe y lee el esquema con o sin encabezado según ese formato (AUD-112, 2026-11-09).
 
 ## Invariantes de seguridad y privacidad
 
@@ -637,6 +637,10 @@ Las ramas específicas de symlinks/reparse points dependen de la plataforma; en 
 Accesibilidad, decisiones de la tanda 6 de la auditoría (2026-11-09):
 - un botón que tiene el foco y lanza una operación larga no se desactiva con `disabled` (el foco caería a `body`): usa `aria-disabled` e ignora el clic, y al terminar el foco pasa al resultado si seguía en el botón (`DatabaseImportPanel.tsx`, AUD-046). La regla de botones desactivados de `shell.css` cubre los dos casos.
 - todas las barras laterales son oscuras: su `--focus-ring` (#efba70) se define una vez en la regla base `.app-sidebar` de `workflow-styles.css`. `tools/contrast-table.mjs` mide la barra con esa regla más el bloque del tema; un par dentro de un bloque `:root[...]` compararía colores que no se pintan juntos (AUD-045).
+
+Interfaz, decisiones de la tanda 7 de la auditoría (2026-11-09):
+- las celdas de las tablas de datos pasan por `renderCellValue`: un texto de más de 36 caracteres va en `span.cell-clip` (tope de 36ch en el elemento interior, porque `max-width` en un `td` no limita una tabla con `table-layout: auto`), con `title` y expansión al recibir el foco (AUD-056).
+- en Preparar, el resultado del último cambio se muestra dos veces: en el historial (`role="status"`, el que se anuncia) y en la línea fija `ChangeResultLine` arriba de las herramientas (sin región viva, para no anunciarlo dos veces). Las pruebas que buscan el mensaje deben acotarse a una de las dos (AUD-057).
 
 ## Protocolo para mantener vivo `CONTEXTO.md`
 

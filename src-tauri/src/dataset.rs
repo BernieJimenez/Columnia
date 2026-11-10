@@ -8449,7 +8449,7 @@ use source_loading::{
     materialize_loaded_dataset_with_cancel, materialized_dataset_frame,
     materialized_dataset_frame_with_cancel, should_defer_source_load, source_backed_join_source,
     source_backed_json_load, source_backed_load, source_backed_load_with_header_mode,
-    source_backed_spreadsheet_load, source_scan,
+    source_backed_spreadsheet_load, source_scan, source_scan_with_header,
 };
 #[cfg(test)]
 use source_loading::{load_csv, load_csv_with_progress, materialization_budget_error};
@@ -10217,6 +10217,7 @@ async fn export_active_dataset(
                     protected_columns = source_backed_privacy_snapshot(
                         &source_path,
                         expected_file_size,
+                        source_format,
                         &privacy_snapshot,
                         privacy_mode,
                         move || {
@@ -10706,6 +10707,7 @@ pub async fn preflight_database_export(
             let protected_columns = source_backed_privacy_snapshot(
                 &source_path,
                 expected_source_size,
+                source_format,
                 &protected_snapshot,
                 privacy_mode,
                 is_cancelled.clone(),
@@ -10927,6 +10929,7 @@ async fn export_active_dataset_to_database(
                     protected_columns = source_backed_privacy_snapshot(
                         &source_path,
                         expected_file_size,
+                        source_format,
                         &privacy_snapshot,
                         privacy_mode,
                         move || {

@@ -36,6 +36,16 @@ export function HistoryBar({
       {status.snapshotsEnabled && status.degradedReason && (
         <p className="version-history__note" role="note">{status.degradedReason}</p>
       )}
+      {/* AUD-057: Deshacer and Rehacer sit under the heading, so a tall list never pushes them out of view. */}
+      <div className="history-actions">
+        <button type="button" className="secondary-action" onClick={onUndo} disabled={busy || !status.snapshotsEnabled || !status.canUndo}>
+          Deshacer
+        </button>
+        <button type="button" className="secondary-action" onClick={onRedo} disabled={busy || !status.snapshotsEnabled || !status.canRedo}>
+          Rehacer
+        </button>
+      </div>
+      {nothingToUndo && <p className="version-history__hint">Aún no hay cambios que deshacer.</p>}
       {status.snapshotsEnabled && visibleEntries.length > 0 && (
         <ol className="version-history__list" aria-label="Versiones del dataset">
           {hiddenCount > 0 && (
@@ -66,15 +76,6 @@ export function HistoryBar({
           {status.lastChange != null && <p className="version-history__summary">{formatChangeSummary(status.lastChange)}</p>}
         </div>
       )}
-      <div className="history-actions">
-        <button type="button" className="secondary-action" onClick={onUndo} disabled={busy || !status.snapshotsEnabled || !status.canUndo}>
-          Deshacer
-        </button>
-        <button type="button" className="secondary-action" onClick={onRedo} disabled={busy || !status.snapshotsEnabled || !status.canRedo}>
-          Rehacer
-        </button>
-      </div>
-      {nothingToUndo && <p className="version-history__hint">Aún no hay cambios que deshacer.</p>}
       {status.snapshotsEnabled && (
         <details className="version-history__retention">
           <summary>Espacio del historial</summary>
@@ -98,6 +99,41 @@ const MAX_VISIBLE_VERSIONS = 12;
 function formatHistoryBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "No disponible";
   return formatBytes(bytes);
+}
+
+/**
+ * AUD-057: the result of the change, with «Deshacer», where the change was made.
+ * It is not a live region: the history panel already announces the same text.
+ */
+export function ChangeResultLine({
+  status,
+  canUndo,
+  busy,
+  onUndo,
+  onDismiss,
+}: {
+  status: ChangeStatus;
+  canUndo: boolean;
+  busy: boolean;
+  onUndo: () => void;
+  onDismiss: () => void;
+}) {
+  if (status.kind !== "applied") return null;
+  return (
+    <div className="change-result" aria-label="Resultado del último cambio">
+      <p>{status.message}</p>
+      <div className="change-result__actions">
+        {status.unchanged !== true && (
+          <button type="button" className="secondary-action" onClick={onUndo} disabled={busy || !canUndo}>
+            Deshacer
+          </button>
+        )}
+        <button type="button" className="secondary-action" onClick={onDismiss}>
+          Cerrar
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function ChangeFeedback({ status, onCancel }: { status: ChangeStatus; onCancel?: () => void }) {

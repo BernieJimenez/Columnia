@@ -29,7 +29,8 @@ abrió AUD-104, aparecida al aplicarla. Ese mismo día se cerró la tanda 4
 (AUD-022, 025 y 026) y se abrieron AUD-105 a AUD-107, aparecidas al aplicarla. Ese
 mismo día se cerró la tanda 5 (AUD-105, 034, 035 y 036) y se abrieron AUD-108
 a AUD-111, aparecidas al aplicarla. El 2026-11-09 se cerró la tanda 6 (AUD-108,
-044, 045, 046, 047 y 048) y se abrió AUD-112, aparecida al aplicarla.
+044, 045, 046, 047 y 048) y se abrió AUD-112, aparecida al aplicarla. Ese
+mismo día se cerró la tanda 7 (AUD-112, 056 y 057).
 
 <!-- indice:inicio -->
 **Última actualización:** 2026-11-09 · **Siguiente ID libre:** AUD-113 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
@@ -38,12 +39,12 @@ a AUD-111, aparecidas al aplicarla. El 2026-11-09 se cerró la tanda 6 (AUD-108,
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
-| 2 · Medio | 8 | 27 | 4 · 4 · 0 |
+| 2 · Medio | 5 | 30 | 1 · 4 · 0 |
 | 3 · Bajo | 76 | 0 | 73 · 3 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **85** | **27** | **78 · 7 · 0** |
+| **Total** | **82** | **30** | **75 · 7 · 0** |
 
-**Abiertas por área:** UI/UX 19 · QA y testing 12 · Código 11 · Arquitectura 9 · Rendimiento 9 · Documentación 9 · Accesibilidad 7 · Redacción 5 · Seguridad 4
+**Abiertas por área:** UI/UX 17 · QA y testing 12 · Código 10 · Arquitectura 9 · Rendimiento 9 · Documentación 9 · Accesibilidad 7 · Redacción 5 · Seguridad 4
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -306,13 +307,14 @@ Sin tareas abiertas.
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-034 (visto en el código, no reproducido).
   - **Cierre:** 2026-11-09 · tanda 6 de la Fase 2 (rama `auditoria/2026-11-05`). `publish_source_backed_export` recibe el formato de lectura de `current_duckdb_file_source` en lugar de rehacerlo desde la extensión; las nueve exportaciones `source_backed` lo pasan (con privacidad, el snapshot Parquet), y la automatización deja de descartarlo. JSON sigue sin admitirse, con el mismo error. Prueba nueva: un CSV sin encabezado cargado como `source_backed` con nombres generados se exporta con `column_1,column_2` y todas las filas, incluida la primera. No comprobado en la app abierta.
 
-- [ ] **AUD-112 · Exportar con privacidad un CSV grande sin encabezado puede tomar la primera fila de datos como encabezado**
+- [x] **AUD-112 · Exportar con privacidad un CSV grande sin encabezado puede tomar la primera fila de datos como encabezado**
   - **Área:** Código · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset/export_io.rs`, `source_backed_privacy_snapshot` (≈`:1602`); también `source_profile_snapshot` (`profile_engine.rs`, ≈`:2481`, solo `#[cfg(test)]`)
   - **Qué hacer:** que el snapshot de privacidad reciba el formato de `current_duckdb_file_source(dataset)` (que respeta `delimited_header_mode`), como hicieron AUD-022, AUD-105 y AUD-108, en lugar de rehacer `Delimited { detect_delimiter }` desde la extensión. Alinear de paso el ayudante de pruebas `source_profile_snapshot`.
   - **Criterio de aceptación:** una prueba exporta con privacidad `Mask` (o `Hash`) un CSV sin encabezado cargado como `source_backed` con nombres generados, y el resultado tiene las columnas `column_1`… y todas las filas de datos, incluida la primera.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-108 (visto en el código, no reproducido).
+  - **Cierre:** 2026-11-09 · tanda 7 de la Fase 2 (rama `auditoria/2026-11-05`). `source_backed_privacy_snapshot` recibe el formato de `current_duckdb_file_source` y lee el esquema con o sin encabezado según ese formato (los tres llamadores lo pasan); `source_profile_snapshot` recibe también el formato. Prueba `privacy_snapshot_of_a_headerless_source_backed_csv_keeps_the_first_row` (primera fila `email,Ana`, con `Mask` y `Hash`): exporta `column_1,column_2` y todas las filas; falla con el comportamiento anterior.
 
 ### Rendimiento
 
@@ -402,21 +404,23 @@ Sin tareas abiertas.
 
 ### Diseño responsivo y UI/UX
 
-- [ ] **AUD-056 · Una columna de textos largos no tiene tope de ancho: la vista previa se vuelve ilegible en tablas anchas**
+- [x] **AUD-056 · Una columna de textos largos no tiene tope de ancho: la vista previa se vuelve ilegible en tablas anchas**
   - **Área:** UI/UX · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src/styles.css:516-517`
   - **Qué hacer:** limitar la celda del dataset (`.table-region td { max-width: 36ch; overflow: hidden; text-overflow: ellipsis }`) con el valor completo en `title` desde `renderCellValue`, y una forma de ver la celda entera (clic o foco que la expande, o panel con la fila). Mantener `nowrap` solo para números y fechas.
   - **Criterio de aceptación:** con un dataset de 12 columnas y una de textos de 2.000 caracteres, ninguna columna de la vista previa supera unos 320 CSS px, el valor completo se puede leer (tooltip o expansión) y las cabeceras de perfil siguen alineadas con su columna.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-09 · tanda 7 de la Fase 2 (rama `auditoria/2026-11-05`). Los textos de más de 36 caracteres van en un `span.cell-clip` con tope de 36ch, el valor completo en `title` y expansión al recibir el foco (teclado o clic, hasta 16rem de alto con desplazamiento). Se aplica también a la muestra importada y al resultado de la consulta SQL. Medido con el simulador a 1280×800 (12 columnas, una de 2.000 caracteres): columna larga de 324 px (antes 13.567), `title` completo y cabeceras de perfil alineadas.
 
-- [ ] **AUD-057 · Preparar: el resultado de cada cambio y Deshacer/Rehacer viven solo en la columna del historial, que bajo 1180 px queda al final de la página y encima puede ser más alta que la ventana**
+- [x] **AUD-057 · Preparar: el resultado de cada cambio y Deshacer/Rehacer viven solo en la columna del historial, que bajo 1180 px queda al final de la página y encima puede ser más alta que la ventana**
   - **Área:** UI/UX · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/prepare/PreparePhase.tsx:253-254`
   - **Qué hacer:** mostrar también el resultado (una línea con «Deshacer») donde se aplica el cambio, junto al `ChangeFeedback`; dar al `aside` fijo `max-height: calc(100dvh - 104px); overflow-y: auto`, y poner los botones Deshacer/Rehacer arriba, bajo el encabezado, antes de la línea de versiones.
   - **Criterio de aceptación:** con 12 versiones a 1280×640, Deshacer y Rehacer se ven sin desplazar la página; a 900 px de ancho, tras aplicar una herramienta aparece el resultado y Deshacer en pantalla sin desplazarse al final.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-09 · tanda 7 de la Fase 2 (rama `auditoria/2026-11-05`). Deshacer y Rehacer pasan arriba del historial, bajo el encabezado; el panel fijo tiene `max-height` y desplazamiento propio; tras aplicar un cambio aparece, fija arriba en `.prepare-layout__main`, una línea con el resultado, «Deshacer» y «Cerrar» (sin anuncio duplicado; se oculta cuando la propuesta muestra su propio resultado). Medido con el simulador: con 12 versiones a 1280×640, Deshacer y Rehacer en y=317 sin desplazar la página (antes 954); a 900×800, tras «Eliminar filas vacías», la línea con Deshacer queda en pantalla (y=19; antes ningún Deshacer visible).
 
 ### QA y testing
 

@@ -350,6 +350,18 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   (AUD-047).
 - En la consulta SQL, el encabezado fijo del panel ya no tapa el control que
   recibe el foco al recorrerlo con el teclado (AUD-048).
+- Exportar con privacidad («Enmascarar» o «Seudonimizar») un CSV grande sin
+  fila de encabezado conserva los nombres generados (`column_1`, `column_2`…)
+  y la primera fila de datos. Antes esa fila podía tomarse como encabezado
+  (AUD-112).
+- En la vista previa, una columna de textos largos ya no ensancha la tabla
+  hasta hacerla ilegible: cada celda se corta a unos 36 caracteres, muestra el
+  valor completo al pasar el ratón y se despliega al recibir el foco. Lo mismo
+  en la muestra importada y en el resultado de la consulta SQL (AUD-056).
+- En Preparar, Deshacer y Rehacer están arriba del historial y se ven aunque
+  haya muchas versiones, y tras aplicar un cambio aparece arriba una línea con
+  el resultado y «Deshacer», también en ventanas estrechas donde el historial
+  queda al final de la página (AUD-057).
 - Importar una tabla grande desde una base de datos ya no carga la tabla entera
   en memoria: las filas se guardan por lotes según llegan. 5.000.000 de filas
   por 20 columnas se importan sin superar unos 110 MB, y el límite de 2 GiB de

@@ -2480,14 +2480,8 @@ pub(super) enum WorkingCopyHold {
 #[cfg(test)]
 pub(super) fn source_profile_snapshot(
     source_path: &Path,
-    extension: &str,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
 ) -> Result<(Option<WorkingCopyHold>, PathBuf), String> {
-    let source_format = match extension {
-        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-        _ => crate::duckdb_query::DuckDbFileFormat::Delimited {
-            delimiter: detect_delimiter(source_path, extension)?,
-        },
-    };
     source_profile_snapshot_with_cancel(source_path, source_format, || false)
 }
 

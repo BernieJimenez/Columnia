@@ -98,6 +98,14 @@ describe("HistoryBar versiones deshechas", () => {
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeDisabled();
     expect(screen.getByText("Aún no hay cambios que deshacer.")).toBeVisible();
   });
+
+  it("pone Deshacer y Rehacer antes de la lista de versiones (AUD-057)", () => {
+    render(<HistoryBar status={history} busy={false} onUndo={() => undefined} onRedo={() => undefined} />);
+
+    const undo = screen.getByRole("button", { name: "Deshacer" });
+    const list = screen.getByRole("list", { name: "Versiones del dataset" });
+    expect(undo.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });
 
 describe("HistoryBar resumen común (PROD-10)", () => {

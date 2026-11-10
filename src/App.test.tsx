@@ -2025,7 +2025,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "city" }));
     fireEvent.click(screen.getByRole("button", { name: "Normalizar texto seleccionado" }));
 
-    expect(await screen.findByText("Se normalizó texto en 1 celda en 1 fila.")).toBeInTheDocument();
+    expect(within(await screen.findByLabelText("Resultado del último cambio")).getByText("Se normalizó texto en 1 celda en 1 fila.")).toBeInTheDocument();
     expect(normalizeSpy).toHaveBeenCalledWith(["city"], true);
   });
 
@@ -2203,7 +2203,7 @@ describe("App", () => {
     expect(undoSpy).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole("button", { name: "Rehacer" }));
-    expect(await screen.findByText("Se rehízo el último cambio.")).toBeInTheDocument();
+    expect(within(await screen.findByLabelText("Resultado del último cambio")).getByText("Se rehízo el último cambio.")).toBeInTheDocument();
     await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(4));
     expect(redoSpy).toHaveBeenCalledOnce();
   });
@@ -2540,7 +2540,7 @@ describe("App", () => {
       groupSummary: null,
       contactNormalizations: [], textExtractions: [],
     }, null);
-    expect(await screen.findByText(/Receta aplicada: 1 renombre, 1 conversión, 1 fecha interpretada/)).toBeInTheDocument();
+    expect(within(await screen.findByLabelText("Resultado del último cambio")).getByText(/Receta aplicada: 1 renombre, 1 conversión, 1 fecha interpretada/)).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeEnabled();
   });
 
@@ -2822,7 +2822,7 @@ describe("App", () => {
     const dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar y aplicar" }));
 
-    expect(await screen.findByText("La receta no produjo cambios en el dataset.")).toBeInTheDocument();
+    expect(within(await screen.findByLabelText("Resultado del último cambio")).getByText("La receta no produjo cambios en el dataset.")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeDisabled();
   });
 
@@ -2868,7 +2868,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Confirmar y aplicar" }));
     expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ groupSummary: { groupBy: ["region"], aggregations: [{ column: "importe", operation: "sum" }, { column: "nota", operation: "count_unique" }] } }), null);
-    expect(await screen.findByText(/resumen de 2 grupos con 2 agregaciones/)).toBeInTheDocument();
+    expect(within(await screen.findByLabelText("Resultado del último cambio")).getByText(/resumen de 2 grupos con 2 agregaciones/)).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeEnabled();
   });
 
@@ -2908,7 +2908,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Confirmar y aplicar" }));
     expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ contactNormalizations: [{ column: "correo", kind: "email" }], textExtractions: [{ source: "codigo", kind: "before", name: "prefijo", delimiter: "-" }] }), null);
-    expect(await screen.findByText(/1 contacto normalizado en 1 columna, 1 columna extraída/)).toBeInTheDocument();
+    expect(within(await screen.findByLabelText("Resultado del último cambio")).getByText(/1 contacto normalizado en 1 columna, 1 columna extraída/)).toBeInTheDocument();
   });
 
   it("muestra el estado degradado del historial entregado por Rust", async () => {

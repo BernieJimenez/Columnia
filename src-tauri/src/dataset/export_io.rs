@@ -1565,6 +1565,7 @@ where
 pub(super) fn source_backed_privacy_snapshot<C>(
     source_path: &Path,
     expected_file_size: u64,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     destination: &Path,
     mode: PrivacyMode,
     is_cancelled: C,
@@ -1572,6 +1573,7 @@ pub(super) fn source_backed_privacy_snapshot<C>(
 where
     C: Fn() -> bool + Send + 'static,
 {
+    use crate::duckdb_query::DuckDbFileFormat;
     if mode == PrivacyMode::None {
         return Err("La protección source-backed requiere un modo explícito.".to_owned());
     }
@@ -1580,7 +1582,17 @@ where
     if source_size != expected_file_size {
         return Err("El archivo source-backed cambió antes de protegerse.".to_owned());
     }
-    let schema = source_scan(&source_path, &extension)?
+    // AUD-112: the names come from how the dataset reads the file (see
+    // `current_duckdb_file_source`), so a CSV without header keeps its generated
+    // names and its first row.
+    let has_header = match source_format {
+        DuckDbFileFormat::Parquet | DuckDbFileFormat::Delimited { .. } => true,
+        DuckDbFileFormat::DelimitedWithoutHeader { .. } => false,
+        DuckDbFileFormat::Json => {
+            return Err("El formato source-backed no admite protección incremental.".to_owned())
+        }
+    };
+    let schema = source_scan_with_header(&source_path, &extension, has_header)?
         .collect_schema()
         .map_err(|error| format!("No se pudo leer el esquema para proteger la fuente: {error}"))?;
     let schema_frame = DataFrame::empty_with_schema(&schema);
@@ -1597,13 +1609,6 @@ where
         fresh_privacy_salt()?
     } else {
         String::new()
-    };
-    let source_format = match extension.as_str() {
-        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
-            delimiter: detect_delimiter(&source_path, &extension)?,
-        },
-        _ => return Err("El formato source-backed no admite protección incremental.".to_owned()),
     };
     let projection = schema_frame
         .columns()

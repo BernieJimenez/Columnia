@@ -645,6 +645,74 @@ fn export_of_a_headerless_source_backed_csv_keeps_the_first_row_as_data() {
     );
 }
 
+/// AUD-112: the privacy snapshot of a large CSV without a header reads it with
+/// the generated names, as the loaded dataset does. Read with a header, the
+/// first row (here `email`) became a column name, so that column was protected
+/// and the row was lost.
+#[test]
+fn privacy_snapshot_of_a_headerless_source_backed_csv_keeps_the_first_row() {
+    let path = temporary_delimited(
+        "csv",
+        "email,Ana
+luis@example.com,Luis
+",
+    );
+    let (schema, _, row_count) =
+        source_backed_load_with_header_mode(&path, "csv", SpreadsheetHeaderMode::Generated, || {
+            false
+        })
+        .expect("la fuente debe abrirse sin tratar la primera fila como encabezado");
+    let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+    let dataset = LoadedDataset {
+        source_path: Some(path.path_buf()),
+        file_name: "headerless.csv".to_owned(),
+        file_size_bytes,
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: Some(SpreadsheetHeaderMode::Generated),
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+    };
+    let (source_path, source_format) = current_duckdb_file_source(&dataset)
+        .expect("el CSV sin encabezados debe quedar disponible para DuckDB");
+    let directory = tempfile::tempdir().expect("carpeta de salida");
+
+    for mode in [PrivacyMode::Mask, PrivacyMode::Hash] {
+        let snapshot = directory.path().join("protegido.parquet");
+        let protected = source_backed_privacy_snapshot(
+            &source_path,
+            file_size_bytes,
+            source_format,
+            &snapshot,
+            mode,
+            || false,
+        )
+        .expect("la protección de un CSV sin encabezados no debe fallar");
+        // column_1 and column_2 carry no personal-data signal: nothing is
+        // protected and the export reads the source with its own format.
+        assert!(protected.is_empty(), "{mode:?}");
+    }
+
+    let destination = directory.path().join("salida.csv");
+    export_source_backed_csv_atomic(
+        &source_path,
+        file_size_bytes,
+        source_format,
+        &destination,
+        |_, _| {},
+        || false,
+    )
+    .expect("el CSV sin encabezados se exporta");
+    assert_eq!(
+        fs::read_to_string(&destination)
+            .expect("la exportación debe existir")
+            .lines()
+            .collect::<Vec<_>>(),
+        vec!["column_1,column_2", "email,Ana", "luis@example.com,Luis"]
+    );
+}
+
 /// AUD-022: the profile and the contract read the working copy with the
 /// header decision of the load. Without it the copy took the first data row
 /// as the header and the profile failed at the end with a row-count mismatch.
@@ -10055,7 +10123,8 @@ fn source_temporal_aggregation_matches_materialized_csv_aggregation() {
     );
     let (frame, _) = load_csv(&path).expect("el CSV debe poder materializarse");
     let (snapshot_directory, snapshot_path) =
-        source_profile_snapshot(&path, "csv").expect("el CSV debe convertirse a Parquet");
+        source_profile_snapshot(&path, test_source_format(&path))
+            .expect("el CSV debe convertirse a Parquet");
     let row_count = parquet_row_count(&snapshot_path).expect("el snapshot debe contar sus filas");
 
     for aggregation in [TemporalAggregationKind::Sum, TemporalAggregationKind::Mean] {
@@ -11189,6 +11258,7 @@ fn eager_and_source_backed_privacy_hashes_match_for_typed_values() {
         fs::metadata(&source)
             .expect("el Parquet source-backed debe existir")
             .len(),
+        test_source_format(&source),
         &snapshot,
         PrivacyMode::Hash,
         || false,
@@ -11235,6 +11305,7 @@ fn source_backed_privacy_snapshot_masks_and_hashes_without_materializing_rows() 
     let masked_columns = source_backed_privacy_snapshot(
         &source,
         expected_size,
+        test_source_format(&source),
         &masked_path,
         PrivacyMode::Mask,
         || false,
@@ -11261,6 +11332,7 @@ fn source_backed_privacy_snapshot_masks_and_hashes_without_materializing_rows() 
     let hashed_columns = source_backed_privacy_snapshot(
         &source,
         expected_size,
+        test_source_format(&source),
         &hashed_path,
         PrivacyMode::Hash,
         || false,

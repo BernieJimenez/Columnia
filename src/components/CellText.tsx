@@ -30,7 +30,16 @@ export function CellText({ value }: { value: string }) {
   );
 }
 
+/** Longer texts are clipped in the grid; the full value is in `title` and a focus expands it. */
+const LONG_CELL_THRESHOLD = 36;
+
 /** Renders a preview cell: missing values and padded text stay distinguishable. */
 export function renderCellValue(value: string | null | undefined) {
-  return value === null || value === undefined ? <MissingValue /> : <CellText value={value} />;
+  if (value === null || value === undefined) return <MissingValue />;
+  if (value.length <= LONG_CELL_THRESHOLD) return <CellText value={value} />;
+  return (
+    <span className="cell-clip" tabIndex={0} title={value}>
+      <CellText value={value} />
+    </span>
+  );
 }

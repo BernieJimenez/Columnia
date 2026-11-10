@@ -428,6 +428,37 @@ describe("PreparePhase", () => {
     expect(screen.getByText(/Versión actual: Normalizar texto/)).toBeInTheDocument();
   });
 
+  it("muestra el resultado con Deshacer junto a las herramientas y se puede cerrar (AUD-057)", () => {
+    const onUndo = vi.fn();
+    const history: HistoryState = {
+      ...EMPTY_HISTORY,
+      canUndo: true,
+      entryCount: 1,
+      entries: [{ id: "history-test-0", index: 0, label: "Filas vacías", isCurrent: true }],
+    };
+    render(<PreparePhase
+      dataset={dataset} profileStatus={{ kind: "idle" }}
+      changeStatus={{ kind: "applied", message: "Se eliminó 1 fila vacía." }}
+      historyStatus={history} onCancelProfile={() => undefined}
+      recipeDraft={null} recipeSession={0}
+      onRemoveConstantColumns={() => undefined} onRemoveEmptyColumns={() => undefined} onRemoveHighNullColumns={() => undefined} onNormalizeBooleans={() => undefined} onImputeMissingValues={() => undefined} onEnableRowAudit={() => undefined}
+      onRemoveEmptyRows={() => undefined}
+      onApplyRecommended={() => undefined}
+      onNormalizeText={() => undefined} onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
+      onUndo={onUndo} onRedo={() => undefined}
+    />);
+
+    const line = screen.getByLabelText("Resultado del último cambio");
+    expect(within(line).getByText("Se eliminó 1 fila vacía.")).toBeInTheDocument();
+    fireEvent.click(within(line).getByRole("button", { name: "Deshacer" }));
+    expect(onUndo).toHaveBeenCalledOnce();
+    fireEvent.click(within(line).getByRole("button", { name: "Cerrar" }));
+    expect(screen.queryByLabelText("Resultado del último cambio")).not.toBeInTheDocument();
+    // The history panel keeps its own announcement.
+    expect(screen.getByText("Último resultado")).toBeInTheDocument();
+  });
+
   it("expone señales agregadas de limpieza y privacidad sin mostrar celdas", async () => {
     const onRemoveConstantColumns = vi.fn();
     const onRemoveEmptyColumns = vi.fn();

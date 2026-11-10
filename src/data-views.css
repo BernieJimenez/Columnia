@@ -81,7 +81,33 @@
 .prepare-layout__main { min-width: 0; }
 @media (min-width: 1180px) {
   .prepare-layout { grid-template-columns: minmax(0, 1fr) 300px; }
-  .prepare-layout__aside { position: sticky; top: 88px; margin-top: 20px; }
+  /* AUD-057: taller than the window, the panel scrolls on its own. */
+  .prepare-layout__aside { position: sticky; top: 88px; margin-top: 20px; max-height: calc(100dvh - 104px); overflow-y: auto; }
+}
+
+/* AUD-057: the result of a change and «Deshacer», pinned in view while the
+   tools below it are used. */
+.change-result {
+  position: sticky;
+  top: 8px;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.change-result p { flex: 1 1 16rem; min-width: 0; margin: 0; color: var(--text-primary); font-size: .875rem; line-height: 1.45; overflow-wrap: anywhere; }
+.change-result__actions { display: flex; gap: 8px; }
+.change-result__actions button { min-height: 44px; }
+@media (min-width: 901px) and (min-height: 701px) {
+  .change-result { top: 96px; }
 }
 
 .version-history {

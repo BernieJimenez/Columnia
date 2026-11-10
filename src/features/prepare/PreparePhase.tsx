@@ -5,7 +5,7 @@ import { ModalDialog } from "../../components/ModalDialog";
 import { previewSafeCorrections } from "../../bridge";
 import type { DatasetPreview, DatasetProfile, HistoryState, QualityRule, SafeCorrectionOptions, SavedRecipe, TransformRecipe } from "../../bridge";
 import type { ProfileStatus } from "../review/reviewModel";
-import { ChangeFeedback, HistoryBar } from "./HistoryBar";
+import { ChangeFeedback, ChangeResultLine, HistoryBar } from "./HistoryBar";
 import { TransformRecipeEditor } from "./TransformRecipeEditor";
 import { RevisionComparison } from "./RevisionComparison";
 import { PrepareProposal, type ProposalResult } from "./PrepareProposal";
@@ -137,6 +137,8 @@ export function PreparePhase({
   // The result belongs to the revision it describes: any later change, such
   // as Deshacer from the history panel, brings back the proposal (FUN-11).
   const currentPlanComparison = planComparison?.revision === datasetRevision ? planComparison : null;
+  // The result line closes for one result; the next change brings it back.
+  const [dismissedResult, setDismissedResult] = useState<ChangeStatus | null>(null);
   const [activeTab, setActiveTab] = useState<"corrections" | "transformations">("corrections");
   const [nearDuplicateConfirmation, setNearDuplicateConfirmation] = useState(false);
   const [identifierConfirmation, setIdentifierConfirmation] = useState(false);
@@ -253,6 +255,16 @@ export function PreparePhase({
       <div className="prepare-layout">
       <div className="prepare-layout__main">
       <ChangeFeedback status={changeStatus} onCancel={onCancelPrepare} />
+      {/* AUD-057: the proposal already shows its own result with «Deshacer». */}
+      {currentPlanComparison === null && dismissedResult !== changeStatus && (
+        <ChangeResultLine
+          status={changeStatus}
+          canUndo={historyStatus.snapshotsEnabled && historyStatus.canUndo}
+          busy={changing}
+          onUndo={onUndo}
+          onDismiss={() => setDismissedResult(changeStatus)}
+        />
+      )}
       {profileStatus.kind === "idle" && (
         <section className="prepare-analysis-prompt" aria-labelledby="prepare-analysis-title" role="status">
           <div>
