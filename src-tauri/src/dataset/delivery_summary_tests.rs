@@ -1,3 +1,4 @@
+use super::tests::test_source_format;
 use super::*;
 use ::zip::ZipArchive;
 use std::{fs, io::Read};
@@ -187,6 +188,7 @@ fn source_backed_bundle_includes_summary_without_source_path_or_values() {
     export_source_backed_bundle_atomic(
         &source_path,
         source_size,
+        test_source_format(&source_path),
         2,
         Some(&validation),
         Some(&recipe),

@@ -28,21 +28,22 @@ aplicarla. El 2026-11-08 se cerró la tanda 3 (AUD-012, 037, 023 y 024) y se
 abrió AUD-104, aparecida al aplicarla. Ese mismo día se cerró la tanda 4
 (AUD-022, 025 y 026) y se abrieron AUD-105 a AUD-107, aparecidas al aplicarla. Ese
 mismo día se cerró la tanda 5 (AUD-105, 034, 035 y 036) y se abrieron AUD-108
-a AUD-111, aparecidas al aplicarla.
+a AUD-111, aparecidas al aplicarla. El 2026-11-09 se cerró la tanda 6 (AUD-108,
+044, 045, 046, 047 y 048) y se abrió AUD-112, aparecida al aplicarla.
 
 <!-- indice:inicio -->
-**Última actualización:** 2026-11-08 · **Siguiente ID libre:** AUD-112 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
+**Última actualización:** 2026-11-09 · **Siguiente ID libre:** AUD-113 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
 
 | Tier | Abiertas | Cerradas | Esfuerzo de las abiertas (Bajo · Medio · Alto) |
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
-| 2 · Medio | 13 | 21 | 9 · 4 · 0 |
+| 2 · Medio | 8 | 27 | 4 · 4 · 0 |
 | 3 · Bajo | 76 | 0 | 73 · 3 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **90** | **21** | **83 · 7 · 0** |
+| **Total** | **85** | **27** | **78 · 7 · 0** |
 
-**Abiertas por área:** UI/UX 19 · Accesibilidad 12 · QA y testing 12 · Código 11 · Rendimiento 9 · Arquitectura 9 · Documentación 9 · Redacción 5 · Seguridad 4
+**Abiertas por área:** UI/UX 19 · QA y testing 12 · Código 11 · Arquitectura 9 · Rendimiento 9 · Documentación 9 · Accesibilidad 7 · Redacción 5 · Seguridad 4
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -296,13 +297,22 @@ Sin tareas abiertas.
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-022 (visto en el código, no reproducido).
   - **Cierre:** 2026-11-08 · tanda 5 de la Fase 2 (rama `auditoria/2026-11-05`). `source_temporal_projection_snapshot` recibe el `DuckDbFileFormat` de `current_duckdb_file_source` en lugar de rehacerlo desde la extensión; Parquet y JSON siguen sin admitir la proyección, y si el dataset no da formato se devuelve el mismo error que antes. Prueba nueva: la tendencia de `column_2` sobre `column_1` de un CSV sin encabezado cargado como `source_backed` lee las dos filas de datos; con el código anterior fallaba con «column_1 not found» porque tomaba la primera fila como encabezado. No comprobado en la app abierta.
 
-- [ ] **AUD-108 · Exportar un CSV grande sin encabezado puede tomar la primera fila de datos como encabezado**
+- [x] **AUD-108 · Exportar un CSV grande sin encabezado puede tomar la primera fila de datos como encabezado**
   - **Área:** Código · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset/export_io.rs`, `publish_source_backed_export` (≈`:864`)
   - **Qué hacer:** tomar el formato de lectura de `current_duckdb_file_source(dataset)` (que respeta `delimited_header_mode`), como hicieron AUD-022 y AUD-105, en lugar de rehacer `Delimited { detect_delimiter }` desde la extensión. Así el script T-SQL y el paquete BULK INSERT de un CSV sin encabezado también podrán leer la copia del perfil (AUD-034).
   - **Criterio de aceptación:** una prueba exporta un CSV sin encabezado cargado como `source_backed` con nombres generados y el resultado tiene las columnas `column_1`… y todas las filas de datos, incluida la primera.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-034 (visto en el código, no reproducido).
+  - **Cierre:** 2026-11-09 · tanda 6 de la Fase 2 (rama `auditoria/2026-11-05`). `publish_source_backed_export` recibe el formato de lectura de `current_duckdb_file_source` en lugar de rehacerlo desde la extensión; las nueve exportaciones `source_backed` lo pasan (con privacidad, el snapshot Parquet), y la automatización deja de descartarlo. JSON sigue sin admitirse, con el mismo error. Prueba nueva: un CSV sin encabezado cargado como `source_backed` con nombres generados se exporta con `column_1,column_2` y todas las filas, incluida la primera. No comprobado en la app abierta.
+
+- [ ] **AUD-112 · Exportar con privacidad un CSV grande sin encabezado puede tomar la primera fila de datos como encabezado**
+  - **Área:** Código · **Severidad:** Medio · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/dataset/export_io.rs`, `source_backed_privacy_snapshot` (≈`:1602`); también `source_profile_snapshot` (`profile_engine.rs`, ≈`:2481`, solo `#[cfg(test)]`)
+  - **Qué hacer:** que el snapshot de privacidad reciba el formato de `current_duckdb_file_source(dataset)` (que respeta `delimited_header_mode`), como hicieron AUD-022, AUD-105 y AUD-108, en lugar de rehacer `Delimited { detect_delimiter }` desde la extensión. Alinear de paso el ayudante de pruebas `source_profile_snapshot`.
+  - **Criterio de aceptación:** una prueba exporta con privacidad `Mask` (o `Hash`) un CSV sin encabezado cargado como `source_backed` con nombres generados, y el resultado tiene las columnas `column_1`… y todas las filas de datos, incluida la primera.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-108 (visto en el código, no reproducido).
 
 ### Rendimiento
 
@@ -345,45 +355,50 @@ Sin tareas abiertas.
 
 ### Accesibilidad y semántica
 
-- [ ] **AUD-044 · La cabecera fija con perfil (162 px) deja sin filas visibles la vista previa en la ventana mínima y a zoom 200 %**
+- [x] **AUD-044 · La cabecera fija con perfil (162 px) deja sin filas visibles la vista previa en la ventana mínima y a zoom 200 %**
   - **Área:** Accesibilidad · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src/styles.css:519`
   - **Qué hacer:** mantener fijo solo el bloque nombre+tipo (por ejemplo, el perfil en una segunda `<tr>` de la cabecera que no sea `sticky`), o quitar `position: sticky` de `.table--profiled th` y el `max-height` cuando `max-height: 700px` o cuando `html[data-columnia-zoom]`/`@media (max-width: 900px)`; como mínimo, `max-height: max(53vh, 420px)` para que la región nunca sea menor que la cabecera más tres filas. Alternativa del área 6: que `.table-region` use una altura en función del espacio libre (`max-height: calc(100dvh - 240px)` con un mínimo de 320 px), o una cabecera de perfil plegable («Mostrar perfil por columna»).
   - **Criterio de aceptación:** a 640×370 CSS px (zoom 200 %) con 12 columnas y perfil listo, se ven al menos tres filas de datos bajo la cabecera, y el desplazamiento del teclado sigue funcionando en la región. A 1280×640, con 12 columnas con señales, se ven al menos 6 filas completas sin desplazar la página.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-09 · tanda 6 de la Fase 2 (rama `auditoria/2026-11-05`). `.table-region` mide `max(340px, calc(100dvh - 320px))` en lugar de `53vh`; la cabecera sigue fija. Medido con el simulador (12 columnas con perfil, cabecera de 162 px): a 640×370, 3 filas completas bajo la cabecera (antes 0) y el teclado sigue desplazando la región; a 1280×800, 6 filas (antes 5). El criterio pedía 6 filas a 1280×640, que no caben (la región empieza a unos 340 px y cabecera más 6 filas suman 450 px): se midió a 1280×800, el tamaño de la medición original; a 1280×640 siguen siendo 3. La densidad compacta conserva su `72vh`.
 
-- [ ] **AUD-045 · El anillo de foco no llega a 3:1 sobre la barra lateral en los temas Papel, Océano y Pizarra**
+- [x] **AUD-045 · El anillo de foco no llega a 3:1 sobre la barra lateral en los temas Papel, Océano y Pizarra**
   - **Área:** Accesibilidad · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src/styles.css:58-66`
   - **Qué hacer:** en `shell.css` (o en la regla `.app-sidebar` de `workflow-styles.css:525`) añadir `--focus-ring: #efba70;` para todas las barras, y ampliar `AccessibilityStyles.test.ts` y `tools/contrast-table.mjs` con el par `--focus-ring` / `--sidebar-surface` de cada tema.
   - **Criterio de aceptación:** el par foco/superficie de la barra da al menos 3:1 en los cinco temas, medido con DevTools, y la prueba de contraste lo vigila.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-09 · tanda 6 de la Fase 2 (rama `auditoria/2026-11-05`). La regla base `.app-sidebar` define `--focus-ring: #efba70`. Medido en el navegador: 8,21:1 (Claro y Oscuro), 7,96:1 (Papel), 8,00:1 (Océano) y 8,03:1 (Pizarra); antes 2,26, 2,72 y 2,68 en los tres últimos. `tools/contrast-table.mjs` mide la combinación que pinta la barra en cada tema (regla base más el bloque del tema) y añade esas filas a la tabla de `DESIGN.md`; `AccessibilityStyles.test.ts` falla si el par baja de 3:1 o falta el token.
 
-- [ ] **AUD-046 · El foco cae a `body` al terminar «Ver tablas» y durante la importación**
+- [x] **AUD-046 · El foco cae a `body` al terminar «Ver tablas» y durante la importación**
   - **Área:** Accesibilidad · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/load/DatabaseImportPanel.tsx:159-166`
   - **Qué hacer:** no desactivar el botón que tiene el foco (usar `aria-disabled` e ignorar el clic mientras trabaja) o mover el foco al terminar: a la lista «Tabla o vista» cuando llega el catálogo y al mensaje si falla. Anunciar «Conectando…» y el resultado en un contenedor persistente con `role="status"`.
   - **Criterio de aceptación:** tras «Ver tablas», `document.activeElement` es la lista de tablas (o el error), nunca `body`, y el resultado se anuncia; una prueba de componente lo comprueba.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-09 · tanda 6 de la Fase 2 (rama `auditoria/2026-11-05`). «Ver tablas» y «Traer …» quedan con `aria-disabled` mientras trabajan (el clic se ignora) en lugar de `disabled`, así que el foco no cae a `body`; al terminar va a la lista «Tabla o vista», al aviso de que no hay tablas, al resultado o al error, salvo que la persona lo haya movido. «Conectando…» y los resultados se anuncian en contenedores `role="status"` siempre montados. Los botones con `aria-disabled` se ven desactivados como los demás. 3 pruebas de componente nuevas; medido también con el simulador (el foco sigue en «Conectando…» y luego en la lista).
 
-- [ ] **AUD-047 · El editor de reglas de calidad se sale de su columna en Entregar a partir de 1180 px y el panel de exportación lo tapa**
+- [x] **AUD-047 · El editor de reglas de calidad se sale de su columna en Entregar a partir de 1180 px y el panel de exportación lo tapa**
   - **Área:** Accesibilidad · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src/shell.css:291`
   - **Qué hacer:** que `.quality-rule` se pliegue por contenedor: `.delivery-layout .quality-rule { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }` y `.quality-contract { min-width: 0; container-type: inline-size; }`; o repartir 1fr/1fr (o un máximo de 3fr con `min-content`) para el editor. De paso, `grid-template-columns: minmax(0, 1fr)` explícito en la rama de una columna de `.delivery-layout`.
   - **Criterio de aceptación:** a 1280×800 y a 1180×800, con el editor abierto y una regla con tolerancia, ningún control de la regla queda fuera de su columna ni bajo el panel de exportación.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-09 · tanda 6 de la Fase 2 (rama `auditoria/2026-11-05`). Dentro de Entregar, `.quality-rule` usa `repeat(auto-fit, minmax(150px, 1fr))` y `.quality-contract` tiene `min-width: 0`; `.delivery-layout` declara `minmax(0, 1fr)` en una columna. Medido con el simulador, editor abierto y tolerancia por cantidad y porcentaje: a 1280×800 y 1180×800 los 6 controles de la regla quedan dentro de su columna y ninguno bajo el panel de exportación (antes, 3 bajo el panel a 1280).
 
-- [ ] **AUD-048 · El encabezado fijo del cajón de consulta SQL puede tapar por completo el elemento que recibe el foco**
+- [x] **AUD-048 · El encabezado fijo del cajón de consulta SQL puede tapar por completo el elemento que recibe el foco**
   - **Área:** Accesibilidad · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src/shell.css:241-253`
   - **Qué hacer:** `.sheet-dialog--drawer > .sheet-dialog__panel { scroll-padding-top: 8rem; }` (o el alto real más 16 px), o quitar `position: sticky` del encabezado.
   - **Criterio de aceptación:** con un resultado de 200 filas, Mayús+Tab desde «Ejecutar consulta» hasta el campo de consulta nunca deja el elemento enfocado bajo el encabezado; verificado con DevTools (rectángulo del foco frente al del encabezado).
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-09 · tanda 6 de la Fase 2 (rama `auditoria/2026-11-05`). El panel del cajón tiene `scroll-padding-top: 8rem`. Medido con el simulador (200 filas de resultado, panel desplazado al final): Mayús+Tab desde «Ejecutar consulta» hasta el campo de consulta no deja ningún elemento bajo el encabezado (antes «Columnas del dataset» quedaba tapado entero y «Motor de consulta», 9 px).
 
 ### Diseño responsivo y UI/UX
 

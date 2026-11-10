@@ -412,6 +412,7 @@ Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, 
 - importación de reglas en el formato del nombre anterior del proyecto (retirado en
   0.114.0) y guardado como `columnia-quality-rules` v1, con diálogos nativos y rutas
   privadas en Rust.
+- las exportaciones `source_backed` reciben el formato de lectura de `current_duckdb_file_source(dataset)`, igual que el perfil: rehacerlo desde la extensión toma la primera fila de un CSV sin encabezado como nombres (AUD-108, 2026-11-09). El snapshot de privacidad aún lo rehace (AUD-112).
 
 ## Invariantes de seguridad y privacidad
 
@@ -632,6 +633,10 @@ Las ramas específicas de symlinks/reparse points dependen de la plataforma; en 
 6. Añade o actualiza pruebas en la capa donde vive el comportamiento.
 7. Ejecuta al menos el perfil Fast; usa Full para cambios Rust o de contratos y Release para trabajo de distribución.
 8. Actualiza este archivo si el cambio altera arquitectura, contratos, comandos, límites, invariantes o forma de validar.
+
+Accesibilidad, decisiones de la tanda 6 de la auditoría (2026-11-09):
+- un botón que tiene el foco y lanza una operación larga no se desactiva con `disabled` (el foco caería a `body`): usa `aria-disabled` e ignora el clic, y al terminar el foco pasa al resultado si seguía en el botón (`DatabaseImportPanel.tsx`, AUD-046). La regla de botones desactivados de `shell.css` cubre los dos casos.
+- todas las barras laterales son oscuras: su `--focus-ring` (#efba70) se define una vez en la regla base `.app-sidebar` de `workflow-styles.css`. `tools/contrast-table.mjs` mide la barra con esa regla más el bloque del tema; un par dentro de un bloque `:root[...]` compararía colores que no se pintan juntos (AUD-045).
 
 ## Protocolo para mantener vivo `CONTEXTO.md`
 

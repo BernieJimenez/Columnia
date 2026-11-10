@@ -10201,6 +10201,7 @@ async fn export_active_dataset(
             let result = tauri::async_runtime::spawn_blocking(move || {
                 let mut effective_source_path = source_path.clone();
                 let mut effective_source_size = expected_file_size;
+                let mut effective_source_format = source_format;
                 let mut protected_columns = Vec::new();
                 let _privacy_scratch = if privacy_mode == PrivacyMode::None {
                     None
@@ -10231,6 +10232,7 @@ async fn export_active_dataset(
                             })?
                             .len();
                         effective_source_path = privacy_snapshot;
+                        effective_source_format = crate::duckdb_query::DuckDbFileFormat::Parquet;
                     }
                     Some(scratch)
                 };
@@ -10240,6 +10242,7 @@ async fn export_active_dataset(
                         export_source_backed_delimited_atomic(
                             &effective_source_path,
                             effective_source_size,
+                            effective_source_format,
                             &destination,
                             format == ExportFormat::CsvExcel,
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
@@ -10255,6 +10258,7 @@ async fn export_active_dataset(
                         export_source_backed_json_atomic(
                             &effective_source_path,
                             effective_source_size,
+                            effective_source_format,
                             &destination,
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
                             move || {
@@ -10269,6 +10273,7 @@ async fn export_active_dataset(
                         export_source_backed_parquet_atomic(
                             &effective_source_path,
                             effective_source_size,
+                            effective_source_format,
                             &destination,
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
                             move || {
@@ -10283,6 +10288,7 @@ async fn export_active_dataset(
                         export_source_backed_sql_atomic(
                             &effective_source_path,
                             effective_source_size,
+                            effective_source_format,
                             &destination,
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
                             move || {
@@ -10297,6 +10303,7 @@ async fn export_active_dataset(
                         export_source_backed_xlsx_atomic(
                             &effective_source_path,
                             effective_source_size,
+                            effective_source_format,
                             row_count,
                             &destination,
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
@@ -10312,6 +10319,7 @@ async fn export_active_dataset(
                         export_source_backed_sqlite_atomic(
                             &effective_source_path,
                             effective_source_size,
+                            effective_source_format,
                             row_count,
                             &destination,
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
@@ -10327,6 +10335,7 @@ async fn export_active_dataset(
                         export_source_backed_tsql_atomic(
                             &effective_source_path,
                             effective_source_size,
+                            effective_source_format,
                             &destination,
                             sql_server.as_ref(),
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
@@ -10342,6 +10351,7 @@ async fn export_active_dataset(
                         export_source_backed_sqlserver_bulk_atomic(
                             &effective_source_path,
                             effective_source_size,
+                            effective_source_format,
                             row_count,
                             &destination,
                             sql_server.as_ref(),
@@ -10358,6 +10368,7 @@ async fn export_active_dataset(
                         export_source_backed_bundle_atomic(
                             &effective_source_path,
                             effective_source_size,
+                            effective_source_format,
                             row_count,
                             quality_validation.as_ref(),
                             recipe.as_ref(),

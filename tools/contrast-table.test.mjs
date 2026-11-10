@@ -5,10 +5,11 @@ import test from "node:test";
 import { contrastRatio, contrastTable, themeBlocks, withContrastTable } from "./contrast-table.mjs";
 
 const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+const workflowCss = readFileSync(new URL("../src/workflow-styles.css", import.meta.url), "utf8");
 const design = readFileSync(new URL("../DESIGN.md", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 test("DESIGN.md cita la tabla que sale de src/styles.css (UI-02)", () => {
-  assert.equal(withContrastTable(design, css), design);
+  assert.equal(withContrastTable(design, css, workflowCss), design);
 });
 
 test("cambiar un color en src/styles.css cambia la tabla sin tocar otro archivo (UI-02)", () => {
@@ -19,7 +20,7 @@ test("cambiar un color en src/styles.css cambia la tabla sin tocar otro archivo 
 });
 
 test("cada par de la tabla alcanza su mínimo (UI-02)", () => {
-  for (const line of contrastTable(css).split("\n").slice(2)) {
+  for (const line of contrastTable(css, workflowCss).split("\n").slice(2)) {
     const [ratio, minimum] = [...line.matchAll(/(\d+(?:\.\d+)?):1/g)].map((match) => Number(match[1]));
     assert.ok(ratio >= minimum, line);
   }

@@ -522,7 +522,7 @@ td {
 
 /* Shared workspace identity. Component layout stays with its existing rules. */
 
-.app-sidebar { --text-primary: #e8f0ed; --text-secondary: #b7c8c5; --border-subtle: #3a5157; --surface: #20383e; --surface-subtle: #243e44; --surface-raised: #29474c; --sidebar-surface: #142d33; --accent: #9cdebd; --disabled-text: #a5b8b5; --eyebrow: #b7c8c5; --danger: #f4a39b; color: var(--text-primary); }
+.app-sidebar { --text-primary: #e8f0ed; --text-secondary: #b7c8c5; --border-subtle: #3a5157; --surface: #20383e; --surface-subtle: #243e44; --surface-raised: #29474c; --sidebar-surface: #142d33; --focus-ring: #efba70; --accent: #9cdebd; --disabled-text: #a5b8b5; --eyebrow: #b7c8c5; --danger: #f4a39b; color: var(--text-primary); }
 
 :root .sidebar__utilities > summary { border-color: transparent; padding-inline: 0; }
 

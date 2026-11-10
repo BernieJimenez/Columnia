@@ -219,6 +219,7 @@
 /* SQL console: a drawer on the right, full height, over the current phase. */
 .sheet-dialog.sheet-dialog--drawer { place-items: stretch end; padding: 0; overflow: hidden; }
 .sheet-dialog--drawer > .sheet-dialog__panel {
+  scroll-padding-top: 8rem;
   box-sizing: border-box;
   width: min(820px, 100vw);
   height: 100dvh;
@@ -276,7 +277,7 @@
 
 /* Disabled actions: an outline, never a grey block that outweighs the active
    ones. The text next to the control says what it is waiting for. */
-:root:root .workspace :is(.primary-action, .secondary-action, .pagination button, .history-actions button):disabled {
+:root:root .workspace :is(.primary-action, .secondary-action, .pagination button, .history-actions button):is(:disabled, [aria-disabled="true"]) {
   border-width: 1px;
   border-style: dashed;
   border-color: var(--control-border);
@@ -288,8 +289,9 @@
 }
 
 /* Entregar: contract and export side by side when there is room. */
-.delivery-layout { display: grid; gap: 28px; align-items: start; }
-.app-shell .delivery-layout .quality-contract { margin: 0; padding-top: 4px; }
+.delivery-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; align-items: start; }
+.app-shell .delivery-layout .quality-contract { margin: 0; padding-top: 4px; min-width: 0; }
+.delivery-layout .quality-rule { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .app-shell .delivery-layout .export-panel {
   margin: 0;
   padding: 22px 24px;
@@ -443,7 +445,7 @@ html[data-columnia-zoom="2"] .app-shell .workspace h2 { font-size: 1.5rem; }
   .flow-nav__item[aria-current="step"] .flow-nav__marker { border-color: Highlight; background: Highlight; color: HighlightText; }
   .flow-nav__badge { box-shadow: none; border: 1px solid CanvasText; }
   :is(.engine-status, .dataset-save__status)::before { forced-color-adjust: none; background: CanvasText; }
-  :root:root .workspace :is(.primary-action, .secondary-action, .pagination button, .history-actions button):disabled {
+  :root:root .workspace :is(.primary-action, .secondary-action, .pagination button, .history-actions button):is(:disabled, [aria-disabled="true"]) {
     border-color: GrayText;
     background: Canvas;
     color: GrayText;

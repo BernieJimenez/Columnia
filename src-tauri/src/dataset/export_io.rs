@@ -832,9 +832,11 @@ pub(super) struct SourceBackedExportSource<'a> {
 /// refuse to write over it, write into a temporary file next to the
 /// destination, check that the source did not change and publish atomically.
 /// `write` fills the temporary file and returns the replaced control cells.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn publish_source_backed_export<F, C, W>(
     source_path: &Path,
     expected_file_size: u64,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     destination: &Path,
     format: ExportFormat,
     mut report: F,
@@ -861,18 +863,14 @@ where
         return Err("El archivo source-backed cambió después de la validación.".to_owned());
     }
     ensure_destination_is_not_source(&destination, &[source_path.as_path()])?;
-    let source_format = match extension.as_str() {
-        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
-            delimiter: detect_delimiter(&source_path, &extension)?,
-        },
-        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-        _ => {
-            return Err(format!(
-                "El formato source-backed no se puede exportar a {}.",
-                format.label()
-            ))
-        }
-    };
+    // AUD-108: `source_format` is how the loaded dataset reads the file (see
+    // `current_duckdb_file_source`), so a headerless CSV keeps its generated names.
+    if source_format == crate::duckdb_query::DuckDbFileFormat::Json {
+        return Err(format!(
+            "El formato source-backed no se puede exportar a {}.",
+            format.label()
+        ));
+    }
     report("Preparando archivo temporal", 10);
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
@@ -972,6 +970,7 @@ where
 pub(super) fn export_source_backed_xlsx_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     row_count: usize,
     destination: &Path,
     report: F,
@@ -984,6 +983,7 @@ where
     publish_source_backed_export(
         source_path,
         expected_file_size,
+        source_format,
         destination,
         ExportFormat::Excel,
         report,
@@ -1425,6 +1425,7 @@ where
 pub(super) fn export_source_backed_sqlite_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     row_count: usize,
     destination: &Path,
     report: F,
@@ -1437,6 +1438,7 @@ where
     publish_source_backed_export(
         source_path,
         expected_file_size,
+        source_format,
         destination,
         ExportFormat::Sqlite,
         report,
@@ -1701,6 +1703,7 @@ where
 pub(super) fn export_source_backed_parquet_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     destination: &Path,
     report: F,
     is_cancelled: C,
@@ -1712,6 +1715,7 @@ where
     publish_source_backed_export(
         source_path,
         expected_file_size,
+        source_format,
         destination,
         ExportFormat::Parquet,
         report,
@@ -1734,6 +1738,7 @@ where
 pub(super) fn export_source_backed_csv_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     destination: &Path,
     report: F,
     is_cancelled: C,
@@ -1745,6 +1750,7 @@ where
     export_source_backed_delimited_atomic(
         source_path,
         expected_file_size,
+        source_format,
         destination,
         false,
         report,
@@ -1756,6 +1762,7 @@ where
 pub(super) fn export_source_backed_delimited_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     destination: &Path,
     excel: bool,
     report: F,
@@ -1768,6 +1775,7 @@ where
     publish_source_backed_export(
         source_path,
         expected_file_size,
+        source_format,
         destination,
         if excel {
             ExportFormat::CsvExcel
@@ -1799,6 +1807,7 @@ where
 pub(super) fn export_source_backed_sql_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     destination: &Path,
     report: F,
     is_cancelled: C,
@@ -1810,6 +1819,7 @@ where
     publish_source_backed_export(
         source_path,
         expected_file_size,
+        source_format,
         destination,
         ExportFormat::Sql,
         report,
@@ -1830,6 +1840,7 @@ where
 pub(super) fn export_source_backed_json_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     destination: &Path,
     report: F,
     is_cancelled: C,
@@ -1841,6 +1852,7 @@ where
     publish_source_backed_export(
         source_path,
         expected_file_size,
+        source_format,
         destination,
         ExportFormat::Json,
         report,
@@ -1862,6 +1874,7 @@ where
 pub(super) fn export_source_backed_bundle_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     row_count: usize,
     quality_validation: Option<&QualityValidationResult>,
     recipe: Option<&StoredTransformRecipe>,
@@ -1879,6 +1892,7 @@ where
     publish_source_backed_export(
         source_path,
         expected_file_size,
+        source_format,
         destination,
         ExportFormat::Bundle,
         report,
@@ -2735,6 +2749,7 @@ where
 pub(super) fn export_source_backed_tsql_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     destination: &Path,
     options: Option<&SqlServerScriptOptions>,
     report: F,
@@ -2748,6 +2763,7 @@ where
     publish_source_backed_export(
         source_path,
         expected_file_size,
+        source_format,
         destination,
         ExportFormat::SqlServerScript,
         report,
@@ -2774,9 +2790,11 @@ where
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn export_source_backed_sqlserver_bulk_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
     row_count: usize,
     destination: &Path,
     options: Option<&SqlServerScriptOptions>,
@@ -2791,6 +2809,7 @@ where
     publish_source_backed_export(
         source_path,
         expected_file_size,
+        source_format,
         destination,
         ExportFormat::SqlServerBulk,
         report,

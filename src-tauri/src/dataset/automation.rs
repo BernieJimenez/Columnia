@@ -102,7 +102,7 @@ pub(super) fn export_source_backed_for_automation(
     quality_validation: Option<&QualityValidationResult>,
     recipe: Option<&StoredTransformRecipe>,
 ) -> Result<ExportResult, String> {
-    let (source_path, _) = current_duckdb_file_source(dataset)
+    let (source_path, source_format) = current_duckdb_file_source(dataset)
         .ok_or_else(|| "La fuente source-backed ya no está disponible para exportar.".to_owned())?;
     let expected_file_size = fs::metadata(&source_path)
         .map_err(|error| format!("No se pudo verificar la fuente source-backed: {error}"))?
@@ -112,6 +112,7 @@ pub(super) fn export_source_backed_for_automation(
         ExportFormat::Csv | ExportFormat::CsvExcel => export_source_backed_delimited_atomic(
             &source_path,
             expected_file_size,
+            source_format,
             output,
             format == ExportFormat::CsvExcel,
             |_, _| {},
@@ -120,6 +121,7 @@ pub(super) fn export_source_backed_for_automation(
         ExportFormat::Json => export_source_backed_json_atomic(
             &source_path,
             expected_file_size,
+            source_format,
             output,
             |_, _| {},
             || false,
@@ -127,6 +129,7 @@ pub(super) fn export_source_backed_for_automation(
         ExportFormat::Parquet => export_source_backed_parquet_atomic(
             &source_path,
             expected_file_size,
+            source_format,
             output,
             |_, _| {},
             || false,
@@ -134,6 +137,7 @@ pub(super) fn export_source_backed_for_automation(
         ExportFormat::Sql => export_source_backed_sql_atomic(
             &source_path,
             expected_file_size,
+            source_format,
             output,
             |_, _| {},
             || false,
@@ -141,6 +145,7 @@ pub(super) fn export_source_backed_for_automation(
         ExportFormat::SqlServerScript => export_source_backed_tsql_atomic(
             &source_path,
             expected_file_size,
+            source_format,
             output,
             None,
             |_, _| {},
@@ -149,6 +154,7 @@ pub(super) fn export_source_backed_for_automation(
         ExportFormat::SqlServerBulk => export_source_backed_sqlserver_bulk_atomic(
             &source_path,
             expected_file_size,
+            source_format,
             row_count,
             output,
             None,
@@ -158,6 +164,7 @@ pub(super) fn export_source_backed_for_automation(
         ExportFormat::Excel => export_source_backed_xlsx_atomic(
             &source_path,
             expected_file_size,
+            source_format,
             row_count,
             output,
             |_, _| {},
@@ -166,6 +173,7 @@ pub(super) fn export_source_backed_for_automation(
         ExportFormat::Sqlite => export_source_backed_sqlite_atomic(
             &source_path,
             expected_file_size,
+            source_format,
             row_count,
             output,
             |_, _| {},
@@ -174,6 +182,7 @@ pub(super) fn export_source_backed_for_automation(
         ExportFormat::Bundle => export_source_backed_bundle_atomic(
             &source_path,
             expected_file_size,
+            source_format,
             row_count,
             quality_validation,
             recipe,

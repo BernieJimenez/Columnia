@@ -512,7 +512,7 @@ summary:focus-visible,
 .quality-gate__issues li { display: grid; gap: 4px; }
 .quality-gate__issues li > span { color: var(--text-secondary); }
 .quality-gate__issues button { justify-self: start; min-height: 44px; padding: 6px 10px; border: 1px solid var(--accent); border-radius: 4px; background: transparent; color: var(--accent); font-weight: 750; cursor: pointer; }
-.table-region { max-height: 53vh; overflow: auto; border: 1px solid var(--border-subtle); background: white; border-radius: 6px; }
+.table-region { max-height: max(340px, calc(100dvh - 320px)); overflow: auto; border: 1px solid var(--border-subtle); background: white; border-radius: 6px; }
 table { width: 100%; border-collapse: collapse; font-size: .88rem; }
 th,
 td { min-width: 140px; padding: 10px 12px; border-right: 1px solid #dce4e1; border-bottom: 1px solid #dce4e1; text-align: left; white-space: nowrap; }

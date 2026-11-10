@@ -585,6 +585,66 @@ fn duckdb_source_backed_query_uses_generated_polars_column_names() {
     assert_eq!(exported.lines().next(), Some("column_1,column_2"));
 }
 
+/// How a test source is read when it has a header, as the loaded dataset would.
+pub(super) fn test_source_format(path: &Path) -> crate::duckdb_query::DuckDbFileFormat {
+    let extension = dataset_extension(path).expect("la extensión del archivo de prueba");
+    match extension.as_str() {
+        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+        _ => crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(path, &extension).expect("el delimitador de prueba"),
+        },
+    }
+}
+
+/// AUD-108: a large CSV without a header is exported with the generated names
+/// and every data row, the first one included.
+#[test]
+fn export_of_a_headerless_source_backed_csv_keeps_the_first_row_as_data() {
+    let path = temporary_delimited(
+        "csv",
+        "001,Ana
+002,Luis
+",
+    );
+    let (schema, _, row_count) =
+        source_backed_load_with_header_mode(&path, "csv", SpreadsheetHeaderMode::Generated, || {
+            false
+        })
+        .expect("la fuente debe abrirse sin tratar la primera fila como encabezado");
+    let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+    let dataset = LoadedDataset {
+        source_path: Some(path.path_buf()),
+        file_name: "headerless.csv".to_owned(),
+        file_size_bytes,
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: Some(SpreadsheetHeaderMode::Generated),
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+    };
+    let (source_path, source_format) = current_duckdb_file_source(&dataset)
+        .expect("el CSV sin encabezados debe quedar disponible para DuckDB");
+    let directory = tempfile::tempdir().expect("carpeta de salida");
+    let destination = directory.path().join("salida.csv");
+
+    export_source_backed_csv_atomic(
+        &source_path,
+        file_size_bytes,
+        source_format,
+        &destination,
+        |_, _| {},
+        || false,
+    )
+    .expect("el CSV sin encabezados se exporta");
+
+    let exported = fs::read_to_string(&destination).expect("la exportación debe existir");
+    assert_eq!(
+        exported.lines().collect::<Vec<_>>(),
+        vec!["column_1,column_2", "001,Ana", "002,Luis"]
+    );
+}
+
 /// AUD-022: the profile and the contract read the working copy with the
 /// header decision of the load. Without it the copy took the first data row
 /// as the header and the profile failed at the end with a row-count mismatch.
@@ -1090,8 +1150,15 @@ fn csv_with_carriage_return_line_endings_loads_like_its_lf_equivalent() {
     let directory = tempfile::tempdir().unwrap();
     let destination = directory.path().join("desde_cr.csv");
     let size = fs::metadata(&cr_path).unwrap().len();
-    export_source_backed_csv_atomic(&cr_path, size, &destination, |_, _| {}, || false)
-        .expect("la exportación desde la fuente (DuckDB) también");
+    export_source_backed_csv_atomic(
+        &cr_path,
+        size,
+        test_source_format(&cr_path),
+        &destination,
+        |_, _| {},
+        || false,
+    )
+    .expect("la exportación desde la fuente (DuckDB) también");
     let exported = read_delimited_frame(&destination, "csv").unwrap();
     assert!(
         exported.equals(&lf_frame),
@@ -5053,6 +5120,7 @@ fn source_backed_parquet_export_streams_through_a_private_snapshot() {
     let result = export_source_backed_parquet_atomic(
         &source,
         expected_size,
+        test_source_format(&source),
         &destination,
         |stage, percent| progress.push((stage, percent)),
         || false,
@@ -5079,6 +5147,7 @@ fn source_backed_csv_export_streams_without_materializing_the_active_frame() {
     let result = export_source_backed_csv_atomic(
         &source,
         expected_size,
+        test_source_format(&source),
         &destination,
         |stage, percent| progress.push((stage, percent)),
         || false,
@@ -5106,6 +5175,7 @@ fn source_backed_xlsx_export_counts_cells_with_replaced_control_characters() {
     let result = export_source_backed_xlsx_atomic(
         &source,
         expected_size,
+        test_source_format(&source),
         3,
         &destination,
         |_, _| {},
@@ -5126,6 +5196,7 @@ fn source_backed_xlsx_export_streams_rows_without_materializing_the_active_frame
     let result = export_source_backed_xlsx_atomic(
         &source,
         expected_size,
+        test_source_format(&source),
         2,
         &destination,
         |stage, percent| progress.push((stage, percent)),
@@ -5174,6 +5245,7 @@ fn source_backed_sqlite_export_streams_rows_without_materializing_the_active_fra
     let result = export_source_backed_sqlite_atomic(
         &source,
         expected_size,
+        test_source_format(&source),
         2,
         &destination,
         |stage, percent| progress.push((stage, percent)),
@@ -5209,6 +5281,7 @@ fn source_backed_sql_export_streams_without_materializing_the_active_frame() {
     let result = export_source_backed_sql_atomic(
         &source,
         expected_size,
+        test_source_format(&source),
         &destination,
         |stage, percent| progress.push((stage, percent)),
         || false,
@@ -5293,6 +5366,7 @@ fn source_backed_json_export_streams_without_leaving_private_artifacts() {
     let result = export_source_backed_json_atomic(
         &source,
         expected_size,
+        test_source_format(&source),
         &destination,
         |stage, percent| progress.push((stage, percent)),
         || false,
@@ -5323,6 +5397,7 @@ fn source_backed_bundle_streams_dataset_and_builds_dictionary_without_rows_in_me
     let result = export_source_backed_bundle_atomic(
         &source,
         expected_size,
+        test_source_format(&source),
         2,
         None,
         None,
@@ -5366,6 +5441,7 @@ fn source_backed_bundle_includes_validated_recipe_without_materializing_rows() {
     export_source_backed_bundle_atomic(
         &source,
         expected_size,
+        test_source_format(&source),
         2,
         None,
         Some(&recipe),
@@ -12332,6 +12408,7 @@ fn benchmark_source_backed_export_cooperative_cancellation() {
         let result = export_source_backed_csv_atomic(
             &source,
             source_size,
+            test_source_format(&source),
             &destination,
             |_, _| {},
             move || operation_state.export_was_cancelled(generation),
@@ -21028,21 +21105,44 @@ fn source_backed_exports_keep_zeros_refuse_the_source_and_protect_formulas() {
     let directory = tempfile::tempdir().expect("carpeta temporal");
 
     let csv = directory.path().join("salida.csv");
-    export_source_backed_csv_atomic(&source, size, &csv, |_, _| {}, || false).expect("CSV");
+    export_source_backed_csv_atomic(
+        &source,
+        size,
+        test_source_format(&source),
+        &csv,
+        |_, _| {},
+        || false,
+    )
+    .expect("CSV");
     let text = fs::read_to_string(&csv).unwrap();
     assert!(text.contains("00123,'=1+1"), "{text}");
     assert!(text.contains("01234,ok"), "{text}");
 
     let sql = directory.path().join("salida.sql");
-    export_source_backed_sql_atomic(&source, size, &sql, |_, _| {}, || false).expect("SQL");
+    export_source_backed_sql_atomic(
+        &source,
+        size,
+        test_source_format(&source),
+        &sql,
+        |_, _| {},
+        || false,
+    )
+    .expect("SQL");
     let script = fs::read_to_string(&sql).unwrap();
     assert!(
         script.contains("'00123'") && script.contains("'=1+1'"),
         "{script}"
     );
 
-    let error = export_source_backed_csv_atomic(&source, size, &source, |_, _| {}, || false)
-        .expect_err("el origen no se sobrescribe");
+    let error = export_source_backed_csv_atomic(
+        &source,
+        size,
+        test_source_format(&source),
+        &source,
+        |_, _| {},
+        || false,
+    )
+    .expect_err("el origen no se sobrescribe");
     assert!(error.contains("archivo de origen"), "{error}");
     assert_eq!(fs::read(&source).unwrap(), original);
 }
@@ -22368,8 +22468,16 @@ fn excel_csv_has_bom_and_semicolons_in_both_paths() {
         .unwrap();
     let size = fs::metadata(&source).unwrap().len();
     let large = directory.path().join("grande.csv");
-    export_source_backed_delimited_atomic(&source, size, &large, true, |_, _| {}, || false)
-        .expect("CSV para Excel desde archivo grande");
+    export_source_backed_delimited_atomic(
+        &source,
+        size,
+        test_source_format(&source),
+        &large,
+        true,
+        |_, _| {},
+        || false,
+    )
+    .expect("CSV para Excel desde archivo grande");
     let large_bytes = fs::read(&large).unwrap();
     assert!(large_bytes.starts_with(b"\xEF\xBB\xBF"));
     let large_text = String::from_utf8(large_bytes[3..].to_vec()).unwrap();
@@ -23142,14 +23250,36 @@ fn source_backed_exports_keep_leading_zeros_and_long_codes() {
     let size = fs::metadata(&source).unwrap().len();
 
     let csv = directory.path().join("salida.csv");
-    export_source_backed_csv_atomic(&source, size, &csv, |_, _| {}, || false)
-        .expect("CSV source-backed");
+    export_source_backed_csv_atomic(
+        &source,
+        size,
+        test_source_format(&source),
+        &csv,
+        |_, _| {},
+        || false,
+    )
+    .expect("CSV source-backed");
     let excel = directory.path().join("salida-excel.csv");
-    export_source_backed_delimited_atomic(&source, size, &excel, true, |_, _| {}, || false)
-        .expect("CSV para Excel source-backed");
+    export_source_backed_delimited_atomic(
+        &source,
+        size,
+        test_source_format(&source),
+        &excel,
+        true,
+        |_, _| {},
+        || false,
+    )
+    .expect("CSV para Excel source-backed");
     let sql = directory.path().join("salida.sql");
-    export_source_backed_sql_atomic(&source, size, &sql, |_, _| {}, || false)
-        .expect("SQL source-backed");
+    export_source_backed_sql_atomic(
+        &source,
+        size,
+        test_source_format(&source),
+        &sql,
+        |_, _| {},
+        || false,
+    )
+    .expect("SQL source-backed");
 
     for path in [&csv, &excel, &sql] {
         let text = fs::read_to_string(path).unwrap();

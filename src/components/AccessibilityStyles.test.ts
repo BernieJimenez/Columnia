@@ -74,6 +74,14 @@ describe("contratos CSS de accesibilidad", () => {
       }
       if (tokens.canvas && tokens["text-primary"]) expect(ratio(tokens.canvas, tokens["text-primary"])).toBeGreaterThanOrEqual(4.5);
     }
+    // AUD-045: the focus ring that the sidebar paints (its base rule) over each theme's sidebar surface.
+    const sidebarBase = Object.fromEntries([...(workflowStyles.match(/(?:^|\n)\.app-sidebar\s*\{([^}]*)\}/)?.[1] ?? "").matchAll(/--([a-z-]+):\s*(#[0-9a-f]{6})/g)].map(([, name, value]) => [name, value]));
+    for (const theme of ["light", "dark", "paper", "ocean", "slate"]) {
+      const own = baseStyles.match(new RegExp(String.raw`(?:^|\n)\s*:root\[data-theme="${theme}"\] \.app-sidebar\s*\{([^}]*)\}`))?.[1] ?? "";
+      const tokens = { ...sidebarBase, ...Object.fromEntries([...own.matchAll(/--([a-z-]+):\s*(#[0-9a-f]{6})/g)].map(([, name, value]) => [name, value])) };
+      expect(tokens["focus-ring"], `${theme} focus-ring`).toBeDefined();
+      expect(ratio(tokens["focus-ring"], tokens["sidebar-surface"]), `${theme} focus-ring sobre la barra`).toBeGreaterThanOrEqual(3);
+    }
     expect(styles).toMatch(/\.skip-link \{[^}]*background: var\(--text-primary\); color: var\(--canvas\)/);
     expect(styles).not.toMatch(/#93473f/);
     // ACC-15: the updater error uses the sidebar's light danger colour.

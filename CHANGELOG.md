@@ -333,6 +333,23 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - La tendencia numérica de un CSV grande sin fila de encabezado usa los
   nombres generados (`column_1`, `column_2`…). Antes leía la primera fila de
   datos como encabezado y fallaba (AUD-105).
+- Exportar un CSV grande sin fila de encabezado conserva los nombres
+  generados (`column_1`, `column_2`…) y todas las filas. Antes la primera fila
+  de datos podía salir como encabezado (AUD-108).
+- La vista previa con el perfil por columna deja ver filas también en ventanas
+  bajas y con zoom: a 640 × 370 (zoom 200 %) se ven tres filas bajo la cabecera,
+  donde antes no se veía ninguna, y a 1280 × 800, seis (AUD-044).
+- El anillo de foco de la barra lateral se distingue también en los temas
+  Papel, Océano y Pizarra: ahora contrasta más de 7:1 con la barra en los
+  cinco temas (AUD-045).
+- En Cargar › Base de datos, el foco ya no se pierde al pulsar «Ver tablas» o
+  «Traer …»: se queda en el botón mientras trabaja y después pasa a la lista
+  de tablas, al resultado o al error, que además se anuncian (AUD-046).
+- En Entregar, el editor de reglas de calidad se reparte en varias líneas y ya
+  no se mete bajo el panel de exportación en ventanas de 1180 px o más
+  (AUD-047).
+- En la consulta SQL, el encabezado fijo del panel ya no tapa el control que
+  recibe el foco al recorrerlo con el teclado (AUD-048).
 - Importar una tabla grande desde una base de datos ya no carga la tabla entera
   en memoria: las filas se guardan por lotes según llegan. 5.000.000 de filas
   por 20 columnas se importan sin superar unos 110 MB, y el límite de 2 GiB de

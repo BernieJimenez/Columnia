@@ -236,6 +236,11 @@ navegación.
 | `:root[data-theme="ocean"] .app-sidebar` | `--control-border` #839da5 | `--surface` #1b4352 | 3.72:1 | 3:1 |
 | `:root[data-theme="slate"] .app-sidebar` | `--accent` #acd2eb | `--surface` #35424d | 6.46:1 | 4.5:1 |
 | `:root[data-theme="slate"] .app-sidebar` | `--control-border` #8d979f | `--surface` #35424d | 3.46:1 | 3:1 |
+| `.app-sidebar (light)` | `--focus-ring` #efba70 | `--sidebar-surface` #142d33 | 8.21:1 | 3:1 |
+| `.app-sidebar (dark)` | `--focus-ring` #efba70 | `--sidebar-surface` #142d33 | 8.21:1 | 3:1 |
+| `.app-sidebar (paper)` | `--focus-ring` #efba70 | `--sidebar-surface` #332a25 | 7.96:1 | 3:1 |
+| `.app-sidebar (ocean)` | `--focus-ring` #efba70 | `--sidebar-surface` #102f3b | 8.00:1 | 3:1 |
+| `.app-sidebar (slate)` | `--focus-ring` #efba70 | `--sidebar-surface` #242c34 | 8.03:1 | 3:1 |
 <!-- contrast-table:end -->
 
 - `forced-colors` usa colores del sistema y mantiene bordes, foco y estado.

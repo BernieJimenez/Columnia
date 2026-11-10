@@ -154,6 +154,71 @@ describe("DatabaseImportPanel", () => {
     expect(await screen.findByText(/no muestra tablas ni vistas que este usuario pueda leer/)).toBeInTheDocument();
   });
 
+  it("tras «Ver tablas» el foco pasa a la lista de tablas y el resultado se anuncia en un estado persistente", async () => {
+    let finish: (tables: Array<{ schema: string; name: string; isView: boolean }>) => void = () => undefined;
+    const list = vi.spyOn(bridge, "listDatabaseTables").mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    renderPanel();
+    await fillConnection();
+    const button = screen.getByRole("button", { name: "Ver tablas" });
+    button.focus();
+    const status = screen.getAllByRole("status").find((node) => node.tabIndex === -1 && node.textContent === "");
+    expect(status).toBeDefined();
+    fireEvent.click(button);
+
+    expect(status).toHaveTextContent("Conectando…");
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(button);
+    expect(list).toHaveBeenCalledTimes(1);
+
+    finish([{ schema: "dbo", name: "Ventas", isView: false }, { schema: "dbo", name: "Clientes", isView: false }]);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Tabla o vista")));
+    expect(status).toHaveTextContent("2 tablas y vistas disponibles.");
+    expect(screen.getAllByRole("status").filter((node) => node.textContent?.includes("2 tablas"))).toHaveLength(1);
+  });
+
+  it("si «Ver tablas» falla, el foco pasa al mensaje de error", async () => {
+    vi.spyOn(bridge, "listDatabaseTables").mockRejectedValue("No se pudo conectar con el servidor.");
+    renderPanel();
+    await fillConnection();
+    screen.getByRole("button", { name: "Ver tablas" }).focus();
+    fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("No se pudo conectar con el servidor.");
+    expect(document.activeElement).toBe(alert);
+  });
+
+  it("durante la importación el foco no cae a body y al terminar pasa al resultado o al error", async () => {
+    vi.spyOn(bridge, "listDatabaseTables").mockResolvedValue([{ schema: "dbo", name: "Ventas", isView: false }]);
+    let finish: (result: DatabaseImportResult) => void = () => undefined;
+    let fail: (reason: string) => void = () => undefined;
+    const importTable = vi.spyOn(bridge, "importDatabaseTable")
+      .mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }))
+      .mockReturnValueOnce(new Promise((_resolve, reject) => { fail = reject; }));
+    renderPanel();
+    await fillConnection();
+    fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
+    const traer = await screen.findByRole("button", { name: "Traer dbo.Ventas" });
+    traer.focus();
+    fireEvent.click(traer);
+    await waitFor(() => expect(importTable).toHaveBeenCalledTimes(1));
+    expect(document.activeElement).toBe(traer);
+    expect(traer).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(traer);
+    expect(importTable).toHaveBeenCalledTimes(1);
+
+    finish({ inspection, rowsImported: 5, moreRowsAvailable: false, truncatedColumns: [] });
+    const done = await screen.findByText(/Se trajeron 5 filas/);
+    await waitFor(() => expect(document.activeElement).toBe(done.closest("[role=status]")));
+
+    traer.focus();
+    fireEvent.click(traer);
+    await waitFor(() => expect(importTable).toHaveBeenCalledTimes(2));
+    fail("El servidor rechazó la sentencia.");
+    const alert = await screen.findByRole("alert");
+    await waitFor(() => expect(document.activeElement).toBe(alert));
+  });
+
   it("sin controlador de SQL Server explica qué instalar", async () => {
     vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue([]);
     renderPanel();

@@ -1,5 +1,6 @@
 //! «Script T-SQL» and «Paquete BULK INSERT» (2026-10-31) by both export paths.
 
+use super::tests::test_source_format;
 use super::*;
 use ::zip::ZipArchive;
 use std::io::Read;
@@ -112,9 +113,16 @@ fn large_files_stream_the_tsql_script_through_duckdb() {
     let directory = tempfile::tempdir().expect("carpeta");
     let (source, size) = source_csv(directory.path(), "nombre,importe\nO'Brien,10\n=1+1,20\n");
     let destination = directory.path().join("clientes.sql");
-    let result =
-        export_source_backed_tsql_atomic(&source, size, &destination, None, |_, _| {}, || false)
-            .expect("el script T-SQL de un archivo grande se exporta");
+    let result = export_source_backed_tsql_atomic(
+        &source,
+        size,
+        test_source_format(&source),
+        &destination,
+        None,
+        |_, _| {},
+        || false,
+    )
+    .expect("el script T-SQL de un archivo grande se exporta");
     assert_eq!(result.format, "Script T-SQL");
     let script = fs::read_to_string(&destination).expect("script");
     assert!(script.contains("CREATE TABLE [dbo].[clientes] ("));
@@ -140,12 +148,21 @@ fn the_profile_copy_gives_the_same_tsql_script_and_bulk_package_as_the_file() {
     clear_profile_snapshot_of(&canonical);
     let export = |name: &str| {
         let script = directory.path().join(format!("{name}.sql"));
-        export_source_backed_tsql_atomic(&source, size, &script, None, |_, _| {}, || false)
-            .expect("script");
+        export_source_backed_tsql_atomic(
+            &source,
+            size,
+            test_source_format(&source),
+            &script,
+            None,
+            |_, _| {},
+            || false,
+        )
+        .expect("script");
         let package = directory.path().join(format!("{name}.zip"));
         export_source_backed_sqlserver_bulk_atomic(
             &source,
             size,
+            test_source_format(&source),
             3,
             &package,
             None,
@@ -197,6 +214,7 @@ fn large_files_stream_the_bulk_package_through_duckdb() {
     export_source_backed_sqlserver_bulk_atomic(
         &source,
         size,
+        test_source_format(&source),
         2,
         &destination,
         None,
@@ -347,6 +365,7 @@ fn large_files_measure_text_and_honour_the_options() {
     export_source_backed_tsql_atomic(
         &source,
         size,
+        test_source_format(&source),
         &destination,
         Some(&options),
         |_, _| {},
@@ -366,6 +385,7 @@ fn large_files_measure_text_and_honour_the_options() {
     export_source_backed_sqlserver_bulk_atomic(
         &source,
         size,
+        test_source_format(&source),
         2,
         &package,
         Some(&sqlserver_options(r#"{"textSize":"max"}"#)),

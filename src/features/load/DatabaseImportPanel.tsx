@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import {
   cancelOperation,
@@ -55,6 +55,12 @@ function tableLabel(table: DatabaseSourceTable): string {
   return table.schema ? `${table.schema}.${table.name}` : table.name;
 }
 
+/** Where the focus goes when the control that had it stops being usable; only if it was not moved elsewhere. */
+function focusIfLost(target: HTMLElement | null, ...owners: Array<HTMLElement | null>) {
+  const active = document.activeElement;
+  if (target && (active === null || active === document.body || owners.includes(active as HTMLElement))) target.focus();
+}
+
 /**
  * Cargar desde una base de datos (SQL Server, PostgreSQL or MySQL, 2026-11-02):
  * lists the tables the server allows to read and
@@ -69,13 +75,35 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
   const [rowLimit, setRowLimit] = useState<number>(DEFAULT_ROW_LIMIT);
   const [importState, setImportState] = useState<ImportState>({ kind: "idle" });
 
+  const showButtonRef = useRef<HTMLButtonElement>(null);
+  const tableRef = useRef<HTMLSelectElement>(null);
+  const listMessageRef = useRef<HTMLDivElement>(null);
+  const importButtonRef = useRef<HTMLButtonElement>(null);
+  const listErrorRef = useRef<HTMLParagraphElement>(null);
+  const importMessageRef = useRef<HTMLDivElement>(null);
+  const importErrorRef = useRef<HTMLParagraphElement>(null);
+
   const source: DatabaseSource | null = connection ? { kind, connection } : null;
   const busy = blocked || list.kind === "listing" || importState.kind === "importing";
   const tables = list.kind === "listed" ? list.tables : [];
   const chosen = tables[selected];
 
+  useEffect(() => {
+    if (list.kind === "listed") {
+      focusIfLost(list.tables.length > 0 ? tableRef.current : listMessageRef.current, showButtonRef.current);
+    } else if (list.kind === "error") {
+      focusIfLost(listErrorRef.current, showButtonRef.current);
+    }
+  }, [list]);
+
+  useEffect(() => {
+    if (importState.kind === "done" || importState.kind === "error") {
+      focusIfLost(importState.kind === "done" ? importMessageRef.current : importErrorRef.current, importButtonRef.current);
+    }
+  }, [importState]);
+
   async function showTables() {
-    if (!source) return;
+    if (!source || busy) return;
     setList({ kind: "listing" });
     setImportState({ kind: "idle" });
     try {
@@ -88,7 +116,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
   }
 
   function importChosen() {
-    if (!chosen || !source) return;
+    if (!chosen || !source || busy) return;
     const table = tableLabel(chosen);
     onImport(async () => {
       setImportState({
@@ -162,7 +190,9 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
               <button
                 type="button"
                 className="secondary-action"
-                disabled={busy || connection === null}
+                ref={showButtonRef}
+                disabled={connection === null}
+                aria-disabled={busy || undefined}
                 onClick={() => void showTables()}
               >
                 {list.kind === "listing" ? "Conectando…" : "Ver tablas"}
@@ -176,20 +206,26 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
             {connection === null && list.kind === "idle" && (
               <p className="database-import__hint">Completa la conexión para ver las tablas.</p>
             )}
-            {list.kind === "error" && <p className="notice notice--error" role="alert">{list.message}</p>}
-            {list.kind === "listed" && tables.length === 0 && (
-              <p className="notice" role="status">El servidor no muestra tablas ni vistas que este usuario pueda leer.</p>
-            )}
-            {list.kind === "listed" && tables.length > 0 && (
-              <>
-                <p className="database-import__hint" role="status">
+            <div ref={listMessageRef} role="status" tabIndex={-1}>
+              {list.kind === "listing" && <p className="database-import__hint">Conectando…</p>}
+              {list.kind === "listed" && tables.length === 0 && (
+                <p className="notice">El servidor no muestra tablas ni vistas que este usuario pueda leer.</p>
+              )}
+              {list.kind === "listed" && tables.length > 0 && (
+                <p className="database-import__hint">
                   {plural(tables.length, "tabla o vista disponible", "tablas y vistas disponibles")}.
                 </p>
+              )}
+            </div>
+            {list.kind === "error" && <p className="notice notice--error" role="alert" tabIndex={-1} ref={listErrorRef}>{list.message}</p>}
+            {list.kind === "listed" && tables.length > 0 && (
+              <>
                 <div className="database-import__choice">
                   <div className="database-import__field">
                     <label htmlFor={`${id}-table`}>Tabla o vista</label>
                     <select
                       id={`${id}-table`}
+                      ref={tableRef}
                       value={selected}
                       disabled={busy}
                       onChange={(event) => setSelected(Number(event.target.value))}
@@ -220,7 +256,14 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
                   </div>
                 </div>
                 <div className="database-import__actions">
-                  <button type="button" className="primary-action" disabled={busy || !chosen} onClick={importChosen}>
+                  <button
+                    type="button"
+                    className="primary-action"
+                    ref={importButtonRef}
+                    disabled={!chosen}
+                    aria-disabled={busy || undefined}
+                    onClick={importChosen}
+                  >
                     {chosen ? `Traer ${tableLabel(chosen)}` : "Traer tabla"}
                   </button>
                 </div>
@@ -232,20 +275,22 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
                 cancellation={importState.cancelRequested ? { kind: "requested" } : { kind: "available", onCancel: cancel }}
               />
             )}
-            {importState.kind === "error" && <p className="notice notice--error" role="alert">{importState.message}</p>}
-            {importState.kind === "done" && (
-              <div className="notice notice--success" role="status">
-                <p>
-                  Se trajeron {plural(importState.result.rowsImported, "fila", "filas")} de {importState.table}.
-                  {importState.result.moreRowsAvailable && " La tabla tiene más filas: sube el límite para traerlas."}
-                </p>
-                {importState.result.truncatedColumns.length > 0 && (
+            {importState.kind === "error" && <p className="notice notice--error" role="alert" tabIndex={-1} ref={importErrorRef}>{importState.message}</p>}
+            <div ref={importMessageRef} role="status" tabIndex={-1}>
+              {importState.kind === "done" && (
+                <div className="notice notice--success">
                   <p>
-                    Algunos textos de {importState.result.truncatedColumns.map((name) => `«${name}»`).join(", ")} tenían más de 8.000 caracteres y se recortaron a esa longitud.
+                    Se trajeron {plural(importState.result.rowsImported, "fila", "filas")} de {importState.table}.
+                    {importState.result.moreRowsAvailable && " La tabla tiene más filas: sube el límite para traerlas."}
                   </p>
-                )}
-              </div>
-            )}
+                  {importState.result.truncatedColumns.length > 0 && (
+                    <p>
+                      Algunos textos de {importState.result.truncatedColumns.map((name) => `«${name}»`).join(", ")} tenían más de 8.000 caracteres y se recortaron a esa longitud.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
