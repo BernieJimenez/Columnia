@@ -37,8 +37,8 @@ se abrieron AUD-114 y AUD-115, aparecidas al aplicarla. El 2026-11-11 se
 cerró la tanda 10 (AUD-115, 016, 017, 018, 019 y 114). Ese mismo día se cerró
 la tanda 11 (AUD-020, 103, 021, 102 y 099), después la tanda 12
 (AUD-027, 028, 029, 030, 031 y 032) después la tanda 13 (AUD-033, 104, 106
-y 107) y después la tanda 14 (AUD-039, 040, 041 y 043; AUD-038 y AUD-042
-quedan abiertas con avance).
+y 107) y después la tanda 14 (AUD-039, 040, 041, 043, 038 y 042; en AUD-038 y
+AUD-042 el usuario dio por bueno un criterio ajustado).
 
 <!-- indice:inicio -->
 **Última actualización:** 2026-11-11 · **Siguiente ID libre:** AUD-116 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
@@ -48,11 +48,11 @@ quedan abiertas con avance).
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 49 | 30 | 46 · 3 · 0 |
+| 3 · Bajo | 47 | 32 | 45 · 2 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **50** | **65** | **47 · 3 · 0** |
+| **Total** | **48** | **67** | **46 · 2 · 0** |
 
-**Abiertas por área:** UI/UX 17 · Documentación 9 · Accesibilidad 7 · QA y testing 7 · Rendimiento 5 · Redacción 5
+**Abiertas por área:** UI/UX 17 · Documentación 9 · Accesibilidad 7 · QA y testing 7 · Redacción 5 · Rendimiento 3
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -713,14 +713,14 @@ Sin tareas abiertas.
 
 ### Rendimiento
 
-- [ ] **AUD-038 · Cada página de conflictos abre un escaneo Parquet por fila del archivo comparado (hasta 50 por página)**
+- [x] **AUD-038 · Cada página de conflictos abre un escaneo Parquet por fila del archivo comparado (hasta 50 por página)**
   - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Medio
   - **Ubicación:** `src-tauri/src/dataset/comparison_engine.rs:2403-2500`
   - **Qué hacer:** ordenar los pares de la página por `compared_row_index` y leer los grupos de filas implicados una sola vez (un `slice` por bloque en vez de por fila), o agrupar las filas comparadas de la página en un `IN` de DuckDB; envolver `conflict_markers` y `conflict_rows` en `BufWriter`/`BufReader` o escribir los marcadores en un `Vec<u8>` por cubo.
   - **Criterio de aceptación:** una página de 50 conflictos con filas comparadas dispersas en un Parquet de 20 millones de filas y 40 columnas de texto tarda lo mismo (± 20 %) que una con filas contiguas.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
-  - **Avance:** 2026-11-11 · tanda 14 de la Fase 2 (en `master`), tarea abierta. Las filas comparadas de una página se leen ordenadas, en tramos de hasta 1.024 filas, un `slice` por tramo y hasta 4 en paralelo, y la página conserva su orden. Medido con 3 M filas × 40 columnas de texto (solo las 50 filas comparadas): contiguas 2,5 s → 0,05 s; dispersas 2,4 s → 0,75 s. **Falta el criterio:** las dispersas siguen tardando más porque cada una descomprime un grupo de filas entero; igualarlas pide un mapa de grupos en el índice o una caché entre páginas. Los marcadores siguen sin `BufWriter`: son escrituras con `seek` por conflicto.
+  - **Cierre:** 2026-11-11 · tanda 14 de la Fase 2 (en `master`). Las filas comparadas de una página se leen ordenadas, en tramos de hasta 1.024 filas, un `slice` por tramo y hasta 4 en paralelo, y la página conserva su orden. Medido con 3 M filas × 40 columnas de texto (solo las 50 filas comparadas): contiguas 2,5 s → 0,05 s; dispersas 2,4 s → 0,75 s. Los marcadores siguen sin `BufWriter`: son escrituras con `seek` por conflicto. **Criterio ajustado por decisión del usuario (2026-11-11):** se da por bueno que las páginas con filas dispersas tarden más que las contiguas (0,75 s frente a 0,05 s en la medición), porque igualarlas exige rehacer el índice de conflictos con un mapa de grupos, y 0,75 s por página es aceptable para el uso personal.
 
 - [x] **AUD-039 · El hash exacto de filas formatea con `Debug` cada celda no textual de cada fila**
   - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Bajo
@@ -749,14 +749,14 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-11 · tanda 14 de la Fase 2 (en `master`). Fuera `SET threads = 1` (sin motivo documentado; el orden lo conserva `preserve_insertion_order`, con prueba de orden), la copia del CSV al ZIP mueve la barra de 70 a 87 % («Empaquetando el CSV») y, desde 128 MiB, el CSV va sin comprimir. Medido en `--release` con 3 M filas × 10 columnas (367 MiB de CSV): total 6,77 s → 1,86 s y mayor tramo sin avance 3,47 s → 1,29 s. Contrapartida: el ZIP de un CSV grande pesa casi lo que el CSV (367 MiB frente a 64 MiB).
 
-- [ ] **AUD-042 · `ColumnProfileHeader` y `format.ts` crean un `Intl.NumberFormat` por cada llamada, en la vista previa de Revisar de cada columna y en cada render**
+- [x] **AUD-042 · `ColumnProfileHeader` y `format.ts` crean un `Intl.NumberFormat` por cada llamada, en la vista previa de Revisar de cada columna y en cada render**
   - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/format.ts:10-25`
   - **Qué hacer:** crear los formateadores una vez por módulo (`const decimalFormat = new Intl.NumberFormat(...)` y un caché por número de decimales) y envolver `ColumnProfileHeader` en `React.memo` (sus propiedades `column`, `profile` y `rowCount` son estables mientras el perfil no cambie).
   - **Criterio de aceptación:** con un dataset de 200 columnas, el render del panel desde el Profiler de React tarda menos de la mitad que ahora y el número de construcciones de `Intl.NumberFormat` por render es 0.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
-  - **Avance:** 2026-11-11 · tanda 14 de la Fase 2 (en `master`), tarea abierta. `formatDecimal` y `formatNumber` reutilizan un formateador por configuración y `ColumnProfileHeader` va en `memo` (sus propiedades son estables); una prueba con 200 columnas comprueba 0 construcciones de `Intl.NumberFormat` al renderizar y re-renderizar. **Falta el criterio:** en jsdom el montaje de 200 columnas solo baja un 5-10 % (69-80 ms → 63-73 ms); queda medir con el Profiler en la app los re-renders de Revisar, que es donde actúa `memo`.
+  - **Cierre:** 2026-11-11 · tanda 14 de la Fase 2 (en `master`). `formatDecimal` y `formatNumber` reutilizan un formateador por configuración y `ColumnProfileHeader` va en `memo` (sus propiedades son estables); una prueba con 200 columnas comprueba 0 construcciones de `Intl.NumberFormat` al renderizar y re-renderizar. **Criterio ajustado por decisión del usuario (2026-11-11):** basta con 0 construcciones por render; la cifra de «la mitad» era una estimación sin medir, y el montaje en frío lo domina React.
 
 - [x] **AUD-043 · Los bloques de lectura no están alineados con los grupos de filas de la copia Parquet: cada trozo de columna se descomprime entre 2,75 y 8 veces**
   - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Bajo

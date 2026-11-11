@@ -1625,9 +1625,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 - Las páginas de conflictos leen las filas comparadas por tramos ordenados y en
   paralelo, en vez de una lectura por fila (hasta 45 veces menos con filas
-  cercanas; unas 3 con filas dispersas; AUD-038, sigue abierta). Revisar
+  cercanas; unas 3 con filas dispersas; AUD-038). Revisar
   reutiliza los formateadores de números y no vuelve a pintar la cabecera de una
-  columna cuyo perfil no cambió (AUD-042, sigue abierta).
+  columna cuyo perfil no cambió (AUD-042).
 - El comentario `SAFETY` de `NativeDuckDb` nombra la restricción de que solo
   un hilo a la vez ejecuta sentencias en la conexión (AUD-033).
 - El error de memoria de DuckDB se reconoce en un solo sitio, con una prueba que
