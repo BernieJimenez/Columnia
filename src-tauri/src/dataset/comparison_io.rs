@@ -33,7 +33,7 @@ where
 #[cfg(test)]
 pub(super) fn persist_comparison_snapshot(
     frame: &DataFrame,
-) -> Result<(tempfile::TempDir, PathBuf), String> {
+) -> Result<(HistoryDirectory, PathBuf), String> {
     persist_comparison_snapshot_with_cancel(frame, &|| false)
 }
 
@@ -42,7 +42,7 @@ pub(super) fn persist_comparison_snapshot(
 #[cfg(test)]
 pub(super) fn persist_comparison_source_file(
     path: &Path,
-) -> Result<(tempfile::TempDir, PathBuf), String> {
+) -> Result<(HistoryDirectory, PathBuf), String> {
     persist_comparison_source_file_with_cancel(path, &|| false)
 }
 
@@ -50,7 +50,7 @@ pub(super) fn persist_comparison_source_file(
 pub(super) fn persist_delimited_comparison_source_file(
     path: &Path,
     extension: &str,
-) -> Result<(tempfile::TempDir, PathBuf), String> {
+) -> Result<(HistoryDirectory, PathBuf), String> {
     persist_delimited_comparison_source_file_with_cancel(
         path,
         crate::duckdb_query::DuckDbFileFormat::Delimited {
@@ -63,7 +63,7 @@ pub(super) fn persist_delimited_comparison_source_file(
 #[cfg(test)]
 pub(super) fn persist_json_comparison_source_file(
     path: &Path,
-) -> Result<(tempfile::TempDir, PathBuf), String> {
+) -> Result<(HistoryDirectory, PathBuf), String> {
     persist_json_comparison_source_file_with_cancel(path, || false)
 }
 
@@ -71,14 +71,14 @@ pub(super) fn persist_json_comparison_source_file(
 pub(super) fn persist_spreadsheet_comparison_source_file(
     path: &Path,
     extension: &str,
-) -> Result<(tempfile::TempDir, PathBuf, usize), String> {
+) -> Result<(HistoryDirectory, PathBuf, usize), String> {
     persist_spreadsheet_comparison_source_file_with_cancel(path, extension, || false)
 }
 
 pub(super) fn persist_comparison_source_file_with_cancel<C>(
     path: &Path,
     is_cancelled: &C,
-) -> Result<(tempfile::TempDir, PathBuf), String>
+) -> Result<(HistoryDirectory, PathBuf), String>
 where
     C: Fn() -> bool + Sync,
 {
@@ -86,7 +86,7 @@ where
     let source_size = fs::metadata(path)
         .map_err(|error| format!("No se pudo inspeccionar la fuente comparada: {error}"))?
         .len();
-    let directory = tempfile::tempdir()
+    let directory = locked_directory(COMPARISON_DIRECTORY_PREFIX)
         .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
     let mut temporary = tempfile::NamedTempFile::new_in(directory.path())
         .map_err(|error| format!("No se pudo crear el snapshot comparado: {error}"))?;
@@ -131,12 +131,12 @@ pub(super) fn persist_delimited_comparison_source_file_with_cancel<C>(
     path: &Path,
     format: crate::duckdb_query::DuckDbFileFormat,
     is_cancelled: C,
-) -> Result<(tempfile::TempDir, PathBuf), String>
+) -> Result<(HistoryDirectory, PathBuf), String>
 where
     C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
     ensure_not_cancelled(is_cancelled())?;
-    let directory = tempfile::tempdir()
+    let directory = locked_directory(COMPARISON_DIRECTORY_PREFIX)
         .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
     let temporary = directory.path().join("compared.partial.parquet");
     crate::duckdb_query::materialize_file_to_parquet_with_cancel(
@@ -188,14 +188,14 @@ where
 pub(super) fn persist_json_comparison_source_file_with_cancel<C>(
     path: &Path,
     is_cancelled: C,
-) -> Result<(tempfile::TempDir, PathBuf), String>
+) -> Result<(HistoryDirectory, PathBuf), String>
 where
     C: Fn() -> bool + Clone + Send + Sync + 'static,
 {
     ensure_not_cancelled(is_cancelled())?;
     let column_names = json_record_column_names_with_cancel(path, is_cancelled.clone())?;
     ensure_not_cancelled(is_cancelled())?;
-    let directory = tempfile::tempdir()
+    let directory = locked_directory(COMPARISON_DIRECTORY_PREFIX)
         .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
     let temporary = directory.path().join("compared.partial.parquet");
     crate::duckdb_query::materialize_file_to_parquet_with_cancel(
@@ -217,7 +217,7 @@ pub(super) fn persist_spreadsheet_comparison_source_file_with_cancel<C>(
     path: &Path,
     extension: &str,
     is_cancelled: C,
-) -> Result<(tempfile::TempDir, PathBuf, usize), String>
+) -> Result<(HistoryDirectory, PathBuf, usize), String>
 where
     C: Fn() -> bool + Clone + Sync,
 {
@@ -230,7 +230,7 @@ where
     let sheet = sheets
         .first()
         .ok_or_else(|| "El libro no contiene hojas que se puedan comparar.".to_owned())?;
-    let directory = tempfile::tempdir()
+    let directory = locked_directory(COMPARISON_DIRECTORY_PREFIX)
         .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
     let temporary = directory.path().join("compared.partial.parquet");
     let row_count = if matches!(extension, "xlsx" | "xlsb") {
@@ -273,12 +273,12 @@ where
 pub(super) fn persist_comparison_snapshot_with_cancel<C>(
     frame: &DataFrame,
     is_cancelled: &C,
-) -> Result<(tempfile::TempDir, PathBuf), String>
+) -> Result<(HistoryDirectory, PathBuf), String>
 where
     C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
-    let directory = tempfile::tempdir()
+    let directory = locked_directory(COMPARISON_DIRECTORY_PREFIX)
         .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
     let mut temporary = tempfile::NamedTempFile::new_in(directory.path())
         .map_err(|error| format!("No se pudo crear el snapshot comparado: {error}"))?;
@@ -325,7 +325,7 @@ pub(super) fn persist_comparison_file_with_cancel<C>(
     path: &Path,
     extension: &str,
     is_cancelled: C,
-) -> Result<(tempfile::TempDir, PathBuf, usize), String>
+) -> Result<(HistoryDirectory, PathBuf, usize), String>
 where
     C: Fn() -> bool + Clone + Send + Sync + 'static,
 {

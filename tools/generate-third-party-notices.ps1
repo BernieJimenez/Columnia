@@ -100,16 +100,26 @@ $UniqueRows = @(
             if ($Licenses.Count -ne 1) {
                 throw "Se detectaron licencias contradictorias para el grupo $($_.Name)."
             }
-            [ordered]@{
+            [pscustomobject]@{
                 ecosystem = [string]$_.Group[0].ecosystem
                 name = [string]$_.Group[0].name
                 version = [string]$_.Group[0].version
                 license = $Licenses[0]
                 source = @($_.Group | ForEach-Object { [string]$_.source } | Sort-Object -Unique) -join "; "
             }
-        } |
-        Sort-Object ecosystem, name, version, source
+        }
 )
+# AUD-099: ordinal, culture-independent order (same in Windows PowerShell 5.1 and 7).
+$UniqueList = [System.Collections.Generic.List[object]]::new($UniqueRows)
+$UniqueList.Sort([Comparison[object]] {
+        param($A, $B)
+        foreach ($Key in "ecosystem", "name", "version", "source") {
+            $Result = [string]::CompareOrdinal([string]$A.$Key, [string]$B.$Key)
+            if ($Result -ne 0) { return $Result }
+        }
+        return 0
+    })
+$UniqueRows = @($UniqueList)
 if (@($UniqueRows | Where-Object { [string]$_.license -ieq "UNKNOWN" }).Count -gt 0) {
     throw "El inventario de terceros contiene licencias UNKNOWN; corrige los metadatos antes de distribuir."
 }

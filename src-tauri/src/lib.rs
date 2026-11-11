@@ -271,6 +271,8 @@ pub fn run() {
             let mut session = session_guard::SessionGuard::begin(&app_data_dir);
             app.manage(session_guard::UnsavedWork::default());
             dataset::remove_stale_converted_sources(&std::env::temp_dir());
+            // AUD-020: the last database import is a plain copy; nothing reads it now.
+            remote_databases::purge_database_imports(&app_data_dir);
             let projects = projects::ProjectState::initialize(app_data_dir.clone())
                 .map_err(std::io::Error::other)?;
             app.manage(projects);

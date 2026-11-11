@@ -316,7 +316,7 @@ Cada revisión reversible de la sesión se guarda como snapshot Parquet en un di
 - máximo normal: 12 entradas;
 - presupuesto total: 1 GiB;
 - se elimina al cerrar o reemplazar la sesión;
-- las carpetas usan el prefijo `columnia-history-` y un `en-uso.lock` abierto. Las copias de trabajo que viven en cachés `static`, como la copia del perfil y el índice de conflictos, usan lo mismo con `locked_directory` (`columnia-profile-` y `columnia-conflicts-`), porque un `TempDir` dentro de un `static` no se destruye al salir. `RunEvent::Exit` vacía esas cachés y `purge_finished_history_directories` borra al arrancar las carpetas cuyo bloqueo ya está libre. Una copia temporal nueva que pueda sobrevivir a la sesión debe usar `locked_directory` con su prefijo (AUD-010);
+- las carpetas usan el prefijo `columnia-history-` y un `en-uso.lock` abierto. Las copias de trabajo que viven en cachés `static`, como la copia del perfil y el índice de conflictos, usan lo mismo con `locked_directory` (`columnia-profile-` y `columnia-conflicts-`), porque un `TempDir` dentro de un `static` no se destruye al salir. `RunEvent::Exit` vacía esas cachés y `purge_finished_history_directories` borra al arrancar las carpetas cuyo bloqueo ya está libre. Una copia temporal nueva que pueda sobrevivir a la sesión debe usar `locked_directory` con su prefijo (AUD-010); las copias de comparación ya lo hacen (`columnia-comparison-`, AUD-102), y abrir un proyecto descarta, como cargar un archivo, la comparación, el índice de conflictos y la copia del perfil del dataset anterior (esta, por origen, para no vaciar la caché que comparten las pruebas). `database-imports/` en app-data se vacía al arrancar (`purge_database_imports`, AUD-020): la ruta del dataset solo vive en memoria. Cancelar una importación de base de datos vuelve sin esperar al controlador (`run_blocking_unless_cancelled`), y el escritor comprueba la cancelación antes de `persist` para que el hilo tardío no escriba ni borre (AUD-103);
 - si un snapshot individual excede el presupuesto, el cambio puede aplicarse, pero la reversión se desactiva y se informa el motivo;
 - una receta completa publica un solo candidato o no publica nada;
 - `publish_candidate` prepara la vista previa y registra el historial antes de sustituir el `DataFrame` activo;
@@ -447,7 +447,9 @@ reportar salvo que el código cambie):
   persona.
 - La protección de datos personales (`mask` o `hash`) se aplica antes de
   escribir el script T-SQL y el paquete BULK INSERT, tanto con el dataset en
-  disco como en memoria.
+  disco como en memoria. Por eso la actualización por clave rechaza, antes del
+  selector, una clave que `privacy_signal` protege (`id` o `codigo` incluidas):
+  llegaría con otros valores y no encontraría sus filas (AUD-021).
 
 ## Desarrollo y validación
 
@@ -583,7 +585,7 @@ Los gates estáticos verifican que la CSP de producción permanezca local, que d
 
 Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del registro oficial, crates sin checksum o fuera de crates.io, fuentes Git e identidades contradictorias. Release genera el SBOM sin red, timestamps, UUID, rutas locales ni URLs de descarga.
 
-Al subir dependencias: `vitest` y `@vitest/coverage-v8` comparten versión exacta (una es dependencia par de la otra), así que `npm update` sin nombres no las sube y hay que nombrar las dos; `THIRD_PARTY_NOTICES.md` se regenera con `tools/generate-third-party-notices.ps1` y `notices:check` exige su texto exacto; y `docs:check` compara el recuento de dependencias del lockfile que cita `AUDITORIA.md` (fila de `npm audit`), que hay que actualizar a mano si el lockfile gana o pierde paquetes. `docs:check` compara también la ficha de versiones de Cargo de `AUDITORIA.md` con `Cargo.toml` (AUD-114 tuvo que cambiar la de `rusqlite`). Mientras siga abierta AUD-099, `notices:check` compara el orden, que cambia de una ejecución a otra: un arreglo a mano de las filas no pasa, y hay que dejar el archivo regenerado aunque reordene todo (comprobar con `sort` que solo cambian las filas esperadas).
+Al subir dependencias: `vitest` y `@vitest/coverage-v8` comparten versión exacta (una es dependencia par de la otra), así que `npm update` sin nombres no las sube y hay que nombrar las dos; `THIRD_PARTY_NOTICES.md` se regenera con `tools/generate-third-party-notices.ps1` y `notices:check` exige su texto exacto; y `docs:check` compara el recuento de dependencias del lockfile que cita `AUDITORIA.md` (fila de `npm audit`), que hay que actualizar a mano si el lockfile gana o pierde paquetes. `docs:check` compara también la ficha de versiones de Cargo de `AUDITORIA.md` con `Cargo.toml` (AUD-114 tuvo que cambiar la de `rusqlite`). Desde AUD-099 (2026-11-11) el generador ordena las filas con `[string]::CompareOrdinal` (ecosistema, nombre, versión y fuente, las versiones como texto), igual en Windows PowerShell 5.1 y en 7, y `src/supply-chain.test.ts` exige ese orden: subir un paquete solo cambia sus filas. `Sort-Object` sobre `[ordered]@{}` no ordenaba por clave.
 
 Los umbrales de cobertura de Rust por módulo están versionados en `fixtures/coverage/rust-coverage-thresholds.json` (`.gitignore` solo ignora `/coverage/` en la raíz, que es donde escribe Vitest); un módulo nuevo sin umbral hace fallar el paso de cobertura de Full.
 

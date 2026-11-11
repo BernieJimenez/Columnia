@@ -89,11 +89,15 @@ const HISTORY_DIRECTORY_PREFIX: &str = "columnia-history-";
 /// own prefix and the same lock, so the next start purges what is left.
 pub(super) const PROFILE_DIRECTORY_PREFIX: &str = "columnia-profile-";
 pub(super) const CONFLICTS_DIRECTORY_PREFIX: &str = "columnia-conflicts-";
+/// AUD-102: the copy of the compared source (and the active one when the
+/// comparison reads from disk) lives as long as the comparison is open.
+pub(super) const COMPARISON_DIRECTORY_PREFIX: &str = "columnia-comparison-";
 /// Every prefix `purge_finished_history_directories` looks after.
-const LOCKED_DIRECTORY_PREFIXES: [&str; 3] = [
+const LOCKED_DIRECTORY_PREFIXES: [&str; 4] = [
     HISTORY_DIRECTORY_PREFIX,
     PROFILE_DIRECTORY_PREFIX,
     CONFLICTS_DIRECTORY_PREFIX,
+    COMPARISON_DIRECTORY_PREFIX,
 ];
 /// Held open while a session uses its folder; a folder whose lock can be
 /// deleted belongs to a session that is over.
@@ -105,9 +109,16 @@ const HISTORY_LOCK_FILE: &str = "en-uso.lock";
 /// releases its lock first and is then deleted. As a `(lock, directory)` pair
 /// bound to two locals, the folder dropped first while the lock still kept
 /// it, and it stayed in %TEMP% with the snapshots already copied into it.
+#[derive(Debug)]
 pub(super) struct HistoryDirectory {
     pub(super) lock: std::fs::File,
     pub(super) directory: tempfile::TempDir,
+}
+
+impl HistoryDirectory {
+    pub(super) fn path(&self) -> &std::path::Path {
+        self.directory.path()
+    }
 }
 
 pub(super) fn history_directory() -> Result<HistoryDirectory, String> {

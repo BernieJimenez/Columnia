@@ -71,7 +71,8 @@ use history::{
     HistoryEntry, HistoryManager, PreparedHistorySnapshot,
 };
 use history::{
-    locked_directory, HistoryDirectory, CONFLICTS_DIRECTORY_PREFIX, PROFILE_DIRECTORY_PREFIX,
+    locked_directory, HistoryDirectory, COMPARISON_DIRECTORY_PREFIX, CONFLICTS_DIRECTORY_PREFIX,
+    PROFILE_DIRECTORY_PREFIX,
 };
 #[cfg(test)]
 use history::{redo_dataset, undo_dataset};
@@ -1917,7 +1918,7 @@ struct PendingComparison {
     file_name: String,
     file_size_bytes: u64,
     row_count: usize,
-    _directory: tempfile::TempDir,
+    _directory: HistoryDirectory,
     snapshot_path: PathBuf,
     key_columns: Vec<String>,
     /// PROD-21: paging, resolving and consolidating match as the comparison did.
@@ -1925,7 +1926,7 @@ struct PendingComparison {
 }
 
 struct ReviewComparisonSnapshot {
-    _directory: tempfile::TempDir,
+    _directory: HistoryDirectory,
     path: PathBuf,
     identity_path: PathBuf,
     file_name: String,
@@ -2043,7 +2044,7 @@ fn snapshot_pending_comparison_for_review(
     // A private copy lets the review operation release the comparison lock
     // while DuckDB reads it. If another comparison replaces it, publication
     // checks the original path and rejects the stale candidate.
-    let directory = tempfile::tempdir()
+    let directory = locked_directory(COMPARISON_DIRECTORY_PREFIX)
         .map_err(|error| format!("No se pudo preparar el snapshot de Review: {error}"))?;
     let mut input = File::open(&pending.snapshot_path)
         .map_err(|error| format!("No se pudo leer el snapshot comparado: {error}"))?;
@@ -10121,6 +10122,7 @@ async fn export_active_dataset(
         ExportFormat::SqlServerScript | ExportFormat::SqlServerBulk
     ) {
         TsqlTarget::resolve(sql_server.as_ref(), "dataset")?;
+        export_io::ensure_keys_are_not_protected(sql_server.as_ref(), privacy_mode)?;
     }
     if let Some(recipe) = recipe.as_ref() {
         validate_stored_recipe(recipe)?;
@@ -12907,7 +12909,8 @@ impl DatasetState {
 
         let ProjectDatasetCandidate { loaded, preview } = candidate;
         let catalog_result = commit_catalog()?;
-        *current = Some(loaded);
+        let previous = current.replace(loaded);
+        self.release_replaced_dataset_state(previous);
         drop(current);
 
         // Catalog and active dataset have committed. Clearing a poisoned pending
@@ -13289,12 +13292,27 @@ impl DatasetState {
         })
     }
 
+    /// AUD-102: opening a project replaces the dataset like loading a file
+    /// does, so what hung from the old one goes too: the open comparison, the
+    /// conflict index and the working copy of the old file's profile. The
+    /// copy is dropped by its source: the cache is shared by the whole process.
+    fn release_replaced_dataset_state(&self, previous: Option<LoadedDataset>) {
+        *self.comparison.lock_recovering() = None;
+        clear_conflict_index();
+        if let Some(source) = previous.and_then(|dataset| dataset.source_path) {
+            clear_profile_snapshot_of(&source);
+        }
+    }
+
     pub(crate) fn activate_project_candidate(
         &self,
         candidate: ProjectDatasetCandidate,
     ) -> Result<DatasetPreview, String> {
         let ProjectDatasetCandidate { loaded, preview } = candidate;
-        *self.current.lock_recovering() = Some(loaded);
+        let mut current = self.current.lock_recovering();
+        let previous = current.replace(loaded);
+        self.release_replaced_dataset_state(previous);
+        drop(current);
         self.pending_selection.lock_recovering().take();
         self.profile_generation.fetch_add(1, Ordering::SeqCst);
         self.export_generation.fetch_add(1, Ordering::SeqCst);

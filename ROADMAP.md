@@ -34,7 +34,8 @@ mismo día se cerró la tanda 7 (AUD-112, 056 y 057). El 2026-11-10 se cerró la
 tanda 8 (AUD-077, 074, 075, 076 y 073) y se abrió AUD-113, aparecida al
 aplicarla. Ese mismo día se cerró la tanda 9 (AUD-009, 100, 008, 015 y 007) y
 se abrieron AUD-114 y AUD-115, aparecidas al aplicarla. El 2026-11-11 se
-cerró la tanda 10 (AUD-115, 016, 017, 018, 019 y 114).
+cerró la tanda 10 (AUD-115, 016, 017, 018, 019 y 114). Ese mismo día se cerró
+la tanda 11 (AUD-020, 103, 021, 102 y 099).
 
 <!-- indice:inicio -->
 **Última actualización:** 2026-11-11 · **Siguiente ID libre:** AUD-116 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
@@ -44,11 +45,11 @@ cerró la tanda 10 (AUD-115, 016, 017, 018, 019 y 114).
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 68 | 11 | 65 · 3 · 0 |
+| 3 · Bajo | 63 | 16 | 60 · 3 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **69** | **46** | **66 · 3 · 0** |
+| **Total** | **64** | **51** | **61 · 3 · 0** |
 
-**Abiertas por área:** UI/UX 17 · Código 10 · Rendimiento 9 · Documentación 9 · QA y testing 8 · Accesibilidad 7 · Redacción 5 · Arquitectura 4
+**Abiertas por área:** UI/UX 17 · Código 10 · Rendimiento 9 · Documentación 9 · Accesibilidad 7 · QA y testing 7 · Redacción 5
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -579,37 +580,41 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-11 · tanda 10 de la Fase 2 (en `master`). El fallo de DuckDB queda en el diagnóstico (`source_backed_fallback("preparar a disco", …)`); si es de espacio o de memoria llega a la interfaz («No hay espacio en disco suficiente para preparar este archivo…» o «No hay memoria suficiente…») y el resto sigue con la ruta en memoria. Antes de escribir se comprueba el espacio libre contra el origen × 3. Prueba de la clasificación y del umbral. No comprobado con el disco lleno de verdad: el texto exacto de DuckDB en Windows y el recorrido hasta la interfaz.
 
-- [ ] **AUD-020 · La última importación de base de datos queda en claro en `%APPDATA%` sin purga, y el temporal de escritura se pierde si el proceso muere**
+- [x] **AUD-020 · La última importación de base de datos queda en claro en `%APPDATA%` sin purga, y el temporal de escritura se pierde si el proceso muere**
   - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:2465-2511`
   - **Qué hacer:** borrar el contenido de `database-imports/` al arrancar (la carga ya hizo su copia al historial) o al descargar el dataset, y crear el temporal con sufijo `.parquet.partial` para que la limpieza lo incluya.
   - **Criterio de aceptación:** tras cerrar y abrir, `database-imports/` está vacía y no hay `.tmp*`.
   - **Depende de:** AUD-011 (mismo `write_import_parquet`)
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 11 de la Fase 2 (en `master`). Al arrancar se vacía `database-imports/` (`purge_database_imports`, junto a la purga de copias UTF-8; la instancia única garantiza que nadie la usa, y la ruta del dataset no se guarda en proyectos ni tareas). El temporal de escritura lleva el sufijo `.parquet.partial`, así que la purga lo incluye si el proceso muere. Prueba de la purga con un temporal abandonado. No comprobado cerrando y abriendo la app real.
 
-- [ ] **AUD-021 · La actualización por clave acepta como clave una columna que la privacidad enmascara o seudonimiza**
+- [x] **AUD-021 · La actualización por clave acepta como clave una columna que la privacidad enmascara o seudonimiza**
   - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset.rs:10197`
   - **Qué hacer:** al exportar, si alguna clave está entre las columnas protegidas (`protected_columns`), devolver un error o avisar antes de abrir el selector.
   - **Criterio de aceptación:** exportar con `mask` o `hash` y una clave personal muestra el error con el nombre de la columna.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 11 de la Fase 2 (en `master`). Con Enmascarar o Seudonimizar, el script T-SQL y el paquete BULK INSERT con actualización por clave se rechazan antes del diálogo de guardado si una clave es una columna que la privacidad protege («La columna clave «email» está protegida por la privacidad…»). Usa el mismo criterio por nombre que la exportación (`privacy_signal`), que también incluye `id` o `codigo`: esas claves ya llegaban cambiadas al destino. Prueba con `mask`, `hash` y sin privacidad. No comprobado en la app.
 
-- [ ] **AUD-102 · Abrir un proyecto no vacía las copias de trabajo, y las copias de comparación siguen en carpetas `.tmp*` que la purga no ve**
+- [x] **AUD-102 · Abrir un proyecto no vacía las copias de trabajo, y las copias de comparación siguen en carpetas `.tmp*` que la purga no ve**
   - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset.rs:12813`
   - **Qué hacer:** que `commit_project_open_with_candidate` y `activate_project_candidate` (`dataset.rs:13207`) vacíen el índice de conflictos y la copia del perfil, como `import_loading.rs:311`, y comprobar si dejan la comparación pendiente (allí `comparison = None`). Que las copias de comparación (`comparison_io.rs`, funciones `persist_*`, y `dataset.rs:2059`) usen `locked_directory` con su prefijo. Cuidado: las pruebas llaman a esas funciones en paralelo, y vaciar la caché global sin más vuelve inestables las que comprueban aciertos de caché.
   - **Criterio de aceptación:** tras abrir un proyecto no queda la copia del perfil del dataset anterior; matar el proceso con una comparación abierta y volver a arrancar no deja `compared.parquet` en `%TEMP%`.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-010
+  - **Cierre:** 2026-11-11 · tanda 11 de la Fase 2 (en `master`). Abrir un proyecto descarta la comparación abierta, el índice de conflictos y la copia del perfil del dataset anterior (`release_replaced_dataset_state`, por origen para no tocar la caché compartida de las pruebas). Las copias de comparación van a carpetas `columnia-comparison-*` con `locked_directory`, que la purga de arranque borra si el proceso murió y salta mientras siguen en uso. Tres pruebas nuevas. No comprobado matando el proceso con una comparación abierta.
 
-- [ ] **AUD-103 · Cancelar una importación desde base de datos espera al controlador, y no puede volver antes sin riesgo**
+- [x] **AUD-103 · Cancelar una importación desde base de datos espera al controlador, y no puede volver antes sin riesgo**
   - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:2711`
   - **Qué hacer:** comprobar la cancelación justo antes de `persist` en `ImportParquetWriter::finish` (era `write_import_parquet` antes de AUD-012), para que un hilo cancelado no escriba ni borre nada, y después usar `run_blocking_unless_cancelled` (AUD-013) también en `import_database_table`.
   - **Criterio de aceptación:** con un servidor que no responde, Cancelar una importación devuelve la interfaz a su estado en menos de 2 s, y el hilo que vuelve después no deja ningún Parquet nuevo ni borra los anteriores (prueba con un trabajo simulado).
   - **Depende de:** AUD-012 (cambia el mismo camino de escritura)
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-013
+  - **Cierre:** 2026-11-11 · tanda 11 de la Fase 2 (en `master`). `import_database_table` usa `run_blocking_unless_cancelled`: Cancelar vuelve enseguida aunque el controlador siga bloqueado. El escritor comprueba la cancelación justo antes de `persist`, así que el hilo que vuelve tarde no deja Parquet ni borra los anteriores, y el dataset activo no cambia. Prueba con un trabajo bloqueado (vuelve en menos de 2 s; falla sin el arreglo). No comprobado con un servidor real que no responde.
 
 ### Código
 
@@ -1005,13 +1010,14 @@ Sin tareas abiertas.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
 
-- [ ] **AUD-099 · El generador de `THIRD_PARTY_NOTICES.md` no ordena: cada cambio de un lockfile reordena el archivo entero**
+- [x] **AUD-099 · El generador de `THIRD_PARTY_NOTICES.md` no ordena: cada cambio de un lockfile reordena el archivo entero**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `tools/generate-third-party-notices.ps1:111`
   - **Qué hacer:** construir las filas como `[pscustomobject]@{…}` en lugar de `[ordered]@{…}`: con diccionarios, `Sort-Object ecosystem, name, version, source` no ordena por clave (comprobado en Windows PowerShell 5.1 y en PowerShell 7), así que el orden depende de la agrupación. Regenerar el archivo una vez y añadir una prueba que compruebe que la tabla sale ordenada.
   - **Criterio de aceptación:** regenerar dos veces seguidas no cambia nada, y tras subir un solo paquete solo cambian sus filas; la tabla queda ordenada por ecosistema, nombre y versión. (Al subir `calamine` en AUD-004, 7 filas de contenido dieron unas 590 líneas de diff.)
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-004
+  - **Cierre:** 2026-11-11 · tanda 11 de la Fase 2 (en `master`). Filas como `[pscustomobject]` y orden ordinal (`[string]::CompareOrdinal` por ecosistema, nombre, versión y fuente), igual en Windows PowerShell 5.1 y en PowerShell 7 (salidas idénticas byte a byte; dos regeneraciones sin cambios). `THIRD_PARTY_NOTICES.md` regenerado una vez: mismo conjunto de filas, solo cambia el orden. Prueba nueva en `src/supply-chain.test.ts` (tabla ordenada y sin duplicados; falla con el archivo anterior). Las versiones se ordenan como texto.
 
 - [ ] **AUD-113 · Las estructuras de conexión y entrega a bases de datos siguen fuera de las pruebas de paridad del IPC**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo

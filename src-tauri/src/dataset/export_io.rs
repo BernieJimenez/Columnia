@@ -2539,6 +2539,31 @@ pub(super) fn sqlserver_target_for(
     )
 }
 
+/// AUD-021: with mask or hash, a key column that the privacy treats as
+/// personal reaches the target with other values, so the update by key would
+/// not match its rows. It is checked before any dialog opens.
+pub(super) fn ensure_keys_are_not_protected(
+    options: Option<&SqlServerScriptOptions>,
+    privacy_mode: PrivacyMode,
+) -> Result<(), String> {
+    let Some(options) = options else {
+        return Ok(());
+    };
+    if privacy_mode == PrivacyMode::None {
+        return Ok(());
+    }
+    if let Some(key) = options
+        .key_columns()
+        .iter()
+        .find(|key| privacy_signal(key).is_some())
+    {
+        return Err(format!(
+            "La columna clave «{key}» está protegida por la privacidad (enmascarar o seudonimizar): sus valores no coincidirían con el destino. Quita la protección o elige otra clave."
+        ));
+    }
+    Ok(())
+}
+
 /// The longest text of a column in UTF-8 bytes; None when it has no text.
 fn longest_text_bytes(column: &Column) -> Option<usize> {
     column

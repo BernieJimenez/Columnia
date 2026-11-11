@@ -121,6 +121,23 @@ describe("offline supply-chain lockfile integrity", () => {
     expect(networkPolicy).toMatch(/no\s+inicia conexiones de red/);
   });
 
+  it("mantiene la tabla de avisos ordenada (ordinal) y sin filas duplicadas", () => {
+    const rows = readProjectFile("THIRD_PARTY_NOTICES.md")
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("| ") && !line.startsWith("| Ecosistema") && !line.startsWith("| ---"))
+      .map((line) => line.slice(2, -2).split(" | "));
+    // Same rule as tools/generate-third-party-notices.ps1: ordinal by ecosystem, name, version, source.
+    const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+    const order = (a: string[], b: string[]) =>
+      compare(a[0], b[0]) || compare(a[1], b[1]) || compare(a[2], b[2]) || compare(a[4], b[4]);
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.length === 5)).toBe(true);
+    expect([...rows].sort(order)).toEqual(rows);
+    const identities = rows.map((row) => `${row[0]}|${row[1]}|${row[2]}`);
+    expect(new Set(identities).size).toBe(identities.length);
+  });
+
   it("pins every npm dependency to the HTTPS npm registry with a strong integrity digest", () => {
     const lockfile = JSON.parse(readProjectFile("package-lock.json")) as NpmLockfile;
     const violations: string[] = [];

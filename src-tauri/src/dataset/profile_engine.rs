@@ -2472,7 +2472,7 @@ where
 /// replace in the cache meanwhile).
 #[allow(dead_code)] // The variants only hold their folder; nobody reads them.
 pub(super) enum WorkingCopyHold {
-    Temporary(tempfile::TempDir),
+    Temporary(HistoryDirectory),
     Locked(HistoryDirectory),
     ProfileCopy(CachedProfileSnapshot),
 }
@@ -2618,7 +2618,6 @@ pub(super) fn clear_profile_snapshot() {
 
 /// Like `clear_profile_snapshot` for one source: tests share the cache and
 /// run in parallel, so they cannot empty all of it.
-#[cfg(test)]
 pub(super) fn clear_profile_snapshot_of(source: &Path) {
     use crate::crash_report::LockRecovering;
     PROFILE_SNAPSHOT

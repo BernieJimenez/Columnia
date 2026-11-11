@@ -13074,6 +13074,24 @@ fn imputes_repeated_text_and_lower_median_numeric_nuls_only() {
 }
 
 #[test]
+fn update_by_key_refuses_a_key_the_privacy_protects() {
+    // AUD-021: a masked or hashed key would never match the target rows.
+    let resolve = |key: &str| -> SqlServerScriptOptions {
+        serde_json::from_str(&format!(
+            r#"{{"schema":"ventas","table":"t","mode":"upsert","keyColumns":["{key}"],"textSize":"max"}}"#
+        ))
+        .unwrap()
+    };
+    let personal = resolve("email");
+    for mode in [PrivacyMode::Mask, PrivacyMode::Hash] {
+        let error = export_io::ensure_keys_are_not_protected(Some(&personal), mode).unwrap_err();
+        assert!(error.contains("«email»"), "{error}");
+    }
+    export_io::ensure_keys_are_not_protected(Some(&personal), PrivacyMode::None).unwrap();
+    export_io::ensure_keys_are_not_protected(Some(&resolve("sku")), PrivacyMode::Mask).unwrap();
+}
+
+#[test]
 fn privacy_signal_matches_words_not_fragments() {
     // LIM-10: short words count only as whole words of the column name.
     use super::profile_engine::privacy_signal;
@@ -24840,4 +24858,102 @@ fn source_backed_write_failures_for_resources_reach_the_user() {
 
 fn disk_message_for_test() -> String {
     NO_DISK_SPACE_MESSAGE.to_owned()
+}
+
+/// AUD-102: a state whose active dataset reads `source` (with a profile copy
+/// of it in the shared cache) and has a comparison open, plus a candidate for
+/// the dataset that will replace it. The cache is shared by parallel tests, so
+/// every check is by this source's path.
+fn state_with_profile_copy_and_comparison(
+    source: &Path,
+) -> (DatasetState, ProjectDatasetCandidate, Vec<HistoryDirectory>) {
+    fn candidate(name: &str) -> (ProjectDatasetCandidate, HistoryDirectory) {
+        let frame = DataFrame::new(1, vec![Series::new("id".into(), [1_i64]).into_column()])
+            .expect("dataset de prueba");
+        let (directory, snapshot) = persist_comparison_snapshot(&frame).expect("snapshot");
+        let candidate = DatasetState::prepare_project_candidate(snapshot, name.to_owned())
+            .expect("candidato de prueba");
+        (candidate, directory)
+    }
+    let (mut previous, previous_directory) = candidate("anterior.parquet");
+    previous.loaded.source_path = Some(source.to_owned());
+    let state = DatasetState::default();
+    state
+        .activate_project_candidate(previous)
+        .expect("dataset anterior");
+
+    let format = crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' };
+    let directory = locked_directory(PROFILE_DIRECTORY_PREFIX).expect("carpeta de la copia");
+    let copy = directory.path().join("compared.parquet");
+    fs::write(&copy, b"datos").unwrap();
+    remember_profile_snapshot(
+        source,
+        format,
+        fs::metadata(source).unwrap().len(),
+        fs::metadata(source).and_then(|m| m.modified()).ok(),
+        directory,
+        copy,
+    );
+    assert!(cached_profile_snapshot(source, format).is_some());
+
+    let compared = locked_directory(COMPARISON_DIRECTORY_PREFIX).expect("carpeta comparada");
+    let snapshot_path = compared.path().join("compared.parquet");
+    *state.comparison.lock_recovering() = Some(PendingComparison {
+        file_name: "otro.csv".to_owned(),
+        file_size_bytes: 0,
+        row_count: 0,
+        _directory: compared,
+        snapshot_path,
+        key_columns: Vec::new(),
+        options: ComparisonOptions::default(),
+    });
+    let (next, next_directory) = candidate("nuevo.parquet");
+    (state, next, vec![previous_directory, next_directory])
+}
+
+fn assert_previous_dataset_state_is_gone(state: &DatasetState, source: &Path) {
+    let format = crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' };
+    assert!(
+        cached_profile_snapshot(source, format).is_none(),
+        "la copia del perfil del dataset anterior sigue en caché"
+    );
+    assert!(
+        state.comparison.lock_recovering().is_none(),
+        "la comparación del dataset anterior sigue abierta"
+    );
+}
+
+#[test]
+fn activating_a_project_candidate_drops_the_previous_profile_copy_and_comparison() {
+    let source = temporary_csv("id\n1\n");
+    let (state, next, _folders) = state_with_profile_copy_and_comparison(&source);
+    state.activate_project_candidate(next).expect("abrir");
+    assert_previous_dataset_state_is_gone(&state, &source);
+}
+
+#[test]
+fn committing_a_project_open_drops_the_previous_profile_copy_and_comparison() {
+    let source = temporary_csv("id\n1\n");
+    let (state, next, _folders) = state_with_profile_copy_and_comparison(&source);
+    state
+        .commit_project_open_with_candidate(state.begin_project_open().unwrap(), next, || Ok(()))
+        .expect("abrir");
+    assert_previous_dataset_state_is_gone(&state, &source);
+}
+
+/// AUD-102: the copies a comparison makes live in folders the start-up purge
+/// recognises (and skips while the comparison is open), not anonymous `.tmp*`.
+#[test]
+fn comparison_copies_use_the_purged_folder_prefix() {
+    let frame = DataFrame::new(1, vec![Series::new("id".into(), [1_i64]).into_column()])
+        .expect("dataset de prueba");
+    let (directory, path) = persist_comparison_snapshot(&frame).expect("copia comparada");
+    let folder = path.parent().expect("carpeta").to_owned();
+    let name = folder.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.starts_with(COMPARISON_DIRECTORY_PREFIX), "{name}");
+    assert!(folder.join("en-uso.lock").exists());
+    purge_finished_history_directories();
+    assert!(path.is_file(), "la purga borró una copia en uso");
+    drop(directory);
+    assert!(!folder.exists());
 }

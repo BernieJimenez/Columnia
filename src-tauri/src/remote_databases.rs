@@ -2273,6 +2273,25 @@ const MAX_LISTED_TABLES: usize = 5_000;
 /// that never stops listing objects ends with an error instead of filling memory.
 const MAX_CATALOG_ROWS: usize = 100_000;
 const DATABASE_IMPORT_DIRECTORY: &str = "database-imports";
+const IMPORT_TEMPORARY_SUFFIX: &str = ".parquet.partial";
+
+/// Empties the imports folder of earlier sessions (AUD-020). The dataset that
+/// was loaded from there lives only in memory (`source_path` is not persisted
+/// in projects or sessions), so at startup nothing reads these files; they
+/// would stay as plain copies of the person's data, plus any temporary left by
+/// a killed write. Safe at startup: the single-instance plugin guarantees no
+/// other Columnia process uses them. Links and folders are left alone.
+/// Returns how many files were removed.
+pub(crate) fn purge_database_imports(app_data_dir: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(app_data_dir.join(DATABASE_IMPORT_DIRECTORY)) else {
+        return 0;
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .filter(|entry| std::fs::remove_file(entry.path()).is_ok())
+        .count()
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -2922,7 +2941,11 @@ impl PendingImport {
             let stem = file_name.trim_end_matches(".parquet");
             destination = directory.join(format!("{stem} (nueva).parquet"));
         }
-        let temporary = tempfile::NamedTempFile::new_in(directory)
+        // The `.partial` suffix marks a write in progress; if the process dies the
+        // startup purge (`purge_database_imports`) removes it with the rest.
+        let temporary = tempfile::Builder::new()
+            .suffix(IMPORT_TEMPORARY_SUFFIX)
+            .tempfile_in(directory)
             .map_err(|_| "No se pudo crear el archivo de la importación.".to_owned())?;
         Ok(Self {
             directory: directory.to_path_buf(),
@@ -3022,7 +3045,15 @@ impl ImportParquetWriter {
 
     /// Closes the file, puts it in place atomically and only then removes
     /// earlier imports, except the file the active dataset still reads.
-    fn finish(mut self) -> Result<std::path::PathBuf, String> {
+    ///
+    /// AUD-103: a thread whose import was cancelled may come back long after
+    /// the interface moved on. The cancellation is checked right before the
+    /// file is put in place, so such a thread writes nothing and removes
+    /// nothing: its temporary is dropped (deleted) with it.
+    fn finish<C>(mut self, is_cancelled: &C) -> Result<std::path::PathBuf, String>
+    where
+        C: Fn() -> bool,
+    {
         self.flush()?;
         let Self {
             writer, pending, ..
@@ -3041,6 +3072,9 @@ impl ImportParquetWriter {
             .as_file()
             .sync_all()
             .map_err(|_| "No se pudo guardar la tabla importada.".to_owned())?;
+        // Last point of no return: persisting and the cleanup below both stay
+        // behind this check.
+        ensure_not_cancelled(is_cancelled)?;
         temporary
             .persist(&destination)
             .map_err(|_| "No se pudo guardar la tabla importada.".to_owned())?;
@@ -3120,7 +3154,7 @@ where
 
     ensure_not_cancelled(&is_cancelled)?;
     report("Guardando la tabla en este equipo", 85);
-    let path = read.writer.finish()?;
+    let path = read.writer.finish(&is_cancelled)?;
     Ok(FetchedTable {
         path,
         rows: read.rows,
@@ -3335,24 +3369,38 @@ pub async fn import_database_table(
     let keep = app.state::<DatasetState>().active_source_path();
     let generation = app.state::<DatasetState>().begin_database_connection();
     let cancellation_app = app.clone();
-    let fetched = tauri::async_runtime::spawn_blocking(move || {
-        import_table_with_cancel(
-            &source,
-            &schema,
-            &table,
-            row_limit,
-            &directory,
-            keep.as_deref(),
-            |stage, percent| crate::dataset::send_progress(&on_progress, "load", stage, percent),
-            || {
-                cancellation_app
-                    .state::<DatasetState>()
-                    .database_connection_was_cancelled(generation)
-            },
-        )
-    })
-    .await
-    .map_err(|_| "La importación se interrumpió inesperadamente.".to_owned())??;
+    let watcher_app = app.clone();
+    // AUD-103: Cancelar returns at once even if the driver call is blocked; the
+    // thread that returns later is discarded and (see `finish`) writes nothing.
+    // The dataset is only opened below, after this result, so it never changes
+    // for a cancelled import.
+    let fetched = run_blocking_unless_cancelled(
+        move || {
+            import_table_with_cancel(
+                &source,
+                &schema,
+                &table,
+                row_limit,
+                &directory,
+                keep.as_deref(),
+                |stage, percent| {
+                    crate::dataset::send_progress(&on_progress, "load", stage, percent)
+                },
+                || {
+                    cancellation_app
+                        .state::<DatasetState>()
+                        .database_connection_was_cancelled(generation)
+                },
+            )
+        },
+        move || {
+            watcher_app
+                .state::<DatasetState>()
+                .database_connection_was_cancelled(generation)
+        },
+        "La importación se interrumpió inesperadamente.",
+    )
+    .await?;
     let inspection = crate::dataset::inspect_dataset_path(&app, fetched.path).await?;
     Ok(DatabaseImportResult {
         inspection,
@@ -6072,7 +6120,7 @@ mod tests {
             .collect::<Vec<_>>();
         let mut writer = PendingImport::prepare(directory, file_name, keep)?.start(&names)?;
         writer.write_rows(columns)?;
-        writer.finish()
+        writer.finish(&|| false)
     }
 
     /// Rows and row groups of a Parquet file, read from its footer only.
@@ -6235,7 +6283,7 @@ mod tests {
             .expect("un lote vacío no escribe nada");
         writer.write_rows(text_batch(4, 1)).expect("lote 2");
         writer.write_rows(text_batch(5, 6)).expect("lote 3");
-        let path = writer.finish().expect("se guarda");
+        let path = writer.finish(&|| false).expect("se guarda");
         assert_eq!(
             parquet_footer(&path),
             (11, 1),
@@ -6272,7 +6320,7 @@ mod tests {
                 .write_rows(text_batch(batch * 10_000, 10_000))
                 .expect("lote");
         }
-        let path = writer.finish().expect("se guarda");
+        let path = writer.finish(&|| false).expect("se guarda");
         let groups = parquet_group_rows(&path);
         assert_eq!(groups.iter().sum::<usize>(), 200_000);
         assert!(groups.iter().all(|rows| *rows <= 65_536), "{groups:?}");
@@ -6299,7 +6347,7 @@ mod tests {
                 .write_rows(wide_text_batch(batch * 10_000, 10_000, 60))
                 .expect("lote");
         }
-        let path = writer.finish().expect("se guarda");
+        let path = writer.finish(&|| false).expect("se guarda");
         let groups = parquet_group_rows(&path);
         assert_eq!(groups.iter().sum::<usize>(), 100_000);
         assert!(groups.iter().all(|rows| *rows <= 65_536), "{groups:?}");
@@ -6343,7 +6391,7 @@ mod tests {
                 .collect();
             writer.write_rows(vec![long]).expect("lote");
         }
-        let path = writer.finish().expect("se guarda");
+        let path = writer.finish(&|| false).expect("se guarda");
         let groups = parquet_group_rows(&path);
         assert_eq!(groups.iter().sum::<usize>(), 8_000);
         assert!(groups.iter().all(|rows| *rows <= 1_700), "{groups:?}");
@@ -6368,7 +6416,7 @@ mod tests {
                 .write_rows(wide_text_batch(batch * 10_000, 10_000, 60))
                 .expect("lote");
         }
-        let path = writer.finish().expect("se guarda");
+        let path = writer.finish(&|| false).expect("se guarda");
         let script = directory.path().join("ancha.sql");
         let target = crate::tsql_script::TsqlTarget::resolve(None, "ancha").expect("destino");
         crate::duckdb_query::export_file_to_tsql_with_cancel(
@@ -6393,7 +6441,7 @@ mod tests {
             .expect("destino")
             .start(&names)
             .expect("escritor");
-        let path = writer.finish().expect("se guarda");
+        let path = writer.finish(&|| false).expect("se guarda");
         assert_eq!(parquet_footer(&path).0, 0);
         let frame = polars::prelude::ParquetReader::new(fs::File::open(&path).expect("parquet"))
             .finish()
@@ -6469,6 +6517,94 @@ mod tests {
         (names, writer)
     }
 
+    #[test]
+    fn startup_purge_empties_imports_including_killed_temporaries() {
+        let directory = tempfile::tempdir().expect("carpeta");
+        // A write in progress: its temporary must carry the `.partial` suffix.
+        let (_names, writer) = import_writer(directory.path());
+        let imports = directory.path().join(DATABASE_IMPORT_DIRECTORY);
+        let temporary_names: Vec<String> = fs::read_dir(&imports)
+            .expect("carpeta")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(temporary_names.len(), 1);
+        assert!(temporary_names[0].ends_with(".parquet.partial"));
+        // Simulate a killed process: the temporary is never cleaned up.
+        std::mem::forget(writer);
+        fs::write(imports.join("dbo.Old.parquet"), b"datos").expect("importación previa");
+        fs::write(imports.join(".tmpAbC123"), b"resto").expect("temporal viejo");
+        fs::create_dir(imports.join("carpeta")).expect("subcarpeta");
+
+        let removed = purge_database_imports(directory.path());
+
+        assert_eq!(removed, 3);
+        let left: Vec<_> = fs::read_dir(&imports).expect("carpeta").flatten().collect();
+        assert_eq!(left.len(), 1, "solo la subcarpeta ajena queda");
+        assert_eq!(purge_database_imports(&directory.path().join("nada")), 0);
+    }
+
+    /// AUD-103: Cancelar returns while the import thread is still blocked in the
+    /// driver, and when that thread comes back it writes no Parquet and deletes
+    /// no earlier one (its temporary is removed).
+    #[test]
+    fn a_cancelled_import_returns_at_once_and_the_late_thread_touches_nothing() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{mpsc, Arc};
+
+        let directory = tempfile::tempdir().expect("carpeta");
+        let imports = directory.path().join(DATABASE_IMPORT_DIRECTORY);
+        let (_names, writer) = import_writer(directory.path());
+        let previous = imports.join("dbo.Old.parquet");
+        fs::write(&previous, b"datos anteriores").expect("importación previa");
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let (release, blocked) = mpsc::channel::<()>();
+        let (done, finished) = mpsc::channel::<Result<std::path::PathBuf, String>>();
+        let work_flag = Arc::clone(&cancelled);
+        let watcher_flag = Arc::clone(&cancelled);
+        let flag = Arc::clone(&cancelled);
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            flag.store(true, Ordering::SeqCst);
+        });
+
+        let started = std::time::Instant::now();
+        let result = tauri::async_runtime::block_on(run_blocking_unless_cancelled(
+            move || {
+                // The server never answers until the test lets it.
+                let _ = blocked.recv();
+                let outcome = writer.finish(&|| work_flag.load(Ordering::SeqCst));
+                let _ = done.send(outcome.clone());
+                outcome
+            },
+            move || watcher_flag.load(Ordering::SeqCst),
+            "interrumpido",
+        ));
+        assert_eq!(
+            result,
+            Err(crate::dataset::OPERATION_CANCELLED_MESSAGE.to_owned())
+        );
+        assert!(started.elapsed().as_secs() < 2, "{:?}", started.elapsed());
+
+        // The blocked thread comes back after the cancellation.
+        release.send(()).expect("se libera el trabajo");
+        let late = finished
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("el hilo tardío termina");
+        assert_eq!(
+            late,
+            Err(crate::dataset::OPERATION_CANCELLED_MESSAGE.to_owned())
+        );
+        assert_eq!(fs::read(&previous).expect("sigue"), b"datos anteriores");
+        let names: Vec<String> = fs::read_dir(&imports)
+            .expect("carpeta")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["dbo.Old.parquet".to_owned()], "{names:?}");
+    }
+
     struct ScriptedImport {
         rows: usize,
         more_rows_available: bool,
@@ -6493,7 +6629,7 @@ mod tests {
             &|| false,
         )
         .expect("la lectura termina");
-        let path = read.writer.finish().expect("se guarda");
+        let path = read.writer.finish(&|| false).expect("se guarda");
         ScriptedImport {
             rows: read.rows,
             more_rows_available: read.more_rows_available,

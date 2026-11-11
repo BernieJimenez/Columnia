@@ -209,6 +209,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   la confirmación ya no prometen que se cifre siempre que el servidor lo
   ofrezca: el cifrado es oportunista y alguien con acceso a la red puede
   forzar una conexión sin cifrar (AUD-115).
+- La copia de la última tabla importada desde una base de datos ya no se queda
+  en la carpeta de datos de la aplicación: se borra al arrancar, junto con los
+  restos de una importación que se cortó a medias (AUD-020).
 - Al conectar con un servidor remoto para leer una tabla, si se permitió
   conectar sin cifrado, o si SQL Server acepta cualquier certificado, la
   confirmación nativa lo avisa con el mismo texto que la entrega (AUD-008).
@@ -348,6 +351,15 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   memoria, se dice así en lugar de intentarlo en memoria sin avisar, y queda
   en el diagnóstico. Antes de empezar se comprueba que haya libre unas tres
   veces el tamaño del archivo (AUD-019).
+- Cancelar una importación desde una base de datos devuelve el control enseguida
+  aunque el servidor no responda, y la importación cancelada no guarda ni borra
+  nada cuando por fin termina (AUD-103).
+- Exportar a T-SQL o BULK INSERT con actualización por clave avisa, antes de
+  elegir dónde guardar, si una columna clave está enmascarada o seudonimizada:
+  sus valores ya no coincidirían con los del destino (AUD-021).
+- Abrir un proyecto descarta la comparación y las copias de trabajo del archivo
+  anterior, y las copias de una comparación se borran al arrancar si la
+  aplicación se cerró de golpe (AUD-102).
 - El script T-SQL escribe con exponente (`1e-40`, `1.5e300`) los números
   decimales muy grandes o muy pequeños. Antes salían con todas sus cifras y
   SQL Server rechazaba los de más de 38 dígitos (AUD-015).
