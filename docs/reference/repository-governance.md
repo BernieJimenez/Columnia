@@ -17,15 +17,15 @@ integrar cambios en Columnia.
 
 ## Flujo de ramas y commits
 
-`master` es la rama de integración. El trabajo normal usa ramas cortas
-`feat/<slug>`, `fix/<slug>`, `docs/<slug>` o `chore/<slug>`. Cada cambio debe
+Todo el trabajo se hace directamente en `master`, la única rama: el proyecto
+lo lleva una sola persona (decisión del 2026-11-10). Cada cambio debe
 ser acotado, revisable y acompañado por una explicación de riesgo cuando cruce
 IPC, filesystem, persistencia, seguridad o empaquetado.
 
 Los commits siguen Conventional Commits y no incluyen datos reales, PII,
 secretos, rutas privadas, lockfiles reescritos incidentalmente ni artefactos de
 `.local/`. La revisión compara el diff completo y confirma que el árbol está
-limpio antes de integrar.
+limpio antes de cada commit.
 
 ## Gates
 

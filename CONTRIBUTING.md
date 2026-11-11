@@ -11,14 +11,12 @@ política describe cómo se preparan y validan los cambios.
 
 ## Ramas
 
-- `master` es la rama de integración estable.
-- Usa ramas cortas con uno de estos prefijos: `feat/`, `fix/`, `docs/` o
-  `chore/`, seguido de un identificador breve en minúsculas y separado por
-  guiones.
+- Se trabaja directamente en `master`, la única rama. El proyecto lo lleva una
+  sola persona, así que no se usan ramas de trabajo (desde el 2026-11-10).
 - No mezcles refactorizaciones no relacionadas con el cambio que estás
   validando.
-- Antes de integrar, revisa el diff, confirma que el árbol no contiene archivos
-  ajenos y ejecuta el gate apropiado.
+- Antes de cada commit, revisa el diff, confirma que el árbol no contiene
+  archivos ajenos y ejecuta el gate apropiado.
 
 ## Commits
 
