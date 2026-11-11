@@ -288,6 +288,11 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
                       Algunos textos de {importState.result.truncatedColumns.map((name) => `«${name}»`).join(", ")} tenían más de 8.000 caracteres y se recortaron a esa longitud.
                     </p>
                   )}
+                  {importState.result.replacedColumns.length > 0 && (
+                    <p>
+                      Algunos textos de {importState.result.replacedColumns.map((name) => `«${name}»`).join(", ")} tenían caracteres no válidos y se sustituyeron por �.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

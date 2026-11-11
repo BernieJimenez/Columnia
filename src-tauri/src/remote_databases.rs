@@ -2318,6 +2318,9 @@ pub struct DatabaseImportResult {
     pub more_rows_available: bool,
     /// Columns with a value longer than `MAX_IMPORT_CELL_CHARS`, cut to it.
     pub truncated_columns: Vec<String>,
+    /// Columns with a text that was not valid UTF-16 (a lone surrogate): each
+    /// bad unit was replaced by U+FFFD.
+    pub replaced_columns: Vec<String>,
 }
 
 struct FetchedTable {
@@ -2325,6 +2328,7 @@ struct FetchedTable {
     rows: usize,
     more_rows_available: bool,
     truncated_columns: Vec<String>,
+    replaced_columns: Vec<String>,
 }
 
 fn validate_database_source(source: &DatabaseSource) -> Result<(), String> {
@@ -2742,6 +2746,7 @@ struct ImportRead {
     rows: usize,
     more_rows_available: bool,
     truncated_columns: Vec<String>,
+    replaced_columns: Vec<String>,
     /// Every row is already in the temporary file; it still has to be persisted.
     writer: ImportParquetWriter,
 }
@@ -2822,21 +2827,30 @@ where
             let take = available.min(wanted);
             let mut columns = Vec::with_capacity(usize::from(column_count));
             let mut truncated = Vec::with_capacity(usize::from(column_count));
+            let mut replaced = Vec::with_capacity(usize::from(column_count));
             for index in 0..usize::from(column_count) {
                 let slice = batch.column(index);
                 truncated.push(slice.has_truncated_values().is_some());
+                let mut replaced_here = false;
+                // `get`, not `iter`: the iterator panics on invalid UTF-16.
                 columns.push(
-                    slice
-                        .iter()
-                        .take(take)
-                        .map(|value| value.map(|text| text.to_string()))
+                    (0..take)
+                        .map(|row| {
+                            slice.get(row).map(|units| {
+                                let (text, was_replaced) = decode_wide_cell(units);
+                                replaced_here |= was_replaced;
+                                text
+                            })
+                        })
                         .collect::<Vec<_>>(),
                 );
+                replaced.push(replaced_here);
             }
             Ok(Some(ImportBatch {
                 columns,
                 available,
                 truncated,
+                replaced,
             }))
         },
         report,
@@ -2852,6 +2866,17 @@ struct ImportBatch {
     available: usize,
     /// Per column: a value of this batch was longer than the buffer and was cut.
     truncated: Vec<bool>,
+    /// Per column: a value of this batch had invalid UTF-16 and was repaired.
+    replaced: Vec<bool>,
+}
+
+/// Decodes one wide cell; a lone surrogate becomes U+FFFD and the flag says
+/// that something was replaced.
+fn decode_wide_cell(units: &[u16]) -> (String, bool) {
+    match String::from_utf16(units) {
+        Ok(text) => (text, false),
+        Err(_) => (String::from_utf16_lossy(units), true),
+    }
 }
 
 /// The loop of an import, apart from the driver: asks `next_batch` for batches
@@ -2874,6 +2899,7 @@ where
     C: Fn() -> bool,
 {
     let mut truncated = vec![false; names.len()];
+    let mut replaced = vec![false; names.len()];
     let mut rows = 0usize;
     let mut more_rows_available = false;
     loop {
@@ -2883,6 +2909,9 @@ where
         };
         for (flag, cut) in truncated.iter_mut().zip(&batch.truncated) {
             *flag |= *cut;
+        }
+        for (flag, fixed) in replaced.iter_mut().zip(&batch.replaced) {
+            *flag |= *fixed;
         }
         let take = batch.available.min(row_limit - rows);
         writer.write_rows(batch.columns)?;
@@ -2901,10 +2930,17 @@ where
         .filter(|(_, truncated)| **truncated)
         .map(|(name, _)| name.clone())
         .collect();
+    let replaced_columns = names
+        .iter()
+        .zip(&replaced)
+        .filter(|(_, replaced)| **replaced)
+        .map(|(name, _)| name.clone())
+        .collect();
     Ok(ImportRead {
         rows,
         more_rows_available,
         truncated_columns,
+        replaced_columns,
         writer,
     })
 }
@@ -3160,6 +3196,7 @@ where
         rows: read.rows,
         more_rows_available: read.more_rows_available,
         truncated_columns: read.truncated_columns,
+        replaced_columns: read.replaced_columns,
     })
 }
 
@@ -3418,6 +3455,7 @@ pub async fn import_database_table(
         rows_imported: fetched.rows,
         more_rows_available: fetched.more_rows_available,
         truncated_columns: fetched.truncated_columns,
+        replaced_columns: fetched.replaced_columns,
     })
 }
 
@@ -6537,6 +6575,7 @@ mod tests {
                 columns,
                 available: rows,
                 truncated,
+                replaced: vec![false; 2],
             }))
         }
     }
@@ -6721,6 +6760,58 @@ mod tests {
         assert_eq!(read.truncated_columns, vec!["id", "nombre"]);
     }
 
+    /// AUD-104: a lone surrogate no longer panics; it becomes U+FFFD and is
+    /// flagged, while valid text (pairs included) passes untouched.
+    #[test]
+    fn wide_cells_replace_lone_surrogates_and_flag_them() {
+        let wide = |text: &str| text.encode_utf16().collect::<Vec<u16>>();
+        assert_eq!(
+            decode_wide_cell(&wide("normal")),
+            ("normal".to_owned(), false)
+        );
+        assert_eq!(decode_wide_cell(&[]), (String::new(), false));
+        assert_eq!(decode_wide_cell(&wide("a😀ñ")), ("a😀ñ".to_owned(), false));
+        assert_eq!(
+            decode_wide_cell(&[0xD800, u16::from(b'x')]),
+            ("\u{FFFD}x".to_owned(), true)
+        );
+        assert_eq!(
+            decode_wide_cell(&[u16::from(b'x'), 0xDC00]),
+            ("x\u{FFFD}".to_owned(), true)
+        );
+        assert_eq!(decode_wide_cell(&[0xD800]), ("\u{FFFD}".to_owned(), true));
+    }
+
+    /// AUD-104: a column repaired in any batch is reported once.
+    #[test]
+    fn the_import_reports_the_columns_with_replaced_characters() {
+        let directory = tempfile::tempdir().expect("carpeta");
+        let (names, writer) = import_writer(directory.path());
+        let mut sent = false;
+        let read = stream_batches_to_parquet(
+            names,
+            100,
+            writer,
+            |_| {
+                if sent {
+                    return Ok(None);
+                }
+                sent = true;
+                Ok(Some(ImportBatch {
+                    columns: text_batch(0, 2),
+                    available: 2,
+                    truncated: vec![false, false],
+                    replaced: vec![false, true],
+                }))
+            },
+            &mut |_, _| {},
+            &|| false,
+        )
+        .expect("la lectura termina");
+        assert_eq!(read.replaced_columns, vec!["nombre".to_owned()]);
+        assert!(read.truncated_columns.is_empty());
+    }
+
     /// AUD-074: cancelling after the first batch stops the read, reports the
     /// cancellation and leaves no file, not even a temporary one.
     #[test]
@@ -6773,6 +6864,7 @@ mod tests {
                         columns: text_batch(0, 3),
                         available: 3,
                         truncated: vec![false, false],
+                        replaced: vec![false, false],
                     }))
                 } else {
                     Err("se cayó la conexión".to_owned())
@@ -7063,6 +7155,45 @@ mod tests {
             frame.get_column_names()
         );
         eprintln!("{frame}");
+    }
+
+    /// AUD-104: imports a real table with a lone UTF-16 surrogate in a text
+    /// cell: no panic, and the column is reported as repaired. Launch (from
+    /// src-tauri/), with COLUMNIA_ODBC_IMPORT as the connection string and
+    /// COLUMNIA_ODBC_IMPORT_SURROGATE_TABLE as «schema.table»; the test skips
+    /// itself when the latter is not set:
+    ///   cargo test --lib external_odbc_import_survives_lone_surrogates -- --ignored --nocapture
+    #[test]
+    #[ignore = "requiere un SQL Server real configurado por variables de sesión"]
+    fn external_odbc_import_survives_lone_surrogates() {
+        let Ok(qualified) = env::var("COLUMNIA_ODBC_IMPORT_SURROGATE_TABLE") else {
+            eprintln!("COLUMNIA_ODBC_IMPORT_SURROGATE_TABLE no definida: se omite");
+            return;
+        };
+        let source =
+            sql_server_source(&env::var("COLUMNIA_ODBC_IMPORT").expect("COLUMNIA_ODBC_IMPORT"));
+        let (schema, table) = qualified.split_once('.').expect("esquema.tabla");
+        let directory = tempfile::tempdir().expect("carpeta");
+        let fetched = import_table_with_cancel(
+            &source,
+            schema,
+            table,
+            25,
+            directory.path(),
+            None,
+            |_, _| {},
+            || false,
+        )
+        .expect("la tabla se importa sin pánico");
+        assert!(fetched.rows > 0);
+        assert!(
+            !fetched.replaced_columns.is_empty(),
+            "la columna con el sustituto debe señalarse"
+        );
+        eprintln!(
+            "importadas {} filas; columnas con caracteres sustituidos: {:?}",
+            fetched.rows, fetched.replaced_columns
+        );
     }
 
     /// AUD-024: lists the tables of a real server and checks that the names

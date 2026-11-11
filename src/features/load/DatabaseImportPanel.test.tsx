@@ -107,7 +107,7 @@ describe("DatabaseImportPanel", () => {
       { schema: "dbo", name: "Ventas", isView: false },
       { schema: "reportes", name: "VentasPorMes", isView: true },
     ]);
-    const result: DatabaseImportResult = { inspection, rowsImported: 1000, moreRowsAvailable: true, truncatedColumns: ["Notas"] };
+    const result: DatabaseImportResult = { inspection, rowsImported: 1000, moreRowsAvailable: true, truncatedColumns: ["Notas"], replacedColumns: ["Texto"] };
     const importTable = vi.spyOn(bridge, "importDatabaseTable").mockResolvedValue(result);
     const onImport = vi.fn(async (run: RunImport) => {
       await expect(run()).resolves.toEqual(inspection);
@@ -131,6 +131,7 @@ describe("DatabaseImportPanel", () => {
     expect(done).toHaveTextContent(/Se trajeron 1[.,]?000 filas de dbo\.Ventas/);
     expect(done).toHaveTextContent("La tabla tiene más filas");
     expect(screen.getByText(/«Notas» tenían más de 8\.000 caracteres/)).toBeInTheDocument();
+    expect(screen.getByText(/«Texto» tenían caracteres no válidos y se sustituyeron por �/)).toBeInTheDocument();
   });
 
   it("muestra el error del servidor cerca de la acción y no carga nada", async () => {
@@ -207,7 +208,7 @@ describe("DatabaseImportPanel", () => {
     fireEvent.click(traer);
     expect(importTable).toHaveBeenCalledTimes(1);
 
-    finish({ inspection, rowsImported: 5, moreRowsAvailable: false, truncatedColumns: [] });
+    finish({ inspection, rowsImported: 5, moreRowsAvailable: false, truncatedColumns: [], replacedColumns: [] });
     const done = await screen.findByText(/Se trajeron 5 filas/);
     await waitFor(() => expect(document.activeElement).toBe(done.closest("[role=status]")));
 

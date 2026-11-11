@@ -158,6 +158,7 @@ export async function installTauriMock(page: Page, options: TauriMockOptions): P
           rowsImported: fixture.dataset.rowCount,
           moreRowsAvailable: false,
           truncatedColumns: [],
+          replacedColumns: [],
         };
         // Any query answers with the fixture's rows: the mock never runs SQL.
         case "query_dataset": return {

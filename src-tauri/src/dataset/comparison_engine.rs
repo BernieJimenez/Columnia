@@ -1938,7 +1938,7 @@ where
             )?;
             if block.height() != length {
                 return Err(format!(
-                    "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot comparado cambió durante la lectura (se esperaban {length} filas en el bloque y se obtuvieron {}).",
+                    "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot comparado no corresponde con la comparación (se esperaban {length} filas en el bloque y se obtuvieron {}).",
                     block.height()
                 ));
             }
@@ -2090,7 +2090,10 @@ where
                         is_cancelled,
                     )?;
                     if block.height() != length {
-                        return Err("El snapshot comparado cambió durante la lectura.".to_owned());
+                        return Err(format!(
+                            "El snapshot comparado no corresponde con la comparación (se esperaban {length} filas en el bloque y se obtuvieron {}).",
+                            block.height()
+                        ));
                     }
                     ensure_not_cancelled(is_cancelled())?;
                     cached_compared_start = Some(compared_start);
@@ -2458,7 +2461,10 @@ where
                 is_cancelled,
             )?;
             if block.height() != length {
-                return Err("El snapshot activo cambió durante la lectura.".to_owned());
+                return Err(format!(
+                    "El snapshot activo no corresponde con el dataset (se esperaban {length} filas en el bloque y se obtuvieron {}).",
+                    block.height()
+                ));
             }
             current_cache = Some((block_start, block));
         }
@@ -2470,7 +2476,10 @@ where
             is_cancelled,
         )?;
         if compared_row.height() != 1 {
-            return Err("El snapshot comparado cambió durante la lectura.".to_owned());
+            return Err(format!(
+                "El snapshot comparado no corresponde con la comparación (se esperaba 1 fila y se obtuvieron {}).",
+                compared_row.height()
+            ));
         }
         let current_row_in_block = current_row_index - block_start;
         let Some(shape) = build_key_conflict_shape(

@@ -342,6 +342,15 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Importar desde SQL Server una tabla con un texto mal codificado (un
+  carácter UTF-16 incompleto) ya no termina con «La importación se interrumpió
+  inesperadamente»: se traen todas las filas, el carácter se sustituye por �
+  y el aviso dice en qué columnas pasó (AUD-104).
+- Si un bloque de la comparación no trae las filas esperadas, el error lo dice
+  así en lugar de afirmar que el snapshot cambió durante la lectura (AUD-106).
+- La barra «Contando valores distintos» avanza también cuando el conteo se
+  queda sin memoria y sigue columna a columna; antes se quedaba quieta
+  (AUD-107).
 - Si Columnia no puede comprobar qué controladores ODBC hay instalados, el
   formulario de conexión dice por qué, en lugar de pedir que instales un
   controlador que quizá ya tienes (AUD-027).
@@ -1602,6 +1611,8 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- El comentario `SAFETY` de `NativeDuckDb` nombra la restricción de que solo
+  un hilo a la vez ejecuta sentencias en la conexión (AUD-033).
 - El error de memoria de DuckDB se reconoce en un solo sitio, con una prueba que
   lo provoca de verdad, y Entregar ya no decide nada por el texto de un mensaje
   (AUD-030).

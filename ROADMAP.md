@@ -35,8 +35,9 @@ tanda 8 (AUD-077, 074, 075, 076 y 073) y se abrió AUD-113, aparecida al
 aplicarla. Ese mismo día se cerró la tanda 9 (AUD-009, 100, 008, 015 y 007) y
 se abrieron AUD-114 y AUD-115, aparecidas al aplicarla. El 2026-11-11 se
 cerró la tanda 10 (AUD-115, 016, 017, 018, 019 y 114). Ese mismo día se cerró
-la tanda 11 (AUD-020, 103, 021, 102 y 099), y después la tanda 12
-(AUD-027, 028, 029, 030, 031 y 032).
+la tanda 11 (AUD-020, 103, 021, 102 y 099), después la tanda 12
+(AUD-027, 028, 029, 030, 031 y 032) y después la tanda 13 (AUD-033, 104, 106
+y 107).
 
 <!-- indice:inicio -->
 **Última actualización:** 2026-11-11 · **Siguiente ID libre:** AUD-116 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
@@ -46,11 +47,11 @@ la tanda 11 (AUD-020, 103, 021, 102 y 099), y después la tanda 12
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 57 | 22 | 54 · 3 · 0 |
+| 3 · Bajo | 53 | 26 | 50 · 3 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **58** | **57** | **55 · 3 · 0** |
+| **Total** | **54** | **61** | **51 · 3 · 0** |
 
-**Abiertas por área:** UI/UX 17 · Rendimiento 9 · Documentación 9 · Accesibilidad 7 · QA y testing 7 · Redacción 5 · Código 4
+**Abiertas por área:** UI/UX 17 · Rendimiento 9 · Documentación 9 · Accesibilidad 7 · QA y testing 7 · Redacción 5
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -673,37 +674,41 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-11 · tanda 12 de la Fase 2 (en `master`). La interrupción se repite mientras la sentencia sigue viva en los tres vigilantes: `run_native_with_progress`, `NativeProgress::interrupt_and_join` (en `finish` y `Drop` de `BackgroundDistinctCount`) y el de `execute_duckdb_operation_with_cancel_state`, que antes también interrumpía una sola vez. Pruebas nuevas: 10 cancelaciones inmediatas (siempre) y 100 sobre 20 M filas (`#[ignore]`): la más lenta, 45 ms; con una sola interrupción, la de 100 falló en la vuelta 13 con 2,3 s.
 
-- [ ] **AUD-033 · El comentario `SAFETY` de `unsafe impl Sync for NativeDuckDb` cubre menos de lo que el tipo permite**
+- [x] **AUD-033 · El comentario `SAFETY` de `unsafe impl Sync for NativeDuckDb` cubre menos de lo que el tipo permite**
   - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/duckdb_query.rs:522-525`
   - **Qué hacer:** separar el tipo en un asa compartible (`Arc<NativeHandle>` con `progress`/`interrupt`, `Send + Sync`) y un ejecutor exclusivo (`NativeDuckDb` con `execute(&mut self)`, `Send` solamente). O ampliar el comentario `SAFETY` con la restricción «solo el hilo propietario llama a `execute`».
   - **Criterio de aceptación:** el compilador impide llamar a `execute` desde un `Arc` compartido, o el comentario nombra la restricción.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 13 de la Fase 2 (en `master`). Por la segunda vía del criterio: el comentario `SAFETY` de `NativeDuckDb` dice ahora que `Sync` solo cubre `progress` e `interrupt` y que `execute` (y abrir conexiones sobre `database`) lo llama un único hilo a la vez. No se separan los tipos: `run_native_with_progress` y `spawn_parquet_distinct_count` comparten la conexión entre hilos y el cambio crecía; los usos actuales se comprobaron y cumplen la restricción.
 
-- [ ] **AUD-104 · Importar una celda de texto con un sustituto UTF-16 suelto hace entrar en pánico la lectura y la importación termina con un error genérico**
+- [x] **AUD-104 · Importar una celda de texto con un sustituto UTF-16 suelto hace entrar en pánico la lectura y la importación termina con un error genérico**
   - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/remote_databases.rs`, `read_cursor_to_parquet` (`slice.iter()`, ≈`:2789`)
   - **Qué hacer:** leer cada celda con `get(row)` (que devuelve `&[u16]` sin pánico), como ya hace el catálogo desde AUD-024, y decidir qué hacer con un valor que no es UTF-16 válido: sustituir el carácter con `String::from_utf16_lossy` y nombrar la columna en el resultado, igual que `truncated_columns`, o rechazar la importación con un mensaje que diga la columna. `TextColumnView::<u16>::iter()` de odbc-api 29.1.0 hace `expect("Wide character encoding must be UTF-16")` (`text_column.rs:582`). SQL Server guarda en `nvarchar` sustitutos sueltos sin quejarse.
   - **Criterio de aceptación:** importar una tabla con una celda `NCHAR(0xD800) + N'x'` no entra en pánico: termina con las filas importadas y la columna señalada, o con un error que la nombra. Prueba unitaria de la decodificación y prueba externa `#[ignore]`.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-024. Reproducido el 2026-11-08 contra la base de pruebas: la prueba externa de importación entra en pánico en `text_column.rs:582`. Ya pasaba antes de la tanda 3; en la app, el pánico dentro de `spawn_blocking` llega como «La importación se interrumpió inesperadamente.» (perfil `panic = "unwind"`).
+  - **Cierre:** 2026-11-11 · tanda 13 de la Fase 2 (en `master`). `read_cursor_to_parquet` lee cada celda con `get(row)` y `decode_wide_cell`: un sustituto suelto pasa a U+FFFD y la columna se señala en `replacedColumns` (IPC nuevo), con aviso en el panel de importación, igual que las truncadas. Pruebas de la decodificación y del aviso, y la externa `external_odbc_import_survives_lone_surrogates` (`COLUMNIA_ODBC_IMPORT_SURROGATE_TABLE`), ejecutada contra una base temporal del SQL Server local ya borrada: 2 filas y la columna señalada; sin el arreglo, pánico `LoneSurrogate`.
 
-- [ ] **AUD-106 · Los errores de la comparación dicen que el snapshot «cambió durante la lectura» cuando solo no coincide el número de filas**
+- [x] **AUD-106 · Los errores de la comparación dicen que el snapshot «cambió durante la lectura» cuando solo no coincide el número de filas**
   - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset/comparison_engine.rs` (≈`:1941`, `:2093`, `:2461` y `:2473`)
   - **Qué hacer:** usar la redacción que dejó AUD-022 en `query_execution.rs` («no corresponde con el dataset») cuando lo que falla es el recuento de filas de un bloque, y reservar «cambió durante la lectura» para cuando consta un cambio del origen (tamaño o fecha).
   - **Criterio de aceptación:** ningún mensaje de desajuste de filas en `comparison_engine.rs` dice «cambió»; las pruebas que comprueban esos errores siguen pasando (ajustando solo el texto esperado).
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-022.
+  - **Cierre:** 2026-11-11 · tanda 13 de la Fase 2 (en `master`). Los cuatro desajustes de filas de `comparison_engine.rs` dicen «no corresponde con la comparación» o «no corresponde con el dataset», con las filas esperadas y obtenidas. Los de la lectura de conflictos que comparan tamaño de la fuente o ruta, tamaño y filas del activo siguen diciendo «cambió». Ningún código dependía del texto.
 
-- [ ] **AUD-107 · La barra «Contando valores distintos» se queda quieta mientras corre el respaldo por falta de memoria**
+- [x] **AUD-107 · La barra «Contando valores distintos» se queda quieta mientras corre el respaldo por falta de memoria**
   - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/duckdb_query.rs`, `NativeProgress::fraction`; `BackgroundDistinctCount::finish` (`dataset/profile_engine.rs`)
   - **Qué hacer:** que el respaldo informe de su avance (por ejemplo, columnas terminadas sobre el total, en un `AtomicUsize` compartido como la bandera de cancelación de AUD-026) y que `fraction` lo use cuando la conexión nativa ya no está contando.
   - **Criterio de aceptación:** con el respaldo forzado (límite de memoria bajo, como en la prueba de AUD-026), la fracción que devuelve `NativeProgress` sube a medida que el respaldo termina columnas.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-026.
+  - **Cierre:** 2026-11-11 · tanda 13 de la Fase 2 (en `master`). `NativeProgress` comparte con el hilo un `FallbackProgress` (columnas terminadas sobre el total) y `fraction` lo usa cuando corre el respaldo; además nunca devuelve menos de lo ya mostrado, así que el cambio de DuckDB al respaldo puede parar la barra pero no la hace retroceder. Prueba nueva con `memory_limit` de 16 MB: la fracción pasa por 1/3, 2/3 y 1 sin bajar; sin el arreglo se queda en 0.
 
 ### Rendimiento
 

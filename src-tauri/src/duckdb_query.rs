@@ -5,7 +5,7 @@ use std::{
     io::{BufWriter, Write},
     path::Path,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         Arc,
     },
     thread,
@@ -414,13 +414,41 @@ pub(crate) struct NativeProgress {
     /// AUD-026: set by [`NativeProgress::interrupt`] and read by the count's
     /// fallback, which runs on connections `native.interrupt` does not reach.
     cancelled: Arc<AtomicBool>,
+    /// AUD-107: progress of the fallback, which DuckDB's progress cannot see.
+    fallback: Arc<FallbackProgress>,
+    /// Highest fraction returned so far, as `f64` bits (order-preserving for
+    /// non-negative values), so the bar never moves back.
+    shown: AtomicU64,
+}
+
+/// AUD-107: columns the out-of-memory fallback has finished, out of `total`
+/// (0 while the fallback has not started).
+#[derive(Default)]
+struct FallbackProgress {
+    total: AtomicUsize,
+    done: AtomicUsize,
 }
 
 impl NativeProgress {
-    /// How far the running statement has gone (0.0 to 1.0), if DuckDB knows.
+    /// How far the running count has gone (0.0 to 1.0), if known. Once the
+    /// fallback runs, it is the share of columns it has finished; DuckDB's own
+    /// figure stays at whatever the failed statement reached. The result never
+    /// drops below a value already returned, so the switch can hold the bar
+    /// for a while but not send it backwards.
     pub(crate) fn fraction(&self) -> Option<f64> {
-        let percentage = self.native.progress();
-        (percentage >= 0.0).then(|| (percentage / 100.0).clamp(0.0, 1.0))
+        let total = self.fallback.total.load(Ordering::Acquire);
+        let raw = if total > 0 {
+            let done = self.fallback.done.load(Ordering::Acquire);
+            (done as f64 / total as f64).clamp(0.0, 1.0)
+        } else {
+            let percentage = self.native.progress();
+            if percentage < 0.0 {
+                return None;
+            }
+            (percentage / 100.0).clamp(0.0, 1.0)
+        };
+        let previous = f64::from_bits(self.shown.fetch_max(raw.to_bits(), Ordering::AcqRel));
+        Some(raw.max(previous))
     }
 
     /// Stops the running statement, or the fallback count that replaced it;
@@ -453,7 +481,7 @@ pub(crate) type DistinctCountWorker = thread::JoinHandle<Result<Vec<usize>, Stri
 /// REN-01: counts the distinct non-null values of each column of a Parquet
 /// file on its own thread, through a native connection whose progress the
 /// returned [`NativeProgress`] reads. If DuckDB runs out of memory, the count
-/// falls back to [`count_file_distinct_non_null`], which has no progress.
+/// falls back to counting one column at a time, which reports the columns done.
 pub(crate) fn spawn_parquet_distinct_count(
     path: &Path,
     columns: &[String],
@@ -470,6 +498,8 @@ fn spawn_parquet_distinct_count_with_limit(
     let worker_native = Arc::clone(&native);
     let cancelled = Arc::new(AtomicBool::new(false));
     let worker_cancelled = Arc::clone(&cancelled);
+    let fallback = Arc::new(FallbackProgress::default());
+    let worker_fallback = Arc::clone(&fallback);
     let memory_limit = memory_limit.to_owned();
     let path = path.to_owned();
     let columns = columns.to_vec();
@@ -519,11 +549,12 @@ fn spawn_parquet_distinct_count_with_limit(
             }
             Err(error) if is_duckdb_out_of_memory(&error) => {
                 drop(connection);
-                return count_file_distinct_non_null(
+                return count_file_distinct_non_null_reporting(
                     &path,
                     DuckDbFileFormat::Parquet,
                     &columns,
                     move || worker_cancelled.load(Ordering::Acquire),
+                    Some(&worker_fallback),
                 );
             }
             Err(error) => {
@@ -549,7 +580,15 @@ fn spawn_parquet_distinct_count_with_limit(
             })
             .collect()
     });
-    Ok((NativeProgress { native, cancelled }, handle))
+    Ok((
+        NativeProgress {
+            native,
+            cancelled,
+            fallback,
+            shown: AtomicU64::new(0),
+        },
+        handle,
+    ))
 }
 
 /// REN-01: an in-memory DuckDB database and connection opened through the C
@@ -561,7 +600,11 @@ struct NativeDuckDb {
 }
 
 // SAFETY: DuckDB lets another thread interrupt a connection or read its
-// progress while a statement runs on it; nothing else is shared.
+// progress while a statement runs on it; nothing else is shared. `Sync` only
+// covers `progress` and `interrupt`: `execute` (and opening connections on
+// `database`) must be called by one thread at a time, the one running the
+// statement, because the native connection cannot run two queries at once.
+// The compiler does not enforce this; whoever shares the type must keep it.
 unsafe impl Send for NativeDuckDb {}
 unsafe impl Sync for NativeDuckDb {}
 
@@ -1445,9 +1488,31 @@ pub(crate) fn count_file_distinct_non_null<C>(
 where
     C: Fn() -> bool + Send + 'static,
 {
+    count_file_distinct_non_null_reporting(source_path, source_format, columns, is_cancelled, None)
+}
+
+/// Like [`count_file_distinct_non_null`]; if the count falls back to one
+/// column at a time, `progress` receives the columns finished.
+fn count_file_distinct_non_null_reporting<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    columns: &[String],
+    is_cancelled: C,
+    progress: Option<&FallbackProgress>,
+) -> Result<Vec<usize>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
     // REN-01: only the columns; distinct whole rows are the costly part.
-    count_file_distinct(source_path, source_format, columns, false, is_cancelled)
-        .map(|(_, counts)| counts)
+    count_file_distinct(
+        source_path,
+        source_format,
+        columns,
+        false,
+        is_cancelled,
+        progress,
+    )
+    .map(|(_, counts)| counts)
 }
 
 #[cfg(test)]
@@ -1460,7 +1525,14 @@ pub(crate) fn count_file_distinct_rows_and_non_null_columns<C>(
 where
     C: Fn() -> bool + Send + 'static,
 {
-    count_file_distinct(source_path, source_format, columns, true, is_cancelled)
+    count_file_distinct(
+        source_path,
+        source_format,
+        columns,
+        true,
+        is_cancelled,
+        None,
+    )
 }
 
 /// Distinct non-null values of each column and, with `count_rows`, distinct
@@ -1471,6 +1543,7 @@ fn count_file_distinct<C>(
     columns: &[String],
     count_rows: bool,
     is_cancelled: C,
+    progress: Option<&FallbackProgress>,
 ) -> Result<(usize, Vec<usize>), String>
 where
     C: Fn() -> bool + Send + 'static,
@@ -1512,7 +1585,10 @@ where
         }) {
             Ok(counts) => counts,
             Err(error) if is_duckdb_out_of_memory(&error.to_string()) => {
-                count_distinct_sequentially(connection, columns, count_rows, cancelled)?
+                if let Some(progress) = progress {
+                    progress.total.store(columns.len(), Ordering::Release);
+                }
+                count_distinct_sequentially(connection, columns, count_rows, cancelled, progress)?
             }
             Err(error) => {
                 return Err(format!(
@@ -1546,6 +1622,7 @@ fn count_distinct_sequentially(
     columns: &[String],
     count_rows: bool,
     cancelled: &AtomicBool,
+    progress: Option<&FallbackProgress>,
 ) -> Result<(i64, Vec<i64>), String> {
     if cancelled.load(Ordering::Acquire) {
         return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
@@ -1597,11 +1674,15 @@ fn count_distinct_sequentially(
         .iter()
         .map(|column| {
             let identifier = quote_identifier(column);
-            if text_columns.contains(column) {
+            let counted = if text_columns.contains(column) {
                 count(&format!("md5_number({identifier})"))
             } else {
                 count(&identifier)
+            };
+            if let Some(progress) = progress {
+                progress.done.fetch_add(1, Ordering::Release);
             }
+            counted
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok((rows, columns))
@@ -3644,7 +3725,7 @@ mod tests {
         let columns = vec!["odd\"column".to_owned(), "label".to_owned()];
         let cancelled = AtomicBool::new(false);
         assert_eq!(
-            count_distinct_sequentially(&connection, &columns, true, &cancelled).unwrap(),
+            count_distinct_sequentially(&connection, &columns, true, &cancelled, None).unwrap(),
             (5, vec![2, 2]),
         );
         // The text "null" is a value, not a missing one, in rows and columns.
@@ -3652,17 +3733,17 @@ mod tests {
             .execute_batch("INSERT INTO dataset VALUES (3, 'null'), (3, NULL), (3, 'null');")
             .unwrap();
         assert_eq!(
-            count_distinct_sequentially(&connection, &columns, true, &cancelled).unwrap(),
+            count_distinct_sequentially(&connection, &columns, true, &cancelled, None).unwrap(),
             (7, vec![3, 3]),
         );
         connection.execute_batch("DELETE FROM dataset").unwrap();
         assert_eq!(
-            count_distinct_sequentially(&connection, &columns, true, &cancelled).unwrap(),
+            count_distinct_sequentially(&connection, &columns, true, &cancelled, None).unwrap(),
             (0, vec![0, 0]),
         );
         cancelled.store(true, Ordering::Release);
         assert_eq!(
-            count_distinct_sequentially(&connection, &columns, true, &cancelled).unwrap_err(),
+            count_distinct_sequentially(&connection, &columns, true, &cancelled, None).unwrap_err(),
             OPERATION_CANCELLED_MESSAGE,
         );
     }
@@ -4502,5 +4583,56 @@ mod tests {
             handle.join().expect("el hilo no debe entrar en pánico"),
             Err(OPERATION_CANCELLED_MESSAGE.to_owned())
         );
+    }
+
+    /// AUD-107: while the out-of-memory fallback runs, the fraction rises as
+    /// it finishes columns, and never goes back.
+    #[test]
+    fn the_distinct_count_fraction_rises_while_its_fallback_finishes_columns() {
+        const ROWS: u32 = 1_000_000;
+        let directory = tempfile::tempdir().expect("directorio de prueba");
+        let parquet_path = directory.path().join("texto_libre.parquet");
+        {
+            let connection = Connection::open_in_memory().expect("DuckDB de prueba");
+            let destination = parquet_path.to_string_lossy().replace('\\', "/");
+            connection
+                .execute_batch(&format!(
+                    "SET preserve_insertion_order = false; \
+                     COPY (SELECT lpad(i::VARCHAR, 120, 'a') AS a, \
+                     lpad((i * 7)::VARCHAR, 120, 'b') AS b, \
+                     lpad((i * 11)::VARCHAR, 120, 'c') AS c \
+                     FROM range({ROWS}) AS r(i)) TO '{destination}' (FORMAT PARQUET)"
+                ))
+                .expect("parquet de prueba");
+        }
+        let columns = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
+        let (progress, handle) =
+            spawn_parquet_distinct_count_with_limit(&parquet_path, &columns, "16MB")
+                .expect("el conteo debe arrancar");
+
+        // Sample until the thread ends: each column takes far longer than the
+        // sampling interval, so every step of the fallback is seen.
+        let mut samples = Vec::new();
+        while !handle.is_finished() {
+            samples.extend(progress.fraction());
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        samples.extend(progress.fraction());
+        assert_eq!(
+            handle.join().expect("el hilo no debe entrar en pánico"),
+            Ok(vec![ROWS as usize; 3])
+        );
+
+        assert!(
+            samples.windows(2).all(|pair| pair[0] <= pair[1]),
+            "la fracción no debe retroceder: {samples:?}"
+        );
+        for step in [1.0 / 3.0, 2.0 / 3.0] {
+            assert!(
+                samples.iter().any(|sample| (sample - step).abs() < 1e-9),
+                "falta el avance {step} del respaldo: {samples:?}"
+            );
+        }
+        assert_eq!(samples.last(), Some(&1.0));
     }
 }

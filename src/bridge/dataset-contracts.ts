@@ -59,6 +59,8 @@ export interface DatabaseImportResult {
   moreRowsAvailable: boolean;
   /** Columns with values longer than 8,000 characters, cut to that length. */
   truncatedColumns: string[];
+  /** Columns with a text that had invalid characters, replaced by U+FFFD. */
+  replacedColumns: string[];
 }
 
 export interface DatasetImportSchemaPreview {
