@@ -57,6 +57,9 @@ export interface DatabaseConnection {
   allowUnencrypted: boolean;
 }
 
+type SqlServerLoadMode = "create" | "append" | "upsert";
+type SqlServerTextSize = "fitted" | "max";
+
 /**
  * «Script T-SQL» and «Paquete BULK INSERT» (2026-10-31): the table the script
  * fills and what it does with it. Empty names take `dbo` and the file name.
@@ -64,11 +67,11 @@ export interface DatabaseConnection {
 export interface SqlServerScriptOptions {
   schema: string;
   table: string;
-  mode: "create" | "append" | "upsert";
+  mode: SqlServerLoadMode;
   /** Only for `upsert`: the columns that identify a row. */
   keyColumns: string[];
   /** `fitted` sizes text columns from the data; `max` keeps NVARCHAR(MAX). */
-  textSize: "fitted" | "max";
+  textSize: SqlServerTextSize;
 }
 
 /** Credentials remain in the current React/Tauri call and are never persisted. */

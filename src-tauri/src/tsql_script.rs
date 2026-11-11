@@ -866,6 +866,51 @@ mod tests {
         assert!(bulk.contains("[a]]'b]"));
     }
 
+    /// AUD-075: `a]b`, `x'y` and `"` are valid names and stay escaped in every
+    /// place the name appears; a name with a line break is refused.
+    #[test]
+    fn brackets_quotes_and_double_quotes_in_names_are_escaped_everywhere() {
+        let columns = ["a]b", "x'y", "c\"d"]
+            .iter()
+            .map(|name| TsqlColumn {
+                name: (*name).into(),
+                declaration: "NVARCHAR(20)".into(),
+            })
+            .collect::<Vec<_>>();
+        for (mode, keys) in [
+            (SqlServerLoadMode::Create, &[][..]),
+            (SqlServerLoadMode::Append, &[][..]),
+            (SqlServerLoadMode::Upsert, &["a]b", "x'y"][..]),
+        ] {
+            let target = TsqlTarget::resolve(Some(&options(mode, keys)), "t").unwrap();
+            let mut writer = TsqlScriptWriter::begin(Vec::new(), &target, &columns).unwrap();
+            writer
+                .push_row([
+                    TsqlValue::Text("a'b\nc\r\n]".into()),
+                    TsqlValue::Text("\"".into()),
+                    TsqlValue::Null,
+                ])
+                .unwrap();
+            let script = String::from_utf8(writer.finish().unwrap()).unwrap();
+            let bulk = bulk_load_script(&target, &columns, Some(1)).unwrap();
+            for text in [&script, &bulk] {
+                assert!(text.contains("[a]]b]"), "{mode:?}: {text}");
+                assert!(text.contains("[x'y]"), "{mode:?}: {text}");
+                assert!(text.contains("[c\"d]"), "{mode:?}: {text}");
+                // The name of the column is also a string literal in the checks.
+                if mode != SqlServerLoadMode::Create {
+                    assert!(text.contains("N'a]b'"), "{mode:?}: {text}");
+                    assert!(text.contains("N'x''y'"), "{mode:?}: {text}");
+                }
+            }
+            assert!(script.contains("N'a''b\nc\r\n]'"), "{mode:?}: {script}");
+        }
+        let breaking = hostile_columns("a\nb");
+        let target = target("t");
+        assert!(TsqlScriptWriter::begin(Vec::new(), &target, &breaking).is_err());
+        assert!(bulk_load_script(&target, &breaking, None).is_err());
+    }
+
     #[test]
     fn comments_never_carry_line_breaks_from_data() {
         assert_eq!(comment_text("a\nb\r\u{2028}c\u{85}d"), "a b  c d");

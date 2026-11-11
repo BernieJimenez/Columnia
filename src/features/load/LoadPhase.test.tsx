@@ -503,6 +503,8 @@ describe("LoadPhase", () => {
     expect(within(dialog).getByText(/No se prevé un snapshot/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Continuar con la carga" }));
     expect(onResourcePreflightAction).toHaveBeenCalledWith({ kind: "confirmed" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    expect(onResourcePreflightAction).toHaveBeenLastCalledWith({ kind: "cancelled" });
   });
 });
 
@@ -726,6 +728,11 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
     };
     const view = render(<LoadPhase {...minimal} previousExitUnclean inspection={{ kind: "workbook_inspecting", source: workbook }} />);
     fireEvent.click(screen.getByRole("button", { name: "Entendido" }));
+    view.rerender(<LoadPhase {...minimal} inspection={{ kind: "idle" }} recentCrashReports={2} setAsideCatalogs={["C:/datos/presets.unreadable-1"]} />);
+    for (const dismiss of screen.getAllByRole("button", { name: "Entendido" })) fireEvent.click(dismiss);
+    // The parent owns the notices: without a handler they stay on screen.
+    expect(screen.getByRole("region", { name: "Columnia tuvo un fallo interno" })).toBeInTheDocument();
+    view.rerender(<LoadPhase {...minimal} inspection={{ kind: "workbook_inspecting", source: workbook }} />);
     fireEvent.click(screen.getByRole("button", { name: "Cancelar inspección" }));
     view.rerender(<LoadPhase {...minimal} inspection={{ kind: "selection_cancellation_failed", source: workbook, message: "x", cancelPending: false, discardPending: false }} />);
     fireEvent.click(screen.getByRole("button", { name: "Reintentar cancelación" }));
@@ -743,8 +750,95 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
     fireEvent.click(screen.getByText("¿Columnas o acentos mal leídos?"));
     fireEvent.change(screen.getByRole("combobox", { name: "Separador" }), { target: { value: "|" } });
     fireEvent.click(screen.getByRole("button", { name: "Volver a leer" }));
-    view.rerender(<LoadPhase {...minimal} inspection={{ kind: "idle" }} sampleDatasets={[{ id: "s", name: "Ejemplo", format: "csv", description: "d" }]} />);
-    const sample = screen.queryAllByRole("button").find((button) => button.textContent?.includes("Ejemplo"));
-    if (sample) fireEvent.click(sample);
+    view.rerender(<LoadPhase {...minimal} inspection={{ kind: "idle" }} sampleDatasets={[{ id: "s", name: "Clientes de prueba", format: "csv", description: "d" }]} />);
+    fireEvent.click(screen.getByRole("radio", { name: /^Ejemplo/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Clientes de prueba/ }));
+    expect(screen.getByRole("button", { name: /Clientes de prueba/ })).toBeEnabled();
+  });
+  it("usa el singular y el plural en los avisos de un libro con hojas ocultas", () => {
+    const source: DatasetSourceInspection = {
+      ...workbook,
+      sheets: [
+        { id: "sheet-1", name: "Auxiliar", hidden: true, mergedCellCount: 0 },
+        { id: "sheet-2", name: "Cálculos", hidden: true, mergedCellCount: 0 },
+        { id: "sheet-3", name: "Ventas", hidden: false, mergedCellCount: 1 },
+      ],
+    };
+    const inspection = completeSchemaPreview(workbookInspection(source), {
+      rowCount: 10,
+      columns: [{ name: "zona", dataType: "String" }, { name: "unidades", dataType: "Int64" }],
+      schemaMismatch: null,
+      titleRowCount: 1,
+    });
+    render(<LoadPhase {...loadPhaseProps()} inspection={inspection} />);
+    const notes = screen.getByRole("region", { name: "Avisos del libro" });
+    expect(notes).toHaveTextContent("El libro tiene 2 hojas ocultas en Excel; aparecen en la lista");
+    expect(notes).toHaveTextContent("Esta hoja tiene 1 rango de celdas combinadas");
+    expect(notes).toHaveTextContent("Encabezados en la fila 2: la fila de encima parecía un título y no se carga");
+  });
+
+  it("avisa de las columnas que se quedan como texto y de un archivo sin columnas", () => {
+    const withUnconverted = completeSchemaPreview(workbookInspection(workbook), {
+      rowCount: 3,
+      columns: [{ name: "importe", dataType: "String" }, { name: "fecha", dataType: "String" }],
+      schemaMismatch: null,
+      unconvertedColumns: [
+        { column: "importe", convention: "number", invalidCount: 1, example: "N/A" },
+        { column: "fecha", convention: "date", invalidCount: 12, example: "31/02/2026" },
+      ],
+    });
+    const view = render(<LoadPhase {...loadPhaseProps()} inspection={withUnconverted} />);
+    const note = screen.getByText("Algunas columnas se quedan como texto.").closest("div");
+    expect(note).toHaveTextContent("importe: 1 valor no es un número (por ejemplo, «N/A»)");
+    expect(note).toHaveTextContent("fecha: 12 valores no son una fecha (por ejemplo, «31/02/2026»)");
+
+    const empty = completeSchemaPreview(workbookInspection(workbook), {
+      rowCount: 0,
+      columns: [],
+      schemaMismatch: null,
+    });
+    view.rerender(<LoadPhase {...loadPhaseProps()} inspection={empty} />);
+    expect(screen.getByText("No se detectaron columnas.")).toBeInTheDocument();
+    expect(screen.queryByText("Ver columnas y tipos")).not.toBeInTheDocument();
+  });
+
+  it("muestra el separador de tabulación y avisa cuando la muestra del archivo quedó truncada", () => {
+    const tabbed = {
+      delimiter: "	",
+      firstRow: { ...delimitedHeaderReview.firstRow, sampleTruncated: true },
+      generated: delimitedHeaderReview.generated,
+    };
+    const view = render(<LoadPhase
+      {...loadPhaseProps()}
+      inspection={completeDelimitedHeaderReview(delimitedHeaderInspection(delimitedSource), tabbed)}
+    />);
+    expect(screen.getByText("Separador detectado").parentElement).toHaveTextContent("Tabulador");
+    expect(screen.getByText("La muestra quedó truncada y puede no representar el archivo entero.")).toBeInTheDocument();
+
+    const noColumns = {
+      delimiter: ";",
+      firstRow: { ...delimitedHeaderReview.firstRow, columns: [], rows: [] },
+      generated: delimitedHeaderReview.generated,
+    };
+    view.rerender(<LoadPhase
+      {...loadPhaseProps()}
+      inspection={completeDelimitedHeaderReview(delimitedHeaderInspection(delimitedSource), noColumns)}
+    />);
+    expect(screen.getByText("No se detectaron columnas en la muestra.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Muestra importada")).not.toBeInTheDocument();
+  });
+
+  it("habla en plural cuando se apartan varios catálogos y vuelve a Archivo si la fuente elegida desaparece", () => {
+    const view = render(<LoadPhase
+      {...loadPhaseProps({ children: <p>Contenido de proyectos</p> })}
+      setAsideCatalogs={["C:/datos/tareas.unreadable-1", "C:/datos/presets.unreadable-1"]}
+    />);
+    expect(screen.getByText(/catálogos nuevos y vacíos de tareas/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /^Proyecto/ }));
+    expect(screen.getByText("Contenido de proyectos")).toBeInTheDocument();
+
+    view.rerender(<LoadPhase {...loadPhaseProps()} />);
+    expect(screen.queryByRole("radio", { name: /^Proyecto/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Seleccionar dataset" })).toBeInTheDocument();
   });
 });

@@ -21,6 +21,7 @@
     "src-tauri/src/reusable_tasks.rs",
     "src-tauri/src/updater.rs",
     "src-tauri/src/remote_databases.rs",
+    "src-tauri/src/tsql_script.rs",
     "src-tauri/src/delivery_presets.rs",
     "src-tauri/src/session_guard.rs",
     "src/bridge.ts",
@@ -817,6 +818,22 @@
     {
       "rust": "ProjectOpenResult",
       "typescript": "ProjectOpenResult"
+    },
+    {
+      "rust": "DatabaseSource",
+      "typescript": "DatabaseSource"
+    },
+    {
+      "rust": "DatabaseSourceTable",
+      "typescript": "DatabaseSourceTable"
+    },
+    {
+      "rust": "DatabaseImportResult",
+      "typescript": "DatabaseImportResult"
+    },
+    {
+      "rust": "SqlServerScriptOptions",
+      "typescript": "SqlServerScriptOptions"
     },
     {
       "rust": "SqlQueryHistoryEntry",

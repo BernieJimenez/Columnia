@@ -1,0 +1,26 @@
+{
+  "contract": "columnia-rust-coverage-thresholds",
+  "schemaVersion": 1,
+  "modules": {
+    "automation": 79,
+    "catalog_recovery": 95,
+    "crash_report": 87,
+    "dataset": 73,
+    "dataset_fingerprints": 86,
+    "delivery_presets": 75,
+    "diagnostics": 90,
+    "duckdb_query": 82,
+    "lib": 9,
+    "privacy": 96,
+    "project_recovery": 86,
+    "projects": 85,
+    "remote_databases": 67,
+    "remote_delivery_ledger": 95,
+    "resource": 34,
+    "reusable_tasks": 80,
+    "session_guard": 75,
+    "tsql_script": 95,
+    "updater": 31,
+    "webview_watchdog": 0
+  }
+}

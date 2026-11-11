@@ -1,6 +1,6 @@
 # Roadmap de Columnia
 
-**Actualizado:** 2026-11-08 · **Versión:** 1.26.0
+**Actualizado:** 2026-11-10 · **Versión:** 1.26.0
 
 **Estado:** aplicación local funcional para Windows x64, de **uso personal**. No
 se comparte ni se distribuye; las mejoras se eligen por lo que su dueño nota al
@@ -30,21 +30,23 @@ abrió AUD-104, aparecida al aplicarla. Ese mismo día se cerró la tanda 4
 mismo día se cerró la tanda 5 (AUD-105, 034, 035 y 036) y se abrieron AUD-108
 a AUD-111, aparecidas al aplicarla. El 2026-11-09 se cerró la tanda 6 (AUD-108,
 044, 045, 046, 047 y 048) y se abrió AUD-112, aparecida al aplicarla. Ese
-mismo día se cerró la tanda 7 (AUD-112, 056 y 057).
+mismo día se cerró la tanda 7 (AUD-112, 056 y 057). El 2026-11-10 se cerró la
+tanda 8 (AUD-077, 074, 075, 076 y 073) y se abrió AUD-113, aparecida al
+aplicarla.
 
 <!-- indice:inicio -->
-**Última actualización:** 2026-11-09 · **Siguiente ID libre:** AUD-113 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
+**Última actualización:** 2026-11-10 · **Siguiente ID libre:** AUD-114 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
 
 | Tier | Abiertas | Cerradas | Esfuerzo de las abiertas (Bajo · Medio · Alto) |
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
-| 2 · Medio | 5 | 30 | 1 · 4 · 0 |
-| 3 · Bajo | 76 | 0 | 73 · 3 · 0 |
+| 2 · Medio | 0 | 35 | — |
+| 3 · Bajo | 77 | 0 | 74 · 3 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **82** | **30** | **75 · 7 · 0** |
+| **Total** | **78** | **35** | **75 · 3 · 0** |
 
-**Abiertas por área:** UI/UX 17 · QA y testing 12 · Código 10 · Arquitectura 9 · Rendimiento 9 · Documentación 9 · Accesibilidad 7 · Redacción 5 · Seguridad 4
+**Abiertas por área:** UI/UX 17 · Código 10 · Arquitectura 9 · Rendimiento 9 · Documentación 9 · QA y testing 8 · Accesibilidad 7 · Redacción 5 · Seguridad 4
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -424,45 +426,50 @@ Sin tareas abiertas.
 
 ### QA y testing
 
-- [ ] **AUD-073 · Full lleva cinco semanas sin ejecutarse y está en rojo (cobertura de 3 archivos críticos y resumen de cobertura de Rust)**
+- [x] **AUD-073 · Full lleva cinco semanas sin ejecutarse y está en rojo (cobertura de 3 archivos críticos y resumen de cobertura de Rust)**
   - **Área:** QA y testing · **Severidad:** Medio · **Esfuerzo:** Medio
   - **Ubicación:** `tools/check.ps1:220-221`
   - **Qué hacer:** (1) añadir `"tsql_script": 95` al JSON de umbrales; (2) cubrir en `LoadPhase`/`App` las ramas nuevas (líneas `App.tsx` 1651-1791 y `LoadPhase.tsx` 107, 120-122, 461 salen sin cubrir) y devolver a `DatasetComparisonSection` las pruebas que perdió, o bajar el umbral con motivo escrito; (3) ejecutar `check.ps1 -Profile Full` antes de cerrar cada bloque de roadmap (o añadir al `pre-push` una variante que compruebe que existe un informe Full `passed` para un commit reciente). Es decisión del dueño bajar umbrales o no (el uso es personal y no hay CI).
   - **Criterio de aceptación:** `check.ps1 -Profile Full` pasa en el commit de cierre y el informe `*-full.json` queda en `.local/validation/`.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-10 · tanda 8 de la Fase 2 (rama `auditoria/2026-11-05`). `tools/check.ps1 -Profile Full` pasa entero (23 pasos, informe `*-full.json` en `.local/validation/`). Sin bajar umbrales: pruebas nuevas en `App`, `LoadPhase`, `DatasetComparisonSection` y `ExplorePhase` (que también estaba por debajo en ramas); Vitest 772 → 786; total 89,72 / 93,34 / 85,69 / 91,53 (antes 88,4 / 92,88 / 85,21 / 90,45). `tsql_script` mide 98,15 % y su umbral es 95. El archivo de umbrales de Rust nunca se había versionado (`.gitignore` ignoraba cualquier `coverage/`): la regla pasa a `/coverage/` y `fixtures/coverage/rust-coverage-thresholds.json` entra en git. `CONTRIBUTING.md` pide ejecutar Full antes de cerrar cada bloque del roadmap; el pre-push no cambia. La intermitencia de `App.test.tsx` no se reprodujo en cinco pasadas completas.
 
-- [ ] **AUD-074 · El núcleo de la importación desde bases de datos no tiene ninguna prueba automática (lectura del cursor, lista de tablas, cancelación a mitad, PostgreSQL y MySQL)**
+- [x] **AUD-074 · El núcleo de la importación desde bases de datos no tiene ninguna prueba automática (lectura del cursor, lista de tablas, cancelación a mitad, PostgreSQL y MySQL)**
   - **Área:** QA y testing · **Severidad:** Medio · **Esfuerzo:** Medio
   - **Ubicación:** `src-tauri/src/remote_databases.rs:2347`
   - **Qué hacer:** extraer `rows_to_frame(names, columns_values, ...)` (o una función que acepte un iterador de lotes `Vec<Vec<Option<String>>>`) y probarla con límite, recorte y cancelación; añadir `external_odbc_import_postgresql` y `external_odbc_import_mysql` ignoradas que usen las variables existentes; documentarlas en `docs/reference/environment-variables.md`. Si el servidor SQL local (`MSSQLSERVER`, con ODBC 17/18) está disponible, la prueba de importación de SQL Server puede ejecutarse a mano como paso del cierre de cada versión.
   - **Criterio de aceptación:** `remote_databases` sube por encima del 60 % con pruebas que fallan si se quita el tope de filas, el recorte o la comprobación de cancelación; existe una prueba ignorada por motor.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-10 · tanda 8 de la Fase 2 (rama `auditoria/2026-11-05`). El bucle de la importación pasa a `stream_batches_to_parquet` (lotes desde un closure; el lector ODBC lo alimenta igual que antes) con cuatro pruebas: tope exacto con y sin fila extra, recorte, cancelación tras el primer lote sin archivo y error del driver a mitad; cada una falla si se quita el tope, el recorte o la comprobación de cancelación. Ignoradas nuevas `external_odbc_import_postgresql` y `external_odbc_import_mysql` (crean, importan y borran su tabla), documentadas; solo compiladas, porque este equipo no tiene esos servidores. `remote_databases` ya estaba en 68 % por las tandas anteriores; umbral de 56 a 67. Comprobado contra el SQL Server local, solo lectura: la importación de `dbo.Ventas` da 25 filas y, con tope 500, 500 filas con «más filas».
 
-- [ ] **AUD-075 · La exportación T-SQL solo se comprueba por subcadenas del texto generado, nunca ejecutada, y con pocos valores hostiles**
+- [x] **AUD-075 · La exportación T-SQL solo se comprueba por subcadenas del texto generado, nunca ejecutada, y con pocos valores hostiles**
   - **Área:** QA y testing · **Severidad:** Medio · **Esfuerzo:** Medio
   - **Ubicación:** `src-tauri/src/tsql_script.rs:777-1005`
   - **Qué hacer:** una prueba `#[ignore]` (con variable `COLUMNIA_ODBC_SQLSERVER` ya existente) que ejecute en una base de pruebas los cuatro scripts (crear, añadir, clave, paquete con `BULK INSERT` desde ruta local) sobre una tabla con nombres y valores hostiles (`]`, `'`, `"`, `\n`, `\r\n`, emoji, texto largo, vacíos y nulos) y compare filas y conteos; añadir a las pruebas de texto un caso con columna `a]b`, `x'y` y salto de línea.
   - **Criterio de aceptación:** existe una prueba ejecutable por entorno que crea, añade y actualiza una tabla real y la compara con el DataFrame de origen; las pruebas de texto incluyen nombres de columna hostiles.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-10 · tanda 8 de la Fase 2 (rama `auditoria/2026-11-05`). Dos pruebas ignoradas (`external_sql_server_runs_the_script_deliveries_on_a_real_table` y `..._bulk_package_deliveries_on_a_real_table`) generan el script y el paquete por la ruta real de exportación y los ejecutan por ODBC en una base de pruebas: crear 8 filas, recrear falla sin tocar la tabla, añadir 2 y actualizar por una clave con nombre hostil; comparan cada celda y los conteos con el DataFrame (valores con `]`, comillas, saltos de línea, emoji, texto de 5.000 caracteres, vacíos y nulos). Prueba de texto nueva con columnas `a]b`, `x'y` y `c"d`. Pasan contra el SQL Server local en una base desechable, borrada al terminar; quitar el escape de `]` o de `'` las rompe.
 
-- [ ] **AUD-076 · Sin pruebas de cancelación ni de fallo a mitad en la propuesta a disco (REN-14) ni en las exportaciones nuevas**
+- [x] **AUD-076 · Sin pruebas de cancelación ni de fallo a mitad en la propuesta a disco (REN-14) ni en las exportaciones nuevas**
   - **Área:** QA y testing · **Severidad:** Medio · **Esfuerzo:** Medio
   - **Ubicación:** `src-tauri/src/dataset/source_stage.rs:305-421`
   - **Qué hacer:** (a) una prueba que cancele tras el primer bloque (contador, como la de `tests.rs:2540`) y compruebe que el dataset no cambia y que el directorio queda con las mismas entradas; (b) una con más filas que `SOURCE_STAGE_BLOCK_ROWS` y una columna que rompa a la mitad; (c) lo mismo para `export_source_backed_tsql_atomic` y el paquete BULK: cancelación y destino inexistente al terminar.
   - **Criterio de aceptación:** pruebas que cancelan o fallan a mitad en la etapa de disco y en las dos exportaciones, comprobando que no quedan `.columnia-*` ni destino a medias.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-10 · tanda 8 de la Fase 2 (rama `auditoria/2026-11-05`). Siete pruebas en `dataset/disk_cancellation_tests.rs`: la etapa a disco cancelada al empezar el segundo bloque y con un error real de lectura en el cuarto deja dataset, historial y carpetas idénticos; el script T-SQL cancelado a medias o con un valor no finito al final, y el paquete BULK cancelado durante el CSV o el ZIP o con un fallo al escribir `cargar.sql`, no dejan temporales y conservan el destino anterior. Cada una falla al quitar la cancelación o el borrado del temporal correspondiente. Sin bugs.
 
-- [ ] **AUD-077 · Las estructuras y enums nuevos del IPC de importación y T-SQL no están inscritos en las pruebas de paridad de contratos**
+- [x] **AUD-077 · Las estructuras y enums nuevos del IPC de importación y T-SQL no están inscritos en las pruebas de paridad de contratos**
   - **Área:** QA y testing · **Severidad:** Medio · **Esfuerzo:** Bajo
   - **Ubicación:** `src/ipc-contract.test.ts:485-493`
   - **Qué hacer:** añadir las cuatro estructuras y `SqlServerLoadMode` a `sharedStructures` y a `SHARED_ENUMS`, y una prueba que parsee un JSON de ejemplo de TypeScript con `DatabaseSource`/`SqlServerScriptOptions` (la prueba de Rust `options_arrive_from_the_interface_in_camel_case` ya lo hace por un lado).
   - **Criterio de aceptación:** renombrar un campo de `DatabaseImportResult` o una variante de `SqlServerLoadMode` rompe `npm test`.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-10 · tanda 8 de la Fase 2 (rama `auditoria/2026-11-05`). `DatabaseSource`, `DatabaseSourceTable`, `DatabaseImportResult` y `SqlServerScriptOptions` entran en las estructuras compartidas (inventario y su generador, con `tsql_script.rs` como fuente) y `SqlServerLoadMode` y `SqlServerTextSize` en los enums; prueba nueva con el JSON de ejemplo de `DatabaseSource` y `SqlServerScriptOptions`. Renombrar `rowsImported` o la variante `upsert` rompe `npm test`. Quedan fuera otras estructuras del mismo IPC (AUD-113).
 
 ## Tier 3 · Bajo (revisión 2026-11-05)
 
@@ -976,6 +983,14 @@ Sin tareas abiertas.
   - **Criterio de aceptación:** regenerar dos veces seguidas no cambia nada, y tras subir un solo paquete solo cambian sus filas; la tabla queda ordenada por ecosistema, nombre y versión. (Al subir `calamine` en AUD-004, 7 filas de contenido dieron unas 590 líneas de diff.)
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-004
+
+- [ ] **AUD-113 · Las estructuras de conexión y entrega a bases de datos siguen fuera de las pruebas de paridad del IPC**
+  - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `docs/reference/ipc-inventory.json` (`sharedStructures`), `tools/check-ipc-inventory.mjs` y `src/ipc-contract.test.ts` (`SHARED_ENUMS`)
+  - **Qué hacer:** inscribir `DatabaseConnection`, `DatabaseTarget`, `DatabaseConnectionResult` y `RemoteExportPreflight` en las estructuras compartidas, y `DatabaseTablePolicy` y `DatabaseAuthentication` en los enums, como se hizo en AUD-077. Regenerar el inventario con `node tools/check-ipc-inventory.mjs --write` en lugar de editar el JSON a mano (el JSON y las listas del generador tienen que coincidir).
+  - **Criterio de aceptación:** renombrar un campo de `DatabaseTarget` o una variante de `DatabaseAuthentication` rompe `npm test`.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-077
 
 ### Ortografía y redacción
 

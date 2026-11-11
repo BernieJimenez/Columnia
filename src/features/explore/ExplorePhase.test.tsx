@@ -293,4 +293,52 @@ describe("ExplorePhase", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Quitar filtro estado: FL" }));
     await waitFor(() => expect(onFiltersChange).toHaveBeenLastCalledWith([]));
   });
+  it("names every text date when several columns could be a trend (UX-09)", async () => {
+    vi.spyOn(bridge, "getExplorePanel").mockResolvedValue({
+      ...panel(5),
+      categories: [],
+      histogram: null,
+      trend: null,
+      options: { categories: [], measures: [], dates: [], textDates: ["alta", "baja"] },
+    });
+    render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
+    expect(await screen.findByText(/«alta», «baja» parecen fechas guardadas como texto/)).toBeInTheDocument();
+    expect(screen.getByText(/Ninguna columna sirve para un gráfico/)).toBeInTheDocument();
+  });
+
+  it("clears every filter at once and drops them when the data changes", async () => {
+    const getPanel = vi.spyOn(bridge, "getExplorePanel").mockResolvedValue(panel(3));
+    const onFiltersChange = vi.fn();
+    const filters = [{ column: "estado", values: ["FL"] }, { column: "precio", range: { min: 450, max: 800 } }];
+    const view = render(<ExplorePhase
+      dataset={dataset}
+      datasetRevision={1}
+      profileReady
+      initialFilters={filters}
+      onFiltersChange={onFiltersChange}
+    />);
+    fireEvent.click(await screen.findByRole("button", { name: "Quitar filtros" }));
+    await waitFor(() => expect(onFiltersChange).toHaveBeenLastCalledWith([]));
+    expect(screen.queryByRole("button", { name: /Quitar filtro estado/ })).not.toBeInTheDocument();
+
+    // A new revision of the data starts without filters or chosen columns that may no longer exist.
+    view.unmount();
+    const reopened = render(<ExplorePhase
+      dataset={dataset}
+      datasetRevision={1}
+      profileReady
+      initialFilters={filters}
+      onFiltersChange={onFiltersChange}
+    />);
+    expect(await screen.findByRole("button", { name: "Quitar filtro estado: FL" })).toBeInTheDocument();
+    reopened.rerender(<ExplorePhase
+      dataset={dataset}
+      datasetRevision={2}
+      profileReady
+      initialFilters={filters}
+      onFiltersChange={onFiltersChange}
+    />);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Quitar filtro estado: FL" })).not.toBeInTheDocument());
+    await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([], {}));
+  });
 });

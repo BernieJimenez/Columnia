@@ -72,6 +72,8 @@ cargo install cargo-llvm-cov
 rustup component add llvm-tools-preview
 ```
 
+Ejecuta `tools/check.ps1 -Profile Full` antes de cerrar cada bloque del roadmap.
+
 Como no hay CI, puedes activar en tu clon un hook de pre-push que ejecuta el
 perfil Fast y Clippy con `-D warnings` antes de publicar:
 

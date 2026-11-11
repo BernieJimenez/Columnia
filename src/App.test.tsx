@@ -360,6 +360,12 @@ describe("App", () => {
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(pick.mock.calls.length).toBe(picks);
 
+    // Esc also leaves the work as it was.
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
+    fireEvent.keyDown(await screen.findByRole("alertdialog", { name: "Cambios sin guardar" }), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(pick.mock.calls.length).toBe(picks);
+
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
     fireEvent.click(screen.getByRole("button", { name: "Continuar sin guardar" }));
     await waitFor(() => expect(pick.mock.calls.length).toBe(picks + 1));
@@ -3705,4 +3711,79 @@ describe("App", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("cancelación rechazada");
     resolveProfile({ rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] });
   });
+
+  it("abre la consulta SQL sobre el dataset activo y se cierra con el botón o con Esc", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });
+    mockDatasetLoad({
+      fileName: "consultas.csv", fileSizeBytes: 64, rowCount: 1, columnCount: 2,
+      columns: [{ name: "id", dataType: "Int64" }, { name: "nombre", dataType: "String" }],
+      rows: [["1", "Ana"]],
+    });
+
+    renderAppWithHeaderConfirmation();
+    expect(screen.queryByRole("button", { name: "Consulta SQL" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    const open = await screen.findByRole("button", { name: "Consulta SQL" });
+    fireEvent.mouseEnter(open);
+    fireEvent.focus(open);
+    fireEvent.click(open);
+
+    const drawer = await screen.findByRole("dialog", { name: "Consulta SQL" });
+    expect(drawer).toHaveTextContent("Consulta consultas.csv sin modificarlo.");
+    fireEvent.click(within(drawer).getByRole("button", { name: "Cerrar" }));
+    expect(screen.queryByRole("dialog", { name: "Consulta SQL" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Consulta SQL" }));
+    fireEvent.keyDown(await screen.findByRole("dialog", { name: "Consulta SQL" }), { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Consulta SQL" })).not.toBeInTheDocument();
+  }, LOADED_MACHINE_TIMEOUT_MS);
+
+  it("vuelve a la etapa anterior desde el pie de navegación y precarga la siguiente", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });
+    mockDatasetLoad({
+      fileName: "etapas.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
+      columns: [{ name: "id", dataType: "Int64" }], rows: [["1"]],
+    });
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await switchPhase("Preparar");
+    const footer = screen.getByLabelText("Navegación entre etapas");
+    const next = within(footer).getByRole("button", { name: /Siguiente|Continuar|Entregar/ });
+    fireEvent.mouseEnter(next);
+    fireEvent.focus(next);
+
+    fireEvent.click(within(footer).getByRole("button", { name: "Volver a Revisar" }));
+    expect(await screen.findByRole("heading", { name: "Revisa antes de modificar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-current", "step");
+  }, LOADED_MACHINE_TIMEOUT_MS);
+
+  it("pide cancelar la exportación en curso y muestra si la cancelación falla", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });
+    mockDatasetLoad({
+      fileName: "ventas.csv", fileSizeBytes: 128, rowCount: 1, columnCount: 1,
+      columns: [{ name: "total", dataType: "Int64" }], rows: [["100"]],
+    });
+    let resolveExport!: (value: null) => void;
+    vi.spyOn(bridge, "exportDataset").mockReturnValue(new Promise<null>((resolve) => { resolveExport = resolve; }));
+    const cancel = vi.spyOn(bridge, "cancelOperation").mockRejectedValue(new Error("ya terminó"));
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await screen.findByText("ventas.csv", { selector: ".dataset-bar__name" });
+    await switchPhase("Entregar");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    fireEvent.click(screen.getByRole("button", { name: "Exportar CSV" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith("export"));
+    expect(await screen.findByText(/ya terminó/)).toBeInTheDocument();
+    // The export is still running, so the person can try again.
+    expect(screen.getByRole("button", { name: "Cancelar" })).toBeEnabled();
+    resolveExport(null);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Cancelar" })).not.toBeInTheDocument());
+  }, LOADED_MACHINE_TIMEOUT_MS);
 });

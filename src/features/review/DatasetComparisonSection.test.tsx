@@ -330,4 +330,146 @@ describe("DatasetComparisonSection", () => {
     // The page still lacks decisions, so it is not «completa».
     expect(screen.getByText(/Faltan decisiones en esta página/)).toBeInTheDocument();
   });
+  it("dice con una sola opción, con las tres o con ninguna qué se usó al comparar (PROD-21)", () => {
+    renderSection({
+      status: {
+        kind: "ready",
+        comparison: { ...comparison, options: { numericTolerance: false, ignoreCase: false, trimSpaces: true } },
+      } as ComparisonStatus,
+    });
+    expect(screen.getByText("Se comparó ignorando los espacios al principio y al final.")).toBeInTheDocument();
+    cleanup();
+
+    renderSection({
+      status: {
+        kind: "ready",
+        comparison: { ...comparison, options: { numericTolerance: true, ignoreCase: true, trimSpaces: true } },
+      } as ComparisonStatus,
+    });
+    expect(screen.getByText(
+      "Se comparó tolerando el redondeo de los decimales, ignorando mayúsculas e ignorando los espacios al principio y al final.",
+    )).toBeInTheDocument();
+    cleanup();
+
+    // A result from before the options existed says nothing about them.
+    renderSection({
+      status: { kind: "ready", comparison: { ...comparison, options: undefined } } as unknown as ComparisonStatus,
+    });
+    expect(screen.queryByText(/Se comparó /)).not.toBeInTheDocument();
+  });
+
+  it("dice «Ninguna» cuando los datasets no comparten columnas", () => {
+    renderSection({
+      status: {
+        kind: "ready",
+        comparison: {
+          ...comparison,
+          sharedColumns: [],
+          currentOnlyColumns: ["id"],
+          comparedOnlyColumns: ["codigo"],
+          schemaCompatible: false,
+          canConsolidate: false,
+        },
+      } as ComparisonStatus,
+    });
+    const columns = screen.getByLabelText("Resultado de columnas");
+    expect(within(columns).getByRole("heading", { name: "Columnas compartidas (0)" }).nextElementSibling).toHaveTextContent("Ninguna");
+    expect(within(columns).getByText("codigo")).toBeInTheDocument();
+  });
+
+  it("decide por página, cambia de idea y aplica la fuente elegida a los demás conflictos (UX-20)", () => {
+    const page = {
+      ...withConflicts,
+      conflictingKeyCount: 4,
+      conflictOffset: 0,
+      conflictsTruncated: true,
+      conflicts: [
+        { key: ["1"], cells: [{ column: "importe", current: "10", compared: "12" }, { column: "estado", current: "a", compared: "b" }] },
+        { key: ["2"], cells: [{ column: "importe", current: "20", compared: "22" }] },
+      ],
+    } as unknown as DatasetComparison;
+    const props = renderSection({ status: { kind: "ready", comparison: page } });
+    const conflict = (number: number) => within(screen.getByRole("group", { name: new RegExp(`^Conflicto ${number} `) }));
+    const resolve = screen.getByRole("button", { name: "Resolver conflictos" });
+
+    // «Usar el comparado en esta página» skips the key that was excluded.
+    fireEvent.click(conflict(2).getByRole("checkbox", { name: /Excluir la fila activa/ }));
+    expect(conflict(2).getByRole("radio", { name: "Usar comparado en importe" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Usar el comparado en esta página" }));
+    expect(conflict(1).getByRole("radio", { name: "Usar comparado en importe" })).toBeChecked();
+    expect(conflict(2).getByRole("radio", { name: "Usar comparado en importe" })).not.toBeChecked();
+
+    // The user changes one cell back to the active value.
+    fireEvent.click(conflict(1).getByRole("radio", { name: "Conservar activo en estado" }));
+    expect(conflict(1).getByRole("radio", { name: "Conservar activo en estado" })).toBeChecked();
+
+    // The same button turns the «demás conflictos» rule on and off, and says what it does.
+    const keepRest = screen.getByRole("button", { name: "Conservar el activo en los demás conflictos" });
+    fireEvent.click(keepRest);
+    expect(keepRest).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/usarán el valor del activo en todas sus columnas/)).toBeInTheDocument();
+    fireEvent.click(keepRest);
+    expect(keepRest).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByText(/usarán el valor del activo/)).not.toBeInTheDocument();
+    expect(resolve).toBeDisabled();
+
+    // With the rule on, the key excluded stays excluded and the unseen ones follow the rule.
+    fireEvent.click(keepRest);
+    fireEvent.click(resolve);
+    expect(props.onResolveConflicts).toHaveBeenCalledWith([
+      { action: "exclude", conflictIndex: 1 },
+      { action: "useSource", conflictIndex: 0, column: "importe", source: "compared" },
+      { action: "useSource", conflictIndex: 0, column: "estado", source: "current" },
+      { action: "useSource", conflictIndex: 2, source: "current" },
+      { action: "useSource", conflictIndex: 3, source: "current" },
+    ]);
+  });
+
+  it("una celda sin decidir toma la fuente de los demás conflictos y las exclusiones se cuentan en plural", () => {
+    const page = {
+      ...withConflicts,
+      conflictingKeyCount: 3,
+      conflictOffset: 0,
+      conflictsTruncated: true,
+      conflicts: [
+        { key: ["1"], cells: [{ column: "importe", current: "10", compared: "12" }, { column: "estado", current: "a", compared: "b" }] },
+        { key: ["2"], cells: [{ column: "importe", current: "20", compared: "22" }] },
+      ],
+    } as unknown as DatasetComparison;
+    const props = renderSection({ status: { kind: "ready", comparison: page } });
+    const conflict = (number: number) => within(screen.getByRole("group", { name: new RegExp(`^Conflicto ${number} `) }));
+
+    fireEvent.click(conflict(1).getByRole("checkbox", { name: /Excluir la fila activa/ }));
+    fireEvent.click(conflict(2).getByRole("checkbox", { name: /Excluir la fila activa/ }));
+    expect(screen.getByText("2 filas activas se excluirán del resultado.")).toBeInTheDocument();
+    // Un-excluding the first key makes its cells decidable again; only one is decided.
+    fireEvent.click(conflict(1).getByRole("checkbox", { name: /Excluir la fila activa/ }));
+    expect(screen.getByText("1 fila activa se excluirá del resultado.")).toBeInTheDocument();
+    fireEvent.click(conflict(1).getByRole("radio", { name: "Conservar activo en importe" }));
+    fireEvent.click(screen.getByRole("button", { name: "Usar el comparado en los demás conflictos" }));
+    fireEvent.click(screen.getByRole("button", { name: "Resolver conflictos" }));
+    expect(props.onResolveConflicts).toHaveBeenCalledWith([
+      { action: "exclude", conflictIndex: 1 },
+      { action: "useSource", conflictIndex: 0, column: "importe", source: "current" },
+      { action: "useSource", conflictIndex: 0, column: "estado", source: "compared" },
+      { action: "useSource", conflictIndex: 2, source: "compared" },
+    ]);
+  });
+
+  it("bloquea el botón de resolver mientras otra mutación trabaja y dice cuál", () => {
+    renderSection({
+      status: { kind: "ready", comparison: withConflicts },
+      reviewMutationStatus: { kind: "running", mutation: "join", cancellation: "available" },
+    });
+    expect(screen.getAllByRole("button", { name: "Esperando unión…" })).not.toHaveLength(0);
+    cleanup();
+    renderSection({
+      status: { kind: "ready", comparison: withConflicts },
+      reviewMutationStatus: { kind: "running", mutation: "consolidate", cancellation: "available" },
+    });
+    const waiting = screen.getAllByRole("button", { name: "Esperando consolidación…" });
+    expect(waiting.length).toBeGreaterThan(0);
+    for (const button of waiting) expect(button).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Resolver conflictos" })).not.toBeInTheDocument();
+  });
 });

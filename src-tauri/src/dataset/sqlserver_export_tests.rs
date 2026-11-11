@@ -466,3 +466,332 @@ fn writes_sqlserver_samples_for_a_real_server() {
         .expect(name);
     }
 }
+
+// AUD-075: the four deliveries run against a real SQL Server.
+
+/// One row of the hostile table: id, key, two texts and a number.
+type HostileRow = (
+    i64,
+    &'static str,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+);
+
+const KEY_COLUMN: &str = "k'\"]";
+const TEXT_COLUMNS: [&str; 2] = ["a]b", "x'y"];
+const NUMBER_COLUMN: &str = "c\"d";
+
+fn hostile_frame(rows: &[HostileRow]) -> DataFrame {
+    df!(
+        "id" => rows.iter().map(|row| row.0).collect::<Vec<_>>(),
+        KEY_COLUMN => rows.iter().map(|row| row.1).collect::<Vec<_>>(),
+        TEXT_COLUMNS[0] => rows.iter().map(|row| row.2.clone()).collect::<Vec<_>>(),
+        TEXT_COLUMNS[1] => rows.iter().map(|row| row.3.clone()).collect::<Vec<_>>(),
+        NUMBER_COLUMN => rows.iter().map(|row| row.4).collect::<Vec<_>>(),
+    )
+    .expect("frame hostil")
+}
+
+fn some(text: &str) -> Option<String> {
+    Some(text.to_owned())
+}
+
+/// Values that try to break out of a literal, an identifier, a comment, a CSV
+/// field or a line: quotes, brackets, CR, LF, CRLF, emoji, long, empty and NULL.
+fn initial_rows() -> Vec<HostileRow> {
+    vec![
+        (
+            1,
+            "k1",
+            some("corchete ] y [ y ]] cerrados"),
+            some("O'Brien ''doble'' y \"comillas\""),
+            Some(1),
+        ),
+        (
+            2,
+            "k2",
+            some("línea 1\nlínea 2"),
+            some("crlf\r\nfin y solo\rCR"),
+            None,
+        ),
+        (
+            3,
+            "k3",
+            some("😀 café ñandú 日本語"),
+            some("'; DROP TABLE x; -- /* */"),
+            Some(-3),
+        ),
+        (
+            4,
+            "k4",
+            some(&"0123456789".repeat(500)),
+            some("corto"),
+            Some(4),
+        ),
+        (5, "k5", some(""), None, Some(5)),
+        (6, "k6", None, some(""), None),
+        (
+            7,
+            "k7",
+            some("  espacios  "),
+            some("termina en salto\n"),
+            Some(7),
+        ),
+        (
+            8,
+            "k8",
+            some("a,b;c\t\"d\""),
+            some("\"\"\"\n\"\"\""),
+            Some(8),
+        ),
+    ]
+}
+
+fn appended_rows() -> Vec<HostileRow> {
+    vec![
+        (9, "k9", some("]]]"), some("'''"), Some(9)),
+        (10, "k10", some("N'x'\r\n]"), some("😀\n😀"), None),
+    ]
+}
+
+/// k2 and k5 change (value to NULL, NULL to value, hostile to hostile), k11 is new.
+fn upsert_rows() -> Vec<HostileRow> {
+    vec![
+        (2, "k2", None, some("ahora ] con ' y\r\nsalto"), Some(22)),
+        (5, "k5", some("de vacío a ]'\"\n"), some("🙂"), None),
+        (11, "k11", some("nueva\r\nfila"), None, Some(11)),
+    ]
+}
+
+/// Merges `changes` into `table` by key, as the script does.
+fn merged(table: &[HostileRow], changes: &[HostileRow]) -> Vec<HostileRow> {
+    let mut result = table.to_vec();
+    for change in changes {
+        match result.iter_mut().find(|row| row.1 == change.1) {
+            Some(row) => *row = change.clone(),
+            None => result.push(change.clone()),
+        }
+    }
+    result.sort_by_key(|row| row.0);
+    result
+}
+
+/// BULK INSERT loads an empty text as NULL (documented in LEEME.txt).
+fn as_bulk_loads(rows: &[HostileRow]) -> Vec<HostileRow> {
+    let blank_to_null = |text: &Option<String>| text.clone().filter(|text| !text.is_empty());
+    rows.iter()
+        .map(|row| {
+            (
+                row.0,
+                row.1,
+                blank_to_null(&row.2),
+                blank_to_null(&row.3),
+                row.4,
+            )
+        })
+        .collect()
+}
+
+fn bracketed(name: &str) -> String {
+    format!("[{}]", name.replace(']', "]]"))
+}
+
+fn expected_cells(rows: &[HostileRow]) -> Vec<Vec<Option<String>>> {
+    rows.iter()
+        .map(|row| {
+            vec![
+                Some(row.0.to_string()),
+                Some(row.1.to_owned()),
+                row.2.clone(),
+                row.3.clone(),
+                row.4.map(|number| number.to_string()),
+            ]
+        })
+        .collect()
+}
+
+fn read_table(table: &str) -> Vec<Vec<Option<String>>> {
+    let sql = format!(
+        "SELECT CAST([id] AS NVARCHAR(40)), {}, {}, {}, CAST({} AS NVARCHAR(40)) FROM [dbo].{} ORDER BY [id]",
+        bracketed(KEY_COLUMN),
+        bracketed(TEXT_COLUMNS[0]),
+        bracketed(TEXT_COLUMNS[1]),
+        bracketed(NUMBER_COLUMN),
+        bracketed(table),
+    );
+    crate::remote_databases::sqlserver_script_testing::query_rows(&sql).expect("leer la tabla")
+}
+
+fn assert_table(table: &str, expected: &[HostileRow], what: &str) {
+    let actual = read_table(table);
+    let expected = expected_cells(expected);
+    assert_eq!(actual.len(), expected.len(), "{what}: conteo de filas");
+    for (actual, expected) in actual.iter().zip(&expected) {
+        assert_eq!(actual, expected, "{what}: fila {:?}", expected[0]);
+    }
+}
+
+/// Drops the test table when the test ends, also when it fails.
+struct DropTable(String);
+
+impl Drop for DropTable {
+    fn drop(&mut self) {
+        let sql = format!(
+            "IF OBJECT_ID(N'dbo.{0}', N'U') IS NOT NULL DROP TABLE [dbo].{1};",
+            self.0.replace('\'', "''"),
+            bracketed(&self.0)
+        );
+        if let Err(error) = crate::remote_databases::sqlserver_script_testing::run_script(&sql) {
+            eprintln!("No se pudo borrar la tabla de prueba {}: {error}", self.0);
+        }
+    }
+}
+
+fn table_options(table: &str, mode: &str) -> SqlServerScriptOptions {
+    let key = match mode {
+        "upsert" => format!(
+            r#","keyColumns":[{}]"#,
+            serde_json::to_string(KEY_COLUMN).unwrap()
+        ),
+        _ => String::new(),
+    };
+    sqlserver_options(&format!(
+        r#"{{"schema":"dbo","table":"{table}","mode":"{mode}"{key}}}"#
+    ))
+}
+
+/// Exports `frame` through the production path and returns the SQL to run.
+/// A script is read as is; a package is unpacked in `directory` and its
+/// `cargar.sql` is pointed at the unpacked CSV (the default path is
+/// `C:\Columnia`).
+fn delivery_sql(
+    frame: &DataFrame,
+    table: &str,
+    mode: &str,
+    bulk: bool,
+    directory: &Path,
+) -> String {
+    let options = table_options(table, mode);
+    if !bulk {
+        let destination = directory.join(format!("{table}_{mode}.sql"));
+        export_with_options(frame, &destination, ExportFormat::SqlServerScript, &options)
+            .expect("script T-SQL");
+        return fs::read_to_string(destination).expect("script");
+    }
+    let destination = directory.join(format!("{table}_{mode}.zip"));
+    export_with_options(frame, &destination, ExportFormat::SqlServerBulk, &options)
+        .expect("paquete BULK INSERT");
+    let package = directory.join(format!("{mode}-paquete"));
+    fs::create_dir_all(&package).expect("carpeta del paquete");
+    let mut archive = ZipArchive::new(File::open(&destination).expect("zip")).expect("zip válido");
+    let mut load = String::new();
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).expect("entrada");
+        let name = entry.name().to_owned();
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).expect("contenido");
+        if name == "cargar.sql" {
+            load = String::from_utf8(bytes).expect("cargar.sql UTF-8");
+        } else {
+            fs::write(package.join(&name), bytes).expect("archivo del paquete");
+        }
+    }
+    let csv = format!("{table}.csv");
+    let default_path = format!("C:\\Columnia\\{csv}");
+    assert!(
+        load.contains(&default_path),
+        "ruta por defecto de BULK INSERT"
+    );
+    let real_path = package.join(&csv).to_string_lossy().replace('\'', "''");
+    load.replace(&default_path, &real_path)
+}
+
+/// Runs the create, append and update-by-key deliveries of one kind and
+/// compares the real table with the data frame after each one.
+fn run_deliveries(table: &str, bulk: bool, directory: &Path) {
+    use crate::remote_databases::sqlserver_script_testing::run_script;
+    let kind = if bulk { "paquete" } else { "script" };
+    let adapt = |rows: &[HostileRow]| {
+        if bulk {
+            as_bulk_loads(rows)
+        } else {
+            rows.to_vec()
+        }
+    };
+    let _cleanup = DropTable(table.to_owned());
+
+    // Create: the table does not exist, 8 rows arrive.
+    let first = initial_rows();
+    let sql = delivery_sql(&hostile_frame(&first), table, "create", bulk, directory);
+    let counts = run_script(&sql).unwrap_or_else(|error| panic!("{kind} crear: {error}"));
+    if bulk {
+        assert_eq!(
+            counts,
+            vec![vec![some("8"), some("8")]],
+            "{kind} crear: filas cargadas y esperadas"
+        );
+    }
+    let mut expected = adapt(&first);
+    assert_table(table, &expected, &format!("{kind} crear"));
+
+    // Create again: it stops on the existing table and leaves it untouched.
+    let error = run_script(&sql).expect_err("crear sobre una tabla existente debe parar");
+    assert!(error.contains("ya existe"), "{kind} recrear: {error}");
+    assert_table(table, &expected, &format!("{kind} tras recrear"));
+
+    // Append: two more rows, by column name.
+    let more = appended_rows();
+    let sql = delivery_sql(&hostile_frame(&more), table, "append", bulk, directory);
+    let counts = run_script(&sql).unwrap_or_else(|error| panic!("{kind} añadir: {error}"));
+    if bulk {
+        assert_eq!(
+            counts,
+            vec![vec![some("2"), some("2")]],
+            "{kind} añadir: filas nuevas y exportadas"
+        );
+    }
+    expected.extend(adapt(&more));
+    assert_table(table, &expected, &format!("{kind} añadir"));
+
+    // Update by key: two rows change, one is new.
+    let changes = upsert_rows();
+    let sql = delivery_sql(&hostile_frame(&changes), table, "upsert", bulk, directory);
+    let counts = run_script(&sql).unwrap_or_else(|error| panic!("{kind} clave: {error}"));
+    assert_eq!(
+        counts,
+        vec![vec![some("2"), some("1"), some("3")]],
+        "{kind} clave: actualizadas, nuevas y exportadas"
+    );
+    expected = merged(&expected, &adapt(&changes));
+    assert_table(table, &expected, &format!("{kind} clave"));
+}
+
+fn unique_table(prefix: &str) -> String {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("reloj")
+        .as_millis();
+    format!("columnia_aud075_{prefix}_{millis}")
+}
+
+#[test]
+#[ignore = "requiere un SQL Server real en COLUMNIA_ODBC_SQLSERVER (usa una base de pruebas propia)"]
+fn external_sql_server_runs_the_script_deliveries_on_a_real_table() {
+    let directory = tempfile::tempdir().expect("carpeta");
+    run_deliveries(&unique_table("script"), false, directory.path());
+}
+
+#[test]
+#[ignore = "requiere un SQL Server real en COLUMNIA_ODBC_SQLSERVER que lea la carpeta temporal (usa una base de pruebas propia)"]
+fn external_sql_server_runs_the_bulk_package_deliveries_on_a_real_table() {
+    // BULK INSERT reads the CSV from the server's disk; COLUMNIA_BULK_DIR
+    // names a folder the SQL Server service can read when the temporary one
+    // is not.
+    let base = std::env::var_os("COLUMNIA_BULK_DIR").map(PathBuf::from);
+    let directory = match base {
+        Some(base) => tempfile::tempdir_in(base).expect("carpeta de BULK"),
+        None => tempfile::tempdir().expect("carpeta"),
+    };
+    run_deliveries(&unique_table("bulk"), true, directory.path());
+}

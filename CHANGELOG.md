@@ -1549,6 +1549,13 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- Pruebas nuevas de lo que podía romperse sin avisar: la importación desde
+  bases de datos (tope de filas, recorte, cancelación y error a mitad), la
+  entrega T-SQL y BULK INSERT ejecutada contra un SQL Server real con nombres
+  y valores hostiles, la cancelación y el fallo a mitad en la etapa a disco y
+  en esas dos exportaciones, y la paridad del IPC de importación y T-SQL. El
+  perfil Full vuelve a pasar sin bajar umbrales, y los umbrales de cobertura de
+  Rust, que nunca se habían versionado, entran en git (AUD-073 a AUD-077).
 - La conversión de columnas a fecha y el relleno de huecos se escriben en un
   solo sitio (`dataset/column_typing.rs`), compartido por la ruta en memoria y
   la etapa en disco. Prueba nueva de la mediana de DuckDB contra la de la ruta

@@ -2764,39 +2764,90 @@ where
     // Each batch is written to the temporary Parquet as soon as it arrives:
     // memory holds one batch, never the table. If the read fails or is
     // cancelled, the writer is dropped and the temporary file goes with it.
-    let mut writer = pending.start(&names)?;
+    let writer = pending.start(&names)?;
+    stream_batches_to_parquet(
+        names,
+        row_limit,
+        writer,
+        |wanted| {
+            let Some(batch) = block.fetch().map_err(|error| {
+                format_driver_error("No se pudieron leer las filas", error, target)
+            })?
+            else {
+                return Ok(None);
+            };
+            let available = batch.num_rows();
+            let take = available.min(wanted);
+            let mut columns = Vec::with_capacity(usize::from(column_count));
+            let mut truncated = Vec::with_capacity(usize::from(column_count));
+            for index in 0..usize::from(column_count) {
+                let slice = batch.column(index);
+                truncated.push(slice.has_truncated_values().is_some());
+                columns.push(
+                    slice
+                        .iter()
+                        .take(take)
+                        .map(|value| value.map(|text| text.to_string()))
+                        .collect::<Vec<_>>(),
+                );
+            }
+            Ok(Some(ImportBatch {
+                columns,
+                available,
+                truncated,
+            }))
+        },
+        report,
+        is_cancelled,
+    )
+}
+
+/// One batch as the driver delivered it, already as text.
+struct ImportBatch {
+    /// The rows kept, by column: at most the rows still wanted.
+    columns: Vec<Vec<Option<String>>>,
+    /// The rows the driver delivered, kept or not.
+    available: usize,
+    /// Per column: a value of this batch was longer than the buffer and was cut.
+    truncated: Vec<bool>,
+}
+
+/// The loop of an import, apart from the driver: asks `next_batch` for batches
+/// (given the rows still wanted), writes each as it arrives, stops at
+/// `row_limit` (a batch with more rows than wanted marks `more_rows_available`),
+/// notes the columns that came cut and checks for cancellation before every
+/// batch. On error or cancellation the writer is dropped, and its temporary
+/// file with it.
+fn stream_batches_to_parquet<N, F, C>(
+    names: Vec<String>,
+    row_limit: usize,
+    mut writer: ImportParquetWriter,
+    mut next_batch: N,
+    report: &mut F,
+    is_cancelled: &C,
+) -> Result<ImportRead, String>
+where
+    N: FnMut(usize) -> Result<Option<ImportBatch>, String>,
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
     let mut truncated = vec![false; names.len()];
     let mut rows = 0usize;
     let mut more_rows_available = false;
     loop {
         ensure_not_cancelled(is_cancelled)?;
-        let Some(batch) = block
-            .fetch()
-            .map_err(|error| format_driver_error("No se pudieron leer las filas", error, target))?
-        else {
+        let Some(batch) = next_batch(row_limit - rows)? else {
             break;
         };
-        let available = batch.num_rows();
-        let take = available.min(row_limit - rows);
-        let mut columns = Vec::with_capacity(names.len());
-        for (index, flag) in truncated.iter_mut().enumerate() {
-            let slice = batch.column(index);
-            if slice.has_truncated_values().is_some() {
-                *flag = true;
-            }
-            columns.push(
-                slice
-                    .iter()
-                    .take(take)
-                    .map(|value| value.map(|text| text.to_string()))
-                    .collect::<Vec<_>>(),
-            );
+        for (flag, cut) in truncated.iter_mut().zip(&batch.truncated) {
+            *flag |= *cut;
         }
-        writer.write_rows(columns)?;
+        let take = batch.available.min(row_limit - rows);
+        writer.write_rows(batch.columns)?;
         rows += take;
         let percent = 20 + ((rows as u64 * 60) / row_limit.max(1) as u64).min(60) as u8;
         report("Leyendo filas", percent);
-        if take < available {
+        if take < batch.available {
             more_rows_available = true;
             break;
         }
@@ -3286,6 +3337,80 @@ pub async fn import_database_table(
         more_rows_available: fetched.more_rows_available,
         truncated_columns: fetched.truncated_columns,
     })
+}
+
+/// Support for the ignored tests of the SQL Server script and the BULK INSERT
+/// package (AUD-075): `odbc_api` only lives in this file, so the tests of
+/// other modules run their scripts and read the tables back through here.
+#[cfg(test)]
+pub(crate) mod sqlserver_script_testing {
+    use odbc_api::{Connection, ConnectionOptions, Cursor, Environment};
+
+    pub(crate) const CONNECTION_VARIABLE: &str = "COLUMNIA_ODBC_SQLSERVER";
+
+    /// One cell as text; `None` is NULL.
+    pub(crate) type Row = Vec<Option<String>>;
+
+    fn with_connection<T>(
+        work: impl FnOnce(&Connection<'_>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let text = std::env::var(CONNECTION_VARIABLE).map_err(|_| {
+            format!("La prueba requiere la variable {CONNECTION_VARIABLE} con una cadena de conexión de sesión.")
+        })?;
+        let environment = Environment::new().map_err(|error| format!("ODBC: {error:?}"))?;
+        let connection = environment
+            .connect_with_connection_string(&text, ConnectionOptions::default())
+            .map_err(|error| format!("conexión ODBC: {error:?}"))?;
+        work(&connection)
+    }
+
+    fn read_rows(mut cursor: impl Cursor) -> Result<Vec<Row>, String> {
+        let columns = cursor
+            .num_result_cols()
+            .map_err(|error| format!("columnas ODBC: {error:?}"))?
+            .max(0) as u16;
+        let mut rows = Vec::new();
+        let mut buffer = Vec::<u16>::new();
+        while let Some(mut row) = cursor
+            .next_row()
+            .map_err(|error| format!("lectura ODBC: {error:?}"))?
+        {
+            let mut cells = Vec::new();
+            for column in 1..=columns {
+                let present = row
+                    .get_wide_text(column, &mut buffer)
+                    .map_err(|error| format!("celda ODBC: {error:?}"))?;
+                cells.push(present.then(|| String::from_utf16_lossy(&buffer)));
+            }
+            rows.push(cells);
+        }
+        Ok(rows)
+    }
+
+    /// Runs a whole script as one batch (the scripts have no `GO`) and returns
+    /// the rows of its final result set, if it has one.
+    pub(crate) fn run_script(sql: &str) -> Result<Vec<Row>, String> {
+        with_connection(|connection| {
+            match connection
+                .execute(sql, (), None)
+                .map_err(|error| format!("SQL externo: {error:?}"))?
+            {
+                Some(cursor) => read_rows(cursor),
+                None => Ok(Vec::new()),
+            }
+        })
+    }
+
+    /// Runs a query and returns every row with each cell as text.
+    pub(crate) fn query_rows(sql: &str) -> Result<Vec<Row>, String> {
+        with_connection(|connection| {
+            let cursor = connection
+                .execute(sql, (), None)
+                .map_err(|error| format!("consulta ODBC: {error:?}"))?
+                .ok_or_else(|| "La consulta no devolvió filas.".to_owned())?;
+            read_rows(cursor)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -6207,6 +6332,188 @@ mod tests {
         );
     }
 
+    /// A driver that delivers `batches` (rows, columns cut) one after another,
+    /// keeping at most the rows wanted, as the ODBC reader does.
+    fn scripted_batches(
+        batches: Vec<(usize, Vec<bool>)>,
+        asked: &std::cell::Cell<usize>,
+    ) -> impl FnMut(usize) -> Result<Option<ImportBatch>, String> + '_ {
+        let mut first = 0usize;
+        let mut batches = batches.into_iter();
+        move |wanted| {
+            asked.set(asked.get() + 1);
+            let Some((rows, truncated)) = batches.next() else {
+                return Ok(None);
+            };
+            let columns = text_batch(first, rows.min(wanted));
+            first += rows;
+            Ok(Some(ImportBatch {
+                columns,
+                available: rows,
+                truncated,
+            }))
+        }
+    }
+
+    fn import_writer(directory: &Path) -> (Vec<String>, ImportParquetWriter) {
+        let names = vec!["id".to_owned(), "nombre".to_owned()];
+        let imports = directory.join(DATABASE_IMPORT_DIRECTORY);
+        let writer = PendingImport::prepare(&imports, "dbo.T.parquet", None)
+            .expect("destino")
+            .start(&names)
+            .expect("escritor");
+        (names, writer)
+    }
+
+    struct ScriptedImport {
+        rows: usize,
+        more_rows_available: bool,
+        truncated_columns: Vec<String>,
+        /// Rows that reached the Parquet file.
+        written: usize,
+        percents: Vec<u8>,
+    }
+
+    /// Runs the import loop over scripted batches and finishes the file.
+    fn run_scripted_import(row_limit: usize, batches: Vec<(usize, Vec<bool>)>) -> ScriptedImport {
+        let directory = tempfile::tempdir().expect("carpeta");
+        let (names, writer) = import_writer(directory.path());
+        let asked = std::cell::Cell::new(0);
+        let mut percents = Vec::new();
+        let read = stream_batches_to_parquet(
+            names,
+            row_limit,
+            writer,
+            scripted_batches(batches, &asked),
+            &mut |_, percent| percents.push(percent),
+            &|| false,
+        )
+        .expect("la lectura termina");
+        let path = read.writer.finish().expect("se guarda");
+        ScriptedImport {
+            rows: read.rows,
+            more_rows_available: read.more_rows_available,
+            truncated_columns: read.truncated_columns,
+            written: parquet_footer(&path).0,
+            percents,
+        }
+    }
+
+    /// AUD-074: the row limit is exact, with or without the extra row that
+    /// tells there is more.
+    #[test]
+    fn the_import_stops_at_the_row_limit_and_flags_the_extra_row() {
+        let none = vec![false, false];
+        let outcome =
+            |import: &ScriptedImport| (import.rows, import.more_rows_available, import.written);
+        // 8 rows delivered, 5 wanted: the first batch alone is cut.
+        let import = run_scripted_import(5, vec![(4, none.clone()), (4, none.clone())]);
+        assert_eq!(outcome(&import), (5, true, 5));
+        assert!(import
+            .percents
+            .iter()
+            .all(|percent| (20..=80).contains(percent)));
+        assert_eq!(import.percents.last(), Some(&80));
+
+        // Exactly the limit, and one more row in a later batch.
+        let import = run_scripted_import(5, vec![(5, none.clone()), (1, none.clone())]);
+        assert_eq!(outcome(&import), (5, true, 5));
+
+        // The table has exactly the limit: nothing more to say.
+        let import = run_scripted_import(5, vec![(3, none.clone()), (2, none.clone())]);
+        assert_eq!(outcome(&import), (5, false, 5));
+
+        // Fewer rows than the limit.
+        let import = run_scripted_import(50, vec![(3, none)]);
+        assert_eq!(outcome(&import), (3, false, 3));
+    }
+
+    /// AUD-074: a column with a value cut in any batch is reported once; one
+    /// never cut is not.
+    #[test]
+    fn the_import_reports_the_columns_whose_values_were_cut() {
+        let read = run_scripted_import(
+            100,
+            vec![
+                (2, vec![false, false]),
+                (2, vec![false, true]),
+                (2, vec![false, false]),
+            ],
+        );
+        assert_eq!(read.truncated_columns, vec!["nombre".to_owned()]);
+        let read = run_scripted_import(100, vec![(2, vec![false, false])]);
+        assert!(read.truncated_columns.is_empty());
+        let read = run_scripted_import(100, vec![(2, vec![true, true])]);
+        assert_eq!(read.truncated_columns, vec!["id", "nombre"]);
+    }
+
+    /// AUD-074: cancelling after the first batch stops the read, reports the
+    /// cancellation and leaves no file, not even a temporary one.
+    #[test]
+    fn cancelling_between_batches_stops_the_read_and_leaves_no_file() {
+        let directory = tempfile::tempdir().expect("carpeta");
+        let (names, writer) = import_writer(directory.path());
+        let asked = std::cell::Cell::new(0);
+        let checks = std::cell::Cell::new(0);
+        let none = vec![false, false];
+        let result = stream_batches_to_parquet(
+            names,
+            1_000,
+            writer,
+            scripted_batches(
+                vec![(10, none.clone()), (10, none.clone()), (10, none)],
+                &asked,
+            ),
+            &mut |_, _| {},
+            // Not cancelled before the first batch, cancelled before the second.
+            &|| {
+                checks.set(checks.get() + 1);
+                checks.get() > 1
+            },
+        );
+        assert_eq!(
+            result.err().as_deref(),
+            Some(crate::dataset::OPERATION_CANCELLED_MESSAGE)
+        );
+        assert_eq!(asked.get(), 1, "no se pide ningún lote más tras cancelar");
+        let left = fs::read_dir(directory.path().join(DATABASE_IMPORT_DIRECTORY))
+            .expect("carpeta")
+            .count();
+        assert_eq!(left, 0, "ni Parquet ni temporales");
+    }
+
+    /// AUD-074: a read that fails midway reports the error and leaves no file.
+    #[test]
+    fn a_driver_error_midway_is_returned_and_leaves_no_file() {
+        let directory = tempfile::tempdir().expect("carpeta");
+        let (names, writer) = import_writer(directory.path());
+        let mut calls = 0;
+        let result = stream_batches_to_parquet(
+            names,
+            1_000,
+            writer,
+            |_| {
+                calls += 1;
+                if calls == 1 {
+                    Ok(Some(ImportBatch {
+                        columns: text_batch(0, 3),
+                        available: 3,
+                        truncated: vec![false, false],
+                    }))
+                } else {
+                    Err("se cayó la conexión".to_owned())
+                }
+            },
+            &mut |_, _| {},
+            &|| false,
+        );
+        assert_eq!(result.err().as_deref(), Some("se cayó la conexión"));
+        let left = fs::read_dir(directory.path().join(DATABASE_IMPORT_DIRECTORY))
+            .expect("carpeta")
+            .count();
+        assert_eq!(left, 0);
+    }
+
     #[test]
     fn writing_the_import_keeps_the_active_file_and_replaces_earlier_imports() {
         use polars::prelude::df;
@@ -6301,6 +6608,122 @@ mod tests {
             write_import_parquet(&imports, "dbo.Z.parquet", None, &mut frame).expect("misma tabla");
         assert!(again.exists());
         assert_eq!(std::fs::read_dir(&imports).expect("carpeta").count(), 1);
+    }
+
+    /// Creates a table of its own in the test database of one engine, imports
+    /// it as text and compares what arrives; the table is dropped at the end,
+    /// also when the comparison fails.
+    fn run_external_import(target: &DatabaseTarget, suffix: &str) -> Result<(), String> {
+        use polars::prelude::SerReader;
+        let mut target = target.clone();
+        target.table = format!("columnia_aud074_{suffix}");
+        let table = qualified_table(&target);
+        let kind = target.kind;
+        let (text_type, quote) = match kind {
+            DatabaseKind::SqlServer => ("NVARCHAR(100)", "N"),
+            _ => ("VARCHAR(100)", ""),
+        };
+        let drop = drop_table_sql(&table, kind);
+        execute_external_sql(&target, &drop)?;
+        execute_external_sql(
+            &target,
+            &format!(
+                "CREATE TABLE {table} ({} INTEGER, {} {text_type})",
+                quote_identifier("id", kind),
+                quote_identifier("nombre", kind)
+            ),
+        )?;
+        let expected: [(&str, Option<&str>); 5] = [
+            ("1", Some("fila 1")),
+            ("2", None),
+            ("3", Some("Íñigo; O'Brien")),
+            ("4", Some("fila 4")),
+            ("5", Some("fila 5")),
+        ];
+        let outcome = (|| {
+            let values = expected
+                .iter()
+                .map(|(id, text)| match text {
+                    Some(text) => format!("({id}, {quote}'{}')", text.replace('\'', "''")),
+                    None => format!("({id}, NULL)"),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            execute_external_sql(&target, &format!("INSERT INTO {table} VALUES {values}"))?;
+            let source = DatabaseSource {
+                kind,
+                connection: target.connection.clone(),
+            };
+            let directory = tempdir().map_err(|error| format!("temp externo: {error}"))?;
+            // Limit 3 of 5 rows: three rows and the flag that there are more.
+            let fetched = import_table_with_cancel(
+                &source,
+                &target.schema,
+                &target.table,
+                3,
+                directory.path(),
+                None,
+                |_, _| {},
+                || false,
+            )?;
+            assert_eq!((fetched.rows, fetched.more_rows_available), (3, true));
+            assert!(fetched.truncated_columns.is_empty());
+            let frame = polars::prelude::ParquetReader::new(
+                fs::File::open(&fetched.path).map_err(|error| format!("Parquet: {error}"))?,
+            )
+            .finish()
+            .map_err(|error| format!("Parquet: {error}"))?;
+            assert_eq!(frame.height(), 3);
+            assert!(frame
+                .dtypes()
+                .iter()
+                .all(|dtype| *dtype == DataType::String));
+            // Without ORDER BY the engine may deliver any three rows: each
+            // one is compared with its own id.
+            let ids = frame.column("id").expect("id");
+            let ids = ids.str().expect("texto");
+            let names = frame.column("nombre").expect("nombre");
+            let names = names.str().expect("texto");
+            for row in 0..3 {
+                let id = ids.get(row).expect("id sin nulos");
+                let (_, text) = expected
+                    .iter()
+                    .find(|(expected_id, _)| *expected_id == id)
+                    .unwrap_or_else(|| panic!("id inesperado {id}"));
+                assert_eq!(names.get(row), *text, "fila {id}");
+            }
+            // The whole table fits: no extra row.
+            let all = import_table_with_cancel(
+                &source,
+                &target.schema,
+                &target.table,
+                5,
+                directory.path(),
+                None,
+                |_, _| {},
+                || false,
+            )?;
+            assert_eq!((all.rows, all.more_rows_available), (5, false));
+            Ok::<(), String>(())
+        })();
+        let cleanup = execute_external_sql(&target, &drop);
+        outcome?;
+        cleanup
+    }
+
+    #[test]
+    #[ignore = "requiere servidor y controlador ODBC PostgreSQL reales configurados por variables de sesión"]
+    fn external_odbc_import_postgresql() {
+        let target = external_target(DatabaseKind::Postgresql, "COLUMNIA_ODBC_POSTGRESQL");
+        run_external_import(&target, &unique_suffix("pg"))
+            .expect("importación PostgreSQL completa");
+    }
+
+    #[test]
+    #[ignore = "requiere servidor y controlador ODBC MySQL reales configurados por variables de sesión"]
+    fn external_odbc_import_mysql() {
+        let target = external_target(DatabaseKind::Mysql, "COLUMNIA_ODBC_MYSQL");
+        run_external_import(&target, &unique_suffix("mysql")).expect("importación MySQL completa");
     }
 
     /// Reads a real table without writing anything. Set COLUMNIA_ODBC_IMPORT

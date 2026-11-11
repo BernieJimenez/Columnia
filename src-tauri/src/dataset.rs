@@ -13496,6 +13496,10 @@ mod delivery_summary_tests;
 mod sqlserver_export_tests;
 
 #[cfg(test)]
+#[path = "dataset/disk_cancellation_tests.rs"]
+mod disk_cancellation_tests;
+
+#[cfg(test)]
 #[path = "dataset/snapshot_comparison_tests.rs"]
 mod snapshot_comparison_tests;
 

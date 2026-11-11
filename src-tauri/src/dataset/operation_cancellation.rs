@@ -141,6 +141,21 @@ impl PrepareCancellation {
         }
     }
 
+    /// AUD-076: a cancellation the test raises when it wants, through the
+    /// returned flag (for example from a progress report halfway through).
+    #[cfg(test)]
+    pub(super) fn raised_by_test() -> (Self, std::sync::Arc<AtomicBool>) {
+        let raised = std::sync::Arc::new(AtomicBool::new(false));
+        (
+            Self {
+                app: None,
+                generation: 0,
+                cancelled_for_test: Some(std::sync::Arc::clone(&raised)),
+            },
+            raised,
+        )
+    }
+
     pub(super) fn is_cancelled(&self) -> bool {
         #[cfg(test)]
         if self

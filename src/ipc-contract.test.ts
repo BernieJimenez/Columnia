@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { DatabaseSource } from "./bridge/dataset-contracts";
+import type { DatabaseConnection, SqlServerScriptOptions } from "./bridge/delivery-contracts";
 
 const debugOnlyCommands = new Set([
   "probe_seed_dataset",
@@ -354,9 +356,13 @@ function normalizeRustFieldType(type: string): string {
       "DiagnosticRowBucket",
       "DiagnosticColumnBucket",
       "DiagnosticSizeBucket",
+      "DatabaseKind",
+      "SqlServerLoadMode",
+      "SqlServerTextSize",
     ].includes(withoutReference)
   ) return "string";
-  return withoutReference;
+  // A path such as `crate::dataset::DatasetSourceInspection` crosses as its last segment.
+  return withoutReference.replace(/^(?:\w+::)+/, "");
 }
 
 function typescriptInterfaceFields(
@@ -490,6 +496,7 @@ const SHARED_ENUMS = [
   "TemporalAggregationKind", "DiagnosticContract", "DiagnosticPhase", "DiagnosticStatus",
   "DiagnosticErrorCode", "DiagnosticRowBucket", "DiagnosticColumnBucket", "DiagnosticSizeBucket",
   "ExportFormat", "PrivacyMode", "DatabaseKind",
+  "SqlServerLoadMode", "SqlServerTextSize",
 ];
 
 function renameVariant(variant: string, rule: string | undefined): string {
@@ -615,5 +622,38 @@ describe("contrato IPC", () => {
         `tipos de campo incompatibles en ${typescriptName}`,
       ).toEqual(rustStructFieldTypes(rustSource, rustName));
     }
+  });
+
+  it("el JSON de ejemplo de TypeScript para DatabaseSource y SqlServerScriptOptions solo trae campos y variantes que Rust acepta", () => {
+    const connection = {
+      host: "db.example.test",
+      port: 1433,
+      database: "demo",
+      authentication: "password",
+      user: "reader",
+      password: "secret",
+    } as unknown as DatabaseConnection;
+    const source = {
+      kind: "sqlserver",
+      connection,
+    } satisfies DatabaseSource;
+    const script = {
+      schema: "dbo",
+      table: "ventas",
+      mode: "upsert",
+      keyColumns: ["id"],
+      textSize: "fitted",
+    } satisfies SqlServerScriptOptions;
+
+    // Both structs use `deny_unknown_fields`: an extra or renamed key is rejected.
+    const sent = JSON.parse(JSON.stringify({ source, script })) as {
+      source: Record<string, unknown>;
+      script: Record<string, unknown>;
+    };
+    expect(Object.keys(sent.source).sort()).toEqual(rustStructFields(rustIpcSource, "DatabaseSource"));
+    expect(Object.keys(sent.script).sort()).toEqual(rustStructFields(rustIpcSource, "SqlServerScriptOptions"));
+    expect(rustEnumVariants(rustIpcSource, "DatabaseKind")).toContain(sent.source.kind);
+    expect(rustEnumVariants(rustIpcSource, "SqlServerLoadMode")).toContain(sent.script.mode);
+    expect(rustEnumVariants(rustIpcSource, "SqlServerTextSize")).toContain(sent.script.textSize);
   });
 });
