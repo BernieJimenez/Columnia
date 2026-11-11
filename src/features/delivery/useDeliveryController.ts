@@ -23,7 +23,7 @@ import {
   type DeliveryExportRequest,
   type DeliveryExportState,
 } from "./deliveryModel";
-import { errorMessage } from "../../bridge/errors";
+import { errorMessage, isUncertainCommitError } from "../../bridge/errors";
 
 /** Delivery settings a project or a reusable task stores and restores. */
 interface DeliverySettings {
@@ -181,7 +181,11 @@ export function useDeliveryController({
         setExportStatus({ kind: "cancelled" });
         return;
       }
-      setExportStatus({ kind: "error", message: errorMessage(error) });
+      setExportStatus({
+        kind: "error",
+        message: errorMessage(error),
+        ...(isUncertainCommitError(error) ? { uncertain: true } : {}),
+      });
     } finally {
       exportInFlightRef.current = false;
     }

@@ -1,5 +1,5 @@
 import type { ColumnProfile, DatasetColumn } from "../bridge";
-import { isNumericType } from "../dataTypes";
+import { isIntegerType, isNumericType } from "../dataTypes";
 import { formatDataType, formatNumber, formatPercent } from "../format";
 import { plural } from "../plural";
 
@@ -58,6 +58,7 @@ export function ColumnProfileHeader({ column, profile, rowCount }: ColumnProfile
   const numeric = isNumericType(column.dataType);
   const filled = Math.min(Math.max(profile.completenessPercentage, 0), 100);
   const allDistinct = rowCount > 1 && profile.nullCount === 0 && profile.uniqueCount === rowCount;
+  const identifierLike = allDistinct && !(numeric && !isIntegerType(column.dataType));
   const distinct = allDistinct
     ? "todos distintos"
     : plural(profile.uniqueCount, "valor distinto", "valores distintos");
@@ -73,8 +74,10 @@ export function ColumnProfileHeader({ column, profile, rowCount }: ColumnProfile
           <span style={{ width: `${filled}%` }} />
         </span>
         <span className="col-profile__line">{filled >= 100 ? "sin vacíos" : `${formatPercent(filled)} con valor`} · {distinct}</span>
-        {/* An identifier spreads evenly by construction: its histogram says nothing. */}
-        {!allDistinct && profile.histogram && profile.histogram.length > 1 && <MiniHistogram buckets={profile.histogram} />}
+        {/* An identifier spreads evenly by construction: its histogram says nothing.
+            A continuous number (float or decimal, e.g. an amount) is all-distinct
+            without being an identifier, so it keeps its histogram. */}
+        {!identifierLike && profile.histogram && profile.histogram.length > 1 && <MiniHistogram buckets={profile.histogram} />}
         {hasRange && (
           <span className="col-profile__line col-profile__range">
             {rangeValue(profile.minimum ?? "", numeric)} – {rangeValue(profile.maximum ?? "", numeric)}

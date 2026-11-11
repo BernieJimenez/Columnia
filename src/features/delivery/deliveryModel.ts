@@ -323,19 +323,40 @@ export function isDatabaseExportFormat(format: ExportFormat): boolean {
   return format === "postgresql" || format === "mysql" || format === "sqlserver";
 }
 
-export function validateDatabaseTargetDraft(target: DatabaseTargetDraft): string | null {
+/** AUD-030: the problem with a remote target and the field it belongs to. */
+type DatabaseTargetIssue = {
+  field: "policy" | "connection" | "schema" | "table";
+  message: string;
+};
+
+export function databaseTargetIssue(target: DatabaseTargetDraft): DatabaseTargetIssue | null {
   if (target.kind === "mysql" && target.tablePolicy === "replace") {
-    return "La política Reemplazar está deshabilitada para MySQL hasta validar una sustitución atómica segura.";
+    return {
+      field: "policy",
+      message: "La política Reemplazar está deshabilitada para MySQL hasta validar una sustitución atómica segura.",
+    };
   }
-  if (!target.connection) return "Completa la conexión con el servidor.";
-  const identifier = (value: string, label: string, optional: boolean) => {
+  if (!target.connection) {
+    return { field: "connection", message: "Completa la conexión con el servidor." };
+  }
+  const identifier = (
+    value: string,
+    label: string,
+    field: "schema" | "table",
+    optional: boolean,
+  ): DatabaseTargetIssue | null => {
     if (optional && !value.trim()) return null;
     if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(value.trim())) {
-      return `${label} solo admite letras, números y guiones bajos.`;
+      return { field, message: `${label} solo admite letras, números y guiones bajos.` };
     }
     return null;
   };
-  return identifier(target.schema, "El esquema", true) ?? identifier(target.table, "La tabla", false);
+  return identifier(target.schema, "El esquema", "schema", true)
+    ?? identifier(target.table, "La tabla", "table", false);
+}
+
+export function validateDatabaseTargetDraft(target: DatabaseTargetDraft): string | null {
+  return databaseTargetIssue(target)?.message ?? null;
 }
 const MAX_QUALITY_VALUES = 128;
 const MAX_QUALITY_COLUMNS_PER_RULE = 16;
@@ -443,7 +464,8 @@ export type DeliveryExportState =
     }
   | { kind: "success"; result: ExportResult }
   | { kind: "cancelled" }
-  | { kind: "error"; message: string };
+  // AUD-030: `uncertain` is set where the error is caught, never read back from the text.
+  | { kind: "error"; message: string; uncertain?: boolean };
 
 export type DeliveryExportRequest =
   | {
@@ -506,6 +528,20 @@ export function invalidateDeliveryContract(state: DeliveryContractState): Delive
   return state.kind === "without_contract"
     ? { ...state, confirmation: "required", gate }
     : { ...state, gate };
+}
+
+/**
+ * AUD-030: the position of the first rule that does not validate, or null when
+ * the problem is the contract as a whole (or there is none). Each rule is
+ * checked on its own, as `validateQualityRuleDraft` does.
+ */
+export function invalidQualityRuleIndex(
+  rules: QualityRule[],
+  dataset: DatasetPreview,
+): number | null {
+  if (rules.length > MAX_QUALITY_RULES) return null;
+  const index = rules.findIndex((rule) => validateQualityRuleDraft([rule], dataset) !== null);
+  return index === -1 ? null : index;
 }
 
 export function validateQualityRuleDraft(

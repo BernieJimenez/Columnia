@@ -454,6 +454,8 @@ describe("señales de datos personales en Entregar", () => {
     selectFormat("sqlserver");
     expect(screen.getByLabelText("Servidor")).toBeInTheDocument();
     expect(screen.queryByLabelText("Cadena de conexión ODBC")).not.toBeInTheDocument();
+    expect(screen.getByText("Conexión · SQL Server")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Exportar a SQL Server$/ })).toBeInTheDocument();
   });
 
   it("el script de SQL Server puede añadir filas o actualizar por clave en una tabla elegida", () => {
@@ -1545,9 +1547,19 @@ describe("DeliveryPhase", () => {
     render(<DeliveryHarness onExport={vi.fn()} exportState={{
       kind: "error",
       message: "No se pudo confirmar si la entrega se guardó: puede haberse guardado completa.",
+      uncertain: true,
     }} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Resultado incierto.");
     expect(screen.getByRole("alert")).not.toHaveTextContent("No se pudo crear la copia");
+
+    // AUD-030: the decision is the flag, not the wording of the message.
+    cleanup();
+    render(<DeliveryHarness onExport={vi.fn()} exportState={{
+      kind: "error",
+      message: "Puede haberse guardado, dice un texto cualquiera.",
+    }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("No se pudo crear la copia");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Resultado incierto.");
   });
 
   it("cubre cambios de regla, tolerancias, columnas y eliminación", () => {

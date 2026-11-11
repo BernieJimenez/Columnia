@@ -52,7 +52,8 @@ import {
   tsqlScriptIsTooLarge,
   type DeliveryDestination,
   listFileNames,
-  validateDatabaseTargetDraft,
+  databaseTargetIssue,
+  invalidQualityRuleIndex,
   validateQualityRuleDraft,
 } from "./deliveryModel";
 import { formatPercent } from "../../format";
@@ -175,18 +176,6 @@ function summarizeQualityRule(rule: QualityRule): string {
   return `${columns}: ${QUALITY_RULE_SUMMARY[rule.kind]}${toleranceSummary}.`;
 }
 
-function databaseTargetErrorField(
-  message: string | null,
-): "connection" | "schema" | "table" | null {
-  if (!message) return null;
-  if (message.startsWith("Completa la conexión")) {
-    return "connection";
-  }
-  if (message.startsWith("El esquema")) return "schema";
-  if (message.startsWith("La tabla")) return "table";
-  return null;
-}
-
 function focusQualityRule(index: number) {
   const ruleElement = document.getElementById(`quality-rule-${index + 1}`);
   ruleElement?.scrollIntoView?.({ behavior: "smooth", block: "center" });
@@ -278,10 +267,7 @@ export function DeliveryPhase({
   const [pendingRuleFocus, setPendingRuleFocus] = useState<number | null>(null);
   const rules = contract.kind === "with_contract" ? contract.rules : [];
   const validationError = validateQualityRuleDraft(rules, dataset);
-  const validationErrorRuleNumber = validationError?.match(/^Regla (\d+):/)?.[1];
-  const validationErrorRuleIndex = validationErrorRuleNumber
-    ? Number(validationErrorRuleNumber) - 1
-    : null;
+  const validationErrorRuleIndex = invalidQualityRuleIndex(rules, dataset);
   const gatePassed = contract.gate.kind === "ready" && contract.gate.result.passed;
   const needsUnvalidatedConfirmation = contract.kind === "without_contract"
     && contract.confirmation !== "confirmed";
@@ -305,10 +291,11 @@ export function DeliveryPhase({
   const [confirmedUnprotectedKey, setConfirmedUnprotectedKey] = useState<string | null>(null);
   const exportsUnprotectedPersonalData = personalDataColumns.length > 0 && selectedPrivacyMode === "none";
   const needsPersonalDataConfirmation = exportsUnprotectedPersonalData && confirmedUnprotectedKey !== personalDataKey;
-  const databaseTargetError = isDatabaseExportFormat(selectedExportFormat)
-    ? validateDatabaseTargetDraft(databaseTarget)
+  const databaseTargetProblem = isDatabaseExportFormat(selectedExportFormat)
+    ? databaseTargetIssue(databaseTarget)
     : null;
-  const invalidDatabaseTargetField = databaseTargetErrorField(databaseTargetError);
+  const databaseTargetError = databaseTargetProblem?.message ?? null;
+  const invalidDatabaseTargetField = databaseTargetProblem?.field ?? null;
   const databaseReady = !isDatabaseExportFormat(selectedExportFormat)
     || (databaseTargetError === null
       && databasePreflightState.kind === "ready"
@@ -360,6 +347,9 @@ export function DeliveryPhase({
     mysql: "MySQL",
     sqlserver: "a SQL Server",
   }[selectedExportFormat];
+  // The legend names the place («Conexión · SQL Server»); the button reads
+  // «Exportar a SQL Server», so only that label carries the «a».
+  const exportDestinationLabel = selectedExportFormat === "sqlserver" ? "SQL Server" : exportFormatLabel;
   // 2026-10-31: Entregar asks where the copy goes, then the format of that place.
   const [destination, setDestination] = useState<DeliveryDestination>(() => destinationForFormat(selectedExportFormat));
   const destinationFormats = deliveryDestination(destination).formats;
@@ -1034,7 +1024,7 @@ export function DeliveryPhase({
           )}
           {isDatabaseExportFormat(selectedExportFormat) && (
             <fieldset className="database-target">
-              <legend>Conexión · {exportFormatLabel}</legend>
+              <legend>Conexión · {exportDestinationLabel}</legend>
               <DatabaseConnectionForm
                 key={connectionFormKey}
                 kind={databaseTarget.kind}
@@ -1277,7 +1267,7 @@ export function DeliveryPhase({
       {exportState.kind === "error" && (
         <div className="notice notice--error" role="alert">
           {/* DAT-10: when the commit fails the rows may already be saved. */}
-          {exportState.message.includes("puede haberse guardado") ? (
+          {exportState.uncertain ? (
             <>
               <strong>Resultado incierto.</strong> {exportState.message}
             </>

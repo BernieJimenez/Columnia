@@ -342,6 +342,19 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Si Columnia no puede comprobar qué controladores ODBC hay instalados, el
+  formulario de conexión dice por qué, en lugar de pedir que instales un
+  controlador que quizá ya tienes (AUD-027).
+- Si escribes la conexión antes de que termine de cargarse la lista de
+  controladores, la conexión ya queda lista al llegar el controlador; antes
+  había que tocar otro campo (AUD-028).
+- La cabecera de una columna decimal con todos los valores distintos (un
+  importe, una medida) vuelve a mostrar su histograma; solo se oculta en los
+  identificadores enteros o de texto (AUD-029).
+- La leyenda de la conexión en Entregar dice «Conexión · SQL Server» (AUD-031).
+- Cancelar el recuento de valores distintos o una consulta justo al empezar
+  vuelve enseguida: la interrupción se repite hasta que DuckDB la atiende
+  (AUD-032).
 - Preparar un archivo grande ya no añade al historial una versión idéntica
   cuando la conversión de tipos, fechas y huecos no cambia nada (AUD-016).
 - Una columna numérica con espacios Unicode en los bordes (por ejemplo, un
@@ -1589,6 +1602,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- El error de memoria de DuckDB se reconoce en un solo sitio, con una prueba que
+  lo provoca de verdad, y Entregar ya no decide nada por el texto de un mensaje
+  (AUD-030).
 - Pruebas nuevas de lo que podía romperse sin avisar: la importación desde
   bases de datos (tope de filas, recorte, cancelación y error a mitad), la
   entrega T-SQL y BULK INSERT ejecutada contra un SQL Server real con nombres

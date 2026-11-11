@@ -57,9 +57,24 @@ describe("ColumnProfileHeader", () => {
   });
 
   it("dice «todos distintos» cuando cada fila tiene un valor propio", () => {
-    const { container } = render(<ColumnProfileHeader column={column} profile={columnProfile({ nullCount: 0, completenessPercentage: 100, uniqueCount: 50 })} rowCount={50} />);
+    const { container } = render(<ColumnProfileHeader column={{ name: "id", dataType: "Int64" }} profile={columnProfile({ nullCount: 0, completenessPercentage: 100, uniqueCount: 50 })} rowCount={50} />);
     expect(container).toHaveTextContent("sin vacíos · todos distintos");
     expect(container.querySelector(".col-profile__histogram")).toBeNull();
+  });
+
+  it("oculta el histograma de un entero identificador con todos los valores distintos (AUD-029)", () => {
+    const { container } = render(<ColumnProfileHeader column={{ name: "id", dataType: "Int64" }} profile={columnProfile({ nullCount: 0, completenessPercentage: 100, uniqueCount: 100, minimum: "1", maximum: "100" })} rowCount={100} />);
+    expect(container).toHaveTextContent("todos distintos");
+    expect(container.querySelector(".col-profile__histogram")).toBeNull();
+  });
+
+  it("mantiene el histograma de una columna decimal continua con todos los valores distintos (AUD-029)", () => {
+    for (const dataType of ["Float64", "f64", "Decimal(10, 2)"]) {
+      const { container, unmount } = render(<ColumnProfileHeader column={{ name: "importe", dataType }} profile={columnProfile({ nullCount: 0, completenessPercentage: 100, uniqueCount: 100 })} rowCount={100} />);
+      expect(container).toHaveTextContent("todos distintos");
+      expect(container.querySelectorAll(".col-profile__histogram rect")).toHaveLength(3);
+      unmount();
+    }
   });
 
   it("concuerda en singular con un solo valor distinto (TXT-05)", () => {

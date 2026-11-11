@@ -3170,10 +3170,12 @@ where
 pub async fn list_database_drivers(kind: DatabaseKind) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let environment = Environment::new()
-            .map_err(|error| format!("No se pudo inicializar ODBC: {error:?}"))?;
+            .map_err(|error| driver_list_error("No se pudo inicializar ODBC", error))?;
         let drivers = environment
             .drivers()
-            .map_err(|error| format!("No se pudieron listar los controladores ODBC: {error:?}"))?
+            .map_err(|error| {
+                driver_list_error("No se pudieron listar los controladores ODBC", error)
+            })?
             .into_iter()
             .map(|driver| driver.description)
             .collect::<Vec<_>>();
@@ -3181,6 +3183,15 @@ pub async fn list_database_drivers(kind: DatabaseKind) -> Result<Vec<String>, St
     })
     .await
     .map_err(|_| "La lista de controladores se interrumpió.".to_owned())?
+}
+
+/// A readable sentence for a failure to list the ODBC drivers, never the
+/// `Debug` dump of the error (no braces, «Diagnostics» or «State:»).
+fn driver_list_error<E: Debug>(context: &str, error: E) -> String {
+    let readable = readable_driver_detail(&format!("{error:?}"))
+        .replace("Diagnostics", "")
+        .replace("State:", "SQLSTATE");
+    format!("{context}: {readable}")
 }
 
 fn database_drivers(kind: DatabaseKind, drivers: Vec<String>) -> Vec<String> {
@@ -3579,6 +3590,29 @@ mod tests {
         );
         assert!(!message.contains("Diagnostics {"), "{message}");
         assert!(UNCERTAIN_COMMIT_MESSAGE.contains("puede haberse guardado"));
+    }
+
+    /// AUD-027: listing the drivers never shows the `Debug` dump of the error.
+    #[test]
+    fn driver_list_errors_have_no_debug_dump() {
+        struct Raw(&'static str);
+        impl Debug for Raw {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(self.0)
+            }
+        }
+        for dump in [
+            "Diagnostics { record: State: 01000, Native error: 0, Message: sin acceso }",
+            "Diagnostics { record: sin estado }",
+            "FailedReadingInstalledDrivers { State: x }",
+        ] {
+            let message =
+                driver_list_error("No se pudieron listar los controladores ODBC", Raw(dump));
+            for forbidden in ["{", "}", "Diagnostics", "State:"] {
+                assert!(!message.contains(forbidden), "{message}");
+            }
+            assert!(message.starts_with("No se pudieron listar"), "{message}");
+        }
     }
 
     use super::*;

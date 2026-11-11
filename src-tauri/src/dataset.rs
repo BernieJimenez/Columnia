@@ -2275,7 +2275,7 @@ fn source_backed_resource_error(error: &str) -> Option<String> {
     ];
     if disk.iter().any(|marker| lower.contains(marker)) {
         Some(NO_DISK_SPACE_MESSAGE.to_owned())
-    } else if lower.contains("out of memory") {
+    } else if crate::duckdb_query::is_duckdb_out_of_memory(error) {
         Some(NO_MEMORY_MESSAGE.to_owned())
     } else {
         None

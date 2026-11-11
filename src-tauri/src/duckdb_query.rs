@@ -330,7 +330,10 @@ where
     let outcome = thread::scope(|scope| {
         let worker = scope.spawn(|| native.execute(statement));
         while !worker.is_finished() {
-            if !cancelled && is_cancelled() {
+            // AUD-032: DuckDB clears its interrupt mark when a statement
+            // starts, so one interrupt sent just before that is lost: repeat
+            // it on every lap while the statement is alive.
+            if cancelled || is_cancelled() {
                 cancelled = true;
                 native.interrupt();
             }
@@ -426,6 +429,22 @@ impl NativeProgress {
         self.cancelled.store(true, Ordering::Release);
         self.native.interrupt();
     }
+
+    /// AUD-032: interrupts the count and waits for its thread. DuckDB clears
+    /// its interrupt mark when a statement starts, so a single interrupt can
+    /// be lost; it is repeated every 10 ms until the thread ends. The wait has
+    /// no limit on purpose: the thread reads a snapshot that must not go away
+    /// while it runs, and the fallback count also stops on the cancel flag.
+    pub(crate) fn interrupt_and_join(
+        &self,
+        handle: DistinctCountWorker,
+    ) -> thread::Result<Result<Vec<usize>, String>> {
+        while !handle.is_finished() {
+            self.interrupt();
+            thread::sleep(Duration::from_millis(10));
+        }
+        handle.join()
+    }
 }
 
 /// The thread of a native distinct count and its per-column result.
@@ -498,7 +517,7 @@ fn spawn_parquet_distinct_count_with_limit(
             Err(_) if worker_cancelled.load(Ordering::Acquire) => {
                 return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
             }
-            Err(error) if error.contains("Out of Memory Error") => {
+            Err(error) if is_duckdb_out_of_memory(&error) => {
                 drop(connection);
                 return count_file_distinct_non_null(
                     &path,
@@ -919,6 +938,7 @@ fn tsql_columns(
     Ok(columns)
 }
 
+/// One cell of the projection built by `tsql_text_projection`.
 fn duckdb_tsql_value(value: ValueRef<'_>) -> Result<crate::tsql_script::TsqlValue<'_>, String> {
     use crate::tsql_script::TsqlValue;
     Ok(match value {
@@ -945,9 +965,8 @@ fn duckdb_tsql_value(value: ValueRef<'_>) -> Result<crate::tsql_script::TsqlValu
         }
         ValueRef::Text(value) => TsqlValue::Text(String::from_utf8_lossy(value)),
         ValueRef::Blob(value) | ValueRef::Geometry(value) => TsqlValue::Binary(value),
-        ValueRef::Date32(value) => TsqlValue::Text(format_date(value).into()),
-        ValueRef::Time64(unit, value) => TsqlValue::Text(format_time_of_day(unit, value).into()),
-        ValueRef::Timestamp(unit, value) => TsqlValue::Text(format_timestamp(unit, value).into()),
+        // Dates, times and timestamps never get here: `tsql_text_projection`
+        // already cast them to VARCHAR, so they arrive as `Text`.
         other => {
             return Err(format!(
                 "SQL Server no admite una columna de tipo {:?}; conviértela a texto en Preparar.",
@@ -1492,7 +1511,7 @@ where
             Ok((distinct_rows, distinct_columns))
         }) {
             Ok(counts) => counts,
-            Err(error) if error.to_string().contains("Out of Memory Error") => {
+            Err(error) if is_duckdb_out_of_memory(&error.to_string()) => {
                 count_distinct_sequentially(connection, columns, count_rows, cancelled)?
             }
             Err(error) => {
@@ -1641,6 +1660,14 @@ pub(crate) enum NumericCastTarget {
     /// f64 form keeps its digits, as in `decimal_fits_in_f64`), or is written
     /// in scientific notation.
     Decimal,
+}
+
+/// AUD-030: whether a DuckDB error is its out-of-memory error. DuckDB gives no
+/// error code through this API, so the decision reads its English text; this is
+/// the only place that does, and a test provokes the real error so that a
+/// change of wording breaks the test and not the fallbacks that depend on it.
+pub(crate) fn is_duckdb_out_of_memory(error: &str) -> bool {
+    error.to_ascii_lowercase().contains("out of memory")
 }
 
 /// The value of a text expression trimmed like Rust's `str::trim`
@@ -2571,10 +2598,12 @@ where
     let watcher_stop = Arc::clone(&stop_watcher);
     let watcher = thread::spawn(move || {
         while !watcher_stop.load(Ordering::Acquire) {
-            if is_cancelled() {
+            // AUD-032: once cancelled, keep interrupting until the operation
+            // ends (the stop flag), because DuckDB clears its interrupt mark
+            // when a statement starts and a single interrupt can be lost.
+            if watcher_cancelled.load(Ordering::Acquire) || is_cancelled() {
                 watcher_cancelled.store(true, Ordering::Release);
                 interrupt.interrupt();
-                return;
             }
             thread::sleep(QUERY_POLL_INTERVAL);
         }
@@ -4034,6 +4063,31 @@ mod tests {
         );
     }
 
+    /// AUD-030: the real DuckDB error under a tiny memory limit is recognised,
+    /// so a change in DuckDB's wording fails here and not in the fallbacks.
+    #[test]
+    fn recognises_the_real_duckdb_out_of_memory_error() {
+        let connection = Connection::open_in_memory().expect("DuckDB debe iniciar");
+        connection
+            .execute_batch("SET memory_limit='1MB'; SET temp_directory=''; SET threads=1;")
+            .expect("el límite debe aceptarse");
+        let error = connection
+            .query_row(
+                "SELECT COUNT(DISTINCT lpad(i::VARCHAR, 200, 'x')) FROM range(2000000) AS r(i)",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect_err("con 1 MB la agregación debe quedarse sin memoria");
+        assert!(
+            is_duckdb_out_of_memory(&error.to_string()),
+            "texto de DuckDB no reconocido: {error}"
+        );
+        assert!(!is_duckdb_out_of_memory(
+            "IO Error: no space left on device"
+        ));
+        assert!(!is_duckdb_out_of_memory("Parser Error: syntax error"));
+    }
+
     #[test]
     fn configures_bounded_memory_and_a_private_spill_directory() {
         let connection = Connection::open_in_memory().expect("DuckDB debe iniciar");
@@ -4337,6 +4391,69 @@ mod tests {
             returned < std::time::Duration::from_secs(2),
             "cancelar debe devolver el control en menos de 2 s ({returned:?})"
         );
+    }
+
+    /// Writes a Parquet whose distinct count takes a while, for the
+    /// cancellation-race tests of AUD-032.
+    fn write_distinct_count_race_parquet(path: &Path, rows: u32) {
+        let connection = Connection::open_in_memory().expect("DuckDB de prueba");
+        let destination = path.to_string_lossy().replace('\\', "/");
+        connection
+            .execute_batch(&format!(
+                "SET preserve_insertion_order = false; \
+                 COPY (SELECT hash(i) % 1000000007 AS a, \
+                 hash(i * 7) % 1000000007 AS b, \
+                 hash(i * 11) % 1000000007 AS c \
+                 FROM range({rows}) AS r(i)) TO '{destination}' (FORMAT PARQUET)"
+            ))
+            .expect("parquet de prueba");
+    }
+
+    /// Cancels the distinct count right after spawning it, `runs` times: the
+    /// interrupt can land before the statement starts, and DuckDB clears its
+    /// mark then. Every run must return quickly, cancelled or with a result.
+    fn assert_immediate_cancellations_return(path: &Path, runs: usize) {
+        let columns = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
+        let mut slowest = std::time::Duration::ZERO;
+        for run in 0..runs {
+            let started = std::time::Instant::now();
+            let (progress, handle) =
+                spawn_parquet_distinct_count(path, &columns).expect("el conteo debe arrancar");
+            let outcome = progress
+                .interrupt_and_join(handle)
+                .expect("el hilo no debe entrar en pánico");
+            let elapsed = started.elapsed();
+            slowest = slowest.max(elapsed);
+            assert!(
+                elapsed < std::time::Duration::from_secs(2),
+                "la vuelta {run} tardó {elapsed:?}"
+            );
+            match outcome {
+                Ok(counts) => assert_eq!(counts.len(), columns.len()),
+                Err(message) => assert_eq!(message, OPERATION_CANCELLED_MESSAGE),
+            }
+        }
+        eprintln!("{runs} cancelaciones inmediatas; la más lenta: {slowest:?}");
+    }
+
+    /// AUD-032: short version of the race test, always run.
+    #[test]
+    fn immediate_cancellation_of_the_distinct_count_returns_in_bounded_time() {
+        let directory = tempfile::tempdir().expect("directorio de prueba");
+        let parquet_path = directory.path().join("carrera.parquet");
+        write_distinct_count_race_parquet(&parquet_path, 3_000_000);
+        assert_immediate_cancellations_return(&parquet_path, 10);
+    }
+
+    /// AUD-032: 100 immediate cancellations in a row on a bigger Parquet.
+    /// Ignored by default because of its duration: run it with `--ignored`.
+    #[test]
+    #[ignore = "100 ejecuciones sobre un Parquet grande; ejecutar con --ignored"]
+    fn immediate_cancellation_of_the_distinct_count_100_runs() {
+        let directory = tempfile::tempdir().expect("directorio de prueba");
+        let parquet_path = directory.path().join("carrera_grande.parquet");
+        write_distinct_count_race_parquet(&parquet_path, 20_000_000);
+        assert_immediate_cancellations_return(&parquet_path, 100);
     }
 
     /// AUD-026: cancelling while the distinct count runs its out-of-memory

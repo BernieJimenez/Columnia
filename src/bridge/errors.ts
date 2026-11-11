@@ -8,8 +8,15 @@ export const OPERATION_CANCELLED_MESSAGE = "Operación cancelada por el usuario.
 /** Mirrors LEGACY_ENCODING_PREFIX in Rust: a delimited file that reads as Windows-1252. */
 export const LEGACY_ENCODING_PREFIX = "__columnia_legacy_encoding__:windows-1252:";
 
+/**
+ * Mirrors UNCERTAIN_COMMIT_MESSAGE in `src-tauri/src/remote_databases.rs`: the
+ * remote commit could not be confirmed, so the rows may already be saved
+ * (AUD-030). A test reads that constant.
+ */
+export const UNCERTAIN_COMMIT_MESSAGE = "No se pudo confirmar si la entrega se guardó: puede haberse guardado completa. Revisa la tabla remota antes de repetir; volver a añadir filas podría duplicarlas.";
+
 /** PROD-08: what the interface does differently for an engine error. */
-type BridgeErrorCode = "cancelled" | "legacyEncoding" | "other";
+type BridgeErrorCode = "cancelled" | "legacyEncoding" | "uncertainCommit" | "other";
 
 /**
  * PROD-08: an engine error, recognised once here by its stable marker
@@ -45,7 +52,13 @@ export function toBridgeError(error: unknown): BridgeError {
     return new BridgeError(message, "legacyEncoding", message.slice(LEGACY_ENCODING_PREFIX.length));
   }
   if (message.includes(OPERATION_CANCELLED_MESSAGE)) return new BridgeError(message, "cancelled");
+  if (message.includes(UNCERTAIN_COMMIT_MESSAGE)) return new BridgeError(message, "uncertainCommit");
   return new BridgeError(message, "other");
+}
+
+/** Whether a remote delivery failed at the commit, with the result unknown. */
+export function isUncertainCommitError(error: unknown): boolean {
+  return toBridgeError(error).code === "uncertainCommit";
 }
 
 /** Whether an error from the engine is the person's own cancellation. */

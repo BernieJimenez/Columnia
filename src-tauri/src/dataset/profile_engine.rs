@@ -2114,8 +2114,7 @@ impl BackgroundDistinctCount {
             .ok_or_else(|| "El conteo de valores distintos ya terminó.".to_owned())?;
         while !handle.is_finished() {
             if is_cancelled() {
-                self.progress.interrupt();
-                let _ = handle.join();
+                let _ = self.progress.interrupt_and_join(handle);
                 return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
             }
             if let Some(fraction) = self.progress.fraction() {
@@ -2132,8 +2131,7 @@ impl BackgroundDistinctCount {
 impl Drop for BackgroundDistinctCount {
     fn drop(&mut self) {
         if let Some(handle) = self.handle.take() {
-            self.progress.interrupt();
-            let _ = handle.join();
+            let _ = self.progress.interrupt_and_join(handle);
         }
     }
 }

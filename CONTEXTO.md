@@ -595,6 +595,8 @@ Dos trampas de dependencias en la importación ODBC. En odbc-api 29.1.0, `TextCo
 
 Las ramas específicas de symlinks/reparse points dependen de la plataforma; en Windows se prueban con una unión de directorio, que no requiere privilegios.
 
+Errores que cambian lo que hace la interfaz: los errores del IPC son texto, así que se reconocen **una sola vez** en `toBridgeError` (`src/bridge/errors.ts`, PROD-08) por una constante espejo de Rust: cancelación, codificación heredada y, desde AUD-030, el commit remoto incierto (`UNCERTAIN_COMMIT_MESSAGE`, con una prueba que lee la constante de `remote_databases.rs`). Los componentes deciden por el código o por un campo con tipo (`exportState.uncertain`, `databaseTargetIssue().field`, `invalidQualityRuleIndex`), nunca por `includes` o `startsWith` sobre un mensaje. En Rust, el error de memoria de DuckDB solo lo clasifica `is_duckdb_out_of_memory` (`duckdb_query.rs`), con una prueba que lo provoca con `memory_limit='1MB'`; `diagnostics.rs` (`fallback_error_kind`) sigue clasificando por texto para el diagnóstico. DuckDB borra la marca de interrupción al empezar cada sentencia, así que los vigilantes de cancelación repiten `interrupt()` cada 10 ms hasta que la operación termina (AUD-032); una sola interrupción se perdía en ~1 de cada 13 cancelaciones inmediatas.
+
 ## Riesgos y deuda técnica visibles
 
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.

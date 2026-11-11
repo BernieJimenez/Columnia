@@ -35,7 +35,8 @@ tanda 8 (AUD-077, 074, 075, 076 y 073) y se abrió AUD-113, aparecida al
 aplicarla. Ese mismo día se cerró la tanda 9 (AUD-009, 100, 008, 015 y 007) y
 se abrieron AUD-114 y AUD-115, aparecidas al aplicarla. El 2026-11-11 se
 cerró la tanda 10 (AUD-115, 016, 017, 018, 019 y 114). Ese mismo día se cerró
-la tanda 11 (AUD-020, 103, 021, 102 y 099).
+la tanda 11 (AUD-020, 103, 021, 102 y 099), y después la tanda 12
+(AUD-027, 028, 029, 030, 031 y 032).
 
 <!-- indice:inicio -->
 **Última actualización:** 2026-11-11 · **Siguiente ID libre:** AUD-116 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
@@ -45,11 +46,11 @@ la tanda 11 (AUD-020, 103, 021, 102 y 099).
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 63 | 16 | 60 · 3 · 0 |
+| 3 · Bajo | 57 | 22 | 54 · 3 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **64** | **51** | **61 · 3 · 0** |
+| **Total** | **58** | **57** | **55 · 3 · 0** |
 
-**Abiertas por área:** UI/UX 17 · Código 10 · Rendimiento 9 · Documentación 9 · Accesibilidad 7 · QA y testing 7 · Redacción 5
+**Abiertas por área:** UI/UX 17 · Rendimiento 9 · Documentación 9 · Accesibilidad 7 · QA y testing 7 · Redacción 5 · Código 4
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -618,53 +619,59 @@ Sin tareas abiertas.
 
 ### Código
 
-- [ ] **AUD-027 · Si no se pueden listar los controladores ODBC, el formulario dice «no hay un controlador instalado»**
+- [x] **AUD-027 · Si no se pueden listar los controladores ODBC, el formulario dice «no hay un controlador instalado»**
   - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/database/ServerConnectionForm.tsx:36-43`
   - **Qué hacer:** guardar `drivers: null | string[] | {error: string}` y mostrar `errorMessage(error)` (de `bridge/errors`); en Rust, mapear con un texto en español sin `Debug`.
   - **Criterio de aceptación:** con `listDatabaseDrivers` rechazado, el formulario muestra el motivo del fallo y no el mensaje de «instala el controlador». Ningún mensaje de `list_database_drivers` contiene `{`, `Diagnostics` ni `State:`.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 12 de la Fase 2 (en `master`). `ServerConnectionForm` guarda la lista como `null | string[] | {error}` y, si listar falla, muestra el motivo con `errorMessage` en un aviso `role="alert"` en lugar de «instala el controlador». En Rust, `list_database_drivers` pasa por `driver_list_error` (frase con `readable_driver_detail`, sin `Debug`, `Diagnostics` ni `State:`). Pruebas nuevas en Vitest y Rust.
 
-- [ ] **AUD-028 · Los controladores se cargan después de que el usuario puede haber escrito, y el padre no se entera de que ya hay controlador**
+- [x] **AUD-028 · Los controladores se cargan después de que el usuario puede haber escrito, y el padre no se entera de que ya hay controlador**
   - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/database/ServerConnectionForm.tsx:36-43`
   - **Qué hacer:** dentro del `then`, calcular el estado resultante y llamar a `onChange(problem === null ? build(...) : null)` en el mismo paso (o deshabilitar los campos mientras `drivers === null`).
   - **Criterio de aceptación:** una prueba que escribe los campos con `listDatabaseDrivers` pendiente y luego lo resuelve termina con `onChange` recibiendo la cadena.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 12 de la Fase 2 (en `master`). `update` solo cambia los campos y un efecto sobre `kind` y los campos avisa al padre (con `onChange` en una referencia), así que el controlador que llega después de escribir también le llega. Al montar avisa `null`, que es lo correcto para un formulario vacío (se remonta con `key={kind}`). Prueba nueva con el listado pendiente; falla sin el arreglo.
 
-- [ ] **AUD-029 · La cabecera de columna oculta el histograma de las columnas numéricas continuas con todos los valores distintos**
+- [x] **AUD-029 · La cabecera de columna oculta el histograma de las columnas numéricas continuas con todos los valores distintos**
   - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/components/ColumnProfileHeader.tsx:60`
   - **Qué hacer:** `const identifierLike = allDistinct && !(numeric && !isIntegerType(column.dataType))` o decidir con `profile.suggestedType`; el histograma se oculta solo para enteros/texto.
   - **Criterio de aceptación:** una columna `Float64` de 100 valores distintos muestra su histograma; una columna `Int64` 1..100 (identificador) no.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 12 de la Fase 2 (en `master`). `identifierLike` solo oculta el histograma de enteros y texto con todos los valores distintos; float y decimal (importes, medidas) lo conservan. Pruebas: Int64 1..100 sin histograma; Float64, f64 y Decimal(10, 2) con él.
 
-- [ ] **AUD-030 · Decisiones por el texto de un mensaje: errores de DuckDB en inglés y un aviso propio en Entregar**
+- [x] **AUD-030 · Decisiones por el texto de un mensaje: errores de DuckDB en inglés y un aviso propio en Entregar**
   - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/duckdb_query.rs:479`
   - **Qué hacer:** una función `is_duckdb_out_of_memory(&str)` en un solo lugar con una prueba que provoque el error con `SET memory_limit='1MB'` (así un cambio de redacción rompe la prueba y no el flujo), y llamar a una única función de respaldo desde las dos rutas. En Entregar, que el problema de conexión llegue como un valor con tipo (un código o una variante) y no como texto.
   - **Criterio de aceptación:** existe una sola función de clasificación, cubierta por una prueba que falla si DuckDB cambia el texto. Ninguna decisión de `DeliveryPhase.tsx` depende del texto de un mensaje.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 12 de la Fase 2 (en `master`). `is_duckdb_out_of_memory` es la única clasificación del error de memoria de DuckDB (los dos respaldos de conteo y `source_backed_resource_error`), con una prueba que provoca el error real con `memory_limit='1MB'`. En Entregar, el campo de destino con problema sale de `databaseTargetIssue`, la regla marcada de `invalidQualityRuleIndex` y el «Resultado incierto» de `exportState.uncertain`, que se fija al capturar el error (`isUncertainCommitError`, reconocido una sola vez en `toBridgeError` con una prueba que compara el texto con la constante de Rust). Sin cambios del contrato IPC.
 
-- [ ] **AUD-031 · Código y comentarios obsoletos en las rutas nuevas de T-SQL y de textos de entrega**
+- [x] **AUD-031 · Código y comentarios obsoletos en las rutas nuevas de T-SQL y de textos de entrega**
   - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/duckdb_query.rs:918-923`
   - **Qué hacer:** sustituir los tres brazos por el error genérico de «tipo no admitido» (o `unreachable`-con-mensaje), corregir el comentario, y separar `exportFormatLabel` de un `exportDestinationLabel` para la leyenda.
   - **Criterio de aceptación:** la leyenda dice «Conexión · SQL Server» y el botón «Exportar a SQL Server»; no quedan brazos inalcanzables en `duckdb_tsql_value`.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 12 de la Fase 2 (en `master`). Fuera los brazos `Date32`, `Time64` y `Timestamp` de `duckdb_tsql_value`: la única llamada lee la proyección de `tsql_text_projection`, que ya pasa esos tipos a texto; si llegaran, dan el error genérico de tipo no admitido. La leyenda usa `exportDestinationLabel` («Conexión · SQL Server») y el botón sigue con «Exportar a SQL Server». El comentario obsoleto ya no estaba.
 
-- [ ] **AUD-032 · Las interrupciones a DuckDB se envían una sola vez y DuckDB reinicia la marca al empezar cada sentencia**
+- [x] **AUD-032 · Las interrupciones a DuckDB se envían una sola vez y DuckDB reinicia la marca al empezar cada sentencia**
   - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/duckdb_query.rs:329-343`
   - **Qué hacer:** repetir la interrupción mientras la sentencia siga viva: en `run_native_with_progress`, llamar a `native.interrupt()` en cada vuelta mientras `cancelled` sea verdadero y el hilo no haya terminado; en `finish` y `Drop`, reemplazar `interrupt(); join()` por un bucle `while !handle.is_finished() { interrupt(); sleep(10 ms) }` y luego `join`.
   - **Criterio de aceptación:** una prueba que dispara la cancelación inmediatamente después de `spawn_parquet_distinct_count` sobre un Parquet grande (o con una consulta artificialmente larga) termina en tiempo acotado en 100 ejecuciones seguidas.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 12 de la Fase 2 (en `master`). La interrupción se repite mientras la sentencia sigue viva en los tres vigilantes: `run_native_with_progress`, `NativeProgress::interrupt_and_join` (en `finish` y `Drop` de `BackgroundDistinctCount`) y el de `execute_duckdb_operation_with_cancel_state`, que antes también interrumpía una sola vez. Pruebas nuevas: 10 cancelaciones inmediatas (siempre) y 100 sobre 20 M filas (`#[ignore]`): la más lenta, 45 ms; con una sola interrupción, la de 100 falló en la vuelta 13 con 2,3 s.
 
 - [ ] **AUD-033 · El comentario `SAFETY` de `unsafe impl Sync for NativeDuckDb` cubre menos de lo que el tipo permite**
   - **Área:** Código · **Severidad:** Bajo · **Esfuerzo:** Bajo

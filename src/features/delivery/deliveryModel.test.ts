@@ -25,6 +25,8 @@ import {
   reduceDeliveryContract,
   validateDatabaseTargetDraft,
   validateQualityRuleDraft,
+  databaseTargetIssue,
+  invalidQualityRuleIndex,
   type DeliveryContractState,
 } from "./deliveryModel";
 
@@ -218,6 +220,27 @@ describe("estado de entrega", () => {
     const complete = { ...draft, connection };
     expect(validateDatabaseTargetDraft(complete)).toBeNull();
     expect(completeDatabaseTarget(complete)).toEqual(complete);
+  });
+
+  it("indica el campo del destino con un valor con tipo (AUD-030)", () => {
+    const connection = {
+      driver: "PostgreSQL Unicode(x64)", server: "localhost", port: "", database: "", authentication: "password",
+      user: "ana", password: "x", trustServerCertificate: false, allowUnencrypted: false,
+    } as DatabaseConnection;
+    const draft = { ...INITIAL_DATABASE_TARGET, schema: "public", table: "dataset" };
+    expect(databaseTargetIssue(draft)?.field).toBe("connection");
+    expect(databaseTargetIssue({ ...draft, connection, schema: "mal esquema" })?.field).toBe("schema");
+    expect(databaseTargetIssue({ ...draft, connection, table: "1tabla" })?.field).toBe("table");
+    expect(databaseTargetIssue({ ...draft, kind: "mysql", tablePolicy: "replace", connection })?.field).toBe("policy");
+    expect(databaseTargetIssue({ ...draft, connection })).toBeNull();
+  });
+
+  it("indica la regla inválida por su posición (AUD-030)", () => {
+    const bad: QualityRule = { column: "no_existe", kind: "not_null", maxInvalid: 0 };
+    expect(invalidQualityRuleIndex([validRule, bad], dataset)).toBe(1);
+    expect(invalidQualityRuleIndex([validRule], dataset)).toBeNull();
+    const tooMany = Array.from({ length: MAX_QUALITY_RULES + 1 }, () => validRule);
+    expect(invalidQualityRuleIndex(tooMany, dataset)).toBeNull();
   });
 
   it("invalida un gate aprobado cuando cambian las reglas", () => {

@@ -1,6 +1,7 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { listDatabaseDrivers, type DatabaseConnection } from "../../bridge";
+import { errorMessage } from "../../bridge/errors";
 import {
   EMPTY_SERVER_CONNECTION,
   SERVER_ENGINES,
@@ -26,25 +27,41 @@ export function ServerConnectionForm({ kind, disabled, onChange, errorId }: Serv
   const id = useId();
   const engine = SERVER_ENGINES[kind];
   const [fields, setFields] = useState<DatabaseConnection>(EMPTY_SERVER_CONNECTION);
-  const [drivers, setDrivers] = useState<string[] | null>(null);
+  // null while loading, the installed drivers, or why they could not be listed.
+  const [driverList, setDriverList] = useState<null | string[] | { error: string }>(null);
+  const driverError = driverList !== null && !Array.isArray(driverList) ? driverList.error : null;
+  const drivers = Array.isArray(driverList) ? driverList : driverError !== null ? [] : null;
 
   useEffect(() => {
     let active = true;
     listDatabaseDrivers(kind)
       .then((found) => {
         if (!active) return;
-        setDrivers(found);
+        setDriverList(found);
         setFields((current) => current.driver ? current : { ...current, driver: found[0] ?? "" });
       })
-      .catch(() => active && setDrivers([]));
+      .catch((error: unknown) => {
+        if (active) setDriverList({ error: errorMessage(error) });
+      });
     return () => {
       active = false;
     };
   }, [kind]);
 
+  // The parent hears about every change of the fields, including the driver
+  // that arrives after the user has already typed. A ref keeps an inline
+  // callback from re-running the effect.
+  const onChangeRef = useRef(onChange);
+  // Declared first, so it runs before the notifying effect below.
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+  useEffect(() => {
+    onChangeRef.current(serverConnectionProblem(kind, fields) === null ? fields : null);
+  }, [kind, fields]);
+
   function update(next: DatabaseConnection) {
     setFields(next);
-    onChange(serverConnectionProblem(kind, next) === null ? next : null);
   }
 
   const problem = drivers === null ? null : serverConnectionProblem(kind, fields);
@@ -146,7 +163,12 @@ export function ServerConnectionForm({ kind, disabled, onChange, errorId }: Serv
       {problem && fields.server.trim() !== "" && drivers !== null && drivers.length > 0 && (
         <p className="connection-form__note" role="status">{problem}</p>
       )}
-      {drivers !== null && drivers.length === 0 && <p className="notice" role="status">{problem}</p>}
+      {driverError !== null && (
+        <p className="notice" role="alert">No se pudieron comprobar los controladores ODBC instalados. {driverError}</p>
+      )}
+      {driverError === null && drivers !== null && drivers.length === 0 && (
+        <p className="notice" role="status">{problem}</p>
+      )}
       <p className="connection-form__footer">
         <small>No se guarda nada de la conexión: solo vive mientras la usas.</small>
       </p>
