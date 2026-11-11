@@ -795,3 +795,104 @@ fn external_sql_server_runs_the_bulk_package_deliveries_on_a_real_table() {
     };
     run_deliveries(&unique_table("bulk"), true, directory.path());
 }
+
+/// AUD-041 probe: total time and longest stretch without a progress change of
+/// the BULK INSERT package over a synthetic CSV. `COLUMNIA_PROBE_ROWS` sets
+/// the rows (default 2 000 000).
+#[test]
+#[ignore = "sonda de rendimiento: imprime tiempos del paquete BULK INSERT"]
+fn bulk_package_timing_probe() {
+    let rows: usize = std::env::var("COLUMNIA_PROBE_ROWS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(2_000_000);
+    let directory = tempfile::tempdir().expect("carpeta");
+    let source = directory.path().join("grande.csv");
+    {
+        let mut writer = BufWriter::new(File::create(&source).expect("csv"));
+        writeln!(
+            writer,
+            "Id,Cliente,Categoria,Monto,Cantidad,Fecha,Email,Activo,Notas,Codigo"
+        )
+        .unwrap();
+        for index in 0..rows {
+            writeln!(
+                writer,
+                "{index},Cliente {c},Cat{k},{a}.{b:02},{q},2024-{m:02}-{d:02},user{c}@example.com,{act},\"Nota {index}, con coma y texto repetido\",C{index:09}",
+                c = (index * 7919) % 100_003,
+                k = index % 12,
+                a = (index * 37) % 5000,
+                b = index % 100,
+                q = (index * 7) % 40,
+                m = index % 12 + 1,
+                d = index % 28 + 1,
+                act = if index % 3 == 0 { "true" } else { "false" },
+            )
+            .unwrap();
+        }
+        writer.flush().unwrap();
+    }
+    let size = fs::metadata(&source).unwrap().len();
+    let destination = directory.path().join("grande.zip");
+    let start = std::time::Instant::now();
+    let mut events: Vec<(f64, &'static str, u8)> = Vec::new();
+    export_source_backed_sqlserver_bulk_atomic(
+        &source,
+        size,
+        test_source_format(&source),
+        rows,
+        &destination,
+        None,
+        |label, percent| events.push((start.elapsed().as_secs_f64(), label, percent)),
+        || false,
+    )
+    .expect("el paquete se exporta");
+    let total = start.elapsed().as_secs_f64();
+    let mut longest = 0.0_f64;
+    let mut previous = (0.0_f64, 0_u8);
+    for (time, label, percent) in &events {
+        println!("  {time:8.2}s  {percent:3}%  {label}");
+        if *percent != previous.1 {
+            longest = longest.max(time - previous.0);
+            previous = (*time, *percent);
+        }
+    }
+    longest = longest.max(total - previous.0);
+    println!(
+        "AUD-041 rows={rows} csv_in={} MiB zip_out={} MiB total={total:.2}s longest_same_percent={longest:.2}s",
+        size >> 20,
+        fs::metadata(&destination).unwrap().len() >> 20
+    );
+}
+
+#[test]
+fn the_bulk_package_csv_keeps_the_row_order_of_a_multi_chunk_file() {
+    let rows = 300_000_usize;
+    let directory = tempfile::tempdir().expect("carpeta");
+    let mut contents = String::from("id,texto\n");
+    for index in 0..rows {
+        contents.push_str(&format!("{index},fila {index}\n"));
+    }
+    let (source, size) = source_csv(directory.path(), &contents);
+    let destination = directory.path().join("orden.zip");
+    export_source_backed_sqlserver_bulk_atomic(
+        &source,
+        size,
+        test_source_format(&source),
+        rows,
+        &destination,
+        None,
+        |_, _| {},
+        || false,
+    )
+    .expect("el paquete se exporta");
+    let entries = zip_entries(&destination);
+    let ids: Vec<usize> = entries[0]
+        .1
+        .lines()
+        .skip(1)
+        .map(|line| line.split(',').next().unwrap().parse().unwrap())
+        .collect();
+    assert_eq!(ids.len(), rows);
+    assert!(ids.iter().enumerate().all(|(position, id)| position == *id));
+}

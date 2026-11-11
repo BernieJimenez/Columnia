@@ -1684,6 +1684,22 @@ where
     C: Fn() -> bool,
     W: Write,
 {
+    copy_file_with_progress(source_path, destination, is_cancelled, |_| {})
+}
+
+/// `copy_file_with_cancel` that tells `progress` the bytes copied so far after
+/// every block, so a long copy (the CSV into the package) can move a bar.
+fn copy_file_with_progress<C, W, P>(
+    source_path: &Path,
+    destination: &mut W,
+    is_cancelled: C,
+    mut progress: P,
+) -> Result<u64, String>
+where
+    C: Fn() -> bool,
+    W: Write,
+    P: FnMut(u64),
+{
     let mut source = File::open(source_path)
         .map_err(|error| format!("No se pudo leer el archivo temporal: {error}"))?;
     let mut buffer = [0_u8; 64 * 1024];
@@ -1702,6 +1718,7 @@ where
         copied = copied
             .checked_add(read as u64)
             .ok_or_else(|| "El tamaño de la exportación excede la capacidad local.".to_owned())?;
+        progress(copied);
     }
 }
 
@@ -2683,17 +2700,37 @@ where
     Ok(())
 }
 
-/// The package ZIP: the CSV, `cargar.sql` and `LEEME.txt`.
-fn assemble_sqlserver_bulk_package<C>(
+/// From this size the CSV goes into the package without compressing (AUD-041):
+/// deflating it is a single-threaded CPU step as long as the CSV export itself
+/// (3 s for 370 MiB, with no way to move a bar), and the file is text that the
+/// user unpacks anyway to hand it to the server.
+const BULK_CSV_STORED_THRESHOLD_BYTES: u64 = 128 * 1024 * 1024;
+
+/// ZIP options of the CSV of a BULK INSERT package of about `bytes`.
+fn bulk_csv_entry_options(bytes: u64) -> SimpleFileOptions {
+    if bytes >= BULK_CSV_STORED_THRESHOLD_BYTES {
+        SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Stored)
+            .large_file(bytes >= ZIP64_THRESHOLD_BYTES)
+    } else {
+        zip_entry_options(bytes)
+    }
+}
+
+/// The package ZIP: the CSV, `cargar.sql` and `LEEME.txt`. `report` moves from
+/// 70 to 87 % while the CSV is copied into the ZIP.
+fn assemble_sqlserver_bulk_package<C, F>(
     output: &mut File,
     target: &TsqlTarget,
     columns: &[crate::tsql_script::TsqlColumn],
     csv: &Path,
     rows: Option<usize>,
     is_cancelled: &C,
+    report: &mut F,
 ) -> Result<(), String>
 where
     C: Fn() -> bool + Clone,
+    F: FnMut(&'static str, u8),
 {
     let csv_bytes = fs::metadata(csv)
         .map_err(|error| format!("No se pudo leer el CSV del paquete: {error}"))?
@@ -2705,10 +2742,17 @@ where
     archive
         .start_file(
             crate::tsql_script::bulk_csv_name(target),
-            zip_entry_options(csv_bytes),
+            bulk_csv_entry_options(csv_bytes),
         )
         .map_err(zip_error)?;
-    copy_file_with_cancel(csv, &mut archive, is_cancelled.clone())?;
+    let mut last_percent = 70_u8;
+    copy_file_with_progress(csv, &mut archive, is_cancelled.clone(), |copied| {
+        let percent = 70 + (copied.saturating_mul(17) / csv_bytes.max(1)).min(17) as u8;
+        if percent != last_percent {
+            last_percent = percent;
+            report("Empaquetando el CSV", percent);
+        }
+    })?;
     ensure_not_cancelled(is_cancelled())?;
     let text_options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     archive
@@ -2793,6 +2837,7 @@ where
         csv.path(),
         Some(frame.height()),
         &is_cancelled,
+        &mut report,
     )?;
     report("Paquete listo", 88);
     Ok(())
@@ -2902,6 +2947,7 @@ where
                 &csv,
                 Some(row_count),
                 &cancel,
+                report,
             )?;
             Ok(0)
         },

@@ -6,11 +6,22 @@ import { isDatetimeType, isDecimalType, isIntegerType } from "./dataTypes";
 
 const BINARY_UNITS = ["KiB", "MiB", "GiB", "TiB", "PiB"] as const;
 
+// AUD-042: building an Intl.NumberFormat is costly and these run per column and
+// per render, so each configuration is built once and reused. The locale is the
+// runtime default (`undefined`), which cannot change without reloading the page.
+const decimalFormats = new Map<number, Intl.NumberFormat>();
+const numberFormats = new Map<string, Intl.NumberFormat>();
+
 export function formatDecimal(value: number, fractionDigits = 1): string {
-  return new Intl.NumberFormat(undefined, {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
-  }).format(value);
+  let format = decimalFormats.get(fractionDigits);
+  if (!format) {
+    format = new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    });
+    decimalFormats.set(fractionDigits, format);
+  }
+  return format.format(value);
 }
 
 /** UX-08: a value that rounds to zero at these decimals reads «0», never «-0». */
@@ -20,8 +31,13 @@ export function withoutNegativeZero(value: number, maximumFractionDigits: number
 
 /** A number with up to `maximumFractionDigits` decimals, no trailing zeros. */
 export function formatNumber(value: number, maximumFractionDigits = 3, useGrouping = true): string {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits, useGrouping })
-    .format(withoutNegativeZero(value, maximumFractionDigits));
+  const key = `${maximumFractionDigits}|${useGrouping}`;
+  let format = numberFormats.get(key);
+  if (!format) {
+    format = new Intl.NumberFormat(undefined, { maximumFractionDigits, useGrouping });
+    numberFormats.set(key, format);
+  }
+  return format.format(withoutNegativeZero(value, maximumFractionDigits));
 }
 
 /**

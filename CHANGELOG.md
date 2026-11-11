@@ -1301,6 +1301,18 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- El paquete BULK INSERT de un archivo grande se prepara unas 3,5 veces más
+  rápido: escribe el CSV con varios hilos y, desde 128 MiB, lo guarda en el ZIP
+  sin comprimir, con la barra avanzando mientras se empaqueta. El ZIP de un CSV
+  grande pesa ahora casi lo mismo que el CSV (AUD-041).
+- Las copias de trabajo que escribe DuckDB guardan grupos de 65.536 filas, igual
+  que el bloque con que las lee el perfil: cada trozo se descomprime una sola vez
+  y la pasada de lectura tarda un tercio menos (AUD-043).
+- La exportación a script T-SQL escribe cada valor directo al archivo, sin
+  cadenas intermedias por celda ni por byte de un binario; el script sale
+  idéntico (AUD-040).
+- Detectar filas duplicadas exactas ya no convierte a texto cada celda no
+  textual (AUD-039).
 - Tras analizar la calidad de un CSV grande, «Validar contrato», ver y
   resolver conflictos, la tendencia numérica y el largo del texto del script
   T-SQL y del paquete BULK INSERT leen la copia que dejó el perfil en lugar de
@@ -1611,6 +1623,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- Las páginas de conflictos leen las filas comparadas por tramos ordenados y en
+  paralelo, en vez de una lectura por fila (hasta 45 veces menos con filas
+  cercanas; unas 3 con filas dispersas; AUD-038, sigue abierta). Revisar
+  reutiliza los formateadores de números y no vuelve a pintar la cabecera de una
+  columna cuyo perfil no cambió (AUD-042, sigue abierta).
 - El comentario `SAFETY` de `NativeDuckDb` nombra la restricción de que solo
   un hilo a la vez ejecuta sentencias en la conexión (AUD-033).
 - El error de memoria de DuckDB se reconoce en un solo sitio, con una prueba que

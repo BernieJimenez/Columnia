@@ -295,18 +295,137 @@ pub(crate) fn exact_row_fingerprint(
                     format!("No se pudieron comparar las filas para detectar duplicados: {error}")
                 })? {
                     AnyValue::Null => hasher.write_u8(0),
-                    value => {
-                        // Debug keeps the type and every digit of the value.
-                        let exact = format!("{value:?}");
-                        hasher.write_u8(1);
-                        hasher.write_u64(exact.len() as u64);
-                        hasher.write(exact.as_bytes());
-                    }
+                    value => write_exact_value_fingerprint(&mut hasher, &value),
                 }
             }
         }
     }
     Ok(hasher.digest128())
+}
+
+/// AUD-039: native bytes with a type tag (tags are >= 2; 0 is null and 1 is
+/// text in `exact_row_fingerprint`). Same equivalences as the former `Debug`
+/// text: -0.0 and 0.0 differ, every NaN is one value, the same number in two
+/// types differs, and durations and datetimes carry their unit (and zone). Decimals are not compiled into this build
+/// (no `dtype-decimal`); nested or rare values (lists, structs, objects, half
+/// floats, decimals if enabled) keep the `Debug` text.
+fn write_exact_value_fingerprint(hasher: &mut Xxh3, value: &AnyValue<'_>) {
+    match value {
+        AnyValue::Boolean(v) => {
+            hasher.write_u8(2);
+            hasher.write_u8(u8::from(*v));
+        }
+        AnyValue::UInt8(v) => {
+            hasher.write_u8(3);
+            hasher.write_u8(*v);
+        }
+        AnyValue::UInt16(v) => {
+            hasher.write_u8(4);
+            hasher.write_u16(*v);
+        }
+        AnyValue::UInt32(v) => {
+            hasher.write_u8(5);
+            hasher.write_u32(*v);
+        }
+        AnyValue::UInt64(v) => {
+            hasher.write_u8(6);
+            hasher.write_u64(*v);
+        }
+        AnyValue::UInt128(v) => {
+            hasher.write_u8(7);
+            hasher.write_u128(*v);
+        }
+        AnyValue::Int8(v) => {
+            hasher.write_u8(8);
+            hasher.write_i8(*v);
+        }
+        AnyValue::Int16(v) => {
+            hasher.write_u8(9);
+            hasher.write_i16(*v);
+        }
+        AnyValue::Int32(v) => {
+            hasher.write_u8(10);
+            hasher.write_i32(*v);
+        }
+        AnyValue::Int64(v) => {
+            hasher.write_u8(11);
+            hasher.write_i64(*v);
+        }
+        AnyValue::Int128(v) => {
+            hasher.write_u8(12);
+            hasher.write_i128(*v);
+        }
+        AnyValue::Float32(v) => {
+            hasher.write_u8(13);
+            let bits = if v.is_nan() {
+                f32::NAN.to_bits()
+            } else {
+                v.to_bits()
+            };
+            hasher.write_u32(bits);
+        }
+        AnyValue::Float64(v) => {
+            hasher.write_u8(14);
+            let bits = if v.is_nan() {
+                f64::NAN.to_bits()
+            } else {
+                v.to_bits()
+            };
+            hasher.write_u64(bits);
+        }
+        AnyValue::Date(v) => {
+            hasher.write_u8(15);
+            hasher.write_i32(*v);
+        }
+        AnyValue::Time(v) => {
+            hasher.write_u8(16);
+            hasher.write_i64(*v);
+        }
+        AnyValue::Duration(v, unit) => {
+            hasher.write_u8(17);
+            hasher.write_u8(*unit as u8);
+            hasher.write_i64(*v);
+        }
+        AnyValue::Datetime(v, unit, zone) => {
+            write_datetime_fingerprint(hasher, *v, *unit as u8, zone.map(|zone| zone.as_str()));
+        }
+        AnyValue::DatetimeOwned(v, unit, zone) => {
+            write_datetime_fingerprint(
+                hasher,
+                *v,
+                *unit as u8,
+                zone.as_ref().map(|zone| zone.as_str()),
+            );
+        }
+        AnyValue::Binary(v) => write_exact_binary_fingerprint(hasher, v),
+        AnyValue::BinaryOwned(v) => write_exact_binary_fingerprint(hasher, v),
+        other => {
+            let exact = format!("{other:?}");
+            hasher.write_u8(255);
+            hasher.write_u64(exact.len() as u64);
+            hasher.write(exact.as_bytes());
+        }
+    }
+}
+
+fn write_datetime_fingerprint(hasher: &mut Xxh3, value: i64, unit: u8, zone: Option<&str>) {
+    hasher.write_u8(18);
+    hasher.write_u8(unit);
+    hasher.write_i64(value);
+    match zone {
+        Some(zone) => {
+            hasher.write_u8(1);
+            hasher.write_u64(zone.len() as u64);
+            hasher.write(zone.as_bytes());
+        }
+        None => hasher.write_u8(0),
+    }
+}
+
+fn write_exact_binary_fingerprint(hasher: &mut Xxh3, value: &[u8]) {
+    hasher.write_u8(20);
+    hasher.write_u64(value.len() as u64);
+    hasher.write(value);
 }
 
 pub(crate) fn row_fingerprint(
@@ -406,5 +525,68 @@ mod tests {
         let error =
             normalized_row_fingerprints_range(frame.columns(), 0, 10, &|| true).unwrap_err();
         assert_eq!(error, crate::dataset::OPERATION_CANCELLED_MESSAGE);
+    }
+
+    fn exact_fingerprints(frame: &DataFrame) -> Vec<NormalizedRowFingerprint> {
+        let columns = normalized_fingerprint_columns(frame.columns()).unwrap();
+        (0..frame.height())
+            .map(|row| exact_row_fingerprint(&columns, row).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn exact_fingerprint_keeps_equal_rows_together_and_types_apart() {
+        // AUD-039: native bytes, same equivalences as the former Debug text.
+        let frame = df!(
+            "entero" => [1_i64, 1, 2, 1],
+            "decimal" => [0.0_f64, 0.0, -0.0, f64::NAN],
+            "flag" => [Some(true), Some(true), None, Some(false)],
+        )
+        .unwrap();
+        let fingerprints = exact_fingerprints(&frame);
+        assert_eq!(fingerprints[0], fingerprints[1]);
+        assert_ne!(fingerprints[0], fingerprints[2]);
+        assert_ne!(fingerprints[0], fingerprints[3]);
+
+        let nan = df!("x" => [f64::NAN, -f64::NAN, f64::from_bits(0x7ff8_0000_0000_0001)]).unwrap();
+        let nan = exact_fingerprints(&nan);
+        assert_eq!(nan[0], nan[1]);
+        assert_eq!(nan[0], nan[2]);
+        let zero = exact_fingerprints(&df!("x" => [0.0_f64, -0.0]).unwrap());
+        assert_ne!(zero[0], zero[1]);
+
+        // The same number in two types is a different value; null is not zero.
+        let ints = exact_fingerprints(&df!("x" => [Some(0_i64), None]).unwrap());
+        assert_ne!(ints[0], ints[1]);
+        let a = exact_fingerprints(&df!("x" => [1_i64]).unwrap());
+        let b = exact_fingerprints(&df!("x" => [1_i32]).unwrap());
+        let c = exact_fingerprints(&df!("x" => [1.0_f64]).unwrap());
+        assert_ne!(a[0], b[0]);
+        assert_ne!(a[0], c[0]);
+    }
+
+    #[test]
+    fn exact_fingerprint_separates_adjacent_text_columns() {
+        let frame = df!("a" => [Some("ab"), Some("a")], "b" => [Some("c"), Some("bc")]).unwrap();
+        let fingerprints = exact_fingerprints(&frame);
+        assert_ne!(fingerprints[0], fingerprints[1]);
+    }
+
+    #[test]
+    #[ignore = "medición manual: cargo test --lib exact_fingerprint_speed -- --ignored --nocapture"]
+    fn exact_fingerprint_speed() {
+        let rows = 2_000_000_i64;
+        let frame = df!(
+            "a" => (0..rows).collect::<Vec<_>>(),
+            "b" => (0..rows).map(|v| v as f64 * 0.5).collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let columns = normalized_fingerprint_columns(frame.columns()).unwrap();
+        let start = std::time::Instant::now();
+        let mut acc = 0_u128;
+        for row in 0..frame.height() {
+            acc ^= exact_row_fingerprint(&columns, row).unwrap();
+        }
+        println!("{rows} filas: {:?} ({acc})", start.elapsed());
     }
 }

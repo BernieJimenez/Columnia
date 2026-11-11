@@ -36,8 +36,9 @@ aplicarla. Ese mismo día se cerró la tanda 9 (AUD-009, 100, 008, 015 y 007) y
 se abrieron AUD-114 y AUD-115, aparecidas al aplicarla. El 2026-11-11 se
 cerró la tanda 10 (AUD-115, 016, 017, 018, 019 y 114). Ese mismo día se cerró
 la tanda 11 (AUD-020, 103, 021, 102 y 099), después la tanda 12
-(AUD-027, 028, 029, 030, 031 y 032) y después la tanda 13 (AUD-033, 104, 106
-y 107).
+(AUD-027, 028, 029, 030, 031 y 032) después la tanda 13 (AUD-033, 104, 106
+y 107) y después la tanda 14 (AUD-039, 040, 041 y 043; AUD-038 y AUD-042
+quedan abiertas con avance).
 
 <!-- indice:inicio -->
 **Última actualización:** 2026-11-11 · **Siguiente ID libre:** AUD-116 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
@@ -47,11 +48,11 @@ y 107).
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 53 | 26 | 50 · 3 · 0 |
+| 3 · Bajo | 49 | 30 | 46 · 3 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **54** | **61** | **51 · 3 · 0** |
+| **Total** | **50** | **65** | **47 · 3 · 0** |
 
-**Abiertas por área:** UI/UX 17 · Rendimiento 9 · Documentación 9 · Accesibilidad 7 · QA y testing 7 · Redacción 5
+**Abiertas por área:** UI/UX 17 · Documentación 9 · Accesibilidad 7 · QA y testing 7 · Rendimiento 5 · Redacción 5
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -719,30 +720,34 @@ Sin tareas abiertas.
   - **Criterio de aceptación:** una página de 50 conflictos con filas comparadas dispersas en un Parquet de 20 millones de filas y 40 columnas de texto tarda lo mismo (± 20 %) que una con filas contiguas.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Avance:** 2026-11-11 · tanda 14 de la Fase 2 (en `master`), tarea abierta. Las filas comparadas de una página se leen ordenadas, en tramos de hasta 1.024 filas, un `slice` por tramo y hasta 4 en paralelo, y la página conserva su orden. Medido con 3 M filas × 40 columnas de texto (solo las 50 filas comparadas): contiguas 2,5 s → 0,05 s; dispersas 2,4 s → 0,75 s. **Falta el criterio:** las dispersas siguen tardando más porque cada una descomprime un grupo de filas entero; igualarlas pide un mapa de grupos en el índice o una caché entre páginas. Los marcadores siguen sin `BufWriter`: son escrituras con `seek` por conflicto.
 
-- [ ] **AUD-039 · El hash exacto de filas formatea con `Debug` cada celda no textual de cada fila**
+- [x] **AUD-039 · El hash exacto de filas formatea con `Debug` cada celda no textual de cada fila**
   - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset_fingerprints.rs:278-310`
   - **Qué hacer:** escribir a `hasher` los bytes nativos del valor (`write_u64`, `to_bits()` para floats, `i128` para decimales) con una etiqueta de tipo, en lugar de `Debug`.
   - **Criterio de aceptación:** `exact_row_fingerprint` no asigna memoria por celda (una prueba con un asignador contador, o `cargo bench` simple) y el recuento de duplicados exactos no cambia en las pruebas existentes.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 14 de la Fase 2 (en `master`). `exact_row_fingerprint` escribe una etiqueta de tipo y los bytes nativos de cada valor no textual (con NaN canónico, unidad y zona en fechas), sin `format!`; listas, structs y tipos raros siguen con `Debug`. Mismas equivalencias que antes, y el hash no se guarda en disco más allá de la pasada del perfil. Sin asignación por celda por construcción (no se contaron asignaciones); las pruebas de duplicados siguen pasando.
 
-- [ ] **AUD-040 · El generador de T-SQL asigna varias cadenas por celda y una por cada byte binario**
+- [x] **AUD-040 · El generador de T-SQL asigna varias cadenas por celda y una por cada byte binario**
   - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/tsql_script.rs:339-358`
   - **Qué hacer:** `render_value(&TsqlValue, &mut impl Write)` que escribe directamente (cifras con `write!(out, "{value}")`, texto escapando comillas sobre la marcha, hexadecimal con una tabla de 16 bytes), y `push_row` escribiendo sin `Vec<String>`.
   - **Criterio de aceptación:** el script generado es byte a byte idéntico al actual en las pruebas existentes de `tsql_script.rs`, y un blob de 1 MB se renderiza sin asignaciones por byte.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 14 de la Fase 2 (en `master`). `render_value` escribe directo en la salida (texto con las comillas duplicadas sobre la marcha, binario con una tabla de 16 dígitos) y `push_row` ya no arma un `Vec<String>`. Una prueba de referencia escrita antes del cambio (todos los tipos, Unicode, los 256 bytes y 3.000 filas que cruzan dos cortes de `INSERT`) confirma que el script es idéntico byte a byte; un blob de 1 MB se renderiza sin asignar por byte.
 
-- [ ] **AUD-041 · El paquete BULK INSERT escribe el CSV con un solo hilo y comprime todo el CSV en la fase final sin avance de progreso**
+- [x] **AUD-041 · El paquete BULK INSERT escribe el CSV con un solo hilo y comprime todo el CSV en la fase final sin avance de progreso**
   - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/duckdb_query.rs:1012`
   - **Qué hacer:** quitar `SET threads = 1` o documentar el motivo; guardar el CSV con `CompressionMethod::Stored` cuando supere un umbral (el CSV ya es texto, y el ZIP deja de ser un paso de CPU), o emitir `report` por bytes copiados en `copy_file_with_cancel`.
   - **Criterio de aceptación:** exportar un paquete BULK desde un CSV de 6 millones de filas no deja la barra más de 10 s en el mismo porcentaje y el tiempo total baja al menos a la mitad (medido con el mismo dataset).
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 14 de la Fase 2 (en `master`). Fuera `SET threads = 1` (sin motivo documentado; el orden lo conserva `preserve_insertion_order`, con prueba de orden), la copia del CSV al ZIP mueve la barra de 70 a 87 % («Empaquetando el CSV») y, desde 128 MiB, el CSV va sin comprimir. Medido en `--release` con 3 M filas × 10 columnas (367 MiB de CSV): total 6,77 s → 1,86 s y mayor tramo sin avance 3,47 s → 1,29 s. Contrapartida: el ZIP de un CSV grande pesa casi lo que el CSV (367 MiB frente a 64 MiB).
 
 - [ ] **AUD-042 · `ColumnProfileHeader` y `format.ts` crean un `Intl.NumberFormat` por cada llamada, en la vista previa de Revisar de cada columna y en cada render**
   - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Bajo
@@ -751,14 +756,16 @@ Sin tareas abiertas.
   - **Criterio de aceptación:** con un dataset de 200 columnas, el render del panel desde el Profiler de React tarda menos de la mitad que ahora y el número de construcciones de `Intl.NumberFormat` por render es 0.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Avance:** 2026-11-11 · tanda 14 de la Fase 2 (en `master`), tarea abierta. `formatDecimal` y `formatNumber` reutilizan un formateador por configuración y `ColumnProfileHeader` va en `memo` (sus propiedades son estables); una prueba con 200 columnas comprueba 0 construcciones de `Intl.NumberFormat` al renderizar y re-renderizar. **Falta el criterio:** en jsdom el montaje de 200 columnas solo baja un 5-10 % (69-80 ms → 63-73 ms); queda medir con el Profiler en la app los re-renders de Revisar, que es donde actúa `memo`.
 
-- [ ] **AUD-043 · Los bloques de lectura no están alineados con los grupos de filas de la copia Parquet: cada trozo de columna se descomprime entre 2,75 y 8 veces**
+- [x] **AUD-043 · Los bloques de lectura no están alineados con los grupos de filas de la copia Parquet: cada trozo de columna se descomprime entre 2,75 y 8 veces**
   - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/duckdb_query.rs:264-266`
   - **Qué hacer:** que la copia de trabajo se escriba con un tamaño de grupo igual o divisor del bloque más pequeño que la lee de forma habitual: `COPY (...) TO '...' (FORMAT PARQUET, ROW_GROUP_SIZE 65536)` en `copy_to_parquet_statement` y en las demás copias que luego se leen por bloques (`duckdb_query.rs:399`, `:619`), y, para filas muy anchas, el mismo cálculo que `parquet_row_group_rows` (que ya limita por bytes). Para las lecturas de 16.384 filas, subirlas a 65.536 (o leer con el bloque igual al grupo) si el consumo de memoria del bloque lo permite. Para la importación, `with_row_group_size(Some(parquet_row_group_rows(frame)))` (ver AUD-037). Contrapartida: grupos más pequeños duplican el tamaño del pie del Parquet y reducen algo el paralelismo de lectura de DuckDB; hay que medirlo.
   - **Criterio de aceptación:** con `POLARS_PARQUET_METRICS=1` en una pasada del perfil sobre un Parquet de la copia, la suma de `num_decompressed_pages` por columna es igual al número de grupos (1 visita por grupo) y el tiempo de «Analizando filas y columnas» en 2019-Oct con la copia alineada no empeora respecto al actual; `parquet_metadata()` de DuckDB muestra grupos de 65.536 filas.
   - **Depende de:** ninguna; AUD-037 aplica la misma regla a la importación
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 14 de la Fase 2 (en `master`). Las 6 copias de trabajo que escribe DuckDB usan `ROW_GROUP_SIZE 65536` (las de Polars ya lo hacían desde AUD-037), con prueba sobre `parquet_metadata()`. Con `POLARS_PARQUET_METRICS=1` en un Parquet sintético de 6 M filas (2019-Oct no está en disco): con el bloque del perfil, 134 → 92 descompresiones por columna (una por grupo) y 0,51 → 0,34 s; con el bloque de 16.384, 1,78 → 1,17 s; archivo +0,65 %.
 
 - [ ] **AUD-109 · Las demás exportaciones de un CSV grande vuelven a leer el archivo aunque exista la copia del perfil**
   - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Medio

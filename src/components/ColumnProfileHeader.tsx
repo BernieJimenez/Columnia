@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { ColumnProfile, DatasetColumn } from "../bridge";
 import { isIntegerType, isNumericType } from "../dataTypes";
 import { formatDataType, formatNumber, formatPercent } from "../format";
@@ -6,10 +7,10 @@ import { plural } from "../plural";
 /** The quality signals of a column that deserve a word in its header. */
 export function columnProfileSignals(profile: ColumnProfile): string[] {
   const signals: string[] = [];
-  if (profile.invalidTypeCount) signals.push(`${profile.invalidTypeCount.toLocaleString()} con otro tipo`);
-  if (profile.untrimmedCount) signals.push(`${profile.untrimmedCount.toLocaleString()} con espacios`);
+  if (profile.invalidTypeCount) signals.push(`${formatNumber(profile.invalidTypeCount)} con otro tipo`);
+  if (profile.untrimmedCount) signals.push(`${formatNumber(profile.untrimmedCount)} con espacios`);
   if (profile.sentinelCount) signals.push(plural(profile.sentinelCount, "marcador de vacío", "marcadores de vacío"));
-  if (profile.encodingIssueCount) signals.push(`${profile.encodingIssueCount.toLocaleString()} con acentos mal leídos`);
+  if (profile.encodingIssueCount) signals.push(`${formatNumber(profile.encodingIssueCount)} con acentos mal leídos`);
   return signals;
 }
 
@@ -44,7 +45,7 @@ interface ColumnProfileHeaderProps {
  * many distinct values it has, its range and distribution, and any quality
  * signal. The figures come from the whole dataset, not from the visible page.
  */
-export function ColumnProfileHeader({ column, profile, rowCount }: ColumnProfileHeaderProps) {
+export const ColumnProfileHeader = memo(function ColumnProfileHeader({ column, profile, rowCount }: ColumnProfileHeaderProps) {
   const type = formatDataType(column.dataType);
   if (!profile) {
     return (
@@ -87,4 +88,4 @@ export function ColumnProfileHeader({ column, profile, rowCount }: ColumnProfile
       </span>
     </>
   );
-}
+});

@@ -379,19 +379,38 @@ fn unicode_literal(value: &str) -> String {
     format!("N'{}'", value.replace('\'', "''"))
 }
 
-fn render_value(value: &TsqlValue<'_>) -> String {
+/// Writes `value` as a T-SQL literal straight into `out`: text escapes its
+/// quotes in pieces and binary goes through a 16-entry table, so nothing is
+/// allocated per value or per byte.
+fn render_value<W: Write>(value: &TsqlValue<'_>, out: &mut W) -> std::io::Result<()> {
     match value {
-        TsqlValue::Null => "NULL".to_owned(),
-        TsqlValue::Bit(value) => if *value { "1" } else { "0" }.to_owned(),
-        TsqlValue::Number(value) => value.clone(),
-        TsqlValue::Text(value) => unicode_literal(value),
-        TsqlValue::Binary(value) => {
-            let mut hex = String::with_capacity(2 + value.len() * 2);
-            hex.push_str("0x");
-            for byte in value.iter() {
-                hex.push_str(&format!("{byte:02X}"));
+        TsqlValue::Null => out.write_all(b"NULL"),
+        TsqlValue::Bit(value) => out.write_all(if *value { b"1" } else { b"0" }),
+        TsqlValue::Number(value) => out.write_all(value.as_bytes()),
+        TsqlValue::Text(value) => {
+            out.write_all(b"N'")?;
+            let mut rest: &str = value;
+            while let Some(quote) = rest.find('\'') {
+                // The piece up to and including the quote, then the quote again.
+                out.write_all(&rest.as_bytes()[..=quote])?;
+                out.write_all(b"'")?;
+                rest = &rest[quote + 1..];
             }
-            hex
+            out.write_all(rest.as_bytes())?;
+            out.write_all(b"'")
+        }
+        TsqlValue::Binary(value) => {
+            const DIGITS: &[u8; 16] = b"0123456789ABCDEF";
+            out.write_all(b"0x")?;
+            let mut chunk = [0u8; 4096];
+            for bytes in value.chunks(chunk.len() / 2) {
+                for (index, byte) in bytes.iter().enumerate() {
+                    chunk[index * 2] = DIGITS[usize::from(byte >> 4)];
+                    chunk[index * 2 + 1] = DIGITS[usize::from(byte & 0x0f)];
+                }
+                out.write_all(&chunk[..bytes.len() * 2])?;
+            }
+            Ok(())
         }
     }
 }
@@ -640,17 +659,19 @@ impl<W: Write> TsqlScriptWriter<W> {
         &mut self,
         values: impl IntoIterator<Item = TsqlValue<'a>>,
     ) -> Result<(), String> {
-        let rendered = values
-            .into_iter()
-            .map(|value| render_value(&value))
-            .collect::<Vec<_>>()
-            .join(", ");
         if self.rows_in_statement == 0 {
             writeln!(self.output, "{}", self.insert_prefix).map_err(write_error)?;
-            write!(self.output, "    ({rendered})").map_err(write_error)?;
+            self.output.write_all(b"    (").map_err(write_error)?;
         } else {
-            write!(self.output, ",\n    ({rendered})").map_err(write_error)?;
+            self.output.write_all(b",\n    (").map_err(write_error)?;
         }
+        for (index, value) in values.into_iter().enumerate() {
+            if index > 0 {
+                self.output.write_all(b", ").map_err(write_error)?;
+            }
+            render_value(&value, &mut self.output).map_err(write_error)?;
+        }
+        self.output.write_all(b")").map_err(write_error)?;
         self.rows_in_statement += 1;
         self.rows += 1;
         if self.rows_in_statement == ROWS_PER_INSERT {
@@ -1081,11 +1102,132 @@ mod tests {
         assert!(script.contains("-- 2500 filas."));
     }
 
+    fn reference_columns() -> Vec<TsqlColumn> {
+        ["a", "b", "c", "d", "e"]
+            .iter()
+            .map(|name| TsqlColumn {
+                name: (*name).into(),
+                declaration: "NVARCHAR(MAX)".into(),
+            })
+            .collect()
+    }
+
+    fn reference_rows() -> Vec<[TsqlValue<'static>; 5]> {
+        const ALL_BYTES: [u8; 256] = {
+            let mut bytes = [0u8; 256];
+            let mut index = 0;
+            while index < 256 {
+                bytes[index] = index as u8;
+                index += 1;
+            }
+            bytes
+        };
+        vec![
+            [
+                TsqlValue::Null,
+                TsqlValue::Bit(true),
+                TsqlValue::Bit(false),
+                TsqlValue::Number("-9223372036854775808".into()),
+                TsqlValue::Number("1.7976931348623157e308".into()),
+            ],
+            [
+                TsqlValue::Number("-0".into()),
+                TsqlValue::Number("12345678901234567890.123456".into()),
+                TsqlValue::Number("5e-324".into()),
+                TsqlValue::Text("2026-10-31".into()),
+                TsqlValue::Text("2026-10-31 23:59:59.123456".into()),
+            ],
+            [
+                TsqlValue::Text("".into()),
+                TsqlValue::Text("O'Brien ''doble'' '".into()),
+                TsqlValue::Text("Ñandú, 日本語, 😀, e\u{301}, [x]]".into()),
+                TsqlValue::Text("línea\r\nnueva\ttab\0nulo".into()),
+                TsqlValue::Text(std::borrow::Cow::Owned("x".repeat(40))),
+            ],
+            [
+                TsqlValue::Binary(&[]),
+                TsqlValue::Binary(&[0x00]),
+                TsqlValue::Binary(&[0x0f, 0xa0, 0xff]),
+                TsqlValue::Binary(&ALL_BYTES),
+                TsqlValue::Null,
+            ],
+        ]
+    }
+
+    /// (length, FNV-1a) of `reference_script(750)` taken with the original renderer.
+    const REFERENCE_LONG_SCRIPT: (usize, u64) = (644_491, 16_756_261_947_078_028_517);
+
+    fn fnv1a(bytes: &[u8]) -> u64 {
+        bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+        })
+    }
+
+    /// Script of the reference rows repeated until it crosses two `INSERT` cuts.
+    fn reference_script(repeats: usize) -> String {
+        let mut writer =
+            TsqlScriptWriter::begin(Vec::new(), &target("t"), &reference_columns()).unwrap();
+        for _ in 0..repeats {
+            for row in reference_rows() {
+                writer.push_row(row).unwrap();
+            }
+        }
+        String::from_utf8(writer.finish().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn rendering_every_kind_of_value_is_byte_identical_to_the_reference() {
+        let script = reference_script(1);
+        let rows = script
+            .split("VALUES\n")
+            .nth(1)
+            .unwrap()
+            .split(";\nCOMMIT")
+            .next()
+            .unwrap();
+        let hex_all = (0..=255u8).map(|b| format!("{b:02X}")).collect::<String>();
+        let expected = format!(
+            "    (NULL, 1, 0, -9223372036854775808, 1.7976931348623157e308),\n\
+             \x20   (-0, 12345678901234567890.123456, 5e-324, N'2026-10-31', N'2026-10-31 23:59:59.123456'),\n\
+             \x20   (N'', N'O''Brien ''''doble'''' ''', N'Ñandú, 日本語, 😀, e\u{301}, [x]]', N'línea\r\nnueva\ttab\0nulo', N'{}'),\n\
+             \x20   (0x, 0x00, 0x0FA0FF, 0x{hex_all}, NULL)",
+            "x".repeat(40)
+        );
+        assert_eq!(rows, expected);
+        // 3,000 rows: three INSERT statements, the cut every 1,000 rows included.
+        let long = reference_script(750);
+        assert_eq!(long.matches("INSERT INTO").count(), 3);
+        assert_eq!((long.len(), fnv1a(long.as_bytes())), REFERENCE_LONG_SCRIPT);
+    }
+
+    #[test]
+    fn a_one_megabyte_blob_is_rendered_as_upper_case_hex() {
+        let blob: Vec<u8> = (0..1_048_576usize).map(|i| (i % 251) as u8).collect();
+        let mut writer =
+            TsqlScriptWriter::begin(Vec::new(), &target("t"), &columns()[..1]).unwrap();
+        writer.push_row([TsqlValue::Binary(&blob)]).unwrap();
+        let script = String::from_utf8(writer.finish().unwrap()).unwrap();
+        let start = script.find("(0x").unwrap() + 1;
+        let end = start + 2 + blob.len() * 2;
+        let hex = &script[start..end];
+        assert_eq!(&script[end..end + 1], ")");
+        assert!(hex.starts_with("0x00010203"));
+        assert!(hex[2..]
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b)));
+        assert_eq!(&hex[2 + 250 * 2..2 + 252 * 2], "FA00");
+    }
+
     #[test]
     fn identifiers_and_binary_values_are_escaped() {
         assert_eq!(quote_identifier("a]b"), "[a]]b]");
-        assert_eq!(render_value(&TsqlValue::Binary(&[0x0f, 0xa0])), "0x0FA0");
-        assert_eq!(render_value(&TsqlValue::Text("x'".into())), "N'x'''");
+        let render = |value: TsqlValue<'_>| {
+            let mut out = Vec::new();
+            render_value(&value, &mut out).unwrap();
+            String::from_utf8(out).unwrap()
+        };
+        assert_eq!(render(TsqlValue::Binary(&[0x0f, 0xa0])), "0x0FA0");
+        assert_eq!(render(TsqlValue::Text("x'".into())), "N'x'''");
     }
 
     #[test]

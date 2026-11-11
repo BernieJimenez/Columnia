@@ -2434,9 +2434,8 @@ where
     pairs
         .read_exact(&mut bytes)
         .map_err(|error| format!("No se pudo leer el índice de conflictos: {error}"))?;
-    let mut current_cache: Option<(usize, DataFrame)> = None;
+    let mut page_pairs = Vec::with_capacity(end - offset);
     for pair in bytes.as_chunks::<CONFLICT_PAIR_BYTES>().0 {
-        ensure_not_cancelled(is_cancelled())?;
         let current_row_index = usize::try_from(u64::from_le_bytes(
             pair[..8].try_into().expect("ocho bytes"),
         ))
@@ -2449,8 +2448,21 @@ where
         {
             return Err("El índice de conflictos apunta fuera de los datos.".to_owned());
         }
-        // The current rows of a page are close together; the compared ones
-        // may be anywhere, so only that row is read.
+        page_pairs.push((current_row_index, compared_row_index));
+    }
+    // AUD-038: the compared rows may be anywhere in the file. They are read
+    // once, sorted, in runs that fit a block (one slice per run instead of one
+    // per row) and the runs are read in parallel; the page keeps its order.
+    let compared_spans = compared_row_spans(page_pairs.iter().map(|(_, compared)| *compared));
+    let compared_frames = read_compared_spans(compared.path, &compared_spans, is_cancelled)?;
+    let mut current_cache: Option<(usize, DataFrame)> = None;
+    for (current_row_index, compared_row_index) in page_pairs {
+        ensure_not_cancelled(is_cancelled())?;
+        let span = compared_spans
+            .partition_point(|(start, _)| *start <= compared_row_index)
+            .saturating_sub(1);
+        let compared_frame = &compared_frames[span];
+        let compared_row_in_span = compared_row_index - compared_spans[span].0;
         let block_start = current_row_index - current_row_index % LOCAL_QUERY_BLOCK_ROWS;
         if current_cache.as_ref().map(|(start, _)| *start) != Some(block_start) {
             let length = LOCAL_QUERY_BLOCK_ROWS.min(index.current_row_count - block_start);
@@ -2469,42 +2481,105 @@ where
             current_cache = Some((block_start, block));
         }
         let (_, current_block) = current_cache.as_ref().expect("bloque activo");
-        let compared_row = read_parquet_query_block_with_cancel(
-            compared.path,
-            compared_row_index,
-            1,
-            is_cancelled,
-        )?;
-        if compared_row.height() != 1 {
-            return Err(format!(
-                "El snapshot comparado no corresponde con la comparación (se esperaba 1 fila y se obtuvieron {}).",
-                compared_row.height()
-            ));
-        }
         let current_row_in_block = current_row_index - block_start;
         let Some(shape) = build_key_conflict_shape(
             current_block,
-            &compared_row,
+            compared_frame,
             &shared_payload_columns,
             current_row_in_block,
-            0,
+            compared_row_in_span,
         )?
         else {
             return Err("El índice de conflictos no coincide con los datos.".to_owned());
         };
         let mut conflict = build_key_conflict_from_shape(
             current_block,
-            &compared_row,
+            compared_frame,
             key_columns,
             shape,
             current_row_in_block,
-            0,
+            compared_row_in_span,
         )?;
         conflict.current_row_index = current_row_index;
         conflict.compared_row_index = compared_row_index;
         conflicts.push(conflict);
     }
     Ok((conflicts, end < index.count))
+}
+
+/// Longest run of compared rows read in one slice. Kept well below a block so
+/// a page of rows that pair up across the file never holds dozens of nearly
+/// full blocks in memory at once.
+const COMPARED_RUN_MAX_ROWS: usize = 1024;
+
+/// AUD-038: the (start, length) runs that cover the given row indexes, sorted;
+/// a run never spans `COMPARED_RUN_MAX_ROWS` rows or more.
+pub(super) fn compared_row_spans(indexes: impl Iterator<Item = usize>) -> Vec<(usize, usize)> {
+    let mut sorted = indexes.collect::<Vec<_>>();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    for row in sorted {
+        match spans.last_mut() {
+            Some((start, length)) if row - *start < COMPARED_RUN_MAX_ROWS => {
+                *length = row - *start + 1;
+            }
+            _ => spans.push((row, 1)),
+        }
+    }
+    spans
+}
+
+/// Reads each run of compared rows once (in parallel when there are several),
+/// in the order of `spans`.
+pub(super) fn read_compared_spans<C>(
+    path: &Path,
+    spans: &[(usize, usize)],
+    is_cancelled: &C,
+) -> Result<Vec<DataFrame>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    const MAX_PARALLEL_READS: usize = 4;
+    let read_span = |&(start, length): &(usize, usize)| -> Result<DataFrame, String> {
+        let frame = read_parquet_query_block_with_cancel(path, start, length, is_cancelled)?;
+        if frame.height() != length {
+            return Err(if length == 1 {
+                format!(
+                    "El snapshot comparado no corresponde con la comparación (se esperaba 1 fila y se obtuvieron {}).",
+                    frame.height()
+                )
+            } else {
+                format!(
+                    "El snapshot comparado no corresponde con la comparación (se esperaban {length} filas en el bloque y se obtuvieron {}).",
+                    frame.height()
+                )
+            });
+        }
+        Ok(frame)
+    };
+    if spans.len() <= 1 {
+        return spans.iter().map(read_span).collect();
+    }
+    let per_thread = spans.len().div_ceil(MAX_PARALLEL_READS);
+    std::thread::scope(|scope| {
+        let handles = spans
+            .chunks(per_thread)
+            .map(|chunk| {
+                let read_span = &read_span;
+                scope.spawn(move || chunk.iter().map(read_span).collect::<Result<Vec<_>, _>>())
+            })
+            .collect::<Vec<_>>();
+        let mut frames = Vec::with_capacity(spans.len());
+        for handle in handles {
+            frames.extend(
+                handle.join().map_err(|_| {
+                    "La lectura de las filas comparadas se interrumpió.".to_owned()
+                })??,
+            );
+        }
+        Ok(frames)
+    })
 }
 
 /// The columns two Parquet files share, in the order of the first.

@@ -23874,6 +23874,94 @@ fn disk_backed_conflict_pages_from_the_index_match_the_full_walk() {
 }
 
 #[test]
+fn conflict_pages_read_scattered_compared_rows_in_page_order() {
+    // AUD-038: the compared rows of a page are read sorted and in runs, but
+    // the page keeps the order of the conflicts and every row its own values,
+    // also when the compared rows are far apart (several runs) and out of order.
+    const ROWS: usize = 40_000;
+    let mut csv = String::from("id,city\n");
+    for id in 0..ROWS {
+        csv.push_str(&format!("{id},Ciudad {id}\n"));
+    }
+    let compared_ids = (0..ROWS).map(|row| (row * 7919) % ROWS).collect::<Vec<_>>();
+    let compared_cities = compared_ids
+        .iter()
+        .map(|id| {
+            if id % 1000 == 0 {
+                format!("Otra {id}")
+            } else {
+                format!("Ciudad {id}")
+            }
+        })
+        .collect::<Vec<_>>();
+    let compared_keys = compared_ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>();
+    let current_path = temporary_csv(&csv);
+    let compared = df!["id" => &compared_keys, "city" => &compared_cities].expect("comparado");
+    let (_compared_directory, compared_path) =
+        persist_comparison_snapshot(&compared).expect("snapshot comparado");
+    let (current_frame, _, current_row_count) =
+        source_backed_load(&current_path, "csv", || false).expect("fuente source-backed");
+    let state = DatasetState::default();
+    *state.current.lock().expect("estado activo") = Some(LoadedDataset {
+        source_path: Some(current_path.path_buf()),
+        file_name: "current.csv".to_owned(),
+        file_size_bytes: fs::metadata(&current_path).expect("metadatos").len(),
+        row_count: current_row_count,
+        frame: current_frame,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("historial diferido"),
+    });
+    let page = disk_backed_conflict_page(
+        &state,
+        &compared_path,
+        compared.height(),
+        &["id".to_owned()],
+        0,
+        50,
+    )
+    .expect("página")
+    .expect("ruta diferida");
+    // Conflicts come in current-row order: ids 0, 1000, 2000, ...
+    assert_eq!(page.conflicts.len(), 40);
+    assert!(!page.has_next);
+    for (position, conflict) in page.conflicts.iter().enumerate() {
+        let id = position * 1000;
+        assert_eq!(conflict.key, vec![Some(id.to_string())]);
+        assert_eq!(conflict.cells[0].current, Some(format!("Ciudad {id}")));
+        assert_eq!(conflict.cells[0].compared, Some(format!("Otra {id}")));
+    }
+    let compared_rows = (0..40)
+        .map(|position| {
+            compared_ids
+                .iter()
+                .position(|value| *value == position * 1000)
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let (min, max) = (
+        compared_rows.iter().min().unwrap(),
+        compared_rows.iter().max().unwrap(),
+    );
+    assert!(max - min > 2 * LOCAL_QUERY_BLOCK_ROWS);
+    assert!(compared_rows.windows(2).any(|pair| pair[0] > pair[1]));
+}
+
+#[test]
+fn compared_row_spans_group_rows_within_a_block() {
+    let spans =
+        compared_row_spans([40_000, 5, 7, 5, LOCAL_QUERY_BLOCK_ROWS + 5, 40_010].into_iter());
+    assert_eq!(
+        spans,
+        vec![(5, 3), (LOCAL_QUERY_BLOCK_ROWS + 5, 1), (40_000, 11)]
+    );
+}
+
+#[test]
 fn source_backed_numeric_typing_matches_the_in_memory_plan() {
     // REN-01: typing numbers on disk follows `cast_fully_numeric_columns`:
     // after trimming and «sin dato», whole numbers, whole numbers written as

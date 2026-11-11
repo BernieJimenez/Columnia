@@ -25,6 +25,12 @@ use crate::dataset::{
 const QUERY_POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// REN-01: how often DuckDB is asked how far a long copy has gone.
 const PROGRESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
+/// Options of every `COPY ... TO ... (FORMAT PARQUET)` that creates a working
+/// copy. 65 536 rows per row group (DuckDB's default is 122 880) equals
+/// `SOURCE_PROFILE_BLOCK_ROWS` and is a multiple of `LOCAL_QUERY_BLOCK_ROWS`,
+/// so a block of those reads never crosses groups and each column chunk is
+/// decompressed once per group instead of 2.75 to 8 times.
+const PARQUET_COPY_OPTIONS: &str = "FORMAT PARQUET, ROW_GROUP_SIZE 65536";
 const DUCKDB_MEMORY_LIMIT: &str = "512MB";
 /// REN-01: the working copy of a large file and its count of distinct values
 /// take twice as long under 512 MB (2019-Oct: 25 s against 15 s); 1 GB keeps
@@ -262,7 +268,7 @@ fn copy_to_parquet_statement(
             .join(", "),
     };
     Ok(format!(
-        "COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT PARQUET)"
+        "COPY (SELECT {projection} FROM {source}) TO '{destination}' ({PARQUET_COPY_OPTIONS})"
     ))
 }
 
@@ -399,7 +405,7 @@ where
         .to_string_lossy()
         .replace('\\', "/")
         .replace('\'', "''");
-    let statement = format!("COPY ({query}) TO '{destination}' (FORMAT PARQUET)");
+    let statement = format!("COPY ({query}) TO '{destination}' ({PARQUET_COPY_OPTIONS})");
     run_native_with_progress(&native, &statement, is_cancelled, &mut progress)?.map_err(|error| {
         crate::dataset::explain_invalid_recipe_date(format!(
             "DuckDB no pudo publicar la receta source-backed: {error}"
@@ -700,7 +706,7 @@ where
             .replace('\\', "/")
             .replace('\'', "''");
         let query = format!(
-            "SET preserve_insertion_order = true; COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT PARQUET)"
+            "SET preserve_insertion_order = true; COPY (SELECT {projection} FROM {source}) TO '{destination}' ({PARQUET_COPY_OPTIONS})"
         );
         connection
             .execute_batch(&query)
@@ -1098,11 +1104,10 @@ where
             format!("No se pudo preparar el espacio temporal para el paquete BULK INSERT: {error}")
         })?;
         configure_duckdb_resources(connection, resource_directory.path())?;
-        connection
-            .execute_batch("SET threads = 1;")
-            .map_err(|error| {
-                format!("DuckDB no pudo limitar los hilos del paquete BULK INSERT: {error}")
-            })?;
+        // AUD-041: no `SET threads = 1` here. The order of the rows is held by
+        // `SET preserve_insertion_order = true` in the `COPY` below, which
+        // DuckDB honours with several threads (the CSV writer reorders the
+        // batches); one thread only made the largest step of the package slower.
         let source = file_scan_expression(source_path, source_format)?;
         let source_columns = describe_source_columns(connection, &source)?;
         let projection = source_columns
@@ -1149,7 +1154,7 @@ pub(crate) fn materialize_file_query_to_parquet(
         .replace('\\', "/")
         .replace('\'', "''");
     let statement = format!(
-        "SET preserve_insertion_order = true; COPY ({query}) TO '{destination}' (FORMAT PARQUET)"
+        "SET preserve_insertion_order = true; COPY ({query}) TO '{destination}' ({PARQUET_COPY_OPTIONS})"
     );
     connection.execute_batch(&statement).map_err(|error| {
         crate::dataset::explain_invalid_recipe_date(format!(
@@ -1186,7 +1191,7 @@ where
             .replace('\\', "/")
             .replace('\'', "''");
         let statement = format!(
-            "SET preserve_insertion_order = true; COPY ({query}) TO '{destination}' (FORMAT PARQUET)"
+            "SET preserve_insertion_order = true; COPY ({query}) TO '{destination}' ({PARQUET_COPY_OPTIONS})"
         );
         connection.execute_batch(&statement).map_err(|error| {
             crate::dataset::explain_invalid_recipe_date(format!(
@@ -1276,7 +1281,7 @@ where
             .replace('\\', "/")
             .replace('\'', "''");
         let statement = format!(
-            "SET preserve_insertion_order = true; COPY ({}) TO '{destination}' (FORMAT PARQUET)",
+            "SET preserve_insertion_order = true; COPY ({}) TO '{destination}' ({PARQUET_COPY_OPTIONS})",
             request.query
         );
         connection.execute_batch(&statement).map_err(|error| {
@@ -4312,6 +4317,42 @@ mod tests {
                 .expect("conteo de referencia");
         assert_eq!(native, expected);
         assert_eq!(native, vec![7, 11]);
+    }
+
+    #[test]
+    fn a_working_copy_is_written_in_row_groups_of_65536_rows() {
+        // AUD-043: the groups match the profile block (65 536 rows), not
+        // DuckDB's default 122 880, so a block never crosses two groups.
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("source.csv");
+        let destination = directory.path().join("snapshot.parquet");
+        let mut csv = String::from("id,value\n");
+        for id in 0..150_000 {
+            csv.push_str(&format!("{id},{}\n", id % 97));
+        }
+        fs::write(&source, csv).expect("fuente");
+        materialize_file_to_parquet_with_progress(
+            &source,
+            DuckDbFileFormat::Delimited { delimiter: b',' },
+            &destination,
+            &|| false,
+            |_| {},
+        )
+        .expect("la copia debe crearse");
+        let path = destination.to_string_lossy().replace('\\', "/");
+        let connection = Connection::open_in_memory().expect("DuckDB");
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT row_group_num_rows FROM parquet_metadata('{path}') \
+                 WHERE path_in_schema = 'id' ORDER BY row_group_id"
+            ))
+            .expect("metadatos");
+        let groups: Vec<i64> = statement
+            .query_map([], |row| row.get(0))
+            .expect("consulta")
+            .map(|row| row.expect("fila"))
+            .collect();
+        assert_eq!(groups, vec![65_536, 65_536, 18_928]);
     }
 
     #[test]

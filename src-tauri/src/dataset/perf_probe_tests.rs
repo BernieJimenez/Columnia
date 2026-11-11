@@ -969,3 +969,58 @@ fn perf_probe_full_flow() {
         println!("flow    - {failure}");
     }
 }
+
+/// AUD-038: reading the compared rows of one conflict page, 50 rows
+/// contiguous or scattered over the file, one slice per row (before) against
+/// the sorted runs read together (after). `COLUMNIA_PROBE_ROWS` (default
+/// 3 000 000) rows of `COLUMNIA_PROBE_TEXT_COLUMNS` (default 40) text columns.
+#[test]
+#[ignore = "sonda opt-in de rendimiento"]
+fn perf_probe_compared_rows_of_a_conflict_page() {
+    let env_number = |name: &str, default: usize| {
+        std::env::var(name)
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(default)
+    };
+    let rows = env_number("COLUMNIA_PROBE_ROWS", 3_000_000);
+    let columns = env_number("COLUMNIA_PROBE_TEXT_COLUMNS", 40);
+    let directory = tempfile::tempdir().expect("directorio temporal");
+    let path = directory.path().join("compared.parquet");
+    let text = (0..columns)
+        .map(|column| format!("'valor ' || ((i * {}) % 100003) AS c{column}", column + 3))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let started = Instant::now();
+    duckdb::Connection::open_in_memory()
+        .expect("DuckDB")
+        .execute_batch(&format!(
+            "COPY (SELECT i AS id, {text} FROM range({rows}) t(i)) TO '{}' (FORMAT PARQUET);",
+            path.to_string_lossy().replace('\\', "/")
+        ))
+        .expect("archivo de la sonda");
+    println!(
+        "probe   archivo ({rows} filas x {columns} columnas) {:>7.2} s",
+        started.elapsed().as_secs_f64()
+    );
+    let contiguous = (0..50).map(|offset| rows / 2 + offset).collect::<Vec<_>>();
+    let scattered = (0..50)
+        .map(|n| (n * 2_654_435_761 + 17) % rows)
+        .collect::<Vec<_>>();
+    for (label, indexes) in [("contiguas", contiguous), ("dispersas", scattered)] {
+        let part = Instant::now();
+        for index in &indexes {
+            read_parquet_query_block_with_cancel(&path, *index, 1, &|| false).expect("fila");
+        }
+        let before = part.elapsed().as_secs_f64();
+        let part = Instant::now();
+        let spans = compared_row_spans(indexes.iter().copied());
+        let frames = read_compared_spans(&path, &spans, &|| false).expect("filas");
+        let after = part.elapsed().as_secs_f64();
+        println!(
+            "probe   {label}: fila a fila {before:>7.3} s | por tramos {after:>7.3} s ({} tramos, {} filas)",
+            spans.len(),
+            frames.iter().map(|frame| frame.height()).sum::<usize>()
+        );
+    }
+}
