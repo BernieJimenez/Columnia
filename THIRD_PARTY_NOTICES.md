@@ -311,10 +311,10 @@ Las licencias se toman de los metadatos de distribución y se conservan como exp
 | cargo | zbus_macros | 5.19.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | zbus | 5.19.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | zerovec | 0.11.8 | Unicode-3.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | zstd-safe | 7.3.0 | BSD-3-Clause | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | zstd | 0.13.3 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | zstd-safe | 7.4.0 | BSD-3-Clause | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | zstd | 0.13.4 | BSD-3-Clause | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | zopfli | 0.8.3 | Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | zstd-sys | 2.1.0+zstd.1.5.7 | BSD-3-Clause | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | zstd-sys | 2.1.2+zstd.1.5.7 | BSD-3-Clause | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | zvariant_utils | 4.2.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | zvariant_derive | 5.15.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | zvariant | 5.15.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |

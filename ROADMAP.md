@@ -32,21 +32,22 @@ a AUD-111, aparecidas al aplicarla. El 2026-11-09 se cerró la tanda 6 (AUD-108,
 044, 045, 046, 047 y 048) y se abrió AUD-112, aparecida al aplicarla. Ese
 mismo día se cerró la tanda 7 (AUD-112, 056 y 057). El 2026-11-10 se cerró la
 tanda 8 (AUD-077, 074, 075, 076 y 073) y se abrió AUD-113, aparecida al
-aplicarla.
+aplicarla. Ese mismo día se cerró la tanda 9 (AUD-009, 100, 008, 015 y 007) y
+se abrieron AUD-114 y AUD-115, aparecidas al aplicarla.
 
 <!-- indice:inicio -->
-**Última actualización:** 2026-11-10 · **Siguiente ID libre:** AUD-114 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
+**Última actualización:** 2026-11-10 · **Siguiente ID libre:** AUD-116 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
 
 | Tier | Abiertas | Cerradas | Esfuerzo de las abiertas (Bajo · Medio · Alto) |
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 77 | 0 | 74 · 3 · 0 |
+| 3 · Bajo | 74 | 5 | 71 · 3 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **78** | **35** | **75 · 3 · 0** |
+| **Total** | **75** | **40** | **72 · 3 · 0** |
 
-**Abiertas por área:** UI/UX 17 · Código 10 · Arquitectura 9 · Rendimiento 9 · Documentación 9 · QA y testing 8 · Accesibilidad 7 · Redacción 5 · Seguridad 4
+**Abiertas por área:** UI/UX 17 · Código 10 · Rendimiento 9 · Documentación 9 · Arquitectura 8 · QA y testing 8 · Accesibilidad 7 · Redacción 5 · Seguridad 2
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -475,47 +476,68 @@ Sin tareas abiertas.
 
 ### Seguridad
 
-- [ ] **AUD-007 · `zstd` 0.13.3 / `zstd-safe` 7.3.0 se usan al leer Parquet comprimido con ZSTD (hostil), con impacto práctico acotado**
+- [x] **AUD-007 · `zstd` 0.13.3 / `zstd-safe` 7.3.0 se usan al leer Parquet comprimido con ZSTD (hostil), con impacto práctico acotado**
   - **Área:** Seguridad · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `polars-parquet-0.55.2/src/parquet/compression.rs:225-231`
   - **Qué hacer:** `cargo update -p zstd -p zstd-safe -p zstd-sys` y repetir `cargo audit`.
   - **Criterio de aceptación:** `cargo audit` sin los RUSTSEC de `zstd`.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-10 · tanda 9 de la Fase 2 (rama `auditoria/2026-11-05`). `cargo update -p zstd -p zstd-safe -p zstd-sys`: zstd 0.13.4, zstd-safe 7.4.0 y zstd-sys 2.1.2; `Cargo.lock` solo cambia esas tres entradas y `THIRD_PARTY_NOTICES.md` sus tres filas (`-Check` pasa; `zstd` declara ahora BSD-3-Clause en lugar de MIT, licencia ya aceptada para `zstd-safe` y `zstd-sys`; el gate legal pasa). `cargo audit` ya no lista ningún RUSTSEC de `zstd*`. No hay prueba específica de lectura de Parquet con ZSTD.
 
-- [ ] **AUD-008 · La política de cifrado de la conexión de importación solo la aplica la interfaz**
+- [x] **AUD-008 · La política de cifrado de la conexión de importación solo la aplica la interfaz**
   - **Área:** Seguridad · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:2095-2110`
   - **Qué hacer:** que `list_database_tables` e `import_database_table` reutilicen `transport_encryption_issue` y bloqueen el caso «blocking» (con la misma salida para servidores locales), o mostrar el estado de cifrado en el diálogo (ver AUD-003).
   - **Criterio de aceptación:** `import_database_table` rechaza una cadena sin cifrado a un servidor remoto, con test.
   - **Depende de:** ninguna; conviene hacerla junto con AUD-002
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-10 · tanda 9 de la Fase 2 (rama `auditoria/2026-11-05`). Con la alternativa de «Qué hacer», no con el rechazo del criterio, que es anterior a AUD-002 y AUD-003: Rust compone la conexión desde los campos (no hay cadena libre por IPC) y conectar sin cifrado es una casilla explícita de la interfaz. El diálogo nativo de importación ya mostraba «Cifrado» y «Certificado», y ahora añade «Atención: …» con el mismo texto que el preflight de entrega cuando el canal remoto puede ir sin cifrar o SQL Server acepta cualquier certificado; en un servidor local o con conexión estricta no añade nada. Prueba `the_import_dialog_warns_about_an_unencrypted_or_unchecked_channel`. El texto de la casilla se revisa en AUD-115.
 
-- [ ] **AUD-009 · `DatabaseSource` y `DatabaseTarget` derivan `Debug` con la cadena de conexión (contraseña incluida)**
+- [x] **AUD-009 · `DatabaseSource` y `DatabaseTarget` derivan `Debug` con la cadena de conexión (contraseña incluida)**
   - **Área:** Seguridad · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:2061-2067`
   - **Qué hacer:** `Debug` manual que sustituya `connection_string` por `[REDACTED]` y un test.
   - **Criterio de aceptación:** `format!("{:?}", source)` no contiene la contraseña.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-10 · tanda 9 de la Fase 2 (rama `auditoria/2026-11-05`), sin cambios: ya estaba resuelta desde la tanda 1 (AUD-002). `DatabaseSource` y `DatabaseTarget` guardan un `DatabaseConnection` por campos cuyo `Debug` manual muestra `password` como `[REDACTED]` (`remote_databases.rs:579-594`), y la cadena ODBC no se guarda en ninguna estructura. La prueba `debug_output_never_shows_the_password` lo cubre.
 
-- [ ] **AUD-100 · Los campos de conexión aceptan caracteres de formato bidireccional, que pueden invertir lo que muestra el diálogo nativo**
+- [x] **AUD-100 · Los campos de conexión aceptan caracteres de formato bidireccional, que pueden invertir lo que muestra el diálogo nativo**
   - **Área:** Seguridad · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:619`
   - **Qué hacer:** `field_text_issue` ya rechaza los caracteres de control y U+2028/U+2029; que rechace también los de formato bidireccional (U+200E, U+200F, U+202A-U+202E, U+2066-U+2069) en servidor, base, usuario y controlador, con el mismo mensaje.
   - **Criterio de aceptación:** un servidor con U+202E se rechaza antes de abrir el diálogo, con una prueba; los nombres con tildes o `ñ` siguen valiendo.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-003
+  - **Cierre:** 2026-11-10 · tanda 9 de la Fase 2 (rama `auditoria/2026-11-05`). `field_text_issue` rechaza U+200E, U+200F, U+202A-U+202E y U+2066-U+2069 en controlador, servidor, puerto, base y usuario, con el mismo mensaje que los caracteres de control; la contraseña queda fuera porque ningún diálogo la muestra. Las tres órdenes con diálogo nativo validan antes de confirmar. La prueba cubre los 11 caracteres en los cinco campos, y los nombres con tildes y `ñ` siguen valiendo.
+
+- [ ] **AUD-114 · `libsqlite3-sys` 0.38.2 empaqueta SQLite 3.53.2, afectado por RUSTSEC-2026-0459 (memoria sin inicializar con un `-wal` de otro tamaño de página)**
+  - **Área:** Seguridad · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/Cargo.toml:58` (`rusqlite` 0.40.2 con `bundled`)
+  - **Qué hacer:** subir `rusqlite` a 0.41 (`libsqlite3-sys` ≥ 0.39.0, SQLite ≥ 3.54.0), revisar los cambios de API en los catálogos (`delivery_presets.rs`, `reusable_tasks.rs`, `projects.rs`, `automation.rs`) y en la exportación a SQLite (`dataset/export_io.rs`), y regenerar `THIRD_PARTY_NOTICES.md`. Ataque local: hace falta que la persona abra una base preparada junto a su `-wal`.
+  - **Criterio de aceptación:** `cargo audit` sin RUSTSEC-2026-0459 y las pruebas de catálogos y de exportación a SQLite pasan.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-007 (el aviso es del 2026-10-30 y no estaba en la base de avisos que usó la Fase 1)
+
+- [ ] **AUD-115 · La casilla «Conectar sin cifrado si el servidor no lo ofrece» promete que el cifrado se usa si el servidor lo ofrece, y con `prefer` alguien en la red puede impedirlo**
+  - **Área:** Seguridad · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src/features/database/ServerConnectionForm.tsx:126-127` y `src-tauri/src/remote_databases.rs` (atributos `SSLmode=prefer` y `SSLMODE=PREFERRED`)
+  - **Qué hacer:** que el texto diga que, con la casilla marcada, alguien con acceso a la red puede forzar una conexión sin cifrar (el cifrado es oportunista), y mantener «Solo en servidores propios o de prueba». Revisar que el aviso de `transport_encryption_issue` dice lo mismo.
+  - **Criterio de aceptación:** el texto de la casilla y el aviso del diálogo no afirman que el cifrado se use siempre que el servidor lo ofrezca; prueba de Vitest con el texto nuevo.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-008
 
 ### Arquitectura, datos y resiliencia
 
-- [ ] **AUD-015 · Los `FLOAT` se escriben como literales decimales de hasta cientos de dígitos y SQL Server los rechaza fuera de 38 dígitos**
+- [x] **AUD-015 · Los `FLOAT` se escriben como literales decimales de hasta cientos de dígitos y SQL Server los rechaza fuera de 38 dígitos**
   - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset/export_io.rs:2568-2569`
   - **Qué hacer:** para `Float32`/`Float64` escribir en notación científica (`format!("{value:e}")`, que T-SQL admite como literal `float`) o cuando el valor está fuera de, por ejemplo, 1e-15 a 1e15.
   - **Criterio de aceptación:** una prueba con `1e-40`, `1.5e300` y `5e-324` genera literales válidos (`1e-40`, ...) y `SET PARSEONLY ON` no marca error.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-10 · tanda 9 de la Fase 2 (rama `auditoria/2026-11-05`). `tsql_float_literal`: 0 y los valores con magnitud entre 1e-15 y 1e15 siguen en decimal (`3.5`); el resto va con exponente (`1e-40`, `1.5e300`, `5e-324`, `1e40`). `Float32` se escribe con su forma corta, sin pasar por f64. Contra el SQL Server local, `SET PARSEONLY ON` acepta los 19 literales de la prueba, y el decimal antiguo daba Msg 1007. SQL Server lee un subnormal como `5e-324` como 0, con aviso: es un límite de su `float`.
 
 - [ ] **AUD-016 · Preparar a disco publica una versión idéntica y la etiqueta como si hubiera convertido tipos cuando la etapa no hace nada**
   - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo

@@ -2569,6 +2569,24 @@ fn tsql_columns_for_frame(
         .collect()
 }
 
+/// T-SQL reads a literal without an exponent as `numeric` (at most 38 digits),
+/// so `1e-40` written as `0.0000…1` or `1e300` written in full is rejected.
+/// Ordinary magnitudes stay readable (`3.5`); the rest use `E` notation, which
+/// T-SQL reads as `float`. `plain` and `scientific` are the shortest forms of
+/// the original type (f32 is not widened, which would add spurious digits).
+fn tsql_float_literal(
+    magnitude_source: f64,
+    plain: &dyn std::fmt::Display,
+    scientific: &dyn std::fmt::LowerExp,
+) -> String {
+    let magnitude = magnitude_source.abs();
+    if magnitude == 0.0 || (1e-15..1e15).contains(&magnitude) {
+        plain.to_string()
+    } else {
+        format!("{scientific:e}")
+    }
+}
+
 fn tsql_value_from_any(
     value: AnyValue<'_>,
 ) -> Result<crate::tsql_script::TsqlValue<'static>, String> {
@@ -2584,8 +2602,12 @@ fn tsql_value_from_any(
         AnyValue::UInt16(value) => TsqlValue::Number(value.to_string()),
         AnyValue::UInt32(value) => TsqlValue::Number(value.to_string()),
         AnyValue::UInt64(value) => TsqlValue::Number(value.to_string()),
-        AnyValue::Float32(value) if value.is_finite() => TsqlValue::Number(value.to_string()),
-        AnyValue::Float64(value) if value.is_finite() => TsqlValue::Number(value.to_string()),
+        AnyValue::Float32(value) if value.is_finite() => {
+            TsqlValue::Number(tsql_float_literal(f64::from(value), &value, &value))
+        }
+        AnyValue::Float64(value) if value.is_finite() => {
+            TsqlValue::Number(tsql_float_literal(value, &value, &value))
+        }
         AnyValue::Float32(_) | AnyValue::Float64(_) => {
             return Err(
                 "SQL Server no puede guardar valores numéricos no finitos (NaN o infinito)."
@@ -3046,5 +3068,57 @@ mod xlsx_writer_tests {
                 "número {row}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tsql_float_tests {
+    use super::*;
+
+    fn literal(value: AnyValue<'static>) -> String {
+        match tsql_value_from_any(value).unwrap() {
+            crate::tsql_script::TsqlValue::Number(text) => text,
+            other => panic!("se esperaba un número, salió {other:?}"),
+        }
+    }
+
+    #[test]
+    fn floats_outside_numeric_range_use_exponent_notation() {
+        let cases_64 = [
+            (1e-40, "1e-40"),
+            (1.5e300, "1.5e300"),
+            (5e-324, "5e-324"),
+            (-1.5e300, "-1.5e300"),
+            (f64::MIN_POSITIVE, "2.2250738585072014e-308"),
+            (1e20, "1e20"),
+            (1e40, "1e40"),
+            (1e15, "1e15"),
+            (f64::MAX, "1.7976931348623157e308"),
+            (3.5, "3.5"),
+            (-0.25, "-0.25"),
+            (0.0, "0"),
+            (-0.0, "-0"),
+            (123_456_789_012_345.0, "123456789012345"),
+            (1e-15, "0.000000000000001"),
+        ];
+        for (value, expected) in cases_64 {
+            assert_eq!(literal(AnyValue::Float64(value)), expected, "{value:e}");
+        }
+        let cases_32 = [
+            (1e-40_f32, "1e-40"),
+            (3.4e38_f32, "3.4e38"),
+            (f32::MAX, "3.4028235e38"),
+            (0.1_f32, "0.1"),
+            (1e20_f32, "1e20"),
+        ];
+        for (value, expected) in cases_32 {
+            assert_eq!(literal(AnyValue::Float32(value)), expected, "{value:e}");
+        }
+    }
+
+    #[test]
+    fn non_finite_floats_are_rejected() {
+        assert!(tsql_value_from_any(AnyValue::Float64(f64::NAN)).is_err());
+        assert!(tsql_value_from_any(AnyValue::Float32(f32::INFINITY)).is_err());
     }
 }

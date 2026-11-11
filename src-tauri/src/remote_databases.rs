@@ -616,14 +616,25 @@ fn trimmed(value: &str) -> &str {
     value.trim_matches(is_odbc_space)
 }
 
-fn field_text_issue(value: &str, label: &str, limit: usize) -> Option<String> {
+/// Bidirectional formatting characters (LRM, RLM, embeddings/overrides and
+/// isolates) that can reorder what a native dialog shows.
+fn is_bidi_format(character: char) -> bool {
+    matches!(
+        character,
+        '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+    )
+}
+
+/// `reject_bidi` is off only for the password, which no dialog displays.
+fn field_text_issue(value: &str, label: &str, limit: usize, reject_bidi: bool) -> Option<String> {
     if value.chars().count() > limit {
         return Some(format!("{label} no puede superar {limit} caracteres."));
     }
-    if value
-        .chars()
-        .any(|character| character.is_control() || matches!(character, '\u{2028}' | '\u{2029}'))
-    {
+    if value.chars().any(|character| {
+        character.is_control()
+            || matches!(character, '\u{2028}' | '\u{2029}')
+            || (reject_bidi && is_bidi_format(character))
+    }) {
         return Some(format!(
             "{label} contiene caracteres de control no permitidos; bórralos y vuelve a intentarlo."
         ));
@@ -637,15 +648,20 @@ impl DatabaseConnection {
     /// written for ODBC (braced when it needs it).
     fn attributes(&self, kind: DatabaseKind) -> Result<Vec<(&'static str, String)>, String> {
         let is_sql_server = kind == DatabaseKind::SqlServer;
-        for (value, label, limit) in [
-            (&self.driver, "El controlador", MAX_DRIVER_CHARS),
-            (&self.server, "El servidor", MAX_SERVER_CHARS),
-            (&self.port, "El puerto", 16),
-            (&self.database, "La base de datos", MAX_IDENTIFIER_CHARS * 2),
-            (&self.user, "El usuario", MAX_USER_CHARS),
-            (&self.password, "La contraseña", MAX_PASSWORD_CHARS),
+        for (value, label, limit, reject_bidi) in [
+            (&self.driver, "El controlador", MAX_DRIVER_CHARS, true),
+            (&self.server, "El servidor", MAX_SERVER_CHARS, true),
+            (&self.port, "El puerto", 16, true),
+            (
+                &self.database,
+                "La base de datos",
+                MAX_IDENTIFIER_CHARS * 2,
+                true,
+            ),
+            (&self.user, "El usuario", MAX_USER_CHARS, true),
+            (&self.password, "La contraseña", MAX_PASSWORD_CHARS, false),
         ] {
-            if let Some(issue) = field_text_issue(value, label, limit) {
+            if let Some(issue) = field_text_issue(value, label, limit, reject_bidi) {
                 return Err(issue);
             }
         }
@@ -2353,12 +2369,19 @@ fn remote_source_fingerprint(source: &DatabaseSource) -> String {
 
 fn describe_remote_source(source: &DatabaseSource) -> String {
     let (server, details) = describe_connection(&source.connection, source.kind);
+    // AUD-008: the interface lets the person allow an unencrypted channel, so
+    // the dialog Rust shows says it too, with the same text as a delivery.
+    let warning = transport_encryption_issue(&source_as_target(source))
+        .filter(|(severity, _)| *severity == "warning")
+        .map(|(_, message)| format!("\n\nAtención: {message}"))
+        .unwrap_or_default();
     // The promise is what Columnia does; the guarantee is the user's permission.
     format!(
-        "Columnia se conectará a {} en {} para leer una tabla. Solo leerá: no escribirá ni modificará nada en el servidor. Para asegurarlo, usa un usuario que solo tenga permiso de lectura. Las filas que elijas se guardarán en este equipo.\n\n{}\n\n¿Confirmas este origen?",
+        "Columnia se conectará a {} en {} para leer una tabla. Solo leerá: no escribirá ni modificará nada en el servidor. Para asegurarlo, usa un usuario que solo tenga permiso de lectura. Las filas que elijas se guardarán en este equipo.\n\n{}{}\n\n¿Confirmas este origen?",
         source.kind.label(),
         server,
-        details
+        details,
+        warning
     )
 }
 
@@ -4759,6 +4782,36 @@ mod tests {
                 rejected(DatabaseKind::Postgresql, connection, "control");
             }
         }
+        for bidi in [
+            '\u{200e}', '\u{200f}', '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}', '\u{202e}',
+            '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+        ] {
+            let value = format!("a{bidi}b");
+            for field in 0..5 {
+                let mut connection = DatabaseConnection {
+                    port: "5432".to_owned(),
+                    ..postgres.clone()
+                };
+                match field {
+                    0 => connection.driver = value.clone(),
+                    1 => connection.server = value.clone(),
+                    2 => connection.port = value.clone(),
+                    3 => connection.database = value.clone(),
+                    _ => connection.user = value.clone(),
+                }
+                rejected(DatabaseKind::Postgresql, connection, "control");
+            }
+        }
+        // Accents and ñ stay valid; the password is never shown in a dialog,
+        // so it is not restricted.
+        let accented = DatabaseConnection {
+            server: "Señor-Ñandú".to_owned(),
+            database: "Producción".to_owned(),
+            user: "Ñandú".to_owned(),
+            password: "a\u{202e}b".to_owned(),
+            ..postgres.clone()
+        };
+        assert!(accented.validate(DatabaseKind::Postgresql).is_ok());
         rejected(
             DatabaseKind::Postgresql,
             DatabaseConnection {
@@ -5728,6 +5781,57 @@ mod tests {
         DatabaseSource {
             kind: DatabaseKind::SqlServer,
             connection: connection_from_odbc_string(DatabaseKind::SqlServer, connection_string),
+        }
+    }
+
+    /// AUD-008: the interface may allow an unencrypted channel, so the dialog
+    /// Rust shows warns about it for a remote server and about a certificate
+    /// that is not checked; a local server or a strict connection gets no warning.
+    #[test]
+    fn the_import_dialog_warns_about_an_unencrypted_or_unchecked_channel() {
+        let source = |kind, server: &str, allow_unencrypted, trust| DatabaseSource {
+            kind,
+            connection: DatabaseConnection {
+                driver: "Driver".to_owned(),
+                server: server.to_owned(),
+                port: String::new(),
+                database: String::new(),
+                authentication: DatabaseAuthentication::Password,
+                user: "ana".to_owned(),
+                password: "x".to_owned(),
+                trust_server_certificate: trust,
+                allow_unencrypted,
+            },
+        };
+        let remote = describe_remote_source(&source(
+            DatabaseKind::Postgresql,
+            "db.example.com",
+            true,
+            false,
+        ));
+        assert!(
+            remote.contains("Atención: Se permitió conectar sin cifrado"),
+            "{remote}"
+        );
+        assert!(remote.contains("viajarán sin cifrar"), "{remote}");
+        let certificate = describe_remote_source(&source(
+            DatabaseKind::SqlServer,
+            "db.example.com",
+            false,
+            true,
+        ));
+        assert!(
+            certificate.contains("acepta cualquier certificado"),
+            "{certificate}"
+        );
+        assert!(certificate.contains("Atención:"), "{certificate}");
+        for quiet in [
+            source(DatabaseKind::Postgresql, "localhost", true, false),
+            source(DatabaseKind::Postgresql, "db.example.com", false, false),
+            source(DatabaseKind::SqlServer, "db.example.com", false, false),
+        ] {
+            let message = describe_remote_source(&quiet);
+            assert!(!message.contains("Atención:"), "{message}");
         }
     }
 

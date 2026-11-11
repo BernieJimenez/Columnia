@@ -203,6 +203,16 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Seguridad
 
+- Al conectar con un servidor remoto para leer una tabla, si se permitió
+  conectar sin cifrado, o si SQL Server acepta cualquier certificado, la
+  confirmación nativa lo avisa con el mismo texto que la entrega (AUD-008).
+- Los campos de conexión (controlador, servidor, puerto, base y usuario)
+  rechazan los caracteres invisibles que cambian la dirección del texto, que
+  podían hacer que la confirmación mostrara un servidor distinto del real
+  (AUD-100).
+- `zstd` 0.13.4, `zstd-safe` 7.4.0 y `zstd-sys` 2.1.2, para leer Parquet
+  comprimido con ZSTD sin los fallos de RUSTSEC-2026-0391, -0398, -0403 y
+  -0410 (AUD-007).
 - La confirmación nativa de una conexión dice, una cosa por línea, servidor,
   puerto, base de datos, usuario (o «tu usuario de Windows»), cifrado,
   certificado y controlador. Cada valor se corta a 100 caracteres y la
@@ -323,6 +333,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- El script T-SQL escribe con exponente (`1e-40`, `1.5e300`) los números
+  decimales muy grandes o muy pequeños. Antes salían con todas sus cifras y
+  SQL Server rechazaba los de más de 38 dígitos (AUD-015).
 - El perfil y «Validar contrato» de un CSV grande sin fila de encabezado
   usan los nombres generados (`column_1`, `column_2`…) y ya no fallan al
   final con «el snapshot Parquet cambió durante la lectura». Antes leían la
