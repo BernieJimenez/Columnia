@@ -203,6 +203,12 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Seguridad
 
+- `rusqlite` 0.41.1, que trae SQLite 3.54.1, sin el fallo de RUSTSEC-2026-0459
+  al abrir una base junto a un `-wal` preparado (AUD-114).
+- La casilla «Conectar sin cifrado si el servidor no lo ofrece» y el aviso de
+  la confirmación ya no prometen que se cifre siempre que el servidor lo
+  ofrezca: el cifrado es oportunista y alguien con acceso a la red puede
+  forzar una conexión sin cifrar (AUD-115).
 - Al conectar con un servidor remoto para leer una tabla, si se permitió
   conectar sin cifrado, o si SQL Server acepta cualquier certificado, la
   confirmación nativa lo avisa con el mismo texto que la entrega (AUD-008).
@@ -333,6 +339,15 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Preparar un archivo grande ya no añade al historial una versión idéntica
+  cuando la conversión de tipos, fechas y huecos no cambia nada (AUD-016).
+- Una columna numérica con espacios Unicode en los bordes (por ejemplo, un
+  espacio de no separación) se convierte y rellena igual en un archivo grande
+  que en uno pequeño; antes, en el grande, la mediana fallaba (AUD-018).
+- Si preparar un archivo grande falla por falta de espacio en disco o de
+  memoria, se dice así en lugar de intentarlo en memoria sin avisar, y queda
+  en el diagnóstico. Antes de empezar se comprueba que haya libre unas tres
+  veces el tamaño del archivo (AUD-019).
 - El script T-SQL escribe con exponente (`1e-40`, `1.5e300`) los números
   decimales muy grandes o muy pequeños. Antes salían con todas sus cifras y
   SQL Server rechazaba los de más de 38 dígitos (AUD-015).

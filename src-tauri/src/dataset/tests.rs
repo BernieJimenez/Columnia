@@ -24025,6 +24025,42 @@ fn source_backed_dates_and_fills_match_the_in_memory_plan() {
 }
 
 #[test]
+fn a_stage_that_changes_nothing_adds_no_version_on_disk() {
+    // AUD-016: a column with leading zeros marked to convert is not typed, so
+    // with no other change the plan publishes nothing and keeps the source.
+    let (_path, _, mut dataset) = source_backed_csv_dataset(
+        "codigo,zona
+007,norte
+012,sur
+003,este
+",
+    );
+    let source_before = dataset.source_path.clone();
+    let revision_before = dataset.history.revision;
+    let cast = ["codigo".to_owned()];
+    let result = source_backed_safe_corrections_with_cancellation(
+        &mut dataset,
+        false,
+        false,
+        false,
+        false,
+        Some(&cast),
+        None,
+        None,
+        &PrepareCancellation::disabled(),
+        &mut |_, _| {},
+    )
+    .expect("el plan en disco debe aplicarse")
+    .expect("el CSV debe procesarse en disco");
+
+    assert_eq!(result.typed_column_count, 0);
+    assert_eq!(result.changed_cell_count, 0);
+    assert_eq!(dataset.source_path, source_before);
+    assert_eq!(dataset.history.revision, revision_before);
+    assert!(dataset.history.entries.is_empty());
+}
+
+#[test]
 fn the_gap_stage_computes_every_median_in_one_duckdb_query() {
     // AUD-035: k columns to fill cost one DuckDB query, not k, and fill the
     // same values as the in-memory plan.
@@ -24699,10 +24735,109 @@ fn source_backed_numeric_typing_treats_empty_and_blank_cells_like_the_in_memory_
         )
         .expect("el plan en disco debe aplicarse")
         .expect("el CSV debe procesarse en disco");
-        let output = read_parquet_frame(dataset.source_path.as_deref().expect("fuente"))
-            .expect("el resultado Parquet debe leerse");
+        // AUD-016: a plan that changes nothing publishes no version, so the
+        // source stays the CSV.
+        let output = if dataset.source_path.as_deref() == Some(path.path_buf().as_path()) {
+            load_csv(&path).expect("el CSV debe cargar").0
+        } else {
+            read_parquet_frame(dataset.source_path.as_deref().expect("fuente"))
+                .expect("el resultado Parquet debe leerse")
+        };
         assert_eq!(result.typed_column_count, typed, "{csv:?}");
         assert_eq!(expected.typed_column_count, typed, "{csv:?}");
         assert!(output.equals_missing(&expected.frame), "{csv:?}");
     }
+}
+
+#[test]
+fn source_backed_median_and_cast_trim_unicode_spaces_like_the_in_memory_plan() {
+    // AUD-018: `NumericCastCheck` and the in-memory cast trim with
+    // `str::trim` (Unicode), so the DuckDB cast and median must too: the
+    // column is typed and its gap filled in both, or in neither.
+    for csv in [
+        "cantidad,otra\n\u{A0}5,x\n7,y\n,z\n",
+        "cantidad,otra\n5\u{2003},x\n7,y\n,z\n",
+        "cantidad,otra\n\u{3000}5.5\u{85},x\n7,y\n,z\n",
+    ] {
+        let path = temporary_csv(csv);
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) =
+            source_backed_load(&path, "csv", || false).expect("la fuente debe leerse en disco");
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.path_buf()),
+            file_name: "unicode.csv".to_owned(),
+            file_size_bytes: fs::metadata(&path).expect("la fuente debe existir").len(),
+            row_count,
+            frame: schema,
+            source_backed: true,
+            delimited_header_mode: None,
+            profile: None,
+            history: HistoryManager::deferred().expect("el historial debe inicializarse"),
+        };
+        let columns = ["cantidad".to_owned()];
+        let expected = safe_corrected_plan_frame(
+            &source_frame,
+            false,
+            false,
+            false,
+            false,
+            true,
+            Some(&columns),
+            Some(&columns),
+            None,
+        )
+        .expect("el plan en memoria debe aplicarse");
+        let result = source_backed_safe_corrections_with_cancellation(
+            &mut dataset,
+            false,
+            false,
+            false,
+            false,
+            Some(&columns),
+            None,
+            Some(&columns),
+            &PrepareCancellation::disabled(),
+            &mut |_, _| {},
+        )
+        .expect("el plan en disco debe aplicarse")
+        .expect("el CSV debe procesarse en disco");
+        let output = if dataset.source_path.as_deref() == Some(path.path_buf().as_path()) {
+            load_csv(&path).expect("el CSV debe cargar").0
+        } else {
+            read_parquet_frame(dataset.source_path.as_deref().expect("fuente"))
+                .expect("el resultado Parquet debe leerse")
+        };
+        assert_eq!(
+            result.typed_column_count, expected.typed_column_count,
+            "{csv:?}"
+        );
+        assert!(output.equals_missing(&expected.frame), "{csv:?}");
+    }
+}
+
+/// AUD-019: a DuckDB failure for lack of space or memory reaches the user;
+/// any other keeps the in-memory fallback, and the free space is checked.
+#[test]
+fn source_backed_write_failures_for_resources_reach_the_user() {
+    let disk = source_backed_resource_error(
+        "IO Error: Could not write file \"x.parquet\": No space left on device",
+    )
+    .unwrap();
+    assert!(disk.starts_with("No hay espacio en disco suficiente"));
+    assert!(
+        source_backed_resource_error("Out of Memory Error: failed to allocate")
+            .unwrap()
+            .starts_with("No hay memoria suficiente")
+    );
+    assert!(source_backed_resource_error("Conversion Error: bad value").is_none());
+
+    assert!(ensure_free_space_for_source_backed(300, 100).is_ok());
+    assert_eq!(
+        ensure_free_space_for_source_backed(299, 100).unwrap_err(),
+        disk_message_for_test()
+    );
+}
+
+fn disk_message_for_test() -> String {
+    NO_DISK_SPACE_MESSAGE.to_owned()
 }

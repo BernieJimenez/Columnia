@@ -1330,7 +1330,7 @@ fn transport_encryption_issue(target: &DatabaseTarget) -> Option<(&'static str, 
         ));
     }
     Some(("warning", format!(
-        "Se permitió conectar sin cifrado con {label}: si el servidor no ofrece cifrado, los datos viajarán sin cifrar por la red."
+        "Se permitió conectar sin cifrado con {label}: el cifrado es oportunista, así que si el servidor no lo ofrece, o alguien con acceso a la red lo impide, los datos viajarán sin cifrar."
     )))
 }
 

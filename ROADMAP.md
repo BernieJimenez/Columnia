@@ -1,6 +1,6 @@
 # Roadmap de Columnia
 
-**Actualizado:** 2026-11-10 · **Versión:** 1.26.0
+**Actualizado:** 2026-11-11 · **Versión:** 1.26.0
 
 **Estado:** aplicación local funcional para Windows x64, de **uso personal**. No
 se comparte ni se distribuye; las mejoras se eligen por lo que su dueño nota al
@@ -33,21 +33,22 @@ a AUD-111, aparecidas al aplicarla. El 2026-11-09 se cerró la tanda 6 (AUD-108,
 mismo día se cerró la tanda 7 (AUD-112, 056 y 057). El 2026-11-10 se cerró la
 tanda 8 (AUD-077, 074, 075, 076 y 073) y se abrió AUD-113, aparecida al
 aplicarla. Ese mismo día se cerró la tanda 9 (AUD-009, 100, 008, 015 y 007) y
-se abrieron AUD-114 y AUD-115, aparecidas al aplicarla.
+se abrieron AUD-114 y AUD-115, aparecidas al aplicarla. El 2026-11-11 se
+cerró la tanda 10 (AUD-115, 016, 017, 018, 019 y 114).
 
 <!-- indice:inicio -->
-**Última actualización:** 2026-11-10 · **Siguiente ID libre:** AUD-116 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
+**Última actualización:** 2026-11-11 · **Siguiente ID libre:** AUD-116 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
 
 | Tier | Abiertas | Cerradas | Esfuerzo de las abiertas (Bajo · Medio · Alto) |
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 74 | 5 | 71 · 3 · 0 |
+| 3 · Bajo | 68 | 11 | 65 · 3 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **75** | **40** | **72 · 3 · 0** |
+| **Total** | **69** | **46** | **66 · 3 · 0** |
 
-**Abiertas por área:** UI/UX 17 · Código 10 · Rendimiento 9 · Documentación 9 · Arquitectura 8 · QA y testing 8 · Accesibilidad 7 · Redacción 5 · Seguridad 2
+**Abiertas por área:** UI/UX 17 · Código 10 · Rendimiento 9 · Documentación 9 · QA y testing 8 · Accesibilidad 7 · Redacción 5 · Arquitectura 4
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -512,21 +513,23 @@ Sin tareas abiertas.
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-003
   - **Cierre:** 2026-11-10 · tanda 9 de la Fase 2 (rama `auditoria/2026-11-05`). `field_text_issue` rechaza U+200E, U+200F, U+202A-U+202E y U+2066-U+2069 en controlador, servidor, puerto, base y usuario, con el mismo mensaje que los caracteres de control; la contraseña queda fuera porque ningún diálogo la muestra. Las tres órdenes con diálogo nativo validan antes de confirmar. La prueba cubre los 11 caracteres en los cinco campos, y los nombres con tildes y `ñ` siguen valiendo.
 
-- [ ] **AUD-114 · `libsqlite3-sys` 0.38.2 empaqueta SQLite 3.53.2, afectado por RUSTSEC-2026-0459 (memoria sin inicializar con un `-wal` de otro tamaño de página)**
+- [x] **AUD-114 · `libsqlite3-sys` 0.38.2 empaqueta SQLite 3.53.2, afectado por RUSTSEC-2026-0459 (memoria sin inicializar con un `-wal` de otro tamaño de página)**
   - **Área:** Seguridad · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/Cargo.toml:58` (`rusqlite` 0.40.2 con `bundled`)
   - **Qué hacer:** subir `rusqlite` a 0.41 (`libsqlite3-sys` ≥ 0.39.0, SQLite ≥ 3.54.0), revisar los cambios de API en los catálogos (`delivery_presets.rs`, `reusable_tasks.rs`, `projects.rs`, `automation.rs`) y en la exportación a SQLite (`dataset/export_io.rs`), y regenerar `THIRD_PARTY_NOTICES.md`. Ataque local: hace falta que la persona abra una base preparada junto a su `-wal`.
   - **Criterio de aceptación:** `cargo audit` sin RUSTSEC-2026-0459 y las pruebas de catálogos y de exportación a SQLite pasan.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-007 (el aviso es del 2026-10-30 y no estaba en la base de avisos que usó la Fase 1)
+  - **Cierre:** 2026-11-11 · tanda 10 de la Fase 2 (en `master`). `rusqlite` 0.41.1 con `libsqlite3-sys` 0.39.1, que empaqueta SQLite 3.54.1; el lockfile solo cambia esas dos entradas y `cargo tree -i libsqlite3-sys` da una sola versión. Sin cambios de código: catálogos y exportación a SQLite compilan y sus pruebas pasan. `cargo audit` ya no lista RUSTSEC-2026-0459. `THIRD_PARTY_NOTICES.md` regenerado: mismas filas salvo las dos versiones, pero reordenado entero, porque `-Check` compara el orden y hasta el archivo anterior lo fallaba (AUD-099).
 
-- [ ] **AUD-115 · La casilla «Conectar sin cifrado si el servidor no lo ofrece» promete que el cifrado se usa si el servidor lo ofrece, y con `prefer` alguien en la red puede impedirlo**
+- [x] **AUD-115 · La casilla «Conectar sin cifrado si el servidor no lo ofrece» promete que el cifrado se usa si el servidor lo ofrece, y con `prefer` alguien en la red puede impedirlo**
   - **Área:** Seguridad · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/database/ServerConnectionForm.tsx:126-127` y `src-tauri/src/remote_databases.rs` (atributos `SSLmode=prefer` y `SSLMODE=PREFERRED`)
   - **Qué hacer:** que el texto diga que, con la casilla marcada, alguien con acceso a la red puede forzar una conexión sin cifrar (el cifrado es oportunista), y mantener «Solo en servidores propios o de prueba». Revisar que el aviso de `transport_encryption_issue` dice lo mismo.
   - **Criterio de aceptación:** el texto de la casilla y el aviso del diálogo no afirman que el cifrado se use siempre que el servidor lo ofrezca; prueba de Vitest con el texto nuevo.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-008
+  - **Cierre:** 2026-11-11 · tanda 10 de la Fase 2 (en `master`). La casilla dice «Solo en servidores propios o de prueba. El cifrado es oportunista: alguien con acceso a la red puede forzar una conexión sin cifrar.», y el aviso de `transport_encryption_issue` (que también sale en el diálogo de importación) dice lo mismo. Prueba nueva en `ServerConnectionForm.test.tsx`.
 
 ### Arquitectura, datos y resiliencia
 
@@ -539,15 +542,16 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-10 · tanda 9 de la Fase 2 (rama `auditoria/2026-11-05`). `tsql_float_literal`: 0 y los valores con magnitud entre 1e-15 y 1e15 siguen en decimal (`3.5`); el resto va con exponente (`1e-40`, `1.5e300`, `5e-324`, `1e40`). `Float32` se escribe con su forma corta, sin pasar por f64. Contra el SQL Server local, `SET PARSEONLY ON` acepta los 19 literales de la prueba, y el decimal antiguo daba Msg 1007. SQL Server lee un subnormal como `5e-324` como 0, con aviso: es un límite de su `float`.
 
-- [ ] **AUD-016 · Preparar a disco publica una versión idéntica y la etiqueta como si hubiera convertido tipos cuando la etapa no hace nada**
+- [x] **AUD-016 · Preparar a disco publica una versión idéntica y la etiqueta como si hubiera convertido tipos cuando la etapa no hace nada**
   - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset.rs:5876-5879`
   - **Qué hacer:** calcular `force_publish` con el resultado real de la etapa: ejecutar la etapa antes de decidir, o devolver `Ok(false)` y no publicar cuando ni DuckDB ni la etapa cambian nada (`changed_cell_count == 0`, sin renombrados, sin filas quitadas y `stage_outcome` a cero).
   - **Criterio de aceptación:** una propuesta con una columna con ceros a la izquierda marcada para convertir, sobre un archivo grande sin otros cambios, no añade versión al historial.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 10 de la Fase 2 (en `master`). `force_publish` ya no cuenta la etapa planificada: la etapa devuelve `Ok(true)` solo si tipó, fechó o rellenó algo, y si no borra su archivo y se queda la salida de DuckDB. Sin cambios, no se publica versión. Prueba `a_stage_that_changes_nothing_adds_no_version_on_disk` (ceros a la izquierda marcados para convertir; falla sin el arreglo).
 
-- [ ] **AUD-017 · Las medianas de la etapa de huecos no se pueden cancelar**
+- [x] **AUD-017 · Las medianas de la etapa de huecos no se pueden cancelar**
   - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/duckdb_query.rs:1638-1660`
   - **Qué hacer:** pasar el cierre de cancelación de la etapa a `parquet_lower_median` (como `count_file_rows`) o usar la versión con `NativeDuckDb` y `interrupt`; de paso `quantile_disc(x, 0.5)` devuelve el mismo valor sin ordenar todo el archivo.
@@ -555,22 +559,25 @@ Sin tareas abiertas.
   - **Depende de:** ninguna; AUD-035 la resuelve si se hace antes
   - **Origen:** auditoría 2026-11-05
   - **Nota (2026-11-08, al aplicar AUD-035):** la consulta de medianas recibe ya el cierre de cancelación de la etapa y usa `quantile_disc(x, 0.5)` en una sola consulta para todas las columnas. Falta comprobar el criterio (cancelar en menos de 2 s con un archivo grande) antes de cerrarla.
+  - **Cierre:** 2026-11-11 · tanda 10 de la Fase 2 (en `master`). Ya cumplía desde AUD-035: `parquet_lower_medians` corre en `execute_duckdb_operation`, que interrumpe la consulta en curso, y es una sola sentencia. Prueba `cancelling_the_lower_medians_returns_control_quickly` (`#[ignore]`, 40 M filas): 6,7 s sin cancelar; cancelando a los 200 ms vuelve en 221 ms.
 
-- [ ] **AUD-018 · La mediana de una columna con espacios Unicode en los bordes falla, aunque la etapa la considera numérica**
+- [x] **AUD-018 · La mediana de una columna con espacios Unicode en los bordes falla, aunque la etapa la considera numérica**
   - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/duckdb_query.rs:1618-1633`
   - **Qué hacer:** que `NumericCastCheck::observe` use el mismo recorte que el SQL (solo ASCII) o que el SQL use `trim` Unicode equivalente; una prueba de paridad con `\u00A0`.
   - **Criterio de aceptación:** una columna `"\u00A05"`, `"7"`, vacía, con impute y cast se comporta igual en memoria y a disco (ambas la dejan como texto, o ambas la convierten y rellenan).
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 10 de la Fase 2 (en `master`). El SQL recorta como `str::trim` de Rust (`[\s\x0B\x{85}\p{Z}]` en `trimmed_text_sql`), así que la columna se convierte y rellena igual en memoria y a disco. Prueba de paridad `source_backed_median_and_cast_trim_unicode_spaces_like_the_in_memory_plan` con U+00A0, U+2003, U+3000 y U+0085 (falla sin el arreglo).
 
-- [ ] **AUD-019 · Un fallo de DuckDB al escribir la propuesta se descarta sin dejar rastro y se intenta la ruta en memoria**
+- [x] **AUD-019 · Un fallo de DuckDB al escribir la propuesta se descarta sin dejar rastro y se intenta la ruta en memoria**
   - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset.rs:2962-2965`
   - **Qué hacer:** registrar el error con `source_backed_fallback("preparar a disco", &error)` y, si es de espacio o de memoria, devolverlo a la interfaz en lugar de `Ok(None)`; comprobar `fs4::available_space` antes de empezar contra el tamaño del origen × 3 y avisar.
   - **Criterio de aceptación:** una escritura que falla por espacio muestra «No hay espacio en disco suficiente...» y queda registrada en el diagnóstico.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 10 de la Fase 2 (en `master`). El fallo de DuckDB queda en el diagnóstico (`source_backed_fallback("preparar a disco", …)`); si es de espacio o de memoria llega a la interfaz («No hay espacio en disco suficiente para preparar este archivo…» o «No hay memoria suficiente…») y el resto sigue con la ruta en memoria. Antes de escribir se comprueba el espacio libre contra el origen × 3. Prueba de la clasificación y del umbral. No comprobado con el disco lleno de verdad: el texto exacto de DuckDB en Windows y el recorrido hasta la interfaz.
 
 - [ ] **AUD-020 · La última importación de base de datos queda en claro en `%APPDATA%` sin purga, y el temporal de escritura se pierde si el proceso muere**
   - **Área:** Arquitectura · **Severidad:** Bajo · **Esfuerzo:** Bajo

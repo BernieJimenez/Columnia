@@ -2256,6 +2256,41 @@ fn source_backed_fallback<T>(operation: &'static str, error: &dyn std::fmt::Disp
     None
 }
 
+const NO_DISK_SPACE_MESSAGE: &str = "No hay espacio en disco suficiente para preparar este archivo. Libera espacio en la unidad donde se guarda el trabajo y vuelve a intentarlo.";
+const NO_MEMORY_MESSAGE: &str = "No hay memoria suficiente para preparar este archivo. Cierra otros programas y vuelve a intentarlo.";
+
+/// AUD-019: a DuckDB write failure caused by a full disk or by memory, as the
+/// message for the user; any other failure keeps the in-memory fallback.
+fn source_backed_resource_error(error: &str) -> Option<String> {
+    let lower = error.to_ascii_lowercase();
+    let disk = [
+        "no space left",
+        "not enough space",
+        "disk full",
+        "out of disk",
+        "max_temp_directory_size",
+        "os error 112",
+        "os error 28",
+    ];
+    if disk.iter().any(|marker| lower.contains(marker)) {
+        Some(NO_DISK_SPACE_MESSAGE.to_owned())
+    } else if lower.contains("out of memory") {
+        Some(NO_MEMORY_MESSAGE.to_owned())
+    } else {
+        None
+    }
+}
+
+/// AUD-019: refuses a rewrite when the free space is under three times the
+/// size of the source.
+fn ensure_free_space_for_source_backed(available: u64, source_size: u64) -> Result<(), String> {
+    if available < source_size.saturating_mul(3) {
+        Err(NO_DISK_SPACE_MESSAGE.to_owned())
+    } else {
+        Ok(())
+    }
+}
+
 pub(crate) fn preview_value(value: AnyValue<'_>) -> Option<String> {
     match value {
         AnyValue::Null => None,
@@ -2936,6 +2971,11 @@ fn publish_source_backed_query_staged(
         return Err("El archivo source-backed cambió antes de aplicar la limpieza.".to_owned());
     }
 
+    // AUD-019: the output and DuckDB's spill need about three times the source.
+    if let Ok(available) = fs4::available_space(dataset.history.directory.path()) {
+        ensure_free_space_for_source_backed(available, source_size_before)?;
+    }
+
     let temporary =
         tempfile::NamedTempFile::with_suffix_in(".parquet", dataset.history.directory.path())
             .map_err(|error| format!("No se pudo preparar la salida source-backed: {error}"))?;
@@ -2965,16 +3005,26 @@ fn publish_source_backed_query_staged(
     match written {
         Ok(()) => {}
         Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
-        Err(_) => {
+        Err(error) => {
             let _ = fs::remove_file(&output_path);
-            return Ok(None);
+            // AUD-019: the failure is recorded; a lack of space or memory is
+            // told to the user, since the in-memory path would not help.
+            let _ = source_backed_fallback::<()>("preparar a disco", &error);
+            return match source_backed_resource_error(&error) {
+                Some(message) => Err(message),
+                None => Ok(None),
+            };
         }
     }
+    // AUD-016: whether the stage wrote anything is part of the decision to
+    // publish, so a stage that changes nothing does not add a version.
+    let mut stage_wrote = false;
     if let Some(stage) = stage {
         let staged = output_path.with_extension("etapa.parquet");
         let outcome = stage(&output_path, &staged);
         match outcome {
             Ok(true) => {
+                stage_wrote = true;
                 if let Err(error) = fs::rename(&staged, &output_path) {
                     let _ = fs::remove_file(&staged);
                     let _ = fs::remove_file(&output_path);
@@ -3037,7 +3087,7 @@ fn publish_source_backed_query_staged(
         return Err("El archivo source-backed cambió durante la limpieza.".to_owned());
     }
 
-    if !force_publish && affected_row_count == 0 && !schema_changed {
+    if !force_publish && !stage_wrote && affected_row_count == 0 && !schema_changed {
         let _ = fs::remove_file(&output_path);
         return Ok(Some(DatasetMutation {
             dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
@@ -5989,13 +6039,22 @@ fn source_backed_safe_corrections_with_cancellation(
             &mut progress,
         )? {
             Some(outcome) => {
+                let changed = outcome.typed_column_count > 0
+                    || outcome.dated_column_count > 0
+                    || outcome.imputed_cell_count > 0;
                 stage_outcome = outcome;
-                Ok(true)
+                if !changed {
+                    // Nothing was typed, dated or filled: keep DuckDB's output.
+                    let _ = fs::remove_file(output);
+                }
+                Ok(changed)
             }
             None => Ok(false),
         }
     };
-    let force_publish = changed_cell_count > 0 || !renames.is_empty() || staged_work;
+    // AUD-016: the stage decides for itself (`stage_wrote`); asking for the
+    // publication because a stage is planned labelled identical versions.
+    let force_publish = changed_cell_count > 0 || !renames.is_empty();
     report.borrow_mut()("Escribiendo la versión corregida", 30);
     let mut written_shown = 30_u8;
     let mut write_progress = |fraction: f64| {

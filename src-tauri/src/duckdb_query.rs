@@ -1643,10 +1643,12 @@ pub(crate) enum NumericCastTarget {
     Decimal,
 }
 
-/// The value of a text expression trimmed like Rust's `str::trim` for ASCII
-/// whitespace (Unicode spaces are left, so such a column stays text).
+/// The value of a text expression trimmed like Rust's `str::trim`
+/// (Unicode `White_Space`, AUD-018): RE2 `\s` is ASCII only and leaves out
+/// the vertical tab, NEL and the `Z` separators (no-break space, em space...).
 pub(crate) fn trimmed_text_sql(expression: &str) -> String {
-    format!(r"regexp_replace(CAST(({expression}) AS VARCHAR), '^\s+|\s+$', '', 'g')")
+    const SPACE: &str = r"[\s\x0B\x{85}\p{Z}]";
+    format!("regexp_replace(CAST(({expression}) AS VARCHAR), '^{SPACE}+|{SPACE}+$', '', 'g')")
 }
 
 /// The SQL that converts a text expression to `target`.
@@ -4276,6 +4278,65 @@ mod tests {
             .expect("la señal de cancelación debe terminar");
 
         assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+    }
+
+    /// AUD-017: cancelling in the middle of the gap stage's medians interrupts
+    /// the running query instead of waiting for it to end. Ignored by default
+    /// because writing a Parquet big enough to keep the query busy takes a
+    /// while: run it with `--ignored`.
+    #[test]
+    #[ignore = "genera un Parquet grande; ejecutar con --ignored"]
+    fn cancelling_the_lower_medians_returns_control_quickly() {
+        const ROWS: u32 = 40_000_000;
+        let directory = tempfile::tempdir().expect("directorio de prueba");
+        let parquet_path = directory.path().join("medianas.parquet");
+        {
+            let connection = Connection::open_in_memory().expect("DuckDB de prueba");
+            let destination = parquet_path.to_string_lossy().replace('\\', "/");
+            connection
+                .execute_batch(&format!(
+                    "SET preserve_insertion_order = false; \
+                     COPY (SELECT CASE WHEN i % 10 = 0 THEN NULL ELSE hash(i) % 1000000007 END AS a, \
+                     hash(i * 7) % 1000000007 AS b, \
+                     hash(i * 11) % 1000000007 AS c, \
+                     CASE WHEN i % 13 = 0 THEN NULL ELSE (hash(i * 13) % 1000000007)::DOUBLE END AS d \
+                     FROM range({ROWS}) AS r(i)) TO '{destination}' (FORMAT PARQUET)"
+                ))
+                .expect("parquet de prueba");
+        }
+        let requests = ["a", "b", "c", "d"].map(|column| LowerMedianRequest {
+            column,
+            as_double: column == "d",
+            cast: None,
+        });
+
+        let started = std::time::Instant::now();
+        let finished = parquet_lower_medians(&parquet_path, &requests, || false)
+            .expect("las medianas sin cancelar deben calcularse");
+        let uncancelled = started.elapsed();
+        assert_eq!(finished.len(), requests.len());
+
+        let cancel_at = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let cancel_started = std::sync::Arc::clone(&cancel_at);
+        let begin = std::time::Instant::now();
+        let error = parquet_lower_medians(&parquet_path, &requests, move || {
+            let mut moment = cancel_started.lock().expect("reloj de cancelación");
+            let first = *moment.get_or_insert_with(std::time::Instant::now);
+            first.elapsed() >= std::time::Duration::from_millis(200)
+        })
+        .expect_err("las medianas deben poder cancelarse");
+        let returned = begin.elapsed();
+        eprintln!("medianas sin cancelar: {uncancelled:?}; cancelando: {returned:?}");
+
+        assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+        assert!(
+            uncancelled > std::time::Duration::from_secs(2),
+            "el Parquet debe ser lo bastante grande para la prueba ({uncancelled:?})"
+        );
+        assert!(
+            returned < std::time::Duration::from_secs(2),
+            "cancelar debe devolver el control en menos de 2 s ({returned:?})"
+        );
     }
 
     /// AUD-026: cancelling while the distinct count runs its out-of-memory

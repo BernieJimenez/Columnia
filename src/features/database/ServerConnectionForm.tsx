@@ -124,7 +124,7 @@ export function ServerConnectionForm({ kind, disabled, onChange, errorId }: Serv
         />
         <span>
           Conectar sin cifrado si el servidor no lo ofrece
-          <small>Solo en servidores propios o de prueba. Si el servidor ofrece cifrado, se usa igual.</small>
+          <small>Solo en servidores propios o de prueba. El cifrado es oportunista: alguien con acceso a la red puede forzar una conexión sin cifrar.</small>
         </span>
       </label>
       {drivers !== null && drivers.length > 1 && (

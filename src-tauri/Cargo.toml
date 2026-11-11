@@ -55,7 +55,7 @@ polars = { version = "0.55.2", default-features = false, features = ["csv", "fmt
 odbc-api = { version = "29.1.0", default-features = false, features = ["odbc_version_3_80"] }
 rayon = "1.12"
 regex = "1"
-rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] }
 same-file = "1.0.6"
 getrandom = "0.3"
 encoding_rs = "0.8.41"
