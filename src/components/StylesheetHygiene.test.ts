@@ -1,10 +1,18 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // COD-02: the stylesheets grew by patches; these checks keep the cascade
 // from collecting undefined tokens or the same rule twice again.
-const files = ["src/styles.css", "src/workflow-styles.css", "src/features/explore/explore.css"];
+// AUD-078: every stylesheet under src/ is checked, so a new one needs no edit here.
+function stylesheets(directory: string): string[] {
+  return readdirSync(join(process.cwd(), directory), { withFileTypes: true }).flatMap((entry) => {
+    const path = `${directory}/${entry.name}`;
+    if (entry.isDirectory()) return stylesheets(path);
+    return entry.name.endsWith(".css") ? [path] : [];
+  });
+}
+const files = stylesheets("src");
 const sources = files.map((file) => [file, readFileSync(join(process.cwd(), file), "utf8")] as const);
 
 /** Every rule as "context | selector | sorted declarations". */
@@ -32,6 +40,10 @@ function ruleKeys(css: string): string[] {
 }
 
 describe("higiene de las hojas de estilo (COD-02)", () => {
+  it("recorre todas las hojas de src/", () => {
+    expect(files).toEqual(expect.arrayContaining(["src/shell.css", "src/data-views.css", "src/styles.css"]));
+  });
+
   it("toda variable usada está definida", () => {
     const all = sources.map(([, css]) => css).join("\n");
     const defined = new Set([...all.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1]));

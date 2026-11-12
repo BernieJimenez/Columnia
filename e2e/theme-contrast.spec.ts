@@ -161,7 +161,7 @@ for (const theme of themes) {
     const measure = async (phase: string) => {
       // A control that has just been enabled can still be painted with the
       // disabled colours for a frame; measure the settled page.
-      await page.waitForTimeout(250);
+      await settleFrames(page);
       const result = await contrastFailures(page);
       failures.push(...result.failures.map((failure) => `${phase}: ${failure}`));
       // QA-56: and every other WCAG A/AA rule axe-core knows.
@@ -213,6 +213,14 @@ async function colorSnapshot(page: Page) {
   });
 }
 
+// Wait for two paint frames instead of a fixed delay: the page is measured
+// after the browser has repainted, however loaded the machine is.
+async function settleFrames(page: Page) {
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+}
+
 async function phaseSnapshots(page: Page, colorScheme: "dark", dataTheme: "dark" | "system") {
   await installContrastMock(page);
   await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
@@ -220,22 +228,22 @@ async function phaseSnapshots(page: Page, colorScheme: "dark", dataTheme: "dark"
   await page.goto("/");
   const snapshots: Record<string, string[]> = {};
   await page.getByRole("button", { name: "Seleccionar dataset" }).waitFor();
-  await page.waitForTimeout(300);
+  await settleFrames(page);
   snapshots.Cargar = await colorSnapshot(page);
   await page.getByRole("button", { name: "Seleccionar dataset" }).click();
   const review = page.getByRole("dialog", { name: "Revisar encabezados de contraste.csv" });
   await review.getByRole("button", { name: "Cargar archivo" }).click();
   await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
-  await page.waitForTimeout(300);
+  await settleFrames(page);
   snapshots.Revisar = await colorSnapshot(page);
   const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
   await workflow.getByRole("button", { name: "Preparar", exact: true }).click();
   await expect(page.getByRole("button", { name: /^Aplicar \d+ cambios?$/ })).toBeVisible();
-  await page.waitForTimeout(300);
+  await settleFrames(page);
   snapshots.Preparar = await colorSnapshot(page);
   await workflow.getByRole("button", { name: "Entregar", exact: true }).click();
   await expect(page.getByText(/Datos personales detectados/)).toBeVisible();
-  await page.waitForTimeout(300);
+  await settleFrames(page);
   snapshots.Entregar = await colorSnapshot(page);
   return snapshots;
 }

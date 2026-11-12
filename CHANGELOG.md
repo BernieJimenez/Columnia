@@ -1696,6 +1696,14 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- Pruebas más fiables: sin esperas fijas ni topes por prueba (reloj simulado en
+  Vitest, mediciones reintentadas en Playwright y un tope global de 15 s); la
+  higiene del CSS recorre todas las hojas de `src/`; la expulsión de la copia
+  del perfil se prueba con la capacidad real; el simulador E2E usa los tipos
+  del puente y hay un E2E de entrega a SQL Server por clave; el corte de 900 px
+  y el zoom al 200 % del shell se miden en el navegador; y las estructuras de
+  conexión y entrega a bases de datos entran en la paridad Rust↔TypeScript
+  (AUD-078, AUD-080, AUD-081, AUD-083, AUD-113; AUD-082 en curso).
 - El arranque de la interfaz carga unos 43 kB menos: el modelo de Entregar, los
   paneles «Base de datos» y «Proyecto» de Cargar y el diálogo de diagnóstico
   llegan cuando hacen falta (AUD-116).

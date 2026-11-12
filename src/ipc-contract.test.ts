@@ -357,6 +357,8 @@ function normalizeRustFieldType(type: string): string {
       "DiagnosticColumnBucket",
       "DiagnosticSizeBucket",
       "DatabaseKind",
+      "DatabaseTablePolicy",
+      "DatabaseAuthentication",
       "SqlServerLoadMode",
       "SqlServerTextSize",
     ].includes(withoutReference)
@@ -495,7 +497,7 @@ const SHARED_ENUMS = [
   "SummaryOperation", "ContactKind", "ExtractionKind", "PerformanceProfile", "DatasetLoadPath",
   "TemporalAggregationKind", "DiagnosticContract", "DiagnosticPhase", "DiagnosticStatus",
   "DiagnosticErrorCode", "DiagnosticRowBucket", "DiagnosticColumnBucket", "DiagnosticSizeBucket",
-  "ExportFormat", "PrivacyMode", "DatabaseKind",
+  "ExportFormat", "PrivacyMode", "DatabaseKind", "DatabaseTablePolicy", "DatabaseAuthentication",
   "SqlServerLoadMode", "SqlServerTextSize",
 ];
 

@@ -2519,7 +2519,7 @@ where
 /// REN-14: the Parquet working copy of the last large delimited file the
 /// profile read. Explorar and a second profile of the same, unchanged file
 /// read it instead of parsing the CSV again (2019-Oct: 55 s against 3 s).
-struct ProfileSnapshot {
+pub(super) struct ProfileSnapshot {
     source: PathBuf,
     /// How the source was read to make the copy (delimiter and header
     /// decision). A copy only answers for that reading: this is the one place
@@ -2535,7 +2535,7 @@ struct ProfileSnapshot {
 /// replaces it in the cache meanwhile, so a long read never loses its file.
 pub(super) struct CachedProfileSnapshot {
     path: PathBuf,
-    _directory: std::sync::Arc<HistoryDirectory>,
+    pub(super) _directory: std::sync::Arc<HistoryDirectory>,
 }
 
 impl std::ops::Deref for CachedProfileSnapshot {
@@ -2574,8 +2574,23 @@ pub(super) fn cached_profile_snapshot(
     use crate::crash_report::LockRecovering;
     let size = fs::metadata(source).ok()?.len();
     let modified = file_modified(source);
-    PROFILE_SNAPSHOT
-        .lock_recovering()
+    find_profile_snapshot(
+        &PROFILE_SNAPSHOT.lock_recovering(),
+        source,
+        format,
+        size,
+        modified,
+    )
+}
+
+pub(super) fn find_profile_snapshot(
+    snapshots: &[ProfileSnapshot],
+    source: &Path,
+    format: crate::duckdb_query::DuckDbFileFormat,
+    size: u64,
+    modified: Option<SystemTime>,
+) -> Option<CachedProfileSnapshot> {
+    snapshots
         .iter()
         .find(|snapshot| {
             snapshot.source == source
@@ -2635,9 +2650,33 @@ pub(super) fn remember_profile_snapshot(
     path: PathBuf,
 ) {
     use crate::crash_report::LockRecovering;
-    let mut snapshots = PROFILE_SNAPSHOT.lock_recovering();
+    insert_profile_snapshot(
+        &mut PROFILE_SNAPSHOT.lock_recovering(),
+        PROFILE_SNAPSHOT_CAPACITY,
+        source,
+        format,
+        size,
+        modified,
+        directory,
+        path,
+    );
+}
+
+/// The eviction rule over a given list, so a test can run it with the
+/// production capacity (1) without touching the shared cache.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn insert_profile_snapshot(
+    snapshots: &mut Vec<ProfileSnapshot>,
+    capacity: usize,
+    source: &Path,
+    format: crate::duckdb_query::DuckDbFileFormat,
+    size: u64,
+    modified: Option<SystemTime>,
+    directory: HistoryDirectory,
+    path: PathBuf,
+) {
     snapshots.retain(|snapshot| snapshot.source != source);
-    if snapshots.len() >= PROFILE_SNAPSHOT_CAPACITY {
+    if snapshots.len() >= capacity {
         snapshots.remove(0);
     }
     snapshots.push(ProfileSnapshot {

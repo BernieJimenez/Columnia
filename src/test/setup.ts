@@ -2,8 +2,9 @@ import { configure } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
 // App.test renders the whole shell; with every worker busy a findBy can
-// need more than the default 1 s and fail intermittently.
-configure({ asyncUtilTimeout: 3_000 });
+// need more than the default 1 s (long load-then-phases flows reached 5 s
+// under the pre-push hook) and fail intermittently.
+configure({ asyncUtilTimeout: 5_000 });
 
 // QA-05: `COLUMNIA_TEST_LOCALE=es-ES npx vitest run` runs the suite as on a
 // machine with that regional setting, so assertions cannot depend on the

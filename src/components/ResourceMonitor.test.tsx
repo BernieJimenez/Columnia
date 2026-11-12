@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { localeText } from "../test/localeText";
 
@@ -8,6 +8,7 @@ afterEach(() => {
   cleanup();
   window.localStorage.clear();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("ResourceMonitor", () => {
@@ -71,6 +72,7 @@ describe("ResourceMonitor", () => {
   });
 
   it("pospone el sondeo nativo mientras el panel permanece cerrado", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const fetchUsage = vi.fn();
     const fetchPerformanceSettings = vi.fn().mockResolvedValue({
       requestedProfile: "balanced" as const,
@@ -92,7 +94,10 @@ describe("ResourceMonitor", () => {
     );
 
     expect(screen.getByText("Pausado hasta abrir")).toBeInTheDocument();
-    await new Promise((resolve) => window.setTimeout(resolve, 300));
+    // The first poll fires at 250 ms; advance the fake clock past it.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
     expect(fetchUsage).not.toHaveBeenCalled();
     expect(fetchPerformanceSettings).toHaveBeenCalledOnce();
   });

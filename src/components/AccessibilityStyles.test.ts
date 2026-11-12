@@ -1,3 +1,5 @@
+// Guardas de texto: comprueban que las declaraciones existen en el CSS, no que el layout
+// funcione. La comprobación medida del shell (900 px, zoom 200 %, paneles) está en e2e/workspace-shell.spec.ts.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";

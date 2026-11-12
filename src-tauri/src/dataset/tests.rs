@@ -22715,6 +22715,78 @@ fn clearing_the_profile_copy_deletes_its_folder_after_the_last_reader() {
     assert!(!folder.exists(), "sin lectores la carpeta se elimina");
 }
 
+/// AUD-080: with the production capacity (1) a second profile evicts the
+/// first one, and whoever still holds the first copy keeps reading it. Uses
+/// its own list: the shared cache runs with capacity 64 in tests.
+#[test]
+fn a_second_profile_evicts_the_first_copy_but_not_its_readers() {
+    use std::sync::Arc;
+    let format = crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' };
+    let first_source = temporary_csv(
+        "a
+1
+",
+    );
+    let second_source = temporary_csv(
+        "b
+2
+",
+    );
+    let mut snapshots = Vec::new();
+    let remember = |snapshots: &mut Vec<ProfileSnapshot>, source: &Path| {
+        let directory = locked_directory(PROFILE_DIRECTORY_PREFIX).expect("carpeta de la copia");
+        let folder = directory.directory.path().to_owned();
+        let copy = folder.join("compared.parquet");
+        fs::write(&copy, b"datos").unwrap();
+        let metadata = fs::metadata(source).unwrap();
+        insert_profile_snapshot(
+            snapshots,
+            1,
+            source,
+            format,
+            metadata.len(),
+            metadata.modified().ok(),
+            directory,
+            copy.clone(),
+        );
+        (folder, copy)
+    };
+    let (first_folder, first_copy) = remember(&mut snapshots, &first_source);
+    let find = |snapshots: &[ProfileSnapshot], source: &Path| {
+        let metadata = fs::metadata(source).unwrap();
+        find_profile_snapshot(
+            snapshots,
+            source,
+            format,
+            metadata.len(),
+            metadata.modified().ok(),
+        )
+    };
+    let reader = find(&snapshots, &first_source).expect("la primera copia está en caché");
+    assert_eq!(Arc::strong_count(&reader._directory), 2);
+
+    let (second_folder, _) = remember(&mut snapshots, &second_source);
+    assert_eq!(snapshots.len(), 1, "con capacidad 1 solo queda una copia");
+    assert!(
+        find(&snapshots, &first_source).is_none(),
+        "la primera se expulsa"
+    );
+    assert!(find(&snapshots, &second_source).is_some());
+    assert_eq!(
+        Arc::strong_count(&reader._directory),
+        1,
+        "solo el lector conserva ya la primera carpeta"
+    );
+    assert!(first_copy.exists(), "quien la usa sigue leyéndola");
+    assert!(first_folder.exists());
+
+    drop(reader);
+    assert!(!first_folder.exists(), "sin lectores se elimina");
+    assert!(second_folder.exists(), "la copia vigente no se toca");
+    snapshots.clear();
+    assert!(!second_folder.exists());
+}
+
 /// AUD-010: a size or time taken before the copy that no longer matches the
 /// file makes the cache miss, instead of being refreshed after the profile.
 #[test]
@@ -24264,12 +24336,6 @@ fn source_backed_numeric_typing_matches_the_in_memory_plan() {
     let output = read_parquet_frame(dataset.source_path.as_deref().expect("fuente"))
         .expect("el resultado Parquet debe leerse");
 
-    println!(
-        "disco {:?}
-memoria {:?}",
-        output.schema(),
-        expected.frame.schema()
-    );
     assert_eq!(result.typed_column_count, 4);
     assert_eq!(result.typed_column_count, expected.typed_column_count);
     assert_eq!(result.removed_row_count, 1);

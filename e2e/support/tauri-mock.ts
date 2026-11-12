@@ -3,6 +3,9 @@ import type { Page } from "@playwright/test";
 
 import type {
   AppInfo,
+  DatabaseImportResult,
+  DatabaseKind,
+  DatabaseSourceTable,
   DatasetColumn,
   DatasetFormat,
   DatasetImportSchemaPreview,
@@ -57,6 +60,10 @@ interface MockFixtures {
   explore: ExplorePanel | null;
   history: HistoryState;
   exportResult: ExportResult | null;
+  /** Installed ODBC drivers, the tables the server lists and the import answer. */
+  databaseDrivers: Record<DatabaseKind, string[]>;
+  databaseTables: DatabaseSourceTable[];
+  databaseImport: DatabaseImportResult;
   emptyCatalog: ProjectCatalogSnapshot;
   project: { summary: ProjectSummary; workspace: ProjectWorkspace; recover: boolean } | null;
   taskSchema: ReusableTaskSchemaCompatibility;
@@ -100,6 +107,32 @@ function fixtures(options: TauriMockOptions): MockFixtures {
       degradedReason: null, maxEntries: 50, diskBytes: 0, diskBudgetBytes: 536_870_912,
     },
     exportResult: options.exportResult ?? null,
+    databaseDrivers: {
+      sqlserver: ["ODBC Driver 18 for SQL Server"],
+      postgresql: ["PostgreSQL Unicode(x64)"],
+      mysql: ["MySQL ODBC 9.1 Unicode Driver"],
+    },
+    databaseTables: [
+      { schema: "dbo", name: "Clientes", isView: false },
+      { schema: "dbo", name: "Ventas", isView: false },
+    ],
+    // The file name is the only part the page script rewrites (schema.table.parquet).
+    databaseImport: {
+      inspection: {
+        selectionId: `selection-${format}`,
+        fileName: dataset.fileName,
+        fileSizeBytes: dataset.fileSizeBytes,
+        format: "parquet",
+        sheets: [],
+        defaultSheetId: null,
+        isCompressedContainer: false,
+        resourceEstimate: { processingPath: "inMemory", estimatedMaterializationRamBytes: 268_435_968, estimatedTemporaryDiskBytes: null },
+      },
+      rowsImported: dataset.rowCount,
+      moreRowsAvailable: false,
+      truncatedColumns: [],
+      replacedColumns: [],
+    },
     emptyCatalog: { projects: [], recoveryCandidate: null },
     project: options.project
       ? {
@@ -147,18 +180,11 @@ export async function installTauriMock(page: Page, options: TauriMockOptions): P
         case "get_history_state": return fixture.history;
         case "get_dataset_page": return { offset: args.offset ?? 0, rows: fixture.dataset.rows };
         // A database import: the listed tables, then the fixture as a Parquet file.
-        case "list_database_drivers": return args.kind === "sqlserver" ? ["ODBC Driver 18 for SQL Server"]
-          : args.kind === "postgresql" ? ["PostgreSQL Unicode(x64)"] : ["MySQL ODBC 9.1 Unicode Driver"];
-        case "list_database_tables": return [
-          { schema: "dbo", name: "Clientes", isView: false },
-          { schema: "dbo", name: "Ventas", isView: false },
-        ];
+        case "list_database_drivers": return fixture.databaseDrivers[args.kind as keyof typeof fixture.databaseDrivers] ?? [];
+        case "list_database_tables": return fixture.databaseTables;
         case "import_database_table": return {
-          inspection: { ...fixture.source, fileName: `${args.schema}.${args.table}.parquet`, format: "parquet", sheets: [], defaultSheetId: null, isCompressedContainer: false },
-          rowsImported: fixture.dataset.rowCount,
-          moreRowsAvailable: false,
-          truncatedColumns: [],
-          replacedColumns: [],
+          ...fixture.databaseImport,
+          inspection: { ...fixture.databaseImport.inspection, fileName: `${args.schema}.${args.table}.parquet` },
         };
         // Any query answers with the fixture's rows: the mock never runs SQL.
         case "query_dataset": return {

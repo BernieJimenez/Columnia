@@ -81,6 +81,62 @@ test.describe("shell de trabajo", () => {
     expect(await page.evaluate(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
   });
 
+  // AUD-083: measured counterpart of the text guards in WorkspaceShellStyles.test.ts
+  // and AccessibilityStyles.test.ts (max-width: 900px, zoom 200 %, floating panels).
+  test("bajo 900 px la barra lateral es una franja sobre el trabajo y sus paneles no flotan (UX-02)", async ({ page }) => {
+    const measure = () => page.evaluate(() => {
+      const sidebar = document.querySelector(".app-sidebar")!.getBoundingClientRect();
+      const main = document.querySelector("main")!.getBoundingClientRect();
+      return {
+        position: getComputedStyle(document.querySelector(".app-sidebar")!).position,
+        sidebarBottom: sidebar.bottom,
+        mainTop: main.top,
+        sidebarRight: sidebar.right,
+        mainLeft: main.left,
+        panelPosition: getComputedStyle(document.querySelector(".sidebar__utilities-content")!).position,
+      };
+    });
+
+    await page.setViewportSize({ width: 900, height: 900 });
+    await page.goto("/", { waitUntil: "commit" });
+    const flow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
+    await expect(flow.getByRole("button", { name: "Entregar", exact: true })).toBeVisible();
+    const compact = await measure();
+    expect(compact.position, JSON.stringify(compact)).toBe("static");
+    expect(compact.sidebarBottom, JSON.stringify(compact)).toBeLessThanOrEqual(compact.mainTop + 1);
+    expect(compact.panelPosition, JSON.stringify(compact)).not.toBe("fixed");
+    await assertNoHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 901, height: 900 });
+    await expect.poll(async () => (await measure()).panelPosition).toBe("fixed");
+    const wide = await measure();
+    expect(wide.position, JSON.stringify(wide)).not.toBe("static");
+    expect(wide.sidebarRight, JSON.stringify(wide)).toBeLessThanOrEqual(wide.mainLeft + 1);
+    await assertNoHorizontalOverflow(page);
+  });
+
+  test("al 200 % la barra lateral no ocupa toda la altura y las etapas siguen visibles (UX-02)", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/", { waitUntil: "commit" });
+    await page.evaluate(() => {
+      document.documentElement.style.zoom = "2";
+      document.documentElement.dataset.columniaZoom = "2";
+    });
+    const flow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
+    for (const stage of ["Cargar", "Revisar", "Preparar", "Explorar", "Entregar"]) {
+      await expect(flow.getByRole("button", { name: stage, exact: true })).toBeVisible();
+    }
+    // zoom scales CSS px: the sidebar must be a band, not the full-height rail.
+    const metrics = await page.evaluate(() => {
+      const sidebar = document.querySelector(".app-sidebar")!.getBoundingClientRect();
+      const main = document.querySelector("main")!.getBoundingClientRect();
+      return { sidebarHeight: sidebar.height, viewportHeight: window.innerHeight, sidebarBottom: sidebar.bottom, mainTop: main.top };
+    });
+    expect(metrics.sidebarHeight, JSON.stringify(metrics)).toBeLessThan(metrics.viewportHeight * 0.6);
+    expect(metrics.sidebarBottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.mainTop + 1);
+    await assertNoHorizontalOverflow(page);
+  });
+
   // QA-32: the size comes from the cascade the browser applies, not from a
   // pattern in the stylesheet text.
   test("los botones de añadir de la receta miden al menos 44 px de alto", async ({ page }) => {

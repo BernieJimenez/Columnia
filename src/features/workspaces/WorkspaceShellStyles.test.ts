@@ -1,3 +1,5 @@
+// Guardas de texto: comprueban que las declaraciones existen en shell.css, no que el layout
+// funcione. La comprobación medida (posiciones y desbordes reales) está en e2e/workspace-shell.spec.ts.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";

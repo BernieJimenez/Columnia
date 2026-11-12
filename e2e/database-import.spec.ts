@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import type { DatasetPreview } from "../src/bridge";
+import type { DatasetPreview, ExplorePanel, ExportResult } from "../src/bridge";
 import { installTauriMock, recordedCalls } from "./support/tauri-mock";
 
 const dataset = {
@@ -57,5 +57,69 @@ test.describe("cargar desde SQL Server", () => {
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: /Cargar/ }).first().click();
     await expect(page.locator(".dataset-bar__name")).toHaveText("dbo.Ventas.parquet");
+  });
+});
+
+const salesDataset = {
+  fileName: "ventas-e2e.csv",
+  fileSizeBytes: 128,
+  rowCount: 2,
+  columnCount: 3,
+  columns: [{ name: "id", dataType: "String" }, { name: "cliente", dataType: "String" }, { name: "total", dataType: "Float64" }],
+  rows: [["1", "Ana", "10"], ["2", "Luis", "20"]],
+} satisfies DatasetPreview;
+
+const salesExplore = {
+  rowCount: salesDataset.rowCount,
+  totalRowCount: salesDataset.rowCount,
+  kpis: [{ kind: "count", column: null, value: salesDataset.rowCount }],
+  categories: [],
+  histogram: null,
+  trend: null,
+  options: { categories: [], measures: [], dates: [], textDates: [] },
+} satisfies ExplorePanel;
+
+const scriptResult = {
+  fileName: "Pedidos.sql",
+  fileSizeBytes: 512,
+  format: "SQL",
+  protectedColumnCount: 0,
+  protectedColumns: [],
+  replacedControlCellCount: 0,
+} satisfies ExportResult;
+
+test.describe("entregar como script para SQL Server", () => {
+  test("manda a export_dataset el modo y las claves de la tabla elegida", async ({ page }) => {
+    await installTauriMock(page, { dataset: salesDataset, explore: salesExplore, exportResult: scriptResult });
+    await page.goto("/", { waitUntil: "commit" });
+
+    await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Cargar archivo" }).click();
+    await page.getByRole("button", { name: "Ver cambios propuestos" }).click();
+    await page.getByRole("button", { name: "Continuar a Explorar" }).click();
+    await page.getByRole("button", { name: "Continuar a Entregar" }).click();
+    await expect(page.getByRole("heading", { name: "Exportar dataset activo" })).toBeVisible();
+
+    await page.getByRole("radio", { name: /^SQL Server/ }).check();
+    await expect(page.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("sqlserver_script");
+    const target = page.getByRole("group", { name: "Tabla en SQL Server" });
+    await target.getByRole("textbox", { name: "Esquema" }).fill("ventas");
+    await target.getByRole("textbox", { name: "Tabla" }).fill("Pedidos");
+    await target.getByRole("radio", { name: /^Actualizar por clave/ }).check();
+    await page.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }).check();
+    // Without a key column the script cannot run: the button stays blocked.
+    const exportButton = page.getByRole("button", { name: "Exportar script T-SQL" });
+    await expect(exportButton).toHaveAttribute("aria-disabled", "true");
+    await target.getByRole("checkbox", { name: "id" }).check();
+    await expect(exportButton).not.toHaveAttribute("aria-disabled", "true");
+
+    await exportButton.click();
+    await expect(page.getByRole("region", { name: "Etapa Entregar" })).toContainText("Pedidos.sql");
+
+    const exportCall = (await recordedCalls(page)).find((call) => call.command === "export_dataset");
+    expect(exportCall?.args).toMatchObject({
+      format: "sqlserver_script",
+      sqlServer: { schema: "ventas", table: "Pedidos", mode: "upsert", keyColumns: ["id"], textSize: "fitted" },
+    });
   });
 });

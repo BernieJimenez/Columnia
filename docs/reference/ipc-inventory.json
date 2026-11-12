@@ -832,6 +832,22 @@
       "typescript": "DatabaseImportResult"
     },
     {
+      "rust": "DatabaseConnection",
+      "typescript": "DatabaseConnection"
+    },
+    {
+      "rust": "DatabaseTarget",
+      "typescript": "DatabaseTarget"
+    },
+    {
+      "rust": "DatabaseConnectionResult",
+      "typescript": "DatabaseConnectionResult"
+    },
+    {
+      "rust": "RemoteExportPreflight",
+      "typescript": "RemoteExportPreflight"
+    },
+    {
       "rust": "SqlServerScriptOptions",
       "typescript": "SqlServerScriptOptions"
     },

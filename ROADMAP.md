@@ -1,6 +1,6 @@
 # Roadmap de Columnia
 
-**Actualizado:** 2026-11-11 · **Versión:** 1.26.0
+**Actualizado:** 2026-11-12 · **Versión:** 1.26.0
 
 **Estado:** aplicación local funcional para Windows x64, de **uso personal**. No
 se comparte ni se distribuye; las mejoras se eligen por lo que su dueño nota al
@@ -47,21 +47,23 @@ El 2026-11-12 se cerró la tanda 18 (AUD-079, 063, 064, 065, 066 y 067) y se
 abrió AUD-116, salida de la revisión del bundle de AUD-079. Ese mismo día se
 cerró la tanda 19 (AUD-069, 070, 071 y 072; AUD-059 y AUD-068 avanzan) y se abrió
 AUD-117; AUD-068 se cerró después con el criterio ajustado por el dueño. Después se cerró
-la tanda 20 (AUD-059, 101, 117 y 116), con la que a UI/UX solo le queda la propuesta AUD-098.
+la tanda 20 (AUD-059, 101, 117 y 116), con la que a UI/UX solo le queda la propuesta AUD-098. Ese mismo día se cerró
+la tanda 21 (AUD-078, 080, 081, 083 y 113; AUD-082 avanza y sigue abierta) y se abrió AUD-118,
+una cancelación que con el equipo cargado sale como error de DuckDB.
 
 <!-- indice:inicio -->
-**Última actualización:** 2026-11-12 · **Siguiente ID libre:** AUD-118 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
+**Última actualización:** 2026-11-12 · **Siguiente ID libre:** AUD-119 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
 
 | Tier | Abiertas | Cerradas | Esfuerzo de las abiertas (Bajo · Medio · Alto) |
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 20 | 61 | 20 · 0 · 0 |
+| 3 · Bajo | 16 | 66 | 16 · 0 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **21** | **96** | **21 · 0 · 0** |
+| **Total** | **17** | **101** | **17 · 0 · 0** |
 
-**Abiertas por área:** Documentación 9 · QA y testing 6 · Redacción 5 · UI/UX 1
+**Abiertas por área:** Documentación 9 · Redacción 5 · QA y testing 2 · UI/UX 1
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -1028,13 +1030,14 @@ Sin tareas abiertas.
 
 ### QA y testing
 
-- [ ] **AUD-078 · La comprobación de higiene del CSS no revisa `shell.css` ni `data-views.css`**
+- [x] **AUD-078 · La comprobación de higiene del CSS no revisa `shell.css` ni `data-views.css`**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/components/StylesheetHygiene.test.ts:7`
   - **Qué hacer:** construir la lista con todas las hojas de `src/` (por ejemplo, con `readdirSync` recursivo) en lugar de una lista escrita a mano, y corregir lo que salga.
   - **Criterio de aceptación:** la prueba recorre todas las hojas de `src/`; añadir una hoja nueva no obliga a tocar la prueba; con un token inexistente en `shell.css`, la prueba falla.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 21 de la Fase 2 (en `master`). `StylesheetHygiene.test.ts` construye la lista recorriendo `src/` (hoy cinco hojas, con `shell.css` y `data-views.css`) y una prueba nueva exige que estén. Al ampliarla no salió ningún token sin definir ni regla repetida: no se tocó CSS. Comprobado metiendo en `shell.css` un token inexistente y una regla duplicada: fallaron las dos pruebas; retirados después.
 
 - [x] **AUD-079 · El presupuesto del bundle queda al 0,5 % y da un falso rojo si se compila sin `TAURI_ENV_PLATFORM`**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo
@@ -1054,21 +1057,23 @@ Sin tareas abiertas.
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-079 (medición con sourcemap del 2026-11-12, cifras aproximadas)
   - **Cierre:** 2026-11-12 · tanda 20 de la Fase 2 (en `master`). `index-*.js` baja de 431,96 a 389,05 kB sin comprimir (−42,9 kB; comprimido, de 126,98 a 115,85 kB) con `TAURI_ENV_PLATFORM=windows`. `deliveryModel.ts` se divide en `deliverySignals.ts` (lo que usa `App.tsx`), `deliveryContract.ts` (contrato y estado, lo que usa el controlador) y el resto, que sale a su propio chunk; `DatabaseImportPanel` y `ProjectsPanel` se cargan a demanda (`src/features/load/secondaryPanels.ts`), precargados al pasar el ratón o enfocar su tarjeta y en reposo tras pintar Cargar, con un hueco de 260 px mientras llegan; `DiagnosticsDialog`, a demanda. No se hicieron `lazy` `ReusableTaskPanel` (siempre montado), `ResourceMonitor` ni `UpdatePanel` (se montan siempre y sondean). Suite y Playwright pasan; el total del bundle queda en unos 928 kB de 950.272 por los chunks nuevos. No se midió a ojo el parpadeo en la app real: lo cubren la precarga y los E2E de proyectos y de importación.
 
-- [ ] **AUD-080 · La expulsión de la caché de perfil nunca se prueba: capacidad 64 en pruebas y 1 en producción**
+- [x] **AUD-080 · La expulsión de la caché de perfil nunca se prueba: capacidad 64 en pruebas y 1 en producción**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset/profile_engine.rs:2534`
   - **Qué hacer:** hacer la capacidad un parámetro de `remember_profile_snapshot` (o una función `capacity()` que una prueba pueda fijar a 1) y probar la expulsión con dos orígenes, comprobando que quien ya tenía un `CachedProfileSnapshot` sigue leyéndolo.
   - **Criterio de aceptación:** una prueba con capacidad 1 pasa y falla si se rompe la expulsión o el conteo del `Arc`.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 21 de la Fase 2 (en `master`). La regla de expulsión y la búsqueda salen a `insert_profile_snapshot(snapshots, capacity, …)` y `find_profile_snapshot(snapshots, …)`, que `remember_profile_snapshot` y `cached_profile_snapshot` llaman con la caché global; producción no cambia (capacidad 1). Prueba nueva con una lista propia y capacidad 1: el segundo origen expulsa al primero, el `Arc` de la carpeta pasa de 2 a 1, quien tenía la copia la sigue leyendo y la carpeta se borra al soltarla. Con `snapshots.remove(0)` comentado, la prueba falla. La retención del `Arc` no se rompió con una mutación aparte: la cubren las aserciones del conteo. `cargo test --lib` 874/0/34.
 
-- [ ] **AUD-081 · El simulador E2E devuelve resultados sin tipar para los comandos nuevos y no hay E2E de entrega a SQL Server ni de importación desde PostgreSQL/MySQL**
+- [x] **AUD-081 · El simulador E2E devuelve resultados sin tipar para los comandos nuevos y no hay E2E de entrega a SQL Server ni de importación desde PostgreSQL/MySQL**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `e2e/support/tauri-mock.ts:149-175`
   - **Qué hacer:** tipar los resultados con los tipos de `src/bridge` (`satisfies DatabaseImportResult`, `DatabaseSourceTable[]`) y añadir un E2E que elija el destino SQL Server y compruebe que `export_dataset` recibe `sqlServer` con modo y claves.
   - **Criterio de aceptación:** cambiar un campo de `DatabaseImportResult` rompe `tsc -p tsconfig.e2e.json`; existe un E2E de entrega a SQL Server.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 21 de la Fase 2 (en `master`). El simulador corre dentro de la página, así que los datos de los tres comandos de bases de datos se construyen en `fixtures()` con los tipos de `src/bridge` (`Record<DatabaseKind, string[]>`, `DatabaseSourceTable[]` y `DatabaseImportResult`, con una inspección de Parquet completa). Renombrar `rowsImported` rompe `tsc -p tsconfig.e2e.json` (TS2561). E2E nuevo en `e2e/database-import.spec.ts`: destino SQL Server, esquema y tabla, «Actualizar por clave» bloqueado sin clave, y `export_dataset` recibe `format: "sqlserver_script"` y `sqlServer` con `mode: "upsert"` y `keyColumns`. `export_dataset` del simulador sigue devolviendo el resultado fijo. Sin E2E de PostgreSQL ni MySQL (el criterio no lo pedía; los cubre Vitest).
 
 - [ ] **AUD-082 · Esperas reales y topes de tiempo inflados en pruebas, con dos commits de estabilización en tres semanas**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo
@@ -1077,14 +1082,16 @@ Sin tareas abiertas.
   - **Criterio de aceptación:** ninguna espera fija en `src/**/*.test.*` ni `e2e/*.spec.ts`; el `pre-push` pasa dos veces seguidas con el equipo cargado.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Avance:** 2026-11-12 · tanda 21 de la Fase 2 (en `master`). Primera parte del criterio, cumplida: no queda ninguna espera fija ni tope por prueba en `src/**/*.test.*` ni en `e2e/*.spec.ts` (la única coincidencia del patrón es un `setTimeout` de 30 ms dentro de un componente simulado de `AccessibilityContracts.test.tsx`). `testTimeout` global de 15 s y `asyncUtilTimeout` de 5 s; reloj simulado en `ResourceMonitor.test.tsx` y en las tres pruebas de autoguardado de `useProjectsController.test.tsx`; en `e2e/theme-contrast.spec.ts` las cinco esperas pasan a dos `requestAnimationFrame`, y en `e2e/workflow-accessibility.spec.ts` la de colores forzados pasa a una medición reintentada (esperar solo a `matchMedia` medía el botón a media transición). Playwright 41/41 tres veces seguidas. **Falta la segunda parte:** con las pruebas de Rust corriendo a la vez, `check.ps1 -Profile Fast` falló una vez en las pruebas de la interfaz, sin que el reporte diga cuál; las cuatro pasadas siguientes de Vitest bajo la misma carga (dos normales, una es-ES y otra normal) dieron 859/859. Para cerrarla: que el perfil Fast guarde el nombre de la prueba que falla, repetir el `pre-push` con carga hasta verla y decidir (la candidata es la intermitencia conocida de `App.test.tsx`, «muestra el error al rechazar la cancelación del diagnóstico activo»). El fallo de Rust bajo carga es AUD-118.
 
-- [ ] **AUD-083 · Calidad de algunas pruebas nuevas: regex sobre CSS, una tabla de verdad y salida de depuración**
+- [x] **AUD-083 · Calidad de algunas pruebas nuevas: regex sobre CSS, una tabla de verdad y salida de depuración**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset/tests.rs:19661-19674`
   - **Qué hacer:** convertir las más importantes (zoom 200 %, `max-width: 900px`) en comprobaciones de Playwright con medidas, o aceptar que son guardas de texto y dejarlas marcadas; quitar el `println!`.
   - **Criterio de aceptación:** las reglas de layout críticas del shell tienen al menos una comprobación medida en E2E.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 21 de la Fase 2 (en `master`). Dos comprobaciones medidas nuevas en `e2e/workspace-shell.spec.ts`: a 900 px la barra lateral es una franja sobre el trabajo y sus paneles no flotan, y a 901 px vuelve a ser lateral con el panel fijo; al 200 % las cinco etapas se ven, la barra ocupa menos del 60 % del alto y no hay desbordamiento. Las pruebas de texto se conservan, marcadas en su cabecera como guardas de texto con la referencia al E2E. Quitado el `println!` de depuración de `source_backed_numeric_typing_matches_the_in_memory_plan`; los otros tres `println!` de `tests.rs` son sondas de medición de pruebas `#[ignore]` que leen los scripts de benchmark. La tabla de verdad de `safe_corrections…` y la línea base visual anterior al rediseño no se tocaron.
 
 - [x] **AUD-099 · El generador de `THIRD_PARTY_NOTICES.md` no ordena: cada cambio de un lockfile reordena el archivo entero**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo
@@ -1095,13 +1102,22 @@ Sin tareas abiertas.
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-004
   - **Cierre:** 2026-11-11 · tanda 11 de la Fase 2 (en `master`). Filas como `[pscustomobject]` y orden ordinal (`[string]::CompareOrdinal` por ecosistema, nombre, versión y fuente), igual en Windows PowerShell 5.1 y en PowerShell 7 (salidas idénticas byte a byte; dos regeneraciones sin cambios). `THIRD_PARTY_NOTICES.md` regenerado una vez: mismo conjunto de filas, solo cambia el orden. Prueba nueva en `src/supply-chain.test.ts` (tabla ordenada y sin duplicados; falla con el archivo anterior). Las versiones se ordenan como texto.
 
-- [ ] **AUD-113 · Las estructuras de conexión y entrega a bases de datos siguen fuera de las pruebas de paridad del IPC**
+- [x] **AUD-113 · Las estructuras de conexión y entrega a bases de datos siguen fuera de las pruebas de paridad del IPC**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `docs/reference/ipc-inventory.json` (`sharedStructures`), `tools/check-ipc-inventory.mjs` y `src/ipc-contract.test.ts` (`SHARED_ENUMS`)
   - **Qué hacer:** inscribir `DatabaseConnection`, `DatabaseTarget`, `DatabaseConnectionResult` y `RemoteExportPreflight` en las estructuras compartidas, y `DatabaseTablePolicy` y `DatabaseAuthentication` en los enums, como se hizo en AUD-077. Regenerar el inventario con `node tools/check-ipc-inventory.mjs --write` en lugar de editar el JSON a mano (el JSON y las listas del generador tienen que coincidir).
   - **Criterio de aceptación:** renombrar un campo de `DatabaseTarget` o una variante de `DatabaseAuthentication` rompe `npm test`.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-077
+  - **Cierre:** 2026-11-12 · tanda 21 de la Fase 2 (en `master`). `DatabaseConnection`, `DatabaseTarget`, `DatabaseConnectionResult` y `RemoteExportPreflight` en las estructuras compartidas (inventario regenerado con `--write`: 93 estructuras, antes 89) y `DatabaseTablePolicy` y `DatabaseAuthentication` en `SHARED_ENUMS` y en la lista de enums de `normalizeRustFieldType`. No apareció ninguna divergencia entre Rust y TypeScript. Comprobado: renombrar `schema` en `DatabaseTarget` y la variante `password` de `DatabaseAuthentication` rompe las pruebas de paridad.
+
+- [ ] **AUD-118 · Cancelar el conteo de valores distintos mientras se prepara devuelve un error de DuckDB en lugar de la cancelación**
+  - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/duckdb_query.rs:544-546` (los dos `SET enable_progress_bar…` previos al conteo) y la prueba `immediate_cancellation_of_the_distinct_count_returns_in_bounded_time` (`:4575`)
+  - **Qué hacer:** si la interrupción cae sobre uno de los `SET` previos, el hilo devuelve «DuckDB no pudo preparar el conteo de valores distintos: INTERRUPT Error: Interrupted!» en lugar de `OPERATION_CANCELLED_MESSAGE`: esa rama no mira `worker_cancelled`, como sí hace la del `CREATE TABLE` (`:553`). Devolver el mensaje de cancelación cuando la bandera está puesta, también en cualquier otro paso previo del mismo hilo (apertura de la conexión, vista `dataset`). Comprobar qué ve la persona hoy si cancela el perfil justo al empezar.
+  - **Criterio de aceptación:** `cargo test --lib` pasa 6 veces seguidas con Vitest completo corriendo a la vez (hoy la prueba falla en torno a la mitad de las pasadas con carga y en ninguna sin ella), y una prueba fuerza la interrupción durante la preparación y recibe el mensaje de cancelación.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al comprobar AUD-082 con el equipo cargado (mensaje capturado el 2026-11-12; AUD-032 cubrió la interrupción perdida, no esta rama)
 
 ### Ortografía y redacción
 

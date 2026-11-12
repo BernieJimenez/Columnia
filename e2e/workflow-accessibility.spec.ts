@@ -292,8 +292,7 @@ test.describe("recorrido cargado de accesibilidad", () => {
     ]);
     expect(nextBackground).not.toBe(prepareBackground);
     await page.emulateMedia({ forcedColors: "active" });
-    await page.waitForTimeout(200);
-    const forcedColorsStyle = await nextAction.evaluate((element) => {
+    const readForcedColors = () => nextAction.evaluate((element) => {
       const systemButton = document.createElement("button");
       systemButton.style.backgroundColor = "ButtonFace";
       systemButton.style.color = "ButtonText";
@@ -310,9 +309,14 @@ test.describe("recorrido cargado de accesibilidad", () => {
       systemButton.remove();
       return result;
     });
-    expect(forcedColorsStyle.active).toBe(true);
-    expect(forcedColorsStyle.background).toBe(forcedColorsStyle.buttonFace);
-    expect(forcedColorsStyle.foreground).toBe(forcedColorsStyle.buttonText);
+    // The button reaches the system colours through its colour transition:
+    // retry the measurement until it settles instead of waiting a fixed time.
+    await expect(async () => {
+      const forcedColorsStyle = await readForcedColors();
+      expect(forcedColorsStyle.active).toBe(true);
+      expect(forcedColorsStyle.background).toBe(forcedColorsStyle.buttonFace);
+      expect(forcedColorsStyle.foreground).toBe(forcedColorsStyle.buttonText);
+    }).toPass();
     await page.emulateMedia({ forcedColors: "none" });
     await activateWithKeyboard(page, page.getByRole("button", { name: "Volver a Revisar", exact: true }), "Volver a Revisar");
     await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();

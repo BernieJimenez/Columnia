@@ -5,6 +5,9 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "jsdom",
+    // Long App flows take ~2 s alone but passed 5 s in the pre-push hook, which
+    // runs them while Rust compiles; one global cap replaces per-test ones.
+    testTimeout: 15_000,
     setupFiles: ["./src/test/setup.ts"],
     exclude: [
       "**/node_modules/**",

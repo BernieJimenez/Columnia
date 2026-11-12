@@ -37,7 +37,16 @@ const dataset: DatasetPreview = {
 const workspace: ProjectWorkspace = { qualityRules: [], recipeDraft: null };
 
 // Unmount every hook: a mounted project would keep autosaving into the next test.
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
+// Autosave waits 900 ms after a change; the fake clock replaces real waiting.
+const AUTOSAVE_DEBOUNCE_MS = 900;
+const advanceAutosaveDebounce = () => act(async () => {
+  await vi.advanceTimersByTimeAsync(AUTOSAVE_DEBOUNCE_MS + 100);
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -235,6 +244,7 @@ describe("useProjectsController", () => {
   });
 
   it("autoguarda por defecto cada cambio de un proyecto guardado y publica estado guardado (DAT-01)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const onProjectOpened = vi.fn();
     const { result, rerender } = renderHook(
       ({ currentWorkspace, revision }: { currentWorkspace: ProjectWorkspace; revision: number }) =>
@@ -258,7 +268,8 @@ describe("useProjectsController", () => {
       currentWorkspace: { ...workspace, activePhase: "prepare" },
       revision: 2,
     });
-    await waitFor(() => expect(result.current.autoSave.kind).toBe("saved"), { timeout: 3000 });
+    await advanceAutosaveDebounce();
+    await waitFor(() => expect(result.current.autoSave.kind).toBe("saved"));
     expect(bridge.autosaveProject).toHaveBeenCalledOnce();
     expect(bridge.autosaveProject).toHaveBeenCalledWith(
       summary.id,
@@ -268,6 +279,7 @@ describe("useProjectsController", () => {
   });
 
   it("no autoguarda si la persona lo desactivó en ese proyecto", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     window.localStorage.setItem("columnia.project.auto-save.project-1", "disabled");
     const { result, rerender } = renderHook(
       ({ revision }: { revision: number }) => useProjectsController({
@@ -283,7 +295,7 @@ describe("useProjectsController", () => {
     await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
     await act(async () => result.current.open(summary.id));
     rerender({ revision: 2 });
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await advanceAutosaveDebounce();
 
     expect(result.current.autoSaveEnabled).toBe(false);
     expect(result.current.autoSave.kind).toBe("disabled");
@@ -291,6 +303,7 @@ describe("useProjectsController", () => {
   });
 
   it("informa fallo de autoguardado sin perder la preferencia ni afirmar guardado", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     window.localStorage.setItem("columnia.project.auto-save.project-1", "enabled");
     bridge.autosaveProject.mockRejectedValueOnce(new Error("disco lleno"));
     const { result, rerender } = renderHook(
@@ -307,7 +320,8 @@ describe("useProjectsController", () => {
     await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
     await act(async () => result.current.open(summary.id));
     rerender({ revision: 2 });
-    await waitFor(() => expect(result.current.autoSave.kind).toBe("error"), { timeout: 3000 });
+    await advanceAutosaveDebounce();
+    await waitFor(() => expect(result.current.autoSave.kind).toBe("error"));
     expect(result.current.autoSave).toMatchObject({
       kind: "error",
       message: expect.stringContaining("La última versión válida se conserva"),

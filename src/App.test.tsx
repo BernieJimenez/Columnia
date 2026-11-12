@@ -222,10 +222,6 @@ function applyProposalWithColumnNames() {
   fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
 }
 
-// Long flows (load a dataset, then several phases) take about 2 s alone but
-// passed 5 s in the pre-push hook, which runs them while Rust compiles.
-const LOADED_MACHINE_TIMEOUT_MS = 15_000;
-
 describe("App", () => {
   it("solo dice «Motor local listo» cuando el motor respondió (COD-05)", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
@@ -254,7 +250,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     // The action appears after the quality analysis; under a loaded suite it can take over 1 s.
-    await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ }, { timeout: 5_000 });
+    await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ });
 
     const actions = screen.getByLabelText("Navegación entre etapas");
     expect(within(actions).queryByText("Siguiente paso")).not.toBeInTheDocument();
@@ -595,8 +591,8 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
     expect(applyRecipeSpy).not.toHaveBeenCalled();
 
-    await screen.findByRole("heading", { name: "Prepara datos consistentes" }, { timeout: 5000 });
-    fireEvent.click(await screen.findByRole("tab", { name: "Transformaciones" }, { timeout: 5000 }));
+    await screen.findByRole("heading", { name: "Prepara datos consistentes" });
+    fireEvent.click(await screen.findByRole("tab", { name: "Transformaciones" }));
     expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Renombrar id");
     expect(applyRecipeSpy).not.toHaveBeenCalled();
 
@@ -1128,7 +1124,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     fireEvent.click(await screen.findByRole("radio", { name: /^Proyecto/ }));
     expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toBeInTheDocument();
-  }, LOADED_MACHINE_TIMEOUT_MS);
+  });
 
   it("una importación parcial de una base de datos queda dicha en la barra y en Entregar, se guarda con el proyecto y se olvida al cargar otro dataset (AUD-061)", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
@@ -1199,7 +1195,7 @@ describe("App", () => {
     await waitFor(() => expect(screen.queryByText(/^Parte de la tabla:/)).not.toBeInTheDocument());
     await switchPhase("Entregar");
     expect(screen.queryByText("Origen")).not.toBeInTheDocument();
-  }, LOADED_MACHINE_TIMEOUT_MS);
+  });
 
   it("un proyecto con origen de importación lo muestra al abrirlo y uno sin él sigue abriéndose igual (AUD-061)", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
@@ -1241,7 +1237,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("radio", { name: /^Proyecto/ }));
     fireEvent.click(await screen.findByRole("button", { name: /^Abrir\b/ }));
     await waitFor(() => expect(screen.queryByText(/^Parte de la tabla:/)).not.toBeInTheDocument());
-  }, LOADED_MACHINE_TIMEOUT_MS);
+  });
 
   it("guarda y confirma el borrado de un proyecto sin descartar el dataset", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
@@ -2834,7 +2830,7 @@ describe("App", () => {
       groupSummary: null,
       contactNormalizations: [], textExtractions: [],
     }), null);
-  }, LOADED_MACHINE_TIMEOUT_MS);
+  });
 
   it("actualiza columnas de texto por conversiones y confirma dropSource por sí solo", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
@@ -3812,9 +3808,9 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Usar comparado en valor" }));
     // Under a loaded machine the button can still be busy for a moment.
     const nextButton = screen.getByRole("button", { name: "Siguientes conflictos" });
-    await waitFor(() => expect(nextButton).toBeEnabled(), { timeout: 5000 });
+    await waitFor(() => expect(nextButton).toBeEnabled());
     fireEvent.click(nextButton);
-    await waitFor(() => expect(nextPage).toHaveBeenCalledWith(1, 50), { timeout: 5000 });
+    await waitFor(() => expect(nextPage).toHaveBeenCalledWith(1, 50));
     expect(await screen.findByText("Conflictos 2–2 de 3")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Usar comparado en valor" }));
     fireEvent.click(screen.getByRole("button", { name: "Siguientes conflictos" }));
@@ -3897,7 +3893,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Consulta SQL" }));
     fireEvent.keyDown(await screen.findByRole("dialog", { name: "Consulta SQL" }), { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Consulta SQL" })).not.toBeInTheDocument();
-  }, LOADED_MACHINE_TIMEOUT_MS);
+  });
 
   it("vuelve a la etapa anterior desde el pie de navegación y precarga la siguiente", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
@@ -3918,7 +3914,7 @@ describe("App", () => {
     fireEvent.click(within(footer).getByRole("button", { name: "Volver a Revisar" }));
     expect(await screen.findByRole("heading", { name: "Revisa antes de modificar" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-current", "step");
-  }, LOADED_MACHINE_TIMEOUT_MS);
+  });
 
   it("pide cancelar la exportación en curso y muestra si la cancelación falla", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
@@ -3945,5 +3941,5 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Cancelar" })).toBeEnabled();
     resolveExport(null);
     await waitFor(() => expect(screen.queryByRole("button", { name: "Cancelar" })).not.toBeInTheDocument());
-  }, LOADED_MACHINE_TIMEOUT_MS);
+  });
 });
