@@ -12,18 +12,21 @@ Este documento solo contiene lo pendiente. Lo entregado está en
 2026-11-05, en [`HISTORICO.md`](HISTORICO.md). Los roadmaps anteriores se conservan sin cambios
 en [`docs/archive/`](docs/archive/README.md): el de la revisión del 2026-10-01,
 con sus 97 objetivos y casillas, en
-[`docs/archive/2026-10/`](docs/archive/2026-10/ROADMAP.md).
+[`docs/archive/2026-10/`](docs/archive/2026-10/ROADMAP.md), y el del
+cierre de la revisión del 2026-11-05, en
+[`docs/archive/2026-11/`](docs/archive/2026-11/ROADMAP.md).
 
 <!-- revision-2026-11-05:inicio -->
 ## Revisión del 2026-11-05
 
 Re-auditoría de lo cambiado desde la revisión anterior (`0a89c09`..`e48ecab`):
-97 defectos (ningún Crítico ni Alto; 32 Medio y 65 Bajo) y 1 propuesta, con IDs
-`AUD-NNN` en las secciones «Tier» de más abajo. El informe, con la evidencia de
-cada uno, está en la carpeta local de auditorías, que git no versiona. Lo
-cerrado sale de aquí: cada tarea pasa entera, con su línea *Cierre*, a
-[`HISTORICO.md`](HISTORICO.md), y lo que se nota al usar la aplicación, al
-CHANGELOG.
+97 defectos (ningún Crítico ni Alto; 32 Medio y 65 Bajo) y 1 propuesta, más 23
+tareas aparecidas al aplicarla. **Aplicada entera el 2026-11-12**: las 121
+tareas `AUD-NNN` están cerradas, con su línea *Cierre*, en
+[`HISTORICO.md`](HISTORICO.md), y lo que se nota al usar la aplicación, en el
+CHANGELOG. El informe, con la evidencia de cada hallazgo, está en la carpeta
+local de auditorías, que git no versiona. El roadmap tal como quedó al cerrarla
+está archivado en [`docs/archive/2026-11/`](docs/archive/2026-11/ROADMAP.md).
 
 <!-- indice:inicio -->
 **Última actualización:** 2026-11-12 · **Siguiente ID libre:** AUD-122 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
@@ -119,28 +122,6 @@ tareas `AUD-NNN` están cerradas en [`HISTORICO.md`](HISTORICO.md).
     100 M filas (CSV sintético de 4,8 GB) queda una espera de 48 s al cerrar
     el conteo de valores distintos de una columna con 100 M valores únicos,
     fase en la que DuckDB no informa de progreso.
-
-<!-- revision-2026-11-05-tiers:inicio -->
-## Tier 0 · Crítico (revisión 2026-11-05)
-
-Sin tareas abiertas.
-
-## Tier 1 · Alto (revisión 2026-11-05)
-
-Sin tareas abiertas.
-
-## Tier 2 · Medio (revisión 2026-11-05)
-
-Sin tareas abiertas.
-
-## Tier 3 · Bajo (revisión 2026-11-05)
-
-Sin tareas abiertas.
-
-## Tier 4 · Propuestas (revisión 2026-11-05)
-
-Sin tareas abiertas.
-<!-- revision-2026-11-05-tiers:fin -->
 
 ## Aparcado: solo si Columnia se comparte
 

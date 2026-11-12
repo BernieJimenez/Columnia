@@ -4,6 +4,15 @@ Documentos de trabajo que ya no se mantienen, conservados sin cambios para
 consultar decisiones pasadas. Sus enlaces relativos apuntan a la estructura del
 repositorio de su fecha y pueden no resolverse.
 
+## 2026-11 — revisión del 2026-11-05
+
+Archivado el 2026-11-12, al quedar aplicada la revisión: sus 121 tareas
+`AUD-NNN` cerradas, que están enteras en [`HISTORICO.md`](../../HISTORICO.md).
+
+| Documento | Qué contiene |
+| --- | --- |
+| [`ROADMAP.md`](2026-11/ROADMAP.md) | Roadmap al cerrar la revisión: índice por Tier sin abiertas, REN-14 y REN-01 en la cola y los objetivos aparcados |
+
 ## 2026-10 — revisión del 2026-10-01
 
 Archivado el 2026-10-08, al quedar aplicada la revisión: 92 de sus 97 objetivos
