@@ -1305,8 +1305,8 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 ### Mejorado
 
 - En la vista previa de Revisar, las cabeceras reservan el sitio del perfil
-  mientras se calcula, y la tabla ya no salta cuando llega (AUD-068, en curso:
-  queda un salto de unos 9 píxeles en columnas con varias señales).
+  mientras se calcula, y la tabla ya no salta cuando llega; solo una columna
+  estrecha con varias señales crece unos 9 píxeles (AUD-068).
 - En Explorar, el nombre largo de una barra se lee en dos líneas y entero al
   pasar el cursor (AUD-070), y la franja de cifras ya no muestra bloques grises
   cuando la última fila no se llena (AUD-071).

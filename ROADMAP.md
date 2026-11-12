@@ -45,8 +45,8 @@ tanda 16 (AUD-049, 050, 051, 052, 053 y 054), aplicada en paralelo, y la tanda 1
 Accesibilidad queda sin abiertas y el catálogo de proyectos pasa a la versión 17.
 El 2026-11-12 se cerró la tanda 18 (AUD-079, 063, 064, 065, 066 y 067) y se
 abrió AUD-116, salida de la revisión del bundle de AUD-079. Ese mismo día se
-cerró la tanda 19 (AUD-069, 070, 071 y 072; AUD-059 y AUD-068 avanzan y siguen
-abiertas) y se abrió AUD-117.
+cerró la tanda 19 (AUD-069, 070, 071 y 072; AUD-059 y AUD-068 avanzan) y se abrió
+AUD-117; AUD-068 se cerró después con el criterio ajustado por el dueño.
 
 <!-- indice:inicio -->
 **Última actualización:** 2026-11-12 · **Siguiente ID libre:** AUD-118 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
@@ -56,11 +56,11 @@ abiertas) y se abrió AUD-117.
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 25 | 56 | 23 · 2 · 0 |
+| 3 · Bajo | 24 | 57 | 22 · 2 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **26** | **91** | **24 · 2 · 0** |
+| **Total** | **25** | **92** | **23 · 2 · 0** |
 
-**Abiertas por área:** Documentación 9 · QA y testing 7 · UI/UX 5 · Redacción 5
+**Abiertas por área:** Documentación 9 · QA y testing 7 · Redacción 5 · UI/UX 4
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -960,7 +960,7 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-12 · tanda 18 de la Fase 2 (en `master`). `MissingValue` pinta «∅ vacío» dentro de una caja con borde `--border-subtle` y `title="Sin valor"`; el símbolo y la palabra son `aria-hidden` y el nombre accesible sigue siendo «valor ausente». Comprobado en el navegador (temas claro y oscuro): la fila con el nulo mide lo mismo que las demás (47,5 px) y una celda con el texto «vacío» no lleva marcador. Prueba nueva `MissingValue.test.tsx`.
 
-- [ ] **AUD-068 · El perfil de las cabeceras provoca un salto de diseño en la tabla**
+- [x] **AUD-068 · El perfil de las cabeceras provoca un salto de diseño en la tabla**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/review/ReviewPhase.tsx:148`
   - **Qué hacer:** reservar la altura final con un esqueleto del bloque `.col-profile` mientras carga.
@@ -968,6 +968,7 @@ Sin tareas abiertas.
   - **Depende de:** ninguna; hacerla junto con AUD-044 (misma cabecera)
   - **Origen:** auditoría 2026-11-05
   - **Avance:** 2026-11-12 · tanda 19 de la Fase 2 (en `master`). Mientras el perfil está en camino (`idle` o `loading`), cada cabecera pinta un esqueleto `aria-hidden` sin animación (`.col-profile--pending`), la tabla ya lleva `table--profiled` y la nota de encima ocupa su sitio invisible; `.col-profile` tiene una altura mínima de barra, histograma y tres líneas (`calc(33px + 4.05 * .75rem)`; 30 px en compacta). Medido en el navegador con el perfil retenido: en densidad compacta la primera fila no se mueve (133,1 px de cabecera antes y después); en densidad normal tampoco con histograma y rango o una señal, pero una columna estrecha con dos señales de calidad que ocupan tres líneas crece 9,3 px (81,6 → 90,9). **Queda abierta** hasta que el dueño decida si ese residuo se acepta o se sube la reserva. Si el perfil falla o se cancela, el esqueleto desaparece (un único cambio de altura).
+  - **Cierre:** 2026-11-12 · cerrada con el criterio ajustado por decisión del dueño: se acepta que la cabecera crezca 9,3 px al llegar el perfil solo en densidad normal y cuando una columna estrecha trae dos señales de calidad que ocupan tres líneas; en los demás casos medidos (compacta; normal con histograma, rango o una señal) la primera fila no se mueve. Reservar una línea más haría todas las cabeceras unos 16 px más altas.
 
 - [x] **AUD-069 · La barra lateral es oscura en todos los temas, y ni `DESIGN.md` ni el comentario de `shell.css` lo dicen**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
