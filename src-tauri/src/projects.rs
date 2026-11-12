@@ -26,7 +26,7 @@ use sha2::{Digest, Sha256};
 #[path = "projects/import_profile_tests.rs"]
 mod import_profile_tests;
 
-const SCHEMA_VERSION: i64 = 16;
+const SCHEMA_VERSION: i64 = 17;
 const ID_LENGTH: usize = 32;
 const MAX_PROJECT_VERSIONS: usize = 5;
 const AUTOSAVE_QUOTA_BYTES: u64 = 512 * 1024 * 1024;
@@ -123,6 +123,24 @@ pub struct ProjectWorkspace {
     /// UX-09: the Explorar filters, restored when the project reopens.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub explore_filters: Vec<ExploreFilter>,
+    /// AUD-061: what a database import left out (row limit, cut or replaced
+    /// texts), restored with the project so Entregar can still say it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub import_origin: Option<ImportOrigin>,
+}
+
+/// AUD-061: how much of a database table the dataset holds. It is kept only
+/// when the import was partial or changed some texts.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportOrigin {
+    /// `schema.table` as the server lists it.
+    pub table: String,
+    pub rows_imported: usize,
+    /// The table had more rows than the limit: the dataset is a part of it.
+    pub partial: bool,
+    pub truncated_columns: Vec<String>,
+    pub replaced_columns: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -217,6 +235,9 @@ struct StoredProject {
     /// Versions saved before UX-09 have no filters.
     #[serde(default)]
     explore_filters_json: Option<String>,
+    /// Versions saved before AUD-061 have no import origin.
+    #[serde(default)]
+    import_origin_json: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -792,6 +813,30 @@ impl ProjectStore {
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
             }
+            16 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                // AUD-061: a catalog taken back to an older version may keep
+                // the column; adding it twice would block the start.
+                let has_column: bool = transaction
+                    .query_row(
+                        "SELECT COUNT(*) > 0 FROM pragma_table_info('projects')
+                         WHERE name = 'import_origin_json'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .map_err(|_| storage_error())?;
+                if !has_column {
+                    transaction
+                        .execute_batch("ALTER TABLE projects ADD COLUMN import_origin_json TEXT;")
+                        .map_err(|_| storage_error())?;
+                }
+                transaction
+                    .execute_batch("PRAGMA user_version = 17;")
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
             _ => Err(storage_error()),
         };
         if migration.is_ok() && version < SCHEMA_VERSION {
@@ -1082,7 +1127,8 @@ impl ProjectStore {
              active_phase = ?16, query_engine = ?17, analysis_sample_rows = ?18,
              performance_profile = ?19, export_format = ?20, privacy_mode = ?21,
              comparison_key_columns_json = ?22, join_type = ?23,
-             import_profile_json = ?24, explore_filters_json = ?25 WHERE id = ?26",
+             import_profile_json = ?24, explore_filters_json = ?25,
+             import_origin_json = ?26 WHERE id = ?27",
             params![
                 restored.summary.name,
                 restored.summary.dataset_file_name,
@@ -1109,6 +1155,7 @@ impl ProjectStore {
                 restored.join_type,
                 restored.import_profile_json,
                 restored.explore_filters_json,
+                restored.import_origin_json,
                 project_id,
             ],
         );
@@ -1420,6 +1467,15 @@ impl ProjectStore {
             .then(|| serde_json::to_string(&workspace.explore_filters))
             .transpose()
             .map_err(|_| "No se pudieron validar los filtros de Explorar.".to_owned())?;
+        let import_origin_json = workspace
+            .import_origin
+            .as_ref()
+            .map(|origin| {
+                validate_import_origin(origin)?;
+                serde_json::to_string(origin)
+                    .map_err(|_| "No se pudo validar el origen de la importación.".to_owned())
+            })
+            .transpose()?;
         let mut connection = self.connection()?;
         let updating = project_id.is_some();
         let id = match project_id {
@@ -1503,7 +1559,8 @@ impl ProjectStore {
                  active_phase = ?16, query_engine = ?17, analysis_sample_rows = ?18,
                  performance_profile = ?19, export_format = ?20, privacy_mode = ?21,
                  comparison_key_columns_json = ?22, join_type = ?23,
-                 import_profile_json = ?24, explore_filters_json = ?25 WHERE id = ?26",
+                 import_profile_json = ?24, explore_filters_json = ?25,
+                 import_origin_json = ?26 WHERE id = ?27",
                     params![
                         name,
                         active.file_name,
@@ -1530,6 +1587,7 @@ impl ProjectStore {
                         join_type,
                         import_profile_json,
                         explore_filters_json,
+                        import_origin_json,
                         id
                     ],
                 )
@@ -1542,8 +1600,8 @@ impl ProjectStore {
                     sql_history_json, review_tab, preview_offset, active_phase, query_engine,
                     analysis_sample_rows, performance_profile, export_format, privacy_mode,
                     comparison_key_columns_json, join_type, import_profile_json,
-                    explore_filters_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+                    explore_filters_json, import_origin_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
                 params![
                     id,
                     name,
@@ -1571,6 +1629,7 @@ impl ProjectStore {
                     join_type,
                     import_profile_json,
                     explore_filters_json,
+                    import_origin_json,
                     ],
                 )
             };
@@ -1888,7 +1947,7 @@ impl ProjectStore {
                          profile_cache_sha256, sql_history_json, review_tab, preview_offset,
                          active_phase, query_engine, analysis_sample_rows, performance_profile,
                          export_format, privacy_mode, comparison_key_columns_json, join_type,
-                         import_profile_json, explore_filters_json
+                         import_profile_json, explore_filters_json, import_origin_json
                  FROM projects WHERE id = ?1",
                 params![id],
                 |row| {
@@ -1914,6 +1973,7 @@ impl ProjectStore {
                         join_type: row.get(24)?,
                         import_profile_json: row.get(25)?,
                         explore_filters_json: row.get(26)?,
+                        import_origin_json: row.get(27)?,
                     })
                 },
             )
@@ -2345,6 +2405,22 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
         .unwrap_or_default();
     crate::dataset::validate_explore_filters(&explore_filters)
         .map_err(|_| "Los filtros de Explorar guardados no son válidos.".to_owned())?;
+    // AUD-061: it is only a notice; a damaged one is dropped, not a reason to
+    // refuse the project.
+    let import_origin =
+        stored
+            .import_origin_json
+            .as_deref()
+            .and_then(|json| match decode_import_origin(json) {
+                Ok(origin) => Some(origin),
+                Err(_) => {
+                    eprintln!(
+                    "El origen de importación guardado del proyecto {} no es válido; se ignora.",
+                    stored.summary.id
+                );
+                    None
+                }
+            });
     Ok(ProjectWorkspace {
         quality_rules,
         recipe_draft,
@@ -2361,7 +2437,34 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
         join_type,
         import_profile,
         explore_filters,
+        import_origin,
     })
+}
+
+const MAX_IMPORT_ORIGIN_COLUMNS: usize = 10_000;
+const MAX_IMPORT_ORIGIN_NAME_CHARS: usize = 1_024;
+
+/// AUD-061: bounds on what the notice may hold, whoever wrote it.
+fn validate_import_origin(origin: &ImportOrigin) -> Result<(), String> {
+    let name_fits = |name: &String| {
+        !name.trim().is_empty() && name.chars().count() <= MAX_IMPORT_ORIGIN_NAME_CHARS
+    };
+    if !name_fits(&origin.table)
+        || origin.truncated_columns.len() > MAX_IMPORT_ORIGIN_COLUMNS
+        || origin.replaced_columns.len() > MAX_IMPORT_ORIGIN_COLUMNS
+        || !origin.truncated_columns.iter().all(name_fits)
+        || !origin.replaced_columns.iter().all(name_fits)
+    {
+        return Err("El origen de la importación no es válido.".to_owned());
+    }
+    Ok(())
+}
+
+fn decode_import_origin(json: &str) -> Result<ImportOrigin, String> {
+    let origin: ImportOrigin = serde_json::from_str(json)
+        .map_err(|_| "El origen de la importación guardado no es válido.".to_owned())?;
+    validate_import_origin(&origin)?;
+    Ok(origin)
 }
 
 fn review_tab_label(tab: Option<&str>) -> Result<&'static str, String> {
@@ -3556,6 +3659,174 @@ mod tests {
         assert!(store.list().unwrap().is_empty());
     }
 
+    fn partial_import_origin() -> ImportOrigin {
+        ImportOrigin {
+            table: "dbo.Ventas".to_owned(),
+            rows_imported: 100_000,
+            partial: true,
+            truncated_columns: vec!["Notas".to_owned()],
+            replaced_columns: vec!["Texto".to_owned()],
+        }
+    }
+
+    #[test]
+    fn import_origin_survives_saving_reopening_and_restoring_a_version() {
+        // AUD-061: the dataset keeps saying it is a part of the table.
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("data");
+        let store = ProjectStore::initialize(root.clone()).unwrap();
+        let (state, _) = active_state(directory.path(), &[1, 2], "input.csv");
+        let with_origin = ProjectWorkspace {
+            import_origin: Some(partial_import_origin()),
+            ..ProjectWorkspace::default()
+        };
+        let project = store
+            .save(&state, None, "Parcial".to_owned(), with_origin.clone())
+            .unwrap();
+        drop(store);
+
+        let reopened = ProjectStore::initialize(root).unwrap();
+        let opened = reopened
+            .open(&DatasetState::default(), project.id.clone())
+            .unwrap();
+        assert_eq!(
+            opened.workspace.import_origin,
+            Some(partial_import_origin())
+        );
+        let json = serde_json::to_value(&opened.workspace).unwrap();
+        assert_eq!(json["importOrigin"]["table"], "dbo.Ventas");
+        assert_eq!(json["importOrigin"]["rowsImported"], 100_000);
+        assert_eq!(json["importOrigin"]["partial"], true);
+
+        // A later save without origin (another dataset) leaves the previous
+        // version with it, and restoring that version brings it back.
+        let (second, _) = active_state(directory.path(), &[1, 2, 3], "otro.csv");
+        reopened
+            .save(
+                &second,
+                Some(project.id.clone()),
+                "Parcial".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let current = reopened
+            .open(&DatasetState::default(), project.id.clone())
+            .unwrap();
+        assert_eq!(current.workspace.import_origin, None);
+        let versions = reopened.list_versions(&project.id).unwrap();
+        let restored = reopened
+            .restore_version(&project.id, versions[0].id)
+            .unwrap();
+        assert_eq!(restored.id, project.id);
+        let after_restore = reopened.open(&DatasetState::default(), project.id).unwrap();
+        assert_eq!(
+            after_restore.workspace.import_origin,
+            Some(partial_import_origin())
+        );
+    }
+
+    #[test]
+    fn a_project_saved_without_import_origin_opens_as_before() {
+        // AUD-061: older workspaces and rows have no origin; nothing is added.
+        let old: ProjectWorkspace = serde_json::from_value(serde_json::json!({
+            "qualityRules": [],
+            "recipeDraft": null
+        }))
+        .unwrap();
+        assert_eq!(old.import_origin, None);
+        let json = serde_json::to_value(&old).unwrap();
+        assert!(json.get("importOrigin").is_none());
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[1, 2], "input.csv");
+        let project = store.save(&state, None, "Antiguo".to_owned(), old).unwrap();
+        let connection = store.connection().unwrap();
+        let stored: Option<String> = connection
+            .query_row(
+                "SELECT import_origin_json FROM projects WHERE id = ?1",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, None);
+        let opened = store.open(&DatasetState::default(), project.id).unwrap();
+        assert_eq!(opened.workspace.import_origin, None);
+    }
+
+    #[test]
+    fn a_damaged_saved_import_origin_is_dropped_without_failing_the_project() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[1, 2], "input.csv");
+        let project = store
+            .save(
+                &state,
+                None,
+                "Dañado".to_owned(),
+                ProjectWorkspace {
+                    import_origin: Some(partial_import_origin()),
+                    ..ProjectWorkspace::default()
+                },
+            )
+            .unwrap();
+        for damaged in [
+            "{not json",
+            r#"{"table":"","rowsImported":1,"partial":true,"truncatedColumns":[],"replacedColumns":[]}"#,
+            r#"{"table":"t","rowsImported":1,"partial":true,"truncatedColumns":[],"replacedColumns":[],"extra":1}"#,
+        ] {
+            store
+                .connection()
+                .unwrap()
+                .execute(
+                    "UPDATE projects SET import_origin_json = ?1 WHERE id = ?2",
+                    params![damaged, project.id],
+                )
+                .unwrap();
+            let opened = store
+                .open(&DatasetState::default(), project.id.clone())
+                .unwrap_or_else(|error| panic!("{damaged}: {error}"));
+            assert_eq!(opened.workspace.import_origin, None, "{damaged}");
+            assert_eq!(opened.dataset.row_count, 2);
+        }
+    }
+
+    #[test]
+    fn an_oversized_import_origin_is_not_saved() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[1, 2], "input.csv");
+        let too_long = "x".repeat(MAX_IMPORT_ORIGIN_NAME_CHARS + 1);
+        let too_many = vec!["c".to_owned(); MAX_IMPORT_ORIGIN_COLUMNS + 1];
+        for origin in [
+            ImportOrigin {
+                table: too_long.clone(),
+                ..partial_import_origin()
+            },
+            ImportOrigin {
+                table: "  ".to_owned(),
+                ..partial_import_origin()
+            },
+            ImportOrigin {
+                truncated_columns: vec![too_long],
+                ..partial_import_origin()
+            },
+            ImportOrigin {
+                replaced_columns: too_many,
+                ..partial_import_origin()
+            },
+        ] {
+            let workspace = ProjectWorkspace {
+                import_origin: Some(origin),
+                ..ProjectWorkspace::default()
+            };
+            assert!(store
+                .save(&state, None, "Grande".to_owned(), workspace)
+                .is_err());
+        }
+        assert!(store.list().unwrap().is_empty());
+    }
+
     #[test]
     fn workspace_roundtrips_with_snapshot_across_restart() {
         let directory = tempfile::tempdir().unwrap();
@@ -4201,8 +4472,8 @@ mod tests {
 
     #[test]
     fn every_intermediate_catalog_version_migrates_and_still_opens() {
-        // QA-46: v3, v4, v5, v12, v14 and v15 had no migration test.
-        for version in [3_i64, 4, 5, 12, 14, 15] {
+        // QA-46: v3, v4, v5, v12, v14 and v15 had no migration test; AUD-061: v16.
+        for version in [3_i64, 4, 5, 12, 14, 15, 16] {
             let directory = tempfile::tempdir().unwrap();
             let root = directory.path().join("data");
             let store = ProjectStore::initialize(root.clone()).unwrap();
@@ -4221,7 +4492,10 @@ mod tests {
                 .iter()
                 .map(|column| format!("ALTER TABLE projects DROP COLUMN {column};"))
                 .collect::<Vec<_>>();
-            downgrade.push("ALTER TABLE projects DROP COLUMN explore_filters_json;".to_owned());
+            downgrade.push("ALTER TABLE projects DROP COLUMN import_origin_json;".to_owned());
+            if version < 16 {
+                downgrade.push("ALTER TABLE projects DROP COLUMN explore_filters_json;".to_owned());
+            }
             if version < 15 {
                 downgrade.push("DROP INDEX IF EXISTS projects_recovery_candidate;".to_owned());
             }
@@ -4245,6 +4519,7 @@ mod tests {
                 .open(&DatasetState::default(), project.id.clone())
                 .unwrap_or_else(|error| panic!("v{version}: {error}"));
             assert_eq!(opened.dataset.row_count, 3, "v{version}");
+            assert_eq!(opened.workspace.import_origin, None, "v{version}");
             assert!(migrated.list_versions(&project.id).is_ok(), "v{version}");
         }
     }
@@ -4579,6 +4854,7 @@ mod tests {
             join_type: Default::default(),
             import_profile: None,
             explore_filters: Vec::new(),
+            import_origin: None,
         };
         assert!(store
             .save(

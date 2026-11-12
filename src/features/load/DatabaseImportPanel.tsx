@@ -10,12 +10,14 @@ import {
   type DatabaseSource,
   type DatabaseSourceTable,
   type DatasetSourceInspection,
+  type ImportOrigin,
   type OperationProgress,
 } from "../../bridge";
 import { errorMessage, isCancellationError } from "../../bridge/errors";
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { DatabaseConnectionForm } from "../database/DatabaseConnectionForm";
 import { plural } from "../../plural";
+import { importOriginFromResult } from "./importOrigin";
 
 const ENGINES: ReadonlyArray<{ kind: DatabaseKind; label: string }> = [
   { kind: "sqlserver", label: "SQL Server" },
@@ -49,6 +51,11 @@ interface DatabaseImportPanelProps {
    * follows the ordinary Cargar flow. Resolving null leaves Cargar as it was.
    */
   onImport: (run: () => Promise<DatasetSourceInspection | null>) => void;
+  /**
+   * AUD-061: once a table is read, what the import left out (row limit, cut or
+   * replaced texts) and the selection it belongs to; null when it was complete.
+   */
+  onImported?: (selectionId: string, origin: ImportOrigin | null) => void;
 }
 
 function tableLabel(table: DatabaseSourceTable): string {
@@ -66,7 +73,7 @@ function focusIfLost(target: HTMLElement | null, ...owners: Array<HTMLElement | 
  * lists the tables the server allows to read and
  * brings one into this computer. Columnia only reads; there is no free SQL.
  */
-export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseImportPanelProps) {
+export function DatabaseImportPanel({ connected, blocked, onImport, onImported }: DatabaseImportPanelProps) {
   const id = useId();
   const [kind, setKind] = useState<DatabaseKind>("sqlserver");
   const [connection, setConnection] = useState<DatabaseConnection | null>(null);
@@ -129,6 +136,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport }: DatabaseIm
           setImportState((current) => current.kind === "importing" ? { ...current, progress } : current);
         });
         setImportState({ kind: "done", result, table });
+        onImported?.(result.inspection.selectionId, importOriginFromResult(result, table));
         return result.inspection;
       } catch (error: unknown) {
         setImportState(isCancellationError(error) ? { kind: "idle" } : { kind: "error", message: errorMessage(error) });

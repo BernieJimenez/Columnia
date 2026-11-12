@@ -134,6 +134,26 @@ describe("DatabaseImportPanel", () => {
     expect(screen.getByText(/«Texto» tenían caracteres no válidos y se sustituyeron por �/)).toBeInTheDocument();
   });
 
+  it("avisa a la aplicación de lo que la importación dejó fuera, solo si dejó algo (AUD-061)", async () => {
+    vi.spyOn(bridge, "listDatabaseTables").mockResolvedValue([{ schema: "dbo", name: "Ventas", isView: false }]);
+    const importTable = vi.spyOn(bridge, "importDatabaseTable");
+    const onImported = vi.fn();
+    render(<DatabaseImportPanel connected blocked={false} onImport={(run) => void run()} onImported={onImported} />);
+    await fillConnection();
+    fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
+    await screen.findByRole("button", { name: "Traer dbo.Ventas" });
+
+    importTable.mockResolvedValueOnce({ inspection, rowsImported: 10_000, moreRowsAvailable: true, truncatedColumns: ["Notas"], replacedColumns: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Traer dbo.Ventas" }));
+    await waitFor(() => expect(onImported).toHaveBeenCalledWith("selection-1", {
+      table: "dbo.Ventas", rowsImported: 10_000, partial: true, truncatedColumns: ["Notas"], replacedColumns: [],
+    }));
+
+    importTable.mockResolvedValueOnce({ inspection, rowsImported: 5, moreRowsAvailable: false, truncatedColumns: [], replacedColumns: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Traer dbo.Ventas" }));
+    await waitFor(() => expect(onImported).toHaveBeenLastCalledWith("selection-1", null));
+  });
+
   it("muestra el error del servidor cerca de la acción y no carga nada", async () => {
     vi.spyOn(bridge, "listDatabaseTables").mockResolvedValue([{ schema: "dbo", name: "Ventas", isView: false }]);
     vi.spyOn(bridge, "importDatabaseTable").mockRejectedValue("No se pudo leer la tabla para SQL Server: el servidor rechazó la sentencia.");

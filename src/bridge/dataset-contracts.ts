@@ -63,6 +63,19 @@ export interface DatabaseImportResult {
   replacedColumns: string[];
 }
 
+/** AUD-061: what a database import left out; kept with the project. */
+export interface ImportOrigin {
+  /** `schema.table` as the server lists it. */
+  table: string;
+  rowsImported: number;
+  /** The table had more rows than the limit: the dataset is a part of it. */
+  partial: boolean;
+  /** Columns with texts cut to 8,000 characters. */
+  truncatedColumns: string[];
+  /** Columns with invalid characters replaced by U+FFFD. */
+  replacedColumns: string[];
+}
+
 export interface DatasetImportSchemaPreview {
   rowCount: number;
   columns: DatasetColumn[];

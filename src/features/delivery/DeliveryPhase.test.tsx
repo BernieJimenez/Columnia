@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localeText } from "../../test/localeText";
 
 import * as bridge from "../../bridge";
-import type { DatabaseKind, DatasetPreview, QualityRule, RemoteExportPreflight, SavedRecipe } from "../../bridge";
+import type { DatabaseKind, DatasetPreview, ImportOrigin, QualityRule, RemoteExportPreflight, SavedRecipe } from "../../bridge";
 import { DeliveryPhase } from "./DeliveryPhase";
 import {
   INITIAL_DELIVERY_CONTRACT,
@@ -50,6 +50,7 @@ function DeliveryHarness({
   personalDataColumns = [],
   suggestedRules = [],
   excelLimitIssues = [],
+  importOrigin = null,
   rowCount = dataset.rowCount,
 }: {
   rowCount?: number;
@@ -62,6 +63,7 @@ function DeliveryHarness({
   personalDataColumns?: string[];
   suggestedRules?: QualityRule[];
   excelLimitIssues?: string[];
+  importOrigin?: ImportOrigin | null;
 }) {
   const [contract, setContract] = useState<DeliveryContractState>(initialContract);
   return (
@@ -77,6 +79,7 @@ function DeliveryHarness({
       personalDataColumns={personalDataColumns}
       suggestedRules={suggestedRules}
       excelLimitIssues={excelLimitIssues}
+      importOrigin={importOrigin}
     />
   );
 }
@@ -300,6 +303,41 @@ describe("compuerta de calidad y editor de reglas (QA-11)", () => {
     expect(validate).toHaveBeenLastCalledWith([{ column: "limite", kind: "not_null", maxInvalid: 0 }]);
     await waitFor(() => expect(getStateStatus()).toHaveTextContent("Contrato fallido"));
     expect(onExport).not.toHaveBeenCalled();
+  });
+});
+
+describe("origen de una importación parcial (AUD-061)", () => {
+  const partial: ImportOrigin = {
+    table: "dbo.Ventas",
+    rowsImported: 100_000,
+    partial: true,
+    truncatedColumns: ["Notas"],
+    replacedColumns: ["Texto"],
+  };
+
+  it("dice en el resumen que el dataset es una parte de la tabla y qué columnas se recortaron o sustituyeron", () => {
+    render(<DeliveryHarness onExport={vi.fn()} importOrigin={partial} />);
+    const summary = screen.getByRole("heading", { name: "Vas a exportar" }).closest("section")!;
+    expect(within(summary).getByText("Origen").nextElementSibling)
+      .toHaveTextContent(`primeras ${(100_000).toLocaleString()} filas de dbo.Ventas`);
+    expect(within(summary).getByText("Columnas con textos recortados").nextElementSibling).toHaveTextContent("Notas");
+    expect(within(summary).getByText("Columnas con caracteres sustituidos").nextElementSibling).toHaveTextContent("Texto");
+  });
+
+  it("sin límite alcanzado no dice «primeras» y sin origen no añade líneas", () => {
+    const { unmount } = render(<DeliveryHarness
+      onExport={vi.fn()}
+      importOrigin={{ ...partial, partial: false, replacedColumns: [] }}
+    />);
+    const summary = screen.getByRole("heading", { name: "Vas a exportar" }).closest("section")!;
+    expect(within(summary).queryByText("Origen")).not.toBeInTheDocument();
+    expect(within(summary).getByText("Columnas con textos recortados").nextElementSibling).toHaveTextContent("Notas");
+    unmount();
+
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    const plain = screen.getByRole("heading", { name: "Vas a exportar" }).closest("section")!;
+    expect(within(plain).queryByText("Origen")).not.toBeInTheDocument();
+    expect(within(plain).queryByText(/Columnas con/)).not.toBeInTheDocument();
   });
 });
 

@@ -40,7 +40,9 @@ la tanda 11 (AUD-020, 103, 021, 102 y 099), después la tanda 12
 y 107) y después la tanda 14 (AUD-039, 040, 041, 043, 038 y 042; en AUD-038 y
 AUD-042 el usuario dio por bueno un criterio ajustado). Ese mismo día se cerró
 la tanda 15 (AUD-109, 110 y 111), con la que Rendimiento queda sin abiertas. Después se cerró la
-tanda 16 (AUD-049, 050, 051, 052, 053 y 054), aplicada en paralelo.
+tanda 16 (AUD-049, 050, 051, 052, 053 y 054), aplicada en paralelo, y la tanda 17
+(AUD-055, 058, 060, 061 y 062; AUD-059 avanza y sigue abierta), con la que
+Accesibilidad queda sin abiertas y el catálogo de proyectos pasa a la versión 17.
 
 <!-- indice:inicio -->
 **Última actualización:** 2026-11-11 · **Siguiente ID libre:** AUD-116 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
@@ -50,11 +52,11 @@ tanda 16 (AUD-049, 050, 051, 052, 053 y 054), aplicada en paralelo.
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 38 | 41 | 37 · 1 · 0 |
+| 3 · Bajo | 33 | 46 | 32 · 1 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **39** | **76** | **38 · 1 · 0** |
+| **Total** | **34** | **81** | **33 · 1 · 0** |
 
-**Abiertas por área:** UI/UX 17 · Documentación 9 · QA y testing 7 · Redacción 5 · Accesibilidad 1
+**Abiertas por área:** UI/UX 13 · Documentación 9 · QA y testing 7 · Redacción 5
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -852,23 +854,25 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-11 · tanda 16 de la Fase 2 (en `master`). `.dataset-bar__name`, `.comparison-key-options strong`, las claves del script SQL Server y el nombre de los recientes cambian la elipsis por `overflow-wrap: anywhere` con `min-width: 0` (el `title` se conserva). Comprobado en el navegador a 320 px con un nombre de 73 caracteres: se lee entero, sin recorte ni desplazamiento horizontal. Las columnas clave a 320 px no se miraron en el navegador (prueba de estilos).
 
-- [ ] **AUD-055 · A 320 CSS px, Entregar y Preparar se salen de la pantalla y las etapas se parten a media palabra**
+- [x] **AUD-055 · A 320 CSS px, Entregar y Preparar se salen de la pantalla y las etapas se parten a media palabra**
   - **Área:** Accesibilidad · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/shell.css:291`
   - **Qué hacer:** `grid-template-columns: minmax(0, 1fr)` explícito en la rama de una columna de `.delivery-layout`, `.prepare-layout` y `.database-import`; `min-width: 0` y `flex-wrap` en los `fieldset` de Preparar; `overflow-wrap: normal` (o `hyphens: auto` con `lang="es"`) en las etapas, o etiquetas abreviadas por debajo de 400 px; `@media (max-width: 480px) { .connection-form__row--server { grid-template-columns: minmax(0, 1fr) } }`.
   - **Criterio de aceptación:** a 320 CSS px, `document.documentElement.scrollWidth` es igual a `clientWidth` en las cinco etapas (también en Entregar con SQL Server › Actualizar por clave), ninguna etapa parte una palabra y el campo Servidor mide al menos 200 px o va en su propia fila.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 17 de la Fase 2 (en `master`). `minmax(0, 1fr)` en la base de `.prepare-layout` y `.database-import` (`.delivery-layout` ya lo tenía); `min-width: 0` en los `fieldset` de Preparar (`.text-cleaning-options`, `.transform-recipe`); las etapas pasan de `overflow-wrap: anywhere` a `normal` y, por debajo de 400 px, letra de 11 px con menos relleno; `.connection-form__row--server` a una columna por debajo de 480 px. Comprobado en el navegador (mock de Tauri, dataset de 14 columnas y nombre de 84 caracteres) a 320 px: `scrollWidth` igual a `clientWidth` en las cinco etapas, en Cargar › Base de datos y en Entregar › SQL Server › Actualizar por clave; ninguna etiqueta de etapa ocupa más de una línea ni desborda; el campo Servidor mide al menos 200 px. Prueba de estilos `ResponsiveLayoutCss.test.ts`.
 
 ### Diseño responsivo y UI/UX
 
-- [ ] **AUD-058 · Alturas fijadas a mano (88 px, 260 px) que dependen de una barra superior de alto variable**
+- [x] **AUD-058 · Alturas fijadas a mano (88 px, 260 px) que dependen de una barra superior de alto variable**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/shell.css:346`
   - **Qué hacer:** una variable `--topbar-height` actualizada con `ResizeObserver` (o `scroll-padding` calculado en JS) y usarla en los tres sitios.
   - **Criterio de aceptación:** a 1000×800 con un archivo de nombre largo, tabular por cualquier campo no lo deja bajo la barra ni bajo el resumen de Entregar.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 17 de la Fase 2 (en `master`). `useTopbarHeight()` publica la altura real de la barra como `--topbar-height` con `ResizeObserver` (88 px de reserva en `:root`); la usan `scroll-padding-top` y el `top`/`max-height` del panel lateral pegajoso de Preparar. Comprobado en el navegador a 1000×800 con un nombre de 84 caracteres: la barra mide 118 px (antes se suponían 88) y, tabulando 60 veces en Preparar y en Entregar, ningún control con foco queda bajo ella. El `scroll-padding-bottom: 260px` del resumen de Entregar no depende de la barra y el resumen solo es pegajoso desde 1180 px: sin cambio.
 
 - [ ] **AUD-059 · Las banderas de ocupado desactivan 56 controles sin decir por qué; «Guardar proyecto» es el caso más visible**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Medio
@@ -877,30 +881,34 @@ Sin tareas abiertas.
   - **Criterio de aceptación:** mientras el botón esté desactivado, la barra superior dice por qué. Cada grupo de controles de la lista muestra o asocia el motivo mientras está desactivado.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Avance:** 2026-11-11 · tanda 17 de la Fase 2 (en `master`). Primera frase del criterio cumplida: con «Guardar proyecto» desactivado, la barra dice «Sin guardar · disponible al terminar el análisis de calidad» (o la operación que toque), y el botón lo asocia con `aria-describedby`. `src/busyReasons.ts` deriva un solo motivo de las banderas (las mismas de `data-busy-reasons`, que no cambia), en un nodo `#busy-reason` sin rol vivo (cambia en cada carga de página), al que apuntan las etapas, «Volver a…» y «Continuar…». **Queda abierta:** los grupos de controles de `LoadPhase`, `DatabaseImportPanel`, `ReusableTaskPanel`, `ProjectsPanel`, los formularios de conexión, `SqlServerScriptTarget`, `PrepareProposal` y Revisar no asocian todavía el motivo; y en los botones con `disabled` real el `aria-describedby` no lo lee un lector de pantalla al tabular (habría que pasar los críticos a `aria-disabled`, como en AUD-049). No se comprobó en el navegador (el mock no deja el análisis en curso).
 
-- [ ] **AUD-060 · El motivo del botón «Exportar» omite dos de sus bloqueos**
+- [x] **AUD-060 · El motivo del botón «Exportar» omite dos de sus bloqueos**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/delivery/DeliveryPhase.tsx:325-335`
   - **Qué hacer:** añadir a `exportBlockers` `!databaseReady && "analiza la compatibilidad con el destino"` y `exceedsExcel && "elige otro formato: el dataset no cabe en Excel"`.
   - **Criterio de aceptación:** cada condición que desactiva el botón principal produce una frase bajo el botón; hay una prueba que recorre las combinaciones.
   - **Depende de:** ninguna; hacerla junto con AUD-049 (mismo botón)
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 17 de la Fase 2 (en `master`). Las condiciones y sus frases pasan a `exportBlockers()` (`src/features/delivery/exportBlockers.ts`), y el `aria-disabled` del botón principal se deriva de esa lista, así que no se puede añadir un bloqueo sin frase. Nuevas: «analiza la compatibilidad con el destino», «elige otro formato: el dataset no cabe en Excel» y «espera a que termine la operación en curso» (`busy`, visto en la tanda 16). La prueba recorre las 128 combinaciones de las 7 condiciones.
 
-- [ ] **AUD-061 · Cuando la importación es parcial (límite de filas, textos recortados), el aviso solo se ve en Cargar**
+- [x] **AUD-061 · Cuando la importación es parcial (límite de filas, textos recortados), el aviso solo se ve en Cargar**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/load/DatabaseImportPanel.tsx:233-244`
   - **Qué hacer:** guardar en el dataset (o en el nombre) «primeras 100.000 de la tabla» y los textos recortados, mostrarlo en la barra superior y como línea del resumen de Entregar («Origen: primeras 100.000 filas de dbo.Ventas»).
   - **Criterio de aceptación:** tras importar con límite y llegar a Entregar, el resumen dice que el dataset es una parte de la tabla; tras reabrir el proyecto sigue diciéndolo. Tras importar una tabla con un texto de 9.000 caracteres, Entregar muestra «Columnas con textos recortados: Notas».
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 17 de la Fase 2 (en `master`). Esfuerzo real Medio: con la aprobación del usuario, el catálogo de proyectos sube a la versión 17 (columna `import_origin_json`, migración idempotente como la de UX-09, con la copia `.bak` de siempre). `ImportOrigin` (tabla, filas, `partial` = `moreRowsAvailable`, columnas recortadas y con caracteres sustituidos) va de `DatabaseImportPanel` a `App` por su `selectionId`, se guarda en el workspace y se restaura con el proyecto y con sus versiones; se borra al cargar otro dataset y al unir, consolidar o resolver conflictos. La barra dice «Parte de la tabla: primeras 100.000 filas de dbo.Ventas» y el resumen de Entregar añade «Origen», «Columnas con textos recortados» y «Columnas con caracteres sustituidos». Un JSON dañado se descarta sin impedir abrir el proyecto. Comprobado en el navegador: tras guardar y abrir un proyecto con origen, la barra y Entregar lo dicen. El límite real de un servidor y el texto de 9.000 caracteres se comprobaron con pruebas (Rust y jsdom), no contra SQL Server.
 
-- [ ] **AUD-062 · Mientras se importa de una base de datos aparece «Esperando la selección y verificando el formato local…»**
+- [x] **AUD-062 · Mientras se importa de una base de datos aparece «Esperando la selección y verificando el formato local…»**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/App.tsx:729-730`
   - **Qué hacer:** que el aviso dependa de un origen («file» o «database») o se oculte mientras `DatabaseImportPanel` muestra su propio progreso.
   - **Criterio de aceptación:** durante una importación solo se ve el progreso de la importación.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 17 de la Fase 2 (en `master`). El estado `inspecting` lleva `origin`; con `"database"`, Cargar no muestra «Esperando la selección y verificando el formato local…». Comprobado en el navegador con un `MutationObserver` durante la importación de `dbo.Ventas`: el aviso no aparece en ningún momento.
 
 - [ ] **AUD-063 · Los paneles «Preferencias y recursos» y «Licencia y privacidad» (ventanas de más de 900 px) no se cierran con Esc ni con clic fuera, y bloquean el scroll de la página**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo

@@ -368,7 +368,7 @@ export function LoadPhase({
               }}
         />
       )}
-      {inspection.kind === "inspecting" && (
+      {inspection.kind === "inspecting" && inspection.origin !== "database" && (
         <p className="notice" role="status">Esperando la selección y verificando el formato local…</p>
       )}
       {inspection.kind === "workbook_inspecting" && (

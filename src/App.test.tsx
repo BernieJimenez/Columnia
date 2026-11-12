@@ -1130,6 +1130,119 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toBeInTheDocument();
   }, LOADED_MACHINE_TIMEOUT_MS);
 
+  it("una importación parcial de una base de datos queda dicha en la barra y en Entregar, se guarda con el proyecto y se olvida al cargar otro dataset (AUD-061)", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.49.0", platform: "windows" });
+    vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue(["ODBC Driver 18 for SQL Server"]);
+    vi.spyOn(bridge, "listDatabaseTables").mockResolvedValue([{ schema: "dbo", name: "Ventas", isView: false }]);
+    const dataset: DatasetPreview = {
+      fileName: "dbo.Ventas.parquet", fileSizeBytes: 2048, rowCount: 3, columnCount: 1,
+      columns: [{ name: "Notas", dataType: "String" }], rows: [["a"]],
+    };
+    const loadSpy = mockDatasetLoad(dataset);
+    vi.spyOn(bridge, "importDatabaseTable").mockResolvedValue({
+      inspection: {
+        selectionId: "database-selection", fileName: dataset.fileName, fileSizeBytes: dataset.fileSizeBytes,
+        format: "parquet", sheets: [], defaultSheetId: null, isCompressedContainer: false,
+        resourceEstimate: resourceEstimate(dataset.fileSizeBytes),
+      },
+      rowsImported: 100_000,
+      moreRowsAvailable: true,
+      truncatedColumns: ["Notas"],
+      replacedColumns: [],
+    });
+    const project: ProjectSummary = {
+      id: "project-origin", name: "Ventas parcial", datasetFileName: dataset.fileName,
+      rowCount: dataset.rowCount, columnCount: dataset.columnCount,
+      createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-21T00:00:00Z",
+    };
+    const saveSpy = vi.spyOn(bridge, "saveProject").mockResolvedValue(project);
+    vi.spyOn(bridge, "listProjects").mockResolvedValue({ projects: [project], recoveryCandidate: null });
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("radio", { name: /^Base de datos/ }));
+    await screen.findByText(/^Controlador: /);
+    fireEvent.change(screen.getByLabelText("Servidor"), { target: { value: "localhost" } });
+    fireEvent.change(screen.getByLabelText("Base de datos"), { target: { value: "VentasRetail" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Traer dbo.Ventas" }));
+
+    expect(await screen.findByText("dbo.Ventas.parquet", { selector: ".dataset-bar__name" })).toBeInTheDocument();
+    const notice = await screen.findByText(/^Parte de la tabla:/);
+    expect(notice).toHaveClass("dataset-bar__origin");
+    expect(notice).toHaveTextContent(`primeras ${(100_000).toLocaleString()} filas de dbo.Ventas`);
+
+    await switchPhase("Entregar");
+    const summary = screen.getByRole("heading", { name: "Vas a exportar" }).closest("section")!;
+    expect(within(summary).getByText("Origen").nextElementSibling)
+      .toHaveTextContent(`primeras ${(100_000).toLocaleString()} filas de dbo.Ventas`);
+    expect(within(summary).getByText("Columnas con textos recortados").nextElementSibling).toHaveTextContent("Notas");
+
+    await switchPhase("Cargar");
+    fireEvent.click(screen.getByRole("radio", { name: /^Proyecto/ }));
+    fireEvent.click(screen.getByText("Guardar y administrar proyectos"));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Nombre del proyecto" }), { target: { value: project.name } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar proyecto nuevo" }));
+    await waitFor(() => expect(saveSpy).toHaveBeenCalled());
+    expect(saveSpy.mock.calls[0]?.[2].importOrigin).toEqual({
+      table: "dbo.Ventas",
+      rowsImported: 100_000,
+      partial: true,
+      truncatedColumns: ["Notas"],
+      replacedColumns: [],
+    });
+
+    // Another dataset (a file) is not that table: the notice goes away.
+    fireEvent.click(screen.getByRole("radio", { name: /^Archivo/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar otro dataset" }));
+    await waitFor(() => expect(loadSpy).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(/^Parte de la tabla:/)).not.toBeInTheDocument());
+    await switchPhase("Entregar");
+    expect(screen.queryByText("Origen")).not.toBeInTheDocument();
+  }, LOADED_MACHINE_TIMEOUT_MS);
+
+  it("un proyecto con origen de importación lo muestra al abrirlo y uno sin él sigue abriéndose igual (AUD-061)", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.49.0", platform: "windows" });
+    const project: ProjectSummary = {
+      id: "project-1", name: "Ventas", datasetFileName: "ventas.csv", rowCount: 1, columnCount: 1,
+      createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-21T00:00:00Z",
+    };
+    const dataset: DatasetPreview = {
+      fileName: "ventas.csv", fileSizeBytes: 128, rowCount: 1, columnCount: 1,
+      columns: [{ name: "total", dataType: "Int64" }], rows: [["10"]],
+    };
+    const profile = { rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] };
+    vi.spyOn(bridge, "listProjects").mockResolvedValue({ projects: [project], recoveryCandidate: null });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState());
+    const openSpy = vi.spyOn(bridge, "openProject").mockResolvedValue({
+      project,
+      dataset,
+      workspace: {
+        qualityRules: [],
+        recipeDraft: null,
+        importOrigin: { table: "dbo.Ventas", rowsImported: 1_000, partial: true, truncatedColumns: ["Notas"], replacedColumns: ["Texto"] },
+      },
+      profile,
+    });
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("radio", { name: /^Proyecto/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Abrir\b/ }));
+    expect(await screen.findByText(/^Parte de la tabla:/)).toHaveTextContent(`primeras ${(1_000).toLocaleString()} filas de dbo.Ventas`);
+    await switchPhase("Entregar");
+    const summary = screen.getByRole("heading", { name: "Vas a exportar" }).closest("section")!;
+    expect(within(summary).getByText("Origen")).toBeInTheDocument();
+    expect(within(summary).getByText("Columnas con caracteres sustituidos").nextElementSibling).toHaveTextContent("Texto");
+
+    // The same project saved before AUD-061 has no origin and opens as before.
+    openSpy.mockResolvedValue({ project, dataset, workspace: { qualityRules: [], recipeDraft: null }, profile });
+    await switchPhase("Cargar");
+    fireEvent.click(screen.getByRole("radio", { name: /^Proyecto/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Abrir\b/ }));
+    await waitFor(() => expect(screen.queryByText(/^Parte de la tabla:/)).not.toBeInTheDocument());
+  }, LOADED_MACHINE_TIMEOUT_MS);
+
   it("guarda y confirma el borrado de un proyecto sin descartar el dataset", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.49.0", platform: "windows" });

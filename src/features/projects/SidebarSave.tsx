@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { ProjectSummary } from "../../bridge";
 import { suggestedProjectName, type ProjectAutoSaveState, type ProjectOperationState } from "./projectModel";
 
@@ -7,6 +8,8 @@ interface SidebarSaveProps {
   autoSave: ProjectAutoSaveState;
   operation: ProjectOperationState;
   disabled: boolean;
+  /** What the app is waiting for («el análisis de calidad»); explains why saving is not available yet. */
+  busyReason?: string | null;
   onSave: (name: string) => void;
 }
 
@@ -21,7 +24,8 @@ function savedTime(value: string): string {
  * Saving from any phase (DAT-01): the first click saves the dataset as a
  * project named after its file; after that, changes are saved on their own.
  */
-export function SidebarSave({ fileName, activeProject, autoSave, operation, disabled, onSave }: SidebarSaveProps) {
+export function SidebarSave({ fileName, activeProject, autoSave, operation, disabled, busyReason, onSave }: SidebarSaveProps) {
+  const statusId = useId();
   const saving = autoSave.kind === "saving" || (operation.kind === "working" && operation.operation === "save");
   const status = saving
     ? "Guardando…"
@@ -33,15 +37,18 @@ export function SidebarSave({ fileName, activeProject, autoSave, operation, disa
           ? autoSave.kind === "disabled" ? "Guardado automático desactivado" : "Los cambios se guardan solos"
           : "Sin guardar";
   const needsClick = !activeProject || autoSave.kind === "disabled" || autoSave.kind === "error";
+  const waiting = needsClick && disabled && !saving;
+  const statusText = waiting && busyReason ? `${status} · disponible al terminar ${busyReason}` : status;
 
   return (
     <div className="dataset-save">
-      <small role="status" className={`dataset-save__status dataset-save__status--${saving ? "saving" : autoSave.kind === "error" ? "error" : activeProject ? "saved" : "unsaved"}`}>{status}</small>
+      <small id={statusId} role="status" className={`dataset-save__status dataset-save__status--${saving ? "saving" : autoSave.kind === "error" ? "error" : activeProject ? "saved" : "unsaved"}`}>{statusText}</small>
       {needsClick && (
         <button
           type="button"
           className="secondary-action"
           disabled={disabled || saving}
+          aria-describedby={waiting ? statusId : undefined}
           onClick={() => onSave(activeProject?.name ?? (suggestedProjectName(fileName) || "Proyecto"))}
         >
           Guardar proyecto

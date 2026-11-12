@@ -8,6 +8,7 @@ import type {
   OperationProgress,
   QualityRule,
   QualityRuleKind,
+  ImportOrigin,
   PrivacyMode,
   QualityValidationResult,
   SqlServerScriptOptions,
@@ -15,6 +16,7 @@ import type {
 import { QUALITY_DATASET_COLUMN } from "../../bridge";
 import { isTextType } from "../../dataTypes";
 import { plural } from "../../plural";
+import { importOriginSummaryItems } from "../load/importOrigin";
 import { ROW_AUDIT_COLUMN } from "../../rowAudit";
 
 export const MAX_QUALITY_RULES = 16;
@@ -214,6 +216,8 @@ interface DeliverySummaryInput {
   quality: { kind: "rules"; count: number; passed: boolean } | { kind: "unvalidated" };
   privacyMode: PrivacyMode;
   personalDataColumnCount: number;
+  /** AUD-061: the dataset came from part of a database table, or had texts changed. */
+  importOrigin?: ImportOrigin | null;
 }
 
 const SQL_SERVER_MODE_LABEL: Record<SqlServerScriptOptions["mode"], string> = {
@@ -297,6 +301,7 @@ export function deliverySummary(input: DeliverySummaryInput): DeliverySummaryIte
     label: "Datos",
     value: `${plural(input.rowCount, "fila", "filas")} · ${plural(input.columnCount, "columna", "columnas")}`,
   });
+  items.push(...importOriginSummaryItems(input.importOrigin));
   items.push({
     label: "Calidad",
     value: input.quality.kind === "unvalidated"

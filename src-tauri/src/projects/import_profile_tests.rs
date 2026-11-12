@@ -39,6 +39,7 @@ fn test_workspace(import_profile: Option<ImportProfile>) -> ProjectWorkspace {
         join_type: None,
         import_profile,
         explore_filters: Vec::new(),
+        import_origin: None,
     }
 }
 

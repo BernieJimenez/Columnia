@@ -46,4 +46,17 @@ describe("SidebarSave (DAT-01)", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Guardando…");
     expect(screen.getByRole("button", { name: "Guardar proyecto" })).toBeDisabled();
   });
+
+  it("dice por qué no se puede guardar todavía y lo asocia al botón (AUD-059)", () => {
+    const { rerender } = render(<SidebarSave fileName="ventas.csv" activeProject={null} autoSave={{ kind: "disabled" }} operation={{ kind: "idle" }} disabled busyReason="el análisis de calidad" onSave={vi.fn()} />);
+
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Sin guardar · disponible al terminar el análisis de calidad");
+    expect(screen.getByRole("button", { name: "Guardar proyecto" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Guardar proyecto" })).toHaveAttribute("aria-describedby", status.id);
+
+    rerender(<SidebarSave fileName="ventas.csv" activeProject={null} autoSave={{ kind: "disabled" }} operation={{ kind: "idle" }} disabled={false} busyReason={null} onSave={vi.fn()} />);
+    expect(screen.getByRole("status")).toHaveTextContent(/^Sin guardar$/);
+    expect(screen.getByRole("button", { name: "Guardar proyecto" })).not.toHaveAttribute("aria-describedby");
+  });
 });

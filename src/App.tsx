@@ -1,4 +1,5 @@
 import { isCancellationError } from "./bridge/cancellation";
+import { busyReasonCodes, busyReasonMessage, busyReasonPhrase, type BusyFlags } from "./busyReasons";
 import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
@@ -7,6 +8,7 @@ import { useDeliveryController } from "./features/delivery/useDeliveryController
 import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
 import { ReusableTaskPanel } from "./features/load/ReusableTaskPanel";
 import { DatabaseImportPanel } from "./features/load/DatabaseImportPanel";
+import { ImportOriginNotice } from "./features/load/ImportOriginNotice";
 import {
   createReusableTaskExceptionPolicy,
   exceptionPolicyMatchesSchema,
@@ -97,6 +99,7 @@ import {
   type AppInfo,
   type DatasetSourceInspection,
   type ExploreFilter,
+  type ImportOrigin,
   type ImportProfile,
   type ExportFormat,
   type PerformanceProfile,
@@ -113,6 +116,7 @@ import {
   writePerformanceProfile,
 } from "./features/settings/performanceModel";
 import { errorMessage } from "./bridge/errors";
+import { useTopbarHeight } from "./useTopbarHeight";
 
 type AppStatus =
   | { kind: "loading" }
@@ -216,6 +220,10 @@ export function App() {
   const [pageCancellationPending, setPageCancellationPending] = useState(false);
   const pageCancellationRequestRef = useRef<number | null>(null);
   const [activeImportProfile, setActiveImportProfile] = useState<ImportProfile | null>(null);
+  // AUD-061: what the database import of the active dataset left out. The origin
+  // of an import waits by its selection until that selection is loaded.
+  const [importOrigin, setImportOrigin] = useState<ImportOrigin | null>(null);
+  const pendingImportOriginRef = useRef<{ selectionId: string; origin: ImportOrigin | null } | null>(null);
   const [queuedReusableTask, setQueuedReusableTask] = useState<QueuedReusableTask | null>(null);
   const [reusableTaskApplicationReview, setReusableTaskApplicationReview] = useState<ReusableTaskApplicationReview | null>(null);
   const [recentDatasets, setRecentDatasets] = useState<RecentDataset[]>(readRecentDatasets);
@@ -262,6 +270,7 @@ export function App() {
     delivery.invalidateRequests();
     setDatasetRevision(nextRevision);
   }
+  const topbarRef = useTopbarHeight();
   const [sidebarUtilitiesOpen, setSidebarUtilitiesOpen] = useState(false);
   const [sqlConsoleOpen, setSqlConsoleOpen] = useState(false);
   const [sqlConsoleDraft, setSqlConsoleDraft] = useState<SqlQueryDraft | null>(null);
@@ -294,6 +303,8 @@ export function App() {
       review.invalidateProfile();
       projects.unlinkActiveProject();
       setActiveImportProfile(null);
+      // Joined or consolidated with another file, it is no longer that table.
+      setImportOrigin(null);
       delivery.resetContract();
       setRecipeDraft(null);
       setActiveExceptionPolicy(null);
@@ -362,6 +373,7 @@ export function App() {
       activePhase,
       performanceProfile,
       importProfile: activeImportProfile ?? undefined,
+      importOrigin: importOrigin ?? undefined,
       exploreFilters: exploreFilters.revision === datasetRevision && exploreFilters.filters.length > 0
         ? exploreFilters.filters
         : undefined,
@@ -398,6 +410,7 @@ export function App() {
       setQueuedReusableTask(null);
       setReusableTaskApplicationReview(null);
       setActiveImportProfile(workspace.importProfile ?? null);
+      setImportOrigin(workspace.importOrigin ?? null);
       review.restoreWorkspace(workspace, dataset.columns, profile);
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
@@ -673,6 +686,9 @@ export function App() {
         format: source.format,
       }));
       setDatasetStatus(createReadyDatasetStatus(dataset));
+      const pendingOrigin = pendingImportOriginRef.current;
+      setImportOrigin(pendingOrigin?.selectionId === source.selectionId ? pendingOrigin.origin : null);
+      pendingImportOriginRef.current = null;
       setChangedSinceSave(false);
       bumpDatasetRevision();
       projects.unlinkActiveProject();
@@ -720,14 +736,14 @@ export function App() {
     }
   }
 
-  async function inspectDatasetSource(sourcePromise: Promise<DatasetSourceInspection | null>) {
+  async function inspectDatasetSource(sourcePromise: Promise<DatasetSourceInspection | null>, origin: "file" | "database" = "file") {
     if (inspectionInFlightRef.current || loadInFlightRef.current) return;
     schemaPreviewRequestRef.current += 1;
     inspectionInFlightRef.current = true;
     const requestId = ++inspectionRequestRef.current;
     const isCurrentRequest = () => inspectionRequestRef.current === requestId;
     setActivePhase("load");
-    setLoadInspection({ kind: "inspecting" });
+    setLoadInspection(origin === "database" ? { kind: "inspecting", origin } : { kind: "inspecting" });
     try {
       const source = await sourcePromise;
       if (!isCurrentRequest()) return;
@@ -1108,20 +1124,23 @@ export function App() {
   operationBusyRef.current = operationBusy;
   const navigationBusy = foregroundOperationBusy || loadSelectionBusy || projects.operation.kind === "working";
   // Names only (no data): lets native probes tell which operation keeps the app busy.
-  const busyReasons = [
-    datasetStatus.kind === "loading" && "dataset",
-    datasetStatus.kind === "ready" && datasetStatus.pageLoading && "page",
-    profileStatus.kind === "loading" && "profile",
-    prepare.changeStatus.kind === "working" && "prepare",
-    delivery.contract.gate.kind === "loading" && "quality-gate",
-    delivery.exportStatus.kind === "loading" && "export",
-    review.comparison.status.kind === "loading" && "comparison",
-    review.comparison.joinStatus.kind === "loading" && "join",
-    (review.comparison.mutationStatus?.kind === "running" || review.comparison.mutationStatus?.kind === "finalizing") && "review-mutation",
-    loadSelectionBusy && `selection:${loadInspection.kind}${selectionFinalizing ? "+finalizing" : ""}`,
-    projects.operation.kind === "working" && "project",
-    projects.autoSave.kind === "saving" && "autosave",
-  ].filter(Boolean).join(",");
+  const busyFlags: BusyFlags = {
+    dataset: datasetStatus.kind === "loading",
+    page: datasetStatus.kind === "ready" && datasetStatus.pageLoading,
+    profile: profileStatus.kind === "loading",
+    prepare: prepare.changeStatus.kind === "working",
+    qualityGate: delivery.contract.gate.kind === "loading",
+    exportRunning: delivery.exportStatus.kind === "loading",
+    comparison: review.comparison.status.kind === "loading",
+    join: review.comparison.joinStatus.kind === "loading",
+    reviewMutation: review.comparison.mutationStatus?.kind === "running" || review.comparison.mutationStatus?.kind === "finalizing",
+    selection: loadSelectionBusy ? `${loadInspection.kind}${selectionFinalizing ? "+finalizing" : ""}` : null,
+    project: projects.operation.kind === "working",
+    autosave: projects.autoSave.kind === "saving",
+  };
+  const busyReasons = busyReasonCodes(busyFlags);
+  const busyReasonText = busyReasonMessage(busyFlags);
+  const busyReasonPhraseText = busyReasonPhrase(busyFlags);
   const activePhaseIndex = Math.max(0, workflowPhases.findIndex((phase) => phase.id === activePhase));
   // The active phase is always one of the workflow phases.
   const activePhaseMeta = workflowPhases[activePhaseIndex] ?? workflowPhases[0]!;
@@ -1233,6 +1252,9 @@ export function App() {
       <p className="visually-hidden" aria-live="polite" aria-atomic="true">
         Etapa activa: {activePhaseMeta.label}.
       </p>
+      {/* AUD-059: one reason that the disabled controls point to with aria-describedby.
+          No live role: it changes on every page load and autosave, and would be announced each time. */}
+      <p id="busy-reason" className="visually-hidden">{busyReasonText}</p>
       <aside className="app-sidebar" aria-label="Navegación principal">
         {/* ACC-11: inside the navigation landmark, and only while it applies. */}
         {!activeDataset && (
@@ -1264,7 +1286,7 @@ export function App() {
                   className={`flow-nav__item flow-nav__item--${phaseState}`}
                   aria-current={activePhase === phase.id ? "step" : undefined}
                   aria-disabled={!available || undefined}
-                  aria-describedby={!available ? "dataset-required-hint" : undefined}
+                  aria-describedby={[!available && "dataset-required-hint", navigationBusy && "busy-reason"].filter(Boolean).join(" ") || undefined}
                   onMouseEnter={() => preloadPhase(phase.id)}
                   onFocus={() => preloadPhase(phase.id)}
                   onClick={() => available && setActivePhase(phase.id)}
@@ -1369,7 +1391,7 @@ export function App() {
 
       <main id="main-content" className="app-main" tabIndex={-1}>
         {/* The dataset being worked on, its save state and the engine: context for every phase. */}
-        <header className="app-topbar">
+        <header className="app-topbar" ref={topbarRef}>
           <div className="dataset-bar">
             <svg className="dataset-bar__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M6 3h8l4 4v14H6z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
@@ -1385,6 +1407,7 @@ export function App() {
                   ? `${plural(activeDataset.dataset.rowCount, "fila", "filas")} · ${plural(activeDataset.dataset.columnCount, "columna", "columnas")} · ${formatBytes(activeDataset.dataset.fileSizeBytes)}`
                   : "Elige un archivo en Cargar para empezar"}
               </p>
+              {activeDataset && <ImportOriginNotice origin={importOrigin} />}
             </div>
           </div>
           <div className="app-topbar__status">
@@ -1422,6 +1445,7 @@ export function App() {
                 autoSave={projects.autoSave}
                 operation={projects.operation}
                 disabled={projects.isBusy || coreOperationBusy || loadSelectionBusy}
+                busyReason={busyReasonPhraseText}
                 onSave={(name) => void projects.save(name)}
               />
             )}
@@ -1466,7 +1490,8 @@ export function App() {
                   <DatabaseImportPanel
                     connected={loadRuntime.kind === "connected"}
                     blocked={operationBusy}
-                    onImport={(run) => whenWorkCanBeReplaced(() => void inspectDatasetSource(run()))}
+                    onImport={(run) => whenWorkCanBeReplaced(() => void inspectDatasetSource(run(), "database"))}
+                    onImported={(selectionId, origin) => { pendingImportOriginRef.current = { selectionId, origin }; }}
                   />
                 )}
                 pendingTaskName={queuedReusableTask?.task.name ?? null}
@@ -1636,6 +1661,7 @@ export function App() {
                   readyDataset.dataset.rowCount,
                   profileStatus.kind === "ready" ? profileStatus.profile.columns : null,
                 )}
+                importOrigin={importOrigin}
                 recipeDraft={recipeDraft}
                 preparationChanges={prepare.historyStatus.entries
                   .filter((entry) => entry.index > 0 && entry.index <= prepare.historyStatus.currentIndex)
@@ -1673,6 +1699,7 @@ export function App() {
                   className="secondary-action"
                   onClick={() => setActivePhase(previousPhase.id)}
                   disabled={navigationBusy}
+                  aria-describedby={navigationBusy ? "busy-reason" : undefined}
                 >
                   Volver a {previousPhase.label}
                 </button>
@@ -1685,6 +1712,7 @@ export function App() {
                   onFocus={() => preloadPhase(nextPhase.id)}
                   onClick={handleNextPhase}
                   disabled={!activeDataset || navigationBusy || (profileGatedPhase && profileStatus.kind === "loading")}
+                  aria-describedby={navigationBusy || (profileGatedPhase && profileStatus.kind === "loading") ? "busy-reason" : undefined}
                 >
                   {primaryNextLabel}
                 </button>

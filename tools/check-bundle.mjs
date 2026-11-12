@@ -13,7 +13,11 @@ const FRONTEND_LIMITS = Object.freeze({
   // 2026-10-07: raw total raised from 832 to 896 KiB for the roadmap features
   // (conflict bulk actions, suggested rules); the gzip total, closer to what the
   // WebView loads, keeps its 240 KiB limit.
-  total: Object.freeze({ rawBytes: 896 * 1024, gzipBytes: 240 * 1024 }),
+  // 2026-11-11: raw total raised from 896 to 928 KiB (owner's decision) for
+  // tanda 17 of the 2026-11-05 audit (920,940 bytes; gzip 234,189). Local app:
+  // the WebView reads from disk. AUD-079 reviews what weighs in index-*.js
+  // before any further increase.
+  total: Object.freeze({ rawBytes: 928 * 1024, gzipBytes: 240 * 1024 }),
   otherTotal: Object.freeze({ rawBytes: 512 * 1024 }),
 });
 

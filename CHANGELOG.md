@@ -1304,6 +1304,26 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Un dataset traído de una base de datos con el límite de filas alcanzado, o
+  con textos recortados o caracteres sustituidos, lo dice en la barra superior
+  («Parte de la tabla: primeras 100.000 filas de dbo.Ventas») y en el resumen
+  de Entregar, también tras reabrir el proyecto. El catálogo de proyectos pasa
+  a la versión 17 (se hace una copia `.bak` antes de migrar; una versión
+  anterior de Columnia ya no lo abre) (AUD-061).
+- El motivo de «Exportar» bloqueado nombra todas sus causas: falta analizar la
+  compatibilidad con el destino, el dataset no cabe en Excel o hay una
+  operación en curso (AUD-060).
+- Con «Guardar proyecto» desactivado, la barra dice a qué espera («Sin guardar
+  · disponible al terminar el análisis de calidad»), y las etapas y los botones
+  «Volver» y «Continuar» enlazan ese motivo (AUD-059, en curso).
+- Mientras se importa de una base de datos ya no aparece «Esperando la
+  selección y verificando el formato local…», solo el progreso de la
+  importación (AUD-062).
+- A 320 píxeles de ancho, Preparar, Cargar › Base de datos y Entregar ya no se
+  salen de la pantalla, los nombres de las etapas no se parten a media palabra
+  y el campo Servidor ocupa su propia fila (AUD-055).
+- Con una barra superior más alta (un nombre de archivo largo), el foco al
+  tabular y el panel lateral de Preparar ya no quedan debajo de ella (AUD-058).
 - Accesibilidad con lector de pantalla:
   - En Entregar, «Exportar» bloqueado sigue en el orden de tabulación y su
     motivo se anuncia y se lee como descripción del botón (AUD-049).
@@ -1648,6 +1668,8 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- El presupuesto del bundle de la interfaz sin comprimir sube de 896 a 928 KiB
+  (comprimido sigue en 240 KiB); la revisión de su contenido queda en AUD-079.
 - Las páginas de conflictos leen las filas comparadas por tramos ordenados y en
   paralelo, en vez de una lectura por fila (hasta 45 veces menos con filas
   cercanas; unas 3 con filas dispersas; AUD-038). Revisar

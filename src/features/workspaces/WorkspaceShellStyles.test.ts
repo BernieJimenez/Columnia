@@ -12,8 +12,8 @@ describe("estilos del shell", () => {
     expect(shell).toMatch(/html\[data-columnia-zoom="2"\] \.app-sidebar \.sidebar__tools\s*\{[^}]*grid-area:\s*tools/);
   });
 
-  it("los nombres de etapa pueden partirse sin crear scroll horizontal", () => {
-    expect(shell).toMatch(/\.flow-nav__copy strong\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  it("los nombres de etapa no se parten a media palabra (AUD-055)", () => {
+    expect(shell).toMatch(/\.flow-nav__copy strong\s*\{[^}]*overflow-wrap:\s*normal/);
   });
 
   it("el nombre del dataset y las columnas clave se leen enteros sin pasar el ratón (AUD-054)", () => {

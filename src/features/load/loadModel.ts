@@ -35,7 +35,7 @@ export type DatasetStatus =
 
 export type LoadInspectionState =
   | { kind: "idle" }
-  | { kind: "inspecting" }
+  | { kind: "inspecting"; origin?: "file" | "database" }
   | { kind: "workbook_inspecting"; source: DatasetSourceInspection }
   | { kind: "selection_cancelling"; source: DatasetSourceInspection }
   | {

@@ -7,7 +7,7 @@ import type {
   DatasetQueryEngine,
   DatasetProfile,
 } from "./dataset-contracts";
-import type { ExploreFilter, ImportProfile } from "./dataset-contracts";
+import type { ExploreFilter, ImportOrigin, ImportProfile } from "./dataset-contracts";
 import type {
   SavedRecipe,
 } from "./recipe-contracts";
@@ -64,6 +64,8 @@ export interface ProjectWorkspace {
   importProfile?: ImportProfile;
   /** UX-09: the Explorar filters, restored with the project. */
   exploreFilters?: ExploreFilter[];
+  /** AUD-061: the dataset is a part of a database table, or had texts cut or replaced. */
+  importOrigin?: ImportOrigin;
 }
 
 export interface ProjectVersionSummary {

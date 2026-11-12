@@ -102,7 +102,7 @@
 }
 .flow-nav__item[aria-disabled="true"] .flow-nav__marker { border-style: dashed; }
 .flow-nav__copy { display: grid; gap: 1px; min-width: 0; }
-.flow-nav__copy strong { font-weight: 650; overflow-wrap: anywhere; }
+.flow-nav__copy strong { font-weight: 650; overflow-wrap: normal; hyphens: manual; }
 .flow-nav__description { color: var(--text-secondary); font-size: .8125rem; font-weight: 500; line-height: 1.35; }
 .flow-nav__badge {
   justify-self: start;
@@ -179,6 +179,8 @@
   overflow-wrap: anywhere;
 }
 .dataset-bar__meta { color: var(--text-secondary); font-size: .8125rem; font-variant-numeric: tabular-nums; }
+/* AUD-061: read whole, like the name (AUD-054): it wraps instead of being cut. */
+.dataset-bar__origin { min-width: 0; margin: 0; color: var(--text-secondary); font-size: .8125rem; font-weight: 600; overflow-wrap: anywhere; }
 
 .app-topbar__status { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 20px; min-width: 0; }
 
@@ -345,9 +347,12 @@ html[data-density="compact"] :is(.prepare-layout, .delivery-layout) { gap: 20px;
   .flow-nav__description { display: none; }
 }
 
+/* AUD-058: reserve value; useTopbarHeight() publishes the real height. */
+:root { --topbar-height: 88px; }
+
 /* The top bar stays in view on tall windows; focus never hides under it. */
 @media (min-width: 901px) and (min-height: 701px) {
-  html { scroll-padding-top: 88px; }
+  html { scroll-padding-top: var(--topbar-height, 88px); }
   .app-topbar { position: sticky; top: 0; z-index: 5; }
 }
 
@@ -409,6 +414,17 @@ html[data-density="compact"] :is(.prepare-layout, .delivery-layout) { gap: 20px;
   .flow-nav__copy strong { font-size: .75rem; }
   .app-shell .workspace { padding-inline: 12px; }
   .app-topbar { padding-inline: 12px; }
+}
+
+/* AUD-055: at 320 px each of the five steps gets ~56 px; shrink the label and
+   its padding so a word is never broken in the middle. */
+@media (max-width: 400px) {
+  .flow-nav__item { gap: 2px; padding-inline: 1px; }
+  .flow-nav__copy strong { font-size: .6875rem; letter-spacing: -.01em; }
+}
+
+@media (max-width: 480px) {
+  .connection-form__row--server { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* The 200 % zoom evidence emulates a narrow viewport on a wide one. */

@@ -1493,6 +1493,9 @@ pub fn project_save(
         ProjectWorkspace {
             quality_rules: quality_rules.unwrap_or(previous.quality_rules),
             recipe_draft,
+            // AUD-061: the new input is a file, not the database table the
+            // previous dataset came from.
+            import_origin: None,
             ..previous
         },
     )

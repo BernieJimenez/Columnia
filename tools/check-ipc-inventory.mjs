@@ -131,6 +131,7 @@ const sharedStructures = [
   ["SqlServerScriptOptions", "SqlServerScriptOptions"],
   ["SqlQueryHistoryEntry", "SqlQueryHistoryEntry"],
   ["ProjectWorkspace", "ProjectWorkspace"],
+  ["ImportOrigin", "ImportOrigin"],
   ["DiagnosticReport", "DiagnosticReport"],
   ["DiagnosticMetrics", "DiagnosticMetrics"],
   ["SessionStatus", "SessionStatus"],

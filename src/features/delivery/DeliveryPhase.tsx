@@ -17,6 +17,7 @@ import {
   type DeliveryPreset,
   type DatasetPreview,
   type ExportFormat,
+  type ImportOrigin,
   type PrivacyMode,
   type RemoteExportPreflight,
   type QualityMigrationResult,
@@ -59,6 +60,7 @@ import {
 import { formatPercent } from "../../format";
 import { DeliveryPresets } from "./DeliveryPresets";
 import { DeliveryResult } from "./DeliveryResult";
+import { exportBlockers } from "./exportBlockers";
 import { QualityRulesEditor, withAddedRule } from "./QualityRulesEditor";
 import { errorMessage } from "../../bridge/errors";
 
@@ -78,6 +80,8 @@ interface DeliveryPhaseProps {
   suggestedRules?: QualityRule[];
   /** Why the dataset would not open in Excel (RV19); empty when it fits. */
   excelLimitIssues?: string[];
+  /** AUD-061: the dataset is a part of a database table, or had texts cut or replaced. */
+  importOrigin?: ImportOrigin | null;
   onContractAction: (action: DeliveryContractAction) => void;
   onExport: (request: DeliveryExportRequest) => void;
   onCancelExport: () => void;
@@ -195,6 +199,7 @@ export function DeliveryPhase({
   personalDataColumns = [],
   suggestedRules = [],
   excelLimitIssues = [],
+  importOrigin = null,
   onContractAction,
   onExport,
   onCancelExport,
@@ -316,25 +321,28 @@ export function DeliveryPhase({
     && tsqlScriptIsTooLarge(dataset.rowCount, exportedColumnCount);
   const missingSqlServerKey = isSqlServerFile && sqlServerScript.mode === "upsert" && sqlServerKeys.length === 0;
   // DESIGN.md: a disabled control states, in view, what it is waiting for.
-  const exportBlockers = [
-    validationError !== null && "corrige la regla marcada en el contrato",
-    missingSqlServerKey && "elige al menos una columna clave para actualizar por clave",
-    needsPersonalDataConfirmation && "elige una protección de datos personales o confirma que los exportas sin proteger",
-    needsUnvalidatedConfirmation && "confirma que exportas sin validar",
-  ].filter((blocker): blocker is string => typeof blocker === "string");
-  const exportBlockedReason = exportBlockers.length === 0
-    ? null
-    : `Para exportar, ${exportBlockers.length === 1
-      ? exportBlockers[0]
-      : `${exportBlockers.slice(0, -1).join(", ")} y ${exportBlockers.at(-1)}`}.`;
   const busy = exportState.kind === "loading"
     || contract.gate.kind === "loading"
     || migrationState.kind === "working"
     || qualityFileState.kind === "working"
     || databasePreflightState.kind === "working";
+  const exportBlockerList = exportBlockers({
+    busy,
+    validationError: validationError !== null,
+    missingSqlServerKey,
+    needsPersonalDataConfirmation,
+    needsUnvalidatedConfirmation,
+    databaseNotReady: !databaseReady,
+    exceedsExcel,
+  });
+  const exportBlockedReason = exportBlockerList.length === 0
+    ? null
+    : `Para exportar, ${exportBlockerList.length === 1
+      ? exportBlockerList[0]
+      : `${exportBlockerList.slice(0, -1).join(", ")} y ${exportBlockerList.at(-1)}`}.`;
   // aria-disabled (not disabled) keeps the button in the tab order so its reason is reachable; onClick ignores it.
   const powerBiExportDisabled = busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || exceedsExcel;
-  const exportDisabled = busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || !databaseReady || exceedsExcel || missingSqlServerKey;
+  const exportDisabled = exportBlockerList.length > 0;
   const exportFormatLabel = {
     csv: "CSV",
     csv_excel: "CSV para Excel",
@@ -389,6 +397,7 @@ export function DeliveryPhase({
       : { kind: "unvalidated" },
     privacyMode: selectedPrivacyMode,
     personalDataColumnCount: personalDataColumns.length,
+    importOrigin,
   });
   const approvedQualitySummary = contract.kind === "with_contract"
     && contract.gate.kind === "ready"

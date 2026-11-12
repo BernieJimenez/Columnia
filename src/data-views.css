@@ -77,12 +77,12 @@
 }
 
 /* Preparar: the work on the left, the versions in view on the right. */
-.prepare-layout { display: grid; gap: 28px; align-items: start; }
+.prepare-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; align-items: start; }
 .prepare-layout__main { min-width: 0; }
 @media (min-width: 1180px) {
   .prepare-layout { grid-template-columns: minmax(0, 1fr) 300px; }
   /* AUD-057: taller than the window, the panel scrolls on its own. */
-  .prepare-layout__aside { position: sticky; top: 88px; margin-top: 20px; max-height: calc(100dvh - 104px); overflow-y: auto; }
+  .prepare-layout__aside { position: sticky; top: calc(var(--topbar-height, 88px) + 8px); margin-top: 20px; max-height: calc(100dvh - var(--topbar-height, 88px) - 24px); overflow-y: auto; }
 }
 
 /* AUD-057: the result of a change and «Deshacer», pinned in view while the
@@ -288,7 +288,7 @@
 /* Cargar by source (2026-10-31): the cards, then only that source's panel. */
 .load-sources { margin: 4px 0 18px; }
 .load-sources .choice-cards__options { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
-.database-import { display: grid; gap: 12px; margin-top: 4px; }
+.database-import { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 4px; }
 .database-import > h3 { margin: 0; color: var(--text-primary); font-size: 1rem; }
 .load-source-panel .projects { margin-top: 0; padding-top: 0; border-top: 0; }
 .load-sources + .sample-datasets { margin-top: 0; padding-top: 0; border-top: 0; }

@@ -712,6 +712,13 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
     expect(screen.getByText(/Esta fuente se lee por bloques; las conversiones de fecha y número solo se aplican a archivos de menos de 512/)).toBeInTheDocument();
   });
 
+  it("solo avisa de la verificación del formato local cuando el origen es un archivo (AUD-062)", () => {
+    const view = render(<LoadPhase {...loadPhaseProps()} inspection={{ kind: "inspecting" }} />);
+    expect(screen.getByText("Esperando la selección y verificando el formato local…")).toBeInTheDocument();
+    view.rerender(<LoadPhase {...loadPhaseProps()} inspection={{ kind: "inspecting", origin: "database" }} />);
+    expect(screen.queryByText(/verificando el formato local/)).not.toBeInTheDocument();
+  });
+
   it("no falla cuando una acción opcional no recibe manejador", () => {
     const pending = delimitedHeaderInspection(delimitedSource);
     if (pending.kind !== "sheet") throw new Error("estado inesperado");
