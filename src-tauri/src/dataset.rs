@@ -2731,10 +2731,9 @@ where
     // Parquet this function would write; copying it saves reading the CSV
     // again (2019-Oct: about 40 s). A failed copy falls back to the CSV.
     // The copy is only returned for the reading it was made with.
-    if let (None, crate::duckdb_query::DuckDbFileFormat::Delimited { .. }) =
-        (history.source_snapshot_path.as_deref(), source_format)
-    {
-        if let Some(cached) = cached_profile_snapshot(source_path, source_format) {
+    // AUD-110: also valid for a CSV without header (`reusable_profile_copy`).
+    if history.source_snapshot_path.is_none() {
+        if let Some(cached) = reusable_profile_copy(source_path, source_format) {
             match history.prepare_parquet_snapshot(&cached, is_cancelled.clone()) {
                 Ok(prepared) => return Ok(prepared),
                 Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
@@ -5391,14 +5390,17 @@ fn source_backed_imputation_with_cancellation(
     let typed_columns = columns
         .iter()
         .map(|name| {
-            let numeric = !categorical_only
-                && dataset
-                    .frame
-                    .column(name)
-                    .ok()
-                    .and_then(|column| source_backed_numeric_imputation_type(column.dtype()))
-                    .is_some();
-            (name.clone(), numeric)
+            let dtype = dataset.frame.column(name).ok().map(|column| column.dtype());
+            let kind = match dtype {
+                Some(DataType::Int64) if !categorical_only => {
+                    crate::duckdb_query::FileImputationKind::Integer
+                }
+                Some(DataType::Float64) if !categorical_only => {
+                    crate::duckdb_query::FileImputationKind::Float
+                }
+                _ => crate::duckdb_query::FileImputationKind::Text,
+            };
+            (name.clone(), kind)
         })
         .collect::<Vec<_>>();
     let stats = match crate::duckdb_query::count_file_imputation_stats(
@@ -5419,7 +5421,8 @@ fn source_backed_imputation_with_cancellation(
     let mut numeric_types = HashMap::new();
     let mut changed_columns = Vec::new();
     let mut predicates = Vec::new();
-    for ((name, numeric), stats) in typed_columns.iter().zip(stats) {
+    for ((name, kind), stats) in typed_columns.iter().zip(stats) {
+        let numeric = *kind != crate::duckdb_query::FileImputationKind::Text;
         if stats.null_count == 0 {
             continue;
         }
@@ -5432,7 +5435,7 @@ fn source_backed_imputation_with_cancellation(
             continue;
         };
         replacements.insert(name.clone(), replacement);
-        if *numeric {
+        if numeric {
             let dtype = dataset
                 .frame
                 .column(name)
@@ -5824,12 +5827,9 @@ fn source_backed_safe_corrections_with_cancellation(
     // to the profile's Parquet copy of an unchanged CSV, which holds the same
     // text values (the CSV view is all_varchar), instead of parsing the CSV
     // again each time.
-    let profile_copy = matches!(
-        source_format,
-        crate::duckdb_query::DuckDbFileFormat::Delimited { .. }
-    )
-    .then(|| cached_profile_snapshot(&source_path, source_format))
-    .flatten();
+    // AUD-110: `reusable_profile_copy` decides validity in one place and also
+    // covers a CSV without header.
+    let profile_copy = reusable_profile_copy(&source_path, source_format);
     let (source_path, source_format) = match profile_copy.as_deref() {
         Some(copy) => (
             copy.to_owned(),
@@ -11223,20 +11223,14 @@ pub async fn get_explore_panel(
                 "parquet" => parquet_scan(&source_path)?,
                 // REN-14: the profile's working copy is read instead of the
                 // CSV when the file has not changed.
-                "csv" | "tsv" | "txt" if has_header => {
+                // AUD-110: also for a CSV without header (`column_N` names).
+                extension @ ("csv" | "tsv" | "txt") => {
                     explore_snapshot = current_duckdb_file_source(dataset)
-                        .and_then(|(_, format)| cached_profile_snapshot(&source_path, format));
+                        .and_then(|(_, format)| reusable_profile_copy(&source_path, format));
                     match explore_snapshot.as_deref() {
                         Some(snapshot) => parquet_scan(snapshot)?,
-                        None => delimited_scan_with_header(
-                            &source_path,
-                            &dataset_extension(&source_path)?,
-                            true,
-                        )?,
+                        None => delimited_scan_with_header(&source_path, extension, has_header)?,
                     }
-                }
-                extension @ ("csv" | "tsv" | "txt") => {
-                    delimited_scan_with_header(&source_path, extension, has_header)?
                 }
                 _ => return Err("Este formato todavía no se puede explorar.".to_owned()),
             }

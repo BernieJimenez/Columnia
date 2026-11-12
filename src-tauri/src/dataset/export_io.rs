@@ -918,6 +918,32 @@ where
     })
 }
 
+/// AUD-109: what a source-backed export reads. The CSV is read as text
+/// (`all_varchar`), and the profile's working copy of an unchanged file is the
+/// Parquet of that very reading (same names, order and text values), so every
+/// export gives the same file from the copy without parsing the CSV again.
+/// `_hold` keeps the copy alive while the export reads it.
+struct ExportRead {
+    _hold: Option<CachedProfileSnapshot>,
+    path: PathBuf,
+    format: crate::duckdb_query::DuckDbFileFormat,
+}
+
+fn export_read_of(source: &SourceBackedExportSource<'_>) -> ExportRead {
+    match reusable_profile_copy(source.path, source.format) {
+        Some(copy) => ExportRead {
+            path: copy.to_path_buf(),
+            format: crate::duckdb_query::DuckDbFileFormat::Parquet,
+            _hold: Some(copy),
+        },
+        None => ExportRead {
+            _hold: None,
+            path: source.path.to_path_buf(),
+            format: source.format,
+        },
+    }
+}
+
 /// Lets DuckDB write the CSV, JSON, SQL or Parquet export and makes that file
 /// the publication file. COD-15: it used to write a scratch file and copy it,
 /// twice the disk space and twice the writing for a large export; only a file
@@ -993,9 +1019,10 @@ where
                 .collect_schema()
                 .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
             let schema_frame = DataFrame::empty_with_schema(&schema);
+            let read = export_read_of(source);
             let replaced = write_source_backed_xlsx(
-                source.path,
-                source.format,
+                &read.path,
+                read.format,
                 &schema_frame,
                 row_count,
                 temporary.as_file_mut(),
@@ -1448,9 +1475,10 @@ where
                 .collect_schema()
                 .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
             let schema_frame = DataFrame::empty_with_schema(&schema);
+            let read = export_read_of(source);
             write_source_backed_sqlite(
-                source.path,
-                source.format,
+                &read.path,
+                read.format,
                 &schema_frame,
                 row_count,
                 temporary.path(),
@@ -1743,10 +1771,11 @@ where
         report,
         is_cancelled,
         |source, temporary, _, cancel| {
+            let read = export_read_of(source);
             write_through_scratch(temporary, "parquet", cancel, |partial, cancel| {
                 crate::duckdb_query::materialize_file_to_parquet_with_cancel(
-                    source.path,
-                    source.format,
+                    &read.path,
+                    read.format,
                     partial,
                     None,
                     cancel,
@@ -1813,10 +1842,11 @@ where
                     .write_all(UTF8_BOM)
                     .map_err(|error| format!("No se pudo escribir el CSV: {error}"))?;
             }
+            let read = export_read_of(source);
             write_through_scratch(temporary, "csv", cancel, |partial, cancel| {
                 crate::duckdb_query::export_file_to_delimited_with_cancel(
-                    source.path,
-                    source.format,
+                    &read.path,
+                    read.format,
                     partial,
                     if excel { ';' } else { ',' },
                     cancel,
@@ -1847,10 +1877,11 @@ where
         report,
         is_cancelled,
         |source, temporary, _, cancel| {
+            let read = export_read_of(source);
             write_through_scratch(temporary, "sql", cancel, |partial, cancel| {
                 crate::duckdb_query::export_file_to_sql_with_cancel(
-                    source.path,
-                    source.format,
+                    &read.path,
+                    read.format,
                     partial,
                     cancel,
                 )
@@ -1880,10 +1911,11 @@ where
         report,
         is_cancelled,
         |source, temporary, _, cancel| {
+            let read = export_read_of(source);
             write_through_scratch(temporary, "json", cancel, |partial, cancel| {
                 crate::duckdb_query::export_file_to_json_with_cancel(
-                    source.path,
-                    source.format,
+                    &read.path,
+                    read.format,
                     partial,
                     cancel,
                 )
@@ -1937,17 +1969,18 @@ where
             let scratch = tempfile::tempdir_in(&parent)
                 .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
             let dataset_path = scratch.path().join("dataset.partial.csv");
+            let read = export_read_of(source);
             crate::duckdb_query::export_file_to_csv_with_cancel(
-                source.path,
-                source.format,
+                &read.path,
+                read.format,
                 &dataset_path,
                 cancel.clone(),
             )?;
             ensure_not_cancelled(cancel())?;
             report("Preparando diccionario", 35);
             let null_counts = crate::duckdb_query::count_file_nulls(
-                source.path,
-                source.format,
+                &read.path,
+                read.format,
                 &column_names,
                 cancel.clone(),
             )?;
@@ -2869,15 +2902,11 @@ where
             // AUD-034: the script sizes the text from the longest value of
             // each column, a second read of the whole file; the profile's
             // copy of an unchanged file answers it by column.
-            let profile_copy = reusable_profile_copy(source.path, source.format);
-            let (read_path, read_format) = match profile_copy.as_deref() {
-                Some(copy) => (copy, crate::duckdb_query::DuckDbFileFormat::Parquet),
-                None => (source.path, source.format),
-            };
+            let read = export_read_of(source);
             write_through_scratch(temporary, "sql", cancel, |partial, cancel| {
                 crate::duckdb_query::export_file_to_tsql_with_cancel(
-                    read_path,
-                    read_format,
+                    &read.path,
+                    read.format,
                     partial,
                     target,
                     cancel,
@@ -2926,14 +2955,10 @@ where
                 .into_temp_path();
             // AUD-034: like the T-SQL script, the package reads the profile's
             // copy of an unchanged file for the text sizes and the rows.
-            let profile_copy = reusable_profile_copy(source.path, source.format);
-            let (read_path, read_format) = match profile_copy.as_deref() {
-                Some(copy) => (copy, crate::duckdb_query::DuckDbFileFormat::Parquet),
-                None => (source.path, source.format),
-            };
+            let read = export_read_of(source);
             let columns = crate::duckdb_query::export_file_to_bulk_csv_with_cancel(
-                read_path,
-                read_format,
+                &read.path,
+                read.format,
                 &csv,
                 target.fitted_text(),
                 cancel.clone(),

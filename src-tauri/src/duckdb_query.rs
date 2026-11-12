@@ -2262,10 +2262,18 @@ pub(crate) struct FileImputationStats {
     pub(crate) replacement: Option<String>,
 }
 
+/// How a column is imputed: mode for text, lower median for numbers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FileImputationKind {
+    Text,
+    Integer,
+    Float,
+}
+
 pub(crate) fn count_file_imputation_stats<C>(
     source_path: &Path,
     source_format: DuckDbFileFormat,
-    columns: &[(String, bool)],
+    columns: &[(String, FileImputationKind)],
     is_cancelled: C,
 ) -> Result<Vec<FileImputationStats>, String>
 where
@@ -2282,12 +2290,16 @@ where
         register_file_view(connection, "dataset", source_path, source_format, None)?;
         let select = columns
             .iter()
-            .flat_map(|(column, numeric)| {
+            .flat_map(|(column, kind)| {
                 let identifier = quote_identifier(column);
                 let null_count = format!("COUNT(*) FILTER (WHERE {identifier} IS NULL)");
-                let replacement = if *numeric {
+                let replacement = if *kind == FileImputationKind::Integer {
+                    // AUD-111: the lower median inside the same aggregation,
+                    // read as BIGINT so integers above 2^53 keep every digit.
+                    format!("CAST(quantile_disc({identifier}, 0.5) AS VARCHAR)")
+                } else if *kind == FileImputationKind::Float {
                     format!(
-                        "(SELECT CAST(quantile_disc(CAST({identifier} AS DOUBLE), 0.5) AS VARCHAR) FROM dataset WHERE {identifier} IS NOT NULL AND isfinite(CAST({identifier} AS DOUBLE)))"
+                        "CAST(quantile_disc({identifier}, 0.5) FILTER (WHERE isfinite({identifier})) AS VARCHAR)"
                     )
                 } else {
                     format!(

@@ -38,7 +38,8 @@ cerró la tanda 10 (AUD-115, 016, 017, 018, 019 y 114). Ese mismo día se cerró
 la tanda 11 (AUD-020, 103, 021, 102 y 099), después la tanda 12
 (AUD-027, 028, 029, 030, 031 y 032) después la tanda 13 (AUD-033, 104, 106
 y 107) y después la tanda 14 (AUD-039, 040, 041, 043, 038 y 042; en AUD-038 y
-AUD-042 el usuario dio por bueno un criterio ajustado).
+AUD-042 el usuario dio por bueno un criterio ajustado). Ese mismo día se cerró
+la tanda 15 (AUD-109, 110 y 111), con la que Rendimiento queda sin abiertas.
 
 <!-- indice:inicio -->
 **Última actualización:** 2026-11-11 · **Siguiente ID libre:** AUD-116 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
@@ -48,11 +49,11 @@ AUD-042 el usuario dio por bueno un criterio ajustado).
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 47 | 32 | 45 · 2 · 0 |
+| 3 · Bajo | 44 | 35 | 43 · 1 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **48** | **67** | **46 · 2 · 0** |
+| **Total** | **45** | **70** | **44 · 1 · 0** |
 
-**Abiertas por área:** UI/UX 17 · Documentación 9 · Accesibilidad 7 · QA y testing 7 · Redacción 5 · Rendimiento 3
+**Abiertas por área:** UI/UX 17 · Documentación 9 · Accesibilidad 7 · QA y testing 7 · Redacción 5
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -767,29 +768,32 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-11 · tanda 14 de la Fase 2 (en `master`). Las 6 copias de trabajo que escribe DuckDB usan `ROW_GROUP_SIZE 65536` (las de Polars ya lo hacían desde AUD-037), con prueba sobre `parquet_metadata()`. Con `POLARS_PARQUET_METRICS=1` en un Parquet sintético de 6 M filas (2019-Oct no está en disco): con el bloque del perfil, 134 → 92 descompresiones por columna (una por grupo) y 0,51 → 0,34 s; con el bloque de 16.384, 1,78 → 1,17 s; archivo +0,65 %.
 
-- [ ] **AUD-109 · Las demás exportaciones de un CSV grande vuelven a leer el archivo aunque exista la copia del perfil**
+- [x] **AUD-109 · Las demás exportaciones de un CSV grande vuelven a leer el archivo aunque exista la copia del perfil**
   - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Medio
   - **Ubicación:** `src-tauri/src/dataset/export_io.rs` (exportaciones `source_backed` a CSV, JSON, Excel, SQL, SQLite, Parquet y paquete)
   - **Qué hacer:** leer `reusable_profile_copy(source, format)` cuando exista, como ya hacen el script T-SQL y el paquete BULK INSERT desde AUD-034, y comprobar formato por formato que el resultado no cambia (tipos de las columnas de la copia frente a la lectura del CSV).
   - **Criterio de aceptación:** tras perfilar un CSV de más de un bloque, cada exportación da el mismo archivo con y sin la copia, y con la copia no relee el CSV.
   - **Depende de:** AUD-108 (formato de lectura de la exportación)
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-034.
+  - **Cierre:** 2026-11-11 · tanda 15 de la Fase 2 (en `master`). `export_read_of(source)` (`export_io.rs`) devuelve la copia del perfil, con su `CachedProfileSnapshot` vivo, o el CSV si no la hay; lo usan todas las exportaciones source-backed: CSV, CSV para Excel, JSON, SQL, Parquet, Excel, SQLite, paquete (filas y nulos), script T-SQL y paquete BULK INSERT (que dejan su bloque propio de AUD-034). La lectura del CSV es `all_varchar` y la copia es el Parquet de esa misma lectura, así que ningún formato cambia. El esquema con tipos de Excel, SQLite y el paquete sigue saliendo de Polars sobre el CSV (lectura corta de esquema). Prueba nueva: con un CSV de más de un bloque, los 10 formatos dan lo mismo con y sin copia, y tras sustituir el CSV por otro texto del mismo tamaño y fecha la salida no cambia (no se relee). No medido en la app real.
 
-- [ ] **AUD-110 · Correcciones seguras, Explorar y la línea base del historial no reutilizan la copia del perfil de un CSV sin encabezado**
+- [x] **AUD-110 · Correcciones seguras, Explorar y la línea base del historial no reutilizan la copia del perfil de un CSV sin encabezado**
   - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/dataset.rs`, `source_backed_safe_corrections_with_cancellation`; `get_explore_panel`; `dataset/comparison_engine.rs`, `prepare_source_backed_baseline_snapshot`
   - **Qué hacer:** sustituir sus condiciones propias (solo `Delimited`, o solo con encabezado) por `reusable_profile_copy(source, format)`, que ya admite `DelimitedWithoutHeader` y decide la validez en un solo sitio.
   - **Criterio de aceptación:** con un CSV sin encabezado perfilado, las tres rutas leen la copia (la ruta devuelta es la de la copia) y dan el mismo resultado que sin ella.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, nota de AUD-022 no aplicada en AUD-034.
+  - **Cierre:** 2026-11-11 · tanda 15 de la Fase 2 (en `master`). Las correcciones seguras, `get_explore_panel` y `prepare_source_backed_baseline_snapshot` usan `reusable_profile_copy(source, format)` en lugar de sus condiciones propias (solo `Delimited` o solo con encabezado), así que también reutilizan la copia de un CSV sin encabezado (`column_N`). Prueba nueva con un CSV sin encabezado: la versión de partida es byte a byte la copia, y Explorar y las correcciones seguras dan lo mismo con y sin ella. Explorar se comprueba con las mismas piezas, no con el comando (necesita `AppHandle`).
 
-- [ ] **AUD-111 · Las estadísticas de imputación lanzan una subconsulta por columna y calculan la mediana pasando por DOUBLE**
+- [x] **AUD-111 · Las estadísticas de imputación lanzan una subconsulta por columna y calculan la mediana pasando por DOUBLE**
   - **Área:** Rendimiento · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/duckdb_query.rs`, `count_file_imputation_stats` (≈`:2081-2146`), usada por `source_backed_imputation_with_cancellation` (`dataset.rs`)
   - **Qué hacer:** calcular cada mediana con `quantile_disc(x, 0.5) FILTER (...)` dentro de la misma agregación, como `parquet_lower_medians` desde AUD-035, en lugar de `(SELECT quantile_disc(CAST(col AS DOUBLE), 0.5) FROM dataset WHERE ...)` por columna, y sin pasar los enteros por DOUBLE.
   - **Criterio de aceptación:** k columnas cuestan una sola lectura del archivo, y un entero mayor que 2^53 da la misma mediana que la ruta en memoria.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-035 (visto en el código).
+  - **Cierre:** 2026-11-11 · tanda 15 de la Fase 2 (en `master`). `count_file_imputation_stats` recibe `FileImputationKind` (`Text`, `Integer`, `Float`) y calcula la mediana inferior dentro de la agregación única: `quantile_disc(col, 0.5)` en BIGINT para enteros y `... FILTER (WHERE isfinite(col))` para floats, sin subconsulta por columna ni paso por DOUBLE. Una columna `Int64`/`Float64` del dataset source-backed siempre viene de un Parquet tipado (un CSV cargado es todo texto), así que el `CAST` ya no hacía falta. Prueba nueva: 9007199254740993, …995, nulo y …997 dan …995 como la ruta en memoria (antes, …996). «Una sola lectura» por construcción, sin `EXPLAIN`. La moda de las columnas de texto sigue con una subconsulta por columna (sin tarea).
 
 ### Accesibilidad y semántica
 

@@ -342,6 +342,9 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- La mediana para rellenar vacíos de una columna entera con valores mayores que
+  2^53 ya no se redondea al pasar por coma flotante: coincide con la de un dataset en
+  memoria (AUD-111).
 - Importar desde SQL Server una tabla con un texto mal codificado (un
   carácter UTF-16 incompleto) ya no termina con «La importación se interrumpió
   inesperadamente»: se traen todas las filas, el carácter se sustituye por �
@@ -1301,6 +1304,13 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Tras analizar la calidad de un CSV grande, todas las exportaciones (CSV, JSON,
+  SQL, Parquet, Excel, SQLite y paquete) leen la copia que dejó el perfil en
+  lugar de volver a leer el CSV; el archivo exportado sale igual (AUD-109).
+- Con un CSV sin encabezado, las correcciones seguras, Explorar y la versión de
+  partida del historial también reutilizan la copia del perfil (AUD-110).
+- Rellenar vacíos con la mediana en un archivo grande calcula todas las
+  medianas en una sola lectura (AUD-111).
 - El paquete BULK INSERT de un archivo grande se prepara unas 3,5 veces más
   rápido: escribe el CSV con varios hilos y, desde 128 MiB, lo guarda en el ZIP
   sin comprimir, con la barra avanzando mientras se empaqueta. El ZIP de un CSV

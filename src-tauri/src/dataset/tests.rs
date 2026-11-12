@@ -2549,6 +2549,41 @@ fn source_backed_imputation_matches_eager_replacements_without_rows_in_memory() 
     );
 }
 
+/// AUD-111: the source-backed median keeps integers above 2^53 exact (no
+/// detour through DOUBLE) and matches the in-memory path, floats included.
+#[test]
+fn source_backed_imputation_median_keeps_integers_above_2_pow_53() {
+    let frame = df!(
+        "big" => [Some(9_007_199_254_740_993_i64), Some(9_007_199_254_740_995), None, Some(9_007_199_254_740_997)],
+        "ratio" => [Some(1.5_f64), Some(2.5), None, Some(10.5)]
+    )
+    .unwrap();
+    let (eager, _, _, _) = impute_missing_values_in_frame(&frame).unwrap();
+    let directory = tempfile::tempdir().expect("carpeta temporal");
+    let mut dataset = source_backed_parquet_dataset(directory.path(), &frame);
+    source_backed_imputation(&mut dataset, false)
+        .expect("la imputación source-backed debe procesarse")
+        .expect("la fuente debe ser compatible");
+    let current_path = dataset
+        .source_path
+        .as_deref()
+        .expect("la imputación debe conservar el snapshot actual")
+        .to_owned();
+    let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+    let big = current.column("big").unwrap().i64().unwrap();
+    assert_eq!(big.get(2), Some(9_007_199_254_740_995));
+    assert_eq!(
+        big.get(2),
+        eager.column("big").unwrap().i64().unwrap().get(2)
+    );
+    let ratio = current.column("ratio").unwrap().f64().unwrap();
+    assert_eq!(ratio.get(2), Some(2.5));
+    assert_eq!(
+        ratio.get(2),
+        eager.column("ratio").unwrap().f64().unwrap().get(2)
+    );
+}
+
 #[test]
 fn source_backed_direct_outlier_modes_match_eager_without_rows_in_memory() {
     for action in [
@@ -22924,6 +22959,208 @@ fn reads_of_a_profiled_csv_use_the_profile_copy_and_give_the_same_results() {
     assert!(reusable_profile_copy(&path, format).is_none());
 }
 
+/// AUD-109: every source-backed export of a profiled CSV (longer than one
+/// block) gives the same file with and without the profile copy, and with the
+/// copy it does not read the CSV: the CSV is replaced by another text of the
+/// same size and modification time (what the cache checks), so an export that
+/// still read it would differ.
+#[test]
+fn every_source_backed_export_of_a_profiled_csv_is_the_same_with_the_profile_copy() {
+    let text = csv_longer_than_one_block(true);
+    let path = temporary_csv(&text);
+    let size = fs::metadata(&path).expect("fuente").len();
+    let format = crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter: b',' };
+    let (_, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe abrirse en disco");
+    assert!(row_count > SOURCE_PROFILE_BLOCK_ROWS);
+    // The cache is keyed by the path the dataset and the export both resolve.
+    let (canonical, _, _) = validate_dataset_file(&path).expect("fuente válida");
+    clear_profile_snapshot_of(&canonical);
+    let output = tempfile::tempdir().expect("carpeta de salida");
+
+    let zip_text = |file: &Path, wanted: &[&str]| -> Vec<(String, String)> {
+        let mut archive = ZipArchive::new(File::open(file).expect("zip")).expect("zip válido");
+        wanted
+            .iter()
+            .map(|name| {
+                let mut entry = archive.by_name(name).expect("entrada del zip");
+                let mut contents = String::new();
+                std::io::Read::read_to_string(&mut entry, &mut contents).expect("texto UTF-8");
+                ((*name).to_owned(), contents)
+            })
+            .collect()
+    };
+    let export_all = |tag: &str| -> Vec<(&'static str, String)> {
+        // Same file names in both runs: the T-SQL table is named after them.
+        let folder = output.path().join(tag);
+        fs::create_dir_all(&folder).expect("carpeta de la tanda");
+        let file = |name: &str| folder.join(name);
+        let mut results: Vec<(&'static str, String)> = Vec::new();
+        let ignore = |_: &'static str, _: u8| {};
+
+        let destination = file("a.csv");
+        export_source_backed_delimited_atomic(
+            &path,
+            size,
+            format,
+            &destination,
+            false,
+            ignore,
+            || false,
+        )
+        .expect("CSV");
+        results.push(("csv", fs::read_to_string(&destination).expect("CSV")));
+
+        let destination = file("b.csv");
+        export_source_backed_delimited_atomic(
+            &path,
+            size,
+            format,
+            &destination,
+            true,
+            ignore,
+            || false,
+        )
+        .expect("CSV para Excel");
+        results.push((
+            "csv-excel",
+            fs::read_to_string(&destination).expect("CSV para Excel"),
+        ));
+
+        let destination = file("c.json");
+        export_source_backed_json_atomic(&path, size, format, &destination, ignore, || false)
+            .expect("JSON");
+        results.push(("json", fs::read_to_string(&destination).expect("JSON")));
+
+        let destination = file("d.sql");
+        export_source_backed_sql_atomic(&path, size, format, &destination, ignore, || false)
+            .expect("SQL");
+        results.push(("sql", fs::read_to_string(&destination).expect("SQL")));
+
+        let destination = file("e.parquet");
+        export_source_backed_parquet_atomic(&path, size, format, &destination, ignore, || false)
+            .expect("Parquet");
+        let frame = read_parquet_frame(&destination).expect("Parquet legible");
+        let mut csv = Vec::new();
+        CsvWriter::new(&mut csv)
+            .finish(&mut frame.clone())
+            .expect("Parquet como texto");
+        results.push((
+            "parquet",
+            format!(
+                "{:?}\n{}",
+                frame.schema(),
+                String::from_utf8(csv).expect("UTF-8")
+            ),
+        ));
+
+        let destination = file("f.xlsx");
+        export_source_backed_xlsx_atomic(
+            &path,
+            size,
+            format,
+            row_count,
+            &destination,
+            ignore,
+            || false,
+        )
+        .expect("Excel");
+        results.push((
+            "xlsx",
+            zip_text(&destination, &["xl/worksheets/sheet1.xml"])
+                .remove(0)
+                .1,
+        ));
+
+        let destination = file("g.sqlite");
+        export_source_backed_sqlite_atomic(
+            &path,
+            size,
+            format,
+            row_count,
+            &destination,
+            ignore,
+            || false,
+        )
+        .expect("SQLite");
+        let database = Connection::open(&destination).expect("SQLite legible");
+        let mut statement = database
+            .prepare("SELECT * FROM \"dataset\" ORDER BY rowid")
+            .expect("consulta");
+        let columns = statement.column_count();
+        let rows = statement
+            .query_map([], |row| {
+                (0..columns)
+                    .map(|index| row.get::<_, rusqlite::types::Value>(index))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .expect("filas")
+            .map(|row| format!("{:?}", row.expect("fila")))
+            .collect::<Vec<_>>()
+            .join("\n");
+        results.push(("sqlite", rows));
+
+        let destination = file("h.zip");
+        export_source_backed_bundle_atomic(
+            &path,
+            size,
+            format,
+            row_count,
+            None,
+            None,
+            &destination,
+            ignore,
+            || false,
+        )
+        .expect("paquete");
+        let entries = zip_text(&destination, &["dataset.csv", "dictionary.json"]);
+        results.push(("bundle-dataset", entries[0].1.clone()));
+        results.push(("bundle-dictionary", entries[1].1.clone()));
+
+        let destination = file("i.sql");
+        export_source_backed_tsql_atomic(&path, size, format, &destination, None, ignore, || false)
+            .expect("T-SQL");
+        results.push(("tsql", fs::read_to_string(&destination).expect("T-SQL")));
+        results
+    };
+
+    let without_copy = export_all("sin");
+    profile_source_backed_with_progress(
+        &canonical,
+        format,
+        size,
+        row_count,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("perfil en disco");
+    assert!(reusable_profile_copy(&canonical, format).is_some());
+
+    // Same size and modification time, other text: only a read of the CSV
+    // could notice it.
+    let modified = fs::metadata(&path)
+        .and_then(|metadata| metadata.modified())
+        .expect("fecha de la fuente");
+    fs::write(&path, text.replace('z', "y")).expect("texto distinto del mismo tamaño");
+    File::options()
+        .write(true)
+        .open(&path)
+        .and_then(|file| file.set_modified(modified))
+        .expect("restaurar la fecha");
+    assert_eq!(fs::metadata(&path).expect("fuente").len(), size);
+    assert!(reusable_profile_copy(&canonical, format).is_some());
+    let with_copy = export_all("con");
+    fs::write(&path, &text).expect("restaurar la fuente");
+    clear_profile_snapshot_of(&canonical);
+
+    assert_eq!(with_copy.len(), without_copy.len());
+    for ((name, with), (_, without)) in with_copy.iter().zip(&without_copy) {
+        assert!(!with.is_empty(), "{name} no puede salir vacío");
+        assert!(with == without, "la exportación {name} cambia con la copia");
+    }
+}
+
 /// AUD-034: a file without header profiled with the generated names has a
 /// copy with those names; the trend reads it and agrees with the projection.
 #[test]
@@ -24490,6 +24727,130 @@ fn the_plan_reads_the_profile_copy_with_the_same_result() {
         output.equals_missing(&expected_output),
         "{output}\n{expected_output}"
     );
+}
+
+/// AUD-110: safe corrections, Explorar and the history's first version read the
+/// profile's copy of a CSV without header (generated `column_N` names) and give
+/// the same results as without it.
+#[test]
+fn headerless_csv_routes_reuse_the_profile_copy_with_the_same_results() {
+    let csv = " Ana ,norte,5\nLuis,N/A,7\nAna,norte,5\nEva,,9\nAna,norte,5\n";
+    let build = || {
+        let path = temporary_csv(csv);
+        let (schema, _, row_count) = source_backed_load_with_header_mode(
+            &path,
+            "csv",
+            SpreadsheetHeaderMode::Generated,
+            || false,
+        )
+        .expect("la fuente debe abrirse sin encabezado");
+        let dataset = LoadedDataset {
+            source_path: Some(path.path_buf()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes: fs::metadata(&path).expect("fuente").len(),
+            row_count,
+            frame: schema.clone(),
+            source_backed: true,
+            delimited_header_mode: Some(SpreadsheetHeaderMode::Generated),
+            profile: None,
+            history: HistoryManager::deferred().expect("historial diferido"),
+        };
+        (path, schema, dataset)
+    };
+    let apply = |dataset: &mut LoadedDataset| {
+        let result = source_backed_safe_corrections_with_cancellation(
+            dataset,
+            true,
+            false,
+            true,
+            true,
+            None,
+            None,
+            None,
+            &PrepareCancellation::disabled(),
+            &mut |_, _| {},
+        )
+        .expect("el plan debe aplicarse")
+        .expect("el CSV debe procesarse en disco");
+        let output = read_parquet_frame(dataset.source_path.as_deref().expect("fuente"))
+            .expect("el resultado Parquet debe leerse");
+        (result, output)
+    };
+
+    // Without the copy.
+    let (path, schema, mut dataset) = build();
+    let (canonical, format) = current_duckdb_file_source(&dataset).expect("fuente en disco");
+    assert!(matches!(
+        format,
+        crate::duckdb_query::DuckDbFileFormat::DelimitedWithoutHeader { .. }
+    ));
+    clear_profile_snapshot_of(&canonical);
+    assert!(reusable_profile_copy(&canonical, format).is_none());
+    let history = HistoryManager::new(&schema).expect("historial");
+    let baseline_from_csv =
+        prepare_source_backed_baseline_snapshot(&history, &canonical, format, || false)
+            .expect("versión de partida desde el CSV");
+    let (expected, expected_output) = apply(&mut dataset);
+    let size = fs::metadata(&path).expect("fuente").len();
+    drop(dataset);
+
+    // With the copy.
+    let (path, _, mut dataset) = build();
+    let (canonical, format) = current_duckdb_file_source(&dataset).expect("fuente en disco");
+    clear_profile_snapshot_of(&canonical);
+    let profile = profile_source_backed_with_progress(
+        &canonical,
+        format,
+        size,
+        dataset.row_count,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+    .expect("perfil de un CSV sin encabezado");
+    let copy = reusable_profile_copy(&canonical, format).expect("la copia queda en caché");
+
+    // The history's first version is the copy itself.
+    let baseline_from_copy =
+        prepare_source_backed_baseline_snapshot(&history, &canonical, format, || false)
+            .expect("versión de partida desde la copia");
+    assert_eq!(
+        fs::read(baseline_from_copy.temporary.path()).unwrap(),
+        fs::read(&copy).unwrap()
+    );
+    let read = |snapshot: &PreparedHistorySnapshot| {
+        read_parquet_frame(snapshot.temporary.path()).expect("la versión se lee")
+    };
+    assert!(read(&baseline_from_copy).equals_missing(&read(&baseline_from_csv)));
+
+    // Explorar: the copy keeps the generated names and gives the same panel.
+    let layout = explore::ExploreLayout::default();
+    let from_copy = explore::explore_panel(parquet_scan(&copy).unwrap(), &profile, &[], &layout)
+        .expect("Explorar sobre la copia");
+    let from_csv = explore::explore_panel(
+        delimited_scan_with_header(&canonical, "csv", false).unwrap(),
+        &profile,
+        &[],
+        &layout,
+    )
+    .expect("Explorar sobre el CSV");
+    assert_eq!(
+        serde_json::to_value(&from_copy).unwrap(),
+        serde_json::to_value(&from_csv).unwrap()
+    );
+    drop(copy);
+
+    // Safe corrections.
+    let (result, output) = apply(&mut dataset);
+    assert_eq!(result.changed_cell_count, expected.changed_cell_count);
+    assert_eq!(result.removed_row_count, expected.removed_row_count);
+    assert_eq!(result.removed_row_count, 2);
+    assert!(
+        output.equals_missing(&expected_output),
+        "{output}\n{expected_output}"
+    );
+    clear_profile_snapshot_of(&canonical);
+    drop(path);
 }
 
 #[test]
