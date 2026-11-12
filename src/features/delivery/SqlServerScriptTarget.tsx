@@ -1,6 +1,7 @@
 import { useId } from "react";
 
 import type { SqlServerScriptOptions } from "../../bridge";
+import { busyDescribedBy } from "../../busyReasons";
 
 /** A new table named after the saved file, in dbo, with fitted text. */
 export const DEFAULT_SQL_SERVER_SCRIPT: SqlServerScriptOptions = {
@@ -56,7 +57,7 @@ export function SqlServerScriptTarget({ value, columns, disabled, onChange }: Sq
   }
 
   return (
-    <fieldset className="database-target sqlserver-script-target" disabled={disabled}>
+    <fieldset className="database-target sqlserver-script-target" disabled={disabled} aria-describedby={busyDescribedBy(disabled)}>
       <legend>Tabla en SQL Server</legend>
       <fieldset className="sqlserver-script-target__modes">
         <legend>Qué hace el script con la tabla</legend>

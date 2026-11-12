@@ -122,7 +122,7 @@ describe("ReusableTaskPanel", () => {
     expect(await screen.findByText(/1 decisión · base léxica/)).toBeInTheDocument();
     expect(screen.getByText(/La decisión se guarda con la tarea/)).toBeInTheDocument();
     const apply = screen.getByRole("button", { name: "Aplicar al dataset actual" });
-    await waitFor(() => expect(apply).toBeEnabled());
+    await waitFor(() => expect(apply).not.toHaveAttribute("aria-disabled"));
     fireEvent.click(apply);
     await waitFor(() => expect(onApply).toHaveBeenCalledWith(taskWithConversionPolicy));
   });
@@ -181,12 +181,12 @@ describe("ReusableTaskPanel", () => {
 
     fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
     const apply = screen.getByRole("button", { name: "Aplicar al dataset actual" });
-    expect(apply).toBeDisabled();
+    expect(apply).toHaveAttribute("aria-disabled", "true");
 
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("El esquema es compatible"));
     expect(bridge.openReusableTask).toHaveBeenCalledWith(taskSummary.id);
     expect(bridge.checkReusableTaskSchema).toHaveBeenCalledWith(taskSummary.id, schema);
-    expect(apply).toBeEnabled();
+    expect(apply).not.toHaveAttribute("aria-disabled");
 
     fireEvent.click(apply);
     await waitFor(() => expect(onApply).toHaveBeenCalledWith(savedTask));
@@ -219,7 +219,7 @@ describe("ReusableTaskPanel", () => {
     expect(mismatch).toHaveTextContent("Falta la columna “id”.");
     expect(mismatch).toHaveTextContent("“amount” cambió de Float64 a String.");
     expect(mismatch).toHaveTextContent("Cambió el orden de las columnas.");
-    expect(screen.getByRole("button", { name: "Aplicar al dataset actual" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Aplicar al dataset actual" })).toHaveAttribute("aria-disabled", "true");
     expect(onApply).not.toHaveBeenCalled();
   });
 
@@ -243,7 +243,7 @@ describe("ReusableTaskPanel", () => {
     expect(bridge.openReusableTask).toHaveBeenCalledWith(taskSummary.id);
     expect(bridge.checkReusableTaskSchema).not.toHaveBeenCalled();
     expect(screen.getByText("Configuración que se reutilizará")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Preparar próxima importación" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Preparar próxima importación" })).not.toHaveAttribute("aria-disabled");
 
     fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));
     await waitFor(() => expect(onPrepareImport).toHaveBeenCalledWith(taskSummary.id, savedTask));
@@ -279,11 +279,11 @@ describe("ReusableTaskPanel", () => {
       .toBeInTheDocument();
     expect(bridge.checkReusableTaskSchema).toHaveBeenCalledWith("task-2", schema);
     const apply = screen.getByRole("button", { name: "Aplicar al dataset actual" });
-    expect(apply).toBeEnabled();
+    expect(apply).not.toHaveAttribute("aria-disabled");
     fireEvent.click(apply);
     await waitFor(() => expect(onApply).toHaveBeenCalledWith({ ...draft, name: "Cierre semanal" }));
 
-    expect(screen.getByRole("button", { name: "Preparar próxima importación" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Preparar próxima importación" })).not.toHaveAttribute("aria-disabled");
     fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));
 
     await waitFor(() => expect(onPrepareImport).toHaveBeenCalledWith("task-2", { ...draft, name: "Cierre semanal" }));
@@ -333,5 +333,50 @@ describe("ReusableTaskPanel", () => {
     expect(screen.getByRole("button", { name: "Guardar" })).toBeDisabled();
     expect(bridge.openReusableTask).not.toHaveBeenCalled();
     expect(bridge.saveReusableTask).not.toHaveBeenCalled();
+  });
+
+  it("asocia el motivo de ocupado a los controles de tarea solo mientras están bloqueados (AUD-059)", async () => {
+    const renderPanel = (blocked: boolean) => render(
+      <ReusableTaskPanel connected blocked={blocked} schema={schema} draft={draft} onApply={vi.fn()} />,
+    );
+    renderPanel(true);
+    await waitFor(() => expect(bridge.listReusableTasks).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByText("Reutilizar una tarea"));
+    expect(screen.getByLabelText("Tarea guardada")).toHaveAttribute("aria-describedby", "busy-reason");
+    expect(screen.getByRole("button", { name: "Guardar" })).toHaveAttribute("aria-describedby", "busy-reason");
+    expect(screen.getByRole("textbox", { name: "Guardar configuración actual" }).getAttribute("aria-describedby"))
+      .toBe("reusable-task-name-help busy-reason");
+    cleanup();
+
+    renderPanel(false);
+    await waitFor(() => expect(bridge.listReusableTasks).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByText("Reutilizar una tarea"));
+    expect(screen.getByLabelText("Tarea guardada")).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("button", { name: "Guardar" })).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("los botones principales de la tarea siguen enfocables y no actúan mientras está ocupado (AUD-059)", async () => {
+    const onApply = vi.fn();
+    const onPrepareImport = vi.fn();
+    const { rerender } = render(
+      <ReusableTaskPanel connected blocked={false} schema={schema} draft={draft} onApply={onApply} onPrepareImport={onPrepareImport} />,
+    );
+    await waitFor(() => expect(bridge.listReusableTasks).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByText("Reutilizar una tarea"));
+    fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
+    const apply = await screen.findByRole("button", { name: "Aplicar al dataset actual" });
+    await waitFor(() => expect(apply).not.toHaveAttribute("aria-disabled"));
+    rerender(
+      <ReusableTaskPanel connected blocked schema={schema} draft={draft} onApply={onApply} onPrepareImport={onPrepareImport} />,
+    );
+    const prepare = screen.getByRole("button", { name: "Preparar próxima importación" });
+    for (const button of [apply, prepare]) {
+      expect(button).toHaveAttribute("aria-disabled", "true");
+      expect(button).toHaveAttribute("aria-describedby", "busy-reason");
+      expect(button).not.toBeDisabled();
+      fireEvent.click(button);
+    }
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onPrepareImport).not.toHaveBeenCalled();
   });
 });

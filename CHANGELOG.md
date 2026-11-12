@@ -1304,6 +1304,16 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- En la vista previa de Revisar, las cabeceras reservan el sitio del perfil
+  mientras se calcula, y la tabla ya no salta cuando llega (AUD-068, en curso:
+  queda un salto de unos 9 píxeles en columnas con varias señales).
+- En Explorar, el nombre largo de una barra se lee en dos líneas y entero al
+  pasar el cursor (AUD-070), y la franja de cifras ya no muestra bloques grises
+  cuando la última fila no se llena (AUD-071).
+- Mientras Columnia está ocupada, los controles de Cargar, de los proyectos, de
+  las tareas reutilizables, de la conexión a la base de datos y de la propuesta
+  de Preparar indican a qué esperan, y los botones principales siguen
+  recibiendo el foco para que un lector de pantalla lo lea (AUD-059, en curso).
 - Los paneles «Preferencias y recursos» y «Licencia y privacidad» se cierran
   con Esc (el foco vuelve a su botón) y con un clic fuera (AUD-063).
 - Si el motor no arranca, Cargar lo dice con el motivo y qué hacer («Cierra y
@@ -1681,6 +1691,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- `DESIGN.md` describe la paleta real de la barra lateral (oscura en todos los
+  temas), las pantallas Cargar, Preparar y Explorar y los puntos de corte del
+  shell; la tabla de contraste mide cinco pares más de la barra (AUD-069,
+  AUD-072).
 - `node tools/check-bundle.mjs budget` avisa cuando el `dist` no se compiló
   con el target de Windows (un build manual sin `TAURI_ENV_PLATFORM` pesa unos
   28 kB más y puede dar un falso rojo). Revisado el contenido del bundle; la

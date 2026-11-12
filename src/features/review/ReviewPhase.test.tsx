@@ -1500,6 +1500,32 @@ describe("ReviewPhase", () => {
     // Without a profile for the column there is nothing to describe.
     expect(screen.getByRole("columnheader", { name: /^nota / })).not.toHaveAttribute("aria-describedby");
   });
+
+  it("reserva el hueco del perfil con un esqueleto mientras llega y lo sustituye al llegar (AUD-068)", () => {
+    const view = (props: { profile?: DatasetProfile; profilePending?: boolean }) => (
+      <DatasetPreviewPanel dataset={dataset} pageOffset={0} pageLoading={false} onPageChange={vi.fn()} {...props} />
+    );
+    const { rerender } = render(view({ profilePending: true }));
+    const headers = screen.getAllByRole("columnheader");
+    for (const header of headers) {
+      const skeleton = header.querySelector(".col-profile--pending");
+      expect(skeleton).not.toBeNull();
+      expect(skeleton).toHaveAttribute("aria-hidden", "true");
+      expect(skeleton).toHaveTextContent("");
+      expect(skeleton).not.toHaveAttribute("id");
+      expect(header).not.toHaveAttribute("aria-describedby");
+    }
+    expect(document.querySelector(".preview-note--pending")).toHaveAttribute("aria-hidden", "true");
+
+    rerender(view({ profile, profilePending: false }));
+    expect(document.querySelector(".col-profile--pending")).toBeNull();
+    expect(document.querySelector(".preview-note--pending")).toBeNull();
+    expect(screen.getByRole("columnheader", { name: /^id / }).querySelector(".col-profile")).not.toBeNull();
+
+    // A profile that will not come leaves no skeleton behind.
+    rerender(view({ profilePending: false }));
+    expect(document.querySelector(".col-profile")).toBeNull();
+  });
 });
 
 describe("DatasetPreviewPanel · carga de página", () => {
@@ -1635,5 +1661,16 @@ describe("ReviewPhase · consulta SQL local", () => {
     );
 
     expect(screen.getByRole("list", { name: "Historial de consultas SQL" })).toHaveTextContent("Completada");
+  });
+
+  it("asocia el motivo de ocupado a la paginación solo mientras cambia de página (AUD-059)", () => {
+    const { rerender } = render(
+      <DatasetPreviewPanel dataset={dataset} pageOffset={50} pageLoading onPageChange={vi.fn()} />,
+    );
+    expect(screen.getByRole("button", { name: "Anterior" })).toHaveAttribute("aria-describedby", "busy-reason");
+    expect(screen.getByRole("button", { name: "Cargando…" })).toHaveAttribute("aria-describedby", "busy-reason");
+    rerender(<DatasetPreviewPanel dataset={dataset} pageOffset={50} pageLoading={false} onPageChange={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Anterior" })).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("button", { name: "Siguiente" })).not.toHaveAttribute("aria-describedby");
   });
 });

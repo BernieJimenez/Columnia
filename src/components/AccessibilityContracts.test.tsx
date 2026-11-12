@@ -46,8 +46,8 @@ describe("contratos de accesibilidad de la interfaz", () => {
     const panel = screen.getByRole("region", { name: "Proyectos" });
     expect(panel).toHaveAttribute("aria-busy", "true");
     expect(screen.getByRole("textbox", { name: "Nombre del proyecto" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /^Abrir\b/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: /^Abrir\b/ })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("button", { name: /^Eliminar(?! proyecto)/ })).toBeDisabled();
   });
 

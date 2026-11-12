@@ -151,7 +151,7 @@ describe("ProjectsPanel: estados y guardado (UX-17, QA-35)", () => {
     openOptions();
     fireEvent.change(screen.getByRole("textbox", { name: "Nombre del proyecto" }), { target: { value: "  " } });
     expect(screen.getByRole("alert")).toHaveTextContent("Escribe un nombre para el proyecto.");
-    expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("guarda una copia con otro nombre sin renombrar el proyecto abierto", () => {
@@ -176,5 +176,31 @@ describe("ProjectsPanel: estados y guardado (UX-17, QA-35)", () => {
     cleanup();
     renderPanel({ catalog: { kind: "error", message: "No se pudo leer una ruta local: acceso denegado" } });
     expect(screen.getByRole("alert")).toHaveTextContent("No se pudieron cargar los proyectos: No se pudo leer una ruta local: acceso denegado");
+  });
+
+  it("asocia el motivo de ocupado a los controles solo mientras están bloqueados (AUD-059)", () => {
+    const props = renderPanel({ disabled: true });
+    expect(screen.getByRole("region", { name: "Proyectos" })).toHaveAttribute("aria-describedby", "busy-reason");
+    const recover = screen.getByRole("button", { name: "Recuperar proyecto" });
+    expect(recover).toHaveAttribute("aria-disabled", "true");
+    expect(recover).toHaveAttribute("aria-describedby", "busy-reason");
+    fireEvent.click(recover);
+    expect(props.onOpen).not.toHaveBeenCalled();
+    openOptions();
+    const open = screen.getByRole("button", { name: /^Abrir\b/ });
+    expect(open).toHaveAttribute("aria-disabled", "true");
+    expect(open).toHaveAttribute("aria-describedby", "busy-reason");
+    fireEvent.click(open);
+    expect(props.onOpen).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toHaveAttribute("aria-describedby", "busy-reason");
+    cleanup();
+
+    const idle = renderPanel();
+    expect(screen.getByRole("region", { name: "Proyectos" })).not.toHaveAttribute("aria-describedby");
+    const recoverIdle = screen.getByRole("button", { name: "Recuperar proyecto" });
+    expect(recoverIdle).not.toHaveAttribute("aria-describedby");
+    expect(recoverIdle).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(recoverIdle);
+    expect(idle.onOpen).toHaveBeenCalledWith("recovery-id");
   });
 });

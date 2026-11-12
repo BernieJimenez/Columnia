@@ -848,4 +848,30 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
     expect(screen.queryByRole("radio", { name: /^Proyecto/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Seleccionar dataset" })).toBeInTheDocument();
   });
+
+  it("asocia el motivo de ocupado a la selección y deja el botón principal enfocable (AUD-059)", () => {
+    const onSelect = vi.fn();
+    const onSelectSample = vi.fn();
+    const sampleDatasets = [{ id: "quality", name: "Clientes", format: "csv", description: "Nulos." }];
+    const { rerender } = render(<LoadPhase {...loadPhaseProps({ disabled: true, onSelect, onSelectSample, sampleDatasets })} />);
+    const select = screen.getByRole("button", { name: "Seleccionar dataset" });
+    expect(select).toHaveAttribute("aria-disabled", "true");
+    expect(select).toHaveAttribute("aria-describedby", "busy-reason");
+    expect(select).not.toBeDisabled();
+    fireEvent.click(select);
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("radio", { name: /^Ejemplo/ }));
+    const sample = screen.getByRole("button", { name: /Clientes/ });
+    expect(sample).toBeDisabled();
+    expect(sample).toHaveAttribute("aria-describedby", "busy-reason");
+
+    rerender(<LoadPhase {...loadPhaseProps({ disabled: false, onSelect, onSelectSample, sampleDatasets })} />);
+    expect(screen.getByRole("button", { name: /Clientes/ })).not.toHaveAttribute("aria-describedby");
+    fireEvent.click(screen.getByRole("radio", { name: /^Archivo/ }));
+    const ready = screen.getByRole("button", { name: "Seleccionar dataset" });
+    expect(ready).not.toHaveAttribute("aria-disabled");
+    expect(ready).not.toHaveAttribute("aria-describedby");
+    fireEvent.click(ready);
+    expect(onSelect).toHaveBeenCalledOnce();
+  });
 });

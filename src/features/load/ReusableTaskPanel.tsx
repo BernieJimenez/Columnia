@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 
 import type { ReusableTask, ReusableTaskExceptionPolicy, ReusableTaskSchema } from "../../bridge";
+import { busyDescribedBy } from "../../busyReasons";
 import { createReusableTaskExceptionPolicy, exceptionPolicyMatchesSchema } from "./reusableTaskExceptions";
 import { useReusableTasks } from "./useReusableTasks";
 
@@ -191,6 +192,7 @@ export function ReusableTaskPanel({
                     if (taskId) void openAndReviewTask(taskId);
                   }}
                   disabled={blocked || reusableTasks.isBusy}
+                  aria-describedby={busyDescribedBy(blocked)}
                 >
                   <option value="">Selecciona una tarea</option>
                   {reusableTasks.tasks.map((task) => (
@@ -203,6 +205,7 @@ export function ReusableTaskPanel({
                     className="secondary-action"
                     onClick={() => setConfirmingDelete(true)}
                     disabled={blocked || reusableTasks.isBusy}
+                    aria-describedby={busyDescribedBy(blocked)}
                   >
                     Eliminar tarea
                   </button>
@@ -218,6 +221,7 @@ export function ReusableTaskPanel({
                     type="button"
                     className="danger-action"
                     disabled={blocked || reusableTasks.isBusy}
+                    aria-describedby={busyDescribedBy(blocked)}
                     onClick={async () => {
                       const removed = await reusableTasks.remove(selectedTaskId);
                       setConfirmingDelete(false);
@@ -292,6 +296,7 @@ export function ReusableTaskPanel({
                           aria-label={`Valores no interpretables en ${decision.column}`}
                           value={decision.onInvalid}
                           disabled={blocked || reusableTasks.isBusy}
+                          aria-describedby={busyDescribedBy(blocked)}
                           onChange={(event) => {
                             const onInvalid = event.target.value as typeof decision.onInvalid;
                             setExceptionPolicyDraft((current) => current ? {
@@ -358,7 +363,8 @@ export function ReusableTaskPanel({
                   type="button"
                   className="primary-action"
                   onClick={prepareSelectedTask}
-                  disabled={!canPrepareImport}
+                  aria-disabled={!canPrepareImport || undefined}
+                  aria-describedby={busyDescribedBy(blocked)}
                 >
                   {pendingTaskId === selectedTaskId ? "Tarea lista para importar" : "Preparar próxima importación"}
                 </button>
@@ -367,7 +373,8 @@ export function ReusableTaskPanel({
                     type="button"
                     className="secondary-action"
                     onClick={applySelectedTask}
-                    disabled={!canApply}
+                    aria-disabled={!canApply || undefined}
+                    aria-describedby={busyDescribedBy(blocked)}
                   >
                     Aplicar al dataset actual
                   </button>
@@ -380,7 +387,7 @@ export function ReusableTaskPanel({
                 <span>
                   Tarea “{pendingTaskName ?? reusableTasks.tasks.find((task) => task.id === pendingTaskId)?.name ?? "guardada"}” preparada. Al importar un archivo con el esquema compatible se aplicarán sus reglas y opciones de entrega; la receta quedará como borrador y no se ejecutará hasta que la apliques.
                 </span>
-                <button type="button" className="inline-action" onClick={onClearPendingImport} disabled={blocked}>
+                <button type="button" className="inline-action" onClick={onClearPendingImport} disabled={blocked} aria-describedby={busyDescribedBy(blocked)}>
                   Quitar
                 </button>
               </div>
@@ -400,12 +407,13 @@ export function ReusableTaskPanel({
                   }}
                   placeholder="Nombre de la tarea"
                   disabled={!draft || blocked || reusableTasks.isBusy}
-                  aria-describedby="reusable-task-name-help"
+                  aria-describedby={busyDescribedBy(blocked, "reusable-task-name-help")}
                 />
                 <button
                   type="submit"
                   className="secondary-action"
                   disabled={!draft || !taskName.trim() || blocked || reusableTasks.isBusy}
+                  aria-describedby={busyDescribedBy(blocked)}
                 >
                   {reusableTasks.workingAction === "save" ? "Guardando…" : "Guardar"}
                 </button>

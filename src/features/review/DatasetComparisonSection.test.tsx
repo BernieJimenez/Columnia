@@ -472,4 +472,13 @@ describe("DatasetComparisonSection", () => {
     for (const button of waiting) expect(button).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Resolver conflictos" })).not.toBeInTheDocument();
   });
+
+  it("asocia el motivo de ocupado a los controles de la comparación solo durante una mutación (AUD-059)", () => {
+    renderSection({ reviewMutationStatus: { kind: "running", mutation: "join", cancellation: "available" } as ReviewMutationStatus });
+    expect(screen.getByRole("button", { name: "Descartar comparación" })).toHaveAttribute("aria-describedby", "busy-reason");
+    expect(screen.getByRole("button", { name: "Esperando unión…" })).toBeDisabled();
+    cleanup();
+    renderSection();
+    expect(screen.getByRole("button", { name: "Descartar comparación" })).not.toHaveAttribute("aria-describedby");
+  });
 });

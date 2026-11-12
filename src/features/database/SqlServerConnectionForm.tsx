@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from "react";
 
+import { busyDescribedBy } from "../../busyReasons";
 import { listDatabaseDrivers, type DatabaseConnection } from "../../bridge";
 import {
   EMPTY_SQL_SERVER_CONNECTION,
@@ -9,6 +10,8 @@ import {
 
 interface SqlServerConnectionFormProps {
   disabled: boolean;
+  /** The app is busy (not just this form): the fields point to the global reason while disabled. */
+  blockedByBusy?: boolean;
   /** The connection fields, or null while something is missing. */
   onChange: (connection: DatabaseConnection | null) => void;
   /** The id of a message saying the connection is incomplete; marks its first field. */
@@ -20,7 +23,7 @@ interface SqlServerConnectionFormProps {
  * the fields go to Rust, which builds the string. The driver is the newest
  * installed one. Nothing is saved.
  */
-export function SqlServerConnectionForm({ disabled, onChange, errorId }: SqlServerConnectionFormProps) {
+export function SqlServerConnectionForm({ disabled, blockedByBusy = false, onChange, errorId }: SqlServerConnectionFormProps) {
   const id = useId();
   const [touched, setTouched] = useState(false);
   const [fields, setFields] = useState<DatabaseConnection>(EMPTY_SQL_SERVER_CONNECTION);
@@ -62,7 +65,7 @@ export function SqlServerConnectionForm({ disabled, onChange, errorId }: SqlServ
     [flagged === field ? statusId : undefined, field === "server" ? errorId : undefined].filter(Boolean).join(" ") || undefined;
 
   return (
-    <div className="connection-form">
+    <div className="connection-form" role="group" aria-label="Datos de conexión" aria-describedby={busyDescribedBy(blockedByBusy)}>
       <div className="connection-form__row">
         <div className="connection-form__field">
           <label htmlFor={`${id}-server`} className="connection-form__required-label">Servidor</label>

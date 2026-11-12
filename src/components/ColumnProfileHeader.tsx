@@ -53,6 +53,8 @@ interface ColumnProfileHeaderProps {
   profileId?: string;
   /** The profile of this column; without it the header shows name and type only. */
   profile?: ColumnProfile;
+  /** The profile is still on its way: reserve the block's height so the table does not jump when it lands. */
+  pending?: boolean;
   rowCount: number;
 }
 
@@ -61,13 +63,19 @@ interface ColumnProfileHeaderProps {
  * many distinct values it has, its range and distribution, and any quality
  * signal. The figures come from the whole dataset, not from the visible page.
  */
-export const ColumnProfileHeader = memo(function ColumnProfileHeader({ column, profile, profileId, rowCount }: ColumnProfileHeaderProps) {
+export const ColumnProfileHeader = memo(function ColumnProfileHeader({ column, profile, profileId, pending = false, rowCount }: ColumnProfileHeaderProps) {
   const type = formatDataType(column.dataType);
   if (!profile) {
     return (
       <>
         <span>{column.name}</span>
         <small>{type}</small>
+        {pending && (
+          // Decorative: same footprint as the final block, no text and no id, so nothing points at it.
+          <span className="col-profile col-profile--pending" aria-hidden="true">
+            <span className="col-profile__fill" />
+          </span>
+        )}
       </>
     );
   }

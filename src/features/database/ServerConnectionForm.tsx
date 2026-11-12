@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 
+import { busyDescribedBy } from "../../busyReasons";
 import { listDatabaseDrivers, type DatabaseConnection } from "../../bridge";
 import { errorMessage } from "../../bridge/errors";
 import {
@@ -12,6 +13,8 @@ import {
 interface ServerConnectionFormProps {
   kind: ServerDatabaseKind;
   disabled: boolean;
+  /** The app is busy (not just this form): the fields point to the global reason while disabled. */
+  blockedByBusy?: boolean;
   /** The connection fields, or null while something is missing. */
   onChange: (connection: DatabaseConnection | null) => void;
   /** The id of a message saying the connection is incomplete; marks its first field. */
@@ -23,7 +26,7 @@ interface ServerConnectionFormProps {
  * ODBC string (Rust builds it from the fields), with the preferred installed
  * driver. Nothing is saved.
  */
-export function ServerConnectionForm({ kind, disabled, onChange, errorId }: ServerConnectionFormProps) {
+export function ServerConnectionForm({ kind, disabled, blockedByBusy = false, onChange, errorId }: ServerConnectionFormProps) {
   const id = useId();
   const engine = SERVER_ENGINES[kind];
   const statusId = `${id}-status`;
@@ -83,7 +86,7 @@ export function ServerConnectionForm({ kind, disabled, onChange, errorId }: Serv
     [flagged === field ? statusId : undefined, field === "server" ? errorId : undefined].filter(Boolean).join(" ") || undefined;
 
   return (
-    <div className="connection-form">
+    <div className="connection-form" role="group" aria-label="Datos de conexión" aria-describedby={busyDescribedBy(blockedByBusy)}>
       <div className="connection-form__row connection-form__row--server">
         <div className="connection-form__field">
           <label htmlFor={`${id}-server`} className="connection-form__required-label">Servidor</label>

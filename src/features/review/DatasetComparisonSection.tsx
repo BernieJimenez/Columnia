@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { busyDescribedBy } from "../../busyReasons";
 import { cancelOperation } from "../../bridge";
 import type {
   ComparisonOptions,
@@ -230,6 +231,7 @@ export function DatasetComparisonSection({
           type="button"
           onClick={status.kind === "loading" ? onCancelComparison : onCompare}
           disabled={reviewMutationBusy || (status.kind === "loading" && comparisonCancellationPending)}
+          aria-describedby={busyDescribedBy(reviewMutationBusy)}
         >
           {status.kind === "loading"
             ? comparisonCancellationPending ? "Esperando cancelación…" : "Cancelar comparación"
@@ -252,6 +254,7 @@ export function DatasetComparisonSection({
                 type="checkbox"
                 checked={keyColumns.includes(column.name)}
                 disabled={reviewMutationBusy || status.kind === "loading" || status.kind === "ready"}
+                aria-describedby={busyDescribedBy(reviewMutationBusy)}
                 onChange={() => {
                   onKeyColumnsChange(
                     keyColumns.includes(column.name)
@@ -293,6 +296,7 @@ export function DatasetComparisonSection({
                 type="checkbox"
                 checked={options[option]}
                 disabled={reviewMutationBusy || status.kind === "loading" || status.kind === "ready"}
+                aria-describedby={busyDescribedBy(reviewMutationBusy)}
                 onChange={() => onOptionsChange({ ...options, [option]: !options[option] })}
               />
               <span>
@@ -324,6 +328,7 @@ export function DatasetComparisonSection({
                   checked={joinType === value}
                   onChange={() => onJoinTypeChange(value)}
                   disabled={reviewMutationBusy}
+                  aria-describedby={busyDescribedBy(reviewMutationBusy)}
                 />
                 <span>
                   <strong>{label}</strong>
@@ -336,6 +341,7 @@ export function DatasetComparisonSection({
             type="button"
             className="primary-action"
             onClick={() => activeReviewMutation === "join" ? onCancelReviewMutation() : onJoin(joinType)}
+            aria-describedby={busyDescribedBy(reviewMutationBusy)}
             disabled={
               // UX-16: a join during a comparison in progress did nothing.
               (status.kind === "loading" && activeReviewMutation !== "join")
@@ -457,10 +463,10 @@ export function DatasetComparisonSection({
                   <h4 id="conflict-resolution-title">Resolver conflictos por clave</h4>
                   <p>Elige el origen de cada celda divergente o excluye una clave del resultado. No se modifica nada hasta confirmar todas las decisiones.</p>
                   <div className="conflict-resolution__bulk" role="group" aria-label="Decidir varios conflictos a la vez">
-                    <button type="button" onClick={() => chooseSourceForVisiblePage("current")} disabled={reviewMutationBusy}>
+                    <button type="button" onClick={() => chooseSourceForVisiblePage("current")} disabled={reviewMutationBusy} aria-describedby={busyDescribedBy(reviewMutationBusy)}>
                       Conservar el activo en esta página
                     </button>
-                    <button type="button" onClick={() => chooseSourceForVisiblePage("compared")} disabled={reviewMutationBusy}>
+                    <button type="button" onClick={() => chooseSourceForVisiblePage("compared")} disabled={reviewMutationBusy} aria-describedby={busyDescribedBy(reviewMutationBusy)}>
                       Usar el comparado en esta página
                     </button>
                     <button
@@ -468,6 +474,7 @@ export function DatasetComparisonSection({
                       aria-pressed={remainingConflictsSource === "current"}
                       onClick={() => setRemainingConflictsSource((current) => current === "current" ? null : "current")}
                       disabled={reviewMutationBusy}
+                      aria-describedby={busyDescribedBy(reviewMutationBusy)}
                     >
                       Conservar el activo en los demás conflictos
                     </button>
@@ -476,6 +483,7 @@ export function DatasetComparisonSection({
                       aria-pressed={remainingConflictsSource === "compared"}
                       onClick={() => setRemainingConflictsSource((current) => current === "compared" ? null : "compared")}
                       disabled={reviewMutationBusy}
+                      aria-describedby={busyDescribedBy(reviewMutationBusy)}
                     >
                       Usar el comparado en los demás conflictos
                     </button>
@@ -493,6 +501,7 @@ export function DatasetComparisonSection({
                   onClick={() => activeReviewMutation === "resolveConflicts"
                     ? onCancelReviewMutation()
                     : onResolveConflicts(selectedConflictDecisions())}
+                  aria-describedby={busyDescribedBy(reviewMutationBusy)}
                   disabled={reviewMutationBusy
                     ? activeReviewMutation !== "resolveConflicts"
                       || reviewMutationFinalizing
@@ -545,6 +554,7 @@ export function DatasetComparisonSection({
                         aria-label={`Excluir la fila activa de la clave ${conflict.key.map(cellText).join(" · ")}`}
                         checked={excludedConflictIndexes[globalConflictIndex] === true}
                         disabled={reviewMutationBusy}
+                        aria-describedby={busyDescribedBy(reviewMutationBusy)}
                         onChange={(event) => chooseConflictExclusion(globalConflictIndex, event.currentTarget.checked)}
                       />
                       Excluir la fila activa de esta clave del resultado
@@ -566,6 +576,7 @@ export function DatasetComparisonSection({
                                 name={`conflict-${conflictIndex}-${cell.column}`}
                                 checked={conflictChoices[choiceKey] === "current"}
                                 disabled={reviewMutationBusy || excludedConflictIndexes[globalConflictIndex] === true}
+                                aria-describedby={busyDescribedBy(reviewMutationBusy)}
                                 onChange={() => chooseConflictSource(globalConflictIndex, cell.column, "current")}
                               />
                               Conservar activo en {cell.column}
@@ -576,6 +587,7 @@ export function DatasetComparisonSection({
                                 name={`conflict-${conflictIndex}-${cell.column}`}
                                 checked={conflictChoices[choiceKey] === "compared"}
                                 disabled={reviewMutationBusy || excludedConflictIndexes[globalConflictIndex] === true}
+                                aria-describedby={busyDescribedBy(reviewMutationBusy)}
                                 onChange={() => chooseConflictSource(globalConflictIndex, cell.column, "compared")}
                               />
                               Usar comparado en {cell.column}
@@ -601,6 +613,7 @@ export function DatasetComparisonSection({
                     type="button"
                     onClick={() => void requestConflictPage(Math.max(0, status.comparison.conflictOffset - CONFLICT_PAGE_SIZE))}
                     disabled={reviewMutationBusy || conflictPageLoading || status.comparison.conflictOffset === 0}
+                    aria-describedby={busyDescribedBy(reviewMutationBusy)}
                   >
                     Conflictos anteriores
                   </button>
@@ -612,6 +625,7 @@ export function DatasetComparisonSection({
                     type="button"
                     onClick={() => void requestConflictPage(status.comparison.conflictOffset + status.comparison.conflicts.length)}
                     disabled={reviewMutationBusy || conflictPageLoading || !status.comparison.conflictsTruncated || !visibleConflictPageComplete}
+                    aria-describedby={busyDescribedBy(reviewMutationBusy)}
                   >
                     {conflictPageLoading ? "Cargando conflictos…" : "Siguientes conflictos"}
                   </button>
@@ -638,6 +652,7 @@ export function DatasetComparisonSection({
               className="secondary-action"
               onClick={onClear}
               disabled={reviewMutationBusy}
+              aria-describedby={busyDescribedBy(reviewMutationBusy)}
             >
               Descartar comparación
             </button>
@@ -645,6 +660,7 @@ export function DatasetComparisonSection({
               type="button"
               className="primary-action"
               onClick={() => activeReviewMutation === "consolidate" ? onCancelReviewMutation() : onConsolidate()}
+              aria-describedby={busyDescribedBy(reviewMutationBusy)}
               disabled={
                 !status.comparison.canConsolidate
                 || (reviewMutationBusy

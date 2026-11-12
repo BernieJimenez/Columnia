@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { busyDescribedBy } from "../../busyReasons";
 import { ModalDialog } from "../../components/ModalDialog";
 import type { ProjectSummary, ProjectVersionSummary } from "../../bridge";
 import {
@@ -132,7 +133,7 @@ export function ProjectsPanel({
     : "";
 
   return (
-    <section className="projects" aria-labelledby="projects-title" aria-busy={disabled}>
+    <section className="projects" aria-labelledby="projects-title" aria-busy={disabled} aria-describedby={busyDescribedBy(disabled)}>
       <div className="projects__heading">
         <div>
           <p className="eyebrow">Continuidad local</p>
@@ -179,7 +180,7 @@ export function ProjectsPanel({
             <strong>Continuar la última sesión</strong>
             <span>{recovery.name} · {recovery.datasetFileName}</span>
           </div>
-          <button type="button" className="primary-action" onClick={() => onOpen(recovery.id)} disabled={disabled}>
+          <button type="button" className="primary-action" onClick={() => { if (!disabled) onOpen(recovery.id); }} aria-disabled={disabled || undefined} aria-describedby={busyDescribedBy(disabled)}>
             Recuperar proyecto
           </button>
         </div>
@@ -195,7 +196,7 @@ export function ProjectsPanel({
           </p>
 
           {datasetFileName && (
-            <form className="project-save" onSubmit={(event) => { event.preventDefault(); onSave(name); }} noValidate>
+            <form className="project-save" onSubmit={(event) => { event.preventDefault(); if (!disabled && validation.valid) onSave(name); }} noValidate>
               <label htmlFor="project-name">Nombre del proyecto</label>
               <div>
                 <input
@@ -207,7 +208,7 @@ export function ProjectsPanel({
                   aria-invalid={!validation.valid && name.length > 0}
                   aria-describedby="project-name-help"
                 />
-                <button type="submit" className="primary-action" disabled={disabled || !validation.valid}>
+                <button type="submit" className="primary-action" aria-disabled={disabled || !validation.valid || undefined} aria-describedby={busyDescribedBy(disabled)}>
                   {activeProject ? "Actualizar proyecto" : "Guardar proyecto nuevo"}
                 </button>
                 {activeProject && onSaveCopy && (
@@ -339,7 +340,7 @@ export function ProjectsPanel({
                     </div>
                     <div className="project-list__actions">
                       {/* ACC-12: each row's buttons name their project. */}
-                      <button type="button" aria-label={`Abrir ${project.name}`} onClick={() => onOpen(project.id)} disabled={disabled}>Abrir</button>
+                      <button type="button" aria-label={`Abrir ${project.name}`} onClick={() => { if (!disabled) onOpen(project.id); }} aria-disabled={disabled || undefined} aria-describedby={busyDescribedBy(disabled)}>Abrir</button>
                       <button type="button" aria-label={`Eliminar ${project.name}`} className="project-list__delete" onClick={() => onDeleteRequest(project)} disabled={disabled}>Eliminar</button>
                     </div>
                   </li>

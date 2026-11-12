@@ -667,6 +667,13 @@ Interfaz y bundle, decisiones de la tanda 18 de la auditoría (2026-11-12):
 - `vite build` escribe `.local/validation/frontend-build-target.json` y `check-bundle.mjs budget` lo lee para avisar del target; el aviso no cambia el veredicto. Un build exploratorio con otro `--outDir` sobrescribe la marca: recompilar antes de medir (AUD-079).
 - peso de `index-*.js` (medido con sourcemap el 2026-11-12, aproximado): `react-dom` 207 kB de 429 kB; lo reducible es código propio cargado de entrada (AUD-116).
 
+Interfaz, decisiones de la tanda 19 de la auditoría (2026-11-12):
+- un control bloqueado por «ocupado» enlaza el motivo con `busyDescribedBy(busy, ...ids)` (`src/busyReasons.ts`), no con un texto propio. Solo el botón principal de cada grupo pasa a `aria-disabled` con guardia en el manejador; los campos y los secundarios siguen con `disabled`. Un botón nuevo con `aria-disabled` necesita su regla de estilo: las de `shell.css` cubren `.primary-action`, `.secondary-action`, la paginación y el historial, y `styles.css` los de la lista de proyectos (AUD-059).
+- los «Aplicar» de la propuesta de Preparar no pueden pasar a `aria-disabled` sin tocar `.prepare-proposal__primary:is(:not(:disabled), [data-waiting])` de `workflow-styles.css`, que decide cuál es la acción primaria del pie (AUD-059, abierta).
+- la cabecera de columna reserva la altura del perfil con `min-height` en `.col-profile` (barra, histograma y tres líneas) y un esqueleto sin animación; un bloque más alto que eso (varias señales en una columna estrecha) todavía crece al llegar (AUD-068, abierta).
+- la franja de cifras de Explorar dibuja los separadores con el contorno de cada cifra, no con `gap` sobre el fondo del contenedor (AUD-071).
+- **Trampa de las pruebas:** para ver en Playwright un estado «análisis en curso», envolver `__TAURI_INTERNALS__.invoke` en un `addInitScript` posterior al del mock y retener `get_dataset_profile` con una promesa que la prueba suelta.
+
 Interfaz, decisiones de la tanda 7 de la auditoría (2026-11-09):
 - las celdas de las tablas de datos pasan por `renderCellValue`: un texto de más de 36 caracteres va en `span.cell-clip` (tope de 36ch en el elemento interior, porque `max-width` en un `td` no limita una tabla con `table-layout: auto`), con `title` y expansión al recibir el foco (AUD-056).
 - en Preparar, el resultado del último cambio se muestra dos veces: en el historial (`role="status"`, el que se anuncia) y en la línea fija `ChangeResultLine` arriba de las herramientas (sin región viva, para no anunciarlo dos veces). Las pruebas que buscan el mensaje deben acotarse a una de las dos (AUD-057).

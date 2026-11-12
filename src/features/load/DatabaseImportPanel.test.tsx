@@ -289,4 +289,35 @@ describe("DatabaseImportPanel", () => {
     expect(screen.getByLabelText("Servidor")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Ver tablas" })).toBeDisabled();
   });
+
+  it("asocia el motivo de ocupado al motor, la conexión y «Ver tablas» solo mientras está bloqueado (AUD-059)", () => {
+    const { rerender } = render(<DatabaseImportPanel connected blocked onImport={vi.fn()} />);
+    expect(screen.getByRole("group", { name: "Motor" })).toHaveAttribute("aria-describedby", "busy-reason");
+    expect(screen.getByRole("group", { name: "Datos de conexión" })).toHaveAttribute("aria-describedby", "busy-reason");
+    const show = screen.getByRole("button", { name: "Ver tablas" });
+    expect(show).toHaveAttribute("aria-disabled", "true");
+    expect(show).toHaveAttribute("aria-describedby", "busy-reason");
+
+    rerender(<DatabaseImportPanel connected blocked={false} onImport={vi.fn()} />);
+    expect(screen.getByRole("group", { name: "Motor" })).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("group", { name: "Datos de conexión" })).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("button", { name: "Ver tablas" })).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("asocia el motivo de ocupado a la tabla y a «Traer» una vez listadas las tablas (AUD-059)", async () => {
+    vi.spyOn(bridge, "listDatabaseTables").mockResolvedValue([{ schema: "dbo", name: "Ventas", isView: false }]);
+    const { rerender } = render(<DatabaseImportPanel connected blocked={false} onImport={vi.fn()} />);
+    await fillConnection();
+    fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
+    const table = await screen.findByLabelText("Tabla o vista");
+    expect(table).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("button", { name: "Traer dbo.Ventas" })).not.toHaveAttribute("aria-describedby");
+
+    rerender(<DatabaseImportPanel connected blocked onImport={vi.fn()} />);
+    expect(screen.getByLabelText("Tabla o vista")).toHaveAttribute("aria-describedby", "busy-reason");
+    expect(screen.getByLabelText("Filas como máximo")).toHaveAttribute("aria-describedby", "busy-reason");
+    const bring = screen.getByRole("button", { name: "Traer dbo.Ventas" });
+    expect(bring).toHaveAttribute("aria-disabled", "true");
+    expect(bring).toHaveAttribute("aria-describedby", "busy-reason");
+  });
 });

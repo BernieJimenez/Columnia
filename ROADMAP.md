@@ -44,21 +44,23 @@ tanda 16 (AUD-049, 050, 051, 052, 053 y 054), aplicada en paralelo, y la tanda 1
 (AUD-055, 058, 060, 061 y 062; AUD-059 avanza y sigue abierta), con la que
 Accesibilidad queda sin abiertas y el catálogo de proyectos pasa a la versión 17.
 El 2026-11-12 se cerró la tanda 18 (AUD-079, 063, 064, 065, 066 y 067) y se
-abrió AUD-116, salida de la revisión del bundle de AUD-079.
+abrió AUD-116, salida de la revisión del bundle de AUD-079. Ese mismo día se
+cerró la tanda 19 (AUD-069, 070, 071 y 072; AUD-059 y AUD-068 avanzan y siguen
+abiertas) y se abrió AUD-117.
 
 <!-- indice:inicio -->
-**Última actualización:** 2026-11-12 · **Siguiente ID libre:** AUD-117 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
+**Última actualización:** 2026-11-12 · **Siguiente ID libre:** AUD-118 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
 
 | Tier | Abiertas | Cerradas | Esfuerzo de las abiertas (Bajo · Medio · Alto) |
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 28 | 52 | 26 · 2 · 0 |
+| 3 · Bajo | 25 | 56 | 23 · 2 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **29** | **87** | **27 · 2 · 0** |
+| **Total** | **26** | **91** | **24 · 2 · 0** |
 
-**Abiertas por área:** Documentación 9 · UI/UX 8 · QA y testing 7 · Redacción 5
+**Abiertas por área:** Documentación 9 · QA y testing 7 · UI/UX 5 · Redacción 5
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -884,6 +886,7 @@ Sin tareas abiertas.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
   - **Avance:** 2026-11-11 · tanda 17 de la Fase 2 (en `master`). Primera frase del criterio cumplida: con «Guardar proyecto» desactivado, la barra dice «Sin guardar · disponible al terminar el análisis de calidad» (o la operación que toque), y el botón lo asocia con `aria-describedby`. `src/busyReasons.ts` deriva un solo motivo de las banderas (las mismas de `data-busy-reasons`, que no cambia), en un nodo `#busy-reason` sin rol vivo (cambia en cada carga de página), al que apuntan las etapas, «Volver a…» y «Continuar…». **Queda abierta:** los grupos de controles de `LoadPhase`, `DatabaseImportPanel`, `ReusableTaskPanel`, `ProjectsPanel`, los formularios de conexión, `SqlServerScriptTarget`, `PrepareProposal` y Revisar no asocian todavía el motivo; y en los botones con `disabled` real el `aria-describedby` no lo lee un lector de pantalla al tabular (habría que pasar los críticos a `aria-disabled`, como en AUD-049). No se comprobó en el navegador (el mock no deja el análisis en curso).
+  - **Avance:** 2026-11-12 · tanda 19 de la Fase 2 (en `master`). `busyDescribedBy()` (`src/busyReasons.ts`) asocia `#busy-reason` solo mientras dura el bloqueo en `LoadPhase`, `DatabaseImportPanel`, los formularios de conexión (ahora `role="group"` «Datos de conexión»), `SqlServerScriptTarget`, `ReusableTaskPanel`, `ProjectsPanel`, `PrepareProposal`, la paginación de Revisar y los controles de la comparación. Pasan a `aria-disabled` con guardia: «Seleccionar dataset», «Preparar próxima importación», «Aplicar al dataset actual», «Recuperar proyecto», «Abrir» y «Guardar proyecto nuevo». Comprobado en el navegador con el análisis retenido: «Seleccionar otro dataset» recibe el foco y enlaza «Disponible al terminar el análisis de calidad.», y deja de hacerlo al terminar. **Queda abierta:** los «Aplicar» de `PrepareProposal.tsx` siguen con `disabled` (pasarlos a `aria-disabled` rompe `.prepare-proposal__primary:is(:not(:disabled), [data-waiting])` de `workflow-styles.css`); los tres botones principales de `DatasetComparisonSection.tsx` (unir, resolver conflictos, consolidar), que también hacen de «Cancelar»; los más de 25 botones de `PreparePhase.tsx`; los diálogos de `ProjectsPanel.tsx`; y `projects.isBusy`, que bloquea sin estar en las banderas del motivo (el nodo queda vacío). Los botones que pasaron a `aria-disabled` son enfocables también cuando el bloqueo no es por ocupado (sin tarea abierta, nombre inválido), sin motivo asociado.
 
 - [x] **AUD-060 · El motivo del botón «Exportar» omite dos de sus bloqueos**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
@@ -964,38 +967,51 @@ Sin tareas abiertas.
   - **Criterio de aceptación:** al llegar el perfil, la primera fila de datos no cambia de posición vertical.
   - **Depende de:** ninguna; hacerla junto con AUD-044 (misma cabecera)
   - **Origen:** auditoría 2026-11-05
+  - **Avance:** 2026-11-12 · tanda 19 de la Fase 2 (en `master`). Mientras el perfil está en camino (`idle` o `loading`), cada cabecera pinta un esqueleto `aria-hidden` sin animación (`.col-profile--pending`), la tabla ya lleva `table--profiled` y la nota de encima ocupa su sitio invisible; `.col-profile` tiene una altura mínima de barra, histograma y tres líneas (`calc(33px + 4.05 * .75rem)`; 30 px en compacta). Medido en el navegador con el perfil retenido: en densidad compacta la primera fila no se mueve (133,1 px de cabecera antes y después); en densidad normal tampoco con histograma y rango o una señal, pero una columna estrecha con dos señales de calidad que ocupan tres líneas crece 9,3 px (81,6 → 90,9). **Queda abierta** hasta que el dueño decida si ese residuo se acepta o se sube la reserva. Si el perfil falla o se cancela, el esqueleto desaparece (un único cambio de altura).
 
-- [ ] **AUD-069 · La barra lateral es oscura en todos los temas, y ni `DESIGN.md` ni el comentario de `shell.css` lo dicen**
+- [x] **AUD-069 · La barra lateral es oscura en todos los temas, y ni `DESIGN.md` ni el comentario de `shell.css` lo dicen**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/workflow-styles.css:525`
   - **Qué hacer:** documentar en `DESIGN.md` que la barra es siempre oscura, con sus tokens, y añadir sus pares a la tabla; o quitar el token claro muerto.
   - **Criterio de aceptación:** `DESIGN.md` describe la paleta real de la barra en cada tema.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 19 de la Fase 2 (en `master`). `DESIGN.md` dice que la barra es oscura en todos los temas y tiene una subsección «Barra lateral» con los tokens reales por tema (regla base `.app-sidebar` de `workflow-styles.css` para claro y oscuro, #142d33; bloques `:root[data-theme] .app-sidebar` de `styles.css` para Papel, Océano y Slate) y `forced-colors`; el comentario de `shell.css` ya no la llama «light». El token de `workflow-styles.css:525` no estaba muerto (es la regla base) y se conserva. `tools/contrast-table.mjs` y `AccessibilityStyles.test.ts` suman cinco pares de la barra (texto principal y secundario y acento sobre la barra, y texto sobre la etapa actual); la tabla regenerada añade 25 filas y todas cumplen (mínimo 5,93:1). Queda como observación: los `--sidebar-surface` de `:root` en claro y oscuro (`styles.css:7` y `:1143`) nunca se pintan.
 
-- [ ] **AUD-070 · Las etiquetas de las barras de Explorar se cortan con «…» sin mostrar el valor completo**
+- [x] **AUD-070 · Las etiquetas de las barras de Explorar se cortan con «…» sin mostrar el valor completo**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/explore/explore.css:38-45`
   - **Qué hacer:** `title={valueLabel(bar.value)}` en el botón o en la etiqueta, y/o permitir 2 líneas en la etiqueta.
   - **Criterio de aceptación:** pasar el cursor por una etiqueta cortada muestra su valor entero.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 19 de la Fase 2 (en `master`). La etiqueta de cada barra lleva el valor entero en `title` («Sin dato» no) y puede ocupar hasta dos líneas (`line-clamp: 2`, `overflow-wrap: anywhere`) en lugar de una con elipsis. Comprobado en el navegador con un valor de 82 caracteres: dos líneas, `title` completo y las pistas de las barras alineadas. Pruebas en `ExplorePhase.test.tsx` y `ExploreStyles.test.ts`.
 
-- [ ] **AUD-071 · Franja de cifras de Explorar: con un número de cifras que no llena la última fila, las celdas vacías se pintan del color del borde**
+- [x] **AUD-071 · Franja de cifras de Explorar: con un número de cifras que no llena la última fila, las celdas vacías se pintan del color del borde**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/explore/explore.css:21-26`
   - **Qué hacer:** separadores con `border-left` en cada cifra en lugar del fondo del contenedor, o `grid-auto-flow: dense` con un relleno.
   - **Criterio de aceptación:** a 450 CSS px con 3 cifras no se ve ningún bloque gris.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 19 de la Fase 2 (en `master`). La franja ya no usa `gap` sobre un fondo del color del borde: el contenedor es del color de la superficie y cada cifra dibuja su contorno (`box-shadow: 0 0 0 1px`), que se solapa con el de sus vecinas y se recorta en el borde exterior; en `forced-colors`, bordes reales. Comprobado en el navegador con 1 a 5 cifras a 450 y 1280 px: sin bloques grises ni líneas dobles.
 
-- [ ] **AUD-072 · `DESIGN.md` no describe partes del rediseño que sí se construyeron**
+- [x] **AUD-072 · `DESIGN.md` no describe partes del rediseño que sí se construyeron**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `DESIGN.md:113-134`
   - **Qué hacer:** añadir tres párrafos (Preparar, Explorar, Cargar) y los puntos de corte de AUD-065.
   - **Criterio de aceptación:** `DESIGN.md` describe todas las pantallas del flujo y coincide con `shell.css`.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 19 de la Fase 2 (en `master`). `DESIGN.md` gana la sección «Pantallas del flujo» (Cargar, Preparar y Explorar, cada afirmación comprobada contra el código) y, en «Responsive», la lista de puntos de corte del shell (1180, 901-1100, 900, 700, 480, 420 y 400 px, y el zoom al 200 %), con los de AUD-065.
+
+- [ ] **AUD-117 · Mientras dura el análisis, el motivo de «Guardar proyecto» parte la barra superior en dos líneas y la página salta al terminar**
+  - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src/App.tsx` (estado de «Guardar proyecto» en `.app-topbar__status`) y `src/shell.css`
+  - **Qué hacer:** que «Sin guardar · disponible al terminar el análisis de calidad» no cambie la altura de la barra: una forma corta visible («Sin guardar · analizando…») con el motivo entero en el `aria-describedby` que ya existe, o reservar el ancho. No tocar `#busy-reason`.
+  - **Criterio de aceptación:** a 1280×720, al terminar el análisis de calidad la barra superior mide lo mismo que durante el análisis y el título de la página no cambia de posición vertical (hoy sube unos 52 px).
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al medir AUD-068 en el navegador (efecto del texto añadido en AUD-059, tanda 17)
 
 - [ ] **AUD-101 · El selector ofrece el controlador antiguo «SQL Server», que no puede conectar con el cifrado obligatorio**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo

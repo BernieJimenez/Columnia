@@ -395,7 +395,7 @@ summary:focus-visible,
 .danger-action { min-height: 44px; padding: 7px 11px; border: 1px solid var(--accent); border-radius: 4px; background: transparent; color: var(--accent); font-weight: 750; cursor: pointer; }
 .project-list__actions .project-list__delete,
 .danger-action { border-color: var(--danger); color: var(--danger); }
-.project-list__actions button:disabled,
+.project-list__actions button:is(:disabled, [aria-disabled="true"]),
 .secondary-action:disabled,
 .danger-action:disabled { cursor: wait; opacity: .48; }
 

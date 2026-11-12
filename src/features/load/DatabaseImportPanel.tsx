@@ -13,6 +13,7 @@ import {
   type ImportOrigin,
   type OperationProgress,
 } from "../../bridge";
+import { busyDescribedBy } from "../../busyReasons";
 import { errorMessage, isCancellationError } from "../../bridge/errors";
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { DatabaseConnectionForm } from "../database/DatabaseConnectionForm";
@@ -164,7 +165,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported }
               Columnia lee la tabla que elijas y la guarda en este equipo para revisarla y prepararla.
               Solo lee: no escribe ni modifica nada en el servidor. Windows te pedirá confirmar la conexión.
             </p>
-            <fieldset className="database-import__engines">
+            <fieldset className="database-import__engines" aria-describedby={busyDescribedBy(blocked)}>
               <legend>Motor</legend>
               {ENGINES.map((engine) => (
                 <label key={engine.kind}>
@@ -188,6 +189,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported }
             <DatabaseConnectionForm
               kind={kind}
               disabled={busy}
+              blockedByBusy={blocked}
               onChange={(next) => {
                 setConnection(next);
                 setList({ kind: "idle" });
@@ -201,6 +203,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported }
                 ref={showButtonRef}
                 disabled={connection === null}
                 aria-disabled={busy || undefined}
+                aria-describedby={busyDescribedBy(blocked)}
                 onClick={() => void showTables()}
               >
                 {list.kind === "listing" ? "Conectando…" : "Ver tablas"}
@@ -236,6 +239,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported }
                       ref={tableRef}
                       value={selected}
                       disabled={busy}
+                      aria-describedby={busyDescribedBy(blocked)}
                       onChange={(event) => setSelected(Number(event.target.value))}
                     >
                       {schemas.map((schema) => (
@@ -255,6 +259,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported }
                       id={`${id}-limit`}
                       value={rowLimit}
                       disabled={busy}
+                      aria-describedby={busyDescribedBy(blocked)}
                       onChange={(event) => setRowLimit(Number(event.target.value))}
                     >
                       {DATABASE_ROW_LIMITS.map((limit) => (
@@ -270,6 +275,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported }
                     ref={importButtonRef}
                     disabled={!chosen}
                     aria-disabled={busy || undefined}
+                    aria-describedby={busyDescribedBy(blocked)}
                     onClick={importChosen}
                   >
                     {chosen ? `Traer ${tableLabel(chosen)}` : "Traer tabla"}

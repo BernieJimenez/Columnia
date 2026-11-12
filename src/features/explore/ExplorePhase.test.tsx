@@ -107,6 +107,9 @@ describe("ExplorePhase", () => {
 
     const chart = await screen.findByRole("region", { name: "Filas por estado" });
     expect(within(chart).getByRole("button", { name: /Sin dato/ })).toBeInTheDocument();
+    // AUD-070: the value is readable in full on hover even when the label is cut; "Sin dato" is never cut, so it carries no title.
+    expect(within(chart).getByText("CA")).toHaveAttribute("title", "CA");
+    expect(within(chart).getByText("Sin dato")).not.toHaveAttribute("title");
     expect(screen.getByText("Mediana de precio")).toBeInTheDocument();
     expect(screen.getByText("Pulsa una barra para filtrar todo el panel.")).toBeInTheDocument();
     expect(getPanel).toHaveBeenCalledWith([], {});

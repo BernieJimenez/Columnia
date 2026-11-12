@@ -22,8 +22,19 @@ const PAIRS = [
   ["control-border", "canvas", 3],
 ];
 
-/** The focus ring against the sidebar surface, measured only on the sidebar (WCAG 1.4.11). */
-const SIDEBAR_PAIRS = [["focus-ring", "sidebar-surface", 3]];
+/**
+ * What the sidebar paints, measured only on the sidebar: the focus ring against its
+ * surface (WCAG 1.4.11) and the text and accent of the rail, on the rail itself and
+ * on the highlighted current step (`--surface` inside `.app-sidebar`).
+ */
+const SIDEBAR_PAIRS = [
+  ["text-primary", "sidebar-surface", 4.5],
+  ["text-secondary", "sidebar-surface", 4.5],
+  ["accent", "sidebar-surface", 4.5],
+  ["text-primary", "surface", 4.5],
+  ["text-secondary", "surface", 4.5],
+  ["focus-ring", "sidebar-surface", 3],
+];
 const SIDEBAR_THEMES = ["light", "dark", "paper", "ocean", "slate"];
 
 function luminance(hex) {

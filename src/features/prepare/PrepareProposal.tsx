@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { DatasetProfile, SafeCorrectionOptions, SafeCorrectionsPreview } from "../../bridge";
+import { busyDescribedBy } from "../../busyReasons";
 import { CellText } from "../../components/CellText";
 import { MissingValue } from "../../components/MissingValue";
 import {
@@ -174,7 +175,7 @@ export function PrepareProposal({
           <button type="button" className="prepare-proposal__primary" onClick={onDismissResult}>
             Ver qué más se puede mejorar
           </button>
-          <button type="button" className="secondary-action" aria-label="Deshacer estos cambios" onClick={onUndo} disabled={busy || !canUndo}>
+          <button type="button" className="secondary-action" aria-label="Deshacer estos cambios" onClick={onUndo} disabled={busy || !canUndo} aria-describedby={busyDescribedBy(busy)}>
             Deshacer
           </button>
         </div>
@@ -195,7 +196,7 @@ export function PrepareProposal({
                   { order: "mdy", label: `Mes/día: ${dateExample(sample, "mdy") ?? ""}` },
                 ];
                 return (
-                  <fieldset className="prepare-proposal__date-order" disabled={disabled}>
+                  <fieldset className="prepare-proposal__date-order" disabled={disabled} aria-describedby={busyDescribedBy(disabled)}>
                     <legend>¿Cómo se lee «{sample}»?</legend>
                     {options.map((option) => (
                       <label key={option.order} className="prepare-proposal__option">
@@ -234,7 +235,7 @@ export function PrepareProposal({
         <div className="prepare-proposal__bar" aria-hidden="true">
           <span style={{ width: `${Math.round(((step + 1) / totalSteps) * 100)}%` }} />
         </div>
-        <fieldset className="prepare-proposal__step" disabled={disabled}>
+        <fieldset className="prepare-proposal__step" disabled={disabled} aria-describedby={busyDescribedBy(disabled)}>
           <legend id="prepare-step-title" ref={titleRef} tabIndex={-1} className="prepare-proposal__title">{question.question}</legend>
           <p className="prepare-proposal__lead">{hint}</p>
           {[true, false].map((option) => (
@@ -263,6 +264,7 @@ export function PrepareProposal({
               type="button"
               className="prepare-proposal__primary"
               disabled={disabled || !fillsReady || datesPending || (selectedProposalCount(items, selection) === 0 && !normalizeNames)}
+              aria-describedby={busyDescribedBy(disabled)}
               onClick={() => onApply(proposalOptions(items, selection, normalizeNames, ambiguousDateOrder))}
             >
               Aplicar
@@ -283,7 +285,7 @@ export function PrepareProposal({
         <h3 id="prepare-proposal-title" ref={titleRef} tabIndex={-1} className="prepare-proposal__title">No hay cambios que proponer</h3>
         <p className="prepare-proposal__lead">No se detectaron espacios sobrantes, duplicados ni vacíos que rellenar.</p>
         <div className="prepare-proposal__actions">
-          <button type="button" className="secondary-action" disabled={disabled} onClick={() => { setMode("steps"); setStep(0); }}>
+          <button type="button" className="secondary-action" disabled={disabled} aria-describedby={busyDescribedBy(disabled)} onClick={() => { setMode("steps"); setStep(0); }}>
             Personalizar paso a paso
           </button>
         </div>
@@ -320,7 +322,7 @@ export function PrepareProposal({
                   type="checkbox"
                   checked={selection[item.id]}
                   disabled={disabled}
-                  aria-describedby={`prepare-hint-${item.id}`}
+                  aria-describedby={busyDescribedBy(disabled, `prepare-hint-${item.id}`)}
                   onChange={(event) => setSelection((previous) => ({ ...previous, [item.id]: event.target.checked }))}
                 />
                 <label htmlFor={`prepare-item-${item.id}`}>{titleOf(item)}</label>
@@ -370,6 +372,7 @@ export function PrepareProposal({
           type="button"
           className="prepare-proposal__primary"
           disabled={disabled || count === 0 || !fillsReady || datesPending}
+          aria-describedby={busyDescribedBy(disabled)}
           // Still the action of this screen while the app is busy, the fill simulation
           // runs or a date answer is pending, so the footer never flashes as primary.
           data-waiting={count > 0 && (disabled || !fillsReady || datesPending) ? "" : undefined}
@@ -377,11 +380,11 @@ export function PrepareProposal({
         >
           {applyLabel(count)}
         </button>
-        <button type="button" className="secondary-action" disabled={disabled} onClick={() => { setMode("steps"); setStep(0); }}>
+        <button type="button" className="secondary-action" disabled={disabled} aria-describedby={busyDescribedBy(disabled)} onClick={() => { setMode("steps"); setStep(0); }}>
           Personalizar paso a paso
         </button>
         {canUndo && (
-          <button type="button" className="secondary-action" disabled={busy} onClick={onUndo}>
+          <button type="button" className="secondary-action" disabled={busy} aria-describedby={busyDescribedBy(busy)} onClick={onUndo}>
             Deshacer último cambio
           </button>
         )}

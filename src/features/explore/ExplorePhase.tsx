@@ -295,7 +295,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                           aria-pressed={selected}
                           onClick={() => setFilters((current) => toggleValue(current, chart.column, bar.value))}
                         >
-                          <span className="explore__label">{valueLabel(bar.value)}</span>
+                          <span className="explore__label" title={bar.value === null ? undefined : bar.value}>{valueLabel(bar.value)}</span>
                           <span className="explore__track"><span className="explore__fill" style={{ width: `${(bar.count / max) * 100}%` }} /></span>
                           <span className="explore__value">{formatNumber(bar.count)}</span>
                         </button>

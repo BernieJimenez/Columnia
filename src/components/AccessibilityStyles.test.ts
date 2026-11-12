@@ -81,6 +81,10 @@ describe("contratos CSS de accesibilidad", () => {
       const tokens = { ...sidebarBase, ...Object.fromEntries([...own.matchAll(/--([a-z-]+):\s*(#[0-9a-f]{6})/g)].map(([, name, value]) => [name, value])) };
       expect(tokens["focus-ring"], `${theme} focus-ring`).toBeDefined();
       expect(ratio(tokens["focus-ring"], tokens["sidebar-surface"]), `${theme} focus-ring sobre la barra`).toBeGreaterThanOrEqual(3);
+      // AUD-069: the rail's text and accent on its own surface and on the current step.
+      for (const [foreground, background] of [["text-primary", "sidebar-surface"], ["text-secondary", "sidebar-surface"], ["accent", "sidebar-surface"], ["text-primary", "surface"], ["text-secondary", "surface"]]) {
+        expect(ratio(tokens[foreground], tokens[background]), `${theme} ${foreground} sobre ${background} de la barra`).toBeGreaterThanOrEqual(4.5);
+      }
     }
     expect(styles).toMatch(/\.skip-link \{[^}]*background: var\(--text-primary\); color: var\(--canvas\)/);
     expect(styles).not.toMatch(/#93473f/);

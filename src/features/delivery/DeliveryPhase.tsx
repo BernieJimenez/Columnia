@@ -1041,6 +1041,7 @@ export function DeliveryPhase({
                 key={connectionFormKey}
                 kind={databaseTarget.kind}
                 disabled={busy}
+                blockedByBusy={busy}
                 errorId={invalidDatabaseTargetField === "connection" ? "database-target-validation-error" : undefined}
                 onChange={(connection) => changeDatabaseTarget({ connection })}
               />

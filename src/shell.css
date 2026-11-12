@@ -1,8 +1,10 @@
 /*
- * Shell (2026-10-30): a light flow rail, a top bar with the active dataset
- * and a full-width work area. Loaded after workflow-styles.css; the sidebar
- * colours come from the `.app-sidebar` tokens in styles.css and
- * workflow-styles.css, so every theme keeps its contrast.
+ * Shell (2026-10-30): a dark flow rail (in every theme), a top bar with the
+ * active dataset and a full-width work area. Loaded after workflow-styles.css;
+ * the rail's colours come from the `.app-sidebar` tokens: the base rule of
+ * workflow-styles.css (light and dark themes) and, for paper, ocean and slate,
+ * the `:root[data-theme] .app-sidebar` blocks of styles.css, so every theme
+ * keeps its contrast.
  */
 
 .app-shell {

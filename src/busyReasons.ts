@@ -48,3 +48,11 @@ export function busyReasonMessage(flags: BusyFlags): string {
   const phrase = busyReasonPhrase(flags);
   return phrase ? `Disponible al terminar ${phrase}.` : "";
 }
+
+/**
+ * `aria-describedby` for a control that is disabled because the app is busy: points to the
+ * global reason node (`#busy-reason` in App.tsx) only while it applies, and keeps other ids.
+ */
+export function busyDescribedBy(busy: boolean, ...others: Array<string | undefined>): string | undefined {
+  return [...others, busy ? "busy-reason" : undefined].filter(Boolean).join(" ") || undefined;
+}

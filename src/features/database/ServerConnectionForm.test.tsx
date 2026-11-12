@@ -99,3 +99,13 @@ describe("motivo asociado al campo que falta", () => {
     expect(screen.getByLabelText("Usuario")).toBeRequired();
   });
 });
+
+describe("motivo de ocupado (AUD-059)", () => {
+  it.each(["sqlserver", "postgresql", "mysql"] as const)("el grupo de %s apunta al motivo solo si el bloqueo es por ocupado", async (kind) => {
+    vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue([]);
+    const { rerender } = render(<DatabaseConnectionForm kind={kind} disabled blockedByBusy onChange={vi.fn()} />);
+    expect(await screen.findByRole("group", { name: "Datos de conexión" })).toHaveAttribute("aria-describedby", "busy-reason");
+    rerender(<DatabaseConnectionForm kind={kind} disabled onChange={vi.fn()} />);
+    expect(screen.getByRole("group", { name: "Datos de conexión" })).not.toHaveAttribute("aria-describedby");
+  });
+});

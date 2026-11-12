@@ -288,4 +288,20 @@ describe("PrepareProposal focus (ACC-17)", () => {
     expect(document.activeElement).toBe(document.querySelector("#prepare-step-title"));
     expect(document.activeElement?.textContent).not.toBe(firstQuestion);
   });
+
+  it("asocia el motivo de ocupado a la propuesta solo mientras la app está ocupada (AUD-059)", () => {
+    const props = { items, columnCount: 2, canUndo: false, result: null, onApply: vi.fn(), onUndo: vi.fn(), onDismissResult: vi.fn() };
+    const { rerender } = render(<PrepareProposal {...props} busy />);
+    const apply = screen.getByRole("button", { name: /^Aplicar \d+ cambios?$/ });
+    expect(apply).toHaveAttribute("aria-describedby", "busy-reason");
+    expect(screen.getByRole("button", { name: "Personalizar paso a paso" })).toHaveAttribute("aria-describedby", "busy-reason");
+    expect(screen.getByLabelText(/Quitar 1 fila duplicada/)).toHaveAttribute("aria-describedby", expect.stringContaining("busy-reason"));
+    rerender(<PrepareProposal {...props} busy={false} />);
+    expect(screen.getByRole("button", { name: /^Aplicar \d+ cambios?$/ })).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("button", { name: "Personalizar paso a paso" })).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByLabelText(/Quitar 1 fila duplicada/).getAttribute("aria-describedby")).not.toContain("busy-reason");
+    fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
+    rerender(<PrepareProposal {...props} busy />);
+    expect(screen.getByRole("group", { name: /./ })).toHaveAttribute("aria-describedby", "busy-reason");
+  });
 });

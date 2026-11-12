@@ -28,6 +28,7 @@ import {
   formatRecentDatasetFormat,
   type RecentDataset,
 } from "./recentFilesModel";
+import { busyDescribedBy } from "../../busyReasons";
 import { formatBytes, formatDataType } from "../../format";
 import { projectDate } from "../projects/projectModel";
 
@@ -168,7 +169,14 @@ export function LoadPhase({
   const source = sourceOptions.some((option) => option.id === preferredSource) ? preferredSource : "file";
 
   const selectionAction = (
-    <button className={current ? "secondary-action" : "primary-action"} type="button" onClick={onSelect} disabled={selectionDisabled}>
+    // aria-disabled (not disabled) keeps the button reachable by keyboard so its reason is read; onClick ignores it.
+    <button
+      className={current ? "secondary-action" : "primary-action"}
+      type="button"
+      onClick={() => { if (!selectionDisabled) onSelect(); }}
+      aria-disabled={selectionDisabled || undefined}
+      aria-describedby={busyDescribedBy(disabled)}
+    >
       {inspection.kind === "inspecting" ? "Inspeccionando…" : current ? "Seleccionar otro dataset" : "Seleccionar dataset"}
     </button>
   );
@@ -297,6 +305,7 @@ export function LoadPhase({
                 className="sample-datasets__item"
                 onClick={() => onSelectSample(sample.id)}
                 disabled={selectionDisabled}
+                aria-describedby={busyDescribedBy(disabled)}
               >
                 <strong>{sample.name}</strong>
                 <span>{sample.description}</span>
@@ -337,6 +346,7 @@ export function LoadPhase({
                     className="inline-action"
                     onClick={() => onSelectRecent(item)}
                     disabled={selectionDisabled}
+                    aria-describedby={busyDescribedBy(disabled)}
                     title={selectionDisabled && runtime.kind !== "connected"
                       ? "Disponible al ejecutar Columnia con Tauri"
                       : undefined}

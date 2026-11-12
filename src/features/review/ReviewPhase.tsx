@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
+import { busyDescribedBy } from "../../busyReasons";
 import { useLatest } from "../../useLatest";
 
 import { renderCellValue } from "../../components/CellText";
@@ -149,6 +150,7 @@ export function ReviewPhase({
             onPageChange={onPageChange}
             onCancelPageChange={onCancelPageChange}
             profile={profileStatus.kind === "ready" ? profileStatus.profile : undefined}
+            profilePending={profileStatus.kind === "idle" || profileStatus.kind === "loading"}
           />
         </div>
       )}
@@ -675,6 +677,8 @@ interface DatasetPreviewProps {
   onCancelPageChange?: () => void;
   /** With the quality profile, each header summarises its whole column. */
   profile?: DatasetProfile;
+  /** The profile has not arrived yet: headers and note keep the room it will take. */
+  profilePending?: boolean;
 }
 
 export function DatasetPreviewPanel({
@@ -686,9 +690,11 @@ export function DatasetPreviewPanel({
   onPageChange,
   onCancelPageChange = () => undefined,
   profile,
+  profilePending = false,
 }: DatasetPreviewProps) {
   const { end: pageEnd, hasPrevious, hasNext } = pageRange(dataset, pageOffset);
   const profileIdBase = useId();
+  const reserveProfile = !profile && profilePending;
   // COD-10: names may repeat, so the position decides when it agrees.
   const columnProfile = (name: string, index: number) => {
     if (!profile) return undefined;
@@ -698,13 +704,14 @@ export function DatasetPreviewPanel({
 
   return (
     <>
-      {profile && (
-        <p className="preview-note">
+      {(profile || reserveProfile) && (
+        // While pending the note is invisible but laid out, so the table does not drop when it appears.
+        <p className={reserveProfile ? "preview-note preview-note--pending" : "preview-note"} aria-hidden={reserveProfile || undefined}>
           Bajo cada columna: cuántas celdas tienen valor, cuántos valores distintos hay y su rango, calculados sobre {dataset.rowCount === 1 ? "la única fila" : `todas las filas (${dataset.rowCount.toLocaleString()})`}.
         </p>
       )}
       <div className="table-region" tabIndex={0} aria-label="Vista previa del dataset">
-        <table className={profile ? "table--profiled" : undefined}>
+        <table className={profile || reserveProfile ? "table--profiled" : undefined}>
           <thead>
             <tr>
               {dataset.columns.map((column, columnIndex) => {
@@ -721,7 +728,7 @@ export function DatasetPreviewPanel({
                     aria-label={`${column.name} ${formatDataType(column.dataType)}`}
                     aria-describedby={profileId}
                   >
-                    <ColumnProfileHeader column={column} profile={columnProfileOfHeader} profileId={profileId} rowCount={dataset.rowCount} />
+                    <ColumnProfileHeader column={column} profile={columnProfileOfHeader} profileId={profileId} pending={reserveProfile} rowCount={dataset.rowCount} />
                   </th>
                 );
               })}
@@ -757,6 +764,7 @@ export function DatasetPreviewPanel({
             type="button"
             onClick={() => onPageChange(previousPageOffset(pageOffset))}
             disabled={!hasPrevious || pageLoading}
+            aria-describedby={busyDescribedBy(pageLoading)}
           >
             Anterior
           </button>
@@ -764,6 +772,7 @@ export function DatasetPreviewPanel({
             type="button"
             onClick={() => onPageChange(nextPageOffset(pageOffset))}
             disabled={!hasNext || pageLoading}
+            aria-describedby={busyDescribedBy(pageLoading)}
           >
             {pageLoading ? "Cargando…" : "Siguiente"}
           </button>

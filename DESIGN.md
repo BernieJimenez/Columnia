@@ -2,9 +2,9 @@
 
 Esta guía documenta el lenguaje visual que ya existe en la aplicación: sirve
 para que cambios y contribuciones nuevas conserven la misma jerarquía, claridad
-y accesibilidad. El shell actual (barra lateral ligera, barra superior con el
-dataset y trabajo a todo el ancho) es del 2026-10-30; sus estilos viven en
-`src/shell.css`.
+y accesibilidad. El shell actual (barra lateral oscura en todos los temas, barra
+superior con el dataset y trabajo a todo el ancho) es del 2026-10-30; sus
+estilos viven en `src/shell.css`.
 
 ## Personalidad
 
@@ -60,7 +60,7 @@ Los tokens de `src/styles.css` son la fuente de verdad:
 | Uso | Token principal |
 | --- | --- |
 | Fondo de aplicación | `--canvas` |
-| Barra lateral | `--sidebar-surface` |
+| Barra lateral (oscura en todos los temas) | `--sidebar-surface` y los tokens de `.app-sidebar` |
 | Contenido | `--surface`, `--surface-subtle`, `--surface-raised` |
 | Texto | `--text-primary`, `--text-secondary` |
 | Separación | `--border-subtle` |
@@ -71,6 +71,33 @@ Los tokens de `src/styles.css` son la fuente de verdad:
 No se crean colores por funcionalidad ni por espacio de trabajo. El acento se
 reserva para selección actual, foco y acción principal. El color nunca es la
 única señal de estado.
+
+### Barra lateral
+
+La barra lateral es oscura en todos los temas, también en el claro:
+`.app-sidebar` redefine sus propios tokens y el resto de la
+aplicación no los ve. Los valores salen de dos sitios:
+
+- La regla base `.app-sidebar` de `src/workflow-styles.css` sirve a los temas
+  claro y oscuro (la barra es la misma en los dos): `--sidebar-surface` #142d33,
+  `--surface` #20383e (etapa actual), `--surface-subtle` #243e44,
+  `--surface-raised` #29474c (hover), `--border-subtle` #3a5157,
+  `--text-primary` #e8f0ed, `--text-secondary` #b7c8c5, `--accent` #9cdebd,
+  `--danger` #f4a39b, `--disabled-text` #a5b8b5 y `--focus-ring` #efba70.
+- Los bloques `:root[data-theme="…"] .app-sidebar` de `src/styles.css` tiñen la
+  barra en Papel, Océano y Slate: cambian `--sidebar-surface`, `--surface`,
+  `--surface-subtle`, `--surface-raised`, `--border-subtle`, `--control-border` y
+  `--accent`; los textos, el rojo y el foco siguen los de la regla base. Los
+  fondos son #332a25 (Papel), #102f3b (Océano) y #242c34 (Slate).
+- Los `--sidebar-surface` de `:root` en el tema claro (#ecf0ec) y en el oscuro
+  (#101a1d) no llegan a pintarse: la regla base de la barra los sustituye. El
+  fondo real de la barra en esos dos temas es #142d33.
+- Con `forced-colors` la barra usa colores del sistema (`Canvas`, `CanvasText`,
+  `Highlight`; `src/workflow-styles.css`, bloque `forced-colors`).
+
+La tabla de contraste incluye, por tema, texto principal y secundario sobre la
+barra, el texto sobre la etapa actual (`--surface` dentro de la barra), el
+acento y el anillo de foco.
 
 ## Tipografía
 
@@ -136,6 +163,9 @@ reserva para selección actual, foco y acción principal. El color nunca es la
   (3,3-3,6:1 sobre la cabecera en los temas claros, 5,7:1 en el oscuro).
 - Un identificador (todos los valores distintos) no muestra histograma: siempre
   sería plano.
+- Mientras el perfil llega, cada cabecera reserva su hueco con un esqueleto
+  `aria-hidden` (`.col-profile--pending`, sin animación) y la nota de encima
+  conserva su sitio invisible, para que la tabla no salte al llegar el perfil.
 
 ## Navegación y espacios de trabajo
 
@@ -161,6 +191,58 @@ números; la numeración pertenece al flujo Cargar → Revisar → Preparar →
 Explorar → Entregar. Cuando exista un segundo espacio accionable se debe revisar
 el modelo de foco, selección, URL o persistencia antes de convertir el rótulo en
 navegación.
+
+## Pantallas del flujo
+
+**Cargar** (`src/features/load/LoadPhase.tsx`) pregunta de dónde vienen los
+datos con tarjetas de opción (`.choice-card` dentro de `.load-sources`): Archivo,
+Base de datos y Proyecto, más Ejemplo cuando hay datasets de muestra. Una
+tarjeta solo aparece si su panel existe y, con una sola opción, no se muestran.
+Debajo va lo de la opción elegida: para Archivo, la zona de selección
+(`.load-brief`, con el botón «Seleccionar dataset», el aviso de que también se
+puede arrastrar un archivo y los formatos admitidos) y, en un plegable
+`.load-secondary`, los archivos recientes; con un dataset ya cargado la zona se
+reduce a «Seleccionar otro dataset» y la pista de arrastrar. «Reutilizar una
+tarea» (`ReusableTaskPanel.tsx`) es otro plegable `.load-secondary` bajo la
+opción elegida. Los avisos son bloques `.notice` encima de las tarjetas: motor
+sin respuesta, cierre inesperado de la sesión anterior, informes de fallo y
+catálogos apartados, estos tres con «Entendido». Las decisiones de importación
+(hoja y encabezados, perfil guardado, coste estimado, esquema distinto) se
+toman en un diálogo modal (`ModalDialog`) que no cambia el dataset hasta
+confirmar.
+
+**Preparar** (`src/features/prepare/`) reúne el trabajo a la izquierda y el
+historial a la derecha (`.prepare-layout`). Arriba va la propuesta
+(`PrepareProposal.tsx`): una lista de cambios con casilla y una frase cada uno,
+«Ver antes y después», una sola acción primaria («Aplicar…») y «Personalizar
+paso a paso», que pregunta de uno en uno con respuesta Sí o No; tras aplicar, la
+propuesta se sustituye por el resultado con solo las cifras que cambiaron y
+«Deshacer». Lo demás está en el plegable «Diagnóstico y herramientas avanzadas»
+(`.prepare-advanced`): medir el efecto de los cambios y dos pestañas,
+Correcciones (señales y acciones sueltas) y Transformaciones
+(`TransformRecipeEditor.tsx`, el editor de receta: varias operaciones que se
+aplican juntas y se pueden guardar y cargar como archivo). El historial
+(`HistoryBar.tsx`, `<aside>` «Historial de cambios») lleva «Deshacer» y
+«Rehacer» bajo el título y la lista de versiones. A partir de 1180 CSS px es un
+panel de 300 px pegajoso bajo la barra superior (`position: sticky` a
+`calc(var(--topbar-height) + 8px)`, con scroll propio si es más alto que la
+ventana, `src/data-views.css`); por debajo pasa a una columna, tras el trabajo.
+El resultado de un cambio con «Deshacer» (`.change-result`) queda fijo arriba
+mientras se usan las herramientas.
+
+**Explorar** (`src/features/explore/ExplorePhase.tsx`, `explore.css`) muestra un
+panel que Columnia arma con todas las filas: una franja de cifras
+(`.explore__kpis`) y debajo una cuadrícula de gráficos (`.explore__grid`) de dos
+columnas. Hay barras por categoría («Filas por valor», cada barra es un botón
+que filtra todo el panel), un histograma («Distribución») y una tendencia
+(«Filas en el tiempo»). El histograma y la tendencia ocupan la fila entera
+(`.explore__panel--wide`), y un gráfico de barras que queda solo en su fila
+también. Los filtros
+activos son botones sobre la franja, con «Quitar filtros», y «Personalizar»
+permite elegir las columnas de los gráficos. El histograma y la tendencia traen
+su cifra como tabla («Ver como tabla»), y cada barra o columna seleccionada se
+marca con algo más que el color. Por debajo de 760 CSS px la cuadrícula pasa a
+una columna.
 
 ## Estados y copy
 
@@ -189,6 +271,35 @@ navegación.
   también en la ventana mínima de 640 × 400 (UX-02).
 - Un panel que crece debe poder desplazarse sin volver inaccesibles dataset,
   preferencias o contenido principal.
+
+Puntos de corte del shell (`src/shell.css`, salvo que se indique otro archivo):
+
+- 1180 CSS px o más: Preparar pone el historial en columna aparte
+  (`src/data-views.css`), Entregar coloca contrato y exportación lado a lado y
+  el resumen `.delivery-commit` queda fijo abajo.
+- 901 a 1100: `.load-brief` reduce la ilustración a 100 px
+  (`src/workflow-styles.css`).
+- 901 o más de ancho y 700 de alto o menos: barra lateral más ajustada y sin la
+  descripción de las etapas. 901 de ancho y 701 de alto o más: barra superior
+  fija.
+- 900 o menos: vista compacta, barra lateral convertida en franjas sobre el
+  trabajo (ver Navegación).
+- 700 o menos: desaparecen los números de las etapas y queda el ✓ como marca en
+  la esquina; la exportación de Entregar pasa a una columna y el estado de la
+  barra superior se alinea a la izquierda.
+- 480 o menos: la fila servidor y puerto de la conexión a SQL Server se apila.
+- 420 o menos: la barra lateral pasa a una columna (marca, utilidades, etapas),
+  las utilidades van una por fila, «Motor local listo» se oculta a la vista y
+  el margen lateral del trabajo baja a 12 px.
+- 400 o menos: las etiquetas de las etapas bajan a .6875rem y su relleno se
+  reduce para no partir ninguna palabra (AUD-055).
+- Zoom al 200 % (`html[data-columnia-zoom="2"]`): imita la vista compacta con
+  la barra lateral en una sola columna, sin números en las etapas, con la barra
+  superior sin fijar y márgenes de 12 px. Es el modo que usa la evidencia de
+  zoom, porque emula un viewport estrecho en una ventana ancha.
+- Otros puntos de corte son de un componente, no del shell: 760 (cuadrícula de
+  Explorar, `src/features/explore/explore.css`) y 640 (selectores de la
+  comparación de revisiones, `src/styles.css`).
 
 ## Accesibilidad
 
@@ -245,10 +356,35 @@ navegación.
 | `:root[data-theme="ocean"] .app-sidebar` | `--control-border` #839da5 | `--surface` #1b4352 | 3.72:1 | 3:1 |
 | `:root[data-theme="slate"] .app-sidebar` | `--accent` #acd2eb | `--surface` #35424d | 6.46:1 | 4.5:1 |
 | `:root[data-theme="slate"] .app-sidebar` | `--control-border` #8d979f | `--surface` #35424d | 3.46:1 | 3:1 |
+| `.app-sidebar (light)` | `--text-primary` #e8f0ed | `--sidebar-surface` #142d33 | 12.47:1 | 4.5:1 |
+| `.app-sidebar (light)` | `--text-secondary` #b7c8c5 | `--sidebar-surface` #142d33 | 8.32:1 | 4.5:1 |
+| `.app-sidebar (light)` | `--accent` #9cdebd | `--sidebar-surface` #142d33 | 9.36:1 | 4.5:1 |
+| `.app-sidebar (light)` | `--text-primary` #e8f0ed | `--surface` #20383e | 10.68:1 | 4.5:1 |
+| `.app-sidebar (light)` | `--text-secondary` #b7c8c5 | `--surface` #20383e | 7.12:1 | 4.5:1 |
 | `.app-sidebar (light)` | `--focus-ring` #efba70 | `--sidebar-surface` #142d33 | 8.21:1 | 3:1 |
+| `.app-sidebar (dark)` | `--text-primary` #e8f0ed | `--sidebar-surface` #142d33 | 12.47:1 | 4.5:1 |
+| `.app-sidebar (dark)` | `--text-secondary` #b7c8c5 | `--sidebar-surface` #142d33 | 8.32:1 | 4.5:1 |
+| `.app-sidebar (dark)` | `--accent` #9cdebd | `--sidebar-surface` #142d33 | 9.36:1 | 4.5:1 |
+| `.app-sidebar (dark)` | `--text-primary` #e8f0ed | `--surface` #20383e | 10.68:1 | 4.5:1 |
+| `.app-sidebar (dark)` | `--text-secondary` #b7c8c5 | `--surface` #20383e | 7.12:1 | 4.5:1 |
 | `.app-sidebar (dark)` | `--focus-ring` #efba70 | `--sidebar-surface` #142d33 | 8.21:1 | 3:1 |
+| `.app-sidebar (paper)` | `--text-primary` #e8f0ed | `--sidebar-surface` #332a25 | 12.09:1 | 4.5:1 |
+| `.app-sidebar (paper)` | `--text-secondary` #b7c8c5 | `--sidebar-surface` #332a25 | 8.06:1 | 4.5:1 |
+| `.app-sidebar (paper)` | `--accent` #f1b38e | `--sidebar-surface` #332a25 | 7.73:1 | 4.5:1 |
+| `.app-sidebar (paper)` | `--text-primary` #e8f0ed | `--surface` #4a3b32 | 9.23:1 | 4.5:1 |
+| `.app-sidebar (paper)` | `--text-secondary` #b7c8c5 | `--surface` #4a3b32 | 6.16:1 | 4.5:1 |
 | `.app-sidebar (paper)` | `--focus-ring` #efba70 | `--sidebar-surface` #332a25 | 7.96:1 | 3:1 |
+| `.app-sidebar (ocean)` | `--text-primary` #e8f0ed | `--sidebar-surface` #102f3b | 12.15:1 | 4.5:1 |
+| `.app-sidebar (ocean)` | `--text-secondary` #b7c8c5 | `--sidebar-surface` #102f3b | 8.10:1 | 4.5:1 |
+| `.app-sidebar (ocean)` | `--accent` #8edced | `--sidebar-surface` #102f3b | 9.12:1 | 4.5:1 |
+| `.app-sidebar (ocean)` | `--text-primary` #e8f0ed | `--surface` #1b4352 | 9.19:1 | 4.5:1 |
+| `.app-sidebar (ocean)` | `--text-secondary` #b7c8c5 | `--surface` #1b4352 | 6.13:1 | 4.5:1 |
 | `.app-sidebar (ocean)` | `--focus-ring` #efba70 | `--sidebar-surface` #102f3b | 8.00:1 | 3:1 |
+| `.app-sidebar (slate)` | `--text-primary` #e8f0ed | `--sidebar-surface` #242c34 | 12.20:1 | 4.5:1 |
+| `.app-sidebar (slate)` | `--text-secondary` #b7c8c5 | `--sidebar-surface` #242c34 | 8.14:1 | 4.5:1 |
+| `.app-sidebar (slate)` | `--accent` #acd2eb | `--sidebar-surface` #242c34 | 8.87:1 | 4.5:1 |
+| `.app-sidebar (slate)` | `--text-primary` #e8f0ed | `--surface` #35424d | 8.89:1 | 4.5:1 |
+| `.app-sidebar (slate)` | `--text-secondary` #b7c8c5 | `--surface` #35424d | 5.93:1 | 4.5:1 |
 | `.app-sidebar (slate)` | `--focus-ring` #efba70 | `--sidebar-surface` #242c34 | 8.03:1 | 3:1 |
 <!-- contrast-table:end -->
 
