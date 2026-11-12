@@ -579,7 +579,7 @@ export function LoadPhase({
                   {mergedCount > 0 && (
                     <li>
                       Esta hoja tiene {mergedCount === 1 ? "1 rango de celdas combinadas" : `${mergedCount.toLocaleString()} rangos de celdas combinadas`}:
-                      solo la primera celda de cada uno conserva el valor y las demás llegarán vacías.
+                      solo la primera celda de cada uno conserva el valor y las demás llegarán nulas.
                     </li>
                   )}
                   {skippedTitleRows > 0 && (
@@ -742,7 +742,7 @@ export function LoadPhase({
                     <ul>
                       {(sheetSelection.schemaPreview.unconvertedColumns ?? []).map((item) => (
                         <li key={item.column}>
-                          {item.column}: {item.invalidCount === 1 ? "1 valor no es" : `${item.invalidCount.toLocaleString()} valores no son`} {item.convention === "date" ? "una fecha" : "un número"} (por ejemplo, «{item.example}»). Conviértela después en Preparar o deja ese valor vacío en el archivo.
+                          {item.column}: {item.invalidCount === 1 ? "1 valor no es" : `${item.invalidCount.toLocaleString()} valores no son`} {item.convention === "date" ? "una fecha" : "un número"} (por ejemplo, «{item.example}»). Conviértela después en Preparar o deja ese valor nulo en el archivo.
                         </li>
                       ))}
                     </ul>

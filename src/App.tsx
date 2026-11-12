@@ -1398,7 +1398,7 @@ export function App() {
             <h2>Licencia</h2>
             <p>El producto se distribuye bajo MIT. Las dependencias conservan sus avisos en <code>THIRD_PARTY_NOTICES.md</code>.</p>
             <h2>Privacidad local</h2>
-            <p>Los archivos seleccionados, proyectos, perfiles y artefactos temporales permanecen en el dispositivo, salvo las filas que el usuario elija enviar mediante una exportación ODBC explícita. La cadena de conexión y la contraseña solo viven durante esa sesión. No se usan telemetría, cuentas ni analítica remota.</p>
+            <p>Los archivos seleccionados, proyectos, perfiles y artefactos temporales permanecen en el dispositivo, salvo las filas que el usuario elija enviar mediante una exportación ODBC explícita. Cuando se elige una base de datos en Cargar, se abre además una conexión que solo lee, con confirmación; las filas leídas se quedan en este equipo. La cadena de conexión y la contraseña solo viven durante esa sesión. No se usan telemetría, cuentas ni analítica remota.</p>
             <h2>Retención y borrado</h2>
             <p>El usuario controla la carpeta de proyectos y puede eliminar proyectos desde la aplicación o borrar sus archivos locales. Los snapshots huérfanos se limpian de forma oportunista después de una hora de gracia.</p>
           </div>

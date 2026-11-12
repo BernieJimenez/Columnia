@@ -156,7 +156,7 @@ describe("DatabaseImportPanel", () => {
 
   it("muestra el error del servidor cerca de la acción y no carga nada", async () => {
     vi.spyOn(bridge, "listDatabaseTables").mockResolvedValue([{ schema: "dbo", name: "Ventas", isView: false }]);
-    vi.spyOn(bridge, "importDatabaseTable").mockRejectedValue("No se pudo leer la tabla para SQL Server: el servidor rechazó la sentencia.");
+    vi.spyOn(bridge, "importDatabaseTable").mockRejectedValue("No se pudo leer la tabla para SQL Server: el servidor rechazó la consulta.");
     const onImport = vi.fn(async (run: RunImport) => {
       await expect(run()).resolves.toBeNull();
     });
@@ -164,7 +164,7 @@ describe("DatabaseImportPanel", () => {
     await fillConnection();
     fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
     fireEvent.click(await screen.findByRole("button", { name: "Traer dbo.Ventas" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("el servidor rechazó la sentencia");
+    expect(await screen.findByRole("alert")).toHaveTextContent("el servidor rechazó la consulta");
   });
 
   it("dice cuándo el usuario no puede leer ninguna tabla", async () => {
@@ -235,7 +235,7 @@ describe("DatabaseImportPanel", () => {
     traer.focus();
     fireEvent.click(traer);
     await waitFor(() => expect(importTable).toHaveBeenCalledTimes(2));
-    fail("El servidor rechazó la sentencia.");
+    fail("El servidor rechazó la consulta.");
     const alert = await screen.findByRole("alert");
     await waitFor(() => expect(document.activeElement).toBe(alert));
   });

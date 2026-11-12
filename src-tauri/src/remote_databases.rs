@@ -205,7 +205,7 @@ impl<'c, 'env> BatchInserter<'c, 'env> {
             .execute(self.pending.as_slice())
             .map_err(|error| {
                 format_driver_error(
-                    "No se pudo insertar un lote en la tabla remota",
+                    "No se pudo insertar un bloque de filas en la tabla remota",
                     error,
                     self.target,
                 )
@@ -223,7 +223,7 @@ impl<'c, 'env> BatchInserter<'c, 'env> {
             .execute(&sql, self.pending.as_slice(), Some(ODBC_BATCH_TIMEOUT_SEC))
             .map_err(|error| {
                 format_driver_error(
-                    "No se pudo insertar un lote en la tabla remota",
+                    "No se pudo insertar un bloque de filas en la tabla remota",
                     error,
                     self.target,
                 )
@@ -2238,7 +2238,7 @@ fn readable_driver_detail(detail: &str) -> String {
     let what = match &state[..2] {
         "08" => "se perdió la conexión con el servidor o no se pudo abrir",
         "28" => "el servidor rechazó el usuario o la contraseña",
-        "42" => "el servidor rechazó la sentencia (nombre de tabla o columna, permisos o sintaxis)",
+        "42" => "el servidor rechazó la consulta (nombre de tabla o columna, permisos o sintaxis)",
         "23" => "los datos incumplen una restricción de la tabla remota",
         "22" => "un valor no cabe en el tipo de la columna remota",
         "40" => "el servidor deshizo la transacción",
@@ -3636,7 +3636,7 @@ mod tests {
         assert!(!readable.contains("[Microsoft]"), "{readable}");
 
         let message = format_driver_error(
-            "No se pudo insertar un lote",
+            "No se pudo insertar un bloque de filas",
             dump,
             &target(DatabaseKind::SqlServer),
         );
@@ -5084,13 +5084,29 @@ mod tests {
         const { assert!(ODBC_BATCH_TIMEOUT_SEC <= 30) };
         const { assert!(ODBC_BATCH_TIMEOUT_SEC < ODBC_STATEMENT_TIMEOUT_SEC) };
         let error = format_driver_error(
-            "No se pudo insertar un lote en la tabla remota",
+            "No se pudo insertar un bloque de filas en la tabla remota",
             "State: HYT00, Native error: 0, Message: Query timeout expired",
             &target(DatabaseKind::SqlServer),
         );
         assert!(
             error.contains(&format!("{ODBC_BATCH_TIMEOUT_SEC} s por bloque de filas")),
             "{error}"
+        );
+    }
+
+    /// AUD-119: the messages shown to the user for the insert and the SQLSTATE 42
+    /// class never use the internal words «lote» or «sentencia».
+    #[test]
+    fn insert_and_syntax_errors_use_plain_delivery_terms() {
+        let insert = format_driver_error(
+            "No se pudo insertar un bloque de filas en la tabla remota",
+            "State: 42S02, Native error: 208, Message: Invalid object name 'dbo.X'",
+            &target(DatabaseKind::SqlServer),
+        );
+        assert!(insert.contains("consulta"), "{insert}");
+        assert!(
+            !insert.contains("lote") && !insert.contains("sentencia"),
+            "{insert}"
         );
     }
 

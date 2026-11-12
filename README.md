@@ -1,7 +1,7 @@
 <div align="center">
   <img src="app-icon.svg" width="88" alt="Logotipo de Columnia">
   <h1>Columnia</h1>
-  <p><strong>Convierte archivos desordenados en datasets confiables, sin sacar los datos de tu equipo.</strong></p>
+  <p><strong>Convierte archivos desordenados en datasets confiables, sin sacar los datos de tu equipo salvo que tú los envíes a una base de datos.</strong></p>
   <p>Una estación de trabajo local para revisar, limpiar, transformar, validar y exportar datos.</p>
 
   ![Versión](https://img.shields.io/badge/versión-1.26.0-176d62?style=flat-square)
@@ -16,7 +16,7 @@
 
 ## Qué hace Columnia
 
-- Abre CSV, TSV, JSON, Parquet, Excel y ODS desde tu equipo, o trae una tabla o vista de SQL Server en solo lectura (Columnia solo consulta; para asegurarlo, usa un usuario con permiso de lectura).
+- Abre CSV, TSV, JSON, Parquet, Excel y ODS desde tu equipo, o trae una tabla o vista de SQL Server, PostgreSQL o MySQL, en solo lectura (Columnia solo consulta; para asegurarlo, usa un usuario con permiso de lectura).
 - Detecta nulos, duplicados, tipos incompatibles y otras señales de calidad.
 - Aplica correcciones y transformaciones reversibles.
 - Permite explorar los datos con SQL local mediante Polars o DuckDB.

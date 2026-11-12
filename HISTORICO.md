@@ -117,6 +117,12 @@ el ROADMAP, con su línea *Cierre*. Lo anterior a esa revisión sigue en
 - 2026-11-12 · AUD-086 · **Cerrada.** tanda 22 de la Fase 2
 - 2026-11-12 · AUD-087 · **Cerrada.** tanda 22 de la Fase 2
 - 2026-11-12 · AUD-088 · **Cerrada.** tanda 22 de la Fase 2
+- 2026-11-12 · AUD-119 · **Cerrada.** tanda 23 de la Fase 2
+- 2026-11-12 · AUD-120 · **Cerrada.** tanda 23 de la Fase 2
+- 2026-11-12 · AUD-089 · **Cerrada.** tanda 23 de la Fase 2
+- 2026-11-12 · AUD-090 · **Cerrada.** tanda 23 de la Fase 2
+- 2026-11-12 · AUD-091 · **Cerrada.** tanda 23 de la Fase 2
+- 2026-11-12 · AUD-092 · **Cerrada.** tanda 23 de la Fase 2
 
 ### Resumen por tandas
 
@@ -152,6 +158,8 @@ una cancelación que con el equipo cargado sale como error de DuckDB.
 El 2026-11-12 se cerró también la tanda 22 (AUD-082, 118, 084, 085, 086, 087 y 088), con la que QA y testing
 queda sin abiertas, y se abrieron AUD-119 y AUD-120, de redacción. Ese día las tareas cerradas
 pasaron del ROADMAP a este archivo.
+Ese mismo día se cerró la tanda 23 (AUD-119, 120, 089, 090, 091 y 092) y se abrió AUD-121, de redacción:
+el símbolo de la celda nula y las frases de conversión de Preparar todavía dicen «vacío».
 
 ## Tier 2 · Medio (revisión 2026-11-05)
 
@@ -1163,3 +1171,59 @@ pasaron del ROADMAP a este archivo.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-12 · tanda 22 de la Fase 2 (en `master`). El mensaje dice «…no respondió a tiempo (límites: 15 s para conectar, 30 s para listar las tablas, 30 s por bloque de filas y 300 s por consulta)…», con las cuatro constantes reales; se conserva el límite de listar tablas, que la tarea no citaba y que cubre la prueba de AUD-013. La prueba comprueba los cuatro y que no aparecen «lote» ni «sentencia». Otros mensajes del mismo archivo siguen usándolos (AUD-119).
+
+- [x] **AUD-119 · Otros mensajes de la entrega a bases de datos siguen diciendo «lote» y «sentencia»**
+  - **Área:** Redacción · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src-tauri/src/remote_databases.rs:208` («No se pudo insertar un lote en la tabla remota», también en `:226`) y `:2241` («el servidor rechazó la sentencia…»)
+  - **Qué hacer:** usar los mismos términos que el mensaje de tiempo de espera de AUD-088: «bloque de filas» y «consulta» (por ejemplo «No se pudo insertar un bloque de filas en la tabla remota» y «el servidor rechazó la consulta…»). Repasar el resto de mensajes del archivo que llegan a la persona y ajustar las pruebas que citen el texto.
+  - **Criterio de aceptación:** ningún mensaje de `remote_databases.rs` que llegue a la interfaz contiene «lote» ni «sentencia».
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-088
+  - **Cierre:** 2026-11-12 · tanda 23 de la Fase 2 (en `master`). Los dos mensajes de inserción dicen «No se pudo insertar un bloque de filas en la tabla remota» y el de la clase SQLSTATE 42, «el servidor rechazó la consulta (…)»; no quedaba otro mensaje visible con «lote» ni «sentencia» (lo que queda son comentarios y textos internos de las pruebas). Prueba `insert_and_syntax_errors_use_plain_delivery_terms`; el simulacro de `DatabaseImportPanel.test.tsx` usa el texto nuevo.
+
+- [x] **AUD-120 · «Vacío» por nulo en Cargar y un párrafo de privacidad que no menciona la lectura desde bases de datos**
+  - **Área:** Redacción · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `src/features/load/LoadPhase.tsx:745` («deja ese valor vacío en el archivo») y `src/App.tsx:1401` (párrafo «Privacidad local»)
+  - **Qué hacer:** en Cargar, usar «nulo» como en Revisar y Preparar (AUD-084) y repasar Cargar y Entregar por si queda otra mezcla (`ReusableTaskPanel.tsx:310` y `DeliveryPhase.tsx:94-98` parecen correctos). En «Privacidad local», decir que, además de las filas que se envían con una exportación explícita, Cargar abre una conexión que solo lee cuando se elige una base de datos, como ya dice el resumen de encima (AUD-087).
+  - **Criterio de aceptación:** en Cargar y Entregar la celda sin valor se llama «nulo»; el párrafo de privacidad menciona la conexión de lectura y no contradice `THREAT_MODEL.md`.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-084 y AUD-087
+  - **Cierre:** 2026-11-12 · tanda 23 de la Fase 2 (en `master`). Cargar dice «deja ese valor nulo en el archivo» y, en el aviso de celdas combinadas, «las demás llegarán nulas»; Entregar se repasó sin cambios («Texto vacío» es la cadena sin caracteres). «Privacidad local» añade: «Cuando se elige una base de datos en Cargar, se abre además una conexión que solo lee, con confirmación; las filas leídas se quedan en este equipo.» Fuera de esta tarea: el símbolo de la celda nula en las tablas sigue mostrando «∅ vacío» desde un componente que comparten Cargar, Revisar y Preparar, y Preparar dice «quedará vacía» al convertir (AUD-121).
+
+### Documentación
+
+- [x] **AUD-089 · El modelo de amenazas dice que `style-src` permite `unsafe-inline`, y solo ocurre en desarrollo**
+  - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `THREAT_MODEL.md:80`
+  - **Qué hacer:** «En producción `style-src` es solo `'self'`. `'unsafe-inline'` solo figura en la CSP de desarrollo (`devCsp`), para Vite.»
+  - **Criterio de aceptación:** la fila distingue producción y desarrollo y coincide con `tauri.conf.json`.
+  - **Depende de:** ninguna
+  - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 23 de la Fase 2 (en `master`). La fila «WebView y contenido frontend» dice «En producción `style-src` es solo `'self'`. `'unsafe-inline'` solo figura en la CSP de desarrollo (`devCsp`), para Vite.», como `tauri.conf.json`.
+
+- [x] **AUD-090 · El modelo de amenazas dice que la importación comparte la validación de cadena de la entrega, sin aclarar el cifrado**
+  - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `THREAT_MODEL.md:85`
+  - **Qué hacer:** «Misma validación de cadena que la entrega en FileDSN y `Driver=` (controlador instalado). A diferencia de la entrega, la importación no comprueba la política de cifrado (ver AUD-008).»
+  - **Criterio de aceptación:** la fila no atribuye a la importación la comprobación de cifrado, y enlaza el hallazgo de área 2.
+  - **Depende de:** AUD-008 (la frase depende de si la importación aplica la política de cifrado)
+  - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 23 de la Fase 2 (en `master`). Con otro texto que el de «Qué hacer», que era anterior al cierre de AUD-008: la fila ya decía que Rust arma la cadena y que el formulario pide cifrado; ahora añade que la importación no bloquea una conexión sin cifrar, sino que el diálogo nativo de confirmación añade «Atención: …» con el texto del preflight de entrega cuando el canal puede ir sin cifrar o SQL Server acepta cualquier certificado, y nada con un servidor local o una conexión estricta (AUD-008).
+
+- [x] **AUD-091 · El README dice que Cargar trae tablas solo de SQL Server**
+  - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `README.md:19`
+  - **Qué hacer:** «…o trae una tabla o vista de SQL Server, PostgreSQL o MySQL, en solo lectura.»
+  - **Criterio de aceptación:** la lista del README coincide con los motores que acepta Cargar.
+  - **Depende de:** ninguna
+  - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 23 de la Fase 2 (en `master`). «…o trae una tabla o vista de SQL Server, PostgreSQL o MySQL, en solo lectura…».
+
+- [x] **AUD-092 · El lema del README promete que los datos no salen del equipo, y la exportación ODBC sí puede sacarlos**
+  - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo
+  - **Ubicación:** `README.md:4`
+  - **Qué hacer:** «…sin sacar los datos de tu equipo salvo que tú los envíes a una base de datos.»
+  - **Criterio de aceptación:** el lema no contradice el texto legal de la aplicación ni el modelo de amenazas.
+  - **Depende de:** ninguna
+  - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 23 de la Fase 2 (en `master`). El lema dice «…sin sacar los datos de tu equipo salvo que tú los envíes a una base de datos.» No hay copias del lema en otros documentos versionados.

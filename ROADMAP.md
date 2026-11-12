@@ -26,18 +26,18 @@ cerrado sale de aquí: cada tarea pasa entera, con su línea *Cierre*, a
 CHANGELOG.
 
 <!-- indice:inicio -->
-**Última actualización:** 2026-11-12 · **Siguiente ID libre:** AUD-121 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
+**Última actualización:** 2026-11-12 · **Siguiente ID libre:** AUD-122 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
 
 | Tier | Abiertas | Cerradas | Esfuerzo de las abiertas (Bajo · Medio · Alto) |
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 11 | 73 | 11 · 0 · 0 |
+| 3 · Bajo | 6 | 79 | 6 · 0 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **12** | **108** | **12 · 0 · 0** |
+| **Total** | **7** | **114** | **7 · 0 · 0** |
 
-**Abiertas por área:** Documentación 9 · Redacción 2 · UI/UX 1
+**Abiertas por área:** Documentación 5 · Redacción 1 · UI/UX 1
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -138,55 +138,15 @@ Sin tareas abiertas.
 
 ### Ortografía y redacción
 
-- [ ] **AUD-119 · Otros mensajes de la entrega a bases de datos siguen diciendo «lote» y «sentencia»**
+- [ ] **AUD-121 · La celda nula se pinta como «∅ vacío» y Preparar dice que las celdas «quedan vacías» al convertir**
   - **Área:** Redacción · **Severidad:** Bajo · **Esfuerzo:** Bajo
-  - **Ubicación:** `src-tauri/src/remote_databases.rs:208` («No se pudo insertar un lote en la tabla remota», también en `:226`) y `:2241` («el servidor rechazó la sentencia…»)
-  - **Qué hacer:** usar los mismos términos que el mensaje de tiempo de espera de AUD-088: «bloque de filas» y «consulta» (por ejemplo «No se pudo insertar un bloque de filas en la tabla remota» y «el servidor rechazó la consulta…»). Repasar el resto de mensajes del archivo que llegan a la persona y ajustar las pruebas que citen el texto.
-  - **Criterio de aceptación:** ningún mensaje de `remote_databases.rs` que llegue a la interfaz contiene «lote» ni «sentencia».
+  - **Ubicación:** `src/components/MissingValue.tsx:10` (texto visible «vacío» en las tablas de Cargar, Revisar y Preparar); `src/features/prepare/PreparePhase.tsx:732` («quedará vacía»), `:751` («Convertir y dejar vacías»), `:1168` y `:1183` («quedan vacíos»); `src/features/prepare/prepareModel.ts:212-222` («quedó vacía»); `src/features/prepare/TransformRecipeEditor.tsx:949`
+  - **Qué hacer:** usar «nulo» para la celda sin valor, como fija el glosario (AUD-084): el símbolo pasa a «∅ nulo» (el nombre accesible «valor ausente» se conserva) y las frases de conversión dicen «quedará nula», «quedan nulos». No tocar «filas vacías», «columnas vacías» ni «texto vacío», que son otra cosa. Ajustar las pruebas que citen el texto (`MissingValue.test.tsx`, `ReviewPhase.test.tsx`, `PreparePhase.test.tsx`) y comprobar en la interfaz que el símbolo no cambia el ancho de las tablas.
+  - **Criterio de aceptación:** ninguna frase de la interfaz llama «vacía» a una celda nula; las tablas pintan «∅ nulo» y el lector de pantalla sigue oyendo «valor ausente».
   - **Depende de:** ninguna
-  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-088
-
-- [ ] **AUD-120 · «Vacío» por nulo en Cargar y un párrafo de privacidad que no menciona la lectura desde bases de datos**
-  - **Área:** Redacción · **Severidad:** Bajo · **Esfuerzo:** Bajo
-  - **Ubicación:** `src/features/load/LoadPhase.tsx:745` («deja ese valor vacío en el archivo») y `src/App.tsx:1401` (párrafo «Privacidad local»)
-  - **Qué hacer:** en Cargar, usar «nulo» como en Revisar y Preparar (AUD-084) y repasar Cargar y Entregar por si queda otra mezcla (`ReusableTaskPanel.tsx:310` y `DeliveryPhase.tsx:94-98` parecen correctos). En «Privacidad local», decir que, además de las filas que se envían con una exportación explícita, Cargar abre una conexión que solo lee cuando se elige una base de datos, como ya dice el resumen de encima (AUD-087).
-  - **Criterio de aceptación:** en Cargar y Entregar la celda sin valor se llama «nulo»; el párrafo de privacidad menciona la conexión de lectura y no contradice `THREAT_MODEL.md`.
-  - **Depende de:** ninguna
-  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-084 y AUD-087
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-120
 
 ### Documentación
-
-- [ ] **AUD-089 · El modelo de amenazas dice que `style-src` permite `unsafe-inline`, y solo ocurre en desarrollo**
-  - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo
-  - **Ubicación:** `THREAT_MODEL.md:80`
-  - **Qué hacer:** «En producción `style-src` es solo `'self'`. `'unsafe-inline'` solo figura en la CSP de desarrollo (`devCsp`), para Vite.»
-  - **Criterio de aceptación:** la fila distingue producción y desarrollo y coincide con `tauri.conf.json`.
-  - **Depende de:** ninguna
-  - **Origen:** auditoría 2026-11-05
-
-- [ ] **AUD-090 · El modelo de amenazas dice que la importación comparte la validación de cadena de la entrega, sin aclarar el cifrado**
-  - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo
-  - **Ubicación:** `THREAT_MODEL.md:85`
-  - **Qué hacer:** «Misma validación de cadena que la entrega en FileDSN y `Driver=` (controlador instalado). A diferencia de la entrega, la importación no comprueba la política de cifrado (ver AUD-008).»
-  - **Criterio de aceptación:** la fila no atribuye a la importación la comprobación de cifrado, y enlaza el hallazgo de área 2.
-  - **Depende de:** AUD-008 (la frase depende de si la importación aplica la política de cifrado)
-  - **Origen:** auditoría 2026-11-05
-
-- [ ] **AUD-091 · El README dice que Cargar trae tablas solo de SQL Server**
-  - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo
-  - **Ubicación:** `README.md:19`
-  - **Qué hacer:** «…o trae una tabla o vista de SQL Server, PostgreSQL o MySQL, en solo lectura.»
-  - **Criterio de aceptación:** la lista del README coincide con los motores que acepta Cargar.
-  - **Depende de:** ninguna
-  - **Origen:** auditoría 2026-11-05
-
-- [ ] **AUD-092 · El lema del README promete que los datos no salen del equipo, y la exportación ODBC sí puede sacarlos**
-  - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo
-  - **Ubicación:** `README.md:4`
-  - **Qué hacer:** «…sin sacar los datos de tu equipo salvo que tú los envíes a una base de datos.»
-  - **Criterio de aceptación:** el lema no contradice el texto legal de la aplicación ni el modelo de amenazas.
-  - **Depende de:** ninguna
-  - **Origen:** auditoría 2026-11-05
 
 - [ ] **AUD-093 · El README no indica cómo ejecutar las pruebas Rust ni el gate oficial**
   - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo

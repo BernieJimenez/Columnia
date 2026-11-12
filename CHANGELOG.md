@@ -1338,6 +1338,12 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - El aviso de tiempo de espera de una base remota explica sus límites sin
   términos internos: 15 s para conectar, 30 s para listar las tablas, 30 s por
   bloque de filas y 300 s por consulta (AUD-088).
+- Los errores de la entrega a una base de datos dicen «bloque de filas» y
+  «consulta» también cuando falla una inserción o el servidor rechaza la
+  consulta, no «lote» ni «sentencia» (AUD-119).
+- Cargar llama «nulo» a la celda sin valor en sus avisos, y «Privacidad
+  local» dice que elegir una base de datos en Cargar abre una conexión que
+  solo lee y que las filas leídas se quedan en el equipo (AUD-120).
 - Los paneles «Preferencias y recursos» y «Licencia y privacidad» se cierran
   con Esc (el foco vuelve a su botón) y con un clic fuera (AUD-063).
 - Si el motor no arranca, Cargar lo dice con el motivo y qué hacer («Cierra y
@@ -1727,6 +1733,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   Vitest. Cancelar el conteo de valores distintos mientras se prepara da
   siempre el mensaje de cancelación, con lo que `cargo test --lib` deja de
   fallar a ratos con el equipo cargado (AUD-082, AUD-118).
+- Documentación al día: el modelo de amenazas distingue la CSP de producción
+  de la de desarrollo y dice que la importación avisa del canal sin cifrar en
+  el diálogo nativo; el README nombra los tres motores de Cargar y su lema
+  ya no promete que los datos nunca salen del equipo (AUD-089 a AUD-092).
 - Las tareas cerradas de la revisión del 2026-11-05 pasan de `ROADMAP.md` a
   `HISTORICO.md`; el ROADMAP queda solo con lo pendiente.
 - El arranque de la interfaz carga unos 43 kB menos: el modelo de Entregar, los

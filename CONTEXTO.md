@@ -696,6 +696,13 @@ Redacción y pruebas, decisiones de la tanda 22 de la auditoría (2026-11-12):
 - `check.ps1` pasa a Vitest `--reporter=json` y, si el paso falla, resume las pruebas fallidas en `failedTests`; el JSON se borra si el paso pasa. Los pasos de Rust solo guardan el código de salida. El reporte lleva rutas absolutas del equipo: no compartirlo sin mirarlo (AUD-082).
 - las tareas `AUD-NNN` cerradas viven en `HISTORICO.md` (solo se añade); al cerrar una se mueve entera allí con su *Cierre* y una línea en el *Registro*.
 
+Redacción y documentación, decisiones de la tanda 23 de la auditoría (2026-11-12):
+- los mensajes de `remote_databases.rs` que llegan a la persona dicen «bloque de filas» y «consulta»; «lote» y «sentencia» quedan para comentarios y nombres internos (AUD-119).
+- la importación no rechaza una conexión sin cifrar: avisa en el diálogo nativo (AUD-008). `THREAT_MODEL.md` lo dice así; el texto que proponía AUD-090 era anterior a ese cierre y no se usó.
+- pendiente en AUD-121: `MissingValue` pinta «∅ vacío» y Preparar dice «quedará vacía» para celdas que pasan a nulo. No se cambió dentro de AUD-120 porque el componente lo comparten Cargar, Revisar y Preparar.
+- **Trampa:** en este equipo `cargo test --lib` termina con `STATUS_ENTRYPOINT_NOT_FOUND` (0xc0000139) sin `COLUMNIA_TEST_HARNESS_MANIFEST=1` (ver `CONTRIBUTING.md`); un subagente lo dio por fallo del entorno. `npx tsc -b` suelto deja `tsconfig.tsbuildinfo` en la raíz: usar el script del proyecto.
+- commits: local en `master`, uno por tanda, sin subir.
+
 Interfaz, decisiones de la tanda 7 de la auditoría (2026-11-09):
 - las celdas de las tablas de datos pasan por `renderCellValue`: un texto de más de 36 caracteres va en `span.cell-clip` (tope de 36ch en el elemento interior, porque `max-width` en un `td` no limita una tabla con `table-layout: auto`), con `title` y expansión al recibir el foco (AUD-056).
 - en Preparar, el resultado del último cambio se muestra dos veces: en el historial (`role="status"`, el que se anuncia) y en la línea fija `ChangeResultLine` arriba de las herramientas (sin región viva, para no anunciarlo dos veces). Las pruebas que buscan el mensaje deben acotarse a una de las dos (AUD-057).
