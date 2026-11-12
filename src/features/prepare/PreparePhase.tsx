@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ModalDialog } from "../../components/ModalDialog";
+import { busyDescribedBy } from "../../busyReasons";
 import { previewSafeCorrections } from "../../bridge";
 import type { DatasetPreview, DatasetProfile, HistoryState, QualityRule, SafeCorrectionOptions, SavedRecipe, TransformRecipe } from "../../bridge";
 import type { ProfileStatus } from "../review/reviewModel";
@@ -377,6 +378,7 @@ export function PreparePhase({
           id="prepare-transformations-panel"
           role="tabpanel"
           aria-labelledby="prepare-transformations-tab"
+          aria-describedby={busyDescribedBy(changing)}
         >
           <TransformRecipeEditor
             key={recipeSession}
@@ -394,6 +396,7 @@ export function PreparePhase({
         id="prepare-corrections-panel"
         role="tabpanel"
         aria-labelledby="prepare-corrections-tab"
+        aria-describedby={busyDescribedBy(changing)}
       >
       {profileStatus.kind === "ready" && (
         <details className="advanced-corrections prepare-signal-details">
@@ -424,7 +427,7 @@ export function PreparePhase({
               onDropOutliers={onDropOutliers && (() => setOutlierConfirmation("drop"))}
             />
             {nearDuplicateCount !== null && nearDuplicateCount > 0 && onRemoveNearDuplicates && (
-              <section className="prepare-card" aria-labelledby="near-duplicates-title">
+              <section className="prepare-card" aria-labelledby="near-duplicates-title" aria-describedby={busyDescribedBy(changing)}>
                 <div>
                   <p className="step">Revisión con confirmación</p>
                   <h3 id="near-duplicates-title">Duplicados parecidos</h3>
@@ -453,7 +456,7 @@ export function PreparePhase({
         </summary>
         <div className="advanced-corrections__content">
       {hasRowsAndColumns && (
-      <section className="prepare-card" aria-labelledby="row-audit-title">
+      <section className="prepare-card" aria-labelledby="row-audit-title" aria-describedby={busyDescribedBy(changing)}>
         <div>
           <p className="step">Trazabilidad local</p>
           <h3 id="row-audit-title">Cambios por fila</h3>
@@ -471,7 +474,7 @@ export function PreparePhase({
       </section>
       )}
       {textColumns.length > 0 && (
-      <section className="prepare-card prepare-card--stacked" aria-labelledby="normalize-text-title">
+      <section className="prepare-card prepare-card--stacked" aria-labelledby="normalize-text-title" aria-describedby={busyDescribedBy(changing)}>
         <div>
           <p className="step">Requiere selección</p>
           <h3 id="normalize-text-title">Normalizar texto</h3>
@@ -519,7 +522,7 @@ export function PreparePhase({
       </section>
       )}
       {hasRowsAndColumns && (
-      <section className="prepare-card" aria-labelledby="empty-rows-title">
+      <section className="prepare-card" aria-labelledby="empty-rows-title" aria-describedby={busyDescribedBy(changing)}>
         <div>
           <p className="step">Corrección segura</p>
           <h3 id="empty-rows-title">Filas completamente vacías</h3>
@@ -539,7 +542,7 @@ export function PreparePhase({
       </details>
       </div>
       {/* The history stays in view: every change here can be undone from it. */}
-      <aside className="prepare-layout__aside" aria-label="Historial de cambios">
+      <aside className="prepare-layout__aside" aria-label="Historial de cambios" aria-describedby={busyDescribedBy(changing)}>
         <HistoryBar
           status={historyStatus}
           busy={changing}
@@ -575,6 +578,7 @@ export function PreparePhase({
                 onRemoveNearDuplicates?.();
               }}
               disabled={changing}
+              aria-describedby={busyDescribedBy(changing)}
             >
               Eliminar duplicados parecidos
             </button>
@@ -607,6 +611,7 @@ export function PreparePhase({
                 onRemoveIdentifierColumns?.();
               }}
               disabled={changing}
+              aria-describedby={busyDescribedBy(changing)}
             >
               Retirar identificadores
             </button>
@@ -640,6 +645,7 @@ export function PreparePhase({
                 onRemovePersonalColumns?.();
               }}
               disabled={changing}
+              aria-describedby={busyDescribedBy(changing)}
             >
               Retirar datos personales
             </button>
@@ -673,6 +679,7 @@ export function PreparePhase({
                 onMaskPersonalValues?.();
               }}
               disabled={changing}
+              aria-describedby={busyDescribedBy(changing)}
             >
               Proteger valores personales
             </button>
@@ -703,6 +710,7 @@ export function PreparePhase({
                 onNullifyInvalidTypes?.();
               }}
               disabled={changing}
+              aria-describedby={busyDescribedBy(changing)}
             >
               Apartar valores incompatibles
             </button>
@@ -738,6 +746,7 @@ export function PreparePhase({
                 else onParseDates?.();
               }}
               disabled={changing}
+              aria-describedby={busyDescribedBy(changing)}
             >
               Convertir y dejar vacías
             </button>
@@ -778,6 +787,7 @@ export function PreparePhase({
                 else onDropOutliers?.();
               }}
               disabled={changing}
+              aria-describedby={busyDescribedBy(changing)}
             >
               {OUTLIER_ACTION_TITLES[outlierConfirmation]}
             </button>
@@ -916,7 +926,7 @@ function CleaningSignals({
   const hasOtherSignals = profile.duplicateRowCount > 0 || nearDuplicates || constant.length > 0 || encoding.length > 0 || booleans.length > 0 || dateCandidates.length > 0 || numericCandidates.length > 0 || typeDrift.length > 0 || outliers.length > 0 || personal.length > 0;
 
   return (
-    <section className="prepare-card prepare-card--stacked cleaning-signals" aria-labelledby="cleaning-signals-title">
+    <section className="prepare-card prepare-card--stacked cleaning-signals" aria-labelledby="cleaning-signals-title" aria-describedby={busyDescribedBy(busy)}>
       <div>
         <p className="step">Catálogo de limpieza</p>
         <h3 id="cleaning-signals-title">Señales para revisar</h3>

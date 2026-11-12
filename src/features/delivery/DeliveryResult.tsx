@@ -3,7 +3,8 @@ import { useEffect, useEffectEvent, useState } from "react";
 import { openLastExport, openLastExportInPowerBi } from "../../bridge";
 import type { SavedRecipe } from "../../bridge";
 import { formatFileSize } from "./DatasetMetrics";
-import { bundleFileNames, listFileNames, type DeliveryContractState, type DeliveryExportState } from "./deliveryModel";
+import type { DeliveryContractState, DeliveryExportState } from "./deliveryContract";
+import { bundleFileNames, listFileNames } from "./deliveryModel";
 import { plural } from "../../plural";
 import { errorMessage } from "../../bridge/errors";
 

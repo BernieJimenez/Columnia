@@ -3214,7 +3214,7 @@ describe("App", () => {
     const cancelLabel = mutation === "join" ? "Cancelar unión" : "Cancelar consolidación";
     const waitingLabel = mutation === "join" ? "Esperando unión…" : "Esperando consolidación…";
     expect(screen.getByRole("button", { name: cancelLabel })).toBeEnabled();
-    expect(screen.getByRole("button", { name: waitingLabel })).toBeDisabled();
+    expect(screen.getByRole("button", { name: waitingLabel })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText("Filas compartidas")).toBeInTheDocument();
 
     if (outcome === "cancelled") {
@@ -3222,7 +3222,7 @@ describe("App", () => {
       expect(cancelSpy).toHaveBeenCalledWith("reviewMutation");
       expect(await screen.findByRole("button", {
         name: mutation === "join" ? "Cancelando unión…" : "Cancelando consolidación…",
-      })).toBeDisabled();
+      })).toHaveAttribute("aria-disabled", "true");
     }
 
     await act(async () => {
@@ -3312,7 +3312,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Cancelar resolución" }));
     expect(cancelSpy).toHaveBeenCalledWith("reviewMutation");
-    expect(await screen.findByRole("button", { name: "Cancelando resolución…" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Cancelando resolución…" })).toHaveAttribute("aria-disabled", "true");
     await act(async () => {
       rejectResolution(new Error("Operación cancelada por el usuario."));
       await resolutionPromise.catch(() => undefined);

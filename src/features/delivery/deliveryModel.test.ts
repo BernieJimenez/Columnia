@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { QUALITY_DATASET_COLUMN, type ColumnProfile, type DatabaseConnection, type DatasetPreview, type QualityRule, type QualityValidationResult } from "../../bridge";
 import {
   INITIAL_DATABASE_TARGET,
-  INITIAL_DELIVERY_CONTRACT,
   completeDatabaseTarget,
   databaseTargetTable,
   deliverySummary,
@@ -15,20 +14,20 @@ import {
   bundleFileNames,
   listFileNames,
   databaseKindForExportFormat,
-  deliveryContractFromRules,
-  excelLimitIssues,
-  deliveryRules,
-  invalidateDeliveryContract,
-  personalDataColumnNames,
-  suggestQualityRules,
-  MAX_SUGGESTED_QUALITY_RULES,
-  reduceDeliveryContract,
   validateDatabaseTargetDraft,
   validateQualityRuleDraft,
   databaseTargetIssue,
   invalidQualityRuleIndex,
-  type DeliveryContractState,
 } from "./deliveryModel";
+import {
+  INITIAL_DELIVERY_CONTRACT,
+  deliveryContractFromRules,
+  deliveryRules,
+  invalidateDeliveryContract,
+  reduceDeliveryContract,
+  type DeliveryContractState,
+} from "./deliveryContract";
+import { MAX_SUGGESTED_QUALITY_RULES, excelLimitIssues, personalDataColumnNames, suggestQualityRules } from "./deliverySignals";
 
 const dataset: DatasetPreview = {
   fileName: "ventas.csv",

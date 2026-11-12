@@ -36,13 +36,15 @@ import {
   type DeliveryContractState,
   type DeliveryExportRequest,
   type DeliveryExportState,
+  isDatabaseExportFormat,
+} from "./deliveryContract";
+import {
   INITIAL_DATABASE_TARGET,
   QUALITY_RULE_SUMMARY,
   type DatabaseTargetDraft,
   completeDatabaseTarget,
   bundleFileNames,
   databaseKindForExportFormat,
-  isDatabaseExportFormat,
   DELIVERY_DESTINATIONS,
   databaseTargetTable,
   deliveryDestination,

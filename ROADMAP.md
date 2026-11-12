@@ -46,7 +46,8 @@ Accesibilidad queda sin abiertas y el catálogo de proyectos pasa a la versión 
 El 2026-11-12 se cerró la tanda 18 (AUD-079, 063, 064, 065, 066 y 067) y se
 abrió AUD-116, salida de la revisión del bundle de AUD-079. Ese mismo día se
 cerró la tanda 19 (AUD-069, 070, 071 y 072; AUD-059 y AUD-068 avanzan) y se abrió
-AUD-117; AUD-068 se cerró después con el criterio ajustado por el dueño.
+AUD-117; AUD-068 se cerró después con el criterio ajustado por el dueño. Después se cerró
+la tanda 20 (AUD-059, 101, 117 y 116), con la que a UI/UX solo le queda la propuesta AUD-098.
 
 <!-- indice:inicio -->
 **Última actualización:** 2026-11-12 · **Siguiente ID libre:** AUD-118 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
@@ -56,11 +57,11 @@ AUD-117; AUD-068 se cerró después con el criterio ajustado por el dueño.
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 24 | 57 | 22 · 2 · 0 |
+| 3 · Bajo | 20 | 61 | 20 · 0 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **25** | **92** | **23 · 2 · 0** |
+| **Total** | **21** | **96** | **21 · 0 · 0** |
 
-**Abiertas por área:** Documentación 9 · QA y testing 7 · Redacción 5 · UI/UX 4
+**Abiertas por área:** Documentación 9 · QA y testing 6 · Redacción 5 · UI/UX 1
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -878,7 +879,7 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-11 · tanda 17 de la Fase 2 (en `master`). `useTopbarHeight()` publica la altura real de la barra como `--topbar-height` con `ResizeObserver` (88 px de reserva en `:root`); la usan `scroll-padding-top` y el `top`/`max-height` del panel lateral pegajoso de Preparar. Comprobado en el navegador a 1000×800 con un nombre de 84 caracteres: la barra mide 118 px (antes se suponían 88) y, tabulando 60 veces en Preparar y en Entregar, ningún control con foco queda bajo ella. El `scroll-padding-bottom: 260px` del resumen de Entregar no depende de la barra y el resumen solo es pegajoso desde 1180 px: sin cambio.
 
-- [ ] **AUD-059 · Las banderas de ocupado desactivan 56 controles sin decir por qué; «Guardar proyecto» es el caso más visible**
+- [x] **AUD-059 · Las banderas de ocupado desactivan 56 controles sin decir por qué; «Guardar proyecto» es el caso más visible**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Medio
   - **Ubicación:** `src/App.tsx:1418-1426`
   - **Qué hacer:** cambiar el estado a «Sin guardar · disponible al terminar el análisis» (o «Guardando…» / «Esperando…») según el motivo de `disabled`. Para el patrón: un solo texto de motivo derivado de las banderas (por ejemplo, junto a `busyReasons` de `App.tsx:1121`, que hoy solo llega a un atributo `data-busy-reasons`), que cada grupo muestre junto al control o asocie con `aria-describedby`.
@@ -887,6 +888,7 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Avance:** 2026-11-11 · tanda 17 de la Fase 2 (en `master`). Primera frase del criterio cumplida: con «Guardar proyecto» desactivado, la barra dice «Sin guardar · disponible al terminar el análisis de calidad» (o la operación que toque), y el botón lo asocia con `aria-describedby`. `src/busyReasons.ts` deriva un solo motivo de las banderas (las mismas de `data-busy-reasons`, que no cambia), en un nodo `#busy-reason` sin rol vivo (cambia en cada carga de página), al que apuntan las etapas, «Volver a…» y «Continuar…». **Queda abierta:** los grupos de controles de `LoadPhase`, `DatabaseImportPanel`, `ReusableTaskPanel`, `ProjectsPanel`, los formularios de conexión, `SqlServerScriptTarget`, `PrepareProposal` y Revisar no asocian todavía el motivo; y en los botones con `disabled` real el `aria-describedby` no lo lee un lector de pantalla al tabular (habría que pasar los críticos a `aria-disabled`, como en AUD-049). No se comprobó en el navegador (el mock no deja el análisis en curso).
   - **Avance:** 2026-11-12 · tanda 19 de la Fase 2 (en `master`). `busyDescribedBy()` (`src/busyReasons.ts`) asocia `#busy-reason` solo mientras dura el bloqueo en `LoadPhase`, `DatabaseImportPanel`, los formularios de conexión (ahora `role="group"` «Datos de conexión»), `SqlServerScriptTarget`, `ReusableTaskPanel`, `ProjectsPanel`, `PrepareProposal`, la paginación de Revisar y los controles de la comparación. Pasan a `aria-disabled` con guardia: «Seleccionar dataset», «Preparar próxima importación», «Aplicar al dataset actual», «Recuperar proyecto», «Abrir» y «Guardar proyecto nuevo». Comprobado en el navegador con el análisis retenido: «Seleccionar otro dataset» recibe el foco y enlaza «Disponible al terminar el análisis de calidad.», y deja de hacerlo al terminar. **Queda abierta:** los «Aplicar» de `PrepareProposal.tsx` siguen con `disabled` (pasarlos a `aria-disabled` rompe `.prepare-proposal__primary:is(:not(:disabled), [data-waiting])` de `workflow-styles.css`); los tres botones principales de `DatasetComparisonSection.tsx` (unir, resolver conflictos, consolidar), que también hacen de «Cancelar»; los más de 25 botones de `PreparePhase.tsx`; los diálogos de `ProjectsPanel.tsx`; y `projects.isBusy`, que bloquea sin estar en las banderas del motivo (el nodo queda vacío). Los botones que pasaron a `aria-disabled` son enfocables también cuando el bloqueo no es por ocupado (sin tarea abierta, nombre inválido), sin motivo asociado.
+  - **Cierre:** 2026-11-12 · tanda 20 de la Fase 2 (en `master`). Último tramo: los «Aplicar» de la propuesta de Preparar pasan a `aria-disabled` con guardia (las cuatro reglas `.prepare-proposal__primary:is(:not(:disabled)…)` de `workflow-styles.css` tratan `[aria-disabled="true"]` como desactivado, y hay regla de aspecto propia); también los tres botones principales de la comparación de Revisar (unir, resolver conflictos, consolidar), sin cambiar su cancelación; en `PreparePhase.tsx` el motivo se asocia en las tarjetas, las pestañas, el historial, `CleaningSignals` y los botones de confirmación; y en los diálogos de `ProjectsPanel.tsx`. `projects.isBusy` no necesitaba motivo nuevo: son las banderas `project` y `autosave`, que ya lo tienen. Comprobado en el navegador: con la propuesta sin cambios marcados, «Aplicar» es `aria-disabled`, recibe el foco, se ve desactivado y «Continuar a Explorar» pasa a acción primaria. Todos los grupos de la lista del hallazgo asocian el motivo. Limitaciones que quedan anotadas: un `aria-describedby` en un contenedor se lee al entrar en la región, no al tabular a un botón con `disabled` real; sin asociar, `RevisionComparison`, `ChangeResultLine` y los botones internos de `TransformRecipeEditor`; el texto visible de la barra es ahora «Sin guardar · en espera», con el motivo entero en `title` (AUD-117). No comprobado: NVDA ni Narrador.
 
 - [x] **AUD-060 · El motivo del botón «Exportar» omite dos de sus bloqueos**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
@@ -1006,21 +1008,23 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-12 · tanda 19 de la Fase 2 (en `master`). `DESIGN.md` gana la sección «Pantallas del flujo» (Cargar, Preparar y Explorar, cada afirmación comprobada contra el código) y, en «Responsive», la lista de puntos de corte del shell (1180, 901-1100, 900, 700, 480, 420 y 400 px, y el zoom al 200 %), con los de AUD-065.
 
-- [ ] **AUD-117 · Mientras dura el análisis, el motivo de «Guardar proyecto» parte la barra superior en dos líneas y la página salta al terminar**
+- [x] **AUD-117 · Mientras dura el análisis, el motivo de «Guardar proyecto» parte la barra superior en dos líneas y la página salta al terminar**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/App.tsx` (estado de «Guardar proyecto» en `.app-topbar__status`) y `src/shell.css`
   - **Qué hacer:** que «Sin guardar · disponible al terminar el análisis de calidad» no cambie la altura de la barra: una forma corta visible («Sin guardar · analizando…») con el motivo entero en el `aria-describedby` que ya existe, o reservar el ancho. No tocar `#busy-reason`.
   - **Criterio de aceptación:** a 1280×720, al terminar el análisis de calidad la barra superior mide lo mismo que durante el análisis y el título de la página no cambia de posición vertical (hoy sube unos 52 px).
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al medir AUD-068 en el navegador (efecto del texto añadido en AUD-059, tanda 17)
+  - **Cierre:** 2026-11-12 · tanda 20 de la Fase 2 (en `master`). `SidebarSave` muestra «Sin guardar · en espera» mientras una operación bloquea el guardado (igual para todas), con el motivo entero en el `title` del estado y en el `aria-describedby` del botón (`<estado> busy-reason`). Medido en el navegador a 1280×720 con el análisis retenido: la barra mide 65,5 px durante y después, y el título de la página no se mueve.
 
-- [ ] **AUD-101 · El selector ofrece el controlador antiguo «SQL Server», que no puede conectar con el cifrado obligatorio**
+- [x] **AUD-101 · El selector ofrece el controlador antiguo «SQL Server», que no puede conectar con el cifrado obligatorio**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:2850`
   - **Qué hacer:** no listar el controlador antiguo de Windows («SQL Server», `sqlsrv32`), o avisar al elegirlo. Traducir su error («Error de seguridad de SSL», SQLSTATE 08001) a «Este controlador no admite el cifrado; elige ODBC Driver 17 o 18».
   - **Criterio de aceptación:** con ODBC Driver 17 instalado, el selector no ofrece «SQL Server», o al elegirlo explica por qué no conecta. Hoy falla contra el SQL Server local con «Error de seguridad de SSL» aunque se marque «Aceptar cualquier certificado» (comprobado el 2026-11-06), porque no admite `TrustServerCertificate`.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-003
+  - **Cierre:** 2026-11-12 · tanda 20 de la Fase 2 (en `master`). `sql_server_drivers` ya no devuelve el controlador cuyo nombre es exactamente «SQL Server» (comparación exacta, sin mayúsculas ni espacios; «SQL Server Native Client» y los «ODBC Driver N» se siguen ofreciendo), para Cargar y para Entregar. Si llega igualmente (un proyecto o un preset guardado), la validación de la conexión responde «Este controlador no admite el cifrado; elige ODBC Driver 17 o 18.» antes de conectar. Con solo el controlador antiguo instalado, el formulario muestra el aviso que ya existía («No hay un controlador ODBC de SQL Server instalado…»). Dos pruebas nuevas en `remote_databases.rs`. No comprobado en la app real contra el SQL Server local.
 
 ### QA y testing
 
@@ -1041,13 +1045,14 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-12 · tanda 18 de la Fase 2 (en `master`). `vite.config.ts` deja fuera de `dist` una marca con el target del build (`.local/validation/frontend-build-target.json`) y `tools/check-bundle.mjs budget` avisa (sin cambiar el veredicto) si falta, si es de otro directorio o si el target no es `chrome105`; el aviso va también a `warnings` de la evidencia. Build manual sin la variable: avisa y mide 948.515 bytes; con `TAURI_ENV_PLATFORM=windows`, sin aviso y 920.940, como `check.ps1`. Revisión del contenido: `index-*.js` son unos 429 kB, de los que `react-dom` ocupa 207 kB; lo propio que más pesa es `App.tsx` (34 kB), `LoadPhase.tsx` (32 kB) y `deliveryModel.ts` (22 kB, importado entero por `App.tsx`). Reducción posible sin cambiar dependencias: unos 60-80 kB (ver AUD-116).
 
-- [ ] **AUD-116 · `index-*.js` carga de entrada código que solo usan Entregar, los paneles secundarios de Cargar y los diálogos**
+- [x] **AUD-116 · `index-*.js` carga de entrada código que solo usan Entregar, los paneles secundarios de Cargar y los diálogos**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Medio
   - **Ubicación:** `src/App.tsx:6`
   - **Qué hacer:** antes de volver a subir el presupuesto del bundle: (1) que `App.tsx` no importe `deliveryModel.ts` entero (unos 22 kB) por `excelLimitIssues`, `personalDataColumnNames` y `suggestQualityRules`; (2) cargar a demanda `DatabaseImportPanel`, `ReusableTaskPanel` y `ProjectsPanel` (unos 27 kB); (3) lo mismo con `DiagnosticsDialog`, `UpdatePanel` y `ResourceMonitor` (unos 15 kB). `react-dom` (207 kB) no se toca.
   - **Criterio de aceptación:** `index-*.js` baja al menos 40 kB sin comprimir con `TAURI_ENV_PLATFORM=windows`, la suite y Playwright pasan, y Cargar no muestra un parpadeo al abrir sus tarjetas.
   - **Depende de:** ninguna
   - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-079 (medición con sourcemap del 2026-11-12, cifras aproximadas)
+  - **Cierre:** 2026-11-12 · tanda 20 de la Fase 2 (en `master`). `index-*.js` baja de 431,96 a 389,05 kB sin comprimir (−42,9 kB; comprimido, de 126,98 a 115,85 kB) con `TAURI_ENV_PLATFORM=windows`. `deliveryModel.ts` se divide en `deliverySignals.ts` (lo que usa `App.tsx`), `deliveryContract.ts` (contrato y estado, lo que usa el controlador) y el resto, que sale a su propio chunk; `DatabaseImportPanel` y `ProjectsPanel` se cargan a demanda (`src/features/load/secondaryPanels.ts`), precargados al pasar el ratón o enfocar su tarjeta y en reposo tras pintar Cargar, con un hueco de 260 px mientras llegan; `DiagnosticsDialog`, a demanda. No se hicieron `lazy` `ReusableTaskPanel` (siempre montado), `ResourceMonitor` ni `UpdatePanel` (se montan siempre y sondean). Suite y Playwright pasan; el total del bundle queda en unos 928 kB de 950.272 por los chunks nuevos. No se midió a ojo el parpadeo en la app real: lo cubren la precarga y los E2E de proyectos y de importación.
 
 - [ ] **AUD-080 · La expulsión de la caché de perfil nunca se prueba: capacidad 64 en pruebas y 1 en producción**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo

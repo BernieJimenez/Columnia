@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../bridge";
 import type { ExportResult, QualityRule, SavedRecipe } from "../../bridge";
-import { INITIAL_DELIVERY_CONTRACT } from "./deliveryModel";
+import { INITIAL_DELIVERY_CONTRACT } from "./deliveryContract";
 import { useDeliveryController } from "./useDeliveryController";
 
 afterEach(() => {

@@ -38,17 +38,20 @@ export function SidebarSave({ fileName, activeProject, autoSave, operation, disa
           : "Sin guardar";
   const needsClick = !activeProject || autoSave.kind === "disabled" || autoSave.kind === "error";
   const waiting = needsClick && disabled && !saving;
-  const statusText = waiting && busyReason ? `${status} · disponible al terminar ${busyReason}` : status;
+  const blockedBy = waiting && busyReason ? busyReason : null;
+  // The visible text stays short so the top bar keeps its height (AUD-117); the whole reason goes in the title and in #busy-reason.
+  const statusText = blockedBy && !activeProject ? `${status} · en espera` : status;
+  const fullReason = blockedBy ? `${status} · disponible al terminar ${blockedBy}` : undefined;
 
   return (
     <div className="dataset-save">
-      <small id={statusId} role="status" className={`dataset-save__status dataset-save__status--${saving ? "saving" : autoSave.kind === "error" ? "error" : activeProject ? "saved" : "unsaved"}`}>{statusText}</small>
+      <small id={statusId} role="status" title={fullReason} className={`dataset-save__status dataset-save__status--${saving ? "saving" : autoSave.kind === "error" ? "error" : activeProject ? "saved" : "unsaved"}`}>{statusText}</small>
       {needsClick && (
         <button
           type="button"
           className="secondary-action"
           disabled={disabled || saving}
-          aria-describedby={waiting ? statusId : undefined}
+          aria-describedby={waiting ? (blockedBy ? `${statusId} busy-reason` : statusId) : undefined}
           onClick={() => onSave(activeProject?.name ?? (suggestedProjectName(fileName) || "Proyecto"))}
         >
           Guardar proyecto

@@ -414,8 +414,8 @@ export function ProjectsPanel({
           <h3 id="delete-project-title">Eliminar “{deletion.project.name}”</h3>
           <p id="delete-project-description">Se borrarán el dataset, el perfil y el historial persistentes. El dataset abierto en memoria no se descartará.</p>
           <div className="sheet-dialog__actions">
-            <button type="button" className="secondary-action" onClick={onDeleteCancel} disabled={disabled}>Cancelar</button>
-            <button type="button" className="danger-action" onClick={onDeleteConfirm} disabled={disabled}>Eliminar proyecto</button>
+            <button type="button" className="secondary-action" onClick={onDeleteCancel} disabled={disabled} aria-describedby={busyDescribedBy(disabled)}>Cancelar</button>
+            <button type="button" className="danger-action" onClick={onDeleteConfirm} disabled={disabled} aria-describedby={busyDescribedBy(disabled)}>Eliminar proyecto</button>
           </div>
         </ModalDialog>
       )}
@@ -433,11 +433,12 @@ export function ProjectsPanel({
             La versión actual quedará guardada como una versión anterior antes de restaurar la del {projectDate(versionToRestore.createdAt)}.
           </p>
           <div className="sheet-dialog__actions">
-            <button type="button" className="secondary-action" onClick={() => setVersionToRestore(null)} disabled={disabled}>Cancelar</button>
+            <button type="button" className="secondary-action" onClick={() => setVersionToRestore(null)} disabled={disabled} aria-describedby={busyDescribedBy(disabled)}>Cancelar</button>
             <button
               type="button"
               className="primary-action"
               disabled={disabled}
+              aria-describedby={busyDescribedBy(disabled)}
               onClick={() => {
                 onRestore(activeProject.id, versionToRestore.id);
                 setVersionToRestore(null);

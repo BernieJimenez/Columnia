@@ -666,6 +666,9 @@ impl DatabaseConnection {
             }
         }
         validate_driver_name(&self.driver)?;
+        if is_sql_server && is_legacy_sql_server_driver(&self.driver) {
+            return Err(LEGACY_SQL_SERVER_DRIVER_MESSAGE.to_owned());
+        }
         let server = trimmed(&self.server);
         if server.is_empty() {
             return Err("Indica el servidor antes de continuar.".to_owned());
@@ -3279,8 +3282,17 @@ fn driver_version(name: &str) -> u32 {
         .unwrap_or(0)
 }
 
+const LEGACY_SQL_SERVER_DRIVER_MESSAGE: &str =
+    "Este controlador no admite el cifrado; elige ODBC Driver 17 o 18.";
+
+/// The old «SQL Server» driver of Windows (`sqlsrv32`), by its exact name: it
+/// cannot encrypt the connection, which Columnia always requires.
+fn is_legacy_sql_server_driver(name: &str) -> bool {
+    name.trim().eq_ignore_ascii_case("SQL Server")
+}
+
 /// SQL Server drivers by preference: «ODBC Driver N» from the highest N, then
-/// the Native Client, then the legacy «SQL Server» driver of Windows.
+/// the Native Client. The legacy «SQL Server» driver is left out.
 fn sql_server_drivers(drivers: Vec<String>) -> Vec<String> {
     let rank = |name: &str| -> (u8, u32) {
         let lower = name.to_ascii_lowercase();
@@ -3298,7 +3310,9 @@ fn sql_server_drivers(drivers: Vec<String>) -> Vec<String> {
     };
     let mut drivers = drivers
         .into_iter()
-        .filter(|name| name.to_ascii_lowercase().contains("sql server"))
+        .filter(|name| {
+            name.to_ascii_lowercase().contains("sql server") && !is_legacy_sql_server_driver(name)
+        })
         .collect::<Vec<_>>();
     drivers.sort_by_key(|name| rank(name));
     drivers.dedup();
@@ -7302,8 +7316,54 @@ mod tests {
                 "ODBC Driver 18 for SQL Server",
                 "ODBC Driver 17 for SQL Server",
                 "SQL Server Native Client 11.0",
-                "SQL Server",
             ]
         );
+    }
+
+    /// AUD-101: the legacy «SQL Server» driver is not offered (it cannot
+    /// encrypt), while the Native Client and the ODBC Drivers stay.
+    #[test]
+    fn the_legacy_sql_server_driver_is_not_offered() {
+        let installed = vec![
+            "SQL Server".to_owned(),
+            "ODBC Driver 17 for SQL Server".to_owned(),
+            "SQL Server Native Client 11.0".to_owned(),
+            "PostgreSQL Unicode".to_owned(),
+        ];
+        assert_eq!(
+            database_drivers(DatabaseKind::SqlServer, installed.clone()),
+            vec![
+                "ODBC Driver 17 for SQL Server",
+                "SQL Server Native Client 11.0"
+            ]
+        );
+        assert_eq!(
+            database_drivers(DatabaseKind::Postgresql, installed),
+            vec!["PostgreSQL Unicode"]
+        );
+        assert!(
+            database_drivers(DatabaseKind::SqlServer, vec![" sql server ".to_owned()]).is_empty()
+        );
+        assert!(is_legacy_sql_server_driver(" sql SERVER "));
+        assert!(!is_legacy_sql_server_driver(
+            "SQL Server Native Client 11.0"
+        ));
+    }
+
+    /// AUD-101: a saved connection with the legacy driver says why it cannot
+    /// connect, before any connection is tried.
+    #[test]
+    fn the_legacy_sql_server_driver_is_refused_with_a_clear_message() {
+        let mut value = connection(DatabaseKind::SqlServer);
+        value.driver = "SQL Server".to_owned();
+        let error = value
+            .connection_string(DatabaseKind::SqlServer)
+            .unwrap_err();
+        assert_eq!(
+            error,
+            "Este controlador no admite el cifrado; elige ODBC Driver 17 o 18."
+        );
+        value.driver = "ODBC Driver 17 for SQL Server".to_owned();
+        assert!(value.connection_string(DatabaseKind::SqlServer).is_ok());
     }
 }

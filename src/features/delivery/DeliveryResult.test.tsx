@@ -2,7 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DeliveryResult } from "./DeliveryResult";
-import { INITIAL_DELIVERY_CONTRACT } from "./deliveryModel";
+import { INITIAL_DELIVERY_CONTRACT } from "./deliveryContract";
 
 afterEach(cleanup);
 

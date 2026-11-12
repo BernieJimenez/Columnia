@@ -71,6 +71,7 @@ function renderSection(overrides: Overrides = {}) {
     onResolveConflicts: vi.fn(),
     onCancelReviewMutation: vi.fn(),
     onConsolidate: vi.fn(),
+    onJoin: vi.fn(),
     onKeyColumnsChange: vi.fn(),
     options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
     onOptionsChange: vi.fn() as (options: bridge.ComparisonOptions) => void,
@@ -100,7 +101,7 @@ function renderSection(overrides: Overrides = {}) {
       reviewMutationCancellationPending={props.reviewMutationCancellationPending}
       joinType="inner"
       onJoinTypeChange={vi.fn()}
-      onJoin={vi.fn()}
+      onJoin={props.onJoin}
       onCancelReviewMutation={props.onCancelReviewMutation}
     />,
   );
@@ -191,7 +192,7 @@ describe("DatasetComparisonSection", () => {
   ])("explica por qué la consolidación está bloqueada (%#)", (blocked, text) => {
     renderSection({ status: { kind: "ready", comparison: blocked } });
     expect(screen.getByRole("note")).toHaveTextContent(text);
-    expect(screen.getByRole("button", { name: "Consolidar filas" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Consolidar filas" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it.each([
@@ -204,7 +205,7 @@ describe("DatasetComparisonSection", () => {
     const props = renderSection({ reviewMutationStatus: mutation as ReviewMutationStatus });
     const button = screen.getAllByRole("button", { name: label }).at(-1)!;
     if (disabled) {
-      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("aria-disabled", "true");
     } else {
       fireEvent.click(button);
       expect(props.onCancelReviewMutation).toHaveBeenCalledOnce();
@@ -213,10 +214,10 @@ describe("DatasetComparisonSection", () => {
 
   it("rotula el botón de unir mientras une, finaliza o espera la cancelación", () => {
     renderSection({ reviewMutationStatus: { kind: "finalizing", mutation: "join" } });
-    expect(screen.getByRole("button", { name: "Finalizando unión…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Finalizando unión…" })).toHaveAttribute("aria-disabled", "true");
     cleanup();
     renderSection({ reviewMutationStatus: { kind: "running", mutation: "join", cancellation: "requested" } });
-    expect(screen.getByRole("button", { name: "Cancelando unión…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancelando unión…" })).toHaveAttribute("aria-disabled", "true");
     cleanup();
     renderSection({
       reviewMutationCancellationPending: true,
@@ -228,7 +229,7 @@ describe("DatasetComparisonSection", () => {
   it("excluye o elige el origen de cada celda y resuelve la página", () => {
     const props = renderSection({ status: { kind: "ready", comparison: withConflicts } });
     const resolve = screen.getByRole("button", { name: "Resolver conflictos" });
-    expect(resolve).toBeDisabled();
+    expect(resolve).toHaveAttribute("aria-disabled", "true");
     const exclude = screen.getByRole("checkbox", { name: /Excluir la fila activa de la clave 7/ });
     fireEvent.click(exclude);
     expect(screen.getByText("1 fila activa se excluirá del resultado.")).toBeInTheDocument();
@@ -252,7 +253,7 @@ describe("DatasetComparisonSection", () => {
     } as unknown as DatasetComparison;
     const props = renderSection({ status: { kind: "ready", comparison: firstPage } });
     const resolve = screen.getByRole("button", { name: "Resolver conflictos" });
-    expect(resolve).toBeDisabled();
+    expect(resolve).toHaveAttribute("aria-disabled", "true");
     // The page action answers every cell on screen.
     fireEvent.click(screen.getByRole("button", { name: "Conservar el activo en esta página" }));
     expect(screen.getByRole("radio", { name: "Conservar activo en importe" })).toBeChecked();
@@ -274,7 +275,7 @@ describe("DatasetComparisonSection", () => {
       status: { kind: "ready", comparison: withConflicts },
       reviewMutationStatus: { kind: "running", mutation: "resolveConflicts", cancellation: "requested" },
     });
-    expect(screen.getByRole("button", { name: "Cancelando resolución…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancelando resolución…" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText(/Cancelación solicitada. Esperando a que la resolución se detenga/)).toBeInTheDocument();
     cleanup();
     renderSection({
@@ -301,7 +302,7 @@ describe("DatasetComparisonSection", () => {
 
   it("no deja unir mientras la comparación lee la otra fuente (UX-16)", () => {
     renderSection({ status: { kind: "loading" } });
-    expect(screen.getByRole("button", { name: "Elegir fuente y unir" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Elegir fuente y unir" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("cuenta las filas que las claves repetidas dejan sin comparar (FUN-82)", () => {
@@ -411,7 +412,7 @@ describe("DatasetComparisonSection", () => {
     fireEvent.click(keepRest);
     expect(keepRest).toHaveAttribute("aria-pressed", "false");
     expect(screen.queryByText(/usarán el valor del activo/)).not.toBeInTheDocument();
-    expect(resolve).toBeDisabled();
+    expect(resolve).toHaveAttribute("aria-disabled", "true");
 
     // With the rule on, the key excluded stays excluded and the unseen ones follow the rule.
     fireEvent.click(keepRest);
@@ -469,16 +470,31 @@ describe("DatasetComparisonSection", () => {
     });
     const waiting = screen.getAllByRole("button", { name: "Esperando consolidación…" });
     expect(waiting.length).toBeGreaterThan(0);
-    for (const button of waiting) expect(button).toBeDisabled();
+    for (const button of waiting) expect(button).toHaveAttribute("aria-disabled", "true");
     expect(screen.queryByRole("button", { name: "Resolver conflictos" })).not.toBeInTheDocument();
   });
 
   it("asocia el motivo de ocupado a los controles de la comparación solo durante una mutación (AUD-059)", () => {
     renderSection({ reviewMutationStatus: { kind: "running", mutation: "join", cancellation: "available" } as ReviewMutationStatus });
     expect(screen.getByRole("button", { name: "Descartar comparación" })).toHaveAttribute("aria-describedby", "busy-reason");
-    expect(screen.getByRole("button", { name: "Esperando unión…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Esperando unión…" })).toHaveAttribute("aria-disabled", "true");
     cleanup();
     renderSection();
     expect(screen.getByRole("button", { name: "Descartar comparación" })).not.toHaveAttribute("aria-describedby");
   });
-});
+
+  it("los botones principales son aria-disabled, siguen en el orden de foco y no actúan bloqueados (AUD-059)", () => {
+    const props = renderSection({ status: { kind: "loading" } });
+    const join = screen.getByRole("button", { name: "Elegir fuente y unir" });
+    expect(join).toHaveAttribute("aria-disabled", "true");
+    expect(join).not.toBeDisabled();
+    join.focus();
+    expect(document.activeElement).toBe(join);
+    fireEvent.click(join);
+    expect(props.onJoin).not.toHaveBeenCalled();
+    expect(join).not.toHaveAttribute("aria-describedby");
+    cleanup();
+    renderSection({ reviewMutationStatus: { kind: "finalizing", mutation: "join" } });
+    const finalizing = screen.getByRole("button", { name: "Finalizando unión…" });
+    expect(finalizing).toHaveAttribute("aria-describedby", "busy-reason");
+  });});

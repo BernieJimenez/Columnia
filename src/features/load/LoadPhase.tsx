@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { renderCellValue } from "../../components/CellText";
 import { ModalDialog } from "../../components/ModalDialog";
@@ -31,6 +31,7 @@ import {
 import { busyDescribedBy } from "../../busyReasons";
 import { formatBytes, formatDataType } from "../../format";
 import { projectDate } from "../projects/projectModel";
+import { preloadSourcePanel, preloadSourcePanelsWhenIdle } from "./secondaryPanels";
 
 export type LoadRuntimeState =
   | { kind: "connected" }
@@ -167,6 +168,7 @@ export function LoadPhase({
   const [chosenSource, setChosenSource] = useState<LoadSource | null>(null);
   const preferredSource = chosenSource ?? (previousExitUnclean && !current && children ? "project" : "file");
   const source = sourceOptions.some((option) => option.id === preferredSource) ? preferredSource : "file";
+  useEffect(() => preloadSourcePanelsWhenIdle(), []);
 
   const selectionAction = (
     // aria-disabled (not disabled) keeps the button reachable by keyboard so its reason is read; onClick ignores it.
@@ -246,7 +248,13 @@ export function LoadPhase({
           <legend>¿De dónde vienen los datos?</legend>
           <div className="choice-cards__options">
             {sourceOptions.map((option) => (
-              <label key={option.id} className="choice-card" data-selected={source === option.id || undefined}>
+              <label
+                key={option.id}
+                className="choice-card"
+                data-selected={source === option.id || undefined}
+                onMouseEnter={() => preloadSourcePanel(option.id)}
+                onFocus={() => preloadSourcePanel(option.id)}
+              >
                 <input
                   type="radio"
                   name="load-source"

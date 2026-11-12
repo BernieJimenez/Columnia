@@ -674,6 +674,13 @@ Interfaz, decisiones de la tanda 19 de la auditoría (2026-11-12):
 - la franja de cifras de Explorar dibuja los separadores con el contorno de cada cifra, no con `gap` sobre el fondo del contenedor (AUD-071).
 - **Trampa de las pruebas:** para ver en Playwright un estado «análisis en curso», envolver `__TAURI_INTERNALS__.invoke` en un `addInitScript` posterior al del mock y retener `get_dataset_profile` con una promesa que la prueba suelta.
 
+Interfaz, bundle y bases de datos, decisiones de la tanda 20 de la auditoría (2026-11-12):
+- `deliveryModel.ts` está dividido para que `App.tsx` no lo arrastre al arranque: `deliverySignals.ts` (datos personales, límites de Excel, reglas sugeridas; lo importa App), `deliveryContract.ts` (contrato y estado de exportación; lo importa `useDeliveryController`) y el resto. Un import nuevo de `deliveryModel` desde App o desde un controlador que App use lo devuelve entero a `index-*.js` (AUD-116).
+- `DatabaseImportPanel` y `ProjectsPanel` son `lazy` (`src/features/load/secondaryPanels.ts`) y se precargan al pasar el ratón o enfocar su tarjeta y en reposo; `ReusableTaskPanel`, `ResourceMonitor` y `UpdatePanel` no, porque se montan siempre. Tras un cierre inesperado, «Proyecto» se abre al arrancar y puede verse el hueco de 260 px un instante (AUD-116).
+- el estado de «Guardar proyecto» nunca lleva el motivo de la espera en el texto visible («· en espera»), para no cambiar la altura de la barra; va en `title` y en `#busy-reason` (AUD-117).
+- un botón que también cancela su operación (comparación de Revisar) o que decide la acción primaria del pie (propuesta de Preparar) usa `aria-disabled` con guardia en el manejador; las reglas que miraban `:disabled` deben mirar también `[aria-disabled="true"]` (AUD-059).
+- el controlador ODBC «SQL Server» de Windows (`sqlsrv32`) no se ofrece ni se acepta: no admite `TrustServerCertificate` ni el cifrado obligatorio. «SQL Server Native Client» sí (AUD-101).
+
 Interfaz, decisiones de la tanda 7 de la auditoría (2026-11-09):
 - las celdas de las tablas de datos pasan por `renderCellValue`: un texto de más de 36 caracteres va en `span.cell-clip` (tope de 36ch en el elemento interior, porque `max-width` en un `td` no limita una tabla con `table-layout: auto`), con `title` y expansión al recibir el foco (AUD-056).
 - en Preparar, el resultado del último cambio se muestra dos veces: en el historial (`role="status"`, el que se anuncia) y en la línea fija `ChangeResultLine` arriba de las herramientas (sin región viva, para no anunciarlo dos veces). Las pruebas que buscan el mensaje deben acotarse a una de las dos (AUD-057).

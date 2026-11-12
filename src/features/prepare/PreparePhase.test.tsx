@@ -1812,4 +1812,22 @@ describe("TransformRecipeEditor", () => {
       renames: [{ from: "nombre", to: "cliente" }],
     }));
   });
+
+  it("asocia el motivo de ocupado a los paneles mientras cambia el dataset (AUD-059)", () => {
+    const common = {
+      dataset, profileStatus: { kind: "idle" } as const, historyStatus: EMPTY_HISTORY, recipeDraft: null, recipeSession: 0,
+      onCancelProfile: vi.fn(), onCancelPrepare: vi.fn(), onRemoveEmptyRows: vi.fn(), onRemoveConstantColumns: vi.fn(),
+      onRemoveEmptyColumns: vi.fn(), onRemoveHighNullColumns: vi.fn(), onRemoveIdentifierColumns: vi.fn(),
+      onRemovePersonalColumns: vi.fn(), onNormalizeBooleans: vi.fn(), onFixEncoding: vi.fn(),
+      onImputeMissingValues: vi.fn(), onEnableRowAudit: vi.fn(), onApplyRecommended: vi.fn(), onNormalizeText: vi.fn(),
+      onApplyTransforms: vi.fn(), onRecipeDraftChange: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(),
+    };
+    render(<PreparePhase {...common} changeStatus={{ kind: "working", action: "duplicates" }} />);
+    expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-describedby", "busy-reason");
+    expect(screen.getByRole("complementary", { name: "Historial de cambios" })).toHaveAttribute("aria-describedby", "busy-reason");
+    cleanup();
+    render(<PreparePhase {...common} changeStatus={{ kind: "idle" }} />);
+    expect(screen.getByRole("tabpanel")).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("complementary", { name: "Historial de cambios" })).not.toHaveAttribute("aria-describedby");
+  });
 });

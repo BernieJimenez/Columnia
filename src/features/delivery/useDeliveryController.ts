@@ -22,7 +22,7 @@ import {
   type DeliveryContractState,
   type DeliveryExportRequest,
   type DeliveryExportState,
-} from "./deliveryModel";
+} from "./deliveryContract";
 import { errorMessage, isUncertainCommitError } from "../../bridge/errors";
 
 /** Delivery settings a project or a reusable task stores and restores. */

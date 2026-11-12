@@ -3,12 +3,12 @@ import { busyReasonCodes, busyReasonMessage, busyReasonPhrase, type BusyFlags } 
 import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
-import { excelLimitIssues, personalDataColumnNames, suggestQualityRules } from "./features/delivery/deliveryModel";
+import { excelLimitIssues, personalDataColumnNames, suggestQualityRules } from "./features/delivery/deliverySignals";
 import { useDeliveryController } from "./features/delivery/useDeliveryController";
 import { useDismissablePanel } from "./useDismissablePanel";
 import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
 import { ReusableTaskPanel } from "./features/load/ReusableTaskPanel";
-import { DatabaseImportPanel } from "./features/load/DatabaseImportPanel";
+import { LazyDatabaseImportPanel, LazyProjectsPanel } from "./features/load/secondaryPanels";
 import { ImportOriginNotice } from "./features/load/ImportOriginNotice";
 import {
   createReusableTaskExceptionPolicy,
@@ -54,7 +54,6 @@ import {
   type RecentDataset,
 } from "./features/load/recentFilesModel";
 import { usePrepareController } from "./features/prepare/usePrepareController";
-import { ProjectsPanel } from "./features/projects/ProjectsPanel";
 import { useProjectsController } from "./features/projects/useProjectsController";
 import { SidebarSave } from "./features/projects/SidebarSave";
 import {
@@ -69,7 +68,6 @@ import type { QualityActionTarget } from "./features/review/qualityActionPlan";
 import { ResourceMonitor } from "./components/ResourceMonitor";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
 import { UpdatePanel } from "./components/UpdatePanel";
-import { DiagnosticsDialog } from "./features/diagnostics/DiagnosticsDialog";
 import type { DatasetMetricInput } from "./features/diagnostics/diagnosticsModel";
 import { WorkspaceNav } from "./features/workspaces/WorkspaceNav";
 import { workflowPhases, type WorkflowPhase } from "./features/workspaces/workspaceModel";
@@ -135,6 +133,13 @@ interface ReusableTaskApplicationReview {
   importProfileUsed: boolean;
   schemaMismatchConfirmed: boolean;
 }
+
+const loadDiagnosticsDialog = () => import("./features/diagnostics/DiagnosticsDialog");
+
+const DiagnosticsDialog = lazy(async () => {
+  const module = await loadDiagnosticsDialog();
+  return { default: module.DiagnosticsDialog };
+});
 
 const loadDeliveryPhase = () => import("./features/delivery/DeliveryPhase");
 const loadExplorePhase = () => import("./features/explore/ExplorePhase");
@@ -1357,6 +1362,8 @@ export function App() {
             <button
               type="button"
               className="sidebar__diagnostics-trigger"
+              onMouseEnter={() => void loadDiagnosticsDialog()}
+              onFocus={() => void loadDiagnosticsDialog()}
               onClick={() => {
                 setSidebarUtilitiesOpen(false);
                 setDiagnosticsOpen(true);
@@ -1497,12 +1504,14 @@ export function App() {
                   />
                 )}
                 databaseImportPanel={(
-                  <DatabaseImportPanel
-                    connected={loadRuntime.kind === "connected"}
-                    blocked={operationBusy}
-                    onImport={(run) => whenWorkCanBeReplaced(() => void inspectDatasetSource(run(), "database"))}
-                    onImported={(selectionId, origin) => { pendingImportOriginRef.current = { selectionId, origin }; }}
-                  />
+                  <Suspense fallback={<div className="load-panel-loading" aria-hidden="true" />}>
+                    <LazyDatabaseImportPanel
+                      connected={loadRuntime.kind === "connected"}
+                      blocked={operationBusy}
+                      onImport={(run) => whenWorkCanBeReplaced(() => void inspectDatasetSource(run(), "database"))}
+                      onImported={(selectionId, origin) => { pendingImportOriginRef.current = { selectionId, origin }; }}
+                    />
+                  </Suspense>
                 )}
                 pendingTaskName={queuedReusableTask?.task.name ?? null}
                 disabled={operationBusy}
@@ -1535,44 +1544,46 @@ export function App() {
                 onCancelWorkbookInspection={() => void cancelWorkbookInspection()}
                 onRetrySelectionCancellation={() => void retrySelectionCancellation()}
               >
-                <ProjectsPanel
-                  catalog={projects.catalog}
-                  catalogCancellationPending={projects.catalogCancellationPending}
-                  onCancelCatalogLoad={() => void projects.cancelCatalogLoad()}
-                  operation={projects.operation}
-                  deletion={projects.deletion}
-                  activeProject={projects.activeProject}
-                  versions={projects.versions}
-                  versionsCancellationPending={projects.versionsCancellationPending}
-                  autoSave={projects.autoSave}
-                  autoSaveEnabled={projects.autoSaveEnabled}
-                  datasetFileName={activeDataset?.dataset.fileName ?? null}
-                  disabled={operationBusy}
-                  saveCancellationPending={projects.saveCancellationPending}
-                  autoSaveCancellationPending={projects.autoSaveCancellationPending}
-                  deleteCancellationPending={projects.deleteCancellationPending}
-                  openCancellationPending={projects.openCancellationPending}
-                  restoreCancellationPending={projects.restoreCancellationPending}
-                  onSave={(name) => void projects.save(name)}
-                  onSaveCopy={(name) => void projects.save(name, { asCopy: true })}
-                  onCancelSave={() => void projects.cancelSave()}
-                  onOpen={(projectId) => whenWorkCanBeReplaced(() => void projects.open(projectId))}
-                  onCancelOpen={() => void projects.cancelOpen()}
-                  onRestore={(projectId, versionId) => void projects.restore(projectId, versionId)}
-                  onCancelRestore={() => void projects.cancelRestore()}
-                  onCancelAutoSave={() => void projects.cancelAutoSave()}
-                  onAutoSaveChange={projects.setAutoSaveEnabled}
-                  onDeleteRequest={projects.requestDelete}
-                  onDeleteCancel={projects.cancelDelete}
-                  onDeleteConfirm={() => void projects.confirmDelete()}
-                  onCancelDeleteOperation={() => void projects.cancelProjectDelete()}
-                  onCancelVersionsLoad={() => void projects.cancelVersionsLoad()}
-                  onRetryVersions={() => {
-                    if (projects.activeProject) void projects.refreshVersions(projects.activeProject.id);
-                  }}
-                  onRetry={() => void projects.refresh()}
-                  onClearFeedback={projects.clearFeedback}
-                />
+                <Suspense fallback={<div className="load-panel-loading" aria-hidden="true" />}>
+                  <LazyProjectsPanel
+                    catalog={projects.catalog}
+                    catalogCancellationPending={projects.catalogCancellationPending}
+                    onCancelCatalogLoad={() => void projects.cancelCatalogLoad()}
+                    operation={projects.operation}
+                    deletion={projects.deletion}
+                    activeProject={projects.activeProject}
+                    versions={projects.versions}
+                    versionsCancellationPending={projects.versionsCancellationPending}
+                    autoSave={projects.autoSave}
+                    autoSaveEnabled={projects.autoSaveEnabled}
+                    datasetFileName={activeDataset?.dataset.fileName ?? null}
+                    disabled={operationBusy}
+                    saveCancellationPending={projects.saveCancellationPending}
+                    autoSaveCancellationPending={projects.autoSaveCancellationPending}
+                    deleteCancellationPending={projects.deleteCancellationPending}
+                    openCancellationPending={projects.openCancellationPending}
+                    restoreCancellationPending={projects.restoreCancellationPending}
+                    onSave={(name) => void projects.save(name)}
+                    onSaveCopy={(name) => void projects.save(name, { asCopy: true })}
+                    onCancelSave={() => void projects.cancelSave()}
+                    onOpen={(projectId) => whenWorkCanBeReplaced(() => void projects.open(projectId))}
+                    onCancelOpen={() => void projects.cancelOpen()}
+                    onRestore={(projectId, versionId) => void projects.restore(projectId, versionId)}
+                    onCancelRestore={() => void projects.cancelRestore()}
+                    onCancelAutoSave={() => void projects.cancelAutoSave()}
+                    onAutoSaveChange={projects.setAutoSaveEnabled}
+                    onDeleteRequest={projects.requestDelete}
+                    onDeleteCancel={projects.cancelDelete}
+                    onDeleteConfirm={() => void projects.confirmDelete()}
+                    onCancelDeleteOperation={() => void projects.cancelProjectDelete()}
+                    onCancelVersionsLoad={() => void projects.cancelVersionsLoad()}
+                    onRetryVersions={() => {
+                      if (projects.activeProject) void projects.refreshVersions(projects.activeProject.id);
+                    }}
+                    onRetry={() => void projects.refresh()}
+                    onClearFeedback={projects.clearFeedback}
+                  />
+                </Suspense>
               </LoadPhase>
             )}
 
@@ -1853,18 +1864,20 @@ export function App() {
       )}
 
       {diagnosticsOpen && (
-        <DiagnosticsDialog
-          appVersion={status.kind === "ready" ? status.info?.version ?? null : null}
-          activePhase={activePhase}
-          datasetMetrics={activeDataset
-            ? {
-              rowCount: activeDataset.dataset.rowCount,
-              columnCount: activeDataset.dataset.columnCount,
-              fileSizeBytes: activeDataset.dataset.fileSizeBytes,
-            } satisfies DatasetMetricInput
-            : null}
-          onDismiss={() => setDiagnosticsOpen(false)}
-        />
+        <Suspense fallback={null}>
+          <DiagnosticsDialog
+            appVersion={status.kind === "ready" ? status.info?.version ?? null : null}
+            activePhase={activePhase}
+            datasetMetrics={activeDataset
+              ? {
+                rowCount: activeDataset.dataset.rowCount,
+                columnCount: activeDataset.dataset.columnCount,
+                fileSizeBytes: activeDataset.dataset.fileSizeBytes,
+              } satisfies DatasetMetricInput
+              : null}
+            onDismiss={() => setDiagnosticsOpen(false)}
+          />
+        </Suspense>
       )}
     </div>
   );

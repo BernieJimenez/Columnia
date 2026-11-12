@@ -220,6 +220,28 @@ export function DatasetComparisonSection({
     }
   }
 
+  // These three buttons also cancel their own operation, so they stay focusable
+  // (aria-disabled) and the handlers below ignore the click while they are blocked.
+  const joinBlocked =
+    // UX-16: a join during a comparison in progress did nothing.
+    (status.kind === "loading" && activeReviewMutation !== "join")
+    || (reviewMutationBusy
+      && (activeReviewMutation !== "join"
+        || reviewMutationFinalizing
+        || reviewMutationCancellationRequested));
+  const resolveBlocked = status.kind === "ready" && (reviewMutationBusy
+    ? activeReviewMutation !== "resolveConflicts"
+      || reviewMutationFinalizing
+      || reviewMutationCancellationRequested
+    : conflictPageLoading
+      || (remainingConflictsSource === null && (status.comparison.conflictsTruncated || !visibleConflictPageComplete)));
+  const consolidateBlocked = status.kind !== "ready"
+    || !status.comparison.canConsolidate
+    || (reviewMutationBusy
+      && (activeReviewMutation !== "consolidate"
+        || reviewMutationFinalizing
+        || reviewMutationCancellationRequested));
+
   return (
     <section className="phase-section comparison-section" aria-labelledby="comparison-title">
       <div className="section-heading">
@@ -340,16 +362,9 @@ export function DatasetComparisonSection({
           <button
             type="button"
             className="primary-action"
-            onClick={() => activeReviewMutation === "join" ? onCancelReviewMutation() : onJoin(joinType)}
+            onClick={() => { if (!joinBlocked) { if (activeReviewMutation === "join") onCancelReviewMutation(); else onJoin(joinType); } }}
             aria-describedby={busyDescribedBy(reviewMutationBusy)}
-            disabled={
-              // UX-16: a join during a comparison in progress did nothing.
-              (status.kind === "loading" && activeReviewMutation !== "join")
-              || (reviewMutationBusy
-                && (activeReviewMutation !== "join"
-                  || reviewMutationFinalizing
-                  || reviewMutationCancellationRequested))
-            }
+            aria-disabled={joinBlocked || undefined}
           >
           {reviewMutationCancellationPending
             ? "Esperando cancelación…"
@@ -498,16 +513,13 @@ export function DatasetComparisonSection({
                 <button
                   type="button"
                   className="primary-action"
-                  onClick={() => activeReviewMutation === "resolveConflicts"
-                    ? onCancelReviewMutation()
-                    : onResolveConflicts(selectedConflictDecisions())}
+                  onClick={() => {
+                    if (resolveBlocked) return;
+                    if (activeReviewMutation === "resolveConflicts") onCancelReviewMutation();
+                    else onResolveConflicts(selectedConflictDecisions());
+                  }}
                   aria-describedby={busyDescribedBy(reviewMutationBusy)}
-                  disabled={reviewMutationBusy
-                    ? activeReviewMutation !== "resolveConflicts"
-                      || reviewMutationFinalizing
-                      || reviewMutationCancellationRequested
-                    : conflictPageLoading
-                      || (remainingConflictsSource === null && (status.comparison.conflictsTruncated || !visibleConflictPageComplete))}
+                  aria-disabled={resolveBlocked || undefined}
                 >
                   {reviewMutationCancellationPending
                     ? "Esperando cancelación…"
@@ -659,15 +671,9 @@ export function DatasetComparisonSection({
             <button
               type="button"
               className="primary-action"
-              onClick={() => activeReviewMutation === "consolidate" ? onCancelReviewMutation() : onConsolidate()}
+              onClick={() => { if (!consolidateBlocked) { if (activeReviewMutation === "consolidate") onCancelReviewMutation(); else onConsolidate(); } }}
               aria-describedby={busyDescribedBy(reviewMutationBusy)}
-              disabled={
-                !status.comparison.canConsolidate
-                || (reviewMutationBusy
-                  && (activeReviewMutation !== "consolidate"
-                    || reviewMutationFinalizing
-                    || reviewMutationCancellationRequested))
-              }
+              aria-disabled={consolidateBlocked || undefined}
             >
               {reviewMutationCancellationPending
                 ? "Esperando cancelación…"

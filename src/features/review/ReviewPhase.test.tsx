@@ -1276,7 +1276,7 @@ describe("ReviewPhase", () => {
     );
 
     const resolveButton = screen.getByRole("button", { name: "Resolver conflictos" });
-    expect(resolveButton).toBeDisabled();
+    expect(resolveButton).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(screen.getAllByRole("radio", { name: "Usar comparado en nota" })[0]);
     fireEvent.click(screen.getByRole("checkbox", { name: "Excluir la fila activa de la clave 52" }));
     expect(resolveButton).toBeEnabled();
@@ -1391,7 +1391,7 @@ describe("ReviewPhase", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Cancelando resolución…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancelando resolución…" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText("Cancelación solicitada. Esperando a que la resolución se detenga sin cambiar el dataset.", {
       selector: 'p[role="status"]',
     })).toBeInTheDocument();

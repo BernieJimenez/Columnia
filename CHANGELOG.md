@@ -1311,9 +1311,15 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   pasar el cursor (AUD-070), y la franja de cifras ya no muestra bloques grises
   cuando la última fila no se llena (AUD-071).
 - Mientras Columnia está ocupada, los controles de Cargar, de los proyectos, de
-  las tareas reutilizables, de la conexión a la base de datos y de la propuesta
-  de Preparar indican a qué esperan, y los botones principales siguen
-  recibiendo el foco para que un lector de pantalla lo lea (AUD-059, en curso).
+  las tareas reutilizables, de la conexión a la base de datos, de Preparar y de
+  la comparación de Revisar indican a qué esperan, y los botones principales
+  siguen recibiendo el foco para que un lector de pantalla lo lea (AUD-059).
+- La barra superior ya no cambia de altura mientras dura un análisis: el estado
+  dice «Sin guardar · en espera» y el motivo completo se ve al pasar el cursor
+  (AUD-117).
+- El selector de controladores de SQL Server ya no ofrece el antiguo «SQL
+  Server» de Windows, que no puede cifrar la conexión; una conexión guardada
+  con él explica por qué no conecta (AUD-101).
 - Los paneles «Preferencias y recursos» y «Licencia y privacidad» se cierran
   con Esc (el foco vuelve a su botón) y con un clic fuera (AUD-063).
 - Si el motor no arranca, Cargar lo dice con el motivo y qué hacer («Cierra y
@@ -1336,9 +1342,8 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - El motivo de «Exportar» bloqueado nombra todas sus causas: falta analizar la
   compatibilidad con el destino, el dataset no cabe en Excel o hay una
   operación en curso (AUD-060).
-- Con «Guardar proyecto» desactivado, la barra dice a qué espera («Sin guardar
-  · disponible al terminar el análisis de calidad»), y las etapas y los botones
-  «Volver» y «Continuar» enlazan ese motivo (AUD-059, en curso).
+- Con «Guardar proyecto» desactivado, las etapas y los botones «Volver» y
+  «Continuar» enlazan el motivo de la espera (AUD-059).
 - Mientras se importa de una base de datos ya no aparece «Esperando la
   selección y verificando el formato local…», solo el progreso de la
   importación (AUD-062).
@@ -1691,14 +1696,17 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- El arranque de la interfaz carga unos 43 kB menos: el modelo de Entregar, los
+  paneles «Base de datos» y «Proyecto» de Cargar y el diálogo de diagnóstico
+  llegan cuando hacen falta (AUD-116).
 - `DESIGN.md` describe la paleta real de la barra lateral (oscura en todos los
   temas), las pantallas Cargar, Preparar y Explorar y los puntos de corte del
   shell; la tabla de contraste mide cinco pares más de la barra (AUD-069,
   AUD-072).
 - `node tools/check-bundle.mjs budget` avisa cuando el `dist` no se compiló
   con el target de Windows (un build manual sin `TAURI_ENV_PLATFORM` pesa unos
-  28 kB más y puede dar un falso rojo). Revisado el contenido del bundle; la
-  reducción queda en AUD-116 (AUD-079).
+  28 kB más y puede dar un falso rojo). Revisado el contenido del bundle
+  (AUD-079).
 - El presupuesto del bundle de la interfaz sin comprimir sube de 896 a 928 KiB
   (comprimido sigue en 240 KiB); la revisión de su contenido se hizo en AUD-079.
 - Las páginas de conflictos leen las filas comparadas por tramos ordenados y en

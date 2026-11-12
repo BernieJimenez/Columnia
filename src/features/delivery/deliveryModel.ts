@@ -1,53 +1,20 @@
 import type {
-  ColumnProfile,
   DatabaseConnection,
   DatabaseTarget,
   DatasetPreview,
   ExportFormat,
-  ExportResult,
-  OperationProgress,
   QualityRule,
   QualityRuleKind,
   ImportOrigin,
   PrivacyMode,
-  QualityValidationResult,
   SqlServerScriptOptions,
 } from "../../bridge";
 import { QUALITY_DATASET_COLUMN } from "../../bridge";
 import { isTextType } from "../../dataTypes";
 import { plural } from "../../plural";
 import { importOriginSummaryItems } from "../load/importOrigin";
-import { ROW_AUDIT_COLUMN } from "../../rowAudit";
 
 export const MAX_QUALITY_RULES = 16;
-
-const PERSONAL_DATA_SIGNALS = new Set<ColumnProfile["privacySignal"]>(["email", "phone", "address", "name"]);
-
-/** Columns whose profile detected personal data; identifiers are excluded because they are not contact data. */
-export function personalDataColumnNames(columns: readonly ColumnProfile[] | null): string[] {
-  if (!columns) return [];
-  return columns
-    .filter((column) => column.name !== ROW_AUDIT_COLUMN && PERSONAL_DATA_SIGNALS.has(column.privacySignal))
-    .map((column) => column.name);
-}
-/** Excel limits (RV19 / FUN-05); export_io.rs rejects the same cases when exporting. */
-const EXCEL_MAX_DATA_ROWS = 1_048_575;
-const EXCEL_MAX_CELL_CHARS = 32_767;
-
-/** Why this dataset would not open in Excel, known before exporting. */
-export function excelLimitIssues(rowCount: number, columns: readonly ColumnProfile[] | null): string[] {
-  const issues: string[] = [];
-  if (rowCount > EXCEL_MAX_DATA_ROWS) {
-    issues.push(`Tiene ${rowCount.toLocaleString()} filas y una hoja de Excel admite ${EXCEL_MAX_DATA_ROWS.toLocaleString()}.`);
-  }
-  const longColumns = (columns ?? [])
-    .filter((column) => (column.maximumLength ?? 0) > EXCEL_MAX_CELL_CHARS)
-    .map((column) => column.name);
-  if (longColumns.length > 0) {
-    issues.push(`${longColumns.join(", ")}: hay celdas de más de ${EXCEL_MAX_CELL_CHARS.toLocaleString()} caracteres, el máximo de Excel.`);
-  }
-  return issues;
-}
 
 /**
  * TXT-07: the files of a Columnia bundle, in the order of the ZIP. The recipe
@@ -68,35 +35,6 @@ export function bundleFileNames({ recipe, quality }: { recipe: boolean; quality:
 /** «a, b y c» for a short list of file names. */
 export function listFileNames(names: readonly string[]): string {
   return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`;
-}
-
-export const MAX_SUGGESTED_QUALITY_RULES = 6;
-const IDENTIFIER_NAME = /(^|[_\s-])(id|codigo|código|code|key|clave)([_\s-]|$)/i;
-
-/**
- * Quality rules the current data already meets, proposed so a delivery can be
- * validated with one click and later deliveries keep the same guarantees.
- * Identifier columns first (not null and unique), then complete columns.
- */
-export function suggestQualityRules(
-  columns: readonly ColumnProfile[] | null,
-  rowCount: number,
-): QualityRule[] {
-  if (!columns || rowCount === 0) return [];
-  const candidates = columns.filter((column) => column.name !== ROW_AUDIT_COLUMN && column.nullCount === 0);
-  const isIdentifier = (column: ColumnProfile) => column.uniqueCount === rowCount
-    && (column.privacySignal === "identifier" || IDENTIFIER_NAME.test(column.name));
-  const identifiers = candidates.filter(isIdentifier);
-  const rules: QualityRule[] = [];
-  for (const column of identifiers) {
-    rules.push({ column: column.name, kind: "not_null", maxInvalid: 0 });
-    rules.push({ column: column.name, kind: "unique", maxInvalid: 0 });
-  }
-  for (const column of candidates) {
-    if (identifiers.includes(column)) continue;
-    rules.push({ column: column.name, kind: "not_null", maxInvalid: 0 });
-  }
-  return rules.slice(0, MAX_SUGGESTED_QUALITY_RULES);
 }
 
 /** The target being filled in: the connection is null until its form is complete. */
@@ -324,10 +262,6 @@ export function deliverySummary(input: DeliverySummaryInput): DeliverySummaryIte
   return items;
 }
 
-export function isDatabaseExportFormat(format: ExportFormat): boolean {
-  return format === "postgresql" || format === "mysql" || format === "sqlserver";
-}
-
 /** AUD-030: the problem with a remote target and the field it belongs to. */
 type DatabaseTargetIssue = {
   field: "policy" | "connection" | "schema" | "table";
@@ -432,107 +366,6 @@ function supportsQualityAggregate(dataType: string): boolean {
     || normalized.includes("float")
     || normalized.includes("decimal")
     || normalized.includes("number");
-}
-
-type QualityGateState =
-  | { kind: "idle" }
-  | { kind: "loading" }
-  | { kind: "ready"; result: QualityValidationResult }
-  | { kind: "stale"; result: QualityValidationResult }
-  | { kind: "error"; message: string };
-
-export type DeliveryContractState =
-  | {
-      kind: "without_contract";
-      confirmation: "required" | "confirmed";
-      gate: QualityGateState;
-    }
-  | {
-      kind: "with_contract";
-      rules: QualityRule[];
-      gate: QualityGateState;
-    };
-
-export type DeliveryContractAction =
-  | { kind: "rules_changed"; rules: QualityRule[] }
-  | { kind: "gate_changed"; gate: QualityGateState }
-  | { kind: "confirmation_changed"; confirmation: "required" | "confirmed" };
-
-export type DeliveryExportState =
-  | { kind: "idle" }
-  | {
-      kind: "loading";
-      format: ExportFormat;
-      progress: OperationProgress;
-      cancellation: "available" | "requested";
-      cancellationError?: string;
-    }
-  | { kind: "success"; result: ExportResult }
-  | { kind: "cancelled" }
-  // AUD-030: `uncertain` is set where the error is caught, never read back from the text.
-  | { kind: "error"; message: string; uncertain?: boolean };
-
-export type DeliveryExportRequest =
-  | {
-      format: ExportFormat;
-      privacyMode: PrivacyMode;
-      databaseTarget?: DatabaseTarget;
-      sqlServerScript?: SqlServerScriptOptions;
-      validation: { kind: "contract"; rules: QualityRule[] };
-    }
-  | {
-      format: ExportFormat;
-      privacyMode: PrivacyMode;
-      databaseTarget?: DatabaseTarget;
-      sqlServerScript?: SqlServerScriptOptions;
-      validation: { kind: "explicitly_unvalidated" };
-    };
-
-export const INITIAL_DELIVERY_CONTRACT: DeliveryContractState = {
-  kind: "without_contract",
-  confirmation: "required",
-  gate: { kind: "idle" },
-};
-
-export function deliveryContractFromRules(rules: QualityRule[]): DeliveryContractState {
-  return rules.length === 0
-    ? INITIAL_DELIVERY_CONTRACT
-    : { kind: "with_contract", rules, gate: { kind: "idle" } };
-}
-
-export function deliveryRules(state: DeliveryContractState): QualityRule[] {
-  return state.kind === "with_contract" ? state.rules : [];
-}
-
-function invalidateGate(gate: QualityGateState): QualityGateState {
-  return gate.kind === "ready" || gate.kind === "stale"
-    ? { kind: "stale", result: gate.result }
-    : { kind: "idle" };
-}
-
-export function reduceDeliveryContract(
-  state: DeliveryContractState,
-  action: DeliveryContractAction,
-): DeliveryContractState {
-  if (action.kind === "gate_changed") return { ...state, gate: action.gate };
-
-  if (action.kind === "confirmation_changed") {
-    return state.kind === "without_contract"
-      ? { ...state, confirmation: action.confirmation }
-      : state;
-  }
-
-  const gate = invalidateGate(state.gate);
-  return action.rules.length === 0
-    ? { kind: "without_contract", confirmation: "required", gate }
-    : { kind: "with_contract", rules: action.rules, gate };
-}
-
-export function invalidateDeliveryContract(state: DeliveryContractState): DeliveryContractState {
-  const gate = invalidateGate(state.gate);
-  return state.kind === "without_contract"
-    ? { ...state, confirmation: "required", gate }
-    : { ...state, gate };
 }
 
 /**

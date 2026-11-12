@@ -219,6 +219,7 @@ export function PrepareProposal({
   if (mode === "steps") {
     const totalSteps = items.length + 1;
     const isNamesStep = step === items.length;
+    const applyBlocked = disabled || !fillsReady || datesPending || (selectedProposalCount(items, selection) === 0 && !normalizeNames);
     const current = isNamesStep ? null : items[step];
     const question = current
       ? STEP_QUESTIONS[current.id]
@@ -263,9 +264,9 @@ export function PrepareProposal({
             <button
               type="button"
               className="prepare-proposal__primary"
-              disabled={disabled || !fillsReady || datesPending || (selectedProposalCount(items, selection) === 0 && !normalizeNames)}
+              aria-disabled={applyBlocked || undefined}
               aria-describedby={busyDescribedBy(disabled)}
-              onClick={() => onApply(proposalOptions(items, selection, normalizeNames, ambiguousDateOrder))}
+              onClick={() => { if (!applyBlocked) onApply(proposalOptions(items, selection, normalizeNames, ambiguousDateOrder)); }}
             >
               Aplicar
             </button>
@@ -294,6 +295,7 @@ export function PrepareProposal({
   }
 
   const count = selectedProposalCount(items, selection);
+  const applyBlocked = disabled || count === 0 || !fillsReady || datesPending;
   // One table for every checked change, instead of a toggle per change.
   // Every filled column keeps its row: it shows the value it will receive.
   const beforeAfter = [
@@ -371,12 +373,12 @@ export function PrepareProposal({
         <button
           type="button"
           className="prepare-proposal__primary"
-          disabled={disabled || count === 0 || !fillsReady || datesPending}
+          aria-disabled={applyBlocked || undefined}
           aria-describedby={busyDescribedBy(disabled)}
           // Still the action of this screen while the app is busy, the fill simulation
           // runs or a date answer is pending, so the footer never flashes as primary.
           data-waiting={count > 0 && (disabled || !fillsReady || datesPending) ? "" : undefined}
-          onClick={() => onApply(proposalOptions(items, selection, false, ambiguousDateOrder))}
+          onClick={() => { if (!applyBlocked) onApply(proposalOptions(items, selection, false, ambiguousDateOrder)); }}
         >
           {applyLabel(count)}
         </button>

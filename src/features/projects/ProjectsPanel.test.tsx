@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -203,4 +203,15 @@ describe("ProjectsPanel: estados y guardado (UX-17, QA-35)", () => {
     fireEvent.click(recoverIdle);
     expect(idle.onOpen).toHaveBeenCalledWith("recovery-id");
   });
-});
+
+  it("asocia el motivo de ocupado a los botones de los diálogos solo mientras están bloqueados (AUD-059)", () => {
+    renderPanel({ deletion: { kind: "confirming", project: recovery }, disabled: true });
+    const dialog = within(screen.getByRole("alertdialog"));
+    expect(dialog.getByRole("button", { name: "Cancelar" })).toHaveAttribute("aria-describedby", "busy-reason");
+    expect(dialog.getByRole("button", { name: "Eliminar proyecto" })).toHaveAttribute("aria-describedby", "busy-reason");
+    cleanup();
+    renderPanel({ deletion: { kind: "confirming", project: recovery } });
+    const idle = within(screen.getByRole("alertdialog"));
+    expect(idle.getByRole("button", { name: "Cancelar" })).not.toHaveAttribute("aria-describedby");
+    expect(idle.getByRole("button", { name: "Eliminar proyecto" })).not.toHaveAttribute("aria-describedby");
+  });});

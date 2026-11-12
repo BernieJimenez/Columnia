@@ -546,14 +546,14 @@ td {
 :root .workspace .secondary-action:hover:not(:disabled) { background: var(--surface-subtle); border-color: var(--accent); }
 
 /* In Prepare, keep the stage action primary while an enabled local action exists. */
-:root .workspace--prepare:has(.prepare-proposal__primary:is(:not(:disabled), [data-waiting])) .flow-footer__next-action:not(:disabled),
+:root .workspace--prepare:has(.prepare-proposal__primary:is(:not(:disabled):not([aria-disabled="true"]), [data-waiting])) .flow-footer__next-action:not(:disabled),
 :root .workspace--prepare:has(.transform-recipe__footer > button[aria-label="Aplicar receta"]:not(:disabled)) .flow-footer__next-action:not(:disabled) {
   /* Looks like a secondary action, not like a disabled one (2026-10-09). */
   border: 1px solid var(--control-border);
   background: transparent;
   color: var(--text-primary);
 }
-:root .workspace--prepare:has(.prepare-proposal__primary:is(:not(:disabled), [data-waiting])) .flow-footer__next-action:hover:not(:disabled),
+:root .workspace--prepare:has(.prepare-proposal__primary:is(:not(:disabled):not([aria-disabled="true"]), [data-waiting])) .flow-footer__next-action:hover:not(:disabled),
 :root .workspace--prepare:has(.transform-recipe__footer > button[aria-label="Aplicar receta"]:not(:disabled)) .flow-footer__next-action:hover:not(:disabled) {
   background: var(--surface-raised);
   border-color: var(--accent);
@@ -957,6 +957,13 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .prepare-proposal__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .prepare-proposal__primary { min-height: 48px; padding: 0 24px; border: 0; border-radius: 6px; background: var(--accent); color: var(--on-accent); font: inherit; font-size: 1.05rem; font-weight: 750; cursor: pointer; }
 .prepare-proposal button:disabled { cursor: not-allowed; opacity: .5; }
+.workspace .prepare-proposal__primary[aria-disabled="true"] {
+  border-color: var(--border-subtle);
+  background: var(--disabled-surface);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+  opacity: .5;
+}
 .prepare-proposal__date-order { display: grid; gap: 8px; margin: 8px 0 0; padding: 0; border: 0; }
 .prepare-proposal__date-order legend { margin-bottom: 4px; font-weight: 600; }
 .prepare-proposal__changes { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
@@ -990,13 +997,13 @@ button:active:not(:disabled) { transform: translateY(1px); }
 
 @media (forced-colors: active) {
   /* Keep this demoted action on system colors after primary-action theme overrides. */
-  :root .workspace--prepare:has(.prepare-proposal__primary:is(:not(:disabled), [data-waiting])) .flow-footer__next-action:not(:disabled),
+  :root .workspace--prepare:has(.prepare-proposal__primary:is(:not(:disabled):not([aria-disabled="true"]), [data-waiting])) .flow-footer__next-action:not(:disabled),
   :root .workspace--prepare:has(.transform-recipe__footer > button[aria-label="Aplicar receta"]:not(:disabled)) .flow-footer__next-action:not(:disabled) {
     border-color: ButtonText !important;
     background: ButtonFace !important;
     color: ButtonText !important;
   }
-  :root .workspace--prepare:has(.prepare-proposal__primary:is(:not(:disabled), [data-waiting])) .flow-footer__next-action:hover:not(:disabled),
+  :root .workspace--prepare:has(.prepare-proposal__primary:is(:not(:disabled):not([aria-disabled="true"]), [data-waiting])) .flow-footer__next-action:hover:not(:disabled),
   :root .workspace--prepare:has(.transform-recipe__footer > button[aria-label="Aplicar receta"]:not(:disabled)) .flow-footer__next-action:hover:not(:disabled) {
     border-color: Highlight !important;
     background: HighlightText !important;

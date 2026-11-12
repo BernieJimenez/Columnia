@@ -12,7 +12,7 @@ import {
   type DeliveryContractState,
   type DeliveryExportState,
   type DeliveryExportRequest,
-} from "./deliveryModel";
+} from "./deliveryContract";
 
 beforeEach(() => {
   // The connection form lists the installed drivers of each engine.

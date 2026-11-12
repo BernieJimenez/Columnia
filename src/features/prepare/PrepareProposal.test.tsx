@@ -52,14 +52,14 @@ describe("PrepareProposal fill preview (RV17)", () => {
     }));
     expect(screen.getByLabelText("Rellenar valores vacíos: calculando cuántos…")).toBeChecked();
     const apply = screen.getByRole("button", { name: "Aplicar 2 cambios" });
-    expect(apply).toBeDisabled();
+    expect(apply).toHaveAttribute("aria-disabled", "true");
     // Still this screen's action: the footer must not take over as primary.
     expect(apply).toHaveAttribute("data-waiting");
 
     // The duplicate row held one of the gaps.
     resolve({ removedRowCount: 1, imputedCellCount: 2, imputations: [{ column: "categoria", value: "A", cellCount: 2 }] });
     expect(await screen.findByLabelText("Rellenar 2 valores vacíos en 1 columna")).toBeChecked();
-    expect(apply).toBeEnabled();
+    expect(apply).not.toHaveAttribute("aria-disabled");
     expect(apply).not.toHaveAttribute("data-waiting");
 
     fireEvent.click(screen.getByRole("button", { name: "Ver antes y después" }));
@@ -114,7 +114,7 @@ describe("PrepareProposal ambiguous dates (RV18)", () => {
     );
 
     const apply = screen.getByRole("button", { name: "Elige un cambio" });
-    expect(apply).toBeDisabled();
+    expect(apply).toHaveAttribute("aria-disabled", "true");
     const question = screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" });
     fireEvent.click(within(question).getByLabelText("Día/mes: 2024-02-01"));
 
@@ -150,7 +150,7 @@ describe("PrepareProposal ambiguous dates in steps (FUN-F2-14)", () => {
     const question = screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" });
 
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
-    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Aplicar" })).toHaveAttribute("aria-disabled", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "Atrás" }));
     expect(question).not.toBeInTheDocument();
@@ -266,7 +266,7 @@ describe("PrepareProposal date count (FUN-24)", () => {
     fireEvent.click(screen.getByLabelText("Sí, convertir"));
     const question = screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" });
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
-    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Aplicar" })).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(screen.getByRole("button", { name: "Atrás" }));
     fireEvent.click(within(screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" })).getByLabelText("Día/mes: 2024-02-01"));
     expect(question).toBeDefined();
@@ -303,5 +303,32 @@ describe("PrepareProposal focus (ACC-17)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
     rerender(<PrepareProposal {...props} busy />);
     expect(screen.getByRole("group", { name: /./ })).toHaveAttribute("aria-describedby", "busy-reason");
+  });
+
+  it("«Aplicar» ocupado es aria-disabled, no actúa y sigue recibiendo foco (AUD-059)", () => {
+    const onApply = vi.fn();
+    const props = { items, columnCount: 2, canUndo: false, result: null, onApply, onUndo: vi.fn(), onDismissResult: vi.fn() };
+    const { rerender } = render(<PrepareProposal {...props} busy />);
+    const apply = screen.getByRole("button", { name: /^Aplicar \d+ cambios?$/ });
+    expect(apply).toHaveAttribute("aria-disabled", "true");
+    expect(apply).not.toBeDisabled();
+    apply.focus();
+    expect(document.activeElement).toBe(apply);
+    fireEvent.click(apply);
+    expect(onApply).not.toHaveBeenCalled();
+    // Same guard in the step by step flow.
+    rerender(<PrepareProposal {...props} busy={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
+    for (let step = 0; step < items.length; step += 1) fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    rerender(<PrepareProposal {...props} busy />);
+    const last = screen.getByRole("button", { name: "Aplicar" });
+    expect(last).toHaveAttribute("aria-disabled", "true");
+    expect(last).toHaveAttribute("aria-describedby", "busy-reason");
+    last.focus();
+    expect(document.activeElement).toBe(last);
+    fireEvent.click(last);
+    expect(onApply).not.toHaveBeenCalled();
+    rerender(<PrepareProposal {...props} busy={false} />);
+    expect(screen.getByRole("button", { name: "Aplicar" })).not.toHaveAttribute("aria-describedby");
   });
 });

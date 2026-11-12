@@ -51,9 +51,10 @@ describe("SidebarSave (DAT-01)", () => {
     const { rerender } = render(<SidebarSave fileName="ventas.csv" activeProject={null} autoSave={{ kind: "disabled" }} operation={{ kind: "idle" }} disabled busyReason="el análisis de calidad" onSave={vi.fn()} />);
 
     const status = screen.getByRole("status");
-    expect(status).toHaveTextContent("Sin guardar · disponible al terminar el análisis de calidad");
+    expect(status).toHaveTextContent(/^Sin guardar · en espera$/);
+    expect(status).toHaveAttribute("title", "Sin guardar · disponible al terminar el análisis de calidad");
     expect(screen.getByRole("button", { name: "Guardar proyecto" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Guardar proyecto" })).toHaveAttribute("aria-describedby", status.id);
+    expect(screen.getByRole("button", { name: "Guardar proyecto" })).toHaveAttribute("aria-describedby", `${status.id} busy-reason`);
 
     rerender(<SidebarSave fileName="ventas.csv" activeProject={null} autoSave={{ kind: "disabled" }} operation={{ kind: "idle" }} disabled={false} busyReason={null} onSave={vi.fn()} />);
     expect(screen.getByRole("status")).toHaveTextContent(/^Sin guardar$/);
