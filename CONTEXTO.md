@@ -687,6 +687,15 @@ Pruebas, decisiones de la tanda 21 de la auditoría (2026-11-12):
 - el simulador E2E corre dentro de la página: sus respuestas solo quedan tipadas si se construyen en `fixtures()` (lado Node) con los tipos de `src/bridge` (AUD-081).
 - `insert_profile_snapshot` y `find_profile_snapshot` reciben la lista: la caché global de pruebas sigue en 64 porque la comparten pruebas en paralelo, y la expulsión se prueba con una lista propia de capacidad 1 (AUD-080).
 - un enum nuevo del IPC se inscribe en dos listas de `src/ipc-contract.test.ts`: `SHARED_ENUMS` y la de `normalizeRustFieldType`; una estructura, en `sharedStructures` de `tools/check-ipc-inventory.mjs`, y el JSON se regenera con `--write` (AUD-113).
+Redacción y pruebas, decisiones de la tanda 22 de la auditoría (2026-11-12):
+- vocabulario de la ausencia: «marcador «sin dato»» es el texto que significa ausencia y «nulo» la celda sin valor; «texto vacío» es la cadena sin caracteres. «Valores sin dato» (métrica que suma nulos y marcadores) y «valor ausente» (nombre accesible del ∅) se conservan a propósito. Definido en `docs/reference/glosario.md` (AUD-084).
+- «Explorar» es solo el nombre de la fase; la consulta se llama «Consulta SQL» en todas partes (AUD-085).
+- la ayuda de un campo de conexión va en un párrafo `.connection-form__hint` bajo el campo, con `aria-describedby`, no en `placeholder`: una frase no cabe (350 px en un hueco de 332 px) y desaparece al escribir. El `placeholder` queda para ejemplos cortos («localhost», «5432»). `.connection-form__field` lleva `align-content: start` para que dos campos de una fila no se estiren distinto cuando solo uno tiene ayuda (AUD-086).
+- el resumen legal dice «conexión que solo lee», no «de solo lectura»: es lo que hace Columnia, no una garantía del servidor (`THREAT_MODEL.md`) (AUD-087).
+- en el hilo del conteo de distintos, cualquier paso previo que falle con la bandera de cancelación puesta devuelve `OPERATION_CANCELLED_MESSAGE` (`distinct_count_preparation_error`): la interrupción puede caer en un `SET` y DuckDB la devuelve como «INTERRUPT Error» (AUD-118).
+- `check.ps1` pasa a Vitest `--reporter=json` y, si el paso falla, resume las pruebas fallidas en `failedTests`; el JSON se borra si el paso pasa. Los pasos de Rust solo guardan el código de salida. El reporte lleva rutas absolutas del equipo: no compartirlo sin mirarlo (AUD-082).
+- las tareas `AUD-NNN` cerradas viven en `HISTORICO.md` (solo se añade); al cerrar una se mueve entera allí con su *Cierre* y una línea en el *Registro*.
+
 Interfaz, decisiones de la tanda 7 de la auditoría (2026-11-09):
 - las celdas de las tablas de datos pasan por `renderCellValue`: un texto de más de 36 caracteres va en `span.cell-clip` (tope de 36ch en el elemento interior, porque `max-width` en un `td` no limita una tabla con `table-layout: auto`), con `title` y expansión al recibir el foco (AUD-056).
 - en Preparar, el resultado del último cambio se muestra dos veces: en el historial (`role="status"`, el que se anuncia) y en la línea fija `ChangeResultLine` arriba de las herramientas (sin región viva, para no anunciarlo dos veces). Las pruebas que buscan el mensaje deben acotarse a una de las dos (AUD-057).
@@ -717,6 +726,7 @@ Al actualizarlo:
 - [README.md](README.md): visión funcional y uso actual.
 - [THREAT_MODEL.md](THREAT_MODEL.md): fronteras de confianza, amenazas, controles y riesgos residuales.
 - [ROADMAP.md](ROADMAP.md): pendientes vigentes y criterio de salida de V1.
+- [HISTORICO.md](HISTORICO.md): tareas `AUD-NNN` cerradas de la revisión del 2026-11-05.
 - [CHANGELOG.md](CHANGELOG.md): lo entregado, versión a versión.
 - [docs/archive/2026-09/](docs/archive/2026-09/CONTEXTO.md): este documento, el roadmap y las auditorías hasta el Tier 10, sin cambios.
 - [CONTRIBUTING.md](CONTRIBUTING.md): ramas, commits y revisión local.

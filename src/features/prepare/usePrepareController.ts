@@ -610,7 +610,7 @@ export function usePrepareController({
           ? `${result.datedColumnCount.toLocaleString()} ${result.datedColumnCount === 1 ? "columna convertida" : "columnas convertidas"} a fecha`
           : null,
         options.imputeMissing && imputedCellCount > 0
-          ? `se rellenaron ${imputedCellCount.toLocaleString()} ${imputedCellCount === 1 ? "valor vacío" : "valores vacíos"}`
+          ? `se rellenaron ${imputedCellCount.toLocaleString()} ${imputedCellCount === 1 ? "nulo" : "nulos"}`
           : null,
       ].filter((change): change is string => change !== null);
       setChangeStatus({

@@ -44,12 +44,12 @@ interface PrepareProposalProps {
 }
 
 const STEP_QUESTIONS: Record<ProposalItemId, { question: string; yes: string; no: string }> = {
-  sentinels: { question: "¿Convertimos los marcadores de «sin dato» en vacíos reales?", yes: "Sí, convertir", no: "No, dejarlos como texto" },
+  sentinels: { question: "¿Convertimos los marcadores «sin dato» en nulos?", yes: "Sí, convertir", no: "No, dejarlos como texto" },
   trim: { question: "¿Recortamos los espacios sobrantes del texto?", yes: "Sí, recortar", no: "No, dejarlos" },
   types: { question: "¿Convertimos a número las columnas que solo tienen números?", yes: "Sí, convertir", no: "No, dejarlas como texto" },
   dates: { question: "¿Convertimos a fecha las columnas que solo tienen fechas?", yes: "Sí, convertir", no: "No, dejarlas como texto" },
   duplicates: { question: "¿Quitamos las filas duplicadas?", yes: "Sí, quitarlas", no: "No, pueden ser registros distintos" },
-  impute: { question: "¿Rellenamos los valores vacíos?", yes: "Sí, rellenar", no: "No, dejarlos vacíos" },
+  impute: { question: "¿Rellenamos los nulos?", yes: "Sí, rellenar", no: "No, dejarlos como nulos" },
 };
 
 /**
@@ -131,7 +131,7 @@ export function PrepareProposal({
   const preview = fillsReady && previewKey !== null ? fills?.preview ?? null : null;
   const titleOf = (item: ProposalItem) => (
     item.id === "impute" && !fillsReady
-      ? "Rellenar valores vacíos: calculando cuántos…"
+      ? "Rellenar nulos: calculando cuántos…"
       : item.id === "duplicates" && !fillsReady
         ? "Quitar filas duplicadas: calculando cuántas…"
       : item.id === "dates"

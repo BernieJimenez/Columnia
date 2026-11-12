@@ -91,9 +91,10 @@ export function SqlServerConnectionForm({ disabled, blockedByBusy = false, onCha
             disabled={disabled}
             autoComplete="off"
             spellCheck={false}
-            placeholder="La predeterminada del usuario si la dejas vacía"
+            aria-describedby={`${id}-database-hint`}
             onChange={(event) => update({ ...fields, database: event.target.value })}
           />
+          <p id={`${id}-database-hint`} className="connection-form__hint">Si lo dejas vacío, se usa la base por defecto del usuario.</p>
         </div>
       </div>
       <fieldset className="connection-form__auth">

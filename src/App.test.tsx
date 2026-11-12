@@ -1353,7 +1353,7 @@ describe("App", () => {
     expect(within(comparison).getByRole("radio", { name: /^Full/ })).toBeChecked();
     expect(screen.getByRole("tab", { name: "Vista previa" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: "Diagnóstico" }));
-    fireEvent.click(screen.getByText("Explorar con SQL local"));
+    fireEvent.click(screen.getByText("Consulta SQL", { selector: "summary span" }));
     expect(screen.getByRole("combobox", { name: "Motor de consulta" })).toHaveValue("duckdb");
     expect(screen.getByRole("combobox", { name: "Filas de muestra para correlaciones" })).toHaveValue("50000");
     fireEvent.click(screen.getByText("Preferencias y recursos"));
@@ -1528,7 +1528,7 @@ describe("App", () => {
     fireEvent.click(screen.getByText("Licencia y privacidad"));
     const legalPanel = screen.getByRole("region", {
       name: "Licencia y privacidad de Columnia",
-      description: /Columnia procesa los datos localmente/,
+      description: /Columnia procesa los datos en este equipo/,
     });
     expect(legalPanel).toHaveAttribute("aria-labelledby", "legal-panel-title");
     expect(legalPanel).toHaveAttribute("aria-describedby", "legal-panel-summary");
@@ -3096,7 +3096,8 @@ describe("App", () => {
     expect(screen.getByText("Vista web · motor no conectado")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Licencia y privacidad"));
     const legalPanel = screen.getByRole("region", { name: "Licencia y privacidad de Columnia" });
-    expect(within(legalPanel).getByText(/no inicia conexiones de red por sí sola/)).toBeInTheDocument();
+    expect(within(legalPanel).getByText(/Solo se conecta a un servidor cuando lo eliges/)).toBeInTheDocument();
+    expect(within(legalPanel).getByText(/para leer una tabla en Cargar \(conexión que solo lee, con confirmación\)/)).toBeInTheDocument();
     expect(within(legalPanel).getByText(/filas que el usuario elija enviar mediante una exportación ODBC explícita/)).toBeInTheDocument();
     expect(screen.getByText("Licencia", { selector: "h2" })).toBeInTheDocument();
   });
@@ -3885,8 +3886,8 @@ describe("App", () => {
     expect(drawer).toHaveTextContent("Consulta consultas.csv sin modificarlo.");
     // AUD-053: the drawer reads h2 -> h3, with no skipped level.
     expect(within(drawer).getByRole("heading", { level: 2, name: "Consulta SQL" })).toBeInTheDocument();
-    expect(await within(drawer).findByRole("heading", { level: 3, name: "Consulta SQL de solo lectura" })).toBeInTheDocument();
-    expect(within(drawer).queryByRole("heading", { level: 4, name: "Consulta SQL de solo lectura" })).not.toBeInTheDocument();
+    expect(await within(drawer).findByRole("heading", { level: 3, name: "Consulta SQL" })).toBeInTheDocument();
+    expect(within(drawer).queryByRole("heading", { level: 4, name: "Consulta SQL" })).not.toBeInTheDocument();
     fireEvent.click(within(drawer).getByRole("button", { name: "Cerrar" }));
     expect(screen.queryByRole("dialog", { name: "Consulta SQL" })).not.toBeInTheDocument();
 

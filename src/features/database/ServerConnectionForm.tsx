@@ -127,9 +127,10 @@ export function ServerConnectionForm({ kind, disabled, blockedByBusy = false, on
           disabled={disabled}
           autoComplete="off"
           spellCheck={false}
-          placeholder={engine.databaseHint}
+          aria-describedby={`${id}-database-hint`}
           onChange={(event) => update({ ...fields, database: event.target.value })}
         />
+        <p id={`${id}-database-hint`} className="connection-form__hint">{engine.databaseHint}</p>
       </div>
       <div className="connection-form__row">
         <div className="connection-form__field">

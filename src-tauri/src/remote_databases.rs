@@ -2199,7 +2199,7 @@ fn format_driver_error<E: Debug>(context: &str, error: E, target: &DatabaseTarge
     let readable = readable_driver_detail(&detail);
     if detail.contains("HYT00") || detail.contains("HYT01") {
         return format!(
-            "{context} para {}: la base remota no respondió a tiempo (conexión {ODBC_LOGIN_TIMEOUT_SEC} s, lista de tablas {ODBC_CATALOG_TIMEOUT_SEC} s, lote {ODBC_BATCH_TIMEOUT_SEC} s, sentencia {ODBC_STATEMENT_TIMEOUT_SEC} s). Comprueba la red o los bloqueos de la tabla y vuelve a intentarlo. {readable}",
+            "{context} para {}: la base remota no respondió a tiempo (límites: {ODBC_LOGIN_TIMEOUT_SEC} s para conectar, {ODBC_CATALOG_TIMEOUT_SEC} s para listar las tablas, {ODBC_BATCH_TIMEOUT_SEC} s por bloque de filas y {ODBC_STATEMENT_TIMEOUT_SEC} s por consulta). Comprueba la red o los bloqueos de la tabla y vuelve a intentarlo. {readable}",
             target.kind.label()
         );
     }
@@ -5025,7 +5025,20 @@ mod tests {
         );
         assert!(error.contains("no respondió a tiempo"), "{error}");
         assert!(
-            error.contains(&format!("lista de tablas {ODBC_CATALOG_TIMEOUT_SEC} s")),
+            error.contains(&format!(
+                "{ODBC_CATALOG_TIMEOUT_SEC} s para listar las tablas"
+            )),
+            "{error}"
+        );
+        assert!(
+            error.contains(&format!(
+                "límites: {ODBC_LOGIN_TIMEOUT_SEC} s para conectar, "
+            )) && error.contains(&format!("{ODBC_BATCH_TIMEOUT_SEC} s por bloque de filas"))
+                && error.contains(&format!("{ODBC_STATEMENT_TIMEOUT_SEC} s por consulta")),
+            "{error}"
+        );
+        assert!(
+            !error.contains("lote") && !error.contains("sentencia"),
             "{error}"
         );
     }
@@ -5076,7 +5089,7 @@ mod tests {
             &target(DatabaseKind::SqlServer),
         );
         assert!(
-            error.contains(&format!("lote {ODBC_BATCH_TIMEOUT_SEC} s")),
+            error.contains(&format!("{ODBC_BATCH_TIMEOUT_SEC} s por bloque de filas")),
             "{error}"
         );
     }

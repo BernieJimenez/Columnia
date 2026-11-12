@@ -952,11 +952,11 @@ function CleaningSignals({
         </div>
         {totalNullCount === 0 && sentinels.length === 0 ? (
           <p className="notice notice--success" role="status">
-            No se detectaron nulos ni marcadores conocidos de datos ausentes.
+            No se detectaron nulos ni marcadores «sin dato».
           </p>
         ) : totalNullCount === 0 && sentinels.length > 0 ? (
           <p className="notice" role="note">
-            Se detectaron marcadores de ausencia. Puedes convertirlos desde el plan de correcciones de arriba.
+            Se detectaron marcadores «sin dato». Puedes convertirlos desde el plan de correcciones de arriba.
           </p>
         ) : hasNullActions ? (
           <ol className="missing-data-plan__steps">
@@ -1008,7 +1008,7 @@ function CleaningSignals({
         <details className="missing-data-plan__help">
           <summary>Cómo decide Columnia</summary>
           <div>
-            <p>Columnia conserva los nulos por defecto. Un nulo no siempre es un error. Primero normaliza los marcadores de ausencia y después decide si conviene completar o retirar.</p>
+            <p>Columnia conserva los nulos por defecto. Un nulo no siempre es un error. Primero normaliza los marcadores «sin dato» y después decide si conviene completar o retirar.</p>
             <p>Los espacios en blanco no son nulos. Puedes recortarlos con las correcciones recomendadas.{undoNote}</p>
           </div>
         </details>

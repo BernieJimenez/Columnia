@@ -24,3 +24,5 @@ Términos internos que aparecen en la documentación, el roadmap y el código.
 | «sistema anterior» | Nombre retirado del proyecto antes de llamarse Columnia (ver la versión 0.114.0 del CHANGELOG). Se conserva así en las entradas antiguas. |
 | ADR | Registro de una decisión de arquitectura, en `docs/adr/`. |
 | ODBC | Interfaz de Windows con la que Columnia entrega a PostgreSQL, MySQL y SQL Server mediante el controlador instalado. |
+| Marcador «sin dato» | Texto que significa ausencia (por ejemplo `N/A`, `NULL`, `-` o `desconocido`) y que Columnia puede convertir en nulo. En la interfaz se llama siempre «marcador «sin dato»»; no «marcador de vacío», «de ausencia» ni «centinela» (en el código y las notas técnicas, «centinela» o `sentinel` es el nombre interno). |
+| Nulo | Celda realmente sin valor en el archivo. Se pinta con el símbolo de valor ausente y no es lo mismo que el texto «null». Al convertir los marcadores «sin dato», o al rellenar, la interfaz habla de nulos, no de «vacíos»; «texto vacío» y «celda en blanco» se reservan para cadenas sin caracteres. |

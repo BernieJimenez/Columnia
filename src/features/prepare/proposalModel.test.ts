@@ -63,7 +63,7 @@ describe("buildPrepareProposal", () => {
     const items = buildPrepareProposal(profile(), dataset);
     expect(items.map((item) => item.id)).toEqual(["trim", "impute"]);
     expect(items[0].examples).toEqual([{ column: "ciudad", before: " Santiago ", after: "Santiago" }]);
-    expect(items[1].title).toBe("Rellenar 2 valores vacíos en 2 columnas");
+    expect(items[1].title).toBe("Rellenar 2 nulos en 2 columnas");
     expect(items[1].examples.map((example) => example.after)).toEqual([
       "valor más frecuente · 1 celda",
       "mediana (30) · 1 celda",
@@ -82,7 +82,7 @@ describe("buildPrepareProposal", () => {
       dataset,
     );
     expect(items.map((item) => item.id)).toEqual(["sentinels", "trim", "duplicates"]);
-    expect(items[0].title).toBe("Convertir 2 marcadores de «sin dato» en 1 columna");
+    expect(items[0].title).toBe("Convertir 2 marcadores «sin dato» en 1 columna");
     expect(items[2].title).toBe("Quitar 1 fila duplicada");
   });
 
@@ -124,9 +124,9 @@ describe("buildPrepareProposal", () => {
     );
     const impute = items.find((item) => item.id === "impute")!;
     const selection = { ...defaultProposalSelection(items), impute: true };
-    expect(proposalItemTitle(impute, selection)).toBe("Rellenar 7 valores vacíos en 2 columnas");
+    expect(proposalItemTitle(impute, selection)).toBe("Rellenar 7 nulos en 2 columnas");
     expect(proposalItemTitle(impute, { ...selection, sentinels: false })).toBe(
-      "Rellenar 5 valores vacíos en 2 columnas",
+      "Rellenar 5 nulos en 2 columnas",
     );
   });
 
@@ -153,13 +153,13 @@ describe("buildPrepareProposal", () => {
       ],
     };
 
-    expect(proposalItemTitle(impute, selection, preview)).toBe("Rellenar 5 valores vacíos en 2 columnas");
+    expect(proposalItemTitle(impute, selection, preview)).toBe("Rellenar 5 nulos en 2 columnas");
     expect(imputationExamples(preview)).toEqual([
       { column: "categoria", before: null, after: "A · 4 celdas" },
       { column: "monto", before: null, after: "30 · 1 celda" },
     ]);
     expect(proposalItemTitle(impute, selection, { removedRowCount: 0, imputedCellCount: 0, imputations: [] })).toBe(
-      "Rellenar valores vacíos: no queda ninguno tras los demás cambios",
+      "Rellenar nulos: no queda ninguno tras los demás cambios",
     );
   });
 });

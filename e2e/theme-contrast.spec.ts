@@ -177,7 +177,7 @@ for (const theme of themes) {
     await review.getByRole("button", { name: "Cargar archivo" }).click();
     await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
     await page.getByText("Más análisis y herramientas", { exact: true }).click();
-    await page.getByText("Explorar análisis detallado", { exact: true }).click();
+    await page.getByText("Ver análisis detallado", { exact: true }).click();
     await expect(page.locator("main svg text").first()).toBeAttached();
     const diagnosis = await measure("Revisar");
     expect(diagnosis.svgTexts, "la tendencia temporal se mide por su relleno SVG").toBeGreaterThan(0);

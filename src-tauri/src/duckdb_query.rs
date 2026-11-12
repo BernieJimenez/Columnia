@@ -513,25 +513,35 @@ fn spawn_parquet_distinct_count_with_limit(
         if columns.is_empty() {
             return Ok(Vec::new());
         }
+        // AUD-118: an interrupt can land on any preparation step, not only on
+        // the count; whichever step fails with the flag up was cancelled.
+        let cancelled_or =
+            |error: String| distinct_count_preparation_error(&worker_cancelled, error);
         let resource_directory = tempfile::tempdir().map_err(|error| {
             format!("No se pudo preparar el conteo de valores distintos source-backed: {error}")
         })?;
         // SAFETY: `worker_native` owns the database and outlives this
         // connection, which does not close it.
-        let connection = unsafe { Connection::open_from_raw(worker_native.database) }
-            .map_err(|error| format!("No se pudo iniciar DuckDB para la operación: {error}"))?;
+        let connection =
+            unsafe { Connection::open_from_raw(worker_native.database) }.map_err(|error| {
+                cancelled_or(format!(
+                    "No se pudo iniciar DuckDB para la operación: {error}"
+                ))
+            })?;
         configure_duckdb_resources_with_limit(
             &connection,
             resource_directory.path(),
             &memory_limit,
-        )?;
+        )
+        .map_err(&cancelled_or)?;
         register_file_view(
             &connection,
             "dataset",
             &path,
             DuckDbFileFormat::Parquet,
             None,
-        )?;
+        )
+        .map_err(&cancelled_or)?;
         let projections = columns
             .iter()
             .map(|column| format!("COUNT(DISTINCT {})", quote_identifier(column)))
@@ -542,7 +552,9 @@ fn spawn_parquet_distinct_count_with_limit(
             "SET enable_progress_bar_print = false",
         ] {
             worker_native.execute(setting).map_err(|error| {
-                format!("DuckDB no pudo preparar el conteo de valores distintos: {error}")
+                cancelled_or(format!(
+                    "DuckDB no pudo preparar el conteo de valores distintos: {error}"
+                ))
             })?;
         }
         match worker_native.execute(&format!(
@@ -595,6 +607,17 @@ fn spawn_parquet_distinct_count_with_limit(
         },
         handle,
     ))
+}
+
+/// AUD-118: the error of a preparation step of the distinct count. If the
+/// cancel flag is up, the step failed because of the interrupt, so the person
+/// sees the cancellation and not DuckDB's «INTERRUPT Error».
+fn distinct_count_preparation_error(cancelled: &AtomicBool, error: String) -> String {
+    if cancelled.load(Ordering::Acquire) {
+        OPERATION_CANCELLED_MESSAGE.to_owned()
+    } else {
+        error
+    }
 }
 
 /// REN-01: an in-memory DuckDB database and connection opened through the C
@@ -4577,6 +4600,34 @@ mod tests {
         let parquet_path = directory.path().join("carrera.parquet");
         write_distinct_count_race_parquet(&parquet_path, 3_000_000);
         assert_immediate_cancellations_return(&parquet_path, 10);
+    }
+
+    /// AUD-118: a preparation step of the distinct count that fails with the
+    /// cancel flag up reports the cancellation, not DuckDB's own error; with
+    /// the flag down, the real error stays. Deterministic: the failure comes
+    /// from a real DuckDB `SET`, with no timing involved.
+    #[test]
+    fn a_preparation_failure_after_cancelling_reports_the_cancellation() {
+        let native = NativeDuckDb::open().expect("DuckDB nativo");
+        let cancelled = AtomicBool::new(false);
+        let prepare = |native: &NativeDuckDb, cancelled: &AtomicBool| {
+            native
+                .execute("SET columnia_no_such_setting = true")
+                .map_err(|error| {
+                    distinct_count_preparation_error(
+                        cancelled,
+                        format!("DuckDB no pudo preparar el conteo de valores distintos: {error}"),
+                    )
+                })
+        };
+        let error = prepare(&native, &cancelled).expect_err("la opción no existe");
+        assert!(
+            error.starts_with("DuckDB no pudo preparar el conteo de valores distintos:"),
+            "{error}"
+        );
+        cancelled.store(true, Ordering::Release);
+        let error = prepare(&native, &cancelled).expect_err("la opción no existe");
+        assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
     }
 
     /// AUD-032: 100 immediate cancellations in a row on a bigger Parquet.

@@ -141,10 +141,15 @@ function Invoke-Checked {
     param(
         [string]$Label,
         [string]$WorkingDirectory,
-        [scriptblock]$Command
+        [scriptblock]$Command,
+        # AUD-082: JSON report of Vitest that the command writes; when the step
+        # fails, the failed tests are summarised into the validation report.
+        [string]$VitestReport
     )
 
     Write-Host "[$Label]"
+    if ($VitestReport) { Remove-Item -LiteralPath $VitestReport -Force -ErrorAction SilentlyContinue }
+    $StepFailedTests = $null
     $StepTimer = [System.Diagnostics.Stopwatch]::StartNew()
     $StepStatus = "failed"
     $StepError = $null
@@ -158,16 +163,28 @@ function Invoke-Checked {
     }
     catch {
         $StepError = $_.Exception.Message
+        if ($VitestReport -and (Test-Path -LiteralPath $VitestReport -PathType Leaf)) {
+            try {
+                $SummaryJson = (& node (Join-Path $PSScriptRoot "summarize-vitest-failures.mjs") $VitestReport) -join ""
+                $StepFailedTests = @(ConvertFrom-Json $SummaryJson | ForEach-Object { $_ })
+            }
+            catch {
+                $StepFailedTests = $null
+            }
+        }
         throw
     }
     finally {
         $StepTimer.Stop()
         Pop-Location
+        if ($VitestReport -and $StepStatus -eq "passed") { Remove-Item -LiteralPath $VitestReport -Force -ErrorAction SilentlyContinue }
         $StepResults.Add([ordered]@{
             label = $Label
             status = $StepStatus
             durationMs = $StepTimer.ElapsedMilliseconds
             error = $StepError
+            failedTests = $StepFailedTests
+            vitestReport = if ($StepStatus -eq "failed" -and $VitestReport -and (Test-Path -LiteralPath $VitestReport -PathType Leaf)) { $VitestReport } else { $null }
         })
     }
 }
@@ -214,9 +231,18 @@ try {
     Invoke-Checked "Frontend lint" $ProjectRoot { npm run lint }
     # LIM-03: no export that nothing uses.
     Invoke-Checked "Frontend unused exports" $ProjectRoot { node tools/check-unused-exports.mjs }
-    Invoke-Checked "Frontend tests" $ProjectRoot { npm test -- --run --maxWorkers=1 }
+    # AUD-082: the JSON report names the failed test in the validation report.
+    $VitestReportBase = Join-Path $ProjectRoot ".local\validation\$RunStamp-$ShortCommit-vitest"
+    New-Item -ItemType Directory -Path (Split-Path -Parent $VitestReportBase) -Force | Out-Null
+    $VitestReportDefault = "$VitestReportBase.json"
+    $VitestReportLocale = "$VitestReportBase-es-ES.json"
+    Invoke-Checked "Frontend tests" $ProjectRoot {
+        npm test -- --run --maxWorkers=1 --reporter=default --reporter=json "--outputFile.json=$VitestReportDefault"
+    } -VitestReport $VitestReportDefault
     # QA-34: the same suite with a decimal-comma regional setting.
-    Invoke-Checked "Frontend tests (es-ES)" $ProjectRoot { npm run test:locale }
+    Invoke-Checked "Frontend tests (es-ES)" $ProjectRoot {
+        npm run test:locale -- --reporter=default --reporter=json "--outputFile.json=$VitestReportLocale"
+    } -VitestReport $VitestReportLocale
     if ($Profile -in @("Full", "Release", "Package")) {
         Invoke-Checked "Frontend coverage" $ProjectRoot { npm run test:coverage }
     }

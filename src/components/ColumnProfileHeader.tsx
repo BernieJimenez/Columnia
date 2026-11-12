@@ -9,7 +9,7 @@ export function columnProfileSignals(profile: ColumnProfile): string[] {
   const signals: string[] = [];
   if (profile.invalidTypeCount) signals.push(`${formatNumber(profile.invalidTypeCount)} con otro tipo`);
   if (profile.untrimmedCount) signals.push(`${formatNumber(profile.untrimmedCount)} con espacios`);
-  if (profile.sentinelCount) signals.push(plural(profile.sentinelCount, "marcador de vacío", "marcadores de vacío"));
+  if (profile.sentinelCount) signals.push(plural(profile.sentinelCount, "marcador «sin dato»", "marcadores «sin dato»"));
   if (profile.encodingIssueCount) signals.push(`${formatNumber(profile.encodingIssueCount)} con acentos mal leídos`);
   return signals;
 }

@@ -9,7 +9,7 @@ const items: ProposalItem[] = [
   { id: "duplicates", title: "Quitar 1 fila duplicada", hint: "Se conserva la primera.", examples: [] },
   {
     id: "impute",
-    title: "Rellenar 3 valores vacíos en 1 columna",
+    title: "Rellenar 3 nulos en 1 columna",
     hint: "Solo huecos pequeños.",
     columns: [{ name: "categoria", missing: 3, sentinels: 0 }],
     examples: [{ column: "categoria", before: null, after: "valor más frecuente · 3 celdas" }],
@@ -43,14 +43,14 @@ describe("PrepareProposal fill preview (RV17)", () => {
     const onApply = renderProposal(onPreview);
 
     expect(onPreview).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByLabelText("Rellenar 3 valores vacíos en 1 columna"));
+    fireEvent.click(screen.getByLabelText("Rellenar 3 nulos en 1 columna"));
 
     expect(onPreview).toHaveBeenCalledWith(expect.objectContaining({
       removeDuplicates: true,
       imputeMissing: true,
       imputeColumns: ["categoria"],
     }));
-    expect(screen.getByLabelText("Rellenar valores vacíos: calculando cuántos…")).toBeChecked();
+    expect(screen.getByLabelText("Rellenar nulos: calculando cuántos…")).toBeChecked();
     const apply = screen.getByRole("button", { name: "Aplicar 2 cambios" });
     expect(apply).toHaveAttribute("aria-disabled", "true");
     // Still this screen's action: the footer must not take over as primary.
@@ -58,7 +58,7 @@ describe("PrepareProposal fill preview (RV17)", () => {
 
     // The duplicate row held one of the gaps.
     resolve({ removedRowCount: 1, imputedCellCount: 2, imputations: [{ column: "categoria", value: "A", cellCount: 2 }] });
-    expect(await screen.findByLabelText("Rellenar 2 valores vacíos en 1 columna")).toBeChecked();
+    expect(await screen.findByLabelText("Rellenar 2 nulos en 1 columna")).toBeChecked();
     expect(apply).not.toHaveAttribute("aria-disabled");
     expect(apply).not.toHaveAttribute("data-waiting");
 
@@ -77,20 +77,20 @@ describe("PrepareProposal fill preview (RV17)", () => {
     }));
     renderProposal(onPreview);
 
-    fireEvent.click(screen.getByLabelText("Rellenar 3 valores vacíos en 1 columna"));
-    await screen.findByLabelText("Rellenar 2 valores vacíos en 1 columna");
+    fireEvent.click(screen.getByLabelText("Rellenar 3 nulos en 1 columna"));
+    await screen.findByLabelText("Rellenar 2 nulos en 1 columna");
     fireEvent.click(screen.getByLabelText("Quitar 1 fila duplicada"));
 
-    expect(await screen.findByLabelText("Rellenar 3 valores vacíos en 1 columna")).toBeChecked();
+    expect(await screen.findByLabelText("Rellenar 3 nulos en 1 columna")).toBeChecked();
     expect(onPreview).toHaveBeenLastCalledWith(expect.objectContaining({ removeDuplicates: false }));
   });
 
   it("falls back to the profile estimate when the simulation fails", async () => {
     renderProposal(vi.fn(() => Promise.reject(new Error("sin memoria"))));
 
-    fireEvent.click(screen.getByLabelText("Rellenar 3 valores vacíos en 1 columna"));
+    fireEvent.click(screen.getByLabelText("Rellenar 3 nulos en 1 columna"));
 
-    expect(await screen.findByLabelText("Rellenar 3 valores vacíos en 1 columna")).toBeChecked();
+    expect(await screen.findByLabelText("Rellenar 3 nulos en 1 columna")).toBeChecked();
     expect(screen.getByRole("button", { name: "Aplicar 2 cambios" })).toBeEnabled();
   });
 });

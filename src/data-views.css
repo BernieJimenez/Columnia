@@ -285,6 +285,9 @@ html[data-density="compact"] .col-profile { min-height: calc(30px + 4.05 * .75re
 .connection-form .connection-form__auth label { display: flex; grid-template-columns: none; font-weight: 600; }
 .connection-form .connection-form__check small { font-weight: 500; }
 .connection-form .connection-form__field label { font-weight: 650; }
+/* AUD-086: the help of a field is text under it, not a placeholder that gets cut. */
+.connection-form__field { align-content: start; }
+.connection-form__hint { margin: 0; color: var(--text-secondary); font-size: .8125rem; font-weight: 400; overflow-wrap: anywhere; }
 /* Visual "(obligatorio)" marker: the input carries `required`, so assistive
    technology already announces it (the empty alt text after "/" hides this). */
 .connection-form .connection-form__required-label::after {

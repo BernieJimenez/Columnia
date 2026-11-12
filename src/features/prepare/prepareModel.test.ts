@@ -127,7 +127,7 @@ describe("appliedPlanChanges", () => {
       `58 celdas limpiadas (espacios y marcadores «sin dato»)`,
       `${(5268).toLocaleString()} filas duplicadas quitadas`,
       "2 columnas convertidas a número",
-      "1 valor vacío rellenado",
+      "1 nulo rellenado",
     ]);
   });
 
@@ -136,7 +136,7 @@ describe("appliedPlanChanges", () => {
       "1 celda con espacios recortados",
     ]);
     expect(appliedPlanChanges({ ...options, trimText: false }, { ...none, changedCellCount: 3 })).toEqual([
-      "3 marcadores «sin dato» convertidos en vacíos",
+      "3 marcadores «sin dato» convertidos en nulos",
     ]);
     expect(appliedPlanChanges(options, none)).toEqual([]);
   });

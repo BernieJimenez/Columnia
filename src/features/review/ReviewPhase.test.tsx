@@ -593,7 +593,7 @@ describe("ReviewPhase", () => {
       />,
     );
 
-    const editor = screen.getByRole("textbox", { name: "Consulta SQL de solo lectura" });
+    const editor = screen.getByRole("textbox", { name: "Consulta SQL" });
     // PROD-12: a column goes in where the cursor is, quoted when it needs it.
     fireEvent.change(editor, { target: { value: "SELECT  FROM dataset LIMIT 1" } });
     (editor as HTMLTextAreaElement).setSelectionRange(7, 7);
@@ -658,16 +658,16 @@ describe("ReviewPhase", () => {
       />
     );
     const { rerender } = render(view("diagnosis", { kind: "idle" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Consulta SQL de solo lectura" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Consulta SQL" }), {
       target: { value: "SELECT id FROM dataset LIMIT 1" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
     await screen.findByRole("region", { name: "Resultado de consulta SQL" });
 
     rerender(view("preview", { kind: "idle" }));
-    expect(screen.queryByRole("textbox", { name: "Consulta SQL de solo lectura" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Consulta SQL" })).not.toBeInTheDocument();
     rerender(view("diagnosis", beginProfileAnalysis()));
-    expect(screen.getByRole("textbox", { name: "Consulta SQL de solo lectura" })).toHaveValue("SELECT id FROM dataset LIMIT 1");
+    expect(screen.getByRole("textbox", { name: "Consulta SQL" })).toHaveValue("SELECT id FROM dataset LIMIT 1");
     expect(screen.getByRole("region", { name: "Resultado de consulta SQL" })).toHaveTextContent("id");
   });
 

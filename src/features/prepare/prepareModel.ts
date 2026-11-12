@@ -106,7 +106,7 @@ export function changeProgressMessage(action: Extract<ChangeStatus, { kind: "wor
     identifier_columns: "Retirando columnas identificadoras…",
     personal_columns: "Retirando datos personales detectados…",
     personal_mask: "Protegiendo valores personales detectados…",
-    sentinels: "Normalizando valores centinela…",
+    sentinels: "Normalizando marcadores «sin dato»…",
     booleans: "Normalizando booleanos…",
     encoding: "Corrigiendo doble codificación UTF-8…",
     invalid_types: "Apartando valores incompatibles…",
@@ -144,7 +144,7 @@ export function appliedPlanChanges(
     ? ["celda limpiada (espacios y marcadores «sin dato»)", "celdas limpiadas (espacios y marcadores «sin dato»)"]
     : options.trimText
       ? ["celda con espacios recortados", "celdas con espacios recortados"]
-      : ["marcador «sin dato» convertido en vacío", "marcadores «sin dato» convertidos en vacíos"];
+      : ["marcador «sin dato» convertido en nulo", "marcadores «sin dato» convertidos en nulos"];
   return [
     (options.trimText || options.normalizeSentinels) && result.changedCellCount > 0
       ? counted(result.changedCellCount, cleanedOne, cleanedMany)
@@ -162,7 +162,7 @@ export function appliedPlanChanges(
       ? counted(result.datedColumnCount, "columna convertida a fecha", "columnas convertidas a fecha")
       : null,
     options.imputeMissing && result.imputedCellCount > 0
-      ? counted(result.imputedCellCount, "valor vacío rellenado", "valores vacíos rellenados")
+      ? counted(result.imputedCellCount, "nulo rellenado", "nulos rellenados")
       : null,
   ].filter((change): change is string => change !== null);
 }

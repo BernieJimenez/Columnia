@@ -83,7 +83,7 @@ test.describe("consulta SQL desde la barra superior", () => {
 
     // The same query inside Revisar › Más análisis widened the whole page.
     await page.getByText("Más análisis y herramientas").click();
-    await page.getByText("Explorar con SQL local").click();
+    await page.locator("summary").getByText("Consulta SQL", { exact: true }).click();
     await page.getByRole("button", { name: "Ejecutar consulta" }).click();
     await expect(page.getByRole("region", { name: "Resultado de consulta SQL" })).toBeVisible();
     const pageOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

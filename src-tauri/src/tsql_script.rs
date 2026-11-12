@@ -760,9 +760,9 @@ pub(crate) fn bulk_readme(target: &TsqlTarget) -> String {
          ===============================\r\n\
          \r\n\
          Contiene:\r\n\
-         - {csv}: los datos en CSV UTF-8, con encabezado. Una celda vacía se carga como NULL,\r\n\
-           y BULK INSERT también carga como NULL un texto vacío; si necesitas distinguirlos,\r\n\
-           exporta el script T-SQL.\r\n\
+         - {csv}: los datos en CSV UTF-8, con encabezado.\r\n\
+           En BULK INSERT, una celda vacía y un texto vacío se cargan como NULL; si necesitas\r\n\
+           distinguirlos, exporta el script T-SQL.\r\n\
          - cargar.sql: {}\r\n\
          \r\n\
          Pasos:\r\n\
@@ -1245,6 +1245,14 @@ mod tests {
         let readme = bulk_readme(&target("ventas"));
         assert!(readme.contains("ventas.csv") && readme.contains("disco del servidor"));
         assert!(readme.contains("Crea la tabla [dbo].[ventas]"));
+        // AUD-086: one clear sentence about empty cells and empty texts.
+        let flat = readme.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains(
+                "En BULK INSERT, una celda vacía y un texto vacío se cargan como NULL; si necesitas distinguirlos, exporta el script T-SQL."
+            ),
+            "{flat}"
+        );
     }
 
     #[test]

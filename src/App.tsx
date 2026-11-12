@@ -1393,7 +1393,7 @@ export function App() {
             aria-describedby="legal-panel-summary"
           >
             <h2 id="legal-panel-title">Licencia y privacidad de Columnia</h2>
-            <p id="legal-panel-summary"><strong>Columnia</strong> procesa los datos localmente y no inicia conexiones de red por sí sola. Solo una exportación ODBC explícita envía las filas elegidas al destino que el usuario configura.</p>
+            <p id="legal-panel-summary"><strong>Columnia</strong> procesa los datos en este equipo. Solo se conecta a un servidor cuando lo eliges: para leer una tabla en Cargar (conexión que solo lee, con confirmación) o para escribir en Entregar (exportación explícita). Solo esas exportaciones envían filas fuera de este equipo.</p>
             <p><strong>Versión:</strong> {status.kind === "ready" && status.info ? status.info.version : "no disponible"}</p>
             <h2>Licencia</h2>
             <p>El producto se distribuye bajo MIT. Las dependencias conservan sus avisos en <code>THIRD_PARTY_NOTICES.md</code>.</p>

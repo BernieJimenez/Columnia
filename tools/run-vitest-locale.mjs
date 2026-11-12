@@ -1,10 +1,10 @@
 // QA-34: runs the frontend suite as on a machine with another regional
 // setting (decimal comma), so no assertion depends on the separators of the
-// machine that runs it. Usage: node tools/run-vitest-locale.mjs [es-ES]
+// machine that runs it. Usage: node tools/run-vitest-locale.mjs [es-ES] [extra vitest arguments]
 import { spawnSync } from "node:child_process";
 
 const locale = process.argv[2] ?? "es-ES";
-const result = spawnSync("npx", ["vitest", "run", "--maxWorkers=1"], {
+const result = spawnSync("npx", ["vitest", "run", "--maxWorkers=1", ...process.argv.slice(3)], {
   stdio: "inherit",
   shell: process.platform === "win32",
   env: { ...process.env, COLUMNIA_TEST_LOCALE: locale },

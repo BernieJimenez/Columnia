@@ -203,7 +203,7 @@ export function dateExamples(item: ProposalItem, ambiguousOrder: DateOrder | nul
 }
 
 function imputeTitle(total: number, columnCount: number): string {
-  return `Rellenar ${plural(total, "valor vacío", "valores vacíos")} en ${plural(columnCount, "columna", "columnas")}`;
+  return `Rellenar ${plural(total, "nulo", "nulos")} en ${plural(columnCount, "columna", "columnas")}`;
 }
 
 function filledCells(column: ProposalColumn, includeSentinels: boolean): number {
@@ -238,8 +238,8 @@ export function buildPrepareProposal(profile: DatasetProfile, dataset: DatasetPr
     const total = sentinelColumns.reduce((sum, column) => sum + (column.sentinelCount ?? 0), 0);
     items.push({
       id: "sentinels",
-      title: `Convertir ${plural(total, "marcador", "marcadores")} de «sin dato» en ${plural(sentinelColumns.length, "columna", "columnas")}`,
-      hint: "Textos que significan «sin dato» pasan a ser vacíos reales.",
+      title: `Convertir ${plural(total, "marcador", "marcadores")} «sin dato» en ${plural(sentinelColumns.length, "columna", "columnas")}`,
+      hint: "Textos que significan «sin dato» pasan a ser nulos.",
       examples: [],
     });
   }
@@ -388,7 +388,7 @@ export function proposalItemTitle(
   if (item.id !== "impute" || !item.columns) return item.title;
   if (preview) {
     return preview.imputedCellCount === 0
-      ? "Rellenar valores vacíos: no queda ninguno tras los demás cambios"
+      ? "Rellenar nulos: no queda ninguno tras los demás cambios"
       : imputeTitle(preview.imputedCellCount, preview.imputations.length);
   }
   const total = item.columns.reduce((sum, column) => sum + filledCells(column, selection.sentinels), 0);

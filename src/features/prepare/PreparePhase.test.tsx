@@ -539,8 +539,8 @@ describe("PreparePhase", () => {
     expect(onRemoveEmptyColumns).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas con alta nulidad" }));
     expect(onRemoveHighNullColumns).toHaveBeenCalledOnce();
-    expect(screen.getByRole("checkbox", { name: "Convertir 1 marcador de «sin dato» en 1 columna" })).toBeChecked();
-    expect(screen.queryByRole("button", { name: "Convertir centinelas a nulos" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Convertir 1 marcador «sin dato» en 1 columna" })).toBeChecked();
+    expect(screen.queryByRole("button", { name: "Convertir marcadores «sin dato» a nulos" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Corregir codificación" }));
     expect(onFixEncoding).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Normalizar booleanos" }));

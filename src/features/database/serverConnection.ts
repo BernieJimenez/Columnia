@@ -31,13 +31,13 @@ export const SERVER_ENGINES: Record<ServerDatabaseKind, ServerEngine> = {
     label: "PostgreSQL",
     port: "5432",
     driverToInstall: "psqlODBC («PostgreSQL Unicode(x64)»)",
-    databaseHint: "La del usuario si la dejas vacía",
+    databaseHint: "Si lo dejas vacío, se usa la base por defecto del usuario.",
   },
   mysql: {
     label: "MySQL",
     port: "3306",
     driverToInstall: "MySQL Connector/ODBC (el controlador Unicode)",
-    databaseHint: "Vacía: todas las bases que el usuario puede leer",
+    databaseHint: "Si lo dejas vacío, se usan todas las bases que el usuario puede leer.",
   },
 };
 

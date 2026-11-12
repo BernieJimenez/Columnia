@@ -510,7 +510,7 @@ export function LocalQueryPanel({
         <div className="local-query__heading">
           <div>
             <p className="step">Consulta segura</p>
-            <TitleHeading id="local-query-title">Consulta SQL de solo lectura</TitleHeading>
+            <TitleHeading id="local-query-title">Consulta SQL</TitleHeading>
             <p>
               Solo se acepta SELECT sobre <code>dataset</code>, columnas existentes, filtros simples,
               GROUP BY y COUNT/SUM/AVG/MIN/MAX; LIMIT/OFFSET queda acotado a 200 filas.
@@ -526,10 +526,10 @@ export function LocalQueryPanel({
           </div>
         </div>
         <label className="local-query__field">
-          Consulta SQL de solo lectura
+          Consulta SQL
           <textarea
             ref={editorRef}
-            aria-label="Consulta SQL de solo lectura"
+            aria-label="Consulta SQL"
             rows={2}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -635,7 +635,7 @@ export function LocalQueryPanel({
       onToggle={(event) => setQueryOpen(event.currentTarget.open)}
     >
       <summary>
-        <span>Explorar con SQL local</span>
+        <span>Consulta SQL</span>
         <small>Opcional · consulta segura y de solo lectura</small>
       </summary>
       {panel}
@@ -920,7 +920,7 @@ function QualityProfile({
         </p>
       <details className="review-tool quality-details">
         <summary>
-          <span>Explorar análisis detallado</span>
+          <span>Ver análisis detallado</span>
           <small>Gráficos, distribuciones, fechas y correlaciones</small>
         </summary>
         <QualityVisuals profile={profile} datasetRevision={datasetRevision} />

@@ -1320,6 +1320,24 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - El selector de controladores de SQL Server ya no ofrece el antiguo «SQL
   Server» de Windows, que no puede cifrar la conexión; una conexión guardada
   con él explica por qué no conecta (AUD-101).
+- Revisar y Preparar llaman siempre igual a las dos cosas: «marcador «sin
+  dato»» al texto que significa ausencia (`N/A`, `-`…) y «nulo» a la celda
+  sin valor. Antes se mezclaban «marcador de vacío», «de ausencia»,
+  «centinela», «vacío» y «valor vacío» (AUD-084).
+- La consulta SQL se llama «Consulta SQL» en Revisar, en su panel y en su
+  editor, y «Explorar» queda solo como nombre de la fase; el desplegable de
+  gráficos de Revisar pasa a «Ver análisis detallado» (AUD-085).
+- La ayuda del campo «Base de datos» de los formularios de conexión se lee
+  entera bajo el campo; antes era el texto de relleno y se cortaba. La ayuda
+  de esquema y tabla del script de SQL Server y el LEEME del paquete BULK
+  INSERT dicen con una frase completa qué pasa con lo que se deja vacío
+  (AUD-086).
+- El resumen de «Licencia y privacidad» dice las dos veces en que Columnia se
+  conecta a un servidor: para leer una tabla en Cargar y para escribir en
+  Entregar (AUD-087).
+- El aviso de tiempo de espera de una base remota explica sus límites sin
+  términos internos: 15 s para conectar, 30 s para listar las tablas, 30 s por
+  bloque de filas y 300 s por consulta (AUD-088).
 - Los paneles «Preferencias y recursos» y «Licencia y privacidad» se cierran
   con Esc (el foco vuelve a su botón) y con un clic fuera (AUD-063).
 - Si el motor no arranca, Cargar lo dice con el motivo y qué hacer («Cierra y
@@ -1704,6 +1722,13 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   y el zoom al 200 % del shell se miden en el navegador; y las estructuras de
   conexión y entrega a bases de datos entran en la paridad Rust↔TypeScript
   (AUD-078, AUD-080, AUD-081, AUD-083, AUD-113; AUD-082 en curso).
+- Si fallan las pruebas de la interfaz, el reporte de `check.ps1` nombra la
+  prueba, su archivo y el principio del error, y conserva el JSON completo de
+  Vitest. Cancelar el conteo de valores distintos mientras se prepara da
+  siempre el mensaje de cancelación, con lo que `cargo test --lib` deja de
+  fallar a ratos con el equipo cargado (AUD-082, AUD-118).
+- Las tareas cerradas de la revisión del 2026-11-05 pasan de `ROADMAP.md` a
+  `HISTORICO.md`; el ROADMAP queda solo con lo pendiente.
 - El arranque de la interfaz carga unos 43 kB menos: el modelo de Entregar, los
   paneles «Base de datos» y «Proyecto» de Cargar y el diálogo de diagnóstico
   llegan cuando hacen falta (AUD-116).

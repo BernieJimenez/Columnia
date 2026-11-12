@@ -88,7 +88,7 @@ describe("ColumnProfileHeader", () => {
     expect(columnProfileSignals(profile)).toEqual([
       "4 con otro tipo",
       "37 con espacios",
-      "1 marcador de vacío",
+      "1 marcador «sin dato»",
       "2 con acentos mal leídos",
     ]);
     render(<ColumnProfileHeader column={column} profile={profile} rowCount={100} />);

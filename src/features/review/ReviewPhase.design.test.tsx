@@ -98,7 +98,7 @@ describe("ReviewPhase design", () => {
     for (const item of items) expect(item.querySelector(".quality-issue__impact")?.textContent).toBeTruthy();
     expect(within(issues).queryByText(/duplicad/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Resumen del dataset")).not.toBeInTheDocument();
-    expect(screen.getByText("Explorar análisis detallado").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("Ver análisis detallado").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText("Configuración del análisis").closest("details")).not.toHaveAttribute("open");
 
     expect(screen.getByRole("list", { name: "Prioridades de revisión" })).toBeInTheDocument();

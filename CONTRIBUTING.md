@@ -43,6 +43,11 @@ npm run lint
 .\tools\check.ps1 -Profile Fast
 ```
 
+Si falla "Frontend tests" (o su variante es-ES), el paso del reporte
+`.local/validation/*.json` incluye `failedTests` (archivo, nombre de la prueba y
+primeras líneas del error) y `vitestReport`, la ruta del JSON completo de Vitest
+que se conserva junto al reporte (se borra si el paso pasa).
+
 Para cambios Rust, IPC, persistencia o seguridad ejecuta también:
 
 ```powershell

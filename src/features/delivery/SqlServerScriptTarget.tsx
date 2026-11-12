@@ -102,7 +102,7 @@ export function SqlServerScriptTarget({ value, columns, disabled, onChange }: Sq
           />
         </label>
       </div>
-      <p id={`${id}-names-note`}>Vacíos, son dbo y el nombre del archivo que guardes.</p>
+      <p id={`${id}-names-note`}>Si los dejas vacíos, se usan dbo y el nombre del archivo que guardes.</p>
       {value.mode === "upsert" && (
         <fieldset className="sqlserver-script-target__keys" aria-describedby={`${id}-keys-note`}>
           <legend>Columnas clave</legend>
