@@ -1678,6 +1678,7 @@ export function App() {
                   profileStatus.kind === "ready" ? profileStatus.profile.columns : null,
                 )}
                 suggestedRules={suggestedDeliveryRules}
+                columnProfiles={profileStatus.kind === "ready" ? profileStatus.profile.columns : null}
                 excelLimitIssues={excelLimitIssues(
                   readyDataset.dataset.rowCount,
                   profileStatus.kind === "ready" ? profileStatus.profile.columns : null,

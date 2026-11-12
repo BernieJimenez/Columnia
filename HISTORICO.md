@@ -129,6 +129,7 @@ el ROADMAP, con su línea *Cierre*. Lo anterior a esa revisión sigue en
 - 2026-11-12 · AUD-095 · **Cerrada.** tanda 24 de la Fase 2
 - 2026-11-12 · AUD-096 · **Cerrada.** tanda 24 de la Fase 2
 - 2026-11-12 · AUD-097 · **Cerrada.** tanda 24 de la Fase 2
+- 2026-11-12 · AUD-098 · **Cerrada.** tanda 25 de la Fase 2
 
 ### Resumen por tandas
 
@@ -168,6 +169,7 @@ Ese mismo día se cerró la tanda 23 (AUD-119, 120, 089, 090, 091 y 092) y se ab
 el símbolo de la celda nula y las frases de conversión de Preparar todavía dicen «vacío».
 Después se cerró la tanda 24 (AUD-121, 093, 094, 095, 096 y 097), con la que el Tier 3 queda sin abiertas;
 solo sigue abierta la propuesta AUD-098.
+La tanda 25 cerró esa propuesta el mismo día: la revisión del 2026-11-05 queda aplicada entera.
 
 ## Tier 2 · Medio (revisión 2026-11-05)
 
@@ -1289,3 +1291,14 @@ solo sigue abierta la propuesta AUD-098.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-12 · tanda 24 de la Fase 2 (en `master`). Las entradas de `[Unreleased]` dicen «Cargar › «Base de datos»» y «Archivo, Base de datos, Ejemplo o Proyecto»; ninguna quedó duplicada, así que no se fusionaron.
+
+## Tier 4 · Propuestas (revisión 2026-11-05)
+
+- [x] **AUD-098 · Avisar en Entregar si la clave elegida para «actualizar por clave» tiene vacíos o repetidos**
+  - **Área:** UI/UX · **Tipo:** Propuesta · **Retorno:** Medio · **Esfuerzo:** Bajo
+  - **Ubicación:** `src/features/delivery/SqlServerScriptTarget.tsx:105-124`
+  - **Qué hacer:** al marcar una clave, si el perfil dice que la columna (o la combinación) tiene vacíos o repetidos, mostrar bajo el recuadro «La columna X tiene N vacíos: el script se detendrá», y no bloquear.
+  - **Criterio de aceptación:** al marcar como clave una columna con vacíos o repetidos según el perfil, aparece el aviso con el número de casos y la exportación no se bloquea.
+  - **Depende de:** ninguna
+  - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 25 de la Fase 2 (en `master`). Con «Actualizar por clave», bajo la lista de columnas clave aparece un aviso (`notice--warning`, `role="status"`, asociado al grupo con `aria-describedby`) por cada clave con nulos: «La columna «X» tiene N nulos: el script se detendrá sin tocar la tabla.» Con una sola clave avisa también de los repetidos: «…tiene valores repetidos (N filas repiten una clave)…». Con una clave compuesta no dice nada de repetidos, porque el perfil no conoce la combinación. Sin perfil no hay aviso, y nunca bloquea. La frase fija del grupo dice «no pueden tener nulos ni repetirse». Función `keyColumnWarnings` con 7 pruebas; comprobado en la interfaz con el simulador a 1280, 900 y 320 px, sin desbordamiento.

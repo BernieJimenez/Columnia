@@ -27,7 +27,7 @@ import {
   reduceDeliveryContract,
   type DeliveryContractState,
 } from "./deliveryContract";
-import { MAX_SUGGESTED_QUALITY_RULES, excelLimitIssues, personalDataColumnNames, suggestQualityRules } from "./deliverySignals";
+import { MAX_SUGGESTED_QUALITY_RULES, excelLimitIssues, keyColumnWarnings, personalDataColumnNames, suggestQualityRules } from "./deliverySignals";
 
 const dataset: DatasetPreview = {
   fileName: "ventas.csv",
@@ -348,6 +348,37 @@ describe("personalDataColumnNames", () => {
 
   it("returns no columns while the profile is not ready", () => {
     expect(personalDataColumnNames(null)).toEqual([]);
+  });
+});
+
+describe("keyColumnWarnings (AUD-098)", () => {
+  const profiles = [
+    { name: "id", nullCount: 0, uniqueCount: 10 },
+    { name: "codigo", nullCount: 3, uniqueCount: 7 },
+    { name: "region", nullCount: 0, uniqueCount: 4 },
+    { name: "uno", nullCount: 1, uniqueCount: 9 },
+  ];
+
+  it("avisa de los nulos con su número, en singular y plural", () => {
+    expect(keyColumnWarnings(["codigo", "id"], profiles, 10)).toEqual([
+      "La columna «codigo» tiene 3 nulos: el script se detendrá sin tocar la tabla.",
+    ]);
+    expect(keyColumnWarnings(["uno", "id"], profiles, 10)[0]).toContain("tiene 1 nulo:");
+  });
+
+  it("avisa de repetidos solo con una clave y cuenta las filas que sobran", () => {
+    expect(keyColumnWarnings(["region"], profiles, 10)).toEqual([
+      "La columna «region» tiene valores repetidos (6 filas repiten una clave): el script se detendrá sin tocar la tabla.",
+    ]);
+    expect(keyColumnWarnings(["region"], profiles, 5)[0]).toContain("(1 fila repite una clave)");
+    expect(keyColumnWarnings(["region", "id"], profiles, 10)).toEqual([]);
+  });
+
+  it("no avisa con una clave limpia, sin perfil o sin clave", () => {
+    expect(keyColumnWarnings(["id"], profiles, 10)).toEqual([]);
+    expect(keyColumnWarnings(["codigo"], null, 10)).toEqual([]);
+    expect(keyColumnWarnings(["codigo"], undefined, 10)).toEqual([]);
+    expect(keyColumnWarnings([], profiles, 10)).toEqual([]);
   });
 });
 

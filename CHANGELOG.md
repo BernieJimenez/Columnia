@@ -12,6 +12,11 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Añadido
 
+- Entregar avisa si la clave elegida para «Actualizar por clave» no sirve:
+  al marcar una columna con nulos dice cuántos tiene, y con una sola columna
+  clave, cuántas filas repiten un valor. El script se detendría sin tocar la
+  tabla, así que el aviso llega antes de generarlo; no bloquea la exportación
+  y solo aparece cuando el perfil de calidad ya está calculado (AUD-098).
 - Cargar trae tablas también desde PostgreSQL y MySQL, no solo desde SQL Server.
   La tarjeta pasa a llamarse «Base de datos» y se elige el motor. Cada motor
   tiene un formulario (servidor, puerto, base de datos, usuario y contraseña)

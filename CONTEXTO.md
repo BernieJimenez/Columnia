@@ -705,7 +705,8 @@ Redacción y documentación, decisiones de la tanda 23 de la auditoría (2026-11
 Redacción y documentación, decisiones de la tanda 24 de la auditoría (2026-11-12):
 - la celda nula se pinta «∅ nulo» (`MissingValue`, compartido por Cargar, Revisar y Preparar) y las conversiones dicen «quedará nula». Se conservan a propósito «filas vacías», «columnas vacías», «texto vacío», la columna «Vacíos» de la tabla de texto de Revisar (cuenta también cadenas en blanco) y la etiqueta de tipo «Vacío» de `src/format.ts` para una columna sin ningún valor (AUD-121).
 - las ayudas de la CLI son `const &str` sin origen común con el parser: la lista de `--format` se repite en `GENERAL_HELP`, `TRANSFORM_HELP`, `PROJECT_EXPORT_HELP`, el mensaje de error de `parse_format` y `docs/reference/cli.md`, y la prueba `help_and_docs_list_the_formats_the_parser_accepts` falla si alguna se queda atrás. Un formato nuevo se añade en los cinco sitios (AUD-095).
-- con la tanda 24 el Tier 3 de la revisión del 2026-11-05 queda sin abiertas; solo sigue la propuesta AUD-098, sin decidir.
+- con las tandas 24 y 25 la revisión del 2026-11-05 queda aplicada entera: 121 tareas cerradas en `HISTORICO.md` y ninguna abierta.
+- el aviso de la clave de «Actualizar por clave» sale del perfil (`keyColumnWarnings` en `deliverySignals.ts`): los nulos se saben por columna; los repetidos, solo con una clave de una columna (`rowCount - nullCount - uniqueCount`). Con clave compuesta no se afirma nada, y sin perfil no hay aviso; nunca bloquea, porque el script ya se detiene solo (AUD-098).
 - **Trampa:** Vitest completo a la vez que `cargo test` puede dar un tiempo de espera suelto en `src/App.test.tsx`; pasa al repetirlo sin carga.
 
 Interfaz, decisiones de la tanda 7 de la auditoría (2026-11-09):

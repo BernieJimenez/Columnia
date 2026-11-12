@@ -34,10 +34,10 @@ CHANGELOG.
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
 | 3 · Bajo | 0 | 85 | — |
-| 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **1** | **120** | **1 · 0 · 0** |
+| 4 · Propuestas | 0 | 1 | — |
+| **Total** | **0** | **121** | **—** |
 
-**Abiertas por área:** UI/UX 1
+**Abiertas por área:** ninguna
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -62,9 +62,8 @@ remota. El archivo original no se modifica.
 La revisión del 2026-10-01 quedó aplicada el 2026-10-08. El 2026-10-09 se
 cerraron REN-08 y REN-13 y DAT-12 pasó a aparcado. Quedan REN-14 y REN-01,
 que tratan de la velocidad con archivos de varios GB; ninguno bloquea el uso
-diario. La revisión del 2026-11-05 añade las tareas `AUD-NNN` de las secciones
-«Tier» de más abajo; las de rendimiento (AUD-034 a AUD-043) conviene hacerlas
-dentro de REN-14 y REN-01.
+diario. La revisión del 2026-11-05 quedó aplicada el 2026-11-12: sus 121
+tareas `AUD-NNN` están cerradas en [`HISTORICO.md`](HISTORICO.md).
 
 ### Preparar archivos grandes
 
@@ -140,13 +139,7 @@ Sin tareas abiertas.
 
 ## Tier 4 · Propuestas (revisión 2026-11-05)
 
-- [ ] **AUD-098 · Avisar en Entregar si la clave elegida para «actualizar por clave» tiene vacíos o repetidos**
-  - **Área:** UI/UX · **Tipo:** Propuesta · **Retorno:** Medio · **Esfuerzo:** Bajo
-  - **Ubicación:** `src/features/delivery/SqlServerScriptTarget.tsx:105-124`
-  - **Qué hacer:** al marcar una clave, si el perfil dice que la columna (o la combinación) tiene vacíos o repetidos, mostrar bajo el recuadro «La columna X tiene N vacíos: el script se detendrá», y no bloquear.
-  - **Criterio de aceptación:** al marcar como clave una columna con vacíos o repetidos según el perfil, aparece el aviso con el número de casos y la exportación no se bloquea.
-  - **Depende de:** ninguna
-  - **Origen:** auditoría 2026-11-05
+Sin tareas abiertas.
 <!-- revision-2026-11-05-tiers:fin -->
 
 ## Aparcado: solo si Columnia se comparte

@@ -1,7 +1,8 @@
 import { useId } from "react";
 
-import type { SqlServerScriptOptions } from "../../bridge";
+import type { ColumnProfile, SqlServerScriptOptions } from "../../bridge";
 import { busyDescribedBy } from "../../busyReasons";
+import { keyColumnWarnings } from "./deliverySignals";
 
 /** A new table named after the saved file, in dbo, with fitted text. */
 export const DEFAULT_SQL_SERVER_SCRIPT: SqlServerScriptOptions = {
@@ -35,6 +36,9 @@ interface SqlServerScriptTargetProps {
   columns: readonly string[];
   disabled: boolean;
   onChange: (next: SqlServerScriptOptions) => void;
+  /** Quality profile of the columns; without it no key warning is shown. */
+  columnProfiles?: readonly Pick<ColumnProfile, "name" | "nullCount" | "uniqueCount">[] | null;
+  rowCount?: number;
 }
 
 /**
@@ -43,10 +47,18 @@ interface SqlServerScriptTargetProps {
  * identify a row. Columnia never connects: the script runs where the person
  * chooses.
  */
-export function SqlServerScriptTarget({ value, columns, disabled, onChange }: SqlServerScriptTargetProps) {
+export function SqlServerScriptTarget({
+  value,
+  columns,
+  disabled,
+  onChange,
+  columnProfiles = null,
+  rowCount = 0,
+}: SqlServerScriptTargetProps) {
   const id = useId();
   const change = (patch: Partial<SqlServerScriptOptions>) => onChange({ ...value, ...patch });
   const keys = value.keyColumns.filter((column) => columns.includes(column));
+  const keyWarnings = keyColumnWarnings(keys, columnProfiles, rowCount);
 
   function toggleKey(column: string, checked: boolean) {
     change({
@@ -104,10 +116,10 @@ export function SqlServerScriptTarget({ value, columns, disabled, onChange }: Sq
       </div>
       <p id={`${id}-names-note`}>Si los dejas vacíos, se usan dbo y el nombre del archivo que guardes.</p>
       {value.mode === "upsert" && (
-        <fieldset className="sqlserver-script-target__keys" aria-describedby={`${id}-keys-note`}>
+        <fieldset className="sqlserver-script-target__keys" aria-describedby={keyWarnings.length > 0 ? `${id}-keys-note ${id}-keys-warning` : `${id}-keys-note`}>
           <legend>Columnas clave</legend>
           <p id={`${id}-keys-note`}>
-            Identifican cada fila, como un código o un ID. En los datos no pueden estar vacías ni repetirse;
+            Identifican cada fila, como un código o un ID. En los datos no pueden tener nulos ni repetirse;
             si pasa, el script se detiene sin tocar la tabla.
           </p>
           <div className="sqlserver-script-target__key-list">
@@ -122,6 +134,11 @@ export function SqlServerScriptTarget({ value, columns, disabled, onChange }: Sq
               </label>
             ))}
           </div>
+          {keyWarnings.length > 0 && (
+            <div id={`${id}-keys-warning`} className="notice notice--warning" role="status">
+              {keyWarnings.map((warning) => <p key={warning}>{warning}</p>)}
+            </div>
+          )}
         </fieldset>
       )}
       {value.mode === "create" && (

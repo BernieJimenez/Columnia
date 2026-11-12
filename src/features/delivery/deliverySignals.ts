@@ -1,4 +1,5 @@
 import type { ColumnProfile, QualityRule } from "../../bridge";
+import { plural } from "../../plural";
 import { ROW_AUDIT_COLUMN } from "../../rowAudit";
 
 // Signals about the active dataset that App reads before Entregar is loaded; kept apart
@@ -30,6 +31,40 @@ export function excelLimitIssues(rowCount: number, columns: readonly ColumnProfi
     issues.push(`${longColumns.join(", ")}: hay celdas de más de ${EXCEL_MAX_CELL_CHARS.toLocaleString()} caracteres, el máximo de Excel.`);
   }
   return issues;
+}
+
+/**
+ * Warnings for the columns chosen as key of «Actualizar por clave»: the script stops
+ * on nulls or repeats. Repeats are only known with a single key column, because the
+ * profile does not know the combination of several. Without a profile there are none.
+ */
+export function keyColumnWarnings(
+  keyColumns: readonly string[],
+  profiles: readonly Pick<ColumnProfile, "name" | "nullCount" | "uniqueCount">[] | null | undefined,
+  rowCount: number,
+): string[] {
+  if (!profiles) return [];
+  const warnings: string[] = [];
+  const found = keyColumns
+    .map((name) => profiles.find((profile) => profile.name === name))
+    .filter((profile): profile is NonNullable<typeof profile> => profile !== undefined);
+  for (const profile of found) {
+    if (profile.nullCount > 0) {
+      warnings.push(
+        `La columna «${profile.name}» tiene ${plural(profile.nullCount, "nulo", "nulos")}: el script se detendrá sin tocar la tabla.`,
+      );
+    }
+  }
+  const profile = found[0];
+  if (keyColumns.length === 1 && profile) {
+    const repeated = rowCount - profile.nullCount - profile.uniqueCount;
+    if (repeated > 0) {
+      warnings.push(
+        `La columna «${profile.name}» tiene valores repetidos (${plural(repeated, "fila repite", "filas repiten")} una clave): el script se detendrá sin tocar la tabla.`,
+      );
+    }
+  }
+  return warnings;
 }
 
 export const MAX_SUGGESTED_QUALITY_RULES = 6;

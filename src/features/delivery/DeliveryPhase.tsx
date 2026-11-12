@@ -14,6 +14,7 @@ import {
   pickQualityRulesMigration,
   saveQualityRulesDocument,
   validateQualityRules,
+  type ColumnProfile,
   type DeliveryPreset,
   type DatasetPreview,
   type ExportFormat,
@@ -82,6 +83,8 @@ interface DeliveryPhaseProps {
   suggestedRules?: QualityRule[];
   /** Why the dataset would not open in Excel (RV19); empty when it fits. */
   excelLimitIssues?: string[];
+  /** AUD-098: profile of the columns, to warn about nulls or repeats in the chosen key; absent until computed. */
+  columnProfiles?: readonly ColumnProfile[] | null;
   /** AUD-061: the dataset is a part of a database table, or had texts cut or replaced. */
   importOrigin?: ImportOrigin | null;
   onContractAction: (action: DeliveryContractAction) => void;
@@ -201,6 +204,7 @@ export function DeliveryPhase({
   personalDataColumns = [],
   suggestedRules = [],
   excelLimitIssues = [],
+  columnProfiles = null,
   importOrigin = null,
   onContractAction,
   onExport,
@@ -1017,6 +1021,8 @@ export function DeliveryPhase({
               columns={dataset.columns.map((column) => column.name)}
               disabled={busy}
               onChange={setSqlServerScript}
+              columnProfiles={columnProfiles}
+              rowCount={dataset.rowCount}
             />
           )}
           {tsqlScriptTooLarge && (
