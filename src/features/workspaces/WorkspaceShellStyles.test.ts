@@ -14,7 +14,22 @@ describe("estilos del shell", () => {
 
   it("los nombres de etapa pueden partirse sin crear scroll horizontal", () => {
     expect(shell).toMatch(/\.flow-nav__copy strong\s*\{[^}]*overflow-wrap:\s*anywhere/);
-    expect(shell).toMatch(/\.dataset-bar__name\s*\{[^}]*text-overflow:\s*ellipsis/);
+  });
+
+  it("el nombre del dataset y las columnas clave se leen enteros sin pasar el ratón (AUD-054)", () => {
+    const read = (file: string) => readFileSync(join(process.cwd(), "src", file), "utf8");
+    const rules: Array<[string, RegExp]> = [
+      [shell, /\.dataset-bar__name\s*\{([^}]*)\}/],
+      [read("styles.css"), /\.comparison-key-options strong\s*\{([^}]*)\}/],
+      [read("styles.css"), /\.recent-datasets__copy strong\s*\{([^}]*)\}/],
+      [read("data-views.css"), /\.sqlserver-script-target__key span\s*\{([^}]*)\}/],
+    ];
+    for (const [css, selector] of rules) {
+      const body = css.match(selector)?.[1] ?? "";
+      expect(body).toMatch(/overflow-wrap:\s*anywhere/);
+      expect(body).not.toMatch(/text-overflow:\s*ellipsis/);
+      expect(body).not.toMatch(/white-space:\s*nowrap/);
+    }
   });
 
   it("la barra superior solo queda fija si hay altura, y el foco no se esconde debajo", () => {

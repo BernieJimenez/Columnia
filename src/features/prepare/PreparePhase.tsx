@@ -539,7 +539,7 @@ export function PreparePhase({
       </details>
       </div>
       {/* The history stays in view: every change here can be undone from it. */}
-      <aside className="prepare-layout__aside" aria-label="Versiones del dataset">
+      <aside className="prepare-layout__aside" aria-label="Historial de cambios">
         <HistoryBar
           status={historyStatus}
           busy={changing}

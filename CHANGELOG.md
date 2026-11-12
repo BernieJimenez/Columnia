@@ -1304,6 +1304,21 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Accesibilidad con lector de pantalla:
+  - En Entregar, «Exportar» bloqueado sigue en el orden de tabulación y su
+    motivo se anuncia y se lee como descripción del botón (AUD-049).
+  - En los formularios de conexión, Servidor y Usuario se marcan como
+    obligatorios, y el campo que falta lleva el motivo de por qué no se puede
+    continuar (AUD-050).
+  - Cada cabecera de columna de la vista previa se nombra con nombre y tipo, y
+    su perfil (completitud, distintos, rango y la forma del histograma) se lee
+    como descripción (AUD-051, AUD-052).
+  - Preparar tiene un único bloque «Historial de cambios», y el cajón SQL
+    ordena sus títulos sin saltos de nivel (AUD-053).
+- El histograma de las cabeceras se ve con más contraste en los temas claros
+  (AUD-052).
+- El nombre del dataset y las columnas clave se parten en varias líneas en lugar
+  de cortarse con «…», también en ventanas estrechas (AUD-054).
 - Tras analizar la calidad de un CSV grande, todas las exportaciones (CSV, JSON,
   SQL, Parquet, Excel, SQLite y paquete) leen la copia que dejó el perfil en
   lugar de volver a leer el CSV; el archivo exportado sale igual (AUD-109).

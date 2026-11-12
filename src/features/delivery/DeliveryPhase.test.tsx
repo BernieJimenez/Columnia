@@ -145,6 +145,7 @@ const DESTINATION_FOR_FORMAT: Record<string, RegExp> = {
 
 /** Entregar asks the destination first (2026-10-31), then its format. */
 /** Fills the guided connection form (server and, outside Windows sign-in, user) once its driver is known. */
+/** The result status region, not the connection form's own persistent one. */
 async function fillConnection(server: string, user = "ana", password = "") {
   await screen.findByText(/^Controlador: /);
   fireEvent.change(screen.getByLabelText("Servidor"), { target: { value: server } });
@@ -162,6 +163,15 @@ function selectFormat(format: string) {
 
 function choosePowerBi() {
   fireEvent.click(screen.getByRole("radio", { name: /^Power BI/ }));
+}
+
+
+// The export button's blocked reason is an always-mounted role="status"; the state messages are the other one.
+function getStateStatus(): HTMLElement {
+  // Leaves out the export's blocked reason (AUD-049) and the connection form's own status (AUD-050).
+  const [status] = screen.getAllByRole("status").filter((node) => node.id !== "export-blocked-reason" && !node.closest(".connection-form"));
+  if (!status) throw new Error("No hay una región de estado distinta del motivo del bloqueo y del formulario de conexión.");
+  return status;
 }
 
 describe("compuerta de calidad y editor de reglas (QA-11)", () => {
@@ -232,11 +242,11 @@ describe("compuerta de calidad y editor de reglas (QA-11)", () => {
   it("explica a la vista qué falta mientras exportar está deshabilitado", () => {
     render(<DeliveryHarness onExport={vi.fn()} />);
     const exportButton = screen.getByRole("button", { name: "Exportar CSV" });
-    expect(exportButton).toBeDisabled();
+    expect(exportButton).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText("Para exportar, confirma que exportas sin validar.")).toBeVisible();
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
-    expect(exportButton).toBeEnabled();
+    expect(exportButton).not.toHaveAttribute("aria-disabled", "true");
     expect(screen.queryByText(/^Para exportar,/)).not.toBeInTheDocument();
   });
 
@@ -276,7 +286,7 @@ describe("compuerta de calidad y editor de reglas (QA-11)", () => {
     }} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Contrato fallido"));
+    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Contrato fallido"));
     fireEvent.click(screen.getByRole("button", { name: "Editar reglas" }));
     fireEvent.change(screen.getByRole("spinbutton", { name: "Inválidos máximos regla 1" }), {
       target: { value: "0" },
@@ -288,7 +298,7 @@ describe("compuerta de calidad y editor de reglas (QA-11)", () => {
 
     await waitFor(() => expect(validate).toHaveBeenCalledTimes(2));
     expect(validate).toHaveBeenLastCalledWith([{ column: "limite", kind: "not_null", maxInvalid: 0 }]);
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Contrato fallido"));
+    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Contrato fallido"));
     expect(onExport).not.toHaveBeenCalled();
   });
 });
@@ -304,11 +314,11 @@ describe("límites de Excel (RV19)", () => {
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("Este dataset no cabe en Excel.");
     expect(alert).toHaveTextContent("notas: hay celdas de más de 32,767 caracteres");
-    expect(screen.getByRole("button", { name: "Exportar Excel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Exportar Excel" })).toHaveAttribute("aria-disabled", "true");
 
     fireEvent.click(within(alert).getByRole("button", { name: "Exportar como CSV" }));
     expect(screen.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("csv");
-    expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Exportar CSV" })).not.toHaveAttribute("aria-disabled", "true");
   });
 
   it("dice cuántas celdas cambiaron por caracteres de control", () => {
@@ -348,7 +358,7 @@ describe("comprobaciones propuestas en Entregar", () => {
     expect(screen.queryByRole("group", { name: /Columnia propone/ })).not.toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /^Validar calidad/ })).toBeChecked();
     expect(screen.getByText("2 reglas se comprobarán antes de guardar la copia.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).not.toHaveAttribute("aria-disabled", "true");
   });
 
   it("con un contrato incompleto añade solo las sugeridas que faltan (UX-21)", () => {
@@ -379,10 +389,10 @@ describe("señales de datos personales en Entregar", () => {
     expect(screen.getByText(/en 2 columnas: correo, cliente\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
     const exportButton = screen.getByRole("button", { name: "Exportar CSV" });
-    expect(exportButton).toBeDisabled();
+    expect(exportButton).toHaveAttribute("aria-disabled", "true");
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que exporto estas columnas sin enmascarar ni aplicar hash" }));
-    expect(exportButton).toBeEnabled();
+    expect(exportButton).not.toHaveAttribute("aria-disabled", "true");
   });
 
   it("exporta y abre Power BI al terminar solo cuando se pidió desde su botón", async () => {
@@ -473,12 +483,12 @@ describe("señales de datos personales en Entregar", () => {
     fireEvent.click(within(target).getByRole("radio", { name: /^Actualizar por clave/ }));
     expect(within(target).queryByRole("combobox", { name: "Largo de las columnas de texto" })).not.toBeInTheDocument();
     const button = screen.getByRole("button", { name: "Exportar script T-SQL" });
-    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText(/elige al menos una columna clave/)).toBeInTheDocument();
 
     fireEvent.click(within(target).getByRole("checkbox", { name: "estado" }));
     fireEvent.click(within(target).getByRole("checkbox", { name: "total" }));
-    expect(button).toBeEnabled();
+    expect(button).not.toHaveAttribute("aria-disabled", "true");
     fireEvent.click(button);
     expect(onExport).toHaveBeenCalledWith(expect.objectContaining({
       format: "sqlserver_script",
@@ -493,6 +503,36 @@ describe("señales de datos personales en Entregar", () => {
     }));
   });
 
+  it("deja el botón bloqueado en el orden de tabulación y describe el motivo en una región de estado siempre montada", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    selectFormat("sqlserver_script");
+
+    const status = document.getElementById("export-blocked-reason")!;
+    expect(status).toHaveAttribute("role", "status");
+    expect(status).toBeEmptyDOMElement();
+
+    const target = screen.getByRole("group", { name: "Tabla en SQL Server" });
+    fireEvent.click(within(target).getByRole("radio", { name: /^Actualizar por clave/ }));
+    // The same node changes its text; it is not mounted with it.
+    expect(document.getElementById("export-blocked-reason")).toBe(status);
+    expect(status).toHaveTextContent(/elige al menos una columna clave/);
+
+    const button = screen.getByRole("button", { name: "Exportar script T-SQL" });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveAttribute("aria-describedby", "export-blocked-reason");
+    expect(button).toHaveAccessibleDescription(/elige al menos una columna clave/);
+    fireEvent.click(button);
+    expect(onExport).not.toHaveBeenCalled();
+
+    fireEvent.click(within(target).getByRole("checkbox", { name: "estado" }));
+    expect(document.getElementById("export-blocked-reason")).toBe(status);
+    expect(status).toBeEmptyDOMElement();
+    expect(button).not.toHaveAttribute("aria-disabled", "true");
+  });
+
   it("avisa antes del botón de que el script T-SQL será demasiado grande y propone el paquete BULK INSERT", () => {
     render(<DeliveryHarness onExport={vi.fn()} rowCount={3_000_000} />);
     selectFormat("sqlserver_script");
@@ -501,7 +541,7 @@ describe("señales de datos personales en Entregar", () => {
     expect(notice).toHaveTextContent("Usa el paquete BULK INSERT.");
     // It does not block the export.
     fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
-    expect(screen.getByRole("button", { name: "Exportar script T-SQL" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Exportar script T-SQL" })).not.toHaveAttribute("aria-disabled", "true");
 
     fireEvent.click(within(notice).getByRole("button", { name: "Cambiar a Paquete BULK INSERT" }));
     expect(screen.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("sqlserver_bulk");
@@ -573,11 +613,11 @@ describe("DeliveryPhase", () => {
 
     selectFormat("parquet");
     const exportButton = screen.getByRole("button", { name: "Exportar Parquet" });
-    expect(exportButton).toBeDisabled();
+    expect(exportButton).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
-    expect(exportButton).toBeEnabled();
+    expect(exportButton).not.toHaveAttribute("aria-disabled", "true");
     fireEvent.click(exportButton);
 
     expect(onExport).toHaveBeenCalledWith({
@@ -608,12 +648,12 @@ describe("DeliveryPhase", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     const exportButton = screen.getByRole("button", { name: "Validar y exportar CSV" });
-    expect(exportButton).toBeEnabled();
+    expect(exportButton).not.toHaveAttribute("aria-disabled", "true");
     expect(screen.queryByRole("button", { name: "Validar contrato" })).not.toBeInTheDocument();
     fireEvent.click(exportButton);
 
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("Contrato aprobado"),
+      expect(getStateStatus()).toHaveTextContent("Contrato aprobado"),
     );
     expect(validate).toHaveBeenCalledOnce();
     expect(onExport).toHaveBeenCalledWith({
@@ -684,7 +724,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
 
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Contrato fallido"));
+    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Contrato fallido"));
     expect(screen.getByText("Valores nulos · total")).toBeInTheDocument();
     expect(validate).toHaveBeenCalledOnce();
     expect(onExport).not.toHaveBeenCalled();
@@ -742,7 +782,7 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("heading", { name: "Qué se exige" })).toBeInTheDocument();
     expect(screen.getByText("total: no admite valores nulos · no se permiten incumplimientos.")).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Comprobación regla 1" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).not.toHaveAttribute("aria-disabled", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "Editar reglas" }));
     expect(screen.getByRole("combobox", { name: "Comprobación regla 1" })).toBeInTheDocument();
@@ -910,11 +950,11 @@ describe("DeliveryPhase", () => {
     }));
     selectFormat("postgresql");
     const exportButton = screen.getByRole("button", { name: "Exportar PostgreSQL" });
-    expect(exportButton).toBeDisabled();
+    expect(exportButton).toHaveAttribute("aria-disabled", "true");
     await fillConnection("localhost", "ana", "secret");
     fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
 
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preflight completo"));
+    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Preflight completo"));
     expect(preflight).toHaveBeenCalledWith(expect.objectContaining({
       kind: "postgresql",
       connection: {
@@ -931,7 +971,7 @@ describe("DeliveryPhase", () => {
       table: "dataset",
       tablePolicy: "create_only",
     }), "none");
-    expect(exportButton).toBeEnabled();
+    expect(exportButton).not.toHaveAttribute("aria-disabled", "true");
     fireEvent.click(exportButton);
     expect(onExport).toHaveBeenCalledWith(expect.objectContaining({
       format: "postgresql",
@@ -973,7 +1013,7 @@ describe("DeliveryPhase", () => {
       selectFormat(format);
       await fillConnection("localhost");
       fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
-      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preflight completo"));
+      await waitFor(() => expect(getStateStatus()).toHaveTextContent("Preflight completo"));
     }
     expect(preflight.mock.calls.map(([target]) => target.kind)).toEqual(["mysql", "sqlserver"]);
   });
@@ -995,7 +1035,7 @@ describe("DeliveryPhase", () => {
     resolvePreflight(preflightResult("mysql"));
     await Promise.resolve();
     expect(screen.queryByText("Preflight completo para dataset.")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Exportar MySQL" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Exportar MySQL" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("bloquea la exportación cuando el preflight detecta un conflicto de política", async () => {
@@ -1010,7 +1050,7 @@ describe("DeliveryPhase", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Preflight bloqueado");
     expect(screen.getByRole("alert")).toHaveTextContent("La tabla ya existe");
-    expect(screen.getByRole("button", { name: "Exportar PostgreSQL" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Exportar PostgreSQL" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("relee presets, verifica el esquema y exige volver a autorizar una política replace", async () => {
@@ -1057,7 +1097,7 @@ describe("DeliveryPhase", () => {
     expect(screen.getByLabelText("Política de tabla")).toHaveValue("create_only");
     expect(screen.getByLabelText("Servidor")).toHaveValue("");
     expect(screen.getByText(/El preset proponía reemplazar la tabla/)).toHaveTextContent("Se cargó Crear sin reemplazar");
-    expect(screen.getByRole("button", { name: "Exportar PostgreSQL" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Exportar PostgreSQL" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("expone los parámetros de una regla avanzada según su tipo", () => {
@@ -1368,9 +1408,9 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.click(screen.getByRole("button", { name: "Guardar contrato" }));
 
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Contrato guardado"));
-    expect(screen.getByRole("status")).toHaveTextContent("Columnia v1");
-    expect(screen.getByRole("status")).toHaveTextContent("1 reglas");
+    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Contrato guardado"));
+    expect(getStateStatus()).toHaveTextContent("Columnia v1");
+    expect(getStateStatus()).toHaveTextContent("1 reglas");
     expect(save).toHaveBeenCalledWith([
       { column: "total", kind: "not_null", maxInvalid: 0 },
     ]);
@@ -1400,13 +1440,13 @@ describe("DeliveryPhase", () => {
     };
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} initialContract={failedContract} />);
-    expect(screen.getByRole("status")).toHaveTextContent("Contrato fallido");
+    expect(getStateStatus()).toHaveTextContent("Contrato fallido");
     expect(screen.getByText("Problemas detectados")).toBeInTheDocument();
     expect(screen.getByText("Valores nulos · total")).toBeInTheDocument();
     expect(screen.getByText(localeText("1 incumplimientos entre 2 elementos evaluados (50.00%)"))).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Revisar regla 1" }));
     expect(document.activeElement).toBe(document.getElementById("quality-rule-1"));
-    expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).not.toHaveAttribute("aria-disabled", "true");
 
     const staleContract: DeliveryContractState = {
       ...failedContract,
@@ -1414,7 +1454,7 @@ describe("DeliveryPhase", () => {
     };
     cleanup();
     render(<DeliveryHarness onExport={onExport} initialContract={staleContract} />);
-    expect(screen.getByRole("status")).toHaveTextContent("Resultado desactualizado");
+    expect(getStateStatus()).toHaveTextContent("Resultado desactualizado");
     expect(screen.queryByRole("button", { name: "Revisar regla 1" })).not.toBeInTheDocument();
 
     vi.restoreAllMocks();
@@ -1534,8 +1574,8 @@ describe("DeliveryPhase", () => {
 
     cleanup();
     render(<DeliveryHarness onExport={vi.fn()} exportState={{ kind: "cancelled" }} />);
-    expect(screen.getByRole("status")).toHaveTextContent("Exportación cancelada");
-    expect(screen.getByRole("status")).toHaveTextContent("dataset preparado sigue disponible");
+    expect(getStateStatus()).toHaveTextContent("Exportación cancelada");
+    expect(getStateStatus()).toHaveTextContent("dataset preparado sigue disponible");
 
     cleanup();
     render(<DeliveryHarness onExport={vi.fn()} exportState={{ kind: "error", message: "disco lleno" }} />);
@@ -1652,7 +1692,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancelar análisis" }));
     await waitFor(() => expect(cancel).toHaveBeenCalledWith("databasePreflight"));
     resolvePreflight(preflightResult("postgresql"));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preflight completo"));
+    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Preflight completo"));
   });
 
   it("muestra una cancelación y un error del catálogo de presets", async () => {
@@ -1666,7 +1706,7 @@ describe("DeliveryPhase", () => {
     await waitFor(() => expect(list).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole("button", { name: "Cancelar carga" }));
     await waitFor(() => expect(cancel).toHaveBeenCalledWith("deliveryPresetCatalog"));
-    expect(screen.getByRole("status")).toHaveTextContent("Se canceló la carga de presets locales.");
+    expect(getStateStatus()).toHaveTextContent("Se canceló la carga de presets locales.");
 
     resolveCatalog([]);
     const retry = screen.getByRole("button", { name: "Reintentar catálogo" });
@@ -1761,6 +1801,6 @@ describe("DeliveryPhase", () => {
     expect(within(target).getByRole("radio", { name: /^Actualizar por clave/ })).toBeChecked();
     expect(within(target).getByRole("textbox", { name: "Esquema" })).toHaveValue("ventas");
     expect(within(target).getByRole("checkbox", { name: "total" })).not.toBeChecked();
-    expect(screen.getByRole("button", { name: "Exportar script T-SQL" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Exportar script T-SQL" })).toHaveAttribute("aria-disabled", "true");
   });
 });

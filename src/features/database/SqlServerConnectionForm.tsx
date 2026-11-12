@@ -22,6 +22,7 @@ interface SqlServerConnectionFormProps {
  */
 export function SqlServerConnectionForm({ disabled, onChange, errorId }: SqlServerConnectionFormProps) {
   const id = useId();
+  const [touched, setTouched] = useState(false);
   const [fields, setFields] = useState<DatabaseConnection>(EMPTY_SQL_SERVER_CONNECTION);
   const [drivers, setDrivers] = useState<string[] | null>(null);
 
@@ -40,22 +41,38 @@ export function SqlServerConnectionForm({ disabled, onChange, errorId }: SqlServ
   }, []);
 
   function update(next: DatabaseConnection) {
+    setTouched(true);
     setFields(next);
     onChange(sqlServerConnectionProblem(next) === null ? sqlServerConnection(next) : null);
   }
 
   const problem = drivers === null ? null : sqlServerConnectionProblem(fields);
+  const statusId = `${id}-status`;
+  // The field the problem is about; the user only counts with SQL Server sign-in.
+  // A missing driver is no field's fault.
+  const missing = problem === null || !fields.driver ? null
+    : !fields.server.trim() ? "server"
+    : fields.authentication === "password" && !fields.user.trim() ? "user"
+    : null;
+  // Do not flag a freshly opened form: only once the user has touched a
+  // required field or the parent reports the incomplete connection.
+  const flagged = missing ?? (errorId && problem !== null ? "server" : null);
+  const invalid = (field: string) => (touched || Boolean(errorId)) && flagged === field ? true : undefined;
+  const describedBy = (field: string) =>
+    [flagged === field ? statusId : undefined, field === "server" ? errorId : undefined].filter(Boolean).join(" ") || undefined;
 
   return (
     <div className="connection-form">
       <div className="connection-form__row">
         <div className="connection-form__field">
-          <label htmlFor={`${id}-server`}>Servidor</label>
+          <label htmlFor={`${id}-server`} className="connection-form__required-label">Servidor</label>
           <input
             id={`${id}-server`}
             value={fields.server}
-            aria-invalid={errorId ? true : undefined}
-            aria-describedby={errorId}
+            required
+            aria-invalid={invalid("server")}
+            aria-describedby={describedBy("server")}
+            onBlur={() => setTouched(true)}
             disabled={disabled}
             autoComplete="off"
             spellCheck={false}
@@ -102,9 +119,13 @@ export function SqlServerConnectionForm({ disabled, onChange, errorId }: SqlServ
       {fields.authentication === "password" && (
         <div className="connection-form__row">
           <div className="connection-form__field">
-            <label htmlFor={`${id}-user`}>Usuario</label>
+            <label htmlFor={`${id}-user`} className="connection-form__required-label">Usuario</label>
             <input
               id={`${id}-user`}
+              required
+              aria-invalid={invalid("user")}
+              aria-describedby={describedBy("user")}
+              onBlur={() => setTouched(true)}
               value={fields.user}
               disabled={disabled}
               autoComplete="off"
@@ -153,8 +174,14 @@ export function SqlServerConnectionForm({ disabled, onChange, errorId }: SqlServ
       {drivers !== null && drivers.length === 1 && (
         <p className="connection-form__note">Controlador: {drivers[0]}.</p>
       )}
-      {problem && fields.server.trim() !== "" && <p className="connection-form__note" role="status">{problem}</p>}
-      {drivers !== null && drivers.length === 0 && <p className="notice" role="status">{problem}</p>}
+      {/* Always rendered, so a screen reader hears the text change. */}
+      <p
+        id={statusId}
+        className={drivers !== null && drivers.length === 0 ? "notice" : "connection-form__note"}
+        role="status"
+      >
+        {problem}
+      </p>
       <p className="connection-form__footer">
         <small>No se guarda nada de la conexión: solo vive mientras la usas.</small>
       </p>

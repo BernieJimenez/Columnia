@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ColumnProfile } from "../bridge";
-import { ColumnProfileHeader, columnProfileSignals } from "./ColumnProfileHeader";
+import { ColumnProfileHeader, columnProfileSignals, histogramDescription } from "./ColumnProfileHeader";
 
 function columnProfile(overrides: Partial<ColumnProfile> = {}): ColumnProfile {
   return {
@@ -93,5 +93,19 @@ describe("ColumnProfileHeader", () => {
     ]);
     render(<ColumnProfileHeader column={column} profile={profile} rowCount={100} />);
     expect(screen.getByText(/37 con espacios/)).toHaveClass("col-profile__signal");
+  });
+
+  it("describe la forma del histograma con un texto oculto dentro del bloque del perfil (AUD-052)", () => {
+    const { container } = render(<ColumnProfileHeader column={column} profile={columnProfile()} profileId="perfil-1" rowCount={1284} />);
+    const block = container.querySelector(".col-profile");
+    expect(block).toHaveAttribute("id", "perfil-1");
+    const hidden = block?.querySelector(".visually-hidden");
+    expect(hidden).toHaveTextContent("Distribución: de 0 a 30, la mayoría entre 10 y 20.");
+  });
+
+  it("no describe la distribución de un identificador ni de un histograma vacío (AUD-052)", () => {
+    const { container } = render(<ColumnProfileHeader column={{ name: "id", dataType: "Int64" }} profile={columnProfile({ nullCount: 0, completenessPercentage: 100, uniqueCount: 50 })} rowCount={50} />);
+    expect(container.querySelector(".visually-hidden")).toBeNull();
+    expect(histogramDescription([{ lower: 0, upper: 1, count: 0 }, { lower: 1, upper: 2, count: 0 }])).toBeNull();
   });
 });

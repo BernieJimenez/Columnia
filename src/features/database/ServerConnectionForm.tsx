@@ -26,6 +26,8 @@ interface ServerConnectionFormProps {
 export function ServerConnectionForm({ kind, disabled, onChange, errorId }: ServerConnectionFormProps) {
   const id = useId();
   const engine = SERVER_ENGINES[kind];
+  const statusId = `${id}-status`;
+  const [touched, setTouched] = useState(false);
   const [fields, setFields] = useState<DatabaseConnection>(EMPTY_SERVER_CONNECTION);
   // null while loading, the installed drivers, or why they could not be listed.
   const [driverList, setDriverList] = useState<null | string[] | { error: string }>(null);
@@ -61,21 +63,37 @@ export function ServerConnectionForm({ kind, disabled, onChange, errorId }: Serv
   }, [kind, fields]);
 
   function update(next: DatabaseConnection) {
+    setTouched(true);
     setFields(next);
   }
 
   const problem = drivers === null ? null : serverConnectionProblem(kind, fields);
+  // The field the problem is about, so the reason can be tied to it.
+  // Same order as `serverConnectionProblem`; a missing driver is no field's fault.
+  const missing = problem === null || !fields.driver ? null
+    : !fields.server.trim() ? "server"
+    : serverConnectionProblem(kind, { ...fields, port: "" }) !== problem ? "port"
+    : !fields.user.trim() ? "user"
+    : null;
+  // Do not flag a freshly opened form: only once the user has touched a
+  // required field or the parent reports the incomplete connection.
+  const flagged = missing ?? (errorId && problem !== null ? "server" : null);
+  const invalid = (field: string) => (touched || Boolean(errorId)) && flagged === field ? true : undefined;
+  const describedBy = (field: string) =>
+    [flagged === field ? statusId : undefined, field === "server" ? errorId : undefined].filter(Boolean).join(" ") || undefined;
 
   return (
     <div className="connection-form">
       <div className="connection-form__row connection-form__row--server">
         <div className="connection-form__field">
-          <label htmlFor={`${id}-server`}>Servidor</label>
+          <label htmlFor={`${id}-server`} className="connection-form__required-label">Servidor</label>
           <input
             id={`${id}-server`}
             value={fields.server}
-            aria-invalid={errorId ? true : undefined}
-            aria-describedby={errorId}
+            required
+            aria-invalid={invalid("server")}
+            aria-describedby={describedBy("server")}
+            onBlur={() => setTouched(true)}
             disabled={disabled}
             autoComplete="off"
             spellCheck={false}
@@ -87,6 +105,8 @@ export function ServerConnectionForm({ kind, disabled, onChange, errorId }: Serv
           <label htmlFor={`${id}-port`}>Puerto</label>
           <input
             id={`${id}-port`}
+            aria-invalid={invalid("port")}
+            aria-describedby={describedBy("port")}
             value={fields.port}
             disabled={disabled}
             inputMode="numeric"
@@ -110,9 +130,13 @@ export function ServerConnectionForm({ kind, disabled, onChange, errorId }: Serv
       </div>
       <div className="connection-form__row">
         <div className="connection-form__field">
-          <label htmlFor={`${id}-user`}>Usuario</label>
+          <label htmlFor={`${id}-user`} className="connection-form__required-label">Usuario</label>
           <input
             id={`${id}-user`}
+            required
+            aria-invalid={invalid("user")}
+            aria-describedby={describedBy("user")}
+            onBlur={() => setTouched(true)}
             value={fields.user}
             disabled={disabled}
             autoComplete="off"
@@ -160,14 +184,16 @@ export function ServerConnectionForm({ kind, disabled, onChange, errorId }: Serv
       {drivers !== null && drivers.length === 1 && (
         <p className="connection-form__note">Controlador: {drivers[0]}.</p>
       )}
-      {problem && fields.server.trim() !== "" && drivers !== null && drivers.length > 0 && (
-        <p className="connection-form__note" role="status">{problem}</p>
-      )}
+      {/* Always rendered, so a screen reader hears the text change. */}
+      <p
+        id={statusId}
+        className={driverError === null && drivers !== null && drivers.length === 0 ? "notice" : "connection-form__note"}
+        role="status"
+      >
+        {driverError === null ? problem : null}
+      </p>
       {driverError !== null && (
         <p className="notice" role="alert">No se pudieron comprobar los controladores ODBC instalados. {driverError}</p>
-      )}
-      {driverError === null && drivers !== null && drivers.length === 0 && (
-        <p className="notice" role="status">{problem}</p>
       )}
       <p className="connection-form__footer">
         <small>No se guarda nada de la conexión: solo vive mientras la usas.</small>

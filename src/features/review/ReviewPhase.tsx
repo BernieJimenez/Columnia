@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import { useLatest } from "../../useLatest";
 
@@ -500,12 +500,15 @@ export function LocalQueryPanel({
     }
   }
 
+  // AUD-053: under the drawer's h2 the panel starts at h3, so the levels never skip.
+  const TitleHeading = standalone ? "h3" : "h4";
+  const HistoryHeading = standalone ? "h4" : "h5";
   const panel = (
       <section className="local-query" aria-labelledby="local-query-title">
         <div className="local-query__heading">
           <div>
             <p className="step">Consulta segura</p>
-            <h4 id="local-query-title">Consulta SQL de solo lectura</h4>
+            <TitleHeading id="local-query-title">Consulta SQL de solo lectura</TitleHeading>
             <p>
               Solo se acepta SELECT sobre <code>dataset</code>, columnas existentes, filtros simples,
               GROUP BY y COUNT/SUM/AVG/MIN/MAX; LIMIT/OFFSET queda acotado a 200 filas.
@@ -586,7 +589,7 @@ export function LocalQueryPanel({
             <div className="local-query__history-heading">
               <div>
                 <p className="step">Sesión actual</p>
-                <h5 id="local-query-history-title">Actividad reciente</h5>
+                <HistoryHeading id="local-query-history-title">Actividad reciente</HistoryHeading>
               </div>
               <span>Últimas {queryHistory.length} consultas</span>
             </div>
@@ -685,6 +688,7 @@ export function DatasetPreviewPanel({
   profile,
 }: DatasetPreviewProps) {
   const { end: pageEnd, hasPrevious, hasNext } = pageRange(dataset, pageOffset);
+  const profileIdBase = useId();
   // COD-10: names may repeat, so the position decides when it agrees.
   const columnProfile = (name: string, index: number) => {
     if (!profile) return undefined;
@@ -703,16 +707,24 @@ export function DatasetPreviewPanel({
         <table className={profile ? "table--profiled" : undefined}>
           <thead>
             <tr>
-              {dataset.columns.map((column, columnIndex) => (
-                <th
-                  key={column.name}
-                  scope="col"
-                  className={isNumericType(column.dataType) ? "cell--number" : undefined}
-                  aria-label={`${column.name} ${formatDataType(column.dataType)}`}
-                >
-                  <ColumnProfileHeader column={column} profile={columnProfile(column.name, columnIndex)} rowCount={dataset.rowCount} />
-                </th>
-              ))}
+              {dataset.columns.map((column, columnIndex) => {
+                const columnProfileOfHeader = columnProfile(column.name, columnIndex);
+                // The id follows the position, never the name: names may repeat or hold odd characters.
+                const profileId = columnProfileOfHeader ? `${profileIdBase}-profile-${columnIndex}` : undefined;
+                return (
+                  // The name stays short (name and type), which is what screen readers repeat on every cell;
+                  // the profile is the description, announced once per header.
+                  <th
+                    key={column.name}
+                    scope="col"
+                    className={isNumericType(column.dataType) ? "cell--number" : undefined}
+                    aria-label={`${column.name} ${formatDataType(column.dataType)}`}
+                    aria-describedby={profileId}
+                  >
+                    <ColumnProfileHeader column={column} profile={columnProfileOfHeader} profileId={profileId} rowCount={dataset.rowCount} />
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>

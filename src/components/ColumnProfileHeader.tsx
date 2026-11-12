@@ -33,8 +33,24 @@ function MiniHistogram({ buckets }: { buckets: NonNullable<ColumnProfile["histog
   );
 }
 
+/**
+ * The spoken shape of a histogram: the span it covers and its fullest bin.
+ * It lives in the profile block, so the header's description carries it.
+ */
+export function histogramDescription(buckets: NonNullable<ColumnProfile["histogram"]>): string | null {
+  const first = buckets[0];
+  const last = buckets[buckets.length - 1];
+  if (!first || !last) return null;
+  const populated = buckets.reduce((best, bucket) => (bucket.count > best.count ? bucket : best), first);
+  if (populated.count <= 0) return null;
+  const edge = (value: number) => formatNumber(value, 2);
+  return `Distribución: de ${edge(first.lower)} a ${edge(last.upper)}, la mayoría entre ${edge(populated.lower)} y ${edge(populated.upper)}.`;
+}
+
 interface ColumnProfileHeaderProps {
   column: DatasetColumn;
+  /** Id for the profile block, so the `<th>` can point `aria-describedby` at it. */
+  profileId?: string;
   /** The profile of this column; without it the header shows name and type only. */
   profile?: ColumnProfile;
   rowCount: number;
@@ -45,7 +61,7 @@ interface ColumnProfileHeaderProps {
  * many distinct values it has, its range and distribution, and any quality
  * signal. The figures come from the whole dataset, not from the visible page.
  */
-export const ColumnProfileHeader = memo(function ColumnProfileHeader({ column, profile, rowCount }: ColumnProfileHeaderProps) {
+export const ColumnProfileHeader = memo(function ColumnProfileHeader({ column, profile, profileId, rowCount }: ColumnProfileHeaderProps) {
   const type = formatDataType(column.dataType);
   if (!profile) {
     return (
@@ -65,12 +81,14 @@ export const ColumnProfileHeader = memo(function ColumnProfileHeader({ column, p
     : plural(profile.uniqueCount, "valor distinto", "valores distintos");
   const hasRange = profile.minimum !== null && profile.maximum !== null && profile.minimum !== profile.maximum;
   const signals = columnProfileSignals(profile);
+  const showHistogram = !identifierLike && !!profile.histogram && profile.histogram.length > 1;
+  const histogramText = showHistogram && profile.histogram ? histogramDescription(profile.histogram) : null;
 
   return (
     <>
       <span>{column.name}</span>
       <small>{type}</small>
-      <span className="col-profile">
+      <span className="col-profile" id={profileId}>
         <span className="col-profile__fill" aria-hidden="true">
           <span style={{ width: `${filled}%` }} />
         </span>
@@ -78,7 +96,8 @@ export const ColumnProfileHeader = memo(function ColumnProfileHeader({ column, p
         {/* An identifier spreads evenly by construction: its histogram says nothing.
             A continuous number (float or decimal, e.g. an amount) is all-distinct
             without being an identifier, so it keeps its histogram. */}
-        {!identifierLike && profile.histogram && profile.histogram.length > 1 && <MiniHistogram buckets={profile.histogram} />}
+        {showHistogram && profile.histogram && <MiniHistogram buckets={profile.histogram} />}
+        {histogramText && <span className="visually-hidden">{histogramText}</span>}
         {hasRange && (
           <span className="col-profile__line col-profile__range">
             {rangeValue(profile.minimum ?? "", numeric)} – {rangeValue(profile.maximum ?? "", numeric)}

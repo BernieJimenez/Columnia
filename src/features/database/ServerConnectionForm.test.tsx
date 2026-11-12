@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../bridge";
+import { DatabaseConnectionForm } from "./DatabaseConnectionForm";
 import { ServerConnectionForm } from "./ServerConnectionForm";
 
 afterEach(() => {
@@ -46,5 +47,55 @@ describe("ServerConnectionForm", () => {
     const last = onChange.mock.lastCall?.[0];
     expect(last).not.toBeNull();
     expect(last).toMatchObject({ server: "localhost", database: "datos", user: "ana", driver: "PostgreSQL Unicode(x64)" });
+  });
+});
+
+describe("motivo asociado al campo que falta", () => {
+  it.each(["sqlserver", "postgresql", "mysql"] as const)("%s: el servidor es obligatorio y el motivo vive en un único contenedor de estado", async (kind) => {
+    vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue(["Driver"]);
+    render(<DatabaseConnectionForm kind={kind} disabled={false} onChange={vi.fn()} />);
+
+    const server = screen.getByLabelText("Servidor");
+    const status = await screen.findByText("Indica el servidor.");
+    expect(server).toBeRequired();
+    expect(status).toHaveAttribute("role", "status");
+    expect(server).toHaveAccessibleDescription("Indica el servidor.");
+    // A freshly opened form is not announced as an error.
+    expect(server).not.toHaveAttribute("aria-invalid");
+
+    fireEvent.blur(server);
+    expect(server).toHaveAttribute("aria-invalid", "true");
+
+    fireEvent.change(server, { target: { value: "localhost" } });
+    expect(server).not.toHaveAttribute("aria-invalid");
+    expect(server).not.toHaveAttribute("aria-describedby");
+    // The same element stays in place; only its text changes.
+    expect(screen.getAllByRole("status")).toEqual([status]);
+  });
+
+  it("PostgreSQL y MySQL: el usuario falta y el motivo lo nombra", async () => {
+    vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue(["Driver"]);
+    render(<DatabaseConnectionForm kind="mysql" disabled={false} onChange={vi.fn()} />);
+    await screen.findByText("Indica el servidor.");
+
+    fireEvent.change(screen.getByLabelText("Servidor"), { target: { value: "localhost" } });
+    const user = screen.getByLabelText("Usuario");
+    expect(user).toBeRequired();
+    expect(user).toHaveAccessibleDescription("Indica el usuario de MySQL.");
+    expect(user).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("SQL Server: con Windows el usuario no existe; con usuario y contraseña falta y se nombra", async () => {
+    vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue(["Driver"]);
+    render(<DatabaseConnectionForm kind="sqlserver" disabled={false} onChange={vi.fn()} />);
+    await screen.findByText("Indica el servidor.");
+
+    fireEvent.change(screen.getByLabelText("Servidor"), { target: { value: "localhost" } });
+    expect(screen.queryByLabelText("Usuario")).toBeNull();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Usuario y contraseña de SQL Server" }));
+    expect(screen.getByLabelText("Usuario")).toHaveAccessibleDescription("Indica el usuario de SQL Server.");
+    expect(screen.getByLabelText("Usuario")).toBeRequired();
   });
 });

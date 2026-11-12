@@ -217,11 +217,14 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await expect(connectionString).toHaveAttribute("aria-invalid", "true");
     const errorId = await connectionError.getAttribute("id");
     expect(errorId).toBeTruthy();
-    await expect(connectionString).toHaveAttribute("aria-describedby", errorId!);
-    await expect.poll(() => connectionString.evaluate((field) => {
-      const descriptionId = field.getAttribute("aria-describedby");
-      return descriptionId ? document.getElementById(descriptionId)?.textContent ?? "" : "";
-    })).toContain("Completa la conexión con el servidor.");
+    // AUD-050: the field also points at the form's own status (what is missing).
+    await expect.poll(async () => (await connectionString.getAttribute("aria-describedby"))?.split(" ") ?? []).toContain(errorId!);
+    const description = () => connectionString.evaluate((field) => (field.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" "));
+    await expect.poll(description).toContain("Completa la conexión con el servidor.");
+    await expect.poll(description).toContain("Indica el servidor.");
 
     await page.getByRole("radio", { name: /^Archivo/ }).check();
     await format.selectOption("csv");

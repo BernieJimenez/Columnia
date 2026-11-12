@@ -335,7 +335,10 @@ describe("PreparePhase", () => {
     const disclosure = summary?.closest("details");
     expect(disclosure).not.toHaveAttribute("open");
     openAdvancedTools();
-    expect(screen.getByRole("region", { name: "Historial de cambios" })).toBeVisible();
+    expect(screen.getByRole("complementary", { name: "Historial de cambios" })).toBeVisible();
+    // AUD-053: a single history landmark; the inner block carries no name of its own.
+    expect(screen.queryAllByRole("region", { name: /historial/i })).toHaveLength(0);
+    expect(screen.getAllByLabelText("Historial de cambios")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
     const beforeSelector = screen.getByLabelText("Antes");
     const compareButton = screen.getByRole("button", { name: "Comparar agregados" });

@@ -1486,6 +1486,20 @@ describe("ReviewPhase", () => {
     expect(onPageChange).toHaveBeenNthCalledWith(1, 0);
     expect(onPageChange).toHaveBeenNthCalledWith(2, 100);
   });
+
+  it("la cabecera mantiene nombre y tipo cortos y describe el perfil con aria-describedby (AUD-051)", () => {
+    render(<DatasetPreviewPanel dataset={dataset} pageOffset={0} pageLoading={false} onPageChange={vi.fn()} profile={profile} />);
+    const header = screen.getByRole("columnheader", { name: /^id / });
+    expect(header.getAttribute("aria-label")).toMatch(/^id \S+/);
+    const describedBy = header.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    const block = document.getElementById(describedBy ?? "");
+    expect(block).toHaveClass("col-profile");
+    expect(header).toContainElement(block);
+    expect(block).toHaveTextContent(/sin vacíos/);
+    // Without a profile for the column there is nothing to describe.
+    expect(screen.getByRole("columnheader", { name: /^nota / })).not.toHaveAttribute("aria-describedby");
+  });
 });
 
 describe("DatasetPreviewPanel · carga de página", () => {

@@ -227,7 +227,7 @@ input[type="radio"] { width: 20px; height: 20px; }
   background: #176d62;
   color: #f0fffb;
 }
-:root[data-resolved-theme="dark"] .workspace .primary-action:hover:not(:disabled) { background: #10564d; }
+:root[data-resolved-theme="dark"] .workspace .primary-action:hover:not(:disabled):not([aria-disabled="true"]) { background: #10564d; }
 /* Dark rules keyed on the resolved theme (T10-11). */
   :root[data-resolved-theme="dark"] :is(.eyebrow, .step) { color: var(--focus-ring); }
 
@@ -534,7 +534,7 @@ td {
 
 :root .workspace .primary-action:not(:disabled) { background: var(--action-fill); border-color: var(--action-fill); color: #fff; }
 
-:root .workspace .primary-action:hover:not(:disabled) { background: var(--action-hover); border-color: var(--action-hover); }
+:root .workspace .primary-action:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--action-hover); border-color: var(--action-hover); }
 
 :root .workspace .primary-action:not(:disabled) :is(span, strong) { color: inherit; }
 
@@ -912,7 +912,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
   background: var(--action-fill);
   color: var(--on-accent);
 }
-:root:is([data-theme="paper"], [data-theme="ocean"], [data-theme="slate"]) .workspace .primary-action:hover:not(:disabled) {
+:root:is([data-theme="paper"], [data-theme="ocean"], [data-theme="slate"]) .workspace .primary-action:hover:not(:disabled):not([aria-disabled="true"]) {
   border-color: var(--action-hover);
   background: var(--action-hover);
 }

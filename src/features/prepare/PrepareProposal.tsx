@@ -343,7 +343,7 @@ export function PrepareProposal({
             {showBeforeAfter ? "Ocultar antes y después" : "Ver antes y después"}
           </button>
           {showBeforeAfter && (
-            <div id="prepare-before-after" className="table-region" tabIndex={0} aria-label="Antes y después de los cambios marcados">
+            <div id="prepare-before-after" className="table-region" role="region" tabIndex={0} aria-label="Antes y después de los cambios marcados">
               <table>
                 <thead>
                   <tr><th scope="col">Cambio</th><th scope="col">Columna</th><th scope="col">Antes</th><th scope="col">Después</th></tr>

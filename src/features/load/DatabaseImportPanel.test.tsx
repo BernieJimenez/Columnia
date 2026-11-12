@@ -162,7 +162,7 @@ describe("DatabaseImportPanel", () => {
     await fillConnection();
     const button = screen.getByRole("button", { name: "Ver tablas" });
     button.focus();
-    const status = screen.getAllByRole("status").find((node) => node.tabIndex === -1 && node.textContent === "");
+    const status = screen.getAllByRole("status").find((node) => node.hasAttribute("tabindex") && node.textContent === "");
     expect(status).toBeDefined();
     fireEvent.click(button);
 

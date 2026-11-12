@@ -39,7 +39,8 @@ la tanda 11 (AUD-020, 103, 021, 102 y 099), después la tanda 12
 (AUD-027, 028, 029, 030, 031 y 032) después la tanda 13 (AUD-033, 104, 106
 y 107) y después la tanda 14 (AUD-039, 040, 041, 043, 038 y 042; en AUD-038 y
 AUD-042 el usuario dio por bueno un criterio ajustado). Ese mismo día se cerró
-la tanda 15 (AUD-109, 110 y 111), con la que Rendimiento queda sin abiertas.
+la tanda 15 (AUD-109, 110 y 111), con la que Rendimiento queda sin abiertas. Después se cerró la
+tanda 16 (AUD-049, 050, 051, 052, 053 y 054), aplicada en paralelo.
 
 <!-- indice:inicio -->
 **Última actualización:** 2026-11-11 · **Siguiente ID libre:** AUD-116 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
@@ -49,11 +50,11 @@ la tanda 15 (AUD-109, 110 y 111), con la que Rendimiento queda sin abiertas.
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 44 | 35 | 43 · 1 · 0 |
+| 3 · Bajo | 38 | 41 | 37 · 1 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **45** | **70** | **44 · 1 · 0** |
+| **Total** | **39** | **76** | **38 · 1 · 0** |
 
-**Abiertas por área:** UI/UX 17 · Documentación 9 · Accesibilidad 7 · QA y testing 7 · Redacción 5
+**Abiertas por área:** UI/UX 17 · Documentación 9 · QA y testing 7 · Redacción 5 · Accesibilidad 1
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -797,53 +798,59 @@ Sin tareas abiertas.
 
 ### Accesibilidad y semántica
 
-- [ ] **AUD-049 · Entregar: el motivo del bloqueo no se anuncia ni queda asociado al botón, que además sale del orden de tabulación**
+- [x] **AUD-049 · Entregar: el motivo del bloqueo no se anuncia ni queda asociado al botón, que además sale del orden de tabulación**
   - **Área:** Accesibilidad · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/delivery/DeliveryPhase.tsx:322-336`
   - **Qué hacer:** `aria-disabled="true"` en lugar de `disabled` en la acción principal (manteniendo el borde discontinuo con `[aria-disabled="true"]`), `aria-describedby` en el propio botón y `role="status"` en el contenedor persistente del motivo (que exista siempre y cambie de texto, no que se monte con el texto). Guardar el `onClick` para ignorar el clic cuando haya bloqueo.
   - **Criterio de aceptación:** con NVDA/Narrador, al marcar «Actualizar por clave» sin columnas se anuncia el motivo; Tab llega a «Exportar» y la descripción lo explica.
   - **Depende de:** ninguna; hacerla junto con AUD-060 (mismo botón)
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 16 de la Fase 2 (en `master`). `DeliveryPhase.tsx`: las dos acciones principales (exportar y Power BI) llevan `aria-disabled` en lugar de `disabled`, `aria-describedby="export-blocked-reason"` y un `onClick` que ignora el clic con bloqueo; el motivo es un `<p role="status">` siempre montado que solo cambia de texto (`:empty` compensa el hueco). Las tres reglas `:hover:not(:disabled)` de `.primary-action` en `workflow-styles.css` excluyen también `[aria-disabled="true"]`. Comprobado en el navegador con el mock de Tauri (T-SQL, «Actualizar por clave» sin columnas): el botón recibe el foco, borde discontinuo, el hover no lo rellena y el motivo («Para exportar, elige al menos una columna clave…») está en su `role="status"`. No probado con NVDA ni Narrador. AUD-060 sigue abierta.
 
-- [ ] **AUD-050 · Formularios de conexión: campos obligatorios sin marcar y sin asociar con el motivo por el que «Ver tablas» sigue desactivado**
+- [x] **AUD-050 · Formularios de conexión: campos obligatorios sin marcar y sin asociar con el motivo por el que «Ver tablas» sigue desactivado**
   - **Área:** Accesibilidad · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/database/ServerConnectionForm.tsx:70-95`
   - **Qué hacer:** `required` + «(obligatorio)» en la etiqueta de Servidor y Usuario; un único contenedor persistente `role="status"` con el motivo y `aria-describedby` hacia él en el campo que falta (o `aria-invalid` en ese campo); `aria-required` y mensaje en el grupo de claves.
   - **Criterio de aceptación:** con lector de pantalla se oye qué campo falta y por qué «Ver tablas» no está disponible, en los tres motores.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 16 de la Fase 2 (en `master`). `ServerConnectionForm.tsx` y `SqlServerConnectionForm.tsx`: Servidor y Usuario (este, solo cuando hace falta) con `required` y la marca «(obligatorio)» por CSS con texto alternativo vacío (no cambia el nombre accesible ni rompe `getByLabel("Servidor")`); un único `<p role="status">` siempre montado con el motivo, y `aria-describedby` hacia él en el campo que falta (servidor, puerto o usuario); `aria-invalid` solo tras tocar el formulario o si Entregar señala el error. **Principal:** sin controlador ODBC no se marca ningún campo, y el puerto se detecta por su propia regla. Comprobado en el navegador (PostgreSQL con servidor y sin usuario: «Indica el usuario de PostgreSQL.» como descripción del campo). El grupo de claves de la tarea no existe en estos formularios: nada que marcar. No probado con NVDA ni Narrador; «Ver tablas» sigue con `disabled` real (fuera de esta tarea).
 
-- [ ] **AUD-051 · El `aria-label` de cada `<th>` de la vista previa tapa el perfil de columna que pinta `ColumnProfileHeader`**
+- [x] **AUD-051 · El `aria-label` de cada `<th>` de la vista previa tapa el perfil de columna que pinta `ColumnProfileHeader`**
   - **Área:** Accesibilidad · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/review/ReviewPhase.tsx:707-714`
   - **Qué hacer:** quitar el `aria-label` y dejar que el nombre sea el contenido, con el perfil dentro de un `<span class="visually-hidden">` etiquetado como «Perfil:» ; o conservar el nombre y añadir `aria-describedby` hacia el bloque del perfil, que se anuncia una sola vez por columna sin repetirse en las celdas. Como `DESIGN.md:129-131` lo declara a propósito, arreglarlo es revisar esa decisión; si se mantiene, basta con dejarlo escrito en `DESIGN.md` y cerrar la tarea sin cambiar código.
   - **Criterio de aceptación:** con NVDA o Narrador, al situarse en una cabecera de columna se oyen nombre, tipo y la línea de completitud y distintos.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 16 de la Fase 2 (en `master`). el `<th>` conserva el nombre corto (nombre y tipo) y gana `aria-describedby` hacia su bloque `.col-profile` (id por posición con `useId`); `DESIGN.md` describe la decisión. Descripción calculada por el navegador: «sin vacíos · todos distintos Distribución: de 10 a 20, la mayoría entre 15 y 20. 10 – 20». No probado con NVDA ni Narrador.
 
-- [ ] **AUD-052 · El histograma de la cabecera no tiene equivalente textual y su contraste calculado es de 2,2-2,4:1 en los temas claros**
+- [x] **AUD-052 · El histograma de la cabecera no tiene equivalente textual y su contraste calculado es de 2,2-2,4:1 en los temas claros**
   - **Área:** Accesibilidad · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/data-views.css:33`
   - **Qué hacer:** subir a `color-mix(… 80%)` (3,3-3,8:1) y, o bien un `<title>` con «Distribución: x–y, la mayoría entre …», o una línea de texto con el cuantil más poblado.
   - **Criterio de aceptación:** el relleno da al menos 3:1 contra la cabecera en los cinco temas y la forma tiene una descripción corta accesible.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 16 de la Fase 2 (en `master`). relleno al 80 % (`data-views.css`): 3,60 (claro), 3,52 (paper), 3,45 (ocean), 3,30 (slate) y 5,70:1 (oscuro) contra el fondo de la cabecera; antes 2,15-2,28 en los claros. `histogramDescription` añade un texto oculto («Distribución: de x a y, la mayoría entre a y b») dentro del bloque del perfil, que entra en la descripción de AUD-051; el SVG sigue `aria-hidden`. El par no está en `tools/contrast-table.mjs`.
 
-- [ ] **AUD-053 · Semántica menor: `aria-label` en `div` sin rol, nombres repetidos en el bloque «Historial» y saltos de nivel de encabezado en el cajón SQL**
+- [x] **AUD-053 · Semántica menor: `aria-label` en `div` sin rol, nombres repetidos en el bloque «Historial» y saltos de nivel de encabezado en el cajón SQL**
   - **Área:** Accesibilidad · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/prepare/HistoryBar.tsx:81`
   - **Qué hacer:** `role="region"` (o `<section>`) donde hay `aria-label` y foco por teclado; un solo nombre para el `aside` (el `section` interior puede quitar su `aria-label`); `LocalQueryPanel standalone` con `h3` y sin repetir el título.
   - **Criterio de aceptación:** el árbol de accesibilidad de Preparar muestra un único landmark de historial y el cajón SQL una jerarquía h2 → h3.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 16 de la Fase 2 (en `master`). el `aside` de Preparar se llama «Historial de cambios» y el bloque de `HistoryBar` deja de ser `section` con nombre; «Uso y retención» y el resultado del último cambio son `role="group"`, y la tabla «Antes y después» `role="region"`. `LocalQueryPanel standalone` usa h3/h4 (h4/h5 fuera del cajón); **principal:** los selectores de `styles.css` atados a `h4`/`h5` pasan a `:is(...)`, para que el cajón se vea igual. Comprobado en el navegador: un único `complementary` de historial, ninguna región con «historial», y h2 «Consulta SQL» → h3. Quedan `div` con `aria-label` sin rol en Revisar y en `TransformRecipeEditor` (sin tarea).
 
-- [ ] **AUD-054 · Textos con elipsis y solo `title` para ver el valor completo**
+- [x] **AUD-054 · Textos con elipsis y solo `title` para ver el valor completo**
   - **Área:** Accesibilidad · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/shell.css:173-180`
   - **Qué hacer:** permitir dos líneas (`line-clamp: 2` o `overflow-wrap: anywhere`) en las claves, y mostrar el nombre del archivo completo con `overflow-wrap: anywhere` en el cajón/Revisar.
   - **Criterio de aceptación:** a 320 CSS px se lee el nombre completo de un dataset y de las columnas clave sin pasar el ratón.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-11 · tanda 16 de la Fase 2 (en `master`). `.dataset-bar__name`, `.comparison-key-options strong`, las claves del script SQL Server y el nombre de los recientes cambian la elipsis por `overflow-wrap: anywhere` con `min-width: 0` (el `title` se conserva). Comprobado en el navegador a 320 px con un nombre de 73 caracteres: se lee entero, sin recorte ni desplazamiento horizontal. Las columnas clave a 320 px no se miraron en el navegador (prueba de estilos).
 
 - [ ] **AUD-055 · A 320 CSS px, Entregar y Preparar se salen de la pantalla y las etapas se parten a media palabra**
   - **Área:** Accesibilidad · **Severidad:** Bajo · **Esfuerzo:** Bajo

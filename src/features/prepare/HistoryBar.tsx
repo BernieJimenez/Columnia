@@ -21,7 +21,8 @@ export function HistoryBar({
   const nothingToUndo = status.snapshotsEnabled && !status.canUndo && !status.canRedo;
 
   return (
-    <section className="version-history" aria-label="Historial de cambios">
+    // AUD-053: the landmark is the <aside> in PreparePhase; this block stays unnamed.
+    <div className="version-history">
       <div className="version-history__heading">
         <h3>Historial</h3>
         <p>
@@ -79,7 +80,7 @@ export function HistoryBar({
       {status.snapshotsEnabled && (
         <details className="version-history__retention">
           <summary>Espacio del historial</summary>
-          <div aria-label="Uso y retención del historial">
+          <div role="group" aria-label="Uso y retención del historial">
             <p>
               {status.entryCount.toLocaleString()} / {status.maxEntries.toLocaleString()} estados · {formatHistoryBytes(status.diskBytes)} / {formatHistoryBytes(status.diskBudgetBytes)} de historial local
             </p>
@@ -89,7 +90,7 @@ export function HistoryBar({
           </div>
         </details>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -120,7 +121,7 @@ export function ChangeResultLine({
 }) {
   if (status.kind !== "applied") return null;
   return (
-    <div className="change-result" aria-label="Resultado del último cambio">
+    <div className="change-result" role="group" aria-label="Resultado del último cambio">
       <p>{status.message}</p>
       <div className="change-result__actions">
         {status.unchanged !== true && (

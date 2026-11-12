@@ -332,6 +332,9 @@ export function DeliveryPhase({
     || migrationState.kind === "working"
     || qualityFileState.kind === "working"
     || databasePreflightState.kind === "working";
+  // aria-disabled (not disabled) keeps the button in the tab order so its reason is reachable; onClick ignores it.
+  const powerBiExportDisabled = busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || exceedsExcel;
+  const exportDisabled = busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || !databaseReady || exceedsExcel || missingSqlServerKey;
   const exportFormatLabel = {
     csv: "CSV",
     csv_excel: "CSV para Excel",
@@ -1154,16 +1157,18 @@ export function DeliveryPhase({
               </div>
             ))}
           </dl>
-          <div className="export-actions-row" aria-describedby={exportBlockedReason ? "export-blocked-reason" : undefined}>
+          <div className="export-actions-row">
             {destination === "powerbi" ? (
               <button
                 className="primary-action export-action"
                 type="button"
                 onClick={() => {
+                  if (powerBiExportDisabled) return;
                   openPowerBiAfterExportRef.current = true;
                   void requestExport(selectedExportFormat);
                 }}
-                disabled={busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || exceedsExcel}
+                aria-disabled={powerBiExportDisabled || undefined}
+                aria-describedby="export-blocked-reason"
               >
                 {contract.kind === "with_contract" && !gatePassed
                   ? "Validar, exportar y abrir en Power BI"
@@ -1174,10 +1179,12 @@ export function DeliveryPhase({
                 className="primary-action export-action"
                 type="button"
                 onClick={() => {
+                  if (exportDisabled) return;
                   openPowerBiAfterExportRef.current = false;
                   void requestExport(selectedExportFormat);
                 }}
-                disabled={busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || !databaseReady || exceedsExcel || missingSqlServerKey}
+                aria-disabled={exportDisabled || undefined}
+                aria-describedby="export-blocked-reason"
               >
                 {contract.kind === "with_contract" && !gatePassed
                   ? `Validar y exportar ${exportFormatLabel}`
@@ -1185,9 +1192,8 @@ export function DeliveryPhase({
               </button>
             )}
           </div>
-          {exportBlockedReason && (
-            <p id="export-blocked-reason" className="export-blocked-reason">{exportBlockedReason}</p>
-          )}
+          {/* Always mounted: a live region announces text that changes, not one that appears. */}
+          <p id="export-blocked-reason" className="export-blocked-reason" role="status">{exportBlockedReason}</p>
           {contract.kind === "with_contract" && !gatePassed && !validationError && (
             <p className="export-requirement">Las reglas se comprobarán antes de crear la copia.</p>
           )}

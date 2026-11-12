@@ -127,8 +127,13 @@ reserva para selección actual, foco y acción principal. El color nunca es la
   distribución y señales de calidad. Las cifras son de todas las filas y la
   tabla lo dice encima.
 - La barra de completitud y el histograma son `aria-hidden`: la línea de texto
-  ya dice cada cifra. El nombre accesible de la cabecera sigue siendo nombre y
-  tipo, para no repetir el perfil en cada celda.
+  ya dice cada cifra y un texto oculto (`visually-hidden`) describe la forma
+  («Distribución: de x a y, la mayoría entre a y b»). El nombre accesible de la
+  cabecera sigue siendo nombre y tipo, corto, porque los lectores lo repiten en
+  las celdas; el perfil entero es su descripción (`aria-describedby` hacia el
+  bloque `.col-profile`, con un id por posición de columna), que se oye una vez
+  al situarse en la cabecera. El relleno del histograma usa el acento al 80 %
+  (3,3-3,6:1 sobre la cabecera en los temas claros, 5,7:1 en el oscuro).
 - Un identificador (todos los valores distintos) no muestra histograma: siempre
   sería plano.
 
