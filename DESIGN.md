@@ -152,7 +152,11 @@ interfaz.
 Cada etapa del flujo muestra número y nombre. Solo la actual añade su
 descripción y una marca de acento a la izquierda; una etapa terminada cambia el
 número por ✓ y se anuncia como «Completada»; «Revisar de nuevo» es la única
-etiqueta de estado visible, porque pide una acción. Los espacios no usan
+etiqueta de estado visible, porque pide una acción. En la vista compacta la
+etiqueta se sustituye por un punto en la esquina y un subrayado discontinuo bajo
+el nombre (ambos en `--accent`, sin añadir anchura); bajo 700 CSS px los números
+desaparecen pero el ✓ de las completadas queda como marca en la esquina, también
+a 320 px. El estado lo anuncia `aria-description`, no el texto visible. Los espacios no usan
 números; la numeración pertenece al flujo Cargar → Revisar → Preparar →
 Explorar → Entregar. Cuando exista un segundo espacio accionable se debe revisar
 el modelo de foco, selección, URL o persistencia antes de convertir el rótulo en

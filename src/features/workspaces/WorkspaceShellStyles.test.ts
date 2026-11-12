@@ -16,6 +16,12 @@ describe("estilos del shell", () => {
     expect(shell).toMatch(/\.flow-nav__copy strong\s*\{[^}]*overflow-wrap:\s*normal/);
   });
 
+  it("en compacto «Revisar de nuevo» se ve como punto y subrayado discontinuo, y el ✓ sobrevive bajo 700 px (AUD-065)", () => {
+    expect(shell).toMatch(/\.flow-nav__item:has\(\.flow-nav__badge\)::after\s*\{[^}]*position:\s*absolute[^}]*background:\s*var\(--accent\)/);
+    expect(shell).toMatch(/\.flow-nav__copy:has\(\.flow-nav__badge\) strong\s*\{[^}]*text-decoration:\s*underline dashed/);
+    expect(shell).toMatch(/@media \(max-width: 700px\)\s*\{[^@]*\.flow-nav__item--complete \.flow-nav__marker\s*\{[^}]*display:\s*block[^}]*position:\s*absolute/);
+  });
+
   it("el nombre del dataset y las columnas clave se leen enteros sin pasar el ratón (AUD-054)", () => {
     const read = (file: string) => readFileSync(join(process.cwd(), "src", file), "utf8");
     const rules: Array<[string, RegExp]> = [

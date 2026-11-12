@@ -384,6 +384,24 @@ html[data-density="compact"] :is(.prepare-layout, .delivery-layout) { gap: 20px;
   .flow-nav__marker { flex-basis: 22px; height: 22px; }
   .flow-nav__description,
   .flow-nav__badge { display: none; }
+  /* AUD-065: the «Revisar de nuevo» label is hidden here; a dashed underline
+     and a dot in the corner stand in for it without adding width. The state
+     itself is announced by the button's aria-description. */
+  .flow-nav__item:has(.flow-nav__badge) { position: relative; }
+  .flow-nav__item:has(.flow-nav__badge)::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .flow-nav__item .flow-nav__copy:has(.flow-nav__badge) strong {
+    text-decoration: underline dashed var(--accent) 2px;
+    text-underline-offset: 4px;
+  }
   .app-sidebar .sidebar__tools {
     grid-area: tools;
     grid-template-columns: repeat(2, auto);
@@ -401,6 +419,20 @@ html[data-density="compact"] :is(.prepare-layout, .delivery-layout) { gap: 20px;
 
 @media (max-width: 700px) {
   .flow-nav__marker { display: none; }
+  /* AUD-065: the numbers go, the ✓ of a finished step stays as a corner mark
+     that takes no room from the name (it fits at 320 px). */
+  .flow-nav__item--complete { position: relative; }
+  .flow-nav__item--complete .flow-nav__marker {
+    display: block;
+    position: absolute;
+    top: 2px;
+    right: 3px;
+    width: auto;
+    height: auto;
+    border: 0;
+    font-size: .6875rem;
+    line-height: 1;
+  }
   .flow-nav__copy strong { font-size: .8125rem; line-height: 1.2; }
   .app-topbar__status { justify-content: flex-start; }
 }
@@ -449,6 +481,11 @@ html[data-columnia-zoom="2"] .flow-nav__item { justify-content: center; padding:
 html[data-columnia-zoom="2"] .flow-nav__item[aria-current="step"] { align-items: center; box-shadow: inset 0 -3px 0 var(--accent); }
 html[data-columnia-zoom="2"] :is(.flow-nav__marker, .flow-nav__description, .flow-nav__badge) { display: none; }
 html[data-columnia-zoom="2"] .flow-nav__copy strong { font-size: .75rem; line-height: 1.2; }
+html[data-columnia-zoom="2"] .flow-nav__item:has(.flow-nav__badge),
+html[data-columnia-zoom="2"] .flow-nav__item--complete { position: relative; }
+html[data-columnia-zoom="2"] .flow-nav__item:has(.flow-nav__badge)::after { content: ""; position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+html[data-columnia-zoom="2"] .flow-nav__item .flow-nav__copy:has(.flow-nav__badge) strong { text-decoration: underline dashed var(--accent) 2px; text-underline-offset: 4px; }
+html[data-columnia-zoom="2"] .flow-nav__item--complete .flow-nav__marker { display: block; position: absolute; top: 2px; right: 3px; width: auto; height: auto; border: 0; font-size: .6875rem; line-height: 1; }
 html[data-columnia-zoom="2"] .app-sidebar .sidebar__tools { grid-area: tools; grid-template-columns: minmax(0, 1fr); margin: 0; padding: 0; border: 0; }
 html[data-columnia-zoom="2"] .app-topbar { position: static; padding: 8px 12px; }
 html[data-columnia-zoom="2"] .app-topbar__status { justify-content: flex-start; }
@@ -462,6 +499,7 @@ html[data-columnia-zoom="2"] .app-shell .workspace h2 { font-size: 1.5rem; }
   .flow-nav__item[aria-current="step"] { outline: 2px solid Highlight; outline-offset: -2px; box-shadow: none; }
   .flow-nav__item[aria-current="step"] .flow-nav__marker { border-color: Highlight; background: Highlight; color: HighlightText; }
   .flow-nav__badge { box-shadow: none; border: 1px solid CanvasText; }
+  .flow-nav__item:has(.flow-nav__badge)::after { forced-color-adjust: none; background: CanvasText; }
   :is(.engine-status, .dataset-save__status)::before { forced-color-adjust: none; background: CanvasText; }
   :root:root .workspace :is(.primary-action, .secondary-action, .pagination button, .history-actions button):is(:disabled, [aria-disabled="true"]) {
     border-color: GrayText;

@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 
 import { excelLimitIssues, personalDataColumnNames, suggestQualityRules } from "./features/delivery/deliveryModel";
 import { useDeliveryController } from "./features/delivery/useDeliveryController";
+import { useDismissablePanel } from "./useDismissablePanel";
 import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
 import { ReusableTaskPanel } from "./features/load/ReusableTaskPanel";
 import { DatabaseImportPanel } from "./features/load/DatabaseImportPanel";
@@ -275,6 +276,12 @@ export function App() {
   const [sqlConsoleOpen, setSqlConsoleOpen] = useState(false);
   const [sqlConsoleDraft, setSqlConsoleDraft] = useState<SqlQueryDraft | null>(null);
   const [sidebarLegalOpen, setSidebarLegalOpen] = useState(false);
+  const utilitiesDetailsRef = useRef<HTMLDetailsElement>(null);
+  const legalDetailsRef = useRef<HTMLDetailsElement>(null);
+  const closeUtilities = useCallback(() => setSidebarUtilitiesOpen(false), []);
+  const closeLegal = useCallback(() => setSidebarLegalOpen(false), []);
+  useDismissablePanel(sidebarUtilitiesOpen, closeUtilities, utilitiesDetailsRef);
+  useDismissablePanel(sidebarLegalOpen, closeLegal, legalDetailsRef);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const delivery = useDeliveryController({
     datasetRevisionRef,
@@ -1244,7 +1251,9 @@ export function App() {
     ? { kind: "connected" }
     : status.kind === "browser"
       ? { kind: "browser" }
-      : { kind: "unavailable" };
+      : status.kind === "error"
+        ? { kind: "unavailable", error: status.message }
+        : { kind: "unavailable" };
 
   return (
     <div className="app-shell">
@@ -1314,6 +1323,7 @@ export function App() {
         <div className="sidebar__tools">
           <details
             className="sidebar__utilities"
+            ref={utilitiesDetailsRef}
             open={sidebarUtilitiesOpen}
           >
           <summary
@@ -1357,7 +1367,7 @@ export function App() {
           </div>
           </details>
 
-          <details className="sidebar__legal" open={sidebarLegalOpen}>
+          <details className="sidebar__legal" ref={legalDetailsRef} open={sidebarLegalOpen}>
           <summary
             onClick={(event) => {
               event.preventDefault();

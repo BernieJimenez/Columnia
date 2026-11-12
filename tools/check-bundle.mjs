@@ -21,6 +21,26 @@ const FRONTEND_LIMITS = Object.freeze({
   otherTotal: Object.freeze({ rawBytes: 512 * 1024 }),
 });
 
+// AUD-079: vite.config.ts compiles for safari13 (a larger bundle) when
+// TAURI_ENV_PLATFORM is not "windows"; check.ps1 sets it, a manual build does not.
+const BUILD_TARGET_MARK = ".local/validation/frontend-build-target.json";
+
+export function buildTargetWarning(distPath, markPath = resolve(BUILD_TARGET_MARK)) {
+  let mark;
+  try {
+    mark = JSON.parse(readFileSync(markPath, "utf8"));
+  } catch {
+    return "No hay marca del target de compilación (.local/validation/frontend-build-target.json): no se sabe si el build usó el target de Windows; el veredicto puede diferir del de check.ps1.";
+  }
+  if (resolve(mark.outDir ?? "") !== resolve(distPath)) {
+    return "La marca del target de compilación es de otro directorio de salida: no se sabe con qué target se compiló este dist.";
+  }
+  if (mark.target !== "chrome105") {
+    return `El dist se compiló con target ${mark.target}, mayor que el de Windows (chrome105): compila con TAURI_ENV_PLATFORM=windows (como check.ps1) o el veredicto puede ser un falso rojo.`;
+  }
+  return null;
+}
+
 function fileKind(file) {
   const extension = extname(file).toLowerCase();
   if (extension === ".js") return "javascript";
@@ -71,7 +91,7 @@ function writeJson(outputPath, value) {
   writeFileSync(outputPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-export function checkFrontendBudget(distPath, outputPath) {
+export function checkFrontendBudget(distPath, outputPath, markPath) {
   const files = listFiles(distPath)
     .map((file) => {
       const contents = readFileSync(file);
@@ -115,9 +135,12 @@ export function checkFrontendBudget(distPath, outputPath) {
     violations.push(`Total gzip ${totals.gzipBytes} excede ${FRONTEND_LIMITS.total.gzipBytes} bytes.`);
   }
 
+  const warning = buildTargetWarning(distPath, markPath);
+  if (warning) console.warn(`AVISO: ${warning}`);
   const evidence = {
     schemaVersion: 1,
     status: violations.length === 0 ? "passed" : "failed",
+    warnings: warning ? [warning] : [],
     limits: FRONTEND_LIMITS,
     totals,
     otherRawBytes,

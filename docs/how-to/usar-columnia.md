@@ -22,7 +22,7 @@ cuando tú eliges entregar a una base de datos remota.
      los encabezados; «Generar encabezados» lee todas las filas como datos.
 3. Confirma la carga. El archivo original nunca se modifica.
 
-Para seguir con un trabajo guardado, abre **Continuar un proyecto**.
+Para seguir con un trabajo guardado, abre la tarjeta **Proyecto** de Cargar.
 
 ## 2. Revisar
 
@@ -90,5 +90,5 @@ y las reglas. Para protegerlo fuera de Columnia, sigue
 | Todo el CSV aparece en una sola columna | El separador no es la coma. En el diálogo de carga, abre «¿Columnas o acentos mal leídos?» y elige punto y coma, tabulador o barra vertical. |
 | Excel no deja exportar | Una hoja de Excel admite como máximo 1.048.575 filas de datos y 32.767 caracteres por celda. Exporta a CSV o Parquet para conservarlo todo. |
 | Cargar avisa de que Columnia tuvo un fallo interno | Los informes están en la carpeta de datos, dentro de `crash-reports`. No incluyen tus datos. Si el fallo se repite, guárdalos para revisarlo. |
-| La sesión anterior se cerró de forma inesperada | Los cambios que no estaban en un proyecto no se conservaron. Abre **Continuar un proyecto** para seguir desde el último guardado. |
+| La sesión anterior se cerró de forma inesperada | Los cambios que no estaban en un proyecto no se conservaron. Abre la tarjeta **Proyecto** de Cargar para seguir desde el último guardado. |
 | Al compilar, las pruebas Rust terminan con `STATUS_ENTRYPOINT_NOT_FOUND` | Define `COLUMNIA_TEST_HARNESS_MANIFEST=1` antes de `cargo test` (ver [CONTRIBUTING.md](../../CONTRIBUTING.md)). |

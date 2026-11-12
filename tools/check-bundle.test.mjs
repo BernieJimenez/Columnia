@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { checkFrontendBudget, parseArguments, reportProducedArtifacts, snapshotArtifacts } from "./check-bundle.mjs";
+import { buildTargetWarning, checkFrontendBudget, parseArguments, reportProducedArtifacts, snapshotArtifacts } from "./check-bundle.mjs";
 
 function withDirectory(run) {
   const root = mkdtempSync(join(tmpdir(), "columnia-bundle-test-"));
@@ -44,4 +44,16 @@ test("un artefacto con otra fecha pero el mismo contenido no cuenta como produci
   writeFileSync(installer, "new bytes");
   await reportProducedArtifacts(root, bundle, snapshot, output);
   assert.equal(JSON.parse(readFileSync(output, "utf8")).artifacts.length, 1);
+}));
+
+test("avisa si el dist no se compiló con el target de Windows (AUD-079)", () => withDirectory((root) => {
+  const dist = join(root, "dist");
+  const mark = join(root, "mark.json");
+  assert.match(buildTargetWarning(dist, mark), /No hay marca/);
+  writeFileSync(mark, JSON.stringify({ target: "safari13", outDir: dist }));
+  assert.match(buildTargetWarning(dist, mark), /safari13.*TAURI_ENV_PLATFORM=windows/);
+  writeFileSync(mark, JSON.stringify({ target: "chrome105", outDir: join(root, "otro") }));
+  assert.match(buildTargetWarning(dist, mark), /otro directorio/);
+  writeFileSync(mark, JSON.stringify({ target: "chrome105", outDir: dist }));
+  assert.equal(buildTargetWarning(dist, mark), null);
 }));

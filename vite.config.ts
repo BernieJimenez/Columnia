@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -28,8 +29,30 @@ function productionCspPreview(): Plugin {
   };
 }
 
+/**
+ * AUD-079: leaves outside `dist` (so it is not shipped) a note with the target
+ * the bundle was compiled for; `tools/check-bundle.mjs budget` reads it to warn
+ * when the build used the larger `safari13` fallback (no TAURI_ENV_PLATFORM).
+ */
+function buildTargetMark(): Plugin {
+  let target = "";
+  let outDir = "";
+  return {
+    name: "columnia-build-target-mark",
+    apply: "build",
+    configResolved(config) {
+      target = String(config.build.target);
+      outDir = resolve(config.root, config.build.outDir);
+    },
+    writeBundle() {
+      mkdirSync(".local/validation", { recursive: true });
+      writeFileSync(".local/validation/frontend-build-target.json", `${JSON.stringify({ target, outDir })}\n`);
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), productionCspPreview()],
+  plugins: [react(), productionCspPreview(), buildTargetMark()],
   clearScreen: false,
   server: {
     host: "127.0.0.1",

@@ -1304,6 +1304,19 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Los paneles «Preferencias y recursos» y «Licencia y privacidad» se cierran
+  con Esc (el foco vuelve a su botón) y con un clic fuera (AUD-063).
+- Si el motor no arranca, Cargar lo dice con el motivo y qué hacer («Cierra y
+  vuelve a abrir Columnia…»), en vez de pedir «la aplicación de escritorio»
+  (AUD-066).
+- En ventanas estrechas, la etapa Revisar marca con un punto y un subrayado
+  discontinuo que hay que revisarla de nuevo, y las etapas terminadas conservan
+  el ✓ (AUD-065).
+- Una celda sin valor se muestra como «∅ vacío» dentro de un recuadro, y ya no
+  se confunde con un texto que diga «vacío» (AUD-067).
+- Los avisos de recuperación de Cargar y las guías nombran la tarjeta
+  «Proyecto», no la sección «Continuar un proyecto», que ya no existe
+  (AUD-064).
 - Un dataset traído de una base de datos con el límite de filas alcanzado, o
   con textos recortados o caracteres sustituidos, lo dice en la barra superior
   («Parte de la tabla: primeras 100.000 filas de dbo.Ventas») y en el resumen
@@ -1668,8 +1681,12 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Interno
 
+- `node tools/check-bundle.mjs budget` avisa cuando el `dist` no se compiló
+  con el target de Windows (un build manual sin `TAURI_ENV_PLATFORM` pesa unos
+  28 kB más y puede dar un falso rojo). Revisado el contenido del bundle; la
+  reducción queda en AUD-116 (AUD-079).
 - El presupuesto del bundle de la interfaz sin comprimir sube de 896 a 928 KiB
-  (comprimido sigue en 240 KiB); la revisión de su contenido queda en AUD-079.
+  (comprimido sigue en 240 KiB); la revisión de su contenido se hizo en AUD-079.
 - Las páginas de conflictos leen las filas comparadas por tramos ordenados y en
   paralelo, en vez de una lectura por fila (hasta 45 veces menos con filas
   cercanas; unas 3 con filas dispersas; AUD-038). Revisar

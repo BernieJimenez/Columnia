@@ -43,20 +43,22 @@ la tanda 15 (AUD-109, 110 y 111), con la que Rendimiento queda sin abiertas. Des
 tanda 16 (AUD-049, 050, 051, 052, 053 y 054), aplicada en paralelo, y la tanda 17
 (AUD-055, 058, 060, 061 y 062; AUD-059 avanza y sigue abierta), con la que
 Accesibilidad queda sin abiertas y el catálogo de proyectos pasa a la versión 17.
+El 2026-11-12 se cerró la tanda 18 (AUD-079, 063, 064, 065, 066 y 067) y se
+abrió AUD-116, salida de la revisión del bundle de AUD-079.
 
 <!-- indice:inicio -->
-**Última actualización:** 2026-11-11 · **Siguiente ID libre:** AUD-116 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
+**Última actualización:** 2026-11-12 · **Siguiente ID libre:** AUD-117 · **Último informe:** [2026-11-05](docs/auditorias/2026-11-05/INFORME.md)
 
 | Tier | Abiertas | Cerradas | Esfuerzo de las abiertas (Bajo · Medio · Alto) |
 |---|---|---|---|
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 33 | 46 | 32 · 1 · 0 |
+| 3 · Bajo | 28 | 52 | 26 · 2 · 0 |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **34** | **81** | **33 · 1 · 0** |
+| **Total** | **29** | **87** | **27 · 2 · 0** |
 
-**Abiertas por área:** UI/UX 13 · Documentación 9 · QA y testing 7 · Redacción 5
+**Abiertas por área:** Documentación 9 · UI/UX 8 · QA y testing 7 · Redacción 5
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -910,45 +912,50 @@ Sin tareas abiertas.
   - **Origen:** auditoría 2026-11-05
   - **Cierre:** 2026-11-11 · tanda 17 de la Fase 2 (en `master`). El estado `inspecting` lleva `origin`; con `"database"`, Cargar no muestra «Esperando la selección y verificando el formato local…». Comprobado en el navegador con un `MutationObserver` durante la importación de `dbo.Ventas`: el aviso no aparece en ningún momento.
 
-- [ ] **AUD-063 · Los paneles «Preferencias y recursos» y «Licencia y privacidad» (ventanas de más de 900 px) no se cierran con Esc ni con clic fuera, y bloquean el scroll de la página**
+- [x] **AUD-063 · Los paneles «Preferencias y recursos» y «Licencia y privacidad» (ventanas de más de 900 px) no se cierran con Esc ni con clic fuera, y bloquean el scroll de la página**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/styles.css:1411-1432`
   - **Qué hacer:** `keydown` de Esc y clic fuera cierran el panel y devuelven el foco al `summary`; o convertirlos en `ModalDialog variant="drawer"`.
   - **Criterio de aceptación:** Esc cierra ambos paneles y devuelve el foco a su botón.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 18 de la Fase 2 (en `master`). `useDismissablePanel` (`src/useDismissablePanel.ts`) en los dos `<details>` de la barra lateral: Esc cierra el panel y devuelve el foco a su `summary`; un clic fuera lo cierra y solo devuelve el foco si estaba dentro del panel y el clic cayó en algo no enfocable. El bloqueo del scroll (`html:has(details[open])`, panel `position: fixed`) se conserva: con Esc y clic fuera deja de ser una trampa. Comprobado en el navegador a 1280 px con los dos paneles (Esc, foco, clic en el área de trabajo, scroll liberado al cerrar; al abrir uno con el otro abierto queda solo el segundo). Pruebas en `App.test.tsx`. No comprobado: NVDA ni Narrador.
 
-- [ ] **AUD-064 · Textos que mandan a «Continuar un proyecto», una sección que el rediseño de Cargar eliminó**
+- [x] **AUD-064 · Textos que mandan a «Continuar un proyecto», una sección que el rediseño de Cargar eliminó**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/features/load/LoadPhase.tsx:192`
   - **Qué hacer:** cambiar los dos textos por «en la pestaña Proyecto de más abajo» (o «en la tarjeta Proyecto») y actualizar `CONTEXTO.md:295`.
   - **Criterio de aceptación:** ningún texto de la interfaz ni de la documentación viva nombra un control que no existe; el texto de recuperación coincide con la etiqueta de la tarjeta.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 18 de la Fase 2 (en `master`). Los dos avisos de Cargar dicen «en la tarjeta «Proyecto» de más abajo» (el control es una tarjeta de opción, no una pestaña); `CONTEXTO.md` y cuatro menciones de `docs/how-to/` (`usar-columnia.md`, `respaldar-proyectos.md`) dicen «la tarjeta **Proyecto** de Cargar». Sin menciones restantes de «Continuar un proyecto» en `src/`, `e2e/`, `README.md` ni la documentación viva.
 
-- [ ] **AUD-065 · En la vista compacta desaparece la etiqueta «Revisar de nuevo», y bajo 700 px también los números y las marcas ✓**
+- [x] **AUD-065 · En la vista compacta desaparece la etiqueta «Revisar de nuevo», y bajo 700 px también los números y las marcas ✓**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/shell.css:376-377`
   - **Qué hacer:** en compacto, mostrar un punto o un subrayado discontinuo junto al nombre de «Revisar» cuando haga falta revisarla de nuevo, y conservar el ✓ de las completadas; ajustar `DESIGN.md` si se decide no hacerlo.
   - **Criterio de aceptación:** a 900 px, tras cambiar datos en Preparar, la etapa Revisar se distingue visualmente de una no visitada.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 18 de la Fase 2 (en `master`). Solo CSS (`shell.css`): hasta 900 px la etiqueta sigue oculta y la sustituyen un punto de 6 px en la esquina y un subrayado discontinuo bajo el nombre, en `--accent` (unos 9:1 sobre la barra); bajo 700 px el ✓ de las completadas queda como marca en la esquina, sin restar anchura. Las mismas reglas con zoom al 200 % y `CanvasText` en `forced-colors`. `DESIGN.md` y `WorkspaceShellStyles.test.ts` actualizados. Comprobado en el navegador a 900, 699 y 320 px (punto, subrayado, ✓ y sin desbordamiento horizontal), reproduciendo el marcado del estado «Revisar de nuevo» sobre la app cargada; no se llegó al estado mutando datos en Preparar con el simulador.
 
-- [ ] **AUD-066 · El error del motor solo se ve como una línea pequeña en la barra superior, y Cargar sigue diciendo «desde la aplicación de escritorio»**
+- [x] **AUD-066 · El error del motor solo se ve como una línea pequeña en la barra superior, y Cargar sigue diciendo «desde la aplicación de escritorio»**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/App.tsx:1390-1401`
   - **Qué hacer:** un `notice--error` en Cargar con el mensaje y los pasos («Cierra y vuelve a abrir Columnia; si se repite, crea un informe de diagnóstico en Preferencias»).
   - **Criterio de aceptación:** con `get_app_info` fallando, Cargar muestra el motivo y la acción.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 18 de la Fase 2 (en `master`). `LoadRuntimeState` lleva el mensaje en `{ kind: "unavailable", error }`; con el motor en error, Cargar muestra un `notice--error` («El motor de Columnia no responde: …» y «Cierra y vuelve a abrir Columnia. Si se repite, crea un informe de diagnóstico en Preferencias.»), y «desde la aplicación de escritorio» queda solo para la vista previa en navegador. Comprobado en el navegador con `get_app_info` fallando. Pruebas en `App.test.tsx`. Queda como observación: el error se anuncia dos veces (`role="alert"` en la barra y en Cargar).
 
-- [ ] **AUD-067 · Un valor ausente y una celda con la palabra «vacío» se ven casi iguales**
+- [x] **AUD-067 · Un valor ausente y una celda con la palabra «vacío» se ven casi iguales**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `src/components/MissingValue.tsx:9`
   - **Qué hacer:** rodear el nulo de un marcador no textual (por ejemplo «∅ vacío» o «(vacío)» con borde tenue) y `title="Sin valor"`.
   - **Criterio de aceptación:** una celda de texto «vacío» y un nulo se distinguen sin depender solo del color.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 18 de la Fase 2 (en `master`). `MissingValue` pinta «∅ vacío» dentro de una caja con borde `--border-subtle` y `title="Sin valor"`; el símbolo y la palabra son `aria-hidden` y el nombre accesible sigue siendo «valor ausente». Comprobado en el navegador (temas claro y oscuro): la fila con el nulo mide lo mismo que las demás (47,5 px) y una celda con el texto «vacío» no lleva marcador. Prueba nueva `MissingValue.test.tsx`.
 
 - [ ] **AUD-068 · El perfil de las cabeceras provoca un salto de diseño en la tabla**
   - **Área:** UI/UX · **Severidad:** Bajo · **Esfuerzo:** Bajo
@@ -1008,13 +1015,22 @@ Sin tareas abiertas.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
 
-- [ ] **AUD-079 · El presupuesto del bundle queda al 0,5 % y da un falso rojo si se compila sin `TAURI_ENV_PLATFORM`**
+- [x] **AUD-079 · El presupuesto del bundle queda al 0,5 % y da un falso rojo si se compila sin `TAURI_ENV_PLATFORM`**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo
   - **Ubicación:** `tools/check-bundle.mjs:8-19`
   - **Qué hacer:** que `tools/check-bundle.mjs budget` avise cuando detecte el target `safari13` (o que `npm run build` fije la variable), y revisar qué pesa más en `index-*.js` (430 kB) antes del siguiente aumento.
   - **Criterio de aceptación:** `node tools/check-bundle.mjs budget` sobre un build manual da el mismo veredicto que `check.ps1`, o avisa de por qué no.
   - **Depende de:** ninguna
   - **Origen:** auditoría 2026-11-05
+  - **Cierre:** 2026-11-12 · tanda 18 de la Fase 2 (en `master`). `vite.config.ts` deja fuera de `dist` una marca con el target del build (`.local/validation/frontend-build-target.json`) y `tools/check-bundle.mjs budget` avisa (sin cambiar el veredicto) si falta, si es de otro directorio o si el target no es `chrome105`; el aviso va también a `warnings` de la evidencia. Build manual sin la variable: avisa y mide 948.515 bytes; con `TAURI_ENV_PLATFORM=windows`, sin aviso y 920.940, como `check.ps1`. Revisión del contenido: `index-*.js` son unos 429 kB, de los que `react-dom` ocupa 207 kB; lo propio que más pesa es `App.tsx` (34 kB), `LoadPhase.tsx` (32 kB) y `deliveryModel.ts` (22 kB, importado entero por `App.tsx`). Reducción posible sin cambiar dependencias: unos 60-80 kB (ver AUD-116).
+
+- [ ] **AUD-116 · `index-*.js` carga de entrada código que solo usan Entregar, los paneles secundarios de Cargar y los diálogos**
+  - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Medio
+  - **Ubicación:** `src/App.tsx:6`
+  - **Qué hacer:** antes de volver a subir el presupuesto del bundle: (1) que `App.tsx` no importe `deliveryModel.ts` entero (unos 22 kB) por `excelLimitIssues`, `personalDataColumnNames` y `suggestQualityRules`; (2) cargar a demanda `DatabaseImportPanel`, `ReusableTaskPanel` y `ProjectsPanel` (unos 27 kB); (3) lo mismo con `DiagnosticsDialog`, `UpdatePanel` y `ResourceMonitor` (unos 15 kB). `react-dom` (207 kB) no se toca.
+  - **Criterio de aceptación:** `index-*.js` baja al menos 40 kB sin comprimir con `TAURI_ENV_PLATFORM=windows`, la suite y Playwright pasan, y Cargar no muestra un parpadeo al abrir sus tarjetas.
+  - **Depende de:** ninguna
+  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-079 (medición con sourcemap del 2026-11-12, cifras aproximadas)
 
 - [ ] **AUD-080 · La expulsión de la caché de perfil nunca se prueba: capacidad 64 en pruebas y 1 en producción**
   - **Área:** QA y testing · **Severidad:** Bajo · **Esfuerzo:** Bajo

@@ -34,7 +34,7 @@ import { projectDate } from "../projects/projectModel";
 export type LoadRuntimeState =
   | { kind: "connected" }
   | { kind: "browser" }
-  | { kind: "unavailable" };
+  | { kind: "unavailable"; error?: string };
 
 type LoadSource = "file" | "database" | "sample" | "project";
 
@@ -183,18 +183,25 @@ export function LoadPhase({
         {current && selectionAction}
       </header>
 
+      {runtime.kind === "unavailable" && runtime.error && (
+        <div className="notice notice--error" role="alert">
+          <p>El motor de Columnia no responde: {runtime.error}</p>
+          <p>Cierra y vuelve a abrir Columnia. Si se repite, crea un informe de diagnóstico en Preferencias.</p>
+        </div>
+      )}
+
       {previousExitUnclean && !current && (
         <section className="notice" aria-labelledby="previous-exit-title">
           <h3 id="previous-exit-title">La sesión anterior se cerró de forma inesperada</h3>
           {lastSavedProject ? (
             <p>
               Último guardado: {projectDate(lastSavedProject.updatedAt)} ({lastSavedProject.name}). Los cambios
-              posteriores no se conservaron; puedes recuperarlo en «Continuar un proyecto».
+              posteriores no se conservaron; puedes recuperarlo en la tarjeta «Proyecto» de más abajo.
             </p>
           ) : lastSavedProject === null ? (
             <p>No había ningún proyecto guardado, así que los cambios de esa sesión no se conservaron.</p>
           ) : (
-            <p>Los cambios que no estaban guardados en un proyecto no se conservaron. Si guardaste uno, puedes recuperarlo en «Continuar un proyecto».</p>
+            <p>Los cambios que no estaban guardados en un proyecto no se conservaron. Si guardaste uno, puedes recuperarlo en la tarjeta «Proyecto» de más abajo.</p>
           )}
           <button type="button" className="secondary-action" onClick={onDismissPreviousExit}>Entendido</button>
         </section>
@@ -267,7 +274,7 @@ export function LoadPhase({
           <div className="load-brief__lead">
             <div>
               <h3 id="load-brief-title">Trae tus datos a un espacio de trabajo local.</h3>
-              <p>Selecciona un archivo{runtime.kind === "connected" ? " o arrástralo a esta ventana" : " desde la aplicación de escritorio"}. Conservamos el original mientras trabajas.</p>
+              <p>Selecciona un archivo{runtime.kind === "connected" ? " o arrástralo a esta ventana" : runtime.kind === "browser" ? " desde la aplicación de escritorio" : ""}. Conservamos el original mientras trabajas.</p>
               {selectionAction}
               <p className="load-brief__formats">CSV · TSV · TXT · JSON · Parquet · Excel · ODS · los archivos grandes se leen por bloques, con menos opciones</p>
             </div>

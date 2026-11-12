@@ -3122,6 +3122,30 @@ describe("App", () => {
     expect(legalDetails).not.toHaveAttribute("open");
   });
 
+  it.each(["Preferencias y recursos", "Licencia y privacidad"])("cierra el panel «%s» con Esc y devuelve el foco a su botón", (label) => {
+    renderAppWithHeaderConfirmation();
+    const summary = screen.getByText(label);
+    const details = summary.closest("details");
+    fireEvent.click(summary);
+    expect(details).toHaveAttribute("open");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(details).not.toHaveAttribute("open");
+    expect(summary).toHaveFocus();
+  });
+
+  it("cierra el panel flotante con un clic fuera sin quitar el foco al control pulsado", () => {
+    renderAppWithHeaderConfirmation();
+    const summary = screen.getByText("Preferencias y recursos");
+    const details = summary.closest("details");
+    fireEvent.click(summary);
+    expect(details).toHaveAttribute("open");
+    const other = screen.getByText("Licencia y privacidad");
+    other.focus();
+    fireEvent.click(document.body);
+    expect(details).not.toHaveAttribute("open");
+    expect(summary).not.toHaveFocus();
+  });
+
   it.each([
     { mutation: "join", outcome: "cancelled" },
     { mutation: "join", outcome: "error" },
@@ -3513,7 +3537,26 @@ describe("App", () => {
     vi.spyOn(bridge, "listSampleDatasets").mockResolvedValue([]);
 
     render(<App />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Error del motor: motor no disponible");
+    expect(await screen.findByText("Error del motor: motor no disponible")).toHaveAttribute("role", "alert");
+  });
+
+  it("Cargar muestra el motivo del fallo del motor y los pasos a seguir, no «desde la aplicación de escritorio»", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockRejectedValue(new Error("motor no disponible"));
+    vi.spyOn(bridge, "listProjects").mockResolvedValue({ projects: [], recoveryCandidate: null });
+    vi.spyOn(bridge, "listSampleDatasets").mockResolvedValue([]);
+
+    render(<App />);
+    const notice = (await screen.findByText(/El motor de Columnia no responde: motor no disponible/)).closest(".notice--error");
+    expect(notice).toHaveAttribute("role", "alert");
+    expect(notice).toHaveTextContent("Cierra y vuelve a abrir Columnia. Si se repite, crea un informe de diagnóstico en Preferencias.");
+    expect(screen.queryByText(/desde la aplicación de escritorio/)).not.toBeInTheDocument();
+  });
+
+  it("en la vista previa del navegador Cargar sigue pidiendo la aplicación de escritorio, sin error del motor", () => {
+    render(<App />);
+    expect(screen.getByText(/desde la aplicación de escritorio/)).toBeInTheDocument();
+    expect(screen.queryByText(/El motor de Columnia no responde/)).not.toBeInTheDocument();
   });
 
   it("normaliza un rechazo no tipado al inicializar el motor", async () => {
@@ -3523,7 +3566,7 @@ describe("App", () => {
     vi.spyOn(bridge, "listSampleDatasets").mockResolvedValue([]);
 
     render(<App />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Error del motor: motor no disponible");
+    expect(await screen.findByText("Error del motor: motor no disponible")).toHaveAttribute("role", "alert");
   });
 
   it("tolera un selector cancelado y permite reintentar una muestra delimitada", async () => {

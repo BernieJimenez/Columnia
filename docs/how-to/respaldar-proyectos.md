@@ -46,7 +46,7 @@ guardarías los archivos originales.
    `app.columnia.desktop.antes`) en lugar de borrarla.
 3. Copia la carpeta respaldada a `%APPDATA%` con el nombre
    `app.columnia.desktop`.
-4. Abre Columnia y entra en **Continuar un proyecto**. Los proyectos deben
+4. Abre Columnia y elige la tarjeta **Proyecto** en Cargar. Los proyectos deben
    aparecer con sus versiones. Abre uno para comprobarlo.
 5. Cuando todo esté bien, borra la carpeta renombrada del paso 2.
 
@@ -59,7 +59,7 @@ Si Windows se apagó o Columnia se cerró de golpe, al volver a abrirla Cargar
 avisa: «La sesión anterior se cerró de forma inesperada».
 
 - Los cambios guardados en un proyecto están a salvo. Ábrelo desde
-  **Continuar un proyecto**.
+  la tarjeta **Proyecto** de Cargar.
 - Los cambios posteriores al último guardado no se conservaron. Para no
   perderlos la próxima vez, guarda el proyecto al terminar cada etapa.
 - Si Cargar avisa de que se apartó un catálogo que no se podía abrir (de
