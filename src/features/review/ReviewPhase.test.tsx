@@ -1480,7 +1480,7 @@ describe("ReviewPhase", () => {
 
     expect(screen.getByLabelText("Vista previa del dataset")).toHaveAttribute("tabindex", "0");
     expect(screen.getByText("Filas 51–52 de 120")).toHaveAttribute("aria-live", "polite");
-    expect(screen.getByText("vacío")).toBeInTheDocument();
+    expect(screen.getByText("nulo")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Anterior" }));
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
     expect(onPageChange).toHaveBeenNthCalledWith(1, 0);
@@ -1496,7 +1496,7 @@ describe("ReviewPhase", () => {
     const block = document.getElementById(describedBy ?? "");
     expect(block).toHaveClass("col-profile");
     expect(header).toContainElement(block);
-    expect(block).toHaveTextContent(/sin vacíos/);
+    expect(block).toHaveTextContent(/sin nulos/);
     // Without a profile for the column there is nothing to describe.
     expect(screen.getByRole("columnheader", { name: /^nota / })).not.toHaveAttribute("aria-describedby");
   });

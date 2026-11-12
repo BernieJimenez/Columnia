@@ -96,7 +96,7 @@ describe("modelo de preparación", () => {
     })).toBe(false);
   });
 
-  it("pide confirmar conversiones de tipo y de fecha, que pueden dejar celdas vacías (FUN-F2-19)", () => {
+  it("pide confirmar conversiones de tipo y de fecha, que pueden dejar celdas nulas (FUN-F2-19)", () => {
     expect(requiresImpactConfirmation({ ...emptyRecipe, casts: [{ column: "importe", target: "integer" }] })).toBe(true);
     expect(requiresImpactConfirmation({ ...emptyRecipe, casts: [{ column: "importe", target: "string" }] })).toBe(false);
     expect(requiresImpactConfirmation({
@@ -143,12 +143,12 @@ describe("appliedPlanChanges", () => {
 });
 
 describe("resumen común de un cambio (PROD-10)", () => {
-  it("dice celdas vacías, filas quitadas y si se puede deshacer, con plurales 0/1/N", () => {
+  it("dice celdas nulas, filas quitadas y si se puede deshacer, con plurales 0/1/N", () => {
     expect(formatChangeSummary({ nulledCellCount: 0, removedRowCount: 0, reversible: true }))
-      .toBe("Ninguna celda quedó vacía · no se quitaron filas · puedes deshacerlo.");
+      .toBe("Ninguna celda quedó nula · no se quitaron filas · puedes deshacerlo.");
     expect(formatChangeSummary({ nulledCellCount: 1, removedRowCount: 1, reversible: true }))
-      .toBe("1 celda quedó vacía · se quitó 1 fila · puedes deshacerlo.");
+      .toBe("1 celda quedó nula · se quitó 1 fila · puedes deshacerlo.");
     expect(formatChangeSummary({ nulledCellCount: 1200, removedRowCount: 3, reversible: false }))
-      .toBe(`${(1200).toLocaleString()} celdas quedaron vacías · se quitaron 3 filas · no se puede deshacer porque el historial está desactivado.`);
+      .toBe(`${(1200).toLocaleString()} celdas quedaron nulas · se quitaron 3 filas · no se puede deshacer porque el historial está desactivado.`);
   });
 });

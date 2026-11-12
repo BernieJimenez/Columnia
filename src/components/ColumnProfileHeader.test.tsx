@@ -58,7 +58,7 @@ describe("ColumnProfileHeader", () => {
 
   it("dice «todos distintos» cuando cada fila tiene un valor propio", () => {
     const { container } = render(<ColumnProfileHeader column={{ name: "id", dataType: "Int64" }} profile={columnProfile({ nullCount: 0, completenessPercentage: 100, uniqueCount: 50 })} rowCount={50} />);
-    expect(container).toHaveTextContent("sin vacíos · todos distintos");
+    expect(container).toHaveTextContent("sin nulos · todos distintos");
     expect(container.querySelector(".col-profile__histogram")).toBeNull();
   });
 

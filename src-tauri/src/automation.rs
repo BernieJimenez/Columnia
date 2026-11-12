@@ -15,16 +15,16 @@ use crate::{
 };
 
 const WORKBOOK_FLAGS: &str = "Para XLSX, XLS, XLSB u ODS son obligatorios --sheet <nombre-exacto> y --header first-row|generated. En otros formatos están prohibidos.";
-const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli quality-migration-report --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, TXT, JSON, JSONL, NDJSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. quality-migration-report, validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2 cuando requieren revisión; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
+const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|sqlserver-script|sqlserver-bulk|bundle\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli quality-migration-report --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|sqlserver-script|sqlserver-bulk|bundle [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, TXT, JSON, JSONL, NDJSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. quality-migration-report, validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2 cuando requieren revisión; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
 const INSPECT_HELP: &str = "USO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n\nInspecciona un dataset y emite esquema y dimensiones como JSON, sin filas ni rutas.\n";
-const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--force]\n\nAplica una receta Columnia y publica la salida atómicamente. Nunca escribe sobre --input ni --recipe; reemplazar otro archivo existente exige --force. CSV y Excel escriben valores como texto seguro; SQL produce un script portable, SQLite una base local con tabla dataset y bundle un ZIP con dataset, diccionario, receta validada, calidad opcional y manifest.\n";
+const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|sqlserver-script|sqlserver-bulk|bundle [--force]\n\nAplica una receta Columnia y publica la salida atómicamente. Nunca escribe sobre --input ni --recipe; reemplazar otro archivo existente exige --force. CSV y Excel escriben valores como texto seguro; SQL produce un script portable, SQLite una base local con tabla dataset, sqlserver-script (alias tsql) un script T-SQL para SQL Server, sqlserver-bulk un ZIP con CSV, cargar.sql y LEEME.txt para BULK INSERT y bundle un ZIP con dataset, diccionario, receta validada, calidad opcional y manifest.\n";
 const VALIDATE_HELP: &str = "USO:\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nEvalúa un contrato JSON Columnia con {\"format\":\"columnia-quality-rules\",\"version\":1,\"rules\":[...]}. El documento anterior {\"version\":1,\"rules\":[...]} sigue admitido por compatibilidad. Emite solo conteos; código 0 si pasa y 2 si no pasa.\n";
 const QUALITY_MIGRATION_REPORT_HELP: &str = "USO:\n  columnia-cli quality-migration-report --rules <ruta.json>\n\nHace un preflight sanitizado de un contrato Columnia, Legacy v1–v3 o legacy. Resume por regla la severidad y las políticas on_missing/null_policy, identifica omisiones y devuelve código 2 si hace falta revisión manual. No migra ni evalúa filas.\n";
 const BATCH_HELP: &str = "USO:\n  columnia-cli batch --manifest <ruta.json> [--force]\n\nEjecuta de 1 a 64 transformaciones declaradas en un manifiesto JSON v1 estricto. Las rutas relativas se resuelven desde la carpeta del manifiesto o outputRoot. Por defecto las salidas quedan confinadas a ese root, no pueden usar rutas absolutas, traversal ni reemplazar archivos existentes. --force permite un destino externo o existente, pero no permite colisionar con el manifiesto, inputs o recetas. El preflight valida todos los trabajos antes de escribir. Cada trabajo publica su salida atómicamente, pero el lote no es una transacción global: si un trabajo falla, conserva las salidas anteriores y termina con código 2. Un manifiesto o uso inválido termina con código 1.\n";
 const PROJECT_LIST_HELP: &str = "USO:\n  columnia-cli project-list --store <directorio>\n\nLista resúmenes de proyectos persistidos y emite JSON v1 sin rutas ni muestras.\n";
 const PROJECT_SAVE_HELP: &str = "USO:\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n\nCrea o actualiza un proyecto. La receta, las reglas y el perfil son opcionales. --recipe acepta recetas Columnia y pipelines Legacy v1–v3; las operaciones de limpieza seleccionadas del pipeline se reproducen antes de la transformación estructural.\n";
 const PROJECT_INSPECT_HELP: &str = "USO:\n  columnia-cli project-inspect --store <directorio> --id <id>\n\nEmite metadatos, flags y conteos del proyecto sin abrir una sesión de escritorio.\n";
-const PROJECT_EXPORT_HELP: &str = "USO:\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated] [--force]\n\nNunca escribe sobre el archivo de origen del proyecto; reemplazar otro archivo existente exige --force. Las reglas guardadas siempre deben pasar. --allow-unvalidated solo permite exportar proyectos sin reglas. La publicación es atómica; un bundle incluye la receta validada del proyecto cuando existe.\n";
+const PROJECT_EXPORT_HELP: &str = "USO:\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|sqlserver-script|sqlserver-bulk|bundle [--allow-unvalidated] [--force]\n\nNunca escribe sobre el archivo de origen del proyecto; reemplazar otro archivo existente exige --force. Las reglas guardadas siempre deben pasar. --allow-unvalidated solo permite exportar proyectos sin reglas. La publicación es atómica; sqlserver-script (alias tsql) y sqlserver-bulk generan el script T-SQL o el paquete BULK INSERT para SQL Server; un bundle incluye la receta validada del proyecto cuando existe.\n";
 const PROJECT_DELETE_HELP: &str = "USO:\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nElimina el proyecto solo cuando --confirm coincide exactamente con --id.\n";
 const BATCH_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const BATCH_MAX_JOBS: usize = 64;
@@ -1951,6 +1951,81 @@ mod tests {
             }
         });
         fs::write(path, serde_json::to_vec(&document).unwrap()).unwrap();
+    }
+
+    /// Formatos de `--format` en `line` (la lista `a|b|c` que sigue a `--format`).
+    fn advertised_formats(line: &str) -> Vec<String> {
+        let rest = line
+            .split("--format ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("falta --format en: {line}"));
+        rest.split_whitespace()
+            .next()
+            .unwrap()
+            .split('|')
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn help_and_docs_list_the_formats_the_parser_accepts() {
+        // Formatos aceptados por `parse_format`, salvo alias (tsql, xlsx, zip).
+        let accepted = [
+            "csv",
+            "json",
+            "parquet",
+            "sql",
+            "excel",
+            "sqlite",
+            "sqlserver-script",
+            "sqlserver-bulk",
+            "bundle",
+        ];
+        for format in accepted {
+            assert!(parse_format(OsString::from(format)).is_ok(), "{format}");
+        }
+        // El mensaje de error del parser lista los mismos formatos.
+        let message = parse_format(OsString::from("nope"))
+            .unwrap_err()
+            .to_string();
+        for format in accepted {
+            assert!(message.contains(format), "error sin {format}");
+        }
+
+        let cli_doc = include_str!("../../docs/reference/cli.md");
+        let sources: [(&str, &str, &str); 3] = [
+            ("TRANSFORM_HELP", TRANSFORM_HELP, "transform --input"),
+            (
+                "PROJECT_EXPORT_HELP",
+                PROJECT_EXPORT_HELP,
+                "project-export --store",
+            ),
+            ("GENERAL_HELP", GENERAL_HELP, "columnia-cli transform"),
+        ];
+        let expected: Vec<String> = accepted.iter().map(|f| (*f).to_owned()).collect();
+        for (name, help, _) in sources {
+            for line in help.lines().filter(|l| l.contains("--format ")) {
+                assert_eq!(advertised_formats(line), expected, "{name}: {line}");
+            }
+        }
+        for line in GENERAL_HELP
+            .lines()
+            .filter(|l| l.contains("columnia-cli project-export"))
+        {
+            assert_eq!(advertised_formats(line), expected, "GENERAL_HELP export");
+        }
+        for prefix in ["transform --input", "project-export --store"] {
+            let line = cli_doc
+                .lines()
+                .find(|l| l.starts_with(prefix))
+                .unwrap_or_else(|| panic!("cli.md sin línea {prefix}"));
+            assert_eq!(advertised_formats(line), expected, "cli.md: {line}");
+        }
+        for (name, help, _) in sources.iter().take(2) {
+            for hidden in ["sqlserver-script", "sqlserver-bulk"] {
+                assert!(help.contains(hidden), "{name} sin {hidden}");
+            }
+        }
     }
 
     #[test]

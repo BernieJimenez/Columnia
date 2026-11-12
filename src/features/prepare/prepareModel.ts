@@ -201,7 +201,7 @@ export function cellCount(count: number): string {
   return count === 1 ? "1 celda" : `${count.toLocaleString()} celdas`;
 }
 
-/** «2 celdas quedaron vacías (importe: 2).» or "" when nothing was emptied. */
+/** «2 celdas quedaron nulas (importe: 2).» or "" when nothing was emptied. */
 export function nullifiedCellsSentence(columns: ChangedTextColumn[]): string {
   const emptied = columns.filter((column) => (column.nullifiedCellCount ?? 0) > 0);
   const total = emptied.reduce((sum, column) => sum + (column.nullifiedCellCount ?? 0), 0);
@@ -209,7 +209,7 @@ export function nullifiedCellsSentence(columns: ChangedTextColumn[]): string {
   const detail = emptied
     .map((column) => `${column.name}: ${(column.nullifiedCellCount ?? 0).toLocaleString()}`)
     .join(", ");
-  return ` ${cellCount(total)} que no encajaban ${total === 1 ? "quedó vacía" : "quedaron vacías"} (${detail}).`;
+  return ` ${cellCount(total)} que no encajaban ${total === 1 ? "quedó nula" : "quedaron nulas"} (${detail}).`;
 }
 
 /**
@@ -218,8 +218,8 @@ export function nullifiedCellsSentence(columns: ChangedTextColumn[]): string {
  */
 export function formatChangeSummary(change: ChangeSummary): string {
   const nulled = change.nulledCellCount === 0
-    ? "Ninguna celda quedó vacía"
-    : `${plural(change.nulledCellCount, "celda quedó vacía", "celdas quedaron vacías")}`;
+    ? "Ninguna celda quedó nula"
+    : `${plural(change.nulledCellCount, "celda quedó nula", "celdas quedaron nulas")}`;
   const removed = change.removedRowCount === 0
     ? "no se quitaron filas"
     : `${change.removedRowCount === 1 ? "se quitó" : "se quitaron"} ${plural(change.removedRowCount, "fila", "filas")}`;

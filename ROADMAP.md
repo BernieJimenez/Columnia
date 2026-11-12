@@ -33,11 +33,11 @@ CHANGELOG.
 | 0 · Crítico | 0 | 0 | — |
 | 1 · Alto | 0 | 0 | — |
 | 2 · Medio | 0 | 35 | — |
-| 3 · Bajo | 6 | 79 | 6 · 0 · 0 |
+| 3 · Bajo | 0 | 85 | — |
 | 4 · Propuestas | 1 | 0 | 1 · 0 · 0 |
-| **Total** | **7** | **114** | **7 · 0 · 0** |
+| **Total** | **1** | **120** | **1 · 0 · 0** |
 
-**Abiertas por área:** Documentación 5 · Redacción 1 · UI/UX 1
+**Abiertas por área:** UI/UX 1
 <!-- indice:fin -->
 <!-- revision-2026-11-05:fin -->
 
@@ -136,57 +136,7 @@ Sin tareas abiertas.
 
 ## Tier 3 · Bajo (revisión 2026-11-05)
 
-### Ortografía y redacción
-
-- [ ] **AUD-121 · La celda nula se pinta como «∅ vacío» y Preparar dice que las celdas «quedan vacías» al convertir**
-  - **Área:** Redacción · **Severidad:** Bajo · **Esfuerzo:** Bajo
-  - **Ubicación:** `src/components/MissingValue.tsx:10` (texto visible «vacío» en las tablas de Cargar, Revisar y Preparar); `src/features/prepare/PreparePhase.tsx:732` («quedará vacía»), `:751` («Convertir y dejar vacías»), `:1168` y `:1183` («quedan vacíos»); `src/features/prepare/prepareModel.ts:212-222` («quedó vacía»); `src/features/prepare/TransformRecipeEditor.tsx:949`
-  - **Qué hacer:** usar «nulo» para la celda sin valor, como fija el glosario (AUD-084): el símbolo pasa a «∅ nulo» (el nombre accesible «valor ausente» se conserva) y las frases de conversión dicen «quedará nula», «quedan nulos». No tocar «filas vacías», «columnas vacías» ni «texto vacío», que son otra cosa. Ajustar las pruebas que citen el texto (`MissingValue.test.tsx`, `ReviewPhase.test.tsx`, `PreparePhase.test.tsx`) y comprobar en la interfaz que el símbolo no cambia el ancho de las tablas.
-  - **Criterio de aceptación:** ninguna frase de la interfaz llama «vacía» a una celda nula; las tablas pintan «∅ nulo» y el lector de pantalla sigue oyendo «valor ausente».
-  - **Depende de:** ninguna
-  - **Origen:** Fase 2 de la auditoría 2026-11-05, al aplicar AUD-120
-
-### Documentación
-
-- [ ] **AUD-093 · El README no indica cómo ejecutar las pruebas Rust ni el gate oficial**
-  - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo
-  - **Ubicación:** `README.md:112-119`
-  - **Qué hacer:** añadir en el README: «Validación local: `.\tools\check.ps1 -Profile Fast`; para cambios en Rust, `-Profile Full` y `cargo test --manifest-path src-tauri/Cargo.toml --lib`. Detalle en CONTRIBUTING.md.»
-  - **Criterio de aceptación:** el README indica un comando de validación que cubre Rust y frontend, y enlaza CONTRIBUTING.md.
-  - **Depende de:** ninguna
-  - **Origen:** auditoría 2026-11-05
-
-- [ ] **AUD-094 · El DESIGN.md da 640 × 400 como ventana mínima, pero la aplicación tiene 900 × 640**
-  - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo
-  - **Ubicación:** `DESIGN.md:180`
-  - **Qué hacer:** «…también en la ventana mínima de 900 × 640 (UX-02).»
-  - **Criterio de aceptación:** la cifra de `DESIGN.md` coincide con `minWidth` y `minHeight` de `tauri.conf.json`.
-  - **Depende de:** ninguna
-  - **Origen:** auditoría 2026-11-05
-
-- [ ] **AUD-095 · La ayuda de `project-export` no lista los formatos T-SQL que sí acepta**
-  - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo
-  - **Ubicación:** `src-tauri/src/automation.rs:27`
-  - **Qué hacer:** añadir `sqlserver-script|sqlserver-bulk` a `PROJECT_EXPORT_HELP` y, si es posible, generar la lista desde el mismo origen que el parser.
-  - **Criterio de aceptación:** la ayuda, `cli.md` y el parser listan los mismos formatos; un test lo comprueba.
-  - **Depende de:** ninguna
-  - **Origen:** auditoría 2026-11-05
-
-- [ ] **AUD-096 · El JSDoc de `nonFiniteColumns` quedó encima de `profileDuration`**
-  - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo
-  - **Ubicación:** `src/features/review/reviewModel.ts:105-108`
-  - **Qué hacer:** mover el bloque a `nonFiniteColumns` (`:137`) y dar a `profileDuration` su propio comentario de una línea (formato de duración: menos de 1 s, segundos, o minutos y segundos).
-  - **Criterio de aceptación:** cada función tiene su JSDoc y ninguno describe otra.
-  - **Depende de:** ninguna
-  - **Origen:** auditoría 2026-11-05
-
-- [ ] **AUD-097 · Las notas de `[Unreleased]` nombran tres veces la tarjeta de Cargar, de tres formas distintas**
-  - **Área:** Documentación · **Severidad:** Bajo · **Esfuerzo:** Bajo
-  - **Ubicación:** `CHANGELOG.md:16`
-  - **Qué hacer:** consolidar en una sola entrada final sobre la tarjeta «Base de datos» y retirar las de «Cargar desde SQL Server» y «Archivo, SQL Server, Ejemplo o Proyecto».
-  - **Criterio de aceptación:** ninguna entrada de `[Unreleased]` nombra la tarjeta de Cargar de forma distinta de la interfaz.
-  - **Depende de:** ninguna
-  - **Origen:** auditoría 2026-11-05
+Sin tareas abiertas.
 
 ## Tier 4 · Propuestas (revisión 2026-11-05)
 

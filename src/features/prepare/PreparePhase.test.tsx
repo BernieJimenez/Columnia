@@ -578,7 +578,7 @@ describe("PreparePhase", () => {
     expect(onEnableRowAudit).toHaveBeenCalledOnce();
   });
 
-  it("pide confirmar «Convertir números detectados» cuando quedarían celdas vacías", () => {
+  it("pide confirmar «Convertir números detectados» cuando quedarían celdas nulas", () => {
     const onCastNumeric = vi.fn();
     const profile: DatasetProfile = {
       ...cleaningSignalsProfile,
@@ -614,13 +614,13 @@ describe("PreparePhase", () => {
     openIndividualSignalActions();
     fireEvent.click(screen.getByRole("button", { name: "Convertir números detectados" }));
     const dialog = screen.getByRole("alertdialog", { name: "Convertir números detectados" });
-    expect(dialog).toHaveTextContent("2 celdas que no son números quedarán vacías: cantidad (2)");
+    expect(dialog).toHaveTextContent("2 celdas que no son números quedarán nulas: cantidad (2)");
     expect(onCastNumeric).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
     expect(onCastNumeric).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Convertir números detectados" }));
-    fireEvent.click(screen.getByRole("button", { name: "Convertir y dejar vacías" }));
+    fireEvent.click(screen.getByRole("button", { name: "Convertir y dejar nulas" }));
     expect(onCastNumeric).toHaveBeenCalledOnce();
   });
 
@@ -1610,7 +1610,7 @@ describe("TransformRecipeEditor", () => {
     }));
   });
 
-  it("avisa antes de aplicar una conversión que puede dejar celdas vacías (FUN-F2-19)", () => {
+  it("avisa antes de aplicar una conversión que puede dejar celdas nulas (FUN-F2-19)", () => {
     const onApply = vi.fn();
     render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={onApply} onDraftChange={() => undefined} />);
     fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "nombre" } });
@@ -1618,7 +1618,7 @@ describe("TransformRecipeEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
 
     expect(onApply).not.toHaveBeenCalled();
-    expect(screen.getByRole("alertdialog")).toHaveTextContent("dejarán vacías las celdas que no encajen");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("dejarán nulas las celdas que no encajen");
     fireEvent.click(screen.getByRole("button", { name: "Confirmar y aplicar" }));
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ casts: [{ column: "nombre", target: "integer" }] }));
   });

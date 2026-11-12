@@ -109,7 +109,7 @@ describe("HistoryBar versiones deshechas", () => {
 });
 
 describe("HistoryBar resumen común (PROD-10)", () => {
-  it("añade al último resultado las celdas vacías, las filas quitadas y si se deshace", () => {
+  it("añade al último resultado las celdas nulas, las filas quitadas y si se deshace", () => {
     render(
       <HistoryBar
         status={{ ...history, lastChange: { nulledCellCount: 2, removedRowCount: 1, reversible: true } }}
@@ -119,6 +119,6 @@ describe("HistoryBar resumen común (PROD-10)", () => {
         onRedo={() => undefined}
       />,
     );
-    expect(screen.getByRole("status")).toHaveTextContent("2 celdas quedaron vacías · se quitó 1 fila · puedes deshacerlo.");
+    expect(screen.getByRole("status")).toHaveTextContent("2 celdas quedaron nulas · se quitó 1 fila · puedes deshacerlo.");
   });
 });

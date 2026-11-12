@@ -100,7 +100,7 @@ export const ColumnProfileHeader = memo(function ColumnProfileHeader({ column, p
         <span className="col-profile__fill" aria-hidden="true">
           <span style={{ width: `${filled}%` }} />
         </span>
-        <span className="col-profile__line">{filled >= 100 ? "sin vacíos" : `${formatPercent(filled)} con valor`} · {distinct}</span>
+        <span className="col-profile__line">{filled >= 100 ? "sin nulos" : `${formatPercent(filled)} con valor`} · {distinct}</span>
         {/* An identifier spreads evenly by construction: its histogram says nothing.
             A continuous number (float or decimal, e.g. an amount) is all-distinct
             without being an identifier, so it keeps its histogram. */}

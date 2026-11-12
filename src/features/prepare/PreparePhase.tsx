@@ -729,7 +729,7 @@ export function PreparePhase({
             {conversionConfirmation === "numeric" ? "Convertir números detectados" : "Interpretar fechas detectadas"}
           </h3>
           <p id="conversion-confirm-description">
-            {cellCount(conversionLossTotal)} que no {conversionConfirmation === "numeric" ? "son números" : "son fechas"} {conversionLossTotal === 1 ? "quedará vacía" : "quedarán vacías"}:{" "}
+            {cellCount(conversionLossTotal)} que no {conversionConfirmation === "numeric" ? "son números" : "son fechas"} {conversionLossTotal === 1 ? "quedará nula" : "quedarán nulas"}:{" "}
             {conversionLoss.map((column) => `${column.name} (${column.count.toLocaleString()})`).join(", ")}. Puedes deshacerlo desde el historial.
           </p>
           <div className="sheet-dialog__actions">
@@ -748,7 +748,7 @@ export function PreparePhase({
               disabled={changing}
               aria-describedby={busyDescribedBy(changing)}
             >
-              Convertir y dejar vacías
+              Convertir y dejar nulas
             </button>
           </div>
         </ModalDialog>
@@ -1165,7 +1165,7 @@ function CleaningSignals({
               <p>
                 Puedes convertir estas columnas de texto a <strong>fecha y hora</strong>. Solo se usa
                 un formato dominante cerrado y se omiten columnas ambiguas. Los valores que no
-                sean fechas quedan vacíos: si hay alguno, se pide confirmación.
+                sean fechas quedan nulos: si hay alguno, se pide confirmación.
               </p>
               {onParseDates && (
                 <button type="button" onClick={onParseDates} disabled={busy}>
@@ -1180,7 +1180,7 @@ function CleaningSignals({
                 Puedes convertir estas columnas de texto a números. Se exige más del 90 % de
                 valores numéricos, se rechaza la pérdida de precisión y se conservan los
                 identificadores o códigos con ceros iniciales. Los valores que no sean números
-                quedan vacíos: si hay alguno, se pide confirmación.
+                quedan nulos: si hay alguno, se pide confirmación.
               </p>
               {onCastNumeric && (
                 <button type="button" onClick={onCastNumeric} disabled={busy}>

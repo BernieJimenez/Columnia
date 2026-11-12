@@ -57,7 +57,7 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   confiar en el certificado) en lugar de escribir la cadena ODBC; el
   controlador instalado se detecta solo y la conexión siempre pide cifrado.
   Nada se guarda.
-- Cargar › «Cargar desde SQL Server» trae una tabla o vista a este equipo.
+- Cargar › «Base de datos» trae una tabla o vista a este equipo.
   Se pega la cadena de conexión ODBC (no se guarda), Windows pide confirmar la
   conexión en un diálogo propio de lectura, se elige una de las tablas y vistas
   que el servidor lista y cuántas filas traer (hasta 5.000.000), y la tabla
@@ -1344,6 +1344,13 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - Cargar llama «nulo» a la celda sin valor en sus avisos, y «Privacidad
   local» dice que elegir una base de datos en Cargar abre una conexión que
   solo lee y que las filas leídas se quedan en el equipo (AUD-120).
+- La celda sin valor se llama «nulo» en toda la interfaz: las tablas pintan
+  «∅ nulo», Preparar dice que las celdas que no encajan «quedarán nulas»
+  («Convertir y dejar nulas») y la cabecera de columna, «sin nulos»
+  (AUD-121).
+- La ayuda de `columnia-cli` (`--help`, `transform` y `project-export`) lista
+  también los formatos `sqlserver-script` y `sqlserver-bulk`, que ya
+  aceptaba (AUD-095).
 - Los paneles «Preferencias y recursos» y «Licencia y privacidad» se cierran
   con Esc (el foco vuelve a su botón) y con un clic fuera (AUD-063).
 - Si el motor no arranca, Cargar lo dice con el motivo y qué hacer («Cierra y
@@ -1352,8 +1359,8 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - En ventanas estrechas, la etapa Revisar marca con un punto y un subrayado
   discontinuo que hay que revisarla de nuevo, y las etapas terminadas conservan
   el ✓ (AUD-065).
-- Una celda sin valor se muestra como «∅ vacío» dentro de un recuadro, y ya no
-  se confunde con un texto que diga «vacío» (AUD-067).
+- Una celda sin valor se muestra como «∅ nulo» dentro de un recuadro, y ya no
+  se confunde con un texto escrito en el dato (AUD-067, AUD-121).
 - Los avisos de recuperación de Cargar y las guías nombran la tarjeta
   «Proyecto», no la sección «Continuar un proyecto», que ya no existe
   (AUD-064).
@@ -1437,7 +1444,7 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   Otra base de datos, cada uno con sus formatos y una línea que explica cada
   uno. Power BI pasa a ser un destino propio cuyo botón principal exporta y
   abre el archivo.
-- Cargar empieza por la fuente de los datos: Archivo, SQL Server, Ejemplo o
+- Cargar empieza por la fuente de los datos: Archivo, Base de datos, Ejemplo o
   Proyecto, y muestra solo el panel de la elegida. Tras un cierre inesperado
   abre directamente en los proyectos guardados.
 - En pantallas estrechas, los selectores de formato de Entregar ocupan todo el
@@ -1737,6 +1744,10 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   de la de desarrollo y dice que la importación avisa del canal sin cifrar en
   el diálogo nativo; el README nombra los tres motores de Cargar y su lema
   ya no promete que los datos nunca salen del equipo (AUD-089 a AUD-092).
+- El README dice cómo validar Rust y frontend con `check.ps1`, `DESIGN.md`
+  da la ventana mínima real (900 × 640), cada función de `reviewModel.ts`
+  tiene su comentario y estas notas nombran la tarjeta «Base de datos» de
+  una sola forma (AUD-093, AUD-094, AUD-096, AUD-097).
 - Las tareas cerradas de la revisión del 2026-11-05 pasan de `ROADMAP.md` a
   `HISTORICO.md`; el ROADMAP queda solo con lo pendiente.
 - El arranque de la interfaz carga unos 43 kB menos: el modelo de Entregar, los

@@ -268,7 +268,7 @@ una columna.
   listas densas (barras de Explorar, casillas de columnas), que miden al menos
   24 CSS px (WCAG 2.5.8) y tienen alternativa por teclado.
 - En la vista compacta la barra lateral ocupa como mucho el 40 % de la altura,
-  también en la ventana mínima de 640 × 400 (UX-02).
+  también en la ventana mínima de 900 × 640 (UX-02).
 - Un panel que crece debe poder desplazarse sin volver inaccesibles dataset,
   preferencias o contenido principal.
 

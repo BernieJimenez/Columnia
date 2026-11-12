@@ -118,6 +118,8 @@ npm run docs:check
 npm run legal:check
 ```
 
+Validación local completa: `.\tools\check.ps1 -Profile Fast`; para cambios en Rust, `-Profile Full` y `cargo test --manifest-path src-tauri/Cargo.toml --lib`. El detalle está en [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## Documentación
 
 - [Primer dataset: tutorial paso a paso](docs/tutorials/first-dataset.md)

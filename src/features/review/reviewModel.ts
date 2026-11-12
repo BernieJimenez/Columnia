@@ -102,10 +102,7 @@ export function commaDecimalColumns(profile: DatasetProfile): string[] {
     .map((column) => column.name);
 }
 
-/**
- * Decimal columns with NaN or infinite values, which the statistics and
- * charts leave out (FUN-43), as «name: count».
- */
+/** A duration as «menos de 1 s», seconds with one decimal, or minutes and seconds. */
 function profileDuration(milliseconds: number): string {
   if (milliseconds < 1_000) return "menos de 1 s";
   const seconds = milliseconds / 1_000;
@@ -134,6 +131,10 @@ export function profileProvenanceText(profile: DatasetProfile): string | null {
   return `Perfil de ${rows} ${engine}, en ${profileDuration(provenance.durationMs)}${time}.`;
 }
 
+/**
+ * Decimal columns with NaN or infinite values, which the statistics and
+ * charts leave out (FUN-43), as «name: count».
+ */
 export function nonFiniteColumns(profile: DatasetProfile): Array<{ name: string; count: number }> {
   return profile.columns
     .filter((column) => (column.nonFiniteCount ?? 0) > 0)
