@@ -19,6 +19,22 @@ export function importOriginFromResult(result: DatabaseImportResult, table: stri
   };
 }
 
+/**
+ * What was read from a database table and is waiting in the import dialog, so
+ * the dialog can talk about the table and not about the local copy.
+ */
+export interface DatabaseRead {
+  selectionId: string;
+  /** «dbo.Ventas». */
+  table: string;
+  /** «SQL Server». */
+  engine: string;
+  server: string;
+  rowsImported: number;
+  rowLimit: number;
+  moreRowsAvailable: boolean;
+}
+
 function columnList(names: readonly string[]): string {
   return names.join(", ");
 }

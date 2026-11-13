@@ -4,6 +4,12 @@ import { QUALITY_DATASET_COLUMN, type ColumnProfile, type DatabaseConnection, ty
 import {
   INITIAL_DATABASE_TARGET,
   completeDatabaseTarget,
+  databaseConnectionSummary,
+  databaseLocation,
+  databaseTableName,
+  defaultDatabaseTarget,
+  replaceTableWarning,
+  retargetDatabaseKind,
   databaseTargetTable,
   deliverySummary,
   sqlServerScriptTable,
@@ -62,6 +68,49 @@ const passedResult: QualityValidationResult = {
     passed: true,
   }],
 };
+
+describe("destino de base de datos (2026-11-13)", () => {
+  it("nombra la tabla como el script T-SQL: letras, cifras y guiones bajos", () => {
+    expect(databaseTableName("ventas.csv")).toBe("ventas");
+    expect(databaseTableName("dbo.Ventas 2024.parquet")).toBe("dbo_Ventas_2024");
+    expect(databaseTableName("2024-ventas.xlsx")).toBe("t_2024_ventas");
+    expect(databaseTableName("###.csv")).toBe("dataset");
+  });
+
+  it("usa el esquema habitual de cada motor y conserva el que se escribió", () => {
+    expect(defaultDatabaseTarget("sqlserver", "ventas.csv")).toMatchObject({ schema: "dbo", table: "ventas" });
+    expect(defaultDatabaseTarget("postgresql", "ventas.csv").schema).toBe("public");
+    expect(defaultDatabaseTarget("mysql", "ventas.csv").schema).toBe("");
+    const sqlServer = defaultDatabaseTarget("sqlserver", "ventas.csv");
+    expect(retargetDatabaseKind(sqlServer, "postgresql").schema).toBe("public");
+    expect(retargetDatabaseKind({ ...sqlServer, schema: "ventas" }, "postgresql").schema).toBe("ventas");
+    expect(retargetDatabaseKind({ ...sqlServer, tablePolicy: "replace" }, "mysql").tablePolicy).toBe("create_only");
+  });
+
+  it("resume servidor, base y autenticación sin la contraseña", () => {
+    const connection: DatabaseConnection = {
+      driver: "ODBC Driver 18 for SQL Server", server: "db.local", port: "", database: "Ventas",
+      authentication: "password", user: "ana", password: "secreta", trustServerCertificate: false, allowUnencrypted: false,
+    };
+    const items = databaseConnectionSummary(connection);
+    expect(items).toEqual([
+      { label: "Servidor", value: "db.local" },
+      { label: "Base de datos", value: "Ventas" },
+      { label: "Autenticación", value: "usuario ana con contraseña" },
+    ]);
+    expect(JSON.stringify(items)).not.toContain("secreta");
+    expect(databaseConnectionSummary({ ...connection, authentication: "windows" })[2]?.value).toBe("tu sesión de Windows");
+    expect(databaseLocation({ ...defaultDatabaseTarget("sqlserver", "ventas.csv"), connection })).toBe("db.local · Ventas · dbo.ventas");
+  });
+
+  it("avisa de lo que borra Reemplazar según lo que sabe la comprobación previa", () => {
+    expect(replaceTableWarning("dbo.ventas", { tableExists: true }))
+      .toBe("La tabla dbo.ventas ya existe: se borrarán sus filas y se volverá a crear con estos datos.");
+    expect(replaceTableWarning("dbo.ventas", { tableExists: true, rowCount: 1 })).toContain("se borrarán su única fila");
+    expect(replaceTableWarning("dbo.ventas", { tableExists: false })).toBeNull();
+    expect(replaceTableWarning("dbo.ventas", null)).toMatch(/^Si la tabla dbo\.ventas ya existe/);
+  });
+});
 
 describe("validateQualityRuleDraft", () => {
   it("acepta un contrato válido", () => {

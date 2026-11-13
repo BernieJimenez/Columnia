@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 
 import { renderCellValue } from "../../components/CellText";
 import { ModalDialog } from "../../components/ModalDialog";
@@ -21,8 +21,10 @@ import type {
   SampleDatasetDescriptor,
   SourceTextEncoding,
 } from "../../bridge";
-import { legacyEncodingExample, looksLikeTitleRow } from "./loadModel";
+import { dateLikeTextColumns, legacyEncodingExample, looksLikeTitleRow } from "./loadModel";
 import { DATE_CONVENTIONS, NUMBER_CONVENTIONS } from "./importProfile";
+import type { DatabaseRead } from "./importOrigin";
+import { plural } from "../../plural";
 import {
   formatRecentDatasetDate,
   formatRecentDatasetFormat,
@@ -55,6 +57,8 @@ interface LoadPhaseProps {
   reusableTaskPanel?: ReactNode;
   /** «Cargar desde una base de datos», shown when that source is chosen. */
   databaseImportPanel?: ReactNode;
+  /** The selection under review was read from a database table: the dialog names the table, not the local copy. */
+  databaseRead?: DatabaseRead | null;
   pendingTaskName?: string | null;
   runtime: LoadRuntimeState;
   disabled?: boolean;
@@ -63,6 +67,9 @@ interface LoadPhaseProps {
   recentDatasets: readonly RecentDataset[];
   sampleDatasets?: readonly SampleDatasetDescriptor[];
   onSelect: () => void;
+  /** «Continuar a Revisar» once a dataset is loaded: the one primary action of the view. */
+  onContinue?: () => void;
+  continueDisabled?: boolean;
   onSelectSample?: (sampleId: string) => void;
   onSelectRecent: (item: RecentDataset) => void;
   onClearRecent: () => void;
@@ -98,6 +105,7 @@ export function LoadPhase({
   children,
   reusableTaskPanel,
   databaseImportPanel,
+  databaseRead = null,
   pendingTaskName = null,
   runtime,
   disabled = false,
@@ -106,6 +114,8 @@ export function LoadPhase({
   recentDatasets,
   sampleDatasets = [],
   onSelect,
+  onContinue,
+  continueDisabled = false,
   onSelectSample = () => undefined,
   onSelectRecent,
   onClearRecent,
@@ -170,16 +180,86 @@ export function LoadPhase({
   const source = sourceOptions.some((option) => option.id === preferredSource) ? preferredSource : "file";
   useEffect(() => preloadSourcePanelsWhenIdle(), []);
 
+  // The table the import dialog is reviewing, when the selection came from a database.
+  const reviewedTable = sheetSelection && databaseRead?.selectionId === sheetSelection.source.selectionId
+    ? databaseRead
+    : null;
+
+  // An error of the file source stays by its action and leaves when another
+  // source is chosen; a new attempt shows it again even with the same text.
+  const loadErrorKey = `${datasetStatus.kind === "error" ? datasetStatus.message : ""}\u0000${importError ?? ""}`;
+  const [leftBehindErrorKey, setLeftBehindErrorKey] = useState<string | null>(null);
+  const visibleErrorKey = loadErrorKey !== "\u0000" && loadErrorKey !== leftBehindErrorKey ? loadErrorKey : null;
+  const selectButtonRef = useRef<HTMLButtonElement>(null);
+  const loadErrorsRef = useRef<HTMLDivElement>(null);
+  // A new error takes the focus only when nothing else had it: after the file
+  // picker or the import dialog the focus is back on the button or on <body>.
+  useEffect(() => {
+    if (visibleErrorKey === null) return;
+    const active = document.activeElement;
+    if (active === null || active === document.body || active === selectButtonRef.current) {
+      loadErrorsRef.current?.focus();
+    }
+  }, [visibleErrorKey]);
+  const loadErrors = visibleErrorKey !== null && (
+    <div className="load-errors" ref={loadErrorsRef} tabIndex={-1}>
+      {datasetStatus.kind === "error" && (
+        <div className="notice notice--error" role="alert">
+          <p>No se pudo cargar el archivo: {datasetStatus.message}</p>
+          <p>No se cargó nada. Comprueba que el archivo sigue en su sitio y no está abierto en otra aplicación, y vuelve a elegirlo.</p>
+        </div>
+      )}
+      {importError && (
+        <div className="notice notice--error" role="alert">
+          <p>No se pudo importar el archivo: {importError}</p>
+          <p>
+            {current ? "Tu dataset actual no cambió. " : ""}
+            Comprueba que el archivo sigue en su sitio y no está abierto en otra aplicación, y vuelve a elegirlo.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+  const errorsBySelectButton = source === "file";
+
+  function chooseFile() {
+    if (selectionDisabled) return;
+    setLeftBehindErrorKey(null);
+    onSelect();
+  }
+
+  // Ctrl+O opens «Elegir archivo» while that button is on screen and usable.
+  const fileShortcutAvailable = source === "file" && !selectionDisabled;
+  const chooseFileFromShortcut = useEffectEvent(chooseFile);
+  useEffect(() => {
+    if (!fileShortcutAvailable) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return;
+      if (event.key.toLowerCase() !== "o") return;
+      const target = event.target;
+      // Text fields keep their own shortcuts, and an open dialog owns the keyboard.
+      if (target instanceof HTMLElement && (
+        target.isContentEditable || target.closest("input, textarea, select, [contenteditable], dialog")
+      )) return;
+      event.preventDefault();
+      chooseFileFromShortcut();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [fileShortcutAvailable]);
+
   const selectionAction = (
     // aria-disabled (not disabled) keeps the button reachable by keyboard so its reason is read; onClick ignores it.
     <button
+      ref={selectButtonRef}
       className={current ? "secondary-action" : "primary-action"}
       type="button"
-      onClick={() => { if (!selectionDisabled) onSelect(); }}
+      onClick={chooseFile}
       aria-disabled={selectionDisabled || undefined}
       aria-describedby={busyDescribedBy(disabled)}
+      aria-keyshortcuts="Control+O"
     >
-      {inspection.kind === "inspecting" ? "Inspeccionando…" : current ? "Seleccionar otro dataset" : "Seleccionar dataset"}
+      {inspection.kind === "inspecting" ? "Comprobando el archivo…" : current ? "Elegir otro archivo" : "Elegir archivo"}
     </button>
   );
 
@@ -187,11 +267,24 @@ export function LoadPhase({
     <>
       <header className="phase-header">
         <div>
-          <h2>{current ? "Dataset listo para continuar" : "Selecciona un dataset"}</h2>
+          <h2>{current ? "Dataset listo para continuar" : "Carga un dataset"}</h2>
           {current && <h3 className="phase-file">{current.fileName}</h3>}
         </div>
-        {current && selectionAction}
+        {current && onContinue && (
+          <button
+            type="button"
+            className="primary-action"
+            onClick={onContinue}
+            disabled={continueDisabled}
+            aria-describedby={continueDisabled ? "busy-reason" : undefined}
+          >
+            Continuar a Revisar
+          </button>
+        )}
       </header>
+      {current && <DatasetMetrics dataset={current} />}
+
+      {!errorsBySelectButton && loadErrors}
 
       {runtime.kind === "unavailable" && runtime.error && (
         <div className="notice notice--error" role="alert">
@@ -243,6 +336,8 @@ export function LoadPhase({
         </section>
       )}
 
+      {current && <h3 className="load-change-title">Cambiar de datos</h3>}
+
       {sourceOptions.length > 1 && (
         <fieldset className="choice-cards load-sources">
           <legend>¿De dónde vienen los datos?</legend>
@@ -260,7 +355,7 @@ export function LoadPhase({
                   name="load-source"
                   value={option.id}
                   checked={source === option.id}
-                  onChange={() => setChosenSource(option.id)}
+                  onChange={() => { setChosenSource(option.id); setLeftBehindErrorKey(loadErrorKey); }}
                 />
                 <span>
                   <strong>{option.label}</strong>
@@ -272,10 +367,16 @@ export function LoadPhase({
         </fieldset>
       )}
 
-      {source === "file" && current && runtime.kind === "connected" && (
-        <p className="load-drop-hint" role="note">
-          También puedes arrastrar un archivo compatible a esta ventana.
-        </p>
+      {source === "file" && current && (
+        <div className="load-change">
+          {selectionAction}
+          {loadErrors}
+          {runtime.kind === "connected" && (
+            <p className="load-drop-hint">
+              También puedes arrastrar un archivo compatible a esta ventana. Atajo: Ctrl+O.
+            </p>
+          )}
+        </div>
       )}
 
       {source === "file" && !current && (
@@ -289,10 +390,14 @@ export function LoadPhase({
           </svg>
           <div className="load-brief__lead">
             <div>
-              <h3 id="load-brief-title">Trae tus datos a un espacio de trabajo local.</h3>
-              <p>Selecciona un archivo{runtime.kind === "connected" ? " o arrástralo a esta ventana" : runtime.kind === "browser" ? " desde la aplicación de escritorio" : ""}. Conservamos el original mientras trabajas.</p>
+              <h3 id="load-brief-title">{runtime.kind === "connected" ? "Elige un archivo o arrástralo a esta ventana" : "Elige un archivo"}</h3>
+              <p>Columnia trabaja sobre una copia: el original no se modifica.</p>
               {selectionAction}
-              <p className="load-brief__formats">CSV · TSV · TXT · JSON · Parquet · Excel · ODS · los archivos grandes se leen por bloques, con menos opciones</p>
+              {loadErrors}
+              <p className="load-brief__formats">
+                CSV · TSV · TXT · JSON · Parquet · Excel · ODS.{runtime.kind === "connected" && " Atajo: Ctrl+O."}<br />
+                Los CSV, TSV, TXT, JSON, Parquet y Excel (.xlsx, .xlsb) de 512 MiB o más se leen por bloques desde el disco; en los CSV, TSV y TXT, las fechas y los números no se convierten al cargar.
+              </p>
             </div>
           </div>
         </section>
@@ -301,41 +406,49 @@ export function LoadPhase({
       {source === "sample" && (
         <section className="sample-datasets" aria-labelledby="sample-datasets-title">
           <div>
-            <p className="eyebrow">Sin preparar archivos</p>
             <h3 id="sample-datasets-title">Explora con un dataset de ejemplo</h3>
             <p>Los ejemplos se crean localmente en la carpeta de datos de Columnia; no se descargan ni se envían.</p>
           </div>
-          <div className="sample-datasets__list">
+          {/* The same rows as «Archivos recientes»: name, one line of detail and the action. */}
+          <ul className="recent-datasets__list">
             {sampleDatasets.map((sample) => (
-              <button
-                key={sample.id}
-                type="button"
-                className="sample-datasets__item"
-                onClick={() => onSelectSample(sample.id)}
-                disabled={selectionDisabled}
-                aria-describedby={busyDescribedBy(disabled)}
-              >
-                <strong>{sample.name}</strong>
-                <span>{sample.description}</span>
-                <small>{sample.format.toUpperCase()}</small>
-              </button>
+              <li key={sample.id} className="recent-datasets__item">
+                <div className="recent-datasets__copy">
+                  <strong>{sample.name}</strong>
+                  <span>{sample.description} · {sample.format.toUpperCase()}</span>
+                </div>
+                <div className="recent-datasets__actions">
+                  <button
+                    type="button"
+                    className="inline-action"
+                    onClick={() => { setLeftBehindErrorKey(null); onSelectSample(sample.id); }}
+                    disabled={selectionDisabled}
+                    aria-label={`Cargar el ejemplo ${sample.name}`}
+                    aria-describedby={busyDescribedBy(disabled)}
+                  >
+                    Cargar
+                  </button>
+                </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </section>
       )}
 
       {source === "file" && recentDatasets.length > 0 && (
         <details className="load-secondary">
           <summary>
-            <span>Retomar un archivo reciente</span>
-            <small>{recentDatasets.length} {recentDatasets.length === 1 ? "archivo guardado" : "archivos guardados"}</small>
+            <span>Archivos recientes</span>
+            <small>{recentDatasets.length} {recentDatasets.length === 1 ? "nombre recordado" : "nombres recordados"}</small>
           </summary>
           <section className="recent-datasets" aria-labelledby="recent-datasets-title">
           <div className="recent-datasets__heading">
             <div>
-              <p className="eyebrow">Historial local</p>
-              <h3 id="recent-datasets-title">Archivos recientes</h3>
-              <p>Solo guardamos el nombre y el formato. Al elegir uno se abrirá el selector nativo de archivos.</p>
+              <h3 id="recent-datasets-title" className="visually-hidden">Archivos recientes</h3>
+              <p>
+                Columnia recuerda el nombre y el formato, no la ubicación.
+                «Buscar en el equipo» abre el selector de archivos para que lo elijas de nuevo.
+              </p>
             </div>
             <button type="button" className="secondary-action" onClick={onClearRecent}>
               Limpiar historial
@@ -352,14 +465,15 @@ export function LoadPhase({
                   <button
                     type="button"
                     className="inline-action"
-                    onClick={() => onSelectRecent(item)}
+                    onClick={() => { setLeftBehindErrorKey(null); onSelectRecent(item); }}
                     disabled={selectionDisabled}
+                    aria-label={`Buscar en el equipo: ${item.fileName}`}
                     aria-describedby={busyDescribedBy(disabled)}
                     title={selectionDisabled && runtime.kind !== "connected"
-                      ? "Disponible al ejecutar Columnia con Tauri"
+                      ? "Disponible en la aplicación de escritorio"
                       : undefined}
                   >
-                    Elegir de nuevo
+                    Buscar en el equipo
                   </button>
                   <button
                     type="button"
@@ -394,11 +508,11 @@ export function LoadPhase({
         />
       )}
       {inspection.kind === "inspecting" && inspection.origin !== "database" && (
-        <p className="notice" role="status">Esperando la selección y verificando el formato local…</p>
+        <p className="notice" role="status">Esperando el archivo y comprobando su formato…</p>
       )}
       {inspection.kind === "workbook_inspecting" && (
         <div className="notice" role="status">
-          <p>Revisando las hojas de {inspection.source.fileName}. La lectura interna del libro puede terminar antes de aplicar la cancelación.</p>
+          <p>Leyendo las hojas de {inspection.source.fileName}. Si cancelas, la lectura puede terminar antes de detenerse.</p>
           <button
             type="button"
             className="secondary-action"
@@ -411,14 +525,14 @@ export function LoadPhase({
       )}
       {selectionCancellationPending && (
         <p className="notice" role="status">
-          Cancelando la selección de {inspection.source.fileName} y liberando su lectura temporal…
+          Cancelando la selección de {inspection.source.fileName}…
         </p>
       )}
       {inspection.kind === "selection_cancellation_failed" && (
         <div className="notice notice--error" role="alert">
           <p>
-            No se completó la cancelación de {inspection.source.fileName}. El dataset actual sigue sin cambios;
-            reintenta para detener la operación y liberar la selección temporal.
+            No se pudo cancelar la selección de {inspection.source.fileName}. Tu dataset actual no cambió.
+            Reintenta para detener la lectura.
           </p>
           <p>{inspection.message}</p>
           <button
@@ -430,16 +544,6 @@ export function LoadPhase({
           </button>
         </div>
       )}
-      {datasetStatus.kind === "error" && (
-        <p className="notice notice--error" role="alert">
-          No se pudo cargar el archivo: {datasetStatus.message}
-        </p>
-      )}
-      {importError && (
-        <p className="notice notice--error" role="alert">
-          No se pudo importar el archivo: {importError}
-        </p>
-      )}
       {profileReview && (
         <ModalDialog
           role="dialog"
@@ -447,11 +551,10 @@ export function LoadPhase({
           describedBy="import-profile-description"
           onDismiss={() => onProfileReviewAction({ kind: "cancelled" })}
         >
-          <p className="eyebrow">Perfil del proyecto</p>
-          <h3 id="import-profile-title">Reutilizar interpretación guardada</h3>
+          <h3 id="import-profile-title">¿Usar el perfil de importación guardado?</h3>
           <p id="import-profile-description">
-            El perfil es v{profileReview.profile.version} para {profileReview.profile.format.toUpperCase()} y contiene {profileReview.profile.schema.length} columnas de esquema.
-            Columnia lo comparará antes de reemplazar el dataset activo.
+            El perfil guarda cómo se leyó un archivo {profileReview.profile.format.toUpperCase()} de {plural(profileReview.profile.schema.length, "columna", "columnas")}.
+            Columnia lo compara con este archivo antes de reemplazar el dataset activo.
           </p>
           {pendingTaskName && (
             <p className="notice" role="note">
@@ -476,10 +579,9 @@ export function LoadPhase({
           describedBy="resource-preflight-description"
           onDismiss={() => onResourcePreflightAction({ kind: "cancelled" })}
         >
-          <p className="eyebrow">Preflight local</p>
-          <h3 id="resource-preflight-title">Revisa el costo estimado de la carga</h3>
+          <h3 id="resource-preflight-title">Memoria y disco que usará la carga</h3>
           <p id="resource-preflight-description">
-            El tamaño y la ruta orientan la decisión antes de abrir {resourcePreflight.source.fileName}. Columnia conserva el archivo original.
+            Estimación antes de abrir {resourcePreflight.source.fileName}. Nada se carga hasta que continúes y el archivo original no se modifica.
           </p>
           <ResourceEstimateSummary source={resourcePreflight.source} />
           <div className="sheet-dialog__actions">
@@ -495,15 +597,14 @@ export function LoadPhase({
           describedBy="import-schema-mismatch-description"
           onDismiss={() => onSchemaMismatchAction({ kind: "cancelled" })}
         >
-          <p className="eyebrow">Revisión requerida</p>
           <h3 id="import-schema-mismatch-title">El esquema difiere del perfil guardado</h3>
           <p id="import-schema-mismatch-description">
-            El dataset activo se conserva. No se aplicó ningún cast ni mapeo. Revisa los cambios antes de decidir.
+            Tu dataset actual no cambió: no se convirtió ningún tipo ni se reasignó ninguna columna. Revisa las diferencias antes de decidir.
             {pendingTaskName ? ` La tarea “${pendingTaskName}” no se aplicará sin una confirmación posterior.` : ""}
           </p>
           <SchemaDifferenceList mismatch={schemaMismatch.mismatch} />
           <p className="notice" role="note">
-            Si continúas, se importará el archivo con el nuevo esquema. Las convenciones seleccionadas convierten solo columnas cuyos valores completos cumplen; las demás se conservan como texto. Puedes cancelar y mantener el dataset anterior.
+            Si continúas, el archivo se importa con el esquema nuevo. Las convenciones de fecha y número solo convierten una columna si todos sus valores las cumplen; las demás quedan como texto.
           </p>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => onSchemaMismatchAction({ kind: "cancelled" })}>Cancelar y conservar dataset</button>
@@ -519,18 +620,22 @@ export function LoadPhase({
           onDismiss={() => onSheetAction({ kind: "cancelled" })}
         >
           <h3 id="sheet-title">
-            {sheetSelection.source.format === "excel"
-              ? `Elegir hoja de ${sheetSelection.source.fileName}`
-              : isDelimitedSelection
-                ? `Revisar encabezados de ${sheetSelection.source.fileName}`
-                : `Revisar importación de ${sheetSelection.source.fileName}`}
+            {reviewedTable
+              ? `Revisar la tabla ${reviewedTable.table}`
+              : sheetSelection.source.format === "excel"
+                ? `Elegir hoja de ${sheetSelection.source.fileName}`
+                : isDelimitedSelection
+                  ? `Revisar encabezados de ${sheetSelection.source.fileName}`
+                  : `Revisar importación de ${sheetSelection.source.fileName}`}
           </h3>
           <p id="sheet-description">
-            {sheetSelection.source.format === "excel"
-              ? "Elige la hoja y los encabezados. Tu dataset actual no cambia hasta que confirmes."
-              : isDelimitedSelection
-                ? "Comprueba cómo se leen las columnas. Tu dataset actual no cambia hasta que confirmes."
-                : "Revisa las columnas antes de importar. Tu dataset actual no cambia hasta que confirmes."}
+            {reviewedTable
+              ? `Las filas ya están leídas y guardadas en este equipo; el servidor no cambió. Revisa las columnas antes de cargarlas. ${current ? "Tu dataset actual no cambia hasta que confirmes." : "Nada se carga hasta que confirmes."}`
+              : sheetSelection.source.format === "excel"
+                ? "Elige la hoja y los encabezados. Tu dataset actual no cambia hasta que confirmes."
+                : isDelimitedSelection
+                  ? "Comprueba cómo se leen las columnas. Tu dataset actual no cambia hasta que confirmes."
+                  : "Revisa las columnas antes de importar. Tu dataset actual no cambia hasta que confirmes."}
           </p>
           {sheetSelection.source.isCompressedContainer && (
             <p className="notice" role="note">
@@ -628,13 +733,37 @@ export function LoadPhase({
               </label>
             </fieldset>
           )}
-          <section className="sheet-import-summary sheet-import-summary--plain" aria-labelledby="sheet-import-summary-title" aria-live="polite">
+          {/* No aria-live here: the messages inside are their own status regions,
+              and a live summary would reread the whole preview on each change. */}
+          <section className="sheet-import-summary sheet-import-summary--plain" aria-labelledby="sheet-import-summary-title">
             <h4 id="sheet-import-summary-title" className="visually-hidden">Resumen antes de cargar</h4>
             <dl className="sheet-import-facts">
-              <div>
-                <dt>Formato y tamaño</dt>
-                <dd>{sheetSelection.source.format.toUpperCase()} · {formatFileSize(sheetSelection.source.fileSizeBytes)}</dd>
-              </div>
+              {reviewedTable ? (
+                <>
+                  <div>
+                    <dt>Origen</dt>
+                    <dd>{reviewedTable.engine} · {reviewedTable.server}</dd>
+                  </div>
+                  <div>
+                    <dt>Filas leídas</dt>
+                    <dd>
+                      {reviewedTable.rowsImported.toLocaleString()}
+                      {reviewedTable.moreRowsAvailable
+                        ? ` (la tabla tiene más; el límite era de ${plural(reviewedTable.rowLimit, "fila", "filas")})`
+                        : " (la tabla completa)"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Copia en este equipo</dt>
+                    <dd>{formatFileSize(sheetSelection.source.fileSizeBytes)}</dd>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <dt>Formato y tamaño</dt>
+                  <dd>{sheetSelection.source.format.toUpperCase()} · {formatFileSize(sheetSelection.source.fileSizeBytes)}</dd>
+                </div>
+              )}
               {sheetSelection.source.format === "excel" && (
                 <>
                   <div>
@@ -653,7 +782,7 @@ export function LoadPhase({
                   <dd>
                     {sheetSelection.headerReview
                       ? sheetSelection.headerReview.delimiter === "\t" ? "Tabulador" : `“${sheetSelection.headerReview.delimiter}”`
-                      : "Calculando muestra…"}
+                      : "Leyendo la muestra…"}
                   </dd>
                 </div>
               )}
@@ -661,7 +790,7 @@ export function LoadPhase({
             {isDelimitedSelection ? (
               <>
                 {sheetSelection.headerReviewLoading && (
-                  <p role="status">Preparando una muestra local de hasta 64 KiB…</p>
+                  <p role="status">Leyendo los primeros 64 KiB del archivo para la vista previa…</p>
                 )}
                 {sheetSelection.error && legacyEncodingExample(sheetSelection.error) === null && (
                   <p className="notice notice--error" role="alert">No se pudo previsualizar el archivo: {sheetSelection.error}</p>
@@ -683,15 +812,15 @@ export function LoadPhase({
               </>
             ) : sheetSelection.source.format === "excel" ? (
               <p role="note">
-                El esquema se calcula para la hoja y los encabezados seleccionados antes de activar el dataset.
+                Las columnas y los tipos se calculan para la hoja y los encabezados elegidos, antes de cargar.
               </p>
-            ) : (
+            ) : reviewedTable ? null : (
               <p role="note">
-                Este formato conserva su estructura propia y no requiere elegir encabezados. Revisa las columnas y tipos detectados antes de importar.
+                Este formato ya trae sus columnas y tipos: no hay que elegir encabezados.
               </p>
             )}
             {sheetSelection.schemaPreviewLoading && (
-              <p role="status">Leyendo la estructura para mostrar columnas y tipos; el dataset actual permanece intacto…</p>
+              <p role="status">Leyendo columnas y tipos…</p>
             )}
             {sheetSelection.schemaPreviewError && legacyEncodingExample(sheetSelection.schemaPreviewError) === null && (
               <p className="notice notice--error" role="alert">No se pudo revisar el esquema: {sheetSelection.schemaPreviewError}</p>
@@ -714,9 +843,9 @@ export function LoadPhase({
               );
             })()}
             {sheetSelection.schemaPreview && (
-              <section className="sheet-import-summary sheet-import-summary--nested" aria-labelledby="schema-preview-title" aria-live="polite">
+              <section className="sheet-import-summary sheet-import-summary--nested" aria-labelledby="schema-preview-title">
                 <h4 id="schema-preview-title" className="visually-hidden">Esquema detectado antes de importar</h4>
-                <p role="note">{sheetSelection.schemaPreview.rowCount.toLocaleString()} filas · {sheetSelection.schemaPreview.columns.length} columnas</p>
+                <p role="status">{sheetSelection.schemaPreview.rowCount.toLocaleString()} filas · {sheetSelection.schemaPreview.columns.length} columnas</p>
                 {sheetSelection.schemaPreview.schemaMismatch ? (
                   <div className="notice" role="alert">
                     <strong>El esquema no coincide con el perfil guardado.</strong> Si continúas, se importará con el esquema detectado y ese perfil no se aplicará.
@@ -748,6 +877,25 @@ export function LoadPhase({
                     </ul>
                   </div>
                 )}
+                {(() => {
+                  // Prevention: a date column read as text is otherwise only seen in «Ver columnas y tipos».
+                  if (!isDelimitedSelection || sheetSelection.dateConvention !== "unresolved") return null;
+                  const dateLike = dateLikeTextColumns(sheetSelection.schemaPreview.columns);
+                  if (dateLike.length === 0) return null;
+                  const shown = dateLike.slice(0, 5).map((name) => `«${name}»`).join(", ");
+                  const more = dateLike.length > 5 ? ` y ${(dateLike.length - 5).toLocaleString()} más` : "";
+                  const one = dateLike.length === 1;
+                  const sourceBacked = sheetSelection.source.resourceEstimate.processingPath === "sourceBacked";
+                  return (
+                    <p role="note" className="sheet-import-date-hint">
+                      <strong>{one ? "Esta columna parece de fechas" : "Estas columnas parecen de fechas"}:</strong>{" "}
+                      {shown}{more}. Con las fechas en «Sin definir» se {one ? "cargará" : "cargarán"} como texto.{" "}
+                      {sourceBacked
+                        ? `Este archivo se lee por bloques, así que ${one ? "conviértela" : "conviértelas"} después en Preparar.`
+                        : "Puedes elegir su formato en «Interpretación de fechas y números (opcional)», más abajo."}
+                    </p>
+                  );
+                })()}
                 {sheetSelection.schemaPreview.columns.length === 0 ? (
                   <p role="note">No se detectaron columnas.</p>
                 ) : (
@@ -777,7 +925,7 @@ export function LoadPhase({
               <p role="note">
                 “Sin definir” conserva el texto. Una convención convierte una columna solo si todos sus valores no nulos cumplen; si alguno no cumple, se conserva la columna completa como texto.
                 {sheetSelection.source.resourceEstimate.processingPath === "sourceBacked"
-                  ? ` Esta fuente se lee por bloques; las conversiones de fecha y número solo se aplican a archivos de menos de ${formatFileSize(sheetSelection.source.resourceEstimate.inMemoryLimitBytes ?? 512 * 1024 * 1024)}, que se cargan en memoria.`
+                  ? ` Este archivo se lee por bloques; las conversiones de fecha y número solo se aplican a archivos de menos de ${formatFileSize(sheetSelection.source.resourceEstimate.inMemoryLimitBytes ?? 512 * 1024 * 1024)}, que se cargan en memoria.`
                   : ""}
               </p>
               <label htmlFor="delimited-date-convention">Fechas</label>
@@ -824,7 +972,7 @@ export function LoadPhase({
           )}
           {sheetSelection.suggestedProfile && (
             <section className="sheet-import-summary" aria-labelledby="saved-import-profile-title">
-              <h4 id="saved-import-profile-title">Perfil reutilizable del proyecto</h4>
+              <h4 id="saved-import-profile-title">Perfil de importación guardado</h4>
               {sheetSelection.profileCanBeApplied ? (
                 pendingTaskName ? (
                   <p role="note">
@@ -863,7 +1011,8 @@ export function LoadPhase({
             <summary>Detalles técnicos: memoria y disco</summary>
             <ResourceEstimateSummary source={sheetSelection.source} />
           </details>
-          <div className="sheet-dialog__actions">
+          {/* Wide dialog with a preview table: the actions stay at the foot while it scrolls. */}
+          <div className="sheet-dialog__actions sheet-dialog__actions--sticky">
             <button type="button" className="secondary-action" onClick={() => onSheetAction({ kind: "cancelled" })}>Cancelar</button>
             {isDelimitedSelection && sheetSelection.error && legacyEncodingExample(sheetSelection.error) === null && (
               <button
@@ -889,17 +1038,16 @@ export function LoadPhase({
                   ? sheetSelection.schemaPreviewError ? "Reintentar esquema" : "Revisar esquema"
                   : sheetSelection.schemaPreview.schemaMismatch
                     ? "Importar con esquema nuevo"
-                    : sheetSelection.source.format === "excel" ? "Cargar hoja" : "Cargar archivo"}
+                    : reviewedTable ? "Cargar tabla" : sheetSelection.source.format === "excel" ? "Cargar hoja" : "Cargar archivo"}
             </button>
           </div>
         </ModalDialog>
       )}
       {runtime.kind === "browser" && (
         <p className="notice" role="status">
-          Abre Columnia con Tauri para seleccionar archivos locales.
+          Desde el navegador no se pueden abrir archivos. Usa la aplicación de escritorio de Columnia.
         </p>
       )}
-      {current && <DatasetMetrics dataset={current} />}
     </>
   );
 }
@@ -944,27 +1092,27 @@ function numberConventionLabel(value: ImportNumberConvention): string {
 function ResourceEstimateSummary({ source }: { source: DatasetSourceInspection }) {
   const estimate = source.resourceEstimate;
   const pathLabel = estimate.processingPath === "sourceBacked"
-    ? "Lectura source-backed: procesa desde la fuente o un snapshot privado por bloques cuando la operación es compatible."
-    : "Carga en memoria: el dataset completo se materializa para iniciar el historial de trabajo.";
+    ? "Por bloques: cada operación lee desde el disco el archivo, o una copia privada, cuando puede hacerlo así."
+    : "En memoria: el dataset completo se carga para empezar el historial de cambios.";
   const temporaryDiskLabel = estimate.estimatedTemporaryDiskBytes === null
-    ? "No se prevé un snapshot de datos adicional al abrir esta fuente. Las ediciones posteriores pueden crear historial temporal."
-    : `Snapshot e historial inicial: alrededor de ${formatFileSize(estimate.estimatedTemporaryDiskBytes)}; el tamaño real depende del contenido.`;
+    ? "Abrir este archivo no crea otra copia de los datos. Los cambios posteriores sí pueden ocupar disco con el historial."
+    : `Copia de trabajo e historial inicial: alrededor de ${formatFileSize(estimate.estimatedTemporaryDiskBytes)}; el tamaño real depende del contenido.`;
 
   return (
     <section className="sheet-import-summary load-resource-estimate" aria-label="Estimación de recursos">
-      <h4>Recursos orientativos</h4>
+      <h4>Estimación de memoria y disco</h4>
       <dl>
         <div>
-          <dt>Tamaño en disco</dt>
+          <dt>Tamaño del archivo</dt>
           <dd>{formatFileSize(source.fileSizeBytes)}</dd>
         </div>
         <div>
-          <dt>Ruta de procesamiento</dt>
+          <dt>Cómo se leerá</dt>
           <dd>{pathLabel}</dd>
         </div>
         <div>
-          <dt>RAM si se materializa</dt>
-          <dd>Aprox. {formatFileSize(estimate.estimatedMaterializationRamBytes)} (4× archivo + 256 MiB)</dd>
+          <dt>RAM si se carga entero</dt>
+          <dd>Aprox. {formatFileSize(estimate.estimatedMaterializationRamBytes)} (4 veces el archivo + 256 MiB)</dd>
         </div>
         <div>
           <dt>Disco temporal</dt>
@@ -972,7 +1120,7 @@ function ResourceEstimateSummary({ source }: { source: DatasetSourceInspection }
         </div>
       </dl>
       <p role="note">
-        Son aproximaciones, no límites ni reservas. Libros comprimidos y datos de alta cardinalidad pueden requerir bastante más espacio o memoria. La admisión nativa decide cada operación de materialización.
+        Son aproximaciones, no límites ni reservas. Los libros comprimidos y las columnas con muchos valores distintos pueden necesitar bastante más. Con archivos de 512 MiB o más, antes de cada operación que necesita los datos enteros en memoria el motor comprueba la RAM libre y, si no alcanza, no la ejecuta.
       </p>
     </section>
   );

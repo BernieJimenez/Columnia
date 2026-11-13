@@ -49,6 +49,42 @@ interface PrepareControllerOptions {
   onDeliveryInvalidated: () => void;
 }
 
+type RecipeResultCounts = Awaited<ReturnType<typeof applyTransformRecipe>>;
+
+/**
+ * What a recipe did, only the figures that moved: «3 renombres y 120 filas
+ * filtradas», never a list of zeros.
+ */
+export function recipeResultParts(result: Omit<RecipeResultCounts, "dataset">): string {
+  const contacts = result.normalizedContactCellCount > 0
+    ? `${plural(result.normalizedContactCellCount, "contacto normalizado", "contactos normalizados")} en ${plural(result.normalizedContactColumnCount, "columna", "columnas")}`
+    : null;
+  const summary = result.aggregatedColumnCount > 0 || result.collapsedRowCount > 0
+    ? `resumen de ${plural(result.groupCount, "grupo", "grupos")} con ${plural(result.aggregatedColumnCount, "agregación", "agregaciones")}`
+    : null;
+  const parts = [
+    [result.renamedColumnCount, "renombre", "renombres"],
+    [result.convertedColumnCount, "conversión", "conversiones"],
+    [result.parsedDateColumnCount, "fecha interpretada", "fechas interpretadas"],
+    [result.removedRowCount, "fila filtrada", "filas filtradas"],
+    [result.outlierRemovedRowCount, "fila atípica eliminada", "filas atípicas eliminadas"],
+    [result.calculatedColumnCount, "columna calculada", "columnas calculadas"],
+    [result.replacedCellCount, "celda reemplazada", "celdas reemplazadas"],
+    [result.splitColumnCount, "columna dividida", "columnas divididas"],
+    [result.mergedColumnCount, "columna combinada", "columnas combinadas"],
+    [result.droppedColumnCount + result.droppedSourceColumnCount, "columna descartada", "columnas descartadas"],
+    [result.adjustedOutlierCellCount, "valor atípico ajustado", "valores atípicos ajustados"],
+  ] as const;
+  const extracted = result.extractedColumnCount > 0
+    ? plural(result.extractedColumnCount, "columna extraída", "columnas extraídas")
+    : null;
+  const listed = [
+    ...parts.filter(([count]) => count > 0).map(([count, one, many]) => plural(count, one, many)),
+    ...[contacts, extracted, summary].filter((part): part is string => part !== null),
+  ];
+  return listed.length <= 1 ? listed.join("") : `${listed.slice(0, -1).join(", ")} y ${listed.at(-1)}`;
+}
+
 export function usePrepareController({
   activeDataset,
   exceptionPolicy = null,
@@ -108,6 +144,15 @@ export function usePrepareController({
 
   function resetChangeStatus() {
     setChangeStatus({ kind: "idle" });
+  }
+
+  /**
+   * A change published outside the Preparar controller (joining or
+   * consolidating with another file) shows the same result line, whose
+   * «Deshacer» depends on the history like any other change.
+   */
+  function reportExternalChange(message: string) {
+    setChangeStatus({ kind: "applied", message });
   }
 
   async function applyDuplicateRemoval() {
@@ -285,7 +330,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.changedCellCount === 0
           ? "No se encontraron valores personales no nulos que proteger."
-          : `Se protegieron ${cells} en ${columns} con [REDACTED]. No se muestran nombres ni valores; el cambio puede revertirse desde el historial.`,
+          : `Se protegieron ${cells} en ${columns} con el texto [REDACTED] (valor oculto). No se muestran nombres ni valores; el cambio puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -350,7 +395,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.changedCellCount === 0
           ? "No se detectaron valores con doble codificación UTF-8."
-          : `Se corrigió doble codificación UTF-8 en ${detail}.`,
+          : `Se corrigieron acentos mal leídos (doble codificación UTF-8) en ${detail}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -462,10 +507,10 @@ export function usePrepareController({
         message: action === "cap"
           ? result.changedCellCount === 0
             ? "No se detectaron valores atípicos que necesitaran limitación."
-            : `${result.changedCellCount === 1 ? "Se limitó" : "Se limitaron"} ${plural(result.changedCellCount, "valor atípico", "valores atípicos")} a los límites IQR en: ${columns}. El cambio puede revertirse desde el historial.`
+            : `${result.changedCellCount === 1 ? "Se limitó" : "Se limitaron"} ${plural(result.changedCellCount, "valor atípico", "valores atípicos")} al límite del rango normal (regla IQR) en: ${columns}. El cambio puede revertirse desde el historial.`
           : result.affectedRowCount === 0
             ? "No se detectaron filas atípicas para eliminar."
-            : `${result.affectedRowCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.affectedRowCount, "fila atípica", "filas atípicas")} según los límites IQR. El cambio puede revertirse desde el historial.`,
+            : `${result.affectedRowCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.affectedRowCount, "fila atípica", "filas atípicas")} fuera del rango normal (regla IQR). El cambio puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -645,7 +690,7 @@ export function usePrepareController({
         kind: "applied",
         message: total === 0
           ? "La receta no produjo cambios en el dataset."
-          : `Receta aplicada: ${plural(result.renamedColumnCount, "renombre", "renombres")}, ${plural(result.convertedColumnCount, "conversión", "conversiones")}, ${plural(result.parsedDateColumnCount, "fecha interpretada", "fechas interpretadas")}, ${plural(result.removedRowCount, "fila filtrada", "filas filtradas")}, ${plural(result.outlierRemovedRowCount, "fila atípica eliminada", "filas atípicas eliminadas")}, ${plural(result.calculatedColumnCount, "columna calculada", "columnas calculadas")}, ${plural(result.replacedCellCount, "celda reemplazada", "celdas reemplazadas")}, ${plural(result.splitColumnCount, "columna dividida", "columnas divididas")}, ${plural(result.mergedColumnCount, "columna combinada", "columnas combinadas")}, ${plural(result.droppedColumnCount + result.droppedSourceColumnCount, "columna descartada", "columnas descartadas")}, ${plural(result.adjustedOutlierCellCount, "valor atípico ajustado", "valores atípicos ajustados")}, ${plural(result.normalizedContactCellCount, "contacto normalizado", "contactos normalizados")} en ${plural(result.normalizedContactColumnCount, "columna", "columnas")}, ${plural(result.extractedColumnCount, "columna extraída", "columnas extraídas")} y resumen de ${plural(result.groupCount, "grupo", "grupos")} con ${plural(result.aggregatedColumnCount, "agregación", "agregaciones")}.`,
+          : `Receta aplicada: ${recipeResultParts(result)}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -663,7 +708,7 @@ export function usePrepareController({
       onProfileInvalidated();
       setHistoryStatus(result.history);
       onDeliveryInvalidated();
-      setChangeStatus({ kind: "applied", message: result.message });
+      setChangeStatus({ kind: "applied", message: result.message, origin: direction });
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -674,6 +719,7 @@ export function usePrepareController({
     historyStatus,
     cancelCurrent,
     resetChangeStatus,
+    reportExternalChange,
     refreshHistory,
     applyDuplicateRemoval: runExclusive(applyDuplicateRemoval),
     applyNearDuplicateRemoval: runExclusive(applyNearDuplicateRemoval),

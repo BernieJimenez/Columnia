@@ -41,7 +41,9 @@ test.describe("cargar desde SQL Server", () => {
 
     await page.getByLabel("Tabla o vista", { exact: true }).selectOption({ label: "Ventas" });
     await page.getByRole("button", { name: "Traer dbo.Ventas" }).click();
-    await expect(page.getByText(/Se trajeron 3 filas de dbo\.Ventas/)).toBeVisible();
+    // The dialog names the table that was read, not the local Parquet copy.
+    await expect(page.getByRole("dialog", { name: "Revisar la tabla dbo.Ventas" })).toBeVisible();
+    await expect(page.getByText(/Se leyeron 3 filas de dbo\.Ventas/)).toBeVisible();
 
     const calls = await recordedCalls(page);
     const importCall = calls.find((call) => call.command === "import_database_table");
@@ -55,7 +57,8 @@ test.describe("cargar desde SQL Server", () => {
     await page.screenshot({ path: test.info().outputPath("tras-importar.png"), fullPage: true });
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    await dialog.getByRole("button", { name: /Cargar/ }).first().click();
+    await expect(dialog).toContainText("SQL Server · localhost");
+    await dialog.getByRole("button", { name: "Cargar tabla" }).click();
     await expect(page.locator(".dataset-bar__name")).toHaveText("dbo.Ventas.parquet");
   });
 });
@@ -93,7 +96,7 @@ test.describe("entregar como script para SQL Server", () => {
     await installTauriMock(page, { dataset: salesDataset, explore: salesExplore, exportResult: scriptResult });
     await page.goto("/", { waitUntil: "commit" });
 
-    await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+    await page.getByRole("button", { name: "Elegir archivo" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Cargar archivo" }).click();
     await page.getByRole("button", { name: "Ver cambios propuestos" }).click();
     await page.getByRole("button", { name: "Continuar a Explorar" }).click();

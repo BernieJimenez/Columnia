@@ -15,6 +15,7 @@ import {
   schemaMismatchInspection,
   completeDelimitedHeaderReview,
   createReadyDatasetStatus,
+  dateLikeTextColumns,
   delimitedHeaderInspection,
   needsResourcePreflight,
   requestDatasetLoadCancellation,
@@ -246,6 +247,28 @@ describe("loadModel", () => {
       useSavedProfile: false,
       suggestedProfile: profile,
     });
+  });
+});
+
+describe("columnas de texto con nombre de fecha", () => {
+  it("reconoce nombres de fecha habituales y solo entre las columnas de texto", () => {
+    const text = (name: string) => ({ name, dataType: "String" });
+    expect(dateLikeTextColumns([
+      text("fecha_alta"), text("Fecha de pago"), text("f_vencimiento"), text("created_at"),
+      text("updatedAt"), text("OrderDate"), text("día"), text("mes"), text("FH_REGISTRO"),
+      { name: "fecha_numero", dataType: "Int64" },
+      { name: "date", dataType: "Date" },
+    ])).toEqual([
+      "fecha_alta", "Fecha de pago", "f_vencimiento", "created_at",
+      "updatedAt", "OrderDate", "día", "mes", "FH_REGISTRO",
+    ]);
+  });
+
+  it("no confunde palabras que solo contienen las letras de una fecha", () => {
+    const text = (name: string) => ({ name, dataType: "Utf8" });
+    expect(dateLikeTextColumns([
+      text("update"), text("mesa"), text("dias_credito"), text("formato"), text("f"), text("at"), text("estado"),
+    ])).toEqual([]);
   });
 });
 

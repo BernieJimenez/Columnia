@@ -8523,6 +8523,15 @@ pub async fn compare_dataset(
     comparison_reader::compare_dataset_impl(app, key_columns, options.unwrap_or_default()).await
 }
 
+/// Repeats the active comparison against the current dataset, without asking
+/// for the file again, after a change in Preparar.
+#[tauri::command]
+pub async fn refresh_dataset_comparison(
+    app: AppHandle,
+) -> Result<Option<DatasetComparison>, String> {
+    comparison_reader::refresh_dataset_comparison_impl(app).await
+}
+
 #[tauri::command]
 pub async fn get_dataset_conflict_page(
     app: AppHandle,
@@ -8537,6 +8546,7 @@ pub async fn join_dataset(
     app: AppHandle,
     key_columns: Vec<String>,
     join_type: DatasetJoinType,
+    from_comparison: Option<bool>,
 ) -> Result<Option<DatasetPreview>, String> {
     let (_review_guard, cancellation) = ReviewMutationCancellation::begin(&app)?;
     let key_columns = normalize_key_columns(Some(key_columns))?;
@@ -8570,30 +8580,44 @@ pub async fn join_dataset(
         (context, stamp, file_name, file_size, comparison_path)
     };
     cancellation.ensure()?;
-    let selection = app
-        .dialog()
-        .file()
-        .add_filter(
-            "Datasets compatibles",
-            &[
-                "csv", "tsv", "txt", "json", "jsonl", "ndjson", "parquet", "xlsx", "xls", "xlsb",
-                "ods",
-            ],
-        )
-        .blocking_pick_file();
-    let Some(selection) = selection else {
-        return Ok(None);
-    };
-    cancellation.ensure()?;
-    let path = selection
-        .into_path()
-        .map_err(|error| format!("No se pudo resolver la ruta seleccionada: {error}"))?;
-    let (path, file_size_bytes, extension) = validate_dataset_file(&path)?;
-    let compared_file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("dataset")
-        .to_owned();
+    // Preparar joins with the file already compared, without asking for it
+    // again. The private copy lives until the join ends.
+    let (path, file_size_bytes, extension, compared_file_name, _comparison_copy) =
+        if from_comparison.unwrap_or(false) {
+            let copy = snapshot_pending_comparison_for_review(
+                &app.state::<DatasetState>(),
+                &cancellation,
+            )?;
+            let (path, file_size_bytes, extension) = validate_dataset_file(&copy.path)?;
+            let file_name = copy.file_name.clone();
+            (path, file_size_bytes, extension, file_name, Some(copy))
+        } else {
+            let selection = app
+                .dialog()
+                .file()
+                .add_filter(
+                    "Datasets compatibles",
+                    &[
+                        "csv", "tsv", "txt", "json", "jsonl", "ndjson", "parquet", "xlsx", "xls",
+                        "xlsb", "ods",
+                    ],
+                )
+                .blocking_pick_file();
+            let Some(selection) = selection else {
+                return Ok(None);
+            };
+            cancellation.ensure()?;
+            let path = selection
+                .into_path()
+                .map_err(|error| format!("No se pudo resolver la ruta seleccionada: {error}"))?;
+            let (path, file_size_bytes, extension) = validate_dataset_file(&path)?;
+            let file_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("dataset")
+                .to_owned();
+            (path, file_size_bytes, extension, file_name, None)
+        };
 
     cancellation.ensure()?;
     let compared_source = source_backed_join_source(&path, &extension)?;

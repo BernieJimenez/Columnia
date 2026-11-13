@@ -448,7 +448,7 @@ async function runLargeDatasetBenchmark(page, source) {
 }
 
 async function selectDatasetFromApp(page, targetPath) {
-  const button = page.getByRole("button", { name: "Seleccionar dataset" });
+  const button = page.getByRole("button", { name: "Elegir archivo" });
   await button.waitFor({ state: "visible", timeout: probeTimeoutMs });
   await withTimeout(Promise.all([
     requestNativeDialog("open", targetPath),
@@ -470,8 +470,8 @@ async function prepareReusableTaskInApp(page, taskId) {
   await taskSelect.selectOption(taskId);
   await page.getByRole("heading", { name: "Configuración que se reutilizará" })
     .waitFor({ state: "visible", timeout: probeTimeoutMs });
-  await page.getByRole("button", { name: "Preparar próxima importación" }).click();
-  await page.getByRole("button", { name: "Tarea lista para importar" })
+  await page.getByRole("button", { name: "Usar en la próxima importación" }).click();
+  await page.getByRole("button", { name: "Se usará en la próxima importación" })
     .waitFor({ state: "visible", timeout: probeTimeoutMs });
 }
 

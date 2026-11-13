@@ -119,7 +119,7 @@ describe("ReusableTaskPanel", () => {
     fireEvent.click(screen.getByText("Reutilizar una tarea"));
     fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
 
-    expect(await screen.findByText(/1 decisión · base léxica/)).toBeInTheDocument();
+    expect(await screen.findByText(/1 decisión sobre valores que no se pueden convertir/)).toBeInTheDocument();
     expect(screen.getByText(/La decisión se guarda con la tarea/)).toBeInTheDocument();
     const apply = screen.getByRole("button", { name: "Aplicar al dataset actual" });
     await waitFor(() => expect(apply).not.toHaveAttribute("aria-disabled"));
@@ -243,9 +243,9 @@ describe("ReusableTaskPanel", () => {
     expect(bridge.openReusableTask).toHaveBeenCalledWith(taskSummary.id);
     expect(bridge.checkReusableTaskSchema).not.toHaveBeenCalled();
     expect(screen.getByText("Configuración que se reutilizará")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Preparar próxima importación" })).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByRole("button", { name: "Usar en la próxima importación" })).not.toHaveAttribute("aria-disabled");
 
-    fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));
+    fireEvent.click(screen.getByRole("button", { name: "Usar en la próxima importación" }));
     await waitFor(() => expect(onPrepareImport).toHaveBeenCalledWith(taskSummary.id, savedTask));
   });
 
@@ -264,7 +264,7 @@ describe("ReusableTaskPanel", () => {
     );
     await waitFor(() => expect(bridge.listReusableTasks).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByText("Reutilizar una tarea"));
-    fireEvent.change(screen.getByLabelText("Guardar configuración actual"), {
+    fireEvent.change(screen.getByLabelText("Guardar la configuración actual como tarea"), {
       target: { value: "  Cierre semanal  " },
     });
     fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
@@ -283,8 +283,8 @@ describe("ReusableTaskPanel", () => {
     fireEvent.click(apply);
     await waitFor(() => expect(onApply).toHaveBeenCalledWith({ ...draft, name: "Cierre semanal" }));
 
-    expect(screen.getByRole("button", { name: "Preparar próxima importación" })).not.toHaveAttribute("aria-disabled");
-    fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));
+    expect(screen.getByRole("button", { name: "Usar en la próxima importación" })).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(screen.getByRole("button", { name: "Usar en la próxima importación" }));
 
     await waitFor(() => expect(onPrepareImport).toHaveBeenCalledWith("task-2", { ...draft, name: "Cierre semanal" }));
   });
@@ -298,14 +298,55 @@ describe("ReusableTaskPanel", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("El esquema es compatible"));
 
     fireEvent.click(screen.getByRole("button", { name: "Eliminar tarea" }));
-    const confirmation = screen.getByRole("alertdialog", { name: "Eliminar Cierre mensual" });
+    const confirmation = screen.getByRole("group", { name: /¿Eliminar «Cierre mensual»\?/ });
     expect(confirmation).toHaveTextContent("no se puede deshacer");
+    expect(screen.getByRole("button", { name: "Conservar" })).toHaveFocus();
     expect(bridge.deleteReusableTask).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar definitivamente" }));
 
     await waitFor(() => expect(bridge.deleteReusableTask).toHaveBeenCalledWith(taskSummary.id));
     expect(await screen.findByText("Se eliminó la tarea «Cierre mensual».")).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Cierre mensual" })).not.toBeInTheDocument();
+  });
+
+  it("Esc y «Conservar» cancelan la confirmación y devuelven el foco a «Eliminar tarea»", async () => {
+    render(<ReusableTaskPanel connected blocked={false} schema={schema} draft={draft} onApply={vi.fn()} />);
+    await waitFor(() => expect(bridge.listReusableTasks).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByText("Reutilizar una tarea"));
+    fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("El esquema es compatible"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar tarea" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "Conservar" }), { key: "Escape" });
+    expect(screen.queryByRole("group", { name: /¿Eliminar/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Eliminar tarea" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar tarea" }));
+    fireEvent.click(screen.getByRole("button", { name: "Conservar" }));
+    expect(screen.getByRole("button", { name: "Eliminar tarea" })).toHaveFocus();
+    expect(bridge.deleteReusableTask).not.toHaveBeenCalled();
+  });
+
+  it("el resumen dice cuántas tareas hay cuando el catálogo está listo", async () => {
+    const { unmount } = render(<ReusableTaskPanel connected blocked={false} schema={schema} draft={draft} onApply={vi.fn()} />);
+    expect(await screen.findByText("1 tarea guardada")).toBeInTheDocument();
+    unmount();
+    bridge.listReusableTasks.mockResolvedValue([]);
+    render(<ReusableTaskPanel connected blocked={false} schema={null} draft={null} onApply={vi.fn()} />);
+    expect(await screen.findByText("Ninguna tarea guardada")).toBeInTheDocument();
+  });
+
+  it("sin tareas ni dataset explica qué hacer y no muestra el formulario; con dataset sí", async () => {
+    bridge.listReusableTasks.mockResolvedValue([]);
+    const { unmount } = render(<ReusableTaskPanel connected blocked={false} schema={null} draft={null} onApply={vi.fn()} />);
+    fireEvent.click(await screen.findByText("Reutilizar una tarea"));
+    expect(await screen.findByText(/Carga un dataset para guardar la primera/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Guardar la configuración actual como tarea")).not.toBeInTheDocument();
+    unmount();
+
+    render(<ReusableTaskPanel connected blocked={false} schema={schema} draft={draft} onApply={vi.fn()} />);
+    fireEvent.click(await screen.findByText("Reutilizar una tarea"));
+    expect(await screen.findByLabelText("Guardar la configuración actual como tarea")).toBeInTheDocument();
   });
 
   it("ve la privacidad de la tarea en palabras (TXT-04)", async () => {
@@ -344,7 +385,7 @@ describe("ReusableTaskPanel", () => {
     fireEvent.click(screen.getByText("Reutilizar una tarea"));
     expect(screen.getByLabelText("Tarea guardada")).toHaveAttribute("aria-describedby", "busy-reason");
     expect(screen.getByRole("button", { name: "Guardar" })).toHaveAttribute("aria-describedby", "busy-reason");
-    expect(screen.getByRole("textbox", { name: "Guardar configuración actual" }).getAttribute("aria-describedby"))
+    expect(screen.getByRole("textbox", { name: "Guardar la configuración actual como tarea" }).getAttribute("aria-describedby"))
       .toBe("reusable-task-name-help busy-reason");
     cleanup();
 
@@ -369,7 +410,7 @@ describe("ReusableTaskPanel", () => {
     rerender(
       <ReusableTaskPanel connected blocked schema={schema} draft={draft} onApply={onApply} onPrepareImport={onPrepareImport} />,
     );
-    const prepare = screen.getByRole("button", { name: "Preparar próxima importación" });
+    const prepare = screen.getByRole("button", { name: "Usar en la próxima importación" });
     for (const button of [apply, prepare]) {
       expect(button).toHaveAttribute("aria-disabled", "true");
       expect(button).toHaveAttribute("aria-describedby", "busy-reason");

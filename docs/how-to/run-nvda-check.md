@@ -35,11 +35,11 @@ puede completar sin ratón y el anuncio permite entender qué ocurre.
 
 - [ ] `Tab` desde el inicio llega a «Saltar al contenido principal» y lo anuncia.
 - [ ] `NVDA` + `F7` muestra regiones con nombre: navegación principal, contenido.
-- [ ] «Seleccionar dataset» abre el selector de Windows; eliges el CSV.
+- [ ] «Elegir archivo» abre el selector de Windows; eliges el CSV.
 - [ ] El diálogo de importación anuncia su título («Revisar encabezados de…»).
 - [ ] Las dos opciones de encabezados se anuncian como botones de opción.
 - [ ] «Ver columnas y tipos» se anuncia como contraída y se expande con `Enter`.
-- [ ] `Escape` cierra el diálogo y el foco vuelve a «Seleccionar dataset».
+- [ ] `Escape` cierra el diálogo y el foco vuelve a «Elegir archivo».
 - [ ] Vuelves a abrirlo y «Cargar archivo» lleva a Revisar.
 
 ### 2. Revisar
@@ -47,7 +47,7 @@ puede completar sin ratón y el anuncio permite entender qué ocurre.
 - [ ] Se anuncia el cambio de etapa («Etapa activa: Revisar»).
 - [ ] El progreso del análisis se anuncia y después termina, sin repetirse sin
       parar.
-- [ ] Con `H` llegas a «Encontramos N cosas para arreglar» y la lista se lee
+- [ ] Con `H` llegas a «N cosas se pueden corregir con la propuesta» y la lista se lee
       como pares nombre y cifra.
 - [ ] «Ver cambios propuestos» lleva a Preparar.
 

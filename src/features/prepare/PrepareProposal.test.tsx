@@ -146,7 +146,9 @@ describe("PrepareProposal ambiguous dates in steps (FUN-F2-14)", () => {
         onApply={onApply} onUndo={vi.fn()} onDismissResult={vi.fn()} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
-    fireEvent.click(screen.getByLabelText("Sí, convertir"));
+    // One column: the question agrees with «Convertir 1 columna a fecha».
+    expect(screen.getByRole("group", { name: "¿Convertimos a fecha la columna que solo tiene fechas?" })).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Sí, convertirla"));
     const question = screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" });
 
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
@@ -168,7 +170,7 @@ describe("PrepareProposal ambiguous dates in steps (FUN-F2-14)", () => {
         onApply={vi.fn()} onUndo={vi.fn()} onDismissResult={vi.fn()} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
-    fireEvent.click(screen.getByLabelText("No, dejarlas como texto"));
+    fireEvent.click(screen.getByLabelText("No, dejarla como texto"));
     expect(screen.queryByRole("group", { name: "¿Cómo se lee «01/02/2024»?" })).not.toBeInTheDocument();
   });
 });
@@ -203,7 +205,7 @@ describe("PrepareProposal result", () => {
     );
 
     const result = screen.getByRole("region", { name: "Listo: cambios aplicados" });
-    expect(result).toHaveTextContent(/Valores sin dato\s*7 → 6/);
+    expect(result).toHaveTextContent(/Nulos y marcadores «sin dato»\s*7 → 6/);
     expect(result).not.toHaveTextContent("Valores vacíos");
   });
 });
@@ -263,7 +265,7 @@ describe("PrepareProposal date count (FUN-24)", () => {
         busy={false} canUndo={false} result={null} onApply={onApply} onUndo={vi.fn()} onDismissResult={vi.fn()} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
-    fireEvent.click(screen.getByLabelText("Sí, convertir"));
+    fireEvent.click(screen.getByLabelText("Sí, convertirla"));
     const question = screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" });
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
     expect(screen.getByRole("button", { name: "Aplicar" })).toHaveAttribute("aria-disabled", "true");
@@ -330,5 +332,75 @@ describe("PrepareProposal focus (ACC-17)", () => {
     expect(onApply).not.toHaveBeenCalled();
     rerender(<PrepareProposal {...props} busy={false} />);
     expect(screen.getByRole("button", { name: "Aplicar" })).not.toHaveAttribute("aria-describedby");
+  });
+});
+
+describe("PrepareProposal result focus and actions", () => {
+  const profile = {
+    rowCount: 3, duplicateRowCount: 1, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [],
+  } as unknown as DatasetProfile;
+  const after = { ...profile, rowCount: 2, duplicateRowCount: 0 } as DatasetProfile;
+
+  it("el encabezado del resultado toma el foco al aparecer, también tras volver a montarse", () => {
+    render(
+      <PrepareProposal items={[]} columnCount={1} busy={false} canUndo result={{ before: profile, after, changes: ["1 fila duplicada quitada"] }}
+        onApply={vi.fn()} onUndo={vi.fn()} onDismissResult={vi.fn()} onContinue={vi.fn()} />,
+    );
+    expect(screen.getByRole("heading", { name: "Listo: cambios aplicados" })).toHaveFocus();
+  });
+
+  it("tras aplicar, «Continuar a Explorar» es la primaria y «Ver qué más» secundaria", () => {
+    const onContinue = vi.fn();
+    const onDismissResult = vi.fn();
+    render(
+      <PrepareProposal items={[]} columnCount={1} busy={false} canUndo result={{ before: profile, after, changes: [] }}
+        onApply={vi.fn()} onUndo={vi.fn()} onDismissResult={onDismissResult} onContinue={onContinue} />,
+    );
+    const next = screen.getByRole("button", { name: "Continuar a Explorar" });
+    expect(next).toHaveClass("prepare-proposal__primary");
+    const more = screen.getByRole("button", { name: "Ver qué más se puede mejorar" });
+    expect(more).toHaveClass("secondary-action");
+    expect(more).not.toHaveClass("prepare-proposal__primary");
+    fireEvent.click(next);
+    expect(onContinue).toHaveBeenCalledOnce();
+    fireEvent.click(more);
+    expect(onDismissResult).toHaveBeenCalledOnce();
+  });
+
+  it("«Deshacer estos cambios» ocupado sigue enfocable y no actúa", () => {
+    const onUndo = vi.fn();
+    render(
+      <PrepareProposal items={[]} columnCount={1} busy canUndo result={{ before: profile, after, changes: [] }}
+        onApply={vi.fn()} onUndo={onUndo} onDismissResult={vi.fn()} />,
+    );
+    const undo = screen.getByRole("button", { name: "Deshacer estos cambios" });
+    expect(undo).toBeEnabled();
+    expect(undo).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(undo);
+    expect(onUndo).not.toHaveBeenCalled();
+  });
+});
+
+describe("PrepareProposal cambios sin marcar", () => {
+  it("dice por qué «Rellenar» viene sin marcar cuando propone más de lo que aplica", () => {
+    render(
+      <PrepareProposal items={items} columnCount={2} busy={false} canUndo={false} result={null}
+        onApply={vi.fn()} onUndo={vi.fn()} onDismissResult={vi.fn()} />,
+    );
+    expect(screen.getByRole("heading", { name: "Columnia propone 2 cambios" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aplicar 1 cambio" })).toBeInTheDocument();
+    expect(screen.getByText(/«Rellenar 3 nulos en 1 columna» viene sin marcar porque rellenar inventa valores/)).toBeInTheDocument();
+  });
+
+  it("las preguntas del paso a paso concuerdan en número con su pista", () => {
+    render(
+      <PrepareProposal items={items} columnCount={2} busy={false} canUndo={false} result={null}
+        onApply={vi.fn()} onUndo={vi.fn()} onDismissResult={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Personalizar paso a paso" }));
+    expect(screen.getByRole("group", { name: "¿Quitamos la fila duplicada?" })).toHaveTextContent("Quitar 1 fila duplicada.");
+    expect(screen.getByLabelText("Sí, quitarla")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    expect(screen.getByRole("group", { name: "¿Rellenamos los nulos?" })).toHaveTextContent("Rellenar 3 nulos en 1 columna.");
   });
 });

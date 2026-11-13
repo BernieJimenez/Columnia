@@ -40,10 +40,15 @@ import {
   isDatabaseExportFormat,
 } from "./deliveryContract";
 import {
-  INITIAL_DATABASE_TARGET,
   QUALITY_RULE_SUMMARY,
   type DatabaseTargetDraft,
   completeDatabaseTarget,
+  databaseConnectionSummary,
+  databaseLocation,
+  defaultDatabaseTarget,
+  qualifiedDatabaseTable,
+  replaceTableWarning,
+  retargetDatabaseKind,
   bundleFileNames,
   databaseKindForExportFormat,
   DELIVERY_DESTINATIONS,
@@ -169,6 +174,25 @@ const QUALITY_ISSUE_GUIDANCE: Record<QualityRuleKind, { title: string; nextStep:
 
 
 
+/** What a direct database delivery does with the table, each with its consequence in its own line. */
+const TABLE_POLICIES: ReadonlyArray<{ policy: DatabaseTargetDraft["tablePolicy"]; label: string; description: string }> = [
+  {
+    policy: "create_only",
+    label: "Crear una tabla nueva",
+    description: "Si ya existe una tabla con ese nombre, no se escribe nada.",
+  },
+  {
+    policy: "append",
+    label: "Añadir filas a la tabla existente",
+    description: "Conserva las filas que ya tiene y añade estas.",
+  },
+  {
+    policy: "replace",
+    label: "Reemplazar la tabla",
+    description: "Borra la tabla actual con todas sus filas y la vuelve a crear con estos datos.",
+  },
+];
+
 function summarizeQualityRule(rule: QualityRule): string {
   const columns = rule.kind === "schema_contract" || rule.kind === "row_count"
     ? "Dataset"
@@ -221,7 +245,29 @@ export function DeliveryPhase({
   const selectedPrivacyMode = privacyMode ?? localPrivacyMode;
   const selectedExportFormat = exportFormat ?? localExportFormat;
   const exceedsExcel = selectedExportFormat === "excel" && excelLimitIssues.length > 0;
-  const [databaseTarget, setDatabaseTarget] = useState<DatabaseTargetDraft>(INITIAL_DATABASE_TARGET);
+  const [databaseTarget, setDatabaseTarget] = useState<DatabaseTargetDraft>(() =>
+    defaultDatabaseTarget(databaseKindForExportFormat(exportFormat ?? "csv") ?? "postgresql", dataset.fileName));
+  // The connection's problem is only said once the person tried to use it (analyse or export).
+  const [connectionAttempted, setConnectionAttempted] = useState(false);
+  // «Reemplazar» has its own confirmation, tied to the exact table and server it names.
+  const [confirmedReplaceKey, setConfirmedReplaceKey] = useState<string | null>(null);
+  // Where and how the last export was asked for: its result is the current one while these hold.
+  // A result already there when Entregar mounts (coming back to the stage) belongs to the
+  // starting destination and does not take the focus; only one asked for here does.
+  const [exportedWith, setExportedWith] = useState<{
+    destination: DeliveryDestination;
+    format: ExportFormat;
+    location: string | null;
+    takeFocus: boolean;
+  } | null>(() => exportState.kind === "success"
+    ? {
+        destination: destinationForFormat(exportFormat ?? "csv"),
+        format: exportFormat ?? "csv",
+        location: null,
+        takeFocus: false,
+      }
+    : null);
+  const commitRef = useRef<HTMLDivElement>(null);
   // Remounts the connection form whenever the target is reset, so it never shows a dropped connection.
   const [connectionFormKey, setConnectionFormKey] = useState(0);
   const [databasePreflightState, setDatabasePreflightState] = useState<
@@ -250,7 +296,8 @@ export function DeliveryPhase({
     exportRequestGeneration.current += 1;
     setConnectionFormKey((current) => current + 1);
     const kind = databaseKindForExportFormat(selectedExportFormat);
-    setDatabaseTarget({ ...INITIAL_DATABASE_TARGET, ...(kind ? { kind } : {}) });
+    setDatabaseTarget(defaultDatabaseTarget(kind ?? "postgresql", dataset.fileName));
+    setConnectionAttempted(false);
     setDatabasePreflightState({ kind: "idle" });
     databaseRequestGeneration.current += 1;
   });
@@ -262,7 +309,7 @@ export function DeliveryPhase({
   useEffect(() => {
     const kind = databaseKindForExportFormat(selectedExportFormat);
     if (!kind || databaseTarget.kind === kind) return;
-    setDatabaseTarget((current) => ({ ...current, kind }));
+    setDatabaseTarget((current) => retargetDatabaseKind(current, kind));
     setDatabasePreflightState({ kind: "idle" });
     databaseRequestGeneration.current += 1;
   }, [databaseTarget.kind, selectedExportFormat]);
@@ -306,7 +353,10 @@ export function DeliveryPhase({
     ? databaseTargetIssue(databaseTarget)
     : null;
   const databaseTargetError = databaseTargetProblem?.message ?? null;
-  const invalidDatabaseTargetField = databaseTargetProblem?.field ?? null;
+  // A connection not filled in yet is not an error until the person tries to use it.
+  const showDatabaseTargetError = databaseTargetProblem !== null
+    && (databaseTargetProblem.field !== "connection" || connectionAttempted);
+  const invalidDatabaseTargetField = showDatabaseTargetError ? databaseTargetProblem?.field ?? null : null;
   const databaseReady = !isDatabaseExportFormat(selectedExportFormat)
     || (databaseTargetError === null
       && databasePreflightState.kind === "ready"
@@ -332,13 +382,26 @@ export function DeliveryPhase({
     || migrationState.kind === "working"
     || qualityFileState.kind === "working"
     || databasePreflightState.kind === "working";
+  // A contract that just failed is not run again unchanged: rules or data must change first (they make it stale).
+  const failedRuleNumbers = contract.kind === "with_contract" && contract.gate.kind === "ready" && !contract.gate.result.passed
+    ? contract.gate.result.rules.flatMap((result, index) => (result.passed ? [] : [index + 1]))
+    : [];
+  const replacesTable = isDatabaseExportFormat(selectedExportFormat) && databaseTarget.tablePolicy === "replace";
+  const replaceTableName = qualifiedDatabaseTable(databaseTarget);
+  const replaceServer = databaseTarget.connection?.server.trim() ?? "";
+  const replaceKey = replacesTable
+    ? JSON.stringify([databaseTarget.kind, replaceServer, databaseTarget.connection?.database.trim() ?? "", replaceTableName])
+    : null;
+  const needsReplaceConfirmation = replaceKey !== null && confirmedReplaceKey !== replaceKey;
   const exportBlockerList = exportBlockers({
     busy,
     validationError: validationError !== null,
+    failedRuleNumbers,
     missingSqlServerKey,
     needsPersonalDataConfirmation,
     needsUnvalidatedConfirmation,
     databaseNotReady: !databaseReady,
+    needsReplaceConfirmation,
     exceedsExcel,
   });
   const exportBlockedReason = exportBlockerList.length === 0
@@ -347,7 +410,7 @@ export function DeliveryPhase({
       ? exportBlockerList[0]
       : `${exportBlockerList.slice(0, -1).join(", ")} y ${exportBlockerList.at(-1)}`}.`;
   // aria-disabled (not disabled) keeps the button in the tab order so its reason is reachable; onClick ignores it.
-  const powerBiExportDisabled = busy || validationError !== null || needsUnvalidatedConfirmation || needsPersonalDataConfirmation || exceedsExcel;
+  // Power BI formats are never database or SQL Server files, so the same list applies.
   const exportDisabled = exportBlockerList.length > 0;
   const exportFormatLabel = {
     csv: "CSV",
@@ -357,7 +420,7 @@ export function DeliveryPhase({
     sql: "SQL",
     excel: "Excel",
     sqlite: "SQLite",
-    bundle: "Paquete ZIP",
+    bundle: "Paquete Columnia",
     sqlserver_script: "script T-SQL",
     sqlserver_bulk: "paquete BULK INSERT",
     postgresql: "PostgreSQL",
@@ -398,6 +461,9 @@ export function DeliveryPhase({
     table: isSqlServerFile
       ? sqlServerScriptTable(sqlServerScript, sqlServerKeys)
       : isDatabaseExportFormat(selectedExportFormat) ? databaseTargetTable(databaseTarget) : null,
+    ...(isDatabaseExportFormat(selectedExportFormat)
+      ? { connection: databaseConnectionSummary(databaseTarget.connection) }
+      : {}),
     quality: contract.kind === "with_contract"
       ? { kind: "rules", count: contract.rules.length, passed: gatePassed }
       : { kind: "unvalidated" },
@@ -410,6 +476,46 @@ export function DeliveryPhase({
     && contract.gate.result.passed
     ? `${contract.gate.result.totalRules.toLocaleString()} ${contract.gate.result.totalRules === 1 ? "regla aprobada" : "reglas aprobadas"} sobre ${contract.gate.result.rowCount.toLocaleString()} ${contract.gate.result.rowCount === 1 ? "fila" : "filas"}`
     : null;
+  const replaceWarning = replacesTable
+    ? replaceTableWarning(replaceTableName, activePreflight)
+    : null;
+  // The result belongs to the destination and format it was made for.
+  const showsCurrentResult = exportState.kind === "success"
+    && (exportedWith === null
+      || (exportedWith.destination === destination && exportedWith.format === selectedExportFormat));
+  const exportActionLabel = (() => {
+    const validate = contract.kind === "with_contract" && !gatePassed;
+    if (showsCurrentResult) return "Exportar otra copia";
+    if (destination === "powerbi") return validate ? "Validar, exportar y abrir en Power BI" : "Exportar y abrir en Power BI";
+    if (replacesTable) {
+      const target = `${replaceTableName}${replaceServer ? ` en ${replaceServer}` : ""}`;
+      return validate ? `Validar y reemplazar ${target}` : `Reemplazar ${target}`;
+    }
+    return validate ? `Validar y exportar ${exportFormatLabel}` : `Exportar ${exportFormatLabel}`;
+  })();
+  const compactCommitLine = `${summary[0]?.value ?? ""} · ${summary.find((item) => item.label === "Datos")?.value.split(" · ")[0] ?? ""}`;
+
+  // AUD-058 pattern: the sticky commit bar publishes its real height, so the
+  // scroll padding keeps a focused control from hiding behind it (WCAG 2.4.11).
+  useEffect(() => {
+    const element = commitRef.current;
+    const root = document.documentElement;
+    if (!element) return;
+    const publish = () => {
+      const height = Math.ceil(element.getBoundingClientRect().height);
+      if (height > 0) root.style.setProperty("--delivery-commit-height", `${height}px`);
+    };
+    publish();
+    if (typeof ResizeObserver === "undefined") {
+      return () => root.style.removeProperty("--delivery-commit-height");
+    }
+    const observer = new ResizeObserver(publish);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--delivery-commit-height");
+    };
+  }, []);
   useEffect(() => {
     if (!rulesEditorOpen || pendingRuleFocus === null) return;
     focusQualityRule(pendingRuleFocus);
@@ -494,6 +600,12 @@ export function DeliveryPhase({
           ? { sqlServerScript: { ...sqlServerScript, keyColumns: sqlServerScript.mode === "upsert" ? sqlServerKeys : [] } }
           : {}),
       };
+      const requestedWith = {
+        destination,
+        format,
+        location: isDatabaseExportFormat(format) ? databaseLocation(databaseTarget) : null,
+        takeFocus: true,
+      };
       if (contract.kind === "with_contract") {
         if (validationError) return;
         if (!gatePassed) {
@@ -523,9 +635,11 @@ export function DeliveryPhase({
           }
         }
         if (exportRequestGeneration.current !== requestedGeneration) return;
+        setExportedWith(requestedWith);
         onExport({ format, privacyMode: selectedPrivacyMode, ...databaseOptions, validation: { kind: "contract", rules: contract.rules } });
       } else if (contract.confirmation === "confirmed") {
         if (exportRequestGeneration.current !== requestedGeneration) return;
+        setExportedWith(requestedWith);
         onExport({ format, privacyMode: selectedPrivacyMode, ...databaseOptions, validation: { kind: "explicitly_unvalidated" } });
       }
     } finally {
@@ -540,15 +654,7 @@ export function DeliveryPhase({
     onExportFormatChange?.(format);
     const kind = databaseKindForExportFormat(format);
     if (kind) {
-      setDatabaseTarget((current) => ({
-        ...current,
-        kind,
-        // Another engine starts with an empty form: the old connection is dropped.
-        ...(current.kind !== kind ? { connection: null } : {}),
-        ...(kind === "mysql" && current.tablePolicy === "replace"
-          ? { tablePolicy: "create_only" as const }
-          : {}),
-      }));
+      setDatabaseTarget((current) => retargetDatabaseKind(current, kind));
       setDatabasePreflightState({ kind: "idle" });
       databaseRequestGeneration.current += 1;
     } else {
@@ -569,6 +675,7 @@ export function DeliveryPhase({
 
   async function preflightDatabaseTarget() {
     const requestedTarget = completeDatabaseTarget(databaseTarget);
+    if (databaseTargetError) setConnectionAttempted(true);
     if (databaseTargetError || !requestedTarget || databasePreflightState.kind === "working") return;
     const requestGeneration = databaseRequestGeneration.current + 1;
     databaseRequestGeneration.current = requestGeneration;
@@ -584,7 +691,7 @@ export function DeliveryPhase({
       if (result.kind !== requestedTarget.kind) {
         setDatabasePreflightState({
           kind: "error",
-          message: "El preflight no corresponde al motor de destino seleccionado.",
+          message: "La comprobación previa no corresponde al motor de destino seleccionado.",
         });
         return;
       }
@@ -642,22 +749,22 @@ export function DeliveryPhase({
       const storedTarget = openedPreset.databaseTarget;
       const destructivePolicy = storedTarget.tablePolicy === "replace";
       setDatabaseTarget({
-        ...INITIAL_DATABASE_TARGET,
-        kind: storedTarget.kind,
+        ...defaultDatabaseTarget(storedTarget.kind, dataset.fileName),
         schema: storedTarget.schema,
         table: storedTarget.table,
+        // A saved configuration never brings back «Reemplazar»: it is chosen again in each session.
         tablePolicy: destructivePolicy ? "create_only" : storedTarget.tablePolicy,
       });
+      setConnectionAttempted(false);
       setDatabasePreflightState({ kind: "idle" });
       databaseRequestGeneration.current += 1;
       if (destructivePolicy) {
-        return "El preset proponía reemplazar la tabla. Se cargó Crear sin reemplazar; elige Reemplazar explícitamente y vuelve a analizar si quieres autorizarlo en esta sesión.";
+        return "La configuración proponía reemplazar la tabla. Se cargó «Crear una tabla nueva»; elige «Reemplazar la tabla» y vuelve a analizar si quieres autorizarlo en esta sesión.";
       }
-      return "Preset aplicado. Reingresa la conexión de esta sesión y ejecuta el preflight antes de escribir.";
+      return "Configuración aplicada. Vuelve a escribir la conexión de esta sesión y analiza la compatibilidad antes de escribir.";
     } else {
-      setDatabaseTarget({ ...INITIAL_DATABASE_TARGET, ...(databaseKindForExportFormat(openedPreset.format)
-        ? { kind: databaseKindForExportFormat(openedPreset.format)! }
-        : {}) });
+      setDatabaseTarget(defaultDatabaseTarget(databaseKindForExportFormat(openedPreset.format) ?? "postgresql", dataset.fileName));
+      setConnectionAttempted(false);
       setDatabasePreflightState({ kind: "idle" });
       databaseRequestGeneration.current += 1;
     }
@@ -682,7 +789,7 @@ export function DeliveryPhase({
       keyColumns: stored.mode === "upsert" && missingKeys.length === 0 ? stored.keyColumns : [],
     });
     if (missingKeys.length === 0) return null;
-    return `La clave del preset (${missingKeys.join(", ")}) no está en estos datos. Elige de nuevo las columnas clave antes de exportar.`;
+    return `La clave de la configuración guardada (${missingKeys.join(", ")}) no está en estos datos. Elige de nuevo las columnas clave antes de exportar.`;
   }
 
 
@@ -709,6 +816,27 @@ export function DeliveryPhase({
           <p className="phase-lead">Comprueba las reglas de aceptación y exporta. El archivo original no se modifica.</p>
         </div>
       </header>
+      {/* The destination comes first: it decides the format, the table and what the summary says. */}
+      <fieldset className="choice-cards delivery-destination" disabled={busy}>
+        <legend>¿A dónde va la copia?</legend>
+        <div className="choice-cards__options">
+          {DELIVERY_DESTINATIONS.map((option) => (
+            <label key={option.id} className="choice-card" data-selected={destination === option.id || undefined}>
+              <input
+                type="radio"
+                name="delivery-destination"
+                value={option.id}
+                checked={destination === option.id}
+                onChange={() => chooseDestination(option.id)}
+              />
+              <span>
+                <strong>{option.label}</strong>
+                <small>{option.description}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <div className="delivery-layout">
       <section className="quality-contract" aria-labelledby="quality-contract-title">
         <div className="quality-contract__header">
@@ -793,9 +921,15 @@ export function DeliveryPhase({
               </div>
               {/* While editing, the editor itself lists every rule. */}
               {!rulesEditorOpen && (
-                <ul>
-                  {rules.map((rule, index) => <li key={index}>{summarizeQualityRule(rule)}</li>)}
-                </ul>
+                <ol className="quality-contract__rules">
+                  {rules.map((rule, index) => (
+                    <li key={index} data-failed={failedRuleNumbers.includes(index + 1) || undefined}>
+                      <strong>Regla {index + 1}:</strong>{" "}
+                      {summarizeQualityRule(rule)}
+                      {failedRuleNumbers.includes(index + 1) && <> <span className="quality-contract__failed">No se cumple.</span></>}
+                    </li>
+                  ))}
+                </ol>
               )}
               {missingSuggestions.length > 0 && (
                 <button
@@ -821,7 +955,7 @@ export function DeliveryPhase({
               </button>
             </div>
             {rulesEditorOpen && <div id="quality-rules-editor" className="quality-rules-editor">
-              <QualityRulesEditor rules={rules} dataset={dataset} busy={busy} validationErrorRuleIndex={validationErrorRuleIndex} onRulesChange={changeRules} />
+              <QualityRulesEditor rules={rules} dataset={dataset} busy={busy} validationErrorRuleIndex={validationErrorRuleIndex} failedRuleIndexes={failedRuleNumbers.map((number) => number - 1)} onRulesChange={changeRules} />
             </div>}
             <details className="quality-contract__utilities">
               <summary>Importar o guardar reglas</summary>
@@ -906,6 +1040,13 @@ export function DeliveryPhase({
               ? "Resultado desactualizado"
               : contract.gate.result.passed ? "Contrato aprobado" : "Contrato fallido"}</strong>
             <span>{contract.gate.result.failedRules} de {contract.gate.result.totalRules} reglas fallaron · {contract.gate.result.rowCount.toLocaleString()} filas comprobadas</span>
+            {failedRuleNumbers.length > 0 && (
+              <p className="quality-gate__next">
+                No se volverá a validar sin cambios: corrige los datos en Preparar o ajusta {failedRuleNumbers.length === 1
+                  ? `la regla ${failedRuleNumbers[0]}`
+                  : `las reglas ${failedRuleNumbers.slice(0, -1).join(", ")} y ${failedRuleNumbers.at(-1)}`}.
+              </p>
+            )}
             {contract.gate.result.failedRules > 0 && (
               <div className="quality-gate__issues" aria-label="Resumen de problemas de calidad">
                 <strong>Problemas detectados</strong>
@@ -938,26 +1079,6 @@ export function DeliveryPhase({
         <div>
           <h3 id="export-title">Exportar dataset activo</h3>
         </div>
-        <fieldset className="choice-cards" disabled={busy}>
-          <legend>¿A dónde va la copia?</legend>
-          <div className="choice-cards__options">
-            {DELIVERY_DESTINATIONS.map((option) => (
-              <label key={option.id} className="choice-card" data-selected={destination === option.id || undefined}>
-                <input
-                  type="radio"
-                  name="delivery-destination"
-                  value={option.id}
-                  checked={destination === option.id}
-                  onChange={() => chooseDestination(option.id)}
-                />
-                <span>
-                  <strong>{option.label}</strong>
-                  <small>{option.description}</small>
-                </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
         <div className="export-controls">
           <label className="export-format">
             {destination === "sqlserver" ? "Cómo llevarlo" : "Formato"}
@@ -987,11 +1108,11 @@ export function DeliveryPhase({
             >
               <option value="none">Sin protección adicional</option>
               <option value="mask">Enmascarar columnas detectadas</option>
-              <option value="hash">Seudonimizar columnas detectadas (hash con sal)</option>
+              <option value="hash">Seudonimizar columnas detectadas</option>
             </select>
             {selectedPrivacyMode === "hash" && (
               <small id="privacy-mode-note" className="privacy-mode__note">
-                Cada valor se sustituye por un hash SHA-256 con una sal nueva en cada exportación: no se puede adivinar probando valores, pero tampoco se pueden cruzar dos exportaciones. Es seudonimización, no anonimización; revisa el archivo antes de compartirlo.
+                Cada valor se cambia por un código irreversible, distinto en cada exportación (hash SHA-256 con sal): nadie puede recuperar el original probando valores, pero tampoco se pueden cruzar dos exportaciones. Es seudonimización, no anonimización; revisa el archivo antes de compartirlo.
               </small>
             )}
           </label>
@@ -1029,7 +1150,7 @@ export function DeliveryPhase({
             <div className="notice notice--warning" role="status">
               <p>
                 Este script será muy grande para SQL Server (unos{" "}
-                {Math.round(estimateTsqlScriptBytes(dataset.rowCount, exportedColumnCount) / (1024 * 1024)).toLocaleString("es-ES")} MB):
+                {Math.round(estimateTsqlScriptBytes(dataset.rowCount, exportedColumnCount) / (1024 * 1024)).toLocaleString()} MB):
                 puede rechazarlo al ejecutarlo en un solo lote. Usa el paquete BULK INSERT.
               </p>
               <button
@@ -1074,21 +1195,30 @@ export function DeliveryPhase({
                     disabled={busy}
                   />
                 </label>
-                <label>
-                  Política de tabla
-                  <select
-                    aria-label="Política de tabla"
-                    value={databaseTarget.tablePolicy}
-                    onChange={(event) => changeDatabaseTarget({ tablePolicy: event.target.value as DatabaseTargetDraft["tablePolicy"] })}
-                    disabled={busy}
-                  >
-                    <option value="create_only">Crear; fallar si existe</option>
-                    <option value="append">Añadir a tabla existente</option>
-                    <option value="replace" disabled={databaseTarget.kind === "mysql"}>Reemplazar tabla explícitamente</option>
-                  </select>
-                </label>
               </div>
-              {databaseTargetError && (
+              <fieldset className="sqlserver-script-target__modes database-target__policy" disabled={busy}>
+                <legend>Política de tabla</legend>
+                {TABLE_POLICIES.map((option) => {
+                  const unavailable = option.policy === "replace" && databaseTarget.kind === "mysql";
+                  return (
+                    <label key={option.policy} className="sqlserver-script-target__mode">
+                      <input
+                        type="radio"
+                        name="database-table-policy"
+                        value={option.policy}
+                        checked={databaseTarget.tablePolicy === option.policy}
+                        disabled={unavailable}
+                        onChange={() => changeDatabaseTarget({ tablePolicy: option.policy })}
+                      />
+                      <span>
+                        <strong>{option.label}</strong>
+                        <small>{unavailable ? "No disponible en MySQL: aún no hay una sustitución atómica segura." : option.description}</small>
+                      </span>
+                    </label>
+                  );
+                })}
+              </fieldset>
+              {showDatabaseTargetError && (
                 <p
                   id={invalidDatabaseTargetField ? "database-target-validation-error" : undefined}
                   className="notice notice--error"
@@ -1101,7 +1231,9 @@ export function DeliveryPhase({
                 className="secondary-action"
                 type="button"
                 onClick={() => void preflightDatabaseTarget()}
-                disabled={busy || databaseTargetError !== null}
+                disabled={busy}
+                aria-disabled={databaseTargetError !== null || undefined}
+                aria-describedby={showDatabaseTargetError ? "database-target-validation-error" : undefined}
               >
                 {databasePreflightState.kind === "working" ? "Analizando compatibilidad…" : "Analizar compatibilidad"}
               </button>
@@ -1128,10 +1260,10 @@ export function DeliveryPhase({
                 </div>
               )}
               {activePreflight && (
-                <div className={activePreflight.ready ? "notice notice--success" : "notice notice--error"} role={activePreflight.ready ? "status" : "alert"}>
+                <div className={activePreflight.ready ? "notice notice--success database-preflight" : "notice notice--error database-preflight"} role={activePreflight.ready ? "status" : "alert"}>
                   <p>{activePreflight.ready
-                    ? `Preflight completo para ${activePreflight.schema ? `${activePreflight.schema}.` : ""}${activePreflight.table}. No se ha escrito ningún dato.`
-                    : "Preflight bloqueado. Resuelve los problemas antes de exportar; no se ha escrito ningún dato."}</p>
+                    ? `Comprobación previa completa para ${activePreflight.schema ? `${activePreflight.schema}.` : ""}${activePreflight.table}. No se ha escrito ningún dato.`
+                    : "Comprobación previa bloqueada. Resuelve los problemas antes de exportar; no se ha escrito ningún dato."}</p>
                   {activePreflight.issues.length > 0 && (
                     <ul>
                       {activePreflight.issues.map((issue, index) => (
@@ -1146,7 +1278,7 @@ export function DeliveryPhase({
               {databasePreflightState.kind === "error" && (
                 <p className="notice notice--error" role="alert">{databasePreflightState.message}</p>
               )}
-              {!activePreflight && databasePreflightState.kind !== "error" && !databaseTargetError && (
+              {!activePreflight && databasePreflightState.kind !== "error" && !showDatabaseTargetError && (
                 <p className="export-requirement" role="note">Analiza el esquema y los datos para habilitar la entrega remota. Este paso no escribe en el destino.</p>
               )}
             </fieldset>
@@ -1165,57 +1297,61 @@ export function DeliveryPhase({
               Confirmo que quiero exportar sin validar la calidad
             </label>
           )}
-          <section className="delivery-commit" aria-labelledby="delivery-summary-title">
-          <h4 id="delivery-summary-title" className="delivery-commit__title">Vas a exportar</h4>
-          <dl className="delivery-summary">
-            {summary.map((item) => (
-              <div key={item.label}>
-                <dt>{item.label}</dt>
-                <dd>{item.value}</dd>
+          {/* PRODUCT.md, principle 2: the full summary, in the flow, right above the button. */}
+          <section className="delivery-summary-block" aria-labelledby="delivery-summary-title">
+            <h4 id="delivery-summary-title" className="delivery-commit__title">Vas a exportar</h4>
+            <dl className="delivery-summary">
+              {summary.map((item) => (
+                <div key={item.label}>
+                  <dt>{item.label}</dt>
+                  <dd>{item.value}</dd>
+                </div>
+              ))}
+            </dl>
+            {replacesTable && (
+              <div className="notice notice--warning delivery-replace" role="note">
+                {replaceWarning && <p><strong>{replaceWarning}</strong></p>}
+                <label className="export-confirmation">
+                  <input
+                    type="checkbox"
+                    checked={!needsReplaceConfirmation}
+                    disabled={busy}
+                    onChange={(event) => setConfirmedReplaceKey(event.target.checked ? replaceKey : null)}
+                  />
+                  {activePreflight?.tableExists
+                    ? `Entiendo que se borrará el contenido actual de ${replaceTableName}`
+                    : `Entiendo que se borrará el contenido actual de ${replaceTableName} si ya existe`}
+                </label>
               </div>
-            ))}
-          </dl>
-          <div className="export-actions-row">
-            {destination === "powerbi" ? (
+            )}
+          </section>
+          {/* Only the button and one line stay fixed at the bottom; their real height sets the scroll padding. */}
+          <div className="delivery-commit" ref={commitRef}>
+            <p className="delivery-commit__line">{compactCommitLine}</p>
+            <div className="export-actions-row">
               <button
-                className="primary-action export-action"
+                className={`${showsCurrentResult ? "secondary-action" : "primary-action"} export-action`}
                 type="button"
                 onClick={() => {
-                  if (powerBiExportDisabled) return;
-                  openPowerBiAfterExportRef.current = true;
-                  void requestExport(selectedExportFormat);
-                }}
-                aria-disabled={powerBiExportDisabled || undefined}
-                aria-describedby="export-blocked-reason"
-              >
-                {contract.kind === "with_contract" && !gatePassed
-                  ? "Validar, exportar y abrir en Power BI"
-                  : "Exportar y abrir en Power BI"}
-              </button>
-            ) : (
-              <button
-                className="primary-action export-action"
-                type="button"
-                onClick={() => {
-                  if (exportDisabled) return;
-                  openPowerBiAfterExportRef.current = false;
+                  if (exportDisabled) {
+                    if (databaseTargetProblem) setConnectionAttempted(true);
+                    return;
+                  }
+                  openPowerBiAfterExportRef.current = destination === "powerbi";
                   void requestExport(selectedExportFormat);
                 }}
                 aria-disabled={exportDisabled || undefined}
                 aria-describedby="export-blocked-reason"
               >
-                {contract.kind === "with_contract" && !gatePassed
-                  ? `Validar y exportar ${exportFormatLabel}`
-                  : `Exportar ${exportFormatLabel}`}
+                {exportActionLabel}
               </button>
+            </div>
+            {/* Always mounted: a live region announces text that changes, not one that appears. */}
+            <p id="export-blocked-reason" className="export-blocked-reason" role="status">{exportBlockedReason}</p>
+            {contract.kind === "with_contract" && !gatePassed && !validationError && failedRuleNumbers.length === 0 && (
+              <p className="export-requirement">Las reglas se comprobarán antes de crear la copia.</p>
             )}
           </div>
-          {/* Always mounted: a live region announces text that changes, not one that appears. */}
-          <p id="export-blocked-reason" className="export-blocked-reason" role="status">{exportBlockedReason}</p>
-          {contract.kind === "with_contract" && !gatePassed && !validationError && (
-            <p className="export-requirement">Las reglas se comprobarán antes de crear la copia.</p>
-          )}
-          </section>
           <DeliveryPresets
             dataset={dataset}
             currentPreset={(name) => ({
@@ -1281,6 +1417,9 @@ export function DeliveryPhase({
           recipeDraft={recipeDraft}
           preparationChanges={preparationChanges}
           approvedQualitySummary={approvedQualitySummary}
+          current={showsCurrentResult}
+          takeFocus={exportedWith?.takeFocus ?? false}
+          databaseLocation={exportedWith?.location ?? null}
         />
       )}
       {exportState.kind === "cancelled" && (

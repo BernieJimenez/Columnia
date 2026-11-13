@@ -26,6 +26,8 @@ const dataset: DatasetPreview = {
 const profile = { rowCount: 2, columns: [] } as unknown as DatasetProfile;
 
 const comparison = {
+  comparedFileName: "ventas-2.csv",
+  keyColumns: ["id"],
   canConsolidate: true,
   options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
   conflicts: [],
@@ -173,19 +175,25 @@ describe("useReviewController", () => {
     await act(async () => result.current.comparison.onClear());
     await waitFor(() => expect(result.current.comparison.status).toEqual({ kind: "error", message: "snapshot ocupado" }));
 
-    act(() => result.current.comparison.onKeyColumnsChange(["id"]));
+    compare.mockResolvedValueOnce(comparison);
+    await act(async () => result.current.comparison.onCompare());
+    await waitFor(() => expect(result.current.comparison.status.kind).toBe("ready"));
     await act(async () => result.current.comparison.onJoin("inner"));
     expect(result.current.comparison.joinStatus).toEqual({ kind: "idle" });
     expect(onDatasetReplaced).not.toHaveBeenCalled();
   });
 
-  it("requires key columns to join and hands the joined dataset to the owner", async () => {
-    vi.spyOn(bridge, "joinDataset").mockResolvedValueOnce(dataset);
+  it("joins only with the comparison already made, by its key, and hands the result to the owner", async () => {
+    const join = vi.spyOn(bridge, "joinDataset").mockResolvedValueOnce(dataset);
+    vi.spyOn(bridge, "compareDataset").mockResolvedValueOnce(comparison);
     const { result, onDatasetReplaced } = setup();
 
     act(() => result.current.comparison.onJoin("left"));
     expect(result.current.comparison.joinStatus).toMatchObject({ kind: "error" });
+    expect(join).not.toHaveBeenCalled();
 
+    await act(async () => result.current.comparison.onCompare());
+    await waitFor(() => expect(result.current.comparison.status.kind).toBe("ready"));
     act(() => {
       result.current.comparison.onKeyColumnsChange(["id"]);
       result.current.comparison.onJoinTypeChange("left");
@@ -194,7 +202,9 @@ describe("useReviewController", () => {
     });
     await act(async () => result.current.comparison.onJoin("left"));
 
-    expect(onDatasetReplaced).toHaveBeenCalledWith(dataset, "join");
+    // The file is not asked again: the engine reuses the compared one.
+    expect(join).toHaveBeenCalledWith(["id"], "left", true);
+    expect(onDatasetReplaced).toHaveBeenCalledWith(dataset, "join", { comparedFileName: "ventas-2.csv", joinType: "left" });
     expect(result.current.comparison.keyColumns).toEqual([]);
     expect(result.current.comparison.joinType).toBe("left");
     expect(result.current.reviewTab).toBe("diagnosis");
@@ -211,7 +221,7 @@ describe("useReviewController", () => {
     await waitFor(() => expect(result.current.comparison.status.kind).toBe("ready"));
     act(() => result.current.comparison.onJoinTypeChange("full"));
     await act(async () => result.current.comparison.onConsolidate());
-    expect(onDatasetReplaced).toHaveBeenCalledWith(dataset, "consolidate");
+    expect(onDatasetReplaced).toHaveBeenCalledWith(dataset, "consolidate", { comparedFileName: "ventas-2.csv", joinType: "full" });
     expect(result.current.comparison.joinType).toBe("inner");
 
     vi.spyOn(bridge, "resolveDatasetConflicts").mockRejectedValueOnce(new Error("conflicto sin origen"));
@@ -251,7 +261,7 @@ describe("useReviewController", () => {
     await act(async () => pending.resolve(dataset));
     await act(async () => cancelRequest.resolve());
     expect(result.current.busy).toBe(false);
-    expect(onDatasetReplaced).toHaveBeenCalledWith(dataset, "resolveConflicts");
+    expect(onDatasetReplaced).toHaveBeenCalledWith(dataset, "resolveConflicts", expect.objectContaining({ comparedFileName: "ventas-2.csv" }));
 
     // Another operation can start right away.
     const compareAgain = vi.spyOn(bridge, "compareDataset").mockResolvedValueOnce(comparison);

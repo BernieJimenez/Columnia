@@ -172,7 +172,7 @@ function choosePowerBi() {
 // The export button's blocked reason is an always-mounted role="status"; the state messages are the other one.
 function getStateStatus(): HTMLElement {
   // Leaves out the export's blocked reason (AUD-049) and the connection form's own status (AUD-050).
-  const [status] = screen.getAllByRole("status").filter((node) => node.id !== "export-blocked-reason" && !node.closest(".connection-form"));
+  const [status] = screen.getAllByRole("status").filter((node) => node.id !== "export-blocked-reason" && node.id !== "connection-carry-notice" && !node.closest(".connection-form"));
   if (!status) throw new Error("No hay una región de estado distinta del motivo del bloqueo y del formulario de conexión.");
   return status;
 }
@@ -291,7 +291,7 @@ describe("compuerta de calidad y editor de reglas (QA-11)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
     await waitFor(() => expect(getStateStatus()).toHaveTextContent("Contrato fallido"));
     fireEvent.click(screen.getByRole("button", { name: "Editar reglas" }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Inválidos máximos regla 1" }), {
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Incumplimientos máximos regla 1" }), {
       target: { value: "0" },
     });
     fireEvent.change(screen.getByRole("combobox", { name: "Columna regla 1" }), {
@@ -944,7 +944,7 @@ describe("DeliveryPhase", () => {
   it("no promete una receta que el paquete no lleva (TXT-07)", () => {
     render(<DeliveryHarness onExport={vi.fn()} />);
     const format = screen.getByRole("combobox", { name: "Formato de exportación" });
-    expect(screen.getByRole("option", { name: /Paquete ZIP/ })).not.toHaveTextContent("receta");
+    expect(screen.getByRole("option", { name: /Paquete Columnia/ })).not.toHaveTextContent("receta");
 
     fireEvent.change(format, { target: { value: "bundle" } });
 
@@ -992,7 +992,7 @@ describe("DeliveryPhase", () => {
     await fillConnection("localhost", "ana", "secret");
     fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
 
-    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Preflight completo"));
+    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Comprobación previa completa"));
     expect(preflight).toHaveBeenCalledWith(expect.objectContaining({
       kind: "postgresql",
       connection: {
@@ -1006,9 +1006,17 @@ describe("DeliveryPhase", () => {
         trustServerCertificate: false,
         allowUnencrypted: false,
       },
-      table: "dataset",
+      // PostgreSQL starts in «public», with the table named after the file.
+      schema: "public",
+      table: "ventas",
       tablePolicy: "create_only",
     }), "none");
+    // The summary says where the rows go, without the password.
+    const summary = screen.getByRole("region", { name: "Vas a exportar" });
+    expect(within(summary).getByText("Servidor").nextElementSibling).toHaveTextContent("localhost");
+    expect(within(summary).getByText("Base de datos").nextElementSibling).toHaveTextContent("la predeterminada del usuario");
+    expect(within(summary).getByText("Autenticación").nextElementSibling).toHaveTextContent("usuario ana con contraseña");
+    expect(summary).not.toHaveTextContent("secret");
     expect(exportButton).not.toHaveAttribute("aria-disabled", "true");
     fireEvent.click(exportButton);
     expect(onExport).toHaveBeenCalledWith(expect.objectContaining({
@@ -1034,10 +1042,57 @@ describe("DeliveryPhase", () => {
     await screen.findByText(/^Controlador: /);
     expect(screen.getByLabelText("Servidor")).toHaveValue("");
     const analyze = screen.getByRole("button", { name: "Analizar compatibilidad" });
-    expect(analyze).toBeDisabled();
-    expect(screen.getByRole("alert")).toHaveTextContent("Completa la conexión con el servidor.");
+    expect(analyze).toHaveAttribute("aria-disabled", "true");
+    // An untouched form shows no error: it appears once the person tries to use the connection.
+    expect(screen.queryByText("Completa la conexión con el servidor.")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Servidor")).not.toHaveAttribute("aria-invalid");
     fireEvent.click(analyze);
+    expect(screen.getByRole("alert")).toHaveTextContent("Completa la conexión con el servidor.");
+    expect(screen.getByLabelText("Servidor")).toHaveAttribute("aria-invalid", "true");
     expect(preflight).not.toHaveBeenCalled();
+  });
+
+  it("propone el esquema de cada motor y una tabla con el nombre del archivo", () => {
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    selectFormat("sqlserver");
+    expect(screen.getByLabelText("Esquema de destino")).toHaveValue("dbo");
+    expect(screen.getByLabelText("Tabla")).toHaveValue("ventas");
+    selectFormat("postgresql");
+    expect(screen.getByLabelText("Esquema de destino")).toHaveValue("public");
+    selectFormat("mysql");
+    expect(screen.getByLabelText("Esquema de destino")).toHaveValue("");
+    // A schema the person typed is kept when the engine changes.
+    fireEvent.change(screen.getByLabelText("Esquema de destino"), { target: { value: "ventas" } });
+    selectFormat("postgresql");
+    expect(screen.getByLabelText("Esquema de destino")).toHaveValue("ventas");
+  });
+
+  it("Reemplazar avisa del borrado, pide su propia confirmación y nombra la tabla y el servidor en el botón", async () => {
+    const onExport = vi.fn();
+    vi.spyOn(bridge, "preflightDatabaseExport").mockResolvedValue({
+      ...preflightResult("postgresql"), table: "ventas", tablePolicy: "replace", tableExists: true,
+    });
+    render(<DeliveryHarness onExport={onExport} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    selectFormat("postgresql");
+    await fillConnection("db.local", "ana", "secret");
+    fireEvent.click(screen.getByRole("radio", { name: /^Reemplazar la tabla/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
+    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Comprobación previa completa"));
+
+    expect(screen.getByText("La tabla public.ventas ya existe: se borrarán sus filas y se volverá a crear con estos datos.")).toBeInTheDocument();
+    const button = screen.getByRole("button", { name: "Reemplazar public.ventas en db.local" });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText(/^Para exportar, confirma que se borrará el contenido actual de la tabla\.$/)).toBeInTheDocument();
+    fireEvent.click(button);
+    expect(onExport).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Entiendo que se borrará el contenido actual de public.ventas" }));
+    expect(button).not.toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(button);
+    expect(onExport).toHaveBeenCalledWith(expect.objectContaining({
+      databaseTarget: expect.objectContaining({ tablePolicy: "replace", table: "ventas" }),
+    }));
   });
 
   it("deriva el motor ODBC del formato remoto seleccionado", async () => {
@@ -1051,7 +1106,7 @@ describe("DeliveryPhase", () => {
       selectFormat(format);
       await fillConnection("localhost");
       fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
-      await waitFor(() => expect(getStateStatus()).toHaveTextContent("Preflight completo"));
+      await waitFor(() => expect(getStateStatus()).toHaveTextContent("Comprobación previa completa"));
     }
     expect(preflight.mock.calls.map(([target]) => target.kind)).toEqual(["mysql", "sqlserver"]);
   });
@@ -1072,7 +1127,7 @@ describe("DeliveryPhase", () => {
     await fillConnection("B");
     resolvePreflight(preflightResult("mysql"));
     await Promise.resolve();
-    expect(screen.queryByText("Preflight completo para dataset.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Comprobación previa completa para dataset.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Exportar MySQL" })).toHaveAttribute("aria-disabled", "true");
   });
 
@@ -1086,7 +1141,7 @@ describe("DeliveryPhase", () => {
     await fillConnection("localhost");
     fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Preflight bloqueado");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Comprobación previa bloqueada");
     expect(screen.getByRole("alert")).toHaveTextContent("La tabla ya existe");
     expect(screen.getByRole("button", { name: "Exportar PostgreSQL" })).toHaveAttribute("aria-disabled", "true");
   });
@@ -1117,9 +1172,9 @@ describe("DeliveryPhase", () => {
     vi.spyOn(bridge, "openDeliveryPreset").mockResolvedValue(preset);
     render(<DeliveryHarness onExport={vi.fn()} />);
 
-    fireEvent.click(screen.getByText("Presets de entrega guardados"));
+    fireEvent.click(screen.getByText("Configuraciones de entrega guardadas"));
     await waitFor(() => expect(list).toHaveBeenCalledOnce());
-    fireEvent.change(screen.getByRole("combobox", { name: "Preset de entrega local" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "Configuración guardada" }), {
       target: { value: summary.id },
     });
     fireEvent.click(screen.getByRole("button", { name: "Abrir y verificar" }));
@@ -1132,9 +1187,11 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("combobox", { name: "Protección de datos personales" })).toHaveValue("hash");
     expect(screen.getByLabelText("Esquema de destino")).toHaveValue("analytics");
     expect(screen.getByLabelText("Tabla")).toHaveValue("ventas");
-    expect(screen.getByLabelText("Política de tabla")).toHaveValue("create_only");
+    // A saved configuration never brings back «Reemplazar».
+    expect(screen.getByRole("radio", { name: /^Crear una tabla nueva/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /^Reemplazar la tabla/ })).not.toBeChecked();
     expect(screen.getByLabelText("Servidor")).toHaveValue("");
-    expect(screen.getByText(/El preset proponía reemplazar la tabla/)).toHaveTextContent("Se cargó Crear sin reemplazar");
+    expect(screen.getByText(/La configuración proponía reemplazar la tabla/)).toHaveTextContent("Se cargó «Crear una tabla nueva»");
     expect(screen.getByRole("button", { name: "Exportar PostgreSQL" })).toHaveAttribute("aria-disabled", "true");
   });
 
@@ -1213,7 +1270,7 @@ describe("DeliveryPhase", () => {
     fireEvent.change(kind, { target: { value: "aggregate_check" } });
 
     expect(screen.getByRole("combobox", { name: "Agregación regla 1" })).toHaveValue("sum");
-    const maxInvalid = screen.queryByRole("spinbutton", { name: "Inválidos máximos regla 1" });
+    const maxInvalid = screen.queryByRole("spinbutton", { name: "Incumplimientos máximos regla 1" });
     if (maxInvalid) {
       // UX-19: emptying the field keeps it empty, then «5» is 5, not «05».
       fireEvent.change(maxInvalid, { target: { value: "" } });
@@ -1324,7 +1381,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     const kind = screen.getByRole("combobox", { name: "Comprobación regla 1" });
 
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Inválidos máximos regla 1" }), {
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Incumplimientos máximos regla 1" }), {
       target: { value: "2" },
     });
     fireEvent.change(kind, { target: { value: "numeric_range" } });
@@ -1482,9 +1539,21 @@ describe("DeliveryPhase", () => {
     expect(screen.getByText("Problemas detectados")).toBeInTheDocument();
     expect(screen.getByText("Valores nulos · total")).toBeInTheDocument();
     expect(screen.getByText(localeText("1 incumplimientos entre 2 elementos evaluados (50.00%)"))).toBeInTheDocument();
+    // «Qué se exige» names the rule by number and marks it as broken in text.
+    expect(screen.getByText("Regla 1:").closest("li")).toHaveTextContent(/No se cumple\.$/);
+    // The same validation is not run again unchanged: the reason says what to do.
+    const validateButton = screen.getByRole("button", { name: "Validar y exportar CSV" });
+    expect(validateButton).toHaveAttribute("aria-disabled", "true");
+    expect(document.getElementById("export-blocked-reason"))
+      .toHaveTextContent("Para exportar, corrige los datos en Preparar o ajusta la regla 1.");
+    fireEvent.click(validateButton);
+    expect(bridge.validateQualityRules).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Revisar regla 1" }));
-    expect(document.activeElement).toBe(document.getElementById("quality-rule-1"));
-    expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).not.toHaveAttribute("aria-disabled", "true");
+    const failedRule = document.getElementById("quality-rule-1");
+    expect(document.activeElement).toBe(failedRule);
+    expect(failedRule).toHaveAttribute("aria-invalid", "true");
+    expect(failedRule).toHaveAttribute("data-failed", "true");
+    expect(within(failedRule!).getByText("Regla 1 · no se cumplió")).toBeInTheDocument();
 
     const staleContract: DeliveryContractState = {
       ...failedContract,
@@ -1563,15 +1632,23 @@ describe("DeliveryPhase", () => {
       }}
     />);
     const result = screen.getByRole("region", { name: "Copia lista" });
-    expect(within(result).getByRole("heading", { name: "Copia lista" })).toBeInTheDocument();
-    expect(within(result).getByText("entrega.zip")).toBeInTheDocument();
-    expect(within(result).getByText(/^2[.,]0 KiB$/)).toBeInTheDocument();
-    expect(within(result).getByText("Salida confirmada sin reglas de calidad")).toBeInTheDocument();
-    expect(within(result).getByText("2 cambios del historial activo")).toBeInTheDocument();
+    const heading = within(result).getByRole("heading", { name: "Copia lista" });
+    // A result found when the stage mounts does not steal the focus; its heading is described by one sentence.
+    expect(heading).not.toHaveFocus();
+    expect(heading).toHaveAccessibleDescription(/^Se guardó entrega\.zip\./);
+    expect(result).not.toHaveAttribute("aria-live");
+    // Three or four lines, not a mosaic of tiles.
+    expect(result.querySelectorAll(".delivery-result__facts > div")).toHaveLength(3);
+    expect(within(result).getByText("Archivo").nextElementSibling).toHaveTextContent(/^entrega\.zip · Paquete Columnia · 2[.,]0 KiB$/);
+    expect(within(result).getByText("sin validar: salida confirmada sin reglas de calidad")).toBeInTheDocument();
     expect(within(result).getByText("1 columna: email")).toBeInTheDocument();
     expect(within(result).getByText("Incluye dataset.csv, dictionary.json, recipe.json, delivery-summary.md y manifest.json.")).toBeInTheDocument();
-    expect(within(result).getByText("Esta copia no incluye una validación de calidad.")).toBeInTheDocument();
-    fireEvent.click(within(result).getByText("Ver cambios incluidos (2)"));
+    // While the result shows, it holds the only primary action; the export button becomes secondary.
+    const again = screen.getByRole("button", { name: "Exportar otra copia" });
+    expect(again).toHaveClass("secondary-action");
+    expect(again).not.toHaveClass("primary-action");
+    expect(screen.getByRole("button", { name: "Abrir carpeta" })).toHaveClass("primary-action");
+    fireEvent.click(within(result).getByText("Ver los cambios de Preparar incluidos (2)"));
     expect(within(result).getByText("Espacios exteriores recortados")).toBeInTheDocument();
     const openLastExport = vi.spyOn(bridge, "openLastExport").mockResolvedValue(undefined);
     fireEvent.click(screen.getByRole("button", { name: "Abrir carpeta" }));
@@ -1638,6 +1715,44 @@ describe("DeliveryPhase", () => {
     }} />);
     expect(screen.getByRole("alert")).toHaveTextContent("No se pudo crear la copia");
     expect(screen.getByRole("alert")).not.toHaveTextContent("Resultado incierto.");
+  });
+
+  it("al terminar una exportación lleva el foco al resultado y lo marca como anterior al cambiar de destino", () => {
+    function ExportingDelivery() {
+      const [exportState, setExportState] = useState<DeliveryExportState>({ kind: "idle" });
+      return <DeliveryPhase
+        dataset={dataset}
+        contract={{ kind: "without_contract", confirmation: "confirmed", gate: { kind: "idle" } }}
+        exportState={exportState}
+        onContractAction={vi.fn()}
+        onExport={() => setExportState({
+          kind: "success",
+          result: {
+            fileName: "ventas.csv", fileSizeBytes: 2048, format: "CSV", rowCount: 2,
+            protectedColumnCount: 0, protectedColumns: [], replacedControlCellCount: 0,
+          },
+        })}
+        onCancelExport={vi.fn()}
+      />;
+    }
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    render(<ExportingDelivery />);
+    selectFormat("csv");
+    fireEvent.click(screen.getByRole("button", { name: "Exportar CSV" }));
+
+    const heading = screen.getByRole("heading", { name: "Copia lista" });
+    expect(heading).toHaveFocus();
+    expect(heading).toHaveAttribute("tabindex", "-1");
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(screen.getByText("Filas").nextElementSibling).toHaveTextContent("2 filas");
+
+    // Another destination: the result stays as the previous one and gives the primary action back.
+    choosePowerBi();
+    expect(screen.queryByRole("heading", { name: "Copia lista" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Copia anterior" })).toHaveAccessibleDescription(/antes de cambiar el destino/);
+    expect(screen.getByRole("button", { name: /^Exportar y abrir en Power BI$/ })).toHaveClass("primary-action");
+    expect(screen.getByRole("button", { name: "Abrir carpeta" })).toHaveClass("secondary-action");
   });
 
   it("cubre cambios de regla, tolerancias, columnas y eliminación", () => {
@@ -1730,7 +1845,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancelar análisis" }));
     await waitFor(() => expect(cancel).toHaveBeenCalledWith("databasePreflight"));
     resolvePreflight(preflightResult("postgresql"));
-    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Preflight completo"));
+    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Comprobación previa completa"));
   });
 
   it("muestra una cancelación y un error del catálogo de presets", async () => {
@@ -1740,11 +1855,11 @@ describe("DeliveryPhase", () => {
     }));
     const cancel = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
     render(<DeliveryHarness onExport={vi.fn()} />);
-    fireEvent.click(screen.getByText("Presets de entrega guardados"));
+    fireEvent.click(screen.getByText("Configuraciones de entrega guardadas"));
     await waitFor(() => expect(list).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole("button", { name: "Cancelar carga" }));
     await waitFor(() => expect(cancel).toHaveBeenCalledWith("deliveryPresetCatalog"));
-    expect(getStateStatus()).toHaveTextContent("Se canceló la carga de presets locales.");
+    expect(getStateStatus()).toHaveTextContent("Se canceló la carga de las configuraciones guardadas.");
 
     resolveCatalog([]);
     const retry = screen.getByRole("button", { name: "Reintentar catálogo" });
@@ -1766,33 +1881,33 @@ describe("DeliveryPhase", () => {
     const remove = vi.spyOn(bridge, "deleteDeliveryPreset").mockResolvedValue(undefined);
     vi.spyOn(bridge, "listDeliveryPresets").mockResolvedValue([]);
     render(<DeliveryHarness onExport={vi.fn()} />);
-    fireEvent.click(screen.getByText("Presets de entrega guardados"));
-    await waitFor(() => expect(screen.getByRole("note")).toHaveTextContent("Aún no hay presets locales."));
-    fireEvent.change(screen.getByRole("textbox", { name: "Nombre del preset de entrega" }), {
+    fireEvent.click(screen.getByText("Configuraciones de entrega guardadas"));
+    await waitFor(() => expect(screen.getByRole("note")).toHaveTextContent("Aún no hay configuraciones guardadas."));
+    fireEvent.change(screen.getByRole("textbox", { name: "Nombre de la configuración" }), {
       target: { value: "  Cierre mensual  " },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Guardar preset" }));
-    await waitFor(() => expect(screen.getByText(/Preset guardado localmente/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Guardar configuración" }));
+    await waitFor(() => expect(screen.getByText(/Configuración guardada en este equipo/)).toBeInTheDocument());
     expect(save).toHaveBeenCalledWith(null, expect.objectContaining({
       name: "Cierre mensual",
       format: "csv",
       selectedColumns: ["total", "limite", "estado", "fecha"],
       privacyMode: "none",
     }));
-    expect(screen.getByRole("button", { name: "Aplicar preset verificado" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar preset verificado" }));
-    expect(screen.getByText("Preset verificado contra el esquema actual.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aplicar configuración verificada" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar configuración verificada" }));
+    expect(screen.getByText("Configuración comprobada con las columnas actuales.")).toBeInTheDocument();
 
     // UX-18: with a preset selected, «Guardar como nuevo» creates another one
     // and the plain button says it updates the selected one.
-    expect(screen.getByRole("button", { name: "Actualizar preset" })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("textbox", { name: "Nombre del preset de entrega" }), { target: { value: "Cierre trimestral" } });
+    expect(screen.getByRole("button", { name: "Actualizar configuración" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Nombre de la configuración" }), { target: { value: "Cierre trimestral" } });
     fireEvent.click(screen.getByRole("button", { name: "Guardar como nuevo" }));
     await waitFor(() => expect(save).toHaveBeenLastCalledWith(null, expect.objectContaining({ name: "Cierre trimestral" })));
 
-    fireEvent.click(screen.getByRole("button", { name: "Eliminar preset" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar configuración" }));
     await waitFor(() => expect(remove).toHaveBeenCalledWith(summary.id));
-    expect(screen.getByText("Preset eliminado del catálogo local.")).toBeInTheDocument();
+    expect(screen.getByText("Configuración eliminada de este equipo.")).toBeInTheDocument();
   });
 
   it("un preset de script T-SQL guarda la tabla, el modo y la clave, y no acorta una clave que falta", async () => {
@@ -1823,9 +1938,9 @@ describe("DeliveryPhase", () => {
     fireEvent.click(within(target).getByRole("radio", { name: /^Actualizar por clave/ }));
     fireEvent.click(within(target).getByRole("checkbox", { name: "total" }));
 
-    fireEvent.click(screen.getByText("Presets de entrega guardados"));
-    fireEvent.change(screen.getByRole("textbox", { name: "Nombre del preset de entrega" }), { target: { value: "Carga semanal" } });
-    fireEvent.click(screen.getByRole("button", { name: "Guardar preset" }));
+    fireEvent.click(screen.getByText("Configuraciones de entrega guardadas"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Nombre de la configuración" }), { target: { value: "Carga semanal" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar configuración" }));
     await waitFor(() => expect(save).toHaveBeenCalledWith(null, expect.objectContaining({
       format: "sqlserver_script",
       sqlServerScript: { schema: "", table: "Pedidos", mode: "upsert", keyColumns: ["total"], textSize: "fitted" },
@@ -1835,7 +1950,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(within(target).getByRole("radio", { name: /^Crear una tabla nueva/ }));
     fireEvent.click(screen.getByRole("button", { name: "Abrir y verificar" }));
     fireEvent.click(await screen.findByRole("button", { name: "Aplicar tras revisar esquema" }));
-    expect(screen.getByText(/La clave del preset \(id_pedido\) no está en estos datos/)).toBeInTheDocument();
+    expect(screen.getByText(/La clave de la configuración guardada \(id_pedido\) no está en estos datos/)).toBeInTheDocument();
     expect(within(target).getByRole("radio", { name: /^Actualizar por clave/ })).toBeChecked();
     expect(within(target).getByRole("textbox", { name: "Esquema" })).toHaveValue("ventas");
     expect(within(target).getByRole("checkbox", { name: "total" })).not.toBeChecked();

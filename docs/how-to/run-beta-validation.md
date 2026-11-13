@@ -84,8 +84,8 @@ sensibles.
 
 ### 2. Revisar
 
-- Leer el resultado del análisis, que se ejecuta solo al cargar («Encontramos N
-  cosas para arreglar»).
+- Leer el resultado del análisis, que se ejecuta solo al cargar («N cosas se
+  pueden corregir con la propuesta»).
 - Inspeccionar al menos una señal de nulos, duplicados, tipos, distribución o
   privacidad que aplique al dataset.
 - Determinar si el resultado representa el archivo completo o una muestra.

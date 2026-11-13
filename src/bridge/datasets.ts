@@ -127,6 +127,11 @@ export function compareDataset(
   return invoke<DatasetComparison | null>("compare_dataset", { keyColumns, options });
 }
 
+/** Repeats the active comparison against the current dataset; null when there is none. */
+export function refreshDatasetComparison(): Promise<DatasetComparison | null> {
+  return invoke<DatasetComparison | null>("refresh_dataset_comparison");
+}
+
 export function getDatasetConflictPage(
   offset: number,
   limit: number,
@@ -134,11 +139,20 @@ export function getDatasetConflictPage(
   return invoke<DatasetConflictPage | null>("get_dataset_conflict_page", { offset, limit });
 }
 
+/**
+ * `fromComparison`: joins with the file of the comparison already loaded,
+ * without asking for a file again (Preparar, «Combinar con otro archivo»).
+ */
 export function joinDataset(
   keyColumns: string[],
   joinType: DatasetJoinType,
+  fromComparison = false,
 ): Promise<DatasetPreview | null> {
-  return invoke<DatasetPreview | null>("join_dataset", { keyColumns, joinType });
+  return invoke<DatasetPreview | null>("join_dataset", {
+    keyColumns,
+    joinType,
+    fromComparison,
+  });
 }
 
 export function resolveDatasetConflicts(

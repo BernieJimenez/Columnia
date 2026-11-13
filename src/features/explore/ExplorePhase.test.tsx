@@ -13,11 +13,13 @@ import {
   isRangeSelected,
   isValueSelected,
   kpiLabel,
+  kpiValue,
   toggleChart,
   toggleExpanded,
   togglePeriod,
   toggleRange,
   toggleValue,
+  valueLabel,
 } from "./exploreModel";
 
 afterEach(() => {
@@ -55,7 +57,7 @@ describe("exploreModel", () => {
     filters = toggleValue(filters, "estado", null);
     expect(filters).toEqual([{ column: "estado", values: ["FL", null] }]);
     expect(isValueSelected(filters, "estado", null)).toBe(true);
-    expect(filterLabel(filters[0])).toBe("estado: FL, Sin dato");
+    expect(filterLabel(filters[0])).toBe("estado: FL, nulo");
     filters = toggleValue(toggleValue(filters, "estado", "FL"), "estado", null);
     expect(filters).toEqual([]);
   });
@@ -92,6 +94,17 @@ describe("exploreModel", () => {
     expect(ignoredRowsText(1)).toBe("1 fila sin número no cuenta");
   });
 
+  it("writes a range filter like the histogram bin it came from", () => {
+    const histogram = { column: "precio", bins: [{ lower: 100, upper: 150, count: 1 }, { lower: 150, upper: 200, count: 1 }], ignoredCount: 0, integer: true };
+    expect(filterLabel({ column: "precio", range: { min: 100, max: 150, exclusiveMax: true } }, histogram)).toBe("precio: 100 a 149");
+    expect(filterLabel({ column: "precio", range: { min: 150, max: 200 } }, histogram)).toBe("precio: 150 a 200");
+    const years = { column: "anio", bins: [{ lower: 1925, upper: 1930, count: 1 }, { lower: 1930, upper: 1934, count: 1 }], ignoredCount: 0, integer: true };
+    expect(filterLabel({ column: "anio", range: { min: 1925, max: 1930, exclusiveMax: true } }, years)).toBe("anio: 1925 a 1929");
+    expect(filterLabel({ column: "x", range: { min: 1, max: 2 } })).toBe("x: 1 a 2");
+    expect(kpiValue({ kind: "median", column: "precio", value: null })).toBe("sin valores numéricos");
+    expect(valueLabel(null)).toBe("nulo");
+  });
+
   it("names the indicators in plain words", () => {
     expect(kpiLabel({ kind: "count", column: null, value: 1 })).toBe("Filas");
     expect(kpiLabel({ kind: "mean", column: "sqfeet", value: 1 })).toBe("Media de sqfeet");
@@ -106,10 +119,10 @@ describe("ExplorePhase", () => {
     render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
 
     const chart = await screen.findByRole("region", { name: "Filas por estado" });
-    expect(within(chart).getByRole("button", { name: /Sin dato/ })).toBeInTheDocument();
-    // AUD-070: the value is readable in full on hover even when the label is cut; "Sin dato" is never cut, so it carries no title.
+    expect(within(chart).getByRole("button", { name: /nulo: 2 filas/ })).toBeInTheDocument();
+    // AUD-070: the value is readable in full on hover even when the label is cut; "nulo" is never cut, so it carries no title.
     expect(within(chart).getByText("CA")).toHaveAttribute("title", "CA");
-    expect(within(chart).getByText("Sin dato")).not.toHaveAttribute("title");
+    expect(within(chart).getByText("nulo")).not.toHaveAttribute("title");
     expect(screen.getByText("Mediana de precio")).toBeInTheDocument();
     expect(screen.getByText("Pulsa una barra para filtrar todo el panel.")).toBeInTheDocument();
     expect(getPanel).toHaveBeenCalledWith([], {});
@@ -118,6 +131,9 @@ describe("ExplorePhase", () => {
     await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([{ column: "estado", values: ["FL"] }], {}));
     expect(await screen.findByText("de 8")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Quitar filtro estado: FL" })).toBeInTheDocument();
+    // With a filter, the numbers say which rows they count.
+    expect(screen.getByText("Columnia eligió estos gráficos sobre 3 de 8 filas (filtradas).")).toBeInTheDocument();
+    expect(screen.getByText("Los gráficos usan todas las filas que cumplen los filtros, no una muestra. Nada sale de tu equipo.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /precio de 450 a 800/ }));
     await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([
@@ -278,8 +294,27 @@ describe("ExplorePhase", () => {
       options: { categories: [], measures: [], dates: [], textDates: ["fecha"] },
     });
     render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
-    expect(await screen.findByText(/Con una sola fila no hay distribución que mostrar/)).toBeInTheDocument();
-    expect(screen.getByText(/«fecha» parece una fecha guardada como texto/)).toBeInTheDocument();
+    // One notice with the reason and the way out; nothing that only makes sense with charts.
+    const notice = (await screen.findByText(/Con una sola fila no hay distribución que mostrar/)).closest(".explore__info")! as HTMLElement;
+    expect(notice).toHaveTextContent(/«fecha» parece una fecha guardada como texto/);
+    expect(screen.queryByRole("button", { name: "Personalizar" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pulsa una barra/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Los gráficos usan todas las filas/)).not.toBeInTheDocument();
+    expect(within(notice).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("offers a button to Preparar when a date is saved as text and nothing can be charted", async () => {
+    vi.spyOn(bridge, "getExplorePanel").mockResolvedValue({
+      ...panel(5),
+      categories: [],
+      histogram: null,
+      trend: null,
+      options: { categories: [], measures: [], dates: [], textDates: ["fecha"] },
+    });
+    const onGoToPrepare = vi.fn();
+    render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady onGoToPrepare={onGoToPrepare} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Interpretar fechas en Preparar" }));
+    expect(onGoToPrepare).toHaveBeenCalledTimes(1);
   });
 
   it("starts from the filters a reopened project kept and reports changes (UX-09)", async () => {
@@ -343,5 +378,98 @@ describe("ExplorePhase", () => {
     />);
     await waitFor(() => expect(screen.queryByRole("button", { name: "Quitar filtro estado: FL" })).not.toBeInTheDocument());
     await waitFor(() => expect(getPanel).toHaveBeenLastCalledWith([], {}));
+  });
+
+  it("moves the focus to a neighbour when a filter is removed, and announces it", async () => {
+    vi.spyOn(bridge, "getExplorePanel").mockResolvedValue(panel(3));
+    const filters = [
+      { column: "estado", values: ["FL"] },
+      { column: "precio", range: { min: 450, max: 800 } },
+      { column: "fecha", period: "2025-02" },
+    ];
+    render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady initialFilters={filters} />);
+    // The live region wraps the summary only, never the buttons.
+    const status = (await screen.findByText(/de 8 cumplen los filtros/)).closest("[role=status]")! as HTMLElement;
+    expect(within(status).queryAllByRole("button")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Personalizar" }).closest("[role=status]")).toBeNull();
+
+    // The middle chip goes: the next one gets the focus.
+    fireEvent.click(await screen.findByRole("button", { name: "Quitar filtro precio: 450 a 800" }));
+    expect(await screen.findByRole("button", { name: "Quitar filtro fecha: 2025-02" })).toHaveFocus();
+    expect(status).toHaveTextContent("Filtro quitado: precio: 450 a 800.");
+    // The last one goes: the previous one.
+    fireEvent.click(screen.getByRole("button", { name: "Quitar filtro fecha: 2025-02" }));
+    expect(await screen.findByRole("button", { name: "Quitar filtro estado: FL" })).toHaveFocus();
+    // The only one goes: the chart that made it.
+    fireEvent.click(screen.getByRole("button", { name: "Quitar filtro estado: FL" }));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Filas por estado" })).getAllByRole("button")[0]).toHaveFocus());
+  });
+
+  it("leaves the focus on «Personalizar» after «Quitar filtros» and says so", async () => {
+    vi.spyOn(bridge, "getExplorePanel").mockResolvedValue(panel(3));
+    render(<ExplorePhase
+      dataset={dataset}
+      datasetRevision={1}
+      profileReady
+      initialFilters={[{ column: "estado", values: ["FL"] }, { column: "precio", range: { min: 450, max: 800 } }]}
+    />);
+    fireEvent.click(await screen.findByRole("button", { name: "Quitar filtros" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Personalizar" })).toHaveFocus());
+    expect(screen.getByRole("status")).toHaveTextContent("Filtros quitados.");
+  });
+
+  it("says when changing the measure removed its filter", async () => {
+    vi.spyOn(bridge, "getExplorePanel").mockResolvedValue(panel(3));
+    render(<ExplorePhase
+      dataset={dataset}
+      datasetRevision={1}
+      profileReady
+      initialFilters={[{ column: "precio", range: { min: 450, max: 800 } }]}
+    />);
+    fireEvent.click(await screen.findByRole("button", { name: "Personalizar" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Medida" }), { target: { value: "metros" } });
+    expect(await screen.findByRole("status")).toHaveTextContent("Se quitó el filtro precio: 450 a 800 al cambiar la medida.");
+  });
+
+  it("walks the bars of a bar chart with the arrows, one Tab stop, and names them like the columns", async () => {
+    vi.spyOn(bridge, "getExplorePanel").mockResolvedValue(panel(8));
+    render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
+    const chart = await screen.findByRole("region", { name: "Filas por estado" });
+    const bars = within(chart).getAllByRole("button");
+    expect(bars.map((bar) => bar.getAttribute("aria-label"))).toEqual(["CA: 3 filas", "FL: 3 filas", "nulo: 2 filas"]);
+    expect(bars.map((bar) => bar.tabIndex)).toEqual([0, -1, -1]);
+    bars.forEach((bar) => expect(bar).toHaveAttribute("aria-pressed", "false"));
+    bars[0]!.focus();
+    fireEvent.keyDown(bars[0]!, { key: "ArrowDown" });
+    expect(bars[1]).toHaveFocus();
+    fireEvent.keyDown(bars[1]!, { key: "End" });
+    expect(bars[2]).toHaveFocus();
+    fireEvent.keyDown(bars[2]!, { key: "ArrowUp" });
+    expect(bars[1]).toHaveFocus();
+  });
+
+  it("titles each histogram bin and keeps the axis inside the box that scrolls", async () => {
+    vi.spyOn(bridge, "getExplorePanel").mockResolvedValue(panel(8));
+    const { container } = render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
+    const bin = await screen.findByRole("button", { name: /precio de 100 a 450/ });
+    expect(bin).toHaveAttribute("title", "100 a 450: 4");
+    expect(bin.closest(".explore__scroll")!.querySelector(".explore__axis")).not.toBeNull();
+    expect(container.querySelectorAll(".explore__scroll")).toHaveLength(2);
+  });
+
+  it("shows the scroll hint only when the columns overflow", async () => {
+    vi.spyOn(bridge, "getExplorePanel").mockResolvedValue(panel(8));
+    render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
+    await screen.findByRole("region", { name: "Filas por estado" });
+    expect(screen.queryByText(/Desliza para ver/)).not.toBeInTheDocument();
+  });
+
+  it("explains the scroll when the columns do not fit", async () => {
+    vi.spyOn(bridge, "getExplorePanel").mockResolvedValue(panel(8));
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(400);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(200);
+    render(<ExplorePhase dataset={dataset} datasetRevision={1} profileReady />);
+    expect(await screen.findByText("Desliza para ver todos los tramos.")).toBeInTheDocument();
+    expect(screen.getByText("Desliza para ver todos los periodos.")).toBeInTheDocument();
   });
 });

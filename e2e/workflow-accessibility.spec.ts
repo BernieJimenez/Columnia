@@ -90,8 +90,8 @@ async function loadSyntheticDataset(page: Page, stopAt: "review" | "delivery" = 
   await page.keyboard.press("Enter");
   await expect(page.locator("main#main-content")).toBeFocused();
 
-  const selectDataset = page.getByRole("button", { name: "Seleccionar dataset" });
-  await activateWithKeyboard(page, selectDataset, "Seleccionar dataset");
+  const selectDataset = page.getByRole("button", { name: "Elegir archivo" });
+  await activateWithKeyboard(page, selectDataset, "Elegir archivo");
   const headerReview = page.getByRole("dialog", { name: "Revisar encabezados de ventas-e2e.csv" });
   await expect(headerReview).toBeVisible();
   await expect.poll(() => headerReview.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true);
@@ -104,7 +104,7 @@ async function loadSyntheticDataset(page: Page, stopAt: "review" | "delivery" = 
   const reviewStep = workflow.getByRole("button", { name: "Revisar", exact: true });
   await expect(reviewStep).toHaveAttribute("aria-current", "step");
   await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /^(Encontramos \d+ cosas? para arreglar|No encontramos nada que arreglar)$/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^(\d+ cosas? se pueden? corregir con la propuesta|No hay correcciones automáticas|No encontramos nada que arreglar)$/})).toBeVisible();
   if (stopAt === "review") return;
 
   const continueToPrepare = page.getByRole("button", { name: "Ver cambios propuestos" });
@@ -119,8 +119,8 @@ async function loadSyntheticDataset(page: Page, stopAt: "review" | "delivery" = 
   await activateWithKeyboard(page, continueToExplore, "Continuar a Explorar");
   const exploreStep = workflow.getByRole("button", { name: "Explorar", exact: true });
   await expect(exploreStep).toHaveAttribute("aria-current", "step");
-  await expect(page.getByRole("heading", { name: "Explora los datos limpios" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Sin dato/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Explora los datos" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^nulo/ })).toBeVisible();
 
   const continueToDelivery = page.getByRole("button", { name: "Continuar a Entregar" });
   await expect(continueToDelivery).toBeVisible();
@@ -159,11 +159,11 @@ test.describe("CSP de producción (SEG-08)", () => {
 });
 
 test.describe("recorrido cargado de accesibilidad", () => {
-  test("devuelve el foco a Seleccionar dataset al cerrar la revisión de encabezados", async ({ page }) => {
+  test("devuelve el foco a Elegir archivo al cerrar la revisión de encabezados", async ({ page }) => {
     await installSyntheticTauriMock(page);
     await page.goto("/", { waitUntil: "commit" });
     await expect(page.locator("#app-title")).toBeVisible();
-    const selectDataset = page.getByRole("button", { name: "Seleccionar dataset" });
+    const selectDataset = page.getByRole("button", { name: "Elegir archivo" });
     const headerReview = page.getByRole("dialog", { name: "Revisar encabezados de ventas-e2e.csv" });
 
     for (const close of ["Escape", "Cancelar"] as const) {
@@ -210,9 +210,13 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await page.getByRole("radio", { name: /^Otra base de datos/ }).check();
     const format = page.getByRole("combobox", { name: "Formato de exportación" });
     await format.selectOption("postgresql");
-    // The guided form marks its first field (2026-11-02).
+    // The guided form marks its first field (2026-11-02), once the person tries
+    // to use the connection: an untouched form shows no error (2026-11-13).
     const connectionString = page.getByLabel("Servidor", { exact: true });
     const connectionError = page.getByRole("alert").filter({ hasText: "Completa la conexión con el servidor." });
+    await expect(connectionError).toBeHidden();
+    await expect(connectionString).not.toHaveAttribute("aria-invalid", "true");
+    await activateWithKeyboard(page, page.getByRole("button", { name: "Analizar compatibilidad" }), "Analizar compatibilidad sin conexión");
     await expect(connectionError).toBeVisible();
     await expect(connectionString).toHaveAttribute("aria-invalid", "true");
     const errorId = await connectionError.getAttribute("id");
@@ -233,7 +237,10 @@ test.describe("recorrido cargado de accesibilidad", () => {
     const exportButton = page.getByRole("button", { name: "Exportar CSV", exact: true });
     await expect(exportButton).toBeEnabled();
     await activateWithKeyboard(page, exportButton, "Exportar CSV");
+    // The result takes the focus and the export button becomes «Exportar otra copia» (2026-11-13).
     await expect(page.getByRole("heading", { name: "Copia lista" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Copia lista" })).toBeFocused();
+    await expect(page.getByRole("button", { name: "Exportar otra copia" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Etapa Entregar" })).toContainText("ventas-e2e-export.csv");
     expect((await recordedCalls(page)).some((call) => call.command === "export_dataset")).toBe(true);
   });
@@ -277,7 +284,7 @@ test.describe("recorrido cargado de accesibilidad", () => {
     });
     await inspectHorizontalLayout("zoom 200 % · Entregar");
     await activateWithKeyboard(page, page.getByRole("button", { name: "Volver a Explorar", exact: true }), "Volver a Explorar");
-    await expect(page.getByRole("heading", { name: "Explora los datos limpios" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Explora los datos" })).toBeVisible();
     await inspectHorizontalLayout("zoom 200 % · Explorar");
     await activateWithKeyboard(page, page.getByRole("button", { name: "Volver a Preparar", exact: true }), "Volver a Preparar");
     await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
@@ -332,7 +339,7 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
     await inspectHorizontalLayout("viewport de 320 píxeles CSS · Preparar");
     await activateWithKeyboard(page, page.getByRole("button", { name: "Continuar a Explorar" }), "Continuar a Explorar · 320 px");
-    await expect(page.getByRole("heading", { name: "Explora los datos limpios" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Explora los datos" })).toBeVisible();
     await inspectHorizontalLayout("viewport de 320 píxeles CSS · Explorar");
     await activateWithKeyboard(page, page.getByRole("button", { name: "Continuar a Entregar" }), "Continuar a Entregar · 320 px");
     await expect(page.getByRole("heading", { name: "Exportar dataset activo" })).toBeVisible();

@@ -87,7 +87,7 @@ describe("ReviewPhase design", () => {
     const selection = defaultProposalSelection(proposal);
     expect(proposal.length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", {
-      name: `Encontramos ${proposal.length} ${proposal.length === 1 ? "cosa" : "cosas"} para arreglar`,
+      name: `${proposal.length} ${proposal.length === 1 ? "cosa se puede corregir" : "cosas se pueden corregir"} con la propuesta`,
     })).toBeInTheDocument();
     const issues = screen.getByLabelText("Resumen de calidad del dataset");
     // Most serious first; every item names what it does to an analysis.
@@ -101,7 +101,14 @@ describe("ReviewPhase design", () => {
     expect(screen.getByText("Ver análisis detallado").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText("Configuración del análisis").closest("details")).not.toHaveAttribute("open");
 
-    expect(screen.getByRole("list", { name: "Prioridades de revisión" })).toBeInTheDocument();
+    // One list on top; what the proposal does not fix goes below, with its own actions.
+    expect(screen.queryByRole("list", { name: "Prioridades de revisión" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Vista rápida de calidad")).not.toBeInTheDocument();
+    const uncorrected = screen.getByRole("list", { name: "Lo que no se corrige solo" });
+    expect(uncorrected).toHaveTextContent("1 nulo en 1 columna");
+    expect(uncorrected).toHaveTextContent("1 valor incompatible con el tipo sugerido en 1 columna");
+    fireEvent.click(screen.getByRole("button", { name: "Ver nulos en Preparar" }));
+    expect(onContinueToPrepare).toHaveBeenLastCalledWith("missingValues");
     fireEvent.click(screen.getByRole("button", { name: "Ver cambios propuestos" }));
     // Without a signal focus, Preparar opens on the proposal, not the advanced tools.
     expect(onContinueToPrepare).toHaveBeenCalledWith();

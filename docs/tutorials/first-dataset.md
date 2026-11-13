@@ -34,11 +34,11 @@ npm run tauri dev
 
 La primera vez compila la aplicación y tarda unos minutos; después verás la
 ventana de Columnia. La fase **Cargar** debe estar activa y el botón
-**Seleccionar dataset** disponible.
+**Elegir archivo** disponible.
 
 ## Paso 3: carga la fixture sintética
 
-Pulsa **Seleccionar dataset** y elige:
+Pulsa **Elegir archivo** y elige:
 
 ```text
 fixtures\automation\input.csv

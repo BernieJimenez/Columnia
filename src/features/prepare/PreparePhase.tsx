@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ModalDialog } from "../../components/ModalDialog";
@@ -9,8 +9,10 @@ import type { ProfileStatus } from "../review/reviewModel";
 import { ChangeFeedback, ChangeResultLine, HistoryBar } from "./HistoryBar";
 import { TransformRecipeEditor } from "./TransformRecipeEditor";
 import { RevisionComparison } from "./RevisionComparison";
+import { CombineWithFileSection } from "./CombineWithFileSection";
+import type { ReviewComparison } from "../review/useReviewController";
 import { PrepareProposal, type ProposalResult } from "./PrepareProposal";
-import { buildPrepareProposal, looksLikeIdentifier } from "./proposalModel";
+import { buildPrepareProposal, looksLikeIdentifier, type ProposalItem } from "./proposalModel";
 import {
   cellCount,
   conversionNullEstimate,
@@ -68,6 +70,18 @@ interface PreparePhaseProps {
   onRecipeEditChange?: (draft: SavedRecipe | null) => void;
   onUndo: () => void;
   onRedo: () => void;
+  /**
+   * The comparison with another file, shared with Revisar: joining,
+   * consolidating and resolving conflicts are done here, with history.
+   */
+  comparison?: ReviewComparison;
+  /** «Combinar en Preparar» from Revisar: open and focus that section. */
+  focusCombine?: boolean;
+  onCombineFocusHandled?: () => void;
+  /** Runs the quality analysis again after it failed or was cancelled. */
+  onRetryProfile?: () => void;
+  /** «Continuar a Explorar» from the result of the proposal. */
+  onContinue?: () => void;
 }
 
 export function PreparePhase({
@@ -110,6 +124,11 @@ export function PreparePhase({
   onRecipeEditChange,
   onUndo,
   onRedo,
+  comparison,
+  focusCombine = false,
+  onCombineFocusHandled = () => undefined,
+  onRetryProfile,
+  onContinue,
 }: PreparePhaseProps) {
   const nearDuplicateCount = profileStatus.kind === "ready" ? profileStatus.profile.nearDuplicateRowCount : null;
   const changing = changeStatus.kind === "working";
@@ -163,6 +182,8 @@ export function PreparePhase({
     ? profileStatus.profile.columns.filter((column) => (column.outlierCount ?? 0) > 0 && !isRowAuditColumn(column.name))
     : [];
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
+  const outlierTotal = outlierColumns.reduce((total, column) => total + (column.outlierCount ?? 0), 0);
+  const outlierTotalPhrase = `${outlierTotal === 1 ? "el valor atípico" : `los ${outlierTotal.toLocaleString()} valores atípicos`} de ${listNames(outlierColumns.map((column) => column.name))}`;
   const conversionLoss = profileStatus.kind === "ready" && conversionConfirmation !== null
     ? conversionNullEstimate(profileStatus.profile, conversionConfirmation)
     : [];
@@ -224,10 +245,42 @@ export function PreparePhase({
     onApplyRecommended(options);
   }
 
+  // ACC: the button pressed to undo disappears with the result it belonged
+  // to; when the change ends, the focus goes to the result line («Rehacer»).
+  // The status when the undo was asked for: the next result takes the focus.
+  const [focusAfterStatus, setFocusAfterStatus] = useState<ChangeStatus | null>(null);
+  const focusResultLine = focusAfterStatus !== null && changeStatus !== focusAfterStatus
+    && changeStatus.kind === "applied" && changeStatus.origin !== undefined;
+  const clearResultLineFocus = useCallback(() => setFocusAfterStatus(null), []);
+  const requestResultLineFocus = () => setFocusAfterStatus(changeStatus);
+
   function undoFromProposal() {
     setPlanComparison(null);
+    requestResultLineFocus();
     onUndo();
   }
+
+  const proposalItems = useMemo(
+    () => (profileStatus.kind === "ready" ? buildPrepareProposal(profileStatus.profile, dataset) : []),
+    [profileStatus, dataset],
+  );
+  const proposalImpute = proposalItems.find((item) => item.id === "impute") ?? null;
+  const emptyRowBound = profileStatus.kind === "ready" ? emptyRowUpperBound(profileStatus.profile) : null;
+
+  useEffect(() => {
+    if (!focusCombine) return;
+    const target = document.getElementById("combine-title");
+    if (target) {
+      let ancestor = target.parentElement;
+      while (ancestor) {
+        if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+        ancestor = ancestor.parentElement;
+      }
+      target.focus({ preventScroll: true });
+      target.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }
+    onCombineFocusHandled();
+  }, [focusCombine, onCombineFocusHandled]);
 
   useEffect(() => {
     if (!initialQualityFocus) return;
@@ -261,8 +314,12 @@ export function PreparePhase({
         <ChangeResultLine
           status={changeStatus}
           canUndo={historyStatus.snapshotsEnabled && historyStatus.canUndo}
+          canRedo={historyStatus.snapshotsEnabled && historyStatus.canRedo}
           busy={changing}
-          onUndo={onUndo}
+          focusAction={focusResultLine}
+          onFocusHandled={clearResultLineFocus}
+          onUndo={() => { requestResultLineFocus(); onUndo(); }}
+          onRedo={() => { requestResultLineFocus(); onRedo(); }}
           onDismiss={() => setDismissedResult(changeStatus)}
         />
       )}
@@ -291,20 +348,31 @@ export function PreparePhase({
           />
         </section>
       )}
+      {/* As in Revisar, the way to try again sits in the notice itself. */}
       {profileStatus.kind === "error" && (
-        <p className="notice notice--error" role="alert">
-          No se pudo analizar la calidad: {profileStatus.message} Reintenta desde el pie de la aplicación.
-        </p>
+        <div className="notice notice--error profile-error" role="alert">
+          <p>No se pudo analizar la calidad: {profileStatus.message}</p>
+          <p>Sin el análisis no hay cambios que proponer. Comprueba que el archivo sigue donde estaba y vuelve a intentarlo.</p>
+          {onRetryProfile && (
+            <button type="button" className="secondary-action" onClick={onRetryProfile}>
+              Reintentar análisis
+            </button>
+          )}
+        </div>
       )}
       {profileStatus.kind === "cancelled" && (
-        <p className="notice" role="status">
-          El diagnóstico se canceló y no publicó resultados parciales. Puedes
-          reintentarlo desde el pie de la aplicación.
-        </p>
+        <div className="notice profile-error" role="status">
+          <p>El análisis se canceló y no publicó resultados parciales.</p>
+          {onRetryProfile && (
+            <button type="button" className="secondary-action" onClick={onRetryProfile}>
+              Reintentar análisis
+            </button>
+          )}
+        </div>
       )}
       {(profileStatus.kind === "ready" || currentPlanComparison !== null) && hasColumns && (
         <PrepareProposal
-          items={profileStatus.kind === "ready" ? buildPrepareProposal(profileStatus.profile, dataset) : []}
+          items={proposalItems}
           columnCount={dataset.columns.length}
           busy={changing}
           canUndo={historyStatus.canUndo}
@@ -313,12 +381,13 @@ export function PreparePhase({
           onPreview={previewSafeCorrections}
           onUndo={undoFromProposal}
           onDismissResult={() => setPlanComparison(null)}
+          onContinue={onContinue}
         />
       )}
       <details className="advanced-corrections prepare-advanced">
         <summary>
           <span>Diagnóstico y herramientas avanzadas</span>
-          <small>Señales, transformaciones y efecto</small>
+          <small>Señales, transformaciones, efecto y combinar con otro archivo</small>
         </summary>
         <div className="advanced-corrections__content">
       <details className="review-tool review-tool--nested prepare-revision-comparison">
@@ -333,6 +402,22 @@ export function PreparePhase({
           busy={changing || profileStatus.kind === "loading"}
         />
       </details>
+      {comparison && (
+        <details className="review-tool review-tool--nested prepare-combine">
+          {/* «Combinar en Preparar» opens this and focuses its summary. */}
+          <summary id="combine-title">
+            <span>Combinar con otro archivo</span>
+            <small>Opcional · unir por clave, añadir filas nuevas o resolver conflictos</small>
+          </summary>
+          <CombineWithFileSection
+            comparison={comparison}
+            datasetColumns={dataset.columns}
+            datasetRevision={datasetRevision}
+            historyStatus={historyStatus}
+            busy={changing}
+          />
+        </details>
+      )}
       <div className="stage-tabs" role="tablist" aria-label="Herramientas de preparación">
         <button
           id="prepare-corrections-tab"
@@ -407,6 +492,7 @@ export function PreparePhase({
           <div className="advanced-corrections__content">
             <CleaningSignals
               profile={profileStatus.profile}
+              proposalImpute={proposalImpute}
               busy={changing}
               undoNote={undoNote}
               onRemoveConstantColumns={onRemoveConstantColumns}
@@ -429,20 +515,15 @@ export function PreparePhase({
             {nearDuplicateCount !== null && nearDuplicateCount > 0 && onRemoveNearDuplicates && (
               <section className="prepare-card" aria-labelledby="near-duplicates-title" aria-describedby={busyDescribedBy(changing)}>
                 <div>
-                  <p className="step">Revisión con confirmación</p>
                   <h3 id="near-duplicates-title">Duplicados parecidos</h3>
                   <p>
                     Se identificaron {plural(nearDuplicateCount, "fila parecida", "filas parecidas")} por normalización de texto.
                     La primera fila y las copias exactas se conservarán.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setNearDuplicateConfirmation(true)}
-                  disabled={changing}
-                >
-                  Revisar y eliminar parecidos
-                </button>
+                <EffectButton busy={changing} onClick={() => setNearDuplicateConfirmation(true)}>
+                  {nearDuplicateCount === 1 ? "Eliminar 1 fila parecida…" : `Eliminar ${nearDuplicateCount.toLocaleString()} filas parecidas…`}
+                </EffectButton>
               </section>
             )}
           </div>
@@ -458,7 +539,6 @@ export function PreparePhase({
       {hasRowsAndColumns && (
       <section className="prepare-card" aria-labelledby="row-audit-title" aria-describedby={busyDescribedBy(changing)}>
         <div>
-          <p className="step">Trazabilidad local</p>
           <h3 id="row-audit-title">Cambios por fila</h3>
           <p>
             {hasRowAuditColumn
@@ -467,16 +547,15 @@ export function PreparePhase({
           </p>
         </div>
         {!hasRowAuditColumn && (
-          <button type="button" onClick={onEnableRowAudit} disabled={changing}>
+          <EffectButton busy={changing} onClick={onEnableRowAudit}>
             Activar trazabilidad
-          </button>
+          </EffectButton>
         )}
       </section>
       )}
       {textColumns.length > 0 && (
       <section className="prepare-card prepare-card--stacked" aria-labelledby="normalize-text-title" aria-describedby={busyDescribedBy(changing)}>
         <div>
-          <p className="step">Requiere selección</p>
           <h3 id="normalize-text-title">Normalizar texto</h3>
           <p>
             Convierte a minúsculas, compacta espacios y, opcionalmente, elimina acentos. Puede
@@ -511,26 +590,45 @@ export function PreparePhase({
               />
               Eliminar acentos
             </label>
-            <button
-              type="button"
+            {selectedTextColumns.length === 0 && (
+              <p id="normalize-text-reason" className="prepare-card__reason">Elige al menos una columna para normalizar.</p>
+            )}
+            <EffectButton
+              busy={changing}
+              blocked={selectedTextColumns.length === 0}
+              describedBy={selectedTextColumns.length === 0 ? "normalize-text-reason" : undefined}
               onClick={() => onNormalizeText(selectedTextColumns, removeAccents)}
-              disabled={changing || selectedTextColumns.length === 0}
             >
-              Normalizar texto seleccionado
-            </button>
+              {selectedTextColumns.length === 0
+                ? "Normalizar texto seleccionado"
+                : `Normalizar ${plural(selectedTextColumns.length, "columna", "columnas")}`}
+            </EffectButton>
         </div>
       </section>
       )}
       {hasRowsAndColumns && (
       <section className="prepare-card" aria-labelledby="empty-rows-title" aria-describedby={busyDescribedBy(changing)}>
         <div>
-          <p className="step">Corrección segura</p>
           <h3 id="empty-rows-title">Filas completamente vacías</h3>
-          <p>Elimina filas cuyos valores son todos nulos o texto en blanco. La operación conserva el orden.{undoNote}</p>
+          <p id="empty-rows-description">
+            Elimina filas cuyos valores son todos nulos o texto en blanco. La operación conserva el orden.{undoNote}
+            {emptyRowBound === 0
+              ? " El análisis no encontró ninguna: hay columnas sin ningún nulo ni texto en blanco."
+              : emptyRowBound !== null
+                ? ` Según el análisis puede haber hasta ${plural(emptyRowBound, "fila vacía", "filas vacías")}; al aplicarlo se dice cuántas se eliminaron.`
+                : ""}
+          </p>
         </div>
-        <button type="button" onClick={onRemoveEmptyRows} disabled={changing}>
-          Eliminar filas vacías
-        </button>
+        <EffectButton
+          busy={changing}
+          blocked={emptyRowBound === 0}
+          describedBy="empty-rows-description"
+          onClick={onRemoveEmptyRows}
+        >
+          {emptyRowBound !== null && emptyRowBound > 0
+            ? `Eliminar hasta ${plural(emptyRowBound, "fila vacía", "filas vacías")}`
+            : "Eliminar filas vacías"}
+        </EffectButton>
       </section>
       )}
         </div>
@@ -559,7 +657,6 @@ export function PreparePhase({
           describedBy="near-duplicates-confirm-description"
           onDismiss={() => setNearDuplicateConfirmation(false)}
         >
-          <p className="step">Confirmación requerida</p>
           <h3 id="near-duplicates-confirm-title">Eliminar duplicados parecidos</h3>
           <p id="near-duplicates-confirm-description">
             Se eliminarán hasta {plural(nearDuplicateCount, "fila que coincide", "filas que coinciden")} después
@@ -592,7 +689,6 @@ export function PreparePhase({
           describedBy="identifier-confirm-description"
           onDismiss={() => setIdentifierConfirmation(false)}
         >
-          <p className="step">Confirmación requerida</p>
           <h3 id="identifier-confirm-title">Retirar identificadores detectados</h3>
           <p id="identifier-confirm-description">
             Se retirarán {identifierColumns.length === 1 ? "1 columna identificadora" : `${identifierColumns.length} columnas identificadoras`} detectadas por el nombre del encabezado: {identifierColumns.map((column) => column.name).join(", ")}.
@@ -625,7 +721,6 @@ export function PreparePhase({
           describedBy="personal-confirm-description"
           onDismiss={() => setPersonalConfirmation(false)}
         >
-          <p className="step">Confirmación requerida</p>
           <h3 id="personal-confirm-title">Retirar datos personales detectados</h3>
           <p id="personal-confirm-description">
             Se retirarán {personalColumns.length === 1 ? "1 columna personal" : `${personalColumns.length} columnas personales`} identificadas por categorías agregadas: {personalCategories}.
@@ -659,10 +754,9 @@ export function PreparePhase({
           describedBy="personal-mask-confirm-description"
           onDismiss={() => setMaskPersonalConfirmation(false)}
         >
-          <p className="step">Confirmación requerida</p>
-          <h3 id="personal-mask-confirm-title">Proteger datos personales detectados</h3>
+          <h3 id="personal-mask-confirm-title">Ocultar datos personales detectados</h3>
           <p id="personal-mask-confirm-description">
-            Se sustituirán los valores no nulos de {personalColumns.length === 1 ? "1 columna personal" : `${personalColumns.length} columnas personales`} por <code>[REDACTED]</code>, identificadas por categorías agregadas: {personalCategories}.
+            Se sustituirán los valores no nulos de {personalColumns.length === 1 ? "1 columna personal" : `${personalColumns.length} columnas personales`} por el texto <code>[REDACTED]</code> («oculto»): la celda conserva que había un valor, pero ya no se puede leer. Columnas identificadas por categorías agregadas: {personalCategories}.
             No se mostrarán nombres de columnas, celdas ni valores del dataset. Se conservarán las columnas,
             y se excluirá _cambios.{undoNote}
             Los identificadores se gestionan con la acción separada de esta sección.
@@ -681,7 +775,7 @@ export function PreparePhase({
               disabled={changing}
               aria-describedby={busyDescribedBy(changing)}
             >
-              Proteger valores personales
+              Ocultar valores personales
             </button>
           </div>
         </ModalDialog>
@@ -693,7 +787,6 @@ export function PreparePhase({
           describedBy="invalid-types-confirm-description"
           onDismiss={() => setInvalidTypeConfirmation(false)}
         >
-          <p className="step">Confirmación requerida</p>
           <h3 id="invalid-types-confirm-title">Apartar valores incompatibles</h3>
           <p id="invalid-types-confirm-description">
             Se convertirán en nulos los valores que no coincidan con un tipo sugerido con al menos 90% de coincidencia en {typeDriftColumns.length === 1 ? "1 columna" : `${typeDriftColumns.length} columnas`}. Las celdas no se mostrarán.{undoNote}
@@ -724,7 +817,6 @@ export function PreparePhase({
           describedBy="conversion-confirm-description"
           onDismiss={() => setConversionConfirmation(null)}
         >
-          <p className="step">Confirmación requerida</p>
           <h3 id="conversion-confirm-title">
             {conversionConfirmation === "numeric" ? "Convertir números detectados" : "Interpretar fechas detectadas"}
           </h3>
@@ -760,16 +852,18 @@ export function PreparePhase({
           describedBy="outliers-confirm-description"
           onDismiss={() => setOutlierConfirmation(null)}
         >
-          <p className="step">Confirmación requerida</p>
           <h3 id="outliers-confirm-title">
             {OUTLIER_ACTION_TITLES[outlierConfirmation]}
           </h3>
           <p id="outliers-confirm-description">
             {outlierConfirmation === "impute"
-              ? "Se reemplazarán por la mediana de su columna los valores que excedan los límites IQR de 1,5."
+              ? `${outlierTotal === 1 ? "Se reemplazará" : "Se reemplazarán"} por la mediana de su columna ${outlierTotalPhrase}.`
               : outlierConfirmation === "cap"
-                ? "Se limitarán los valores que excedan los límites IQR de 1,5 al límite correspondiente."
-                : "Se eliminará cualquier fila que contenga un valor que exceda los límites IQR de 1,5."}
+                ? `${outlierTotal === 1 ? "Se llevará" : "Se llevarán"} al límite del rango normal de su columna ${outlierTotalPhrase}.`
+                : outlierTotal === 1
+                  ? `Se eliminará la fila que contiene ${outlierTotalPhrase}.`
+                  : `Se eliminarán las filas que contienen alguno de ${outlierTotalPhrase}.`}
+            {" "}{OUTLIER_RULE}
             {" "}No se mostrarán celdas ni valores del dataset.{undoNote}
           </p>
           <div className="sheet-dialog__actions">
@@ -797,6 +891,58 @@ export function PreparePhase({
     </>
   );
 }
+
+/**
+ * A Preparar action that stays in the tab order while it cannot run
+ * (aria-disabled, with the reason read with it), so pressing it never sends
+ * the focus to the page body.
+ */
+function EffectButton({
+  busy,
+  blocked = false,
+  describedBy,
+  className,
+  onClick,
+  children,
+}: {
+  busy: boolean;
+  blocked?: boolean;
+  describedBy?: string;
+  className?: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  const inert = busy || blocked;
+  return (
+    <button
+      type="button"
+      className={className}
+      aria-disabled={inert || undefined}
+      aria-describedby={busyDescribedBy(busy, describedBy)}
+      onClick={() => { if (!inert) onClick(); }}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** «x, y y z»: the names an action will touch, in one phrase. */
+function listNames(names: string[]): string {
+  return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} y ${names.at(-1)}`;
+}
+
+/**
+ * The most rows that can be completely empty: no more than the column with
+ * the fewest empty cells (nulls plus blank text). 0 means there are none.
+ */
+function emptyRowUpperBound(profile: DatasetProfile): number | null {
+  const columns = profile.columns.filter((column) => !isRowAuditColumn(column.name));
+  if (columns.length === 0 || profile.rowCount === 0) return null;
+  return Math.min(...columns.map((column) => column.nullCount + (column.emptyCount ?? 0)));
+}
+
+/** How Columnia decides that a value is atypical, in words. */
+const OUTLIER_RULE = "Un valor es atípico si queda fuera del rango normal de su columna (regla IQR: más de 1,5 veces el rango intercuartílico por debajo del primer cuartil o por encima del tercero).";
 
 /** UX-14: the three outlier actions all change data and ask first. */
 const OUTLIER_ACTION_TITLES = {
@@ -837,6 +983,7 @@ function undoAvailabilityNote(snapshotsEnabled: boolean): string {
 
 function CleaningSignals({
   profile,
+  proposalImpute,
   busy,
   undoNote,
   onRemoveConstantColumns,
@@ -857,6 +1004,8 @@ function CleaningSignals({
   onDropOutliers,
 }: {
   profile: DatasetProfile;
+  /** The «Rellenar nulos» item of the proposal, to say how its figure relates to this one. */
+  proposalImpute: ProposalItem | null;
   busy: boolean;
   undoNote: string;
   onRemoveConstantColumns: () => void;
@@ -923,12 +1072,22 @@ function CleaningSignals({
   const personal = profile.columns.filter((column) => column.privacySignal !== null);
   const personalColumns = profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && !isRowAuditColumn(column.name));
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
+  const identifierColumns = profile.columns.filter((column) => column.privacySignal === "identifier");
   const hasOtherSignals = profile.duplicateRowCount > 0 || nearDuplicates || constant.length > 0 || encoding.length > 0 || booleans.length > 0 || dateCandidates.length > 0 || numericCandidates.length > 0 || typeDrift.length > 0 || outliers.length > 0 || personal.length > 0;
+  const sum = (columns: typeof profile.columns, count: (column: (typeof profile.columns)[number]) => number) =>
+    columns.reduce((total, column) => total + count(column), 0);
+  const imputableNulls = sum(imputable, (column) => column.nullCount);
+  const categoricalNulls = sum(categoricalImputable, (column) => column.nullCount);
+  const invalidValues = sum(typeDrift, (column) => column.invalidTypeCount ?? 0);
+  const names = (columns: typeof profile.columns) => listNames(columns.map((column) => column.name));
+  // The proposal fills only small gaps in measures and short categories: its
+  // figure is part of this total, never the same count (RV17).
+  const proposalNulls = proposalImpute?.columns?.reduce((total, column) => total + column.missing, 0) ?? 0;
+  const proposalColumns = proposalImpute?.columns?.length ?? 0;
 
   return (
     <section className="prepare-card prepare-card--stacked cleaning-signals" aria-labelledby="cleaning-signals-title" aria-describedby={busyDescribedBy(busy)}>
       <div>
-        <p className="step">Catálogo de limpieza</p>
         <h3 id="cleaning-signals-title">Señales para revisar</h3>
         <p>Las señales usan solo esquema y métricas agregadas; no muestran celdas ni valores personales.</p>
       </div>
@@ -940,16 +1099,22 @@ function CleaningSignals({
       >
         <div className="missing-data-plan__heading">
           <div>
-            <p className="step">Ruta guiada</p>
-            <h4 id="missing-data-title">Valores nulos y datos faltantes</h4>
+            <h4 id="missing-data-title">Nulos y datos faltantes</h4>
             <p>Conservamos los nulos hasta que elijas una corrección.</p>
           </div>
-          <div className="missing-data-plan__metrics" aria-label="Resumen de valores nulos">
-            <span><strong>{totalNullCount.toLocaleString()}</strong> nulos</span>
+          <div className="missing-data-plan__metrics" aria-label="Resumen de nulos">
+            <span><strong>{totalNullCount.toLocaleString()}</strong> nulos en total</span>
             <span><strong>{columnsWithNulls.length.toLocaleString()}</strong> columnas afectadas</span>
             <span><strong>{formatPercent(datasetCompleteness, 1)}</strong> completitud total</span>
           </div>
         </div>
+        {totalNullCount > 0 && (
+          <p className="missing-data-plan__source">
+            {proposalNulls > 0
+              ? `De estos ${plural(totalNullCount, "nulo", "nulos")}, la propuesta de arriba solo ofrece rellenar ${plural(proposalNulls, "nulo", "nulos")} en ${plural(proposalColumns, "columna", "columnas")}: huecos pequeños (5 % o menos) en números y categorías cortas. Aquí puedes tratar el resto.`
+              : "La propuesta de arriba no rellena ninguno: solo rellena huecos pequeños (5 % o menos) en números y categorías cortas."}
+          </p>
+        )}
         {totalNullCount === 0 && sentinels.length === 0 ? (
           <p className="notice notice--success" role="status">
             No se detectaron nulos ni marcadores «sin dato».
@@ -966,19 +1131,24 @@ function CleaningSignals({
                   <strong>Retirar columnas sin información útil</strong>
                   <p>
                     Las columnas totalmente vacías pueden retirarse directamente. Las que tienen
-                    al menos 80% de nulos se ofrecen por separado para evitar pérdida accidental.
+                    al menos 80 % de nulos se ofrecen por separado para evitar pérdida accidental.
+                    {empty.length > 0 && <> Vacías: {names(empty)}.</>}
+                    {highNull.length > 0 && <> Con 80 % o más de nulos: {names(highNull)}.</>}
+                    {undoNote}
                   </p>
                 </div>
                 <div className="missing-data-plan__actions">
                   {empty.length > 0 && (
-                    <button type="button" onClick={onRemoveEmptyColumns} disabled={busy}>
-                      Eliminar columnas vacías
-                    </button>
+                    <EffectButton busy={busy} onClick={onRemoveEmptyColumns}>
+                      {empty.length === 1 ? `Eliminar la columna vacía ${empty[0]?.name ?? ""}` : `Eliminar ${empty.length.toLocaleString()} columnas vacías`}
+                    </EffectButton>
                   )}
                   {highNull.length > 0 && (
-                    <button type="button" onClick={onRemoveHighNullColumns} disabled={busy}>
-                      Eliminar columnas con alta nulidad
-                    </button>
+                    <EffectButton busy={busy} onClick={onRemoveHighNullColumns}>
+                      {highNull.length === 1
+                        ? `Eliminar ${highNull[0]?.name ?? ""} (80 % o más de nulos)`
+                        : `Eliminar ${highNull.length.toLocaleString()} columnas con 80 % o más de nulos`}
+                    </EffectButton>
                   )}
                 </div>
               </li>
@@ -987,18 +1157,23 @@ function CleaningSignals({
               <li>
                 <div>
                   <strong>Completar solo cuando tenga sentido</strong>
-                  <p>Rellena con la mediana en números y la moda en texto: esos valores no son reales, son una estimación.</p>
+                  <p>
+                    Rellena con la mediana en números y la moda en texto: esos valores no son reales, son una estimación.
+                    {imputable.length > 0 && <> Columnas que se pueden rellenar: {names(imputable)}; el motor solo rellena las que tienen una señal conservadora.</>}
+                    {categoricalImputable.length > 0 && <> Columnas de texto que se pueden completar como «Desconocido»: {names(categoricalImputable)}.</>}
+                    {undoNote}
+                  </p>
                 </div>
                 <div className="missing-data-plan__actions">
                   {imputable.length > 0 && (
-                    <button type="button" onClick={onImputeMissingValues} disabled={busy}>
-                      Intentar imputación conservadora
-                    </button>
+                    <EffectButton busy={busy} onClick={onImputeMissingValues}>
+                      {`Rellenar hasta ${plural(imputableNulls, "nulo", "nulos")} en ${plural(imputable.length, "columna", "columnas")}`}
+                    </EffectButton>
                   )}
                   {categoricalImputable.length > 0 && onImputeCategoricalValues && (
-                    <button type="button" onClick={onImputeCategoricalValues} disabled={busy}>
-                      Completar categorías desconocidas
-                    </button>
+                    <EffectButton busy={busy} onClick={onImputeCategoricalValues}>
+                      {`Completar ${plural(categoricalNulls, "nulo de texto", "nulos de texto")} como «Desconocido»`}
+                    </EffectButton>
                   )}
                 </div>
               </li>
@@ -1028,25 +1203,25 @@ function CleaningSignals({
             <li><strong>Duplicados parecidos:</strong> {plural(profile.nearDuplicateRowCount, "fila adicional coincide", "filas adicionales coinciden")} al normalizar mayúsculas, espacios y acentos; requieren revisión manual.</li>
           )}
           {constant.length > 0 && (
-            <li><strong>Constantes:</strong> {constant.map((column) => column.name).join(", ")} {constant.length === 1 ? "no cambia" : "no cambian"} entre filas.</li>
+            <li><strong>Constantes:</strong> {names(constant)} {constant.length === 1 ? "no cambia" : "no cambian"} entre filas.</li>
           )}
           {outliers.length > 0 && (
-            <li><strong>Valores atípicos:</strong> {outliers.map((column) => `${column.name} (${(column.outlierCount ?? 0).toLocaleString()})`).join(", ")} supera los límites IQR de 1,5.</li>
+            <li><strong>Valores atípicos:</strong> {outliers.map((column) => `${column.name} (${(column.outlierCount ?? 0).toLocaleString()})`).join(", ")} {outliers.length === 1 ? "tiene valores" : "tienen valores"} fuera del rango normal de su columna (regla IQR: 1,5 veces el rango intercuartílico).</li>
           )}
           {encoding.length > 0 && (
-            <li><strong>Doble codificación UTF-8:</strong> {encoding.map((column) => `${column.name} (${(column.encodingIssueCount ?? 0).toLocaleString()})`).join(", ")} contiene texto que puede repararse de forma segura.</li>
+            <li><strong>Acentos mal leídos:</strong> {encoding.map((column) => `${column.name} (${(column.encodingIssueCount ?? 0).toLocaleString()})`).join(", ")} {encoding.length === 1 ? "tiene" : "tienen"} texto como «Ã¡» en lugar de «á» (doble codificación UTF-8) que puede repararse de forma segura.</li>
           )}
           {booleans.length > 0 && (
-            <li><strong>Booleanos:</strong> {booleans.map((column) => column.name).join(", ")} admite alias textuales que pueden unificarse como «true» y «false».</li>
+            <li><strong>Booleanos:</strong> {names(booleans)} admite alias textuales que pueden unificarse como «true» y «false».</li>
           )}
           {dateCandidates.length > 0 && (
-            <li><strong>Fechas detectadas:</strong> {dateCandidates.map((column) => column.name).join(", ")} coincide con un formato de fecha cerrado.</li>
+            <li><strong>Fechas detectadas:</strong> {names(dateCandidates)} coincide con un formato de fecha cerrado.</li>
           )}
           {numericCandidates.length > 0 && (
-            <li><strong>Números detectados:</strong> {numericCandidates.map((column) => column.name).join(", ")} admite una conversión numérica segura.</li>
+            <li><strong>Números detectados:</strong> {names(numericCandidates)} admite una conversión numérica segura.</li>
           )}
           {typeDrift.length > 0 && (
-            <li><strong>Tipos sugeridos:</strong> {typeDrift.map((column) => column.name).join(", ")} contiene valores que no coinciden con la sugerencia detectada.</li>
+            <li><strong>Tipos sugeridos:</strong> {names(typeDrift)} contiene valores que no coinciden con la sugerencia detectada.</li>
           )}
           {personal.length > 0 && (
             <li className="cleaning-signals__privacy"><strong>Posible dato personal:</strong> {personalColumns.length} {personalColumns.length === 1 ? "columna detectada" : "columnas detectadas"} por categoría agregada: {personalCategories}. Revisa su tratamiento antes de exportar o compartir.</li>
@@ -1055,80 +1230,82 @@ function CleaningSignals({
           {constant.length > 0 && (
             <div className="cleaning-signals__action">
               <p>
-                Puedes retirar estas columnas de baja información; se conservará al menos una
-                columna para que el dataset siga siendo utilizable.
+                Puedes retirar estas columnas de baja información ({names(constant)}); se conservará al menos una
+                columna para que el dataset siga siendo utilizable.{undoNote}
               </p>
-              <button type="button" onClick={onRemoveConstantColumns} disabled={busy}>
-                Eliminar columnas constantes
-              </button>
+              <EffectButton busy={busy} onClick={onRemoveConstantColumns}>
+                {constant.length === 1 ? `Eliminar la columna constante ${constant[0]?.name ?? ""}` : `Eliminar ${constant.length.toLocaleString()} columnas constantes`}
+              </EffectButton>
             </div>
           )}
           {outliers.length > 0 && (
             <div className="cleaning-signals__action">
               <p>
-                Puedes reemplazar los valores atípicos por la mediana de cada columna usando
-                límites IQR de 1,5. La operación conserva el tipo numérico y no muestra celdas.{undoNote}
+                Puedes tratar los valores atípicos de {names(outliers)}: reemplazarlos por la mediana de su
+                columna, llevarlos al límite del rango normal o eliminar sus filas. Cada opción pide confirmación
+                y no muestra celdas.{undoNote}
               </p>
               {onImputeOutliers && (
-                <button type="button" onClick={onImputeOutliers} disabled={busy}>
-                  Reemplazar valores atípicos por la mediana
-                </button>
+                <EffectButton busy={busy} onClick={onImputeOutliers}>
+                  Reemplazar valores atípicos por la mediana…
+                </EffectButton>
               )}
               {onCapOutliers && (
-                <button type="button" onClick={onCapOutliers} disabled={busy}>
-                  Limitar valores atípicos con IQR
-                </button>
+                <EffectButton busy={busy} onClick={onCapOutliers}>
+                  Limitar valores atípicos al rango normal…
+                </EffectButton>
               )}
               {onDropOutliers && (
-                <button type="button" className="danger-action" onClick={onDropOutliers} disabled={busy}>
-                  Eliminar filas atípicas
-                </button>
+                <EffectButton busy={busy} className="danger-action" onClick={onDropOutliers}>
+                  Eliminar filas atípicas…
+                </EffectButton>
               )}
             </div>
           )}
-          {profile.columns.some((column) => column.privacySignal === "identifier") && (
+          {identifierColumns.length > 0 && (
             <div className="cleaning-signals__action cleaning-signals__action--privacy">
               <p>
-                Retira solo las columnas marcadas como identificadoras por su encabezado. No se
-                inspeccionan ni muestran celdas, se conserva al menos una columna y la operación
+                Retira solo las columnas marcadas como identificadoras por su encabezado ({names(identifierColumns)}).
+                No se inspeccionan ni muestran celdas, se conserva al menos una columna y la operación
                 queda disponible para revertir desde el historial.
               </p>
               {onRemoveIdentifierColumns && (
-                <button type="button" onClick={onRemoveIdentifierColumns} disabled={busy}>
-                  Revisar identificadores detectados
-                </button>
+                <EffectButton busy={busy} onClick={onRemoveIdentifierColumns}>
+                  {identifierColumns.length === 1 ? "Retirar 1 columna identificadora…" : `Retirar ${identifierColumns.length.toLocaleString()} columnas identificadoras…`}
+                </EffectButton>
               )}
             </div>
           )}
           {personalColumns.length > 0 && (
             <div className="cleaning-signals__action cleaning-signals__action--privacy">
               <p>
-                Retira correo electrónico, teléfono, dirección y nombre detectados por el encabezado.
+                Retira correo electrónico, teléfono, dirección y nombre detectados por el encabezado, o
+                sustituye sus valores por el texto [REDACTED] («oculto») para que no se puedan leer.
                 La acción no muestra nombres ni valores, excluye _cambios, conserva al menos una columna
                 y queda disponible para revertir desde el historial.
               </p>
               {onRemovePersonalColumns && (
-                <button type="button" onClick={onRemovePersonalColumns} disabled={busy}>
-                  Revisar datos personales detectados
-                </button>
+                <EffectButton busy={busy} onClick={onRemovePersonalColumns}>
+                  {personalColumns.length === 1 ? "Retirar 1 columna de datos personales…" : `Retirar ${personalColumns.length.toLocaleString()} columnas de datos personales…`}
+                </EffectButton>
               )}
               {onMaskPersonalValues && (
-                <button type="button" onClick={onMaskPersonalValues} disabled={busy}>
-                  Proteger valores personales detectados
-                </button>
+                <EffectButton busy={busy} onClick={onMaskPersonalValues}>
+                  Ocultar valores personales…
+                </EffectButton>
               )}
             </div>
           )}
           {encoding.length > 0 && (
             <div className="cleaning-signals__action">
               <p>
-                Corrige secuencias heredadas como «Ã©» o «â€™»; solo se aplican reparaciones
-                UTF-8 inequívocas.{undoNote}
+                Corrige acentos y signos mal leídos, como «Ã©» en lugar de «é» o «â€™» en lugar de «’»;
+                solo se aplican reparaciones inequívocas.{undoNote}
               </p>
               {onFixEncoding && (
-                <button type="button" onClick={onFixEncoding} disabled={busy}>
-                  Corregir codificación
-                </button>
+                <EffectButton busy={busy} onClick={onFixEncoding}>
+                  {`Corregir acentos en ${plural(sum(encoding, (column) => column.encodingIssueCount ?? 0), "valor", "valores")}`}
+                </EffectButton>
               )}
             </div>
           )}
@@ -1139,13 +1316,13 @@ function CleaningSignals({
               tabIndex={-1}
             >
               <p>
-                Puedes apartar como nulos los valores que no coincidan con una sugerencia con al
-                menos 90% de confianza. La acción no muestra celdas y requiere confirmación.{undoNote}
+                Puedes dejar como nulos los valores que no coincidan con una sugerencia con al
+                menos 90 % de confianza. La acción no muestra celdas y requiere confirmación.{undoNote}
               </p>
               {onNullifyInvalidTypes && (
-                <button type="button" onClick={onNullifyInvalidTypes} disabled={busy}>
-                  Revisar tipos incompatibles
-                </button>
+                <EffectButton busy={busy} onClick={onNullifyInvalidTypes}>
+                  {`Dejar como nulos hasta ${plural(invalidValues, "valor incompatible", "valores incompatibles")}…`}
+                </EffectButton>
               )}
             </div>
           )}
@@ -1153,11 +1330,11 @@ function CleaningSignals({
             <div className="cleaning-signals__action">
               <p>
                 La normalización solo convierte «yes»/«no», «sí»/«no» y «true»/«false» a
-                «true»/«false»; deja intactos los valores que no reconoce.
+                «true»/«false»; deja intactos los valores que no reconoce.{undoNote}
               </p>
-              <button type="button" onClick={onNormalizeBooleans} disabled={busy}>
-                Normalizar booleanos
-              </button>
+              <EffectButton busy={busy} onClick={onNormalizeBooleans}>
+                {`Normalizar booleanos en ${plural(booleans.length, "columna", "columnas")}`}
+              </EffectButton>
             </div>
           )}
           {dateCandidates.length > 0 && (
@@ -1168,9 +1345,9 @@ function CleaningSignals({
                 sean fechas quedan nulos: si hay alguno, se pide confirmación.
               </p>
               {onParseDates && (
-                <button type="button" onClick={onParseDates} disabled={busy}>
+                <EffectButton busy={busy} onClick={onParseDates}>
                   Interpretar fechas detectadas
-                </button>
+                </EffectButton>
               )}
             </div>
           )}
@@ -1183,9 +1360,9 @@ function CleaningSignals({
                 quedan nulos: si hay alguno, se pide confirmación.
               </p>
               {onCastNumeric && (
-                <button type="button" onClick={onCastNumeric} disabled={busy}>
+                <EffectButton busy={busy} onClick={onCastNumeric}>
                   Convertir números detectados
-                </button>
+                </EffectButton>
               )}
             </div>
           )}

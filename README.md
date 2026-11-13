@@ -29,7 +29,7 @@ Columnia sigue cinco etapas: Cargar, Revisar, Preparar, Explorar y Entregar.
 
 ### 1. Cargar
 
-Selecciona un dataset y comprueba cómo se leen sus columnas antes de abrirlo; el espacio de trabajo se puede guardar como proyecto local.
+Elige un archivo y comprueba cómo se leen sus columnas antes de abrirlo; el espacio de trabajo se puede guardar como proyecto local.
 
 ![Revisión de encabezados de un CSV en la etapa Cargar](docs/images/gallery/01-cargar.png)
 
@@ -81,7 +81,7 @@ Consulta el [modelo de amenazas](THREAT_MODEL.md), la [privacidad de red](docs/r
 | Windows 10 x64 | Debería funcionar con WebView2 instalado; sin validar. |
 | Windows ARM64, macOS y Linux | Sin validar. |
 | Microsoft Edge WebView2 | Necesario. Windows 11 lo incluye; en Windows 10 se instala «WebView2 Runtime». |
-| Memoria | Depende del archivo: Columnia estima la RAM antes de cargar y lee por bloques los CSV, TSV y Parquet de al menos 512 MiB. |
+| Memoria | Depende del archivo: Columnia estima la RAM antes de cargar y lee por bloques los CSV, TSV, TXT, JSON, Parquet y Excel (.xlsx, .xlsb) de 512 MiB o más. |
 
 ## Ejecutar desde el código fuente
 

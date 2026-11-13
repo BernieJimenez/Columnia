@@ -424,7 +424,7 @@ describe("usePrepareController", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Proteger personales" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se protegieron 4 valores en 2 columnas con [REDACTED]. No se muestran nombres ni valores; el cambio puede revertirse desde el historial.",
+      "Se protegieron 4 valores en 2 columnas con el texto [REDACTED] (valor oculto). No se muestran nombres ni valores; el cambio puede revertirse desde el historial.",
     ));
     expect(bridge.maskPersonalValues).toHaveBeenCalledOnce();
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
@@ -492,7 +492,7 @@ describe("usePrepareController", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Codificación" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se corrigió doble codificación UTF-8 en 2 celdas.",
+      "Se corrigieron acentos mal leídos (doble codificación UTF-8) en 2 celdas.",
     ));
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
@@ -622,7 +622,7 @@ describe("usePrepareController", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Capear" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se limitó 1 valor atípico a los límites IQR en: total. El cambio puede revertirse desde el historial.",
+      "Se limitó 1 valor atípico al límite del rango normal (regla IQR) en: total. El cambio puede revertirse desde el historial.",
     ));
     expect(bridge.capOutlierValues).toHaveBeenCalledOnce();
     expect(callbacks.onProfileInvalidated).toHaveBeenCalledOnce();
@@ -646,7 +646,7 @@ describe("usePrepareController", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Eliminar atípicos" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se eliminaron 2 filas atípicas según los límites IQR. El cambio puede revertirse desde el historial.",
+      "Se eliminaron 2 filas atípicas fuera del rango normal (regla IQR). El cambio puede revertirse desde el historial.",
     ));
     expect(bridge.dropOutlierValues).toHaveBeenCalledOnce();
     expect(callbacks.onProfileInvalidated).toHaveBeenCalledOnce();

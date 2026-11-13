@@ -128,11 +128,38 @@ acento y el anillo de foco.
   aparece lo de la opción elegida. Los formatos de esa opción van en un
   selector con la descripción del elegido debajo.
 - Antes de una acción que saca datos del equipo, un resumen en pocas líneas
-  (`.delivery-summary`) dice qué va a pasar junto al botón. Si queda fijo en
-  pantalla, la página reserva su alto con `scroll-padding-bottom` para que no
-  tape el foco.
+  (`.delivery-summary`) dice qué va a pasar junto al botón. En Entregar el
+  resumen completo («Vas a exportar», `.delivery-summary-block`) va en flujo e
+  incluye destino, servidor, base de datos y autenticación (nunca la
+  contraseña), tabla y política; solo `.delivery-commit` (botón, una línea
+  «destino · filas» y el motivo del bloqueo) queda fijo, con ventana de al
+  menos 1180 × 700. Su altura real se publica en `--delivery-commit-height` y
+  `scroll-padding-bottom` la usa para que ningún control con foco quede tapado
+  (WCAG 2.4.11).
+- Una acción destructiva lleva texto explícito, una confirmación propia ligada
+  al objeto exacto («Entiendo que se borrará el contenido actual de <tabla>»)
+  y un botón con verbo y objeto («Reemplazar <tabla> en <servidor>»). Una
+  configuración guardada nunca reaplica «Reemplazar».
+- El resultado de una acción larga (exportar, aplicar cambios) recibe el foco
+  en su encabezado (`tabIndex=-1`) y se desplaza a la vista; se anuncia con una
+  sola frase, no con una sección `aria-live` entera, y se presenta como una
+  lista `dl` de pocas líneas, nunca como un mosaico de tarjetas de cifras.
+  Mientras se muestra, el botón que lo produjo pasa a secundario.
+- Un error de conexión, de campo o de análisis aparece cuando la persona
+  intenta usar el formulario o la acción, no en un formulario sin tocar, y
+  lleva dentro el botón que permite reintentar.
 - Una conexión a SQL Server se pide con campos (servidor, base de datos,
   autenticación), no con una cadena ODBC: la interfaz manda campos y Rust arma la cadena; no hay cadena libre ni DSN.
+  Al cambiar de motor en Cargar se conservan servidor, base de datos y usuario
+  (y el puerto si no era el predeterminado); la contraseña no se traslada y una
+  línea de estado lo dice. Los motivos de campo («Indica el servidor.») salen
+  al salir del campo o cambiarlo, o cuando Entregar intenta usar la conexión;
+  un formulario sin tocar solo muestra la guía general.
+- Con el foco de teclado, el anillo `--focus-ring` rodea la `.choice-card`
+  entera (`:has(input:focus-visible)`), no solo el radio; en forced-colors es
+  `Highlight`.
+- Las etiquetas y leyendas de los diálogos van en escala secundaria (.875rem,
+  peso 650, sin mayúsculas forzadas) para no pesar más que el contenido.
 - Una lista de problemas se ordena por lo que le hace al análisis (altera
   resultados, afecta a coincidencias, solo formato, opcional) y cada elemento
   lo dice con texto; la forma del marcador repite el nivel, no lo sustituye.
@@ -199,17 +226,59 @@ datos con tarjetas de opción (`.choice-card` dentro de `.load-sources`): Archiv
 Base de datos y Proyecto, más Ejemplo cuando hay datasets de muestra. Una
 tarjeta solo aparece si su panel existe y, con una sola opción, no se muestran.
 Debajo va lo de la opción elegida: para Archivo, la zona de selección
-(`.load-brief`, con el botón «Seleccionar dataset», el aviso de que también se
+(`.load-brief`, con el botón «Elegir archivo», el aviso de que también se
 puede arrastrar un archivo y los formatos admitidos) y, en un plegable
-`.load-secondary`, los archivos recientes; con un dataset ya cargado la zona se
-reduce a «Seleccionar otro dataset» y la pista de arrastrar. «Reutilizar una
+`.load-secondary`, los archivos recientes; «Elegir archivo» se abre también con Ctrl+O (`aria-keyshortcuts`) mientras la
+tarjeta Archivo está activa, salvo con el foco en un campo de texto o en un
+diálogo. `.load-brief` lleva borde sólido `--border-subtle`, no discontinuo:
+el archivo se puede soltar en toda la ventana. Con un dataset ya cargado, la
+cabecera lleva el nombre, debajo sus cifras (`DatasetMetrics`) y a la derecha
+la única acción primaria, «Continuar a Revisar»; el pie de navegación no se
+dibuja en Cargar para no repetirla. Debajo, un h3 «Cambiar de datos» precede a
+las tarjetas y, con Archivo elegido, aparecen «Elegir otro archivo»
+(secundaria) y la pista de arrastrar como texto plano. Los ejemplos se listan
+como filas iguales a las de los recientes («Cargar el ejemplo …»). Los paneles
+perezosos (Proyecto, Base de datos) muestran mientras cargan un texto
+`role="status"` («Cargando proyectos guardados…»). «Reutilizar una
 tarea» (`ReusableTaskPanel.tsx`) es otro plegable `.load-secondary` bajo la
-opción elegida. Los avisos son bloques `.notice` encima de las tarjetas: motor
+opción elegida; su resumen dice cuántas tareas hay y, sin tareas ni dataset,
+solo explica qué guarda una tarea, sin formulario deshabilitado. Borrar una
+tarea se confirma en línea (`role="group"` etiquetado por la pregunta): el foco
+va a «Conservar», Esc cancela y el foco vuelve a «Eliminar tarea». Los recientes solo recuerdan nombre y formato: cada uno ofrece
+«Buscar en el equipo», que abre el selector, y nunca promete reabrir el archivo.
+El error de elegir un archivo va junto al botón (dentro de `.load-brief`, o en
+`.load-change` si ya hay dataset), dice el siguiente paso, se retira al cambiar
+de fuente y recibe el foco solo si este estaba en el botón o en `<body>`. El
+diálogo de revisión mide `min(960px, 100%)` y deja sus acciones fijas al pie
+(`.sheet-dialog__actions--sticky`); dentro no hay una región viva dentro de
+otra. Si las fechas están en «Sin definir» y una columna de texto tiene nombre
+de fecha (`dateLikeTextColumns` en `loadModel.ts`), una nota avisa de que se
+cargará como texto y dónde elegir su formato. Una tabla de base de datos se revisa por su nombre y su origen, no como
+el archivo Parquet en que se guarda. Los avisos son bloques `.notice` encima de las tarjetas: motor
 sin respuesta, cierre inesperado de la sesión anterior, informes de fallo y
 catálogos apartados, estos tres con «Entendido». Las decisiones de importación
 (hoja y encabezados, perfil guardado, coste estimado, esquema distinto) se
 toman en un diálogo modal (`ModalDialog`) que no cambia el dataset hasta
 confirmar.
+
+**Revisar** (`src/features/review/`) solo mira: nada cambia hasta aprobar una
+corrección en Preparar. El Diagnóstico abre con una lista (la misma que propone
+Preparar, ordenada por consecuencia) y una sola acción primaria, «Ver cambios
+propuestos»; el titular no promete que sea todo («N cosas se pueden corregir
+con la propuesta»). Debajo, el bloque «No se corrige solo» recoge nulos,
+valores incompatibles con el tipo sugerido, columnas con datos personales, coma
+decimal y valores no finitos, cada uno con su cifra de todas las filas y una
+acción secundaria («Ver … en Preparar» o «Volver a cargar con coma decimal»).
+La completitud global es texto con cifra, no una barra de progreso. Un error
+del perfil lleva dentro «Reintentar análisis» y una causa probable, y el pie no
+repite el botón. El resultado de la Consulta SQL anuncia solo «N filas».
+«Comparar con otro archivo» (`DatasetComparisonSection.tsx`) es un plegable en
+dos pasos: la clave, qué cuenta como igual y una sola primaria; después el
+resultado (filas nuevas, filas que faltan, conflictos, coinciden, claves
+repetidas) en solo lectura, con «Combinar en Preparar» y «Descartar
+comparación». Es el único nombre de la comparación en toda la aplicación. Las
+regiones de tabla (`.table-region`, `.profile-region`, `.quality-chart__table`)
+llevan `position: relative` para que sus textos ocultos no ensanchen la página.
 
 **Preparar** (`src/features/prepare/`) reúne el trabajo a la izquierda y el
 historial a la derecha (`.prepare-layout`). Arriba va la propuesta
@@ -228,7 +297,29 @@ panel de 300 px pegajoso bajo la barra superior (`position: sticky` a
 `calc(var(--topbar-height) + 8px)`, con scroll propio si es más alto que la
 ventana, `src/data-views.css`); por debajo pasa a una columna, tras el trabajo.
 El resultado de un cambio con «Deshacer» (`.change-result`) queda fijo arriba
-mientras se usan las herramientas.
+mientras se usan las herramientas. Dentro del plegable avanzado, «Combinar con
+otro archivo» (`CombineWithFileSection.tsx`) reutiliza la comparación de
+Revisar, o permite hacerla allí, y ofrece unir por clave, añadir las filas
+nuevas y resolver conflictos. Los tipos de unión van en español con el término
+SQL entre paréntesis («Solo coincidencias (inner)», «Todas las filas del activo
+(left)», «Todas las filas de ambos (full)»). Cada acción dice antes qué quedará
+(filas y columnas), qué se descarta y si «Deshacer» lo devuelve; los conflictos
+se deciden con una fila por celda y el botón al pie, nunca deshabilitado. El
+resultado es un paso del historial y se anuncia en `.change-result`; «Deshacer»
+devuelve las filas y lo que la combinación había descartado (contrato,
+receta, perfil de importación, origen, historial SQL y vínculo con el
+proyecto) si no se ha vuelto a configurar, y «Rehacer» lo vuelve a apartar. Una
+corrección o un «Deshacer» conservan la comparación, recalculada, mientras
+existan sus columnas clave; si no, se dice qué columna cambió.
+
+La columna de trabajo es un contenedor (`container: prepare-main /
+inline-size`): sus filas responden a su propio ancho con `@container`, porque
+con el historial al lado mide unos 620 px. Tras aplicar, el resultado («Listo:
+cambios aplicados») toma el foco y «Continuar a Explorar» es la primaria; tras
+«Deshacer», el foco va a «Rehacer». Los botones ocupados usan `aria-disabled`
+con su motivo, nunca `disabled`, para no perder el foco. Cada corrección
+destructiva dice cuántas y cuáles en el botón o junto a él («Eliminar 2
+columnas vacías», «Rellenar hasta 812 nulos en 3 columnas»).
 
 **Explorar** (`src/features/explore/ExplorePhase.tsx`, `explore.css`) muestra un
 panel que Columnia arma con todas las filas: una franja de cifras
@@ -237,12 +328,33 @@ columnas. Hay barras por categoría («Filas por valor», cada barra es un botó
 que filtra todo el panel), un histograma («Distribución») y una tendencia
 («Filas en el tiempo»). El histograma y la tendencia ocupan la fila entera
 (`.explore__panel--wide`), y un gráfico de barras que queda solo en su fila
-también. Los filtros
-activos son botones sobre la franja, con «Quitar filtros», y «Personalizar»
-permite elegir las columnas de los gráficos. El histograma y la tendencia traen
-su cifra como tabla («Ver como tabla»), y cada barra o columna seleccionada se
-marca con algo más que el color. Por debajo de 760 CSS px la cuadrícula pasa a
-una columna.
+también. Los filtros activos son botones junto a un resumen («N filas de T
+cumplen los filtros»), que es la única región `role="status"` y anuncia también
+«Filtro quitado», «Filtros quitados» y el filtro que se pierde al cambiar de
+medida, fecha o gráfico. Al quitar un filtro el foco va al siguiente, al
+anterior o al gráfico que lo creó, y tras «Quitar filtros» a «Personalizar». Con
+filtros, la cabecera dice «sobre N de M filas (filtradas)», el pie «todas las
+filas que cumplen los filtros» y el filtro de rango se escribe como el tramo
+(«100 a 149»). Las barras se recorren con flechas como el histograma y la
+tendencia (una parada de Tab por gráfico) y se nombran «Norte: 18.200 filas».
+La columna seleccionada se marca con un contorno de 2 px alrededor del relleno
+(`CanvasText` en colores forzados), no solo con la intensidad. Las columnas
+miden al menos 24 px; con muchas, columnas y eje se desplazan juntos y aparece
+«Desliza para ver todos los tramos». Sin gráficos hay un único aviso neutro con
+el motivo y, si una fecha está guardada como texto, «Interpretar fechas en
+Preparar»; se ocultan «Personalizar», la pista y el pie. El valor nulo se llama
+«nulo». «Ver como tabla» tiene tope de alto con scroll. Por debajo de 760 CSS px
+la cuadrícula pasa a una columna.
+
+**Entregar** (`src/features/delivery/`) pregunta primero «¿A dónde va la
+copia?», después cómo validar y después el formato. «Conectar y escribir la
+tabla» propone el esquema del motor (`dbo`, `public` o la base en MySQL) y una
+tabla con el nombre del archivo saneado, como el script T-SQL; la política de
+tabla son opciones con descripción. Un contrato fallido no se vuelve a validar
+sin cambios: el motivo dice «corrige los datos en Preparar o ajusta la regla
+N», la regla queda marcada con texto y borde completo y «Qué se exige» va
+numerado. El término es «incumplimientos»; también «comprobación previa»,
+«configuraciones guardadas» y «Paquete Columnia».
 
 ## Estados y copy
 

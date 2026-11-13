@@ -18,7 +18,7 @@ import { errorMessage, isCancellationError } from "../../bridge/errors";
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { DatabaseConnectionForm } from "../database/DatabaseConnectionForm";
 import { plural } from "../../plural";
-import { importOriginFromResult } from "./importOrigin";
+import { importOriginFromResult, type DatabaseRead } from "./importOrigin";
 
 const ENGINES: ReadonlyArray<{ kind: DatabaseKind; label: string }> = [
   { kind: "sqlserver", label: "SQL Server" },
@@ -56,7 +56,13 @@ interface DatabaseImportPanelProps {
    * AUD-061: once a table is read, what the import left out (row limit, cut or
    * replaced texts) and the selection it belongs to; null when it was complete.
    */
-  onImported?: (selectionId: string, origin: ImportOrigin | null) => void;
+  onImported?: (selectionId: string, origin: ImportOrigin | null, read: DatabaseRead) => void;
+  /**
+   * The selection the import dialog is reviewing, or null when none is. The
+   * «filas leídas» line is only shown for that selection, so it does not stay
+   * after the dialog is cancelled. Undefined: the panel is used on its own.
+   */
+  reviewingSelectionId?: string | null;
 }
 
 function tableLabel(table: DatabaseSourceTable): string {
@@ -74,7 +80,7 @@ function focusIfLost(target: HTMLElement | null, ...owners: Array<HTMLElement | 
  * lists the tables the server allows to read and
  * brings one into this computer. Columnia only reads; there is no free SQL.
  */
-export function DatabaseImportPanel({ connected, blocked, onImport, onImported }: DatabaseImportPanelProps) {
+export function DatabaseImportPanel({ connected, blocked, onImport, onImported, reviewingSelectionId }: DatabaseImportPanelProps) {
   const id = useId();
   const [kind, setKind] = useState<DatabaseKind>("sqlserver");
   const [connection, setConnection] = useState<DatabaseConnection | null>(null);
@@ -137,7 +143,15 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported }
           setImportState((current) => current.kind === "importing" ? { ...current, progress } : current);
         });
         setImportState({ kind: "done", result, table });
-        onImported?.(result.inspection.selectionId, importOriginFromResult(result, table));
+        onImported?.(result.inspection.selectionId, importOriginFromResult(result, table), {
+          selectionId: result.inspection.selectionId,
+          table,
+          engine: ENGINES.find((engine) => engine.kind === source.kind)?.label ?? "Base de datos",
+          server: source.connection.server.trim(),
+          rowsImported: result.rowsImported,
+          rowLimit,
+          moreRowsAvailable: result.moreRowsAvailable,
+        });
         return result.inspection;
       } catch (error: unknown) {
         setImportState(isCancellationError(error) ? { kind: "idle" } : { kind: "error", message: errorMessage(error) });
@@ -152,6 +166,8 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported }
   }
 
   const schemas = [...new Set(tables.map((table) => table.schema))];
+  const readPendingReview = importState.kind === "done" &&
+    (reviewingSelectionId === undefined || reviewingSelectionId === importState.result.inspection.selectionId);
 
   return (
     <section className="database-import" aria-labelledby={`${id}-title`}>
@@ -163,7 +179,8 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported }
           <div className="database-import__form">
             <p className="database-import__lead">
               Columnia lee la tabla que elijas y la guarda en este equipo para revisarla y prepararla.
-              Solo lee: no escribe ni modifica nada en el servidor. Windows te pedirá confirmar la conexión.
+              Solo lee: no escribe ni modifica nada en el servidor. Antes de conectar, Windows muestra el servidor,
+              la base de datos y el usuario para que los confirmes; lo pide una vez por conexión en cada sesión.
             </p>
             <fieldset className="database-import__engines" aria-describedby={busyDescribedBy(blocked)}>
               <legend>Motor</legend>
@@ -268,6 +285,13 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported }
                     </select>
                   </div>
                 </div>
+                {chosen && source && (
+                  <p className="database-import__hint">
+                    Columnia leerá hasta {plural(rowLimit, "fila", "filas")} de {tableLabel(chosen)} en {source.connection.server.trim()}.
+                    Si la tabla tiene más, el resto queda fuera y el servidor decide cuáles llegan.
+                    Podrás revisar las columnas antes de cargarla.
+                  </p>
+                )}
                 <div className="database-import__actions">
                   <button
                     type="button"
@@ -291,10 +315,11 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported }
             )}
             {importState.kind === "error" && <p className="notice notice--error" role="alert" tabIndex={-1} ref={importErrorRef}>{importState.message}</p>}
             <div ref={importMessageRef} role="status" tabIndex={-1}>
-              {importState.kind === "done" && (
-                <div className="notice notice--success">
+              {importState.kind === "done" && readPendingReview && (
+                <div className="notice">
                   <p>
-                    Se trajeron {plural(importState.result.rowsImported, "fila", "filas")} de {importState.table}.
+                    {importState.result.rowsImported === 1 ? "Se leyó" : "Se leyeron"} {plural(importState.result.rowsImported, "fila", "filas")} de {importState.table}.
+                    Aún no se han cargado: falta confirmarlo en el diálogo.
                     {importState.result.moreRowsAvailable && " La tabla tiene más filas: sube el límite para traerlas."}
                   </p>
                   {importState.result.truncatedColumns.length > 0 && (

@@ -395,19 +395,40 @@ describe("formatStatistic", () => {
   });
 });
 
+const baseComparison = {
+  status: { kind: "idle" as const },
+  keyColumns: [],
+  onKeyColumnsChange: () => undefined,
+  onCompare: () => undefined,
+  onClear: () => undefined,
+  onConsolidate: () => undefined,
+  onResolveConflicts: () => undefined,
+  onConflictPageChange: () => undefined,
+  joinStatus: { kind: "idle" as const },
+  joinType: "inner" as const,
+  onJoinTypeChange: () => undefined,
+  onJoin: () => undefined,
+};
+
 describe("ReviewPhase", () => {
-  it("explica señales prioritarias con una sola acción para empezar", () => {
+  it("una sola lista arriba y un bloque «No se corrige solo» con la acción de cada elemento", () => {
     const onContinueToPrepare = vi.fn();
     render(temporalTrendElement(profile, 17, onContinueToPrepare));
 
-    const plan = screen.getByRole("list", { name: "Prioridades de revisión" });
-    expect(plan).toHaveTextContent("6 celdas sin valor en 1 columna.");
-    expect(plan).toHaveTextContent("3 filas adicionales coinciden con otra fila en todas las columnas");
-    expect(plan).toHaveTextContent("6 celdas no coinciden con un tipo sugerido");
-    expect(plan).toHaveTextContent("puede cambiar la interpretación");
-    expect(within(plan).queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryByRole("list", { name: "Prioridades de revisión" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Vista rápida de calidad")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "No se corrige solo" })).toBeInTheDocument();
+    const block = screen.getByRole("list", { name: "Lo que no se corrige solo" });
+    expect(block).toHaveTextContent("6 nulos en 1 columna");
+    expect(block).toHaveTextContent("6 valores incompatibles con el tipo sugerido en 1 columna");
+    expect(block).toHaveTextContent("puede ser válido");
+    expect(block).not.toHaveTextContent(/sin valor|sin dato/);
+    fireEvent.click(within(block).getByRole("button", { name: "Ver nulos en Preparar" }));
+    expect(onContinueToPrepare).toHaveBeenLastCalledWith("missingValues");
+    fireEvent.click(within(block).getByRole("button", { name: "Ver incompatibles en Preparar" }));
+    expect(onContinueToPrepare).toHaveBeenLastCalledWith("incompatibleTypes");
     fireEvent.click(screen.getByRole("button", { name: "Ver cambios propuestos" }));
-    expect(onContinueToPrepare).toHaveBeenCalledWith();
+    expect(onContinueToPrepare).toHaveBeenLastCalledWith();
   });
 
   it("la columna de auditoría _cambios no cuenta en el resumen ni aparece en el perfil (FUN-49)", () => {
@@ -416,7 +437,7 @@ describe("ReviewPhase", () => {
       columns: [...profile.columns, { ...profile.columns[0], name: "_cambios", nullCount: 100, completenessPercentage: 16.7 }],
     };
     render(temporalTrendElement(withAudit, 17, vi.fn()));
-    expect(screen.getByRole("list", { name: "Prioridades de revisión" })).toHaveTextContent("6 celdas sin valor en 1 columna.");
+    expect(screen.getByRole("list", { name: "Lo que no se corrige solo" })).toHaveTextContent("6 nulos en 1 columna");
     expect(screen.queryByRole("cell", { name: "_cambios" })).not.toBeInTheDocument();
   });
 
@@ -427,9 +448,102 @@ describe("ReviewPhase", () => {
         index < 2 ? { ...column, nullCount: 0, emptyCount: 0, commaDecimalCount: profile.rowCount } : column,
       ),
     };
-    render(temporalTrendElement(commaProfile, 17, vi.fn()));
-    const note = screen.getByText(/usar coma decimal/);
-    expect(note).toHaveTextContent(`«${profile.columns[0].name}», «${profile.columns[1].name}» parecen`);
+    const onReturnToLoad = vi.fn();
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "ready", profile: commaProfile }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        onReturnToLoad={onReturnToLoad}
+        comparison={baseComparison}
+      />,
+    );
+    const block = screen.getByRole("list", { name: "Lo que no se corrige solo" });
+    expect(block).toHaveTextContent(
+      `${(profile.rowCount * 2).toLocaleString()} celdas con coma decimal leídas como texto en «${profile.columns[0].name}», «${profile.columns[1].name}»`,
+    );
+    expect(block).toHaveTextContent("«Decimal coma · miles punto»");
+    fireEvent.click(within(block).getByRole("button", { name: "Volver a cargar con coma decimal" }));
+    expect(onReturnToLoad).toHaveBeenCalledOnce();
+  });
+
+  it("los datos personales y los valores no finitos entran en el bloque", () => {
+    const personalProfile = {
+      ...profile,
+      columns: profile.columns.map((column, index) =>
+        index === 0 ? { ...column, privacySignal: "email" as const, nonFiniteCount: 2 } : column,
+      ),
+    };
+    render(temporalTrendElement(personalProfile, 17, vi.fn()));
+    const block = screen.getByRole("list", { name: "Lo que no se corrige solo" });
+    expect(block).toHaveTextContent(`1 columna con datos personales: «${profile.columns[0].name}»`);
+    expect(block).toHaveTextContent(`2 valores no finitos (NaN o infinito) en «${profile.columns[0].name}»`);
+  });
+
+  it("sin nada que quede fuera de la propuesta no hay bloque", () => {
+    const clean = {
+      ...profile,
+      columns: profile.columns.map((column) => ({ ...column, nullCount: 0, invalidTypeCount: 0 })),
+    };
+    render(temporalTrendElement(clean, 17, vi.fn()));
+    expect(screen.queryByRole("heading", { name: "No se corrige solo" })).not.toBeInTheDocument();
+  });
+
+  it("el error del perfil lleva dentro «Reintentar análisis», una causa probable y el foco", () => {
+    const onRetryProfile = vi.fn();
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "error", message: "fallo de lectura" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        onRetryProfile={onRetryProfile}
+        comparison={baseComparison}
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("No se pudo analizar la calidad: fallo de lectura");
+    expect(alert).toHaveTextContent("Causa probable");
+    expect(alert).toHaveFocus();
+    fireEvent.click(within(alert).getByRole("button", { name: "Reintentar análisis" }));
+    expect(onRetryProfile).toHaveBeenCalledOnce();
+  });
+
+  it("el análisis cancelado nombra la acción concreta", () => {
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "cancelled" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        comparison={baseComparison}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("«Reintentar análisis»");
+    expect(screen.getByRole("status")).not.toHaveTextContent("acción principal");
+  });
+
+  it("con una muestra mayor que el dataset dice que las correlaciones usan todas las filas", () => {
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "ready", profile }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        analysisSampleRows={100_000}
+        comparison={baseComparison}
+      />,
+    );
+    expect(screen.getByText(/las correlaciones usan todas las filas \(/)).toBeInTheDocument();
   });
 
   it("conserva tabpanel ARIA y perfil bajo demanda", () => {
@@ -473,7 +587,8 @@ describe("ReviewPhase", () => {
     expect(onAnalysisSampleRowsChange).toHaveBeenCalledWith(10_000);
   });
 
-  it("muestra diferencias de fuentes y permite consolidar un esquema compatible", () => {
+  it("muestra el resultado de comparar con otro archivo y lleva a Preparar para combinar", () => {
+    const onCombineInPrepare = vi.fn();
     const onCompare = vi.fn();
     const onClearComparison = vi.fn();
     const onConsolidate = vi.fn();
@@ -488,6 +603,7 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
+        onCombineInPrepare={onCombineInPrepare}
         comparison={{
           status: {
           kind: "ready",
@@ -532,20 +648,21 @@ describe("ReviewPhase", () => {
     );
 
     expect(screen.getByText("actualizacion.csv")).toBeInTheDocument();
-    expect(screen.getByText("Filas compartidas")).toBeInTheDocument();
+    expect(screen.getByText("Coinciden")).toBeInTheDocument();
     expect(screen.getByText(/La comparación cargada también está disponible como compared/)).toBeInTheDocument();
     expect(screen.getByText(/SELECT id, segmento FROM dataset LEFT JOIN compared/)).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /id/ })).toBeChecked();
-    fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
-    fireEvent.click(screen.getByRole("radio", { name: /^Left/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Consolidar filas" }));
+    // Revisar only looks: joining and consolidating moved to Preparar.
+    expect(screen.queryByRole("button", { name: "Consolidar filas" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Unir/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /\(left\)/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Combinar en Preparar" }));
+    expect(onCombineInPrepare).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Descartar comparación" }));
-    fireEvent.click(screen.getByRole("button", { name: "Elegir fuente y unir" }));
-    expect(onConsolidate).toHaveBeenCalledOnce();
     expect(onClearComparison).toHaveBeenCalledOnce();
-    expect(onComparisonKeyColumnsChange).toHaveBeenCalledWith([]);
-    expect(onJoinTypeChange).toHaveBeenCalledWith("left");
-    expect(onJoin).toHaveBeenCalledWith("inner");
+    expect(onConsolidate).not.toHaveBeenCalled();
+    expect(onJoin).not.toHaveBeenCalled();
+    expect(onJoinTypeChange).not.toHaveBeenCalled();
+    expect(onComparisonKeyColumnsChange).not.toHaveBeenCalled();
   });
 
   it("cita el nombre de columna al insertarlo en la consulta (PROD-12)", () => {
@@ -604,9 +721,12 @@ describe("ReviewPhase", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
 
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("2 filas disponibles"));
-    expect(screen.getByRole("status")).toHaveTextContent("resultado truncado por LIMIT");
-    expect(screen.getByRole("status")).toHaveTextContent("calculado con DuckDB");
+    // The live region announces only the count; the details are plain text next to it.
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("2 filas"));
+    expect(screen.getByRole("status")).not.toHaveTextContent("calculado con");
+    expect(screen.getByText(/2 filas disponibles/)).toHaveTextContent("resultado truncado por LIMIT");
+    expect(screen.getByText(/2 filas disponibles/)).toHaveTextContent("calculado con DuckDB");
+    expect(screen.getByRole("status")).not.toContainElement(screen.getByRole("region", { name: "Resultado de consulta SQL" }));
     expect(screen.getByRole("region", { name: "Resultado de consulta SQL" })).toHaveTextContent("id");
     expect(screen.getByRole("heading", { name: "Actividad reciente" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Historial de consultas SQL" })).toHaveTextContent("Completada");
@@ -868,7 +988,7 @@ describe("ReviewPhase", () => {
     expect(screen.getByRole("heading", { name: "Señales del perfil" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Completitud por columna" })).toHaveTextContent(localeText("nombre95.0%"),
     );
-    expect(screen.getByRole("list", { name: "Posibles outliers por columna" })).toHaveTextContent(
+    expect(screen.getByRole("list", { name: "Valores atípicos por columna" })).toHaveTextContent(
       "id2",
     );
     expect(screen.getByRole("list", { name: "Patrones de nulos por columna" })).toHaveTextContent(
@@ -1213,7 +1333,7 @@ describe("ReviewPhase", () => {
     );
   });
 
-  it("exige y emite una decisión explícita por conflicto", () => {
+  it("enseña los conflictos para leerlos, sin resolverlos en Revisar", () => {
     const onResolveConflicts = vi.fn();
     render(
       <ReviewPhase
@@ -1275,190 +1395,13 @@ describe("ReviewPhase", () => {
       />,
     );
 
-    const resolveButton = screen.getByRole("button", { name: "Resolver conflictos" });
-    expect(resolveButton).toHaveAttribute("aria-disabled", "true");
-    fireEvent.click(screen.getAllByRole("radio", { name: "Usar comparado en nota" })[0]);
-    fireEvent.click(screen.getByRole("checkbox", { name: "Excluir la fila activa de la clave 52" }));
-    expect(resolveButton).toBeEnabled();
-    expect(screen.getByText("1 fila activa se excluirá del resultado.", { selector: ".notice" })).toBeInTheDocument();
-    expect(screen.getAllByRole("radio", { name: "Conservar activo en nota" })[1]).toBeDisabled();
-    fireEvent.click(resolveButton);
-    expect(onResolveConflicts).toHaveBeenCalledWith([
-      { action: "exclude", conflictIndex: 1 },
-      { action: "useSource", conflictIndex: 0, column: "nota", source: "compared" },
-    ]);
-  });
-
-  it("permite cancelar la resolución desde el mismo control y anuncia el estado", () => {
-    const onCancelReviewMutation = vi.fn();
-    const comparisonStatus = {
-      kind: "ready" as const,
-      comparison: {
-        currentFileName: "datos.csv",
-        comparedFileName: "actualizacion.csv",
-        currentRowCount: 2,
-        comparedRowCount: 2,
-        commonRowCount: 2,
-        currentOnlyRowCount: 0,
-        comparedOnlyRowCount: 0,
-        sharedColumns: ["id", "nota"],
-        currentOnlyColumns: [],
-        comparedOnlyColumns: [],
-        schemaCompatible: true,
-        keyColumns: ["id"],
-        matchedKeyCount: 1,
-        currentOnlyKeyCount: 0,
-        comparedOnlyKeyCount: 0,
-        conflictingKeyCount: 1,
-        duplicateKeyCount: 0,
-        conflicts: [{
-          key: ["51"],
-          cells: [{ column: "nota", current: null, compared: "ok" }],
-        }],
-        conflictOffset: 0,
-        conflictsTruncated: false,
-        canConsolidate: false,
-        options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
-      },
-    };
-    const view = render(
-      <ReviewPhase
-        datasetStatus={createReadyDatasetStatus(dataset)}
-        profileStatus={{ kind: "idle" }}
-        reviewTab="diagnosis"
-        onTabChange={() => undefined}
-        onPageChange={() => undefined}
-        onCancelProfile={() => undefined}
-        comparison={{
-          status: comparisonStatus,
-          keyColumns: ["id"],
-          onKeyColumnsChange: () => undefined,
-          onCompare: () => undefined,
-          onClear: () => undefined,
-          onConsolidate: () => undefined,
-          onResolveConflicts: () => undefined,
-          onConflictPageChange: () => undefined,
-          joinStatus: { kind: "idle" },
-          mutationStatus: {
-          kind: "running",
-          mutation: "resolveConflicts",
-          cancellation: "available",
-        },
-          onCancelMutation: onCancelReviewMutation,
-          joinType: "inner",
-          onJoinTypeChange: () => undefined,
-          onJoin: () => undefined,
-        }}
-      />,
-    );
-
-    const cancelButton = screen.getByRole("button", { name: "Cancelar resolución" });
-    expect(cancelButton).toBeEnabled();
-    expect(screen.getByText("Resolviendo conflictos. Puedes cancelar mientras se calcula el resultado.", {
-      selector: 'p[role="status"]',
-    })).toBeInTheDocument();
-    fireEvent.click(cancelButton);
-    expect(onCancelReviewMutation).toHaveBeenCalledOnce();
-
-    view.rerender(
-      <ReviewPhase
-        datasetStatus={createReadyDatasetStatus(dataset)}
-        profileStatus={{ kind: "idle" }}
-        reviewTab="diagnosis"
-        onTabChange={() => undefined}
-        onPageChange={() => undefined}
-        onCancelProfile={() => undefined}
-        comparison={{
-          status: comparisonStatus,
-          keyColumns: ["id"],
-          onKeyColumnsChange: () => undefined,
-          onCompare: () => undefined,
-          onClear: () => undefined,
-          onConsolidate: () => undefined,
-          onResolveConflicts: () => undefined,
-          onConflictPageChange: () => undefined,
-          joinStatus: { kind: "idle" },
-          mutationStatus: {
-          kind: "running",
-          mutation: "resolveConflicts",
-          cancellation: "requested",
-        },
-          onCancelMutation: onCancelReviewMutation,
-          joinType: "inner",
-          onJoinTypeChange: () => undefined,
-          onJoin: () => undefined,
-        }}
-      />,
-    );
-
-    expect(screen.getByRole("button", { name: "Cancelando resolución…" })).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByText("Cancelación solicitada. Esperando a que la resolución se detenga sin cambiar el dataset.", {
-      selector: 'p[role="status"]',
-    })).toBeInTheDocument();
-  });
-
-  it("pagina conflictos sin permitir saltar decisiones pendientes", () => {
-    const onConflictPageChange = vi.fn();
-    render(
-      <ReviewPhase
-        datasetStatus={createReadyDatasetStatus(dataset)}
-        profileStatus={{ kind: "idle" }}
-        reviewTab="diagnosis"
-        onTabChange={() => undefined}
-        onPageChange={() => undefined}
-        onCancelProfile={() => undefined}
-        comparison={{
-          status: {
-          kind: "ready",
-          comparison: {
-            currentFileName: "datos.csv",
-            comparedFileName: "actualizacion.csv",
-            currentRowCount: 2,
-            comparedRowCount: 2,
-            commonRowCount: 2,
-            currentOnlyRowCount: 0,
-            comparedOnlyRowCount: 0,
-            sharedColumns: ["id", "nota"],
-            currentOnlyColumns: [],
-            comparedOnlyColumns: [],
-            schemaCompatible: true,
-            keyColumns: ["id"],
-            matchedKeyCount: 1,
-            currentOnlyKeyCount: 0,
-            comparedOnlyKeyCount: 0,
-            conflictingKeyCount: 2,
-            duplicateKeyCount: 0,
-            conflicts: [{
-              key: ["51"],
-              cells: [{ column: "nota", current: null, compared: "ok" }],
-            }],
-            conflictOffset: 0,
-            conflictsTruncated: true,
-            canConsolidate: false,
-            options: { numericTolerance: false, ignoreCase: false, trimSpaces: false },
-          },
-        },
-          keyColumns: ["id"],
-          onKeyColumnsChange: () => undefined,
-          onCompare: () => undefined,
-          onClear: () => undefined,
-          onConsolidate: () => undefined,
-          onResolveConflicts: () => undefined,
-          onConflictPageChange: onConflictPageChange,
-          joinStatus: { kind: "idle" },
-          joinType: "inner",
-          onJoinTypeChange: () => undefined,
-          onJoin: () => undefined,
-        }}
-      />,
-    );
-
-    const nextButton = screen.getByRole("button", { name: "Siguientes conflictos" });
-    expect(nextButton).toBeDisabled();
-    fireEvent.click(screen.getByRole("radio", { name: "Usar comparado en nota" }));
-    expect(nextButton).toBeEnabled();
-    fireEvent.click(nextButton);
-    expect(onConflictPageChange).toHaveBeenCalledWith(1);
+    // The conflicts are shown to read; they are resolved in Preparar.
+    const conflicts = screen.getByRole("region", { name: "Conflictos" });
+    expect(conflicts).toHaveTextContent("Clave 52");
+    expect(conflicts).toHaveTextContent("nota: anterior en tu dataset, nuevo en el otro archivo");
+    expect(screen.queryByRole("button", { name: "Resolver conflictos" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(onResolveConflicts).not.toHaveBeenCalled();
   });
 
   it("una página sin filas no muestra un rango invertido (FUN-50)", () => {

@@ -19,8 +19,6 @@ import type { ReadyDatasetStatus } from "../load/loadModel";
 import {
   ANALYSIS_SAMPLE_ROW_OPTIONS,
   isAnalysisSampleRows,
-  commaDecimalColumns,
-  nonFiniteColumns,
   nextPageOffset,
   profileProvenanceText,
   pageRange,
@@ -34,7 +32,7 @@ import {
 } from "./reviewModel";
 import { DatasetComparisonSection } from "./DatasetComparisonSection";
 import { QualitySnapshot } from "./QualitySnapshot";
-import { buildQualityActionPlan } from "./qualityActionPlan";
+import { allRows, buildUncorrectedIssues } from "./qualityActionPlan";
 import { byImpact, proposalImpact } from "./proposalImpact";
 import {
   buildPrepareProposal,
@@ -66,7 +64,13 @@ interface ReviewPhaseProps {
   pageCancellationPending?: boolean;
   onCancelProfile: () => void;
   onContinueToPrepare?: (target?: QualityActionTarget) => void;
+  /** «Volver a cargar con coma decimal»: goes back to Cargar. Without it the action is not offered. */
+  onReturnToLoad?: () => void;
+  /** Runs the quality analysis again; the profile error carries this button. */
+  onRetryProfile?: () => void;
   comparison: ReviewComparison;
+  /** «Combinar en Preparar»: Revisar compares; Preparar joins and consolidates. */
+  onCombineInPrepare?: () => void;
   datasetRevision?: number;
   sqlHistory?: SqlQueryHistoryEntry[];
   onSqlHistoryChange?: (entries: SqlQueryHistoryEntry[]) => void;
@@ -86,7 +90,10 @@ export function ReviewPhase({
   pageCancellationPending = false,
   onCancelProfile,
   onContinueToPrepare = () => undefined,
+  onReturnToLoad,
+  onRetryProfile,
   comparison,
+  onCombineInPrepare,
   datasetRevision = 0,
   sqlHistory = NO_SQL_HISTORY,
   onSqlHistoryChange = () => undefined,
@@ -123,6 +130,8 @@ export function ReviewPhase({
             dataset={datasetStatus.dataset}
             onCancel={onCancelProfile}
             onContinueToPrepare={onContinueToPrepare}
+            onReturnToLoad={onReturnToLoad}
+            onRetryProfile={onRetryProfile}
             comparisonAvailable={comparisonStatus.kind === "ready"}
             sqlHistory={sqlHistory}
             onSqlHistoryChange={onSqlHistoryChange}
@@ -160,31 +169,13 @@ export function ReviewPhase({
         onToggle={(event) => setComparisonOpen(event.currentTarget.open)}
       >
         <summary>
-          <span>Comparar con otro dataset</span>
-          <small>Opcional · detecta diferencias, conflictos y claves nuevas</small>
+          <span>Comparar con otro archivo</span>
+          <small>Opcional · filas nuevas, filas que faltan y conflictos</small>
         </summary>
         <DatasetComparisonSection
-          status={comparisonStatus}
+          comparison={comparison}
           datasetColumns={datasetStatus.dataset.columns}
-          datasetRevision={datasetRevision}
-          keyColumns={comparison.keyColumns}
-          onKeyColumnsChange={comparison.onKeyColumnsChange}
-          options={comparison.options}
-          onOptionsChange={comparison.onOptionsChange}
-          onCompare={comparison.onCompare}
-          onCancelComparison={comparison.onCancelComparison ?? (() => undefined)}
-          comparisonCancellationPending={comparison.cancellationPending ?? false}
-          onClear={comparison.onClear}
-          onConsolidate={comparison.onConsolidate}
-          onResolveConflicts={comparison.onResolveConflicts}
-          onConflictPageChange={comparison.onConflictPageChange}
-          joinStatus={comparison.joinStatus}
-          reviewMutationStatus={comparison.mutationStatus ?? { kind: "idle" }}
-          reviewMutationCancellationPending={comparison.mutationCancellationPending ?? false}
-          joinType={comparison.joinType}
-          onJoinTypeChange={comparison.onJoinTypeChange}
-          onJoin={comparison.onJoin}
-          onCancelReviewMutation={comparison.onCancelMutation ?? (() => undefined)}
+          onCombineInPrepare={onCombineInPrepare}
         />
       </details>
     </>
@@ -195,6 +186,8 @@ function QualitySection({
   status,
   onCancel,
   onContinueToPrepare,
+  onReturnToLoad,
+  onRetryProfile,
   comparisonAvailable,
   sqlHistory,
   onSqlHistoryChange,
@@ -211,6 +204,8 @@ function QualitySection({
   dataset: DatasetPreview;
   onCancel: () => void;
   onContinueToPrepare: (target?: QualityActionTarget) => void;
+  onReturnToLoad?: () => void;
+  onRetryProfile?: () => void;
   comparisonAvailable: boolean;
   sqlHistory: SqlQueryHistoryEntry[];
   onSqlHistoryChange: (entries: SqlQueryHistoryEntry[]) => void;
@@ -247,7 +242,12 @@ function QualitySection({
               ))}
             </select>
           </label>
-          <p>Al cambiarla, el análisis se repite con esta muestra; solo limita las correlaciones y el resto del perfil conserva su cobertura.</p>
+          <p>
+            {analysisSampleRows >= dataset.rowCount
+              ? `Con esta muestra las correlaciones usan todas las filas (${dataset.rowCount.toLocaleString()}). `
+              : ""}
+            Al cambiarla, el análisis se repite con esta muestra; solo limita las correlaciones y el resto del perfil conserva su cobertura.
+          </p>
         </div>
       </details>
       <LocalQueryPanel
@@ -280,20 +280,17 @@ function QualitySection({
       )}
       {status.kind === "cancelled" && (
         <p className="notice" role="status">
-          El análisis se canceló. No se publicó ningún resultado parcial; puedes
-          reintentarlo desde la acción principal.
+          El análisis se canceló. No se publicó ningún resultado parcial; pulsa
+          «Reintentar análisis», abajo, para volver a empezar.
         </p>
       )}
-      {status.kind === "error" && (
-        <p className="notice notice--error" role="alert">
-          No se pudo analizar la calidad: {status.message}
-        </p>
-      )}
+      {status.kind === "error" && <ProfileErrorNotice message={status.message} onRetry={onRetryProfile} />}
       {status.kind === "ready" ? (
         <QualityProfile
           profile={status.profile}
           dataset={dataset}
           onContinueToPrepare={onContinueToPrepare}
+          onReturnToLoad={onReturnToLoad}
           datasetRevision={datasetRevision}
           extraTools={tools}
         />
@@ -301,6 +298,36 @@ function QualitySection({
         <ReviewMoreTools>{tools}</ReviewMoreTools>
       )}
     </section>
+  );
+}
+
+/**
+ * The profile failed: the notice names a likely cause and carries its own
+ * retry. When it appears while focus is on the page body or on the flow footer
+ * (where the analysis was started), focus moves here so it is heard.
+ */
+function ProfileErrorNotice({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const noticeRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const active = document.activeElement;
+    const lost = !active
+      || active === document.body
+      || (active instanceof HTMLElement && (active.closest(".flow-footer") !== null || active.matches(":disabled")));
+    if (lost) noticeRef.current?.focus();
+  }, []);
+  return (
+    <div ref={noticeRef} className="notice notice--error profile-error" role="alert" tabIndex={-1}>
+      <p>No se pudo analizar la calidad: {message}</p>
+      <p>
+        Causa probable: el archivo cambió o se movió mientras se leía, o el equipo se quedó sin memoria.
+        Comprueba que el archivo sigue donde estaba y vuelve a intentarlo; si falla otra vez, vuelve a Cargar el archivo.
+      </p>
+      {onRetry && (
+        <button type="button" className="secondary-action" onClick={onRetry}>
+          Reintentar análisis
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -509,7 +536,6 @@ export function LocalQueryPanel({
       <section className="local-query" aria-labelledby="local-query-title">
         <div className="local-query__heading">
           <div>
-            <p className="step">Consulta segura</p>
             <TitleHeading id="local-query-title">Consulta SQL</TitleHeading>
             <p>
               Solo se acepta SELECT sobre <code>dataset</code>, columnas existentes, filtros simples,
@@ -563,12 +589,12 @@ export function LocalQueryPanel({
               onQueryEngineChange(nextEngine);
             }}
           >
-            <option value="polars">Polars · predeterminado</option>
+            <option value="polars">Polars · el habitual</option>
             <option value="duckdb">DuckDB · SQL local</option>
           </select>
         </label>
         <p className="local-query__engine-note">
-          DuckDB ejecuta la consulta sobre snapshots Parquet temporales y mantiene el mismo límite seguro de 200 filas.
+          DuckDB ejecuta la consulta sobre una copia temporal del dataset en tu equipo y mantiene el mismo límite seguro de 200 filas.
         </p>
         <div className="local-query__actions">
           <button type="button" onClick={() => void runQuery()} disabled={state.kind === "loading" || !query.trim()}>
@@ -590,7 +616,6 @@ export function LocalQueryPanel({
           <section className="local-query__history" aria-labelledby="local-query-history-title">
             <div className="local-query__history-heading">
               <div>
-                <p className="step">Sesión actual</p>
                 <HistoryHeading id="local-query-history-title">Actividad reciente</HistoryHeading>
               </div>
               <span>Últimas {queryHistory.length} consultas</span>
@@ -651,7 +676,12 @@ function formatQueryDuration(durationMs: number): string {
 
 function LocalQueryResult({ result }: { result: DatasetQueryResult }) {
   return (
-    <div className="local-query__result" role="status" aria-live="polite">
+    <div className="local-query__result">
+      {/* Only the summary is announced; the table is read by moving into it. */}
+      <p role="status" aria-live="polite">
+        {plural(result.rowCount, "fila", "filas")}
+        <span className="visually-hidden"> en el resultado</span>
+      </p>
       <p>
         {result.rowCount.toLocaleString()} filas disponibles · mostrando desde {result.offset + 1}
         {result.truncated ? " · resultado truncado por LIMIT" : ""}
@@ -814,12 +844,14 @@ function QualityProfile({
   profile,
   dataset,
   onContinueToPrepare,
+  onReturnToLoad,
   datasetRevision,
   extraTools,
 }: {
   profile: DatasetProfile;
   dataset: DatasetPreview;
   onContinueToPrepare: (target?: QualityActionTarget) => void;
+  onReturnToLoad?: () => void;
   datasetRevision: number;
   extraTools: ReactNode;
 }) {
@@ -828,31 +860,23 @@ function QualityProfile({
   const numericColumns = userColumns.filter((column) => column.outlierCount !== null);
   const columnsWithNulls = profile.columns.filter((column) => column.nullCount > 0 && !isRowAuditColumn(column.name));
   const totalNullCount = columnsWithNulls.reduce((total, column) => total + column.nullCount, 0);
-  const invalidTypeCount = profile.columns.reduce(
-    (total, column) => total + (isRowAuditColumn(column.name) ? 0 : Math.max(0, column.invalidTypeCount ?? 0)),
-    0,
-  );
-  const actionPlan = buildQualityActionPlan({
-    nullCount: totalNullCount,
-    nullColumnCount: columnsWithNulls.length,
-    duplicateCount: profile.duplicateRowCount,
-    invalidTypeCount,
-  });
-  // The summary lists exactly what Preparar will propose, so Revisar never
-  // announces a problem the proposal does not address, or hides one it does.
+  // The list lists exactly what Preparar will propose, so Revisar never
+  // announces a problem the proposal does not address, or hides one it does;
+  // what the proposal leaves alone goes in «No se corrige solo».
   const proposal = buildPrepareProposal(profile, dataset);
   const proposalSelection = defaultProposalSelection(proposal);
   const priorityCount = proposal.length;
-  const commaColumns = commaDecimalColumns(profile);
-  const nonFinite = nonFiniteColumns(profile);
+  const uncorrected = buildUncorrectedIssues(profile);
   const provenance = profileProvenanceText(profile);
   return (
     <>
       <section className="quality-overview quality-overview--plain" aria-labelledby="quality-overview-title">
         <h4 id="quality-overview-title">
-          {priorityCount === 0
-            ? "No encontramos nada que arreglar"
-            : `Encontramos ${priorityCount} ${priorityCount === 1 ? "cosa" : "cosas"} para arreglar`}
+          {priorityCount > 0
+            ? `${priorityCount} ${priorityCount === 1 ? "cosa se puede corregir" : "cosas se pueden corregir"} con la propuesta`
+            : uncorrected.length > 0
+              ? "No hay correcciones automáticas"
+              : "No encontramos nada que arreglar"}
         </h4>
         {provenance && <p className="quality-overview__provenance">{provenance}</p>}
         {proposal.length > 0 && (
@@ -878,42 +902,43 @@ function QualityProfile({
         >
           {proposal.length > 0 ? "Ver cambios propuestos" : "Continuar a Preparar"}
         </button>
-        {commaColumns.length > 0 && (
-          <p className="quality-overview__note" role="note">
-            {commaColumns.length === 1 ? `«${commaColumns[0]}» parece` : `${commaColumns.map((name) => `«${name}»`).join(", ")} parecen`}{" "}
-            usar coma decimal (1,5 o 1.234,56) y por eso no se analiza como número. Vuelve a cargar el archivo eligiendo
-            «Decimal coma · miles punto» en Números.
-          </p>
-        )}
-        {nonFinite.length > 0 && (
-          <p className="quality-overview__note" role="note">
-            {nonFinite.map(({ name, count }) => `«${name}»: ${count.toLocaleString()} ${count === 1 ? "valor no finito" : "valores no finitos"}`).join(", ")}{" "}
-            (NaN o infinito) quedan fuera del mínimo, el máximo, la media y los gráficos.
-          </p>
+        {uncorrected.length > 0 && (
+          <section className="quality-uncorrected" aria-labelledby="quality-uncorrected-title">
+            <h5 id="quality-uncorrected-title">No se corrige solo</h5>
+            <p className="quality-uncorrected__lead">
+              La propuesta de Preparar no toca esto; las cifras cuentan {allRows(profile.rowCount)}.
+            </p>
+            <ul className="quality-uncorrected__list" aria-label="Lo que no se corrige solo">
+              {uncorrected.map((issue) => (
+                <li key={issue.id} className="quality-uncorrected__item">
+                  <span className="quality-uncorrected__title">{issue.title}</span>
+                  <span className="quality-uncorrected__detail">{issue.detail}</span>
+                  {issue.action?.kind === "prepare" && (
+                    <button
+                      type="button"
+                      className="secondary-action"
+                      onClick={() => onContinueToPrepare(issue.action?.kind === "prepare" ? issue.action.target : undefined)}
+                    >
+                      {issue.action.label}
+                    </button>
+                  )}
+                  {issue.action?.kind === "load" && onReturnToLoad && (
+                    <button type="button" className="secondary-action" onClick={onReturnToLoad}>
+                      {issue.action.label}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
       </section>
       <ReviewMoreTools>
         <QualitySnapshot
           rowCount={profile.rowCount}
-          columnCount={profile.columns.filter((column) => !isRowAuditColumn(column.name)).length}
+          columnCount={userColumns.length}
           nullCount={totalNullCount}
-          duplicateCount={profile.duplicateRowCount}
-          duplicatePercentage={profile.duplicatePercentage}
-          invalidTypeCount={invalidTypeCount}
         />
-        {actionPlan.length > 0 && (
-          <ol className="quality-action-plan" aria-label="Prioridades de revisión">
-            {actionPlan.map((action) => (
-              <li key={action.target}>
-                <div>
-                  <h5>{action.title}</h5>
-                  <p>{action.explanation}</p>
-                  <p className="quality-action-plan__impact">{action.impact}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        )}
         <p className="quality-overview__meta">
           <span>Filas analizadas</span>
           <strong>{profile.rowCount.toLocaleString()}</strong>
@@ -989,7 +1014,7 @@ function QualityProfile({
                   <th scope="col">Q1</th>
                   <th scope="col">Mediana</th>
                   <th scope="col">Q3</th>
-                  <th scope="col">Posibles outliers</th>
+                  <th scope="col">Valores atípicos</th>
                 </tr>
               </thead>
               <tbody>
@@ -1011,7 +1036,7 @@ function QualityProfile({
             </table>
           </div>
           <p className="profile-note">
-            Posibles outliers usa la regla IQR de 1.5× y requiere al menos cuatro valores. La
+            Los valores atípicos (regla IQR de 1.5×) requieren al menos cuatro valores. La
             desviación estándar es muestral.
           </p>
         </>

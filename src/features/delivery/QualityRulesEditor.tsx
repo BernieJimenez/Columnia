@@ -17,6 +17,8 @@ interface QualityRulesEditorProps {
   busy: boolean;
   /** The rule the current validation error points at, if any. */
   validationErrorRuleIndex: number | null;
+  /** Rules the last validation found broken: marked with text and a border, not only colour. */
+  failedRuleIndexes?: readonly number[];
   onRulesChange: (rules: QualityRule[]) => void;
 }
 
@@ -64,7 +66,7 @@ export function withAddedRule(rules: QualityRule[], dataset: DatasetPreview): Qu
 }
 
 /** The editable list of quality rules in Entregar; the contract state stays in DeliveryPhase. */
-export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIndex, onRulesChange }: QualityRulesEditorProps) {
+export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIndex, failedRuleIndexes = [], onRulesChange }: QualityRulesEditorProps) {
   const changeRules = onRulesChange;
 
   function addRule() {
@@ -207,18 +209,22 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
                 const isDistributionDriftRule = rule.kind === "distribution_drift";
                 const isConditionalRule = rule.kind === "conditional";
                 const isSchemaRule = rule.kind === "schema_contract";
+                const failed = failedRuleIndexes.includes(index);
+                const invalid = failed || validationErrorRuleIndex === index;
                 return (
                   <fieldset
                     className="quality-rule"
                     id={`quality-rule-${index + 1}`}
                     key={index}
                     tabIndex={-1}
+                    data-failed={failed || undefined}
+                    aria-invalid={invalid || undefined}
                     aria-describedby={validationErrorRuleIndex === index
                       ? "quality-rule-validation-error"
                       : undefined}
                     disabled={busy}
                   >
-                    <legend>Regla {index + 1}</legend>
+                    <legend>Regla {index + 1}{failed ? " · no se cumplió" : ""}</legend>
                     {!isDatasetRule && !isSchemaRule && !isTogetherRule && !isCompareRule && !isReferentialRule && !isAggregateReconciliationRule && <label>Columna
                       <select aria-label={`Columna regla ${index + 1}`} value={rule.column}
                         onChange={(event) => updateRule(index, { column: event.target.value })}>
@@ -258,14 +264,14 @@ export function QualityRulesEditor({ rules, dataset, busy, validationErrorRuleIn
                               ? { maxInvalid: undefined, maxInvalidPct: rule.maxInvalidPct ?? 0 }
                               : { maxInvalid: rule.maxInvalid ?? 0, maxInvalidPct: undefined });
                         }}>
-                        <option value="count">Máximo inválidos</option>
-                        <option value="percentage">Máximo porcentaje</option>
+                        <option value="count">Número de incumplimientos</option>
+                        <option value="percentage">Porcentaje de incumplimientos</option>
                         <option value="both">Ambas tolerancias</option>
                       </select>
                     </label>
-                    {(toleranceMode === "count" || toleranceMode === "both") && <label>Inválidos máximos
+                    {(toleranceMode === "count" || toleranceMode === "both") && <label>Incumplimientos máximos
                       <input type="number" min="0" step="1"
-                        aria-label={`Inválidos máximos regla ${index + 1}`}
+                        aria-label={`Incumplimientos máximos regla ${index + 1}`}
                         value={numberFieldValue(rule.maxInvalid)}
                         onChange={(event) => updateRule(index, { maxInvalid: numberFieldInput(event.target.value) })} />
                     </label>}

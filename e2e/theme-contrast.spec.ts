@@ -168,9 +168,9 @@ for (const theme of themes) {
       failures.push(...await axeViolations(page, phase));
       return result;
     };
-    await expect(page.getByRole("button", { name: "Seleccionar dataset" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Elegir archivo" })).toBeVisible();
     await measure("Cargar");
-    await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+    await page.getByRole("button", { name: "Elegir archivo" }).click();
     const review = page.getByRole("dialog", { name: "Revisar encabezados de contraste.csv" });
     await expect(review.getByRole("button", { name: "Cargar archivo" })).toBeEnabled();
     await measure("Importar");
@@ -189,8 +189,8 @@ for (const theme of themes) {
     await expect(page.getByRole("button", { name: /^Aplicar \d+ cambios?$/ })).toBeVisible();
     await measure("Preparar");
     await workflow.getByRole("button", { name: "Explorar", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Explora los datos limpios" })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Sin dato/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Explora los datos" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^nulo/ })).toBeVisible();
     await measure("Explorar");
     await workflow.getByRole("button", { name: "Entregar", exact: true }).click();
     await expect(page.getByText(/Datos personales detectados/)).toBeVisible();
@@ -227,10 +227,10 @@ async function phaseSnapshots(page: Page, colorScheme: "dark", dataTheme: "dark"
   await page.addInitScript((value) => localStorage.setItem("columnia.theme", value), dataTheme);
   await page.goto("/");
   const snapshots: Record<string, string[]> = {};
-  await page.getByRole("button", { name: "Seleccionar dataset" }).waitFor();
+  await page.getByRole("button", { name: "Elegir archivo" }).waitFor();
   await settleFrames(page);
   snapshots.Cargar = await colorSnapshot(page);
-  await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+  await page.getByRole("button", { name: "Elegir archivo" }).click();
   const review = page.getByRole("dialog", { name: "Revisar encabezados de contraste.csv" });
   await review.getByRole("button", { name: "Cargar archivo" }).click();
   await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();

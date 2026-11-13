@@ -102,12 +102,12 @@ describe("LoadPhase", () => {
     expect(within(sources).getAllByRole("radio").map((radio) => radio.getAttribute("value")))
       .toEqual(["file", "database", "sample", "project"]);
     expect(screen.getByRole("radio", { name: /^Archivo/ })).toBeChecked();
-    expect(screen.getByRole("button", { name: "Seleccionar dataset" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Elegir archivo" })).toBeInTheDocument();
     expect(screen.queryByText("Panel de SQL Server")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("radio", { name: /^Base de datos/ }));
     expect(screen.getByText("Panel de SQL Server")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Seleccionar dataset" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Elegir archivo" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("radio", { name: /^Proyecto/ }));
     expect(screen.getByText("Contenido de proyectos")).toBeInTheDocument();
@@ -169,7 +169,7 @@ describe("LoadPhase", () => {
     );
 
     expect(screen.getByRole("dialog", { name: "Revisar encabezados de ventas.csv" })).toBeInTheDocument();
-    expect(screen.getByText("Preparando una muestra local de hasta 64 KiB…")).toBeInTheDocument();
+    expect(screen.getByText("Leyendo los primeros 64 KiB del archivo para la vista previa…")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revisar esquema" })).toBeDisabled();
     expect(screen.getByRole("heading", { name: "anterior.csv" })).toBeInTheDocument();
 
@@ -280,8 +280,8 @@ describe("LoadPhase", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Trae tus datos a un espacio de trabajo local." })).toBeInTheDocument();
-    expect(screen.getByText(/los archivos grandes se leen por bloques/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Elige un archivo o arrástralo a esta ventana" })).toBeInTheDocument();
+    expect(screen.getByText(/de 512 MiB o más se leen por bloques/)).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Elegir hoja de libro.xlsx" })).toHaveAttribute(
       "aria-describedby",
       "sheet-description",
@@ -290,11 +290,11 @@ describe("LoadPhase", () => {
     expect(summary.getByText(/2[.,]0 KiB/)).toBeInTheDocument();
     expect(summary.getByText("Enero")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Usar la primera fila como encabezados" })).toBeChecked();
-    expect(screen.getByText(/esquema se calcula .* antes de activar el dataset/)).toBeInTheDocument();
+    expect(screen.getByText(/tipos se calculan .* antes de cargar/)).toBeInTheDocument();
     expect(screen.getByText(/pueden ocupar bastante más memoria/)).toBeInTheDocument();
     const resourceSummary = screen.getByRole("region", { name: "Estimación de recursos" });
-    expect(resourceSummary).toHaveTextContent("Aprox. 256 MiB (4× archivo + 256 MiB)");
-    expect(within(resourceSummary).getByText(/Snapshot e historial inicial/)).toBeInTheDocument();
+    expect(resourceSummary).toHaveTextContent("Aprox. 256 MiB (4 veces el archivo + 256 MiB)");
+    expect(within(resourceSummary).getByText(/Copia de trabajo e historial inicial/)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Hoja" })).toHaveFocus();
     fireEvent.change(screen.getByRole("combobox", { name: "Hoja" }), {
       target: { value: "sheet-2" },
@@ -406,7 +406,8 @@ describe("LoadPhase", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Archivos recientes" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Elegir de nuevo" }));
+    expect(screen.getByText("1 nombre recordado")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Buscar en el equipo: ventas.csv" }));
     fireEvent.click(screen.getByRole("button", { name: "Quitar ventas.csv del historial" }));
     fireEvent.click(screen.getByRole("button", { name: "Limpiar historial" }));
 
@@ -447,7 +448,7 @@ describe("LoadPhase", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Elegir de nuevo" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Buscar en el equipo: ventas.csv" })).toBeDisabled();
     expect(screen.getByText("ventas.csv")).toBeInTheDocument();
   });
 
@@ -497,10 +498,10 @@ describe("LoadPhase", () => {
       />,
     );
 
-    const dialog = screen.getByRole("dialog", { name: "Revisa el costo estimado de la carga" });
-    expect(within(dialog).getByText(/Lectura source-backed/)).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "Memoria y disco que usará la carga" });
+    expect(within(dialog).getByText(/Por bloques: cada operación lee desde el disco/)).toBeInTheDocument();
     expect(dialog).toHaveTextContent(localeText("Aprox. 2.3 GiB"));
-    expect(within(dialog).getByText(/No se prevé un snapshot/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/no crea otra copia de los datos/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Continuar con la carga" }));
     expect(onResourcePreflightAction).toHaveBeenCalledWith({ kind: "confirmed" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
@@ -594,6 +595,55 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
     expect(screen.getByRole("alert")).toHaveTextContent("No se pudo importar el archivo: formato desconocido");
   });
 
+  it("pinta el error junto al botón de elegir archivo, dice qué hacer y lo retira al cambiar de fuente", () => {
+    render(
+      <LoadPhase
+        {...loadPhaseProps({ databaseImportPanel: <p>Panel de SQL Server</p> })}
+        inspection={{ kind: "error", message: "formato desconocido" }}
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("vuelve a elegirlo");
+    expect(alert.closest(".load-brief")).toBe(screen.getByRole("button", { name: "Elegir archivo" }).closest(".load-brief"));
+
+    fireEvent.click(screen.getByRole("radio", { name: /^Base de datos/ }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /^Archivo/ }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // A new attempt that fails the same way is shown again.
+    fireEvent.click(screen.getByRole("button", { name: "Elegir archivo" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("formato desconocido");
+  });
+
+  it("revisa una tabla de base de datos por su nombre y no como un archivo Parquet", () => {
+    const source: DatasetSourceInspection = {
+      ...delimitedSource,
+      selectionId: "db-selection",
+      fileName: "dbo.Ventas.parquet",
+      format: "parquet",
+    };
+    const inspection = completeSchemaPreview(workbookInspection(source, null), {
+      rowCount: 3,
+      columns: [{ name: "ID", dataType: "String" }],
+      schemaMismatch: null,
+    } as Parameters<typeof completeSchemaPreview>[1]);
+    render(
+      <LoadPhase
+        {...loadPhaseProps()}
+        inspection={inspection}
+        databaseRead={{
+          selectionId: "db-selection", table: "dbo.Ventas", engine: "SQL Server", server: "localhost",
+          rowsImported: 3, rowLimit: 100_000, moreRowsAvailable: false,
+        }}
+      />,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Revisar la tabla dbo.Ventas" });
+    expect(dialog).toHaveTextContent("SQL Server · localhost");
+    expect(dialog).toHaveTextContent("3 (la tabla completa)");
+    expect(dialog).not.toHaveTextContent(/parquet/i);
+    expect(within(dialog).getByRole("button", { name: "Cargar tabla" })).toBeInTheDocument();
+  });
+
   it("ofrece reutilizar, ignorar o cancelar el perfil guardado", () => {
     const onProfileReviewAction = vi.fn();
     render(<LoadPhase
@@ -601,8 +651,8 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
       pendingTaskName="Ventas mensuales"
       inspection={{ kind: "profile_review", source: delimitedSource, profile }}
     />);
-    const dialog = screen.getByRole("dialog", { name: "Reutilizar interpretación guardada" });
-    expect(dialog).toHaveTextContent("1 columnas de esquema");
+    const dialog = screen.getByRole("dialog", { name: "¿Usar el perfil de importación guardado?" });
+    expect(dialog).toHaveTextContent("de 1 columna.");
     expect(dialog).toHaveTextContent("Ventas mensuales");
     fireEvent.click(within(dialog).getByRole("button", { name: "Usar perfil y revisar esquema" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Importar sin perfil" }));
@@ -709,14 +759,14 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
       resourceEstimate: { ...delimitedSource.resourceEstimate, processingPath: "sourceBacked" as const },
     };
     view.rerender(<LoadPhase {...loadPhaseProps({ onSheetAction })} inspection={{ ...ready, source: sourceBacked }} />);
-    expect(screen.getByText(/Esta fuente se lee por bloques; las conversiones de fecha y número solo se aplican a archivos de menos de 512/)).toBeInTheDocument();
+    expect(screen.getByText(/Este archivo se lee por bloques; las conversiones de fecha y número solo se aplican a archivos de menos de 512/)).toBeInTheDocument();
   });
 
   it("solo avisa de la verificación del formato local cuando el origen es un archivo (AUD-062)", () => {
     const view = render(<LoadPhase {...loadPhaseProps()} inspection={{ kind: "inspecting" }} />);
-    expect(screen.getByText("Esperando la selección y verificando el formato local…")).toBeInTheDocument();
+    expect(screen.getByText("Esperando el archivo y comprobando su formato…")).toBeInTheDocument();
     view.rerender(<LoadPhase {...loadPhaseProps()} inspection={{ kind: "inspecting", origin: "database" }} />);
-    expect(screen.queryByText(/verificando el formato local/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/comprobando su formato/)).not.toBeInTheDocument();
   });
 
   it("no falla cuando una acción opcional no recibe manejador", () => {
@@ -846,7 +896,7 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
 
     view.rerender(<LoadPhase {...loadPhaseProps()} />);
     expect(screen.queryByRole("radio", { name: /^Proyecto/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Seleccionar dataset" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Elegir archivo" })).toBeInTheDocument();
   });
 
   it("asocia el motivo de ocupado a la selección y deja el botón principal enfocable (AUD-059)", () => {
@@ -854,7 +904,7 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
     const onSelectSample = vi.fn();
     const sampleDatasets = [{ id: "quality", name: "Clientes", format: "csv", description: "Nulos." }];
     const { rerender } = render(<LoadPhase {...loadPhaseProps({ disabled: true, onSelect, onSelectSample, sampleDatasets })} />);
-    const select = screen.getByRole("button", { name: "Seleccionar dataset" });
+    const select = screen.getByRole("button", { name: "Elegir archivo" });
     expect(select).toHaveAttribute("aria-disabled", "true");
     expect(select).toHaveAttribute("aria-describedby", "busy-reason");
     expect(select).not.toBeDisabled();
@@ -868,10 +918,203 @@ describe("LoadPhase: ramas de error, cancelación, codificación y perfil (QA-12
     rerender(<LoadPhase {...loadPhaseProps({ disabled: false, onSelect, onSelectSample, sampleDatasets })} />);
     expect(screen.getByRole("button", { name: /Clientes/ })).not.toHaveAttribute("aria-describedby");
     fireEvent.click(screen.getByRole("radio", { name: /^Archivo/ }));
-    const ready = screen.getByRole("button", { name: "Seleccionar dataset" });
+    const ready = screen.getByRole("button", { name: "Elegir archivo" });
     expect(ready).not.toHaveAttribute("aria-disabled");
     expect(ready).not.toHaveAttribute("aria-describedby");
     fireEvent.click(ready);
     expect(onSelect).toHaveBeenCalledOnce();
+  });
+});
+
+describe("LoadPhase: dataset cargado, errores, atajo y diálogo (crítica del 2026-11-13)", () => {
+  const loaded = {
+    kind: "ready" as const,
+    dataset: {
+      fileName: "ventas.csv",
+      fileSizeBytes: 2048,
+      rowCount: 1200,
+      columnCount: 4,
+      columns: [{ name: "id", dataType: "String" }],
+      rows: [["1"]],
+    },
+    pageOffset: 0,
+    pageLoading: false,
+  };
+
+  it("con un dataset pone nombre, cifras y «Continuar a Revisar» arriba, y debajo «Cambiar de datos»", () => {
+    const onContinue = vi.fn();
+    render(
+      <LoadPhase
+        {...loadPhaseProps({ onContinue, databaseImportPanel: <p>Panel de SQL Server</p> })}
+        datasetStatus={loaded}
+      />,
+    );
+
+    const header = screen.getByRole("heading", { name: "ventas.csv" }).closest("header");
+    const metrics = screen.getByLabelText("Resumen del dataset");
+    // The figures follow the heading, not the end of the page.
+    expect(header?.nextElementSibling).toBe(metrics);
+    const primaries = document.querySelectorAll(".primary-action");
+    expect(primaries).toHaveLength(1);
+    const toReview = within(header as HTMLElement).getByRole("button", { name: "Continuar a Revisar" });
+    expect(primaries[0]).toBe(toReview);
+    fireEvent.click(toReview);
+    expect(onContinue).toHaveBeenCalledOnce();
+
+    const change = screen.getByRole("heading", { name: "Cambiar de datos" });
+    const other = screen.getByRole("button", { name: "Elegir otro archivo" });
+    expect(other).toHaveClass("secondary-action");
+    expect(change.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const hint = screen.getByText(/También puedes arrastrar un archivo compatible/);
+    expect(hint).not.toHaveAttribute("role");
+
+    fireEvent.click(screen.getByRole("radio", { name: /^Base de datos/ }));
+    expect(screen.queryByRole("button", { name: "Elegir otro archivo" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/También puedes arrastrar/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continuar a Revisar" })).toBeInTheDocument();
+  });
+
+  it("deshabilita «Continuar a Revisar» con el motivo mientras hay trabajo en curso", () => {
+    render(<LoadPhase {...loadPhaseProps({ onContinue: () => undefined, continueDisabled: true })} datasetStatus={loaded} />);
+    const toReview = screen.getByRole("button", { name: "Continuar a Revisar" });
+    expect(toReview).toBeDisabled();
+    expect(toReview).toHaveAttribute("aria-describedby", "busy-reason");
+  });
+
+  it("sin dataset no ofrece continuar", () => {
+    render(<LoadPhase {...loadPhaseProps({ onContinue: () => undefined })} />);
+    expect(screen.queryByRole("button", { name: "Continuar a Revisar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Cambiar de datos" })).not.toBeInTheDocument();
+  });
+
+  it("con un dataset, el error de elegir archivo sale junto a «Elegir otro archivo»", () => {
+    render(<LoadPhase {...loadPhaseProps()} datasetStatus={loaded} inspection={{ kind: "error", message: "formato desconocido" }} />);
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Tu dataset actual no cambió.");
+    expect(alert.closest(".load-change")).toBe(screen.getByRole("button", { name: "Elegir otro archivo" }).closest(".load-change"));
+  });
+
+  it("lleva el foco al error si estaba en el botón o en ninguna parte, y no lo roba de otro control", () => {
+    const view = render(<><button type="button">Otro control</button><LoadPhase {...loadPhaseProps()} /></>);
+    const choose = screen.getByRole("button", { name: "Elegir archivo" });
+    choose.focus();
+    view.rerender(<><button type="button">Otro control</button><LoadPhase {...loadPhaseProps()} inspection={{ kind: "error", message: "formato desconocido" }} /></>);
+    const errors = screen.getByRole("alert").closest(".load-errors");
+    expect(errors).toHaveAttribute("tabindex", "-1");
+    expect(errors).toHaveFocus();
+
+    // From <body> as well (the native picker or a closed dialog leaves it there).
+    view.rerender(<><button type="button">Otro control</button><LoadPhase {...loadPhaseProps()} /></>);
+    (document.activeElement as HTMLElement | null)?.blur();
+    view.rerender(<><button type="button">Otro control</button><LoadPhase {...loadPhaseProps()} datasetStatus={{ kind: "error", message: "archivo dañado" }} /></>);
+    expect(screen.getByRole("alert").closest(".load-errors")).toHaveFocus();
+
+    // Someone already working elsewhere keeps the focus.
+    view.rerender(<><button type="button">Otro control</button><LoadPhase {...loadPhaseProps()} /></>);
+    const other = screen.getByRole("button", { name: "Otro control" });
+    other.focus();
+    view.rerender(<><button type="button">Otro control</button><LoadPhase {...loadPhaseProps()} inspection={{ kind: "error", message: "otra vez" }} /></>);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(other).toHaveFocus();
+  });
+
+  it("abre «Elegir archivo» con Ctrl+O, salvo en un campo de texto o con otra fuente", () => {
+    const onSelect = vi.fn();
+    render(
+      <LoadPhase
+        {...loadPhaseProps({ onSelect, databaseImportPanel: <input aria-label="Servidor" /> })}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Elegir archivo" })).toHaveAttribute("aria-keyshortcuts", "Control+O");
+    expect(screen.getByText(/Atajo: Ctrl\+O/)).toBeInTheDocument();
+
+    const shortcut = fireEvent.keyDown(document.body, { key: "o", ctrlKey: true });
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(shortcut).toBe(false);
+    fireEvent.keyDown(document.body, { key: "o", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(document.body, { key: "o", ctrlKey: true, altKey: true });
+    fireEvent.keyDown(document.body, { key: "o" });
+    expect(onSelect).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("radio", { name: /^Base de datos/ }));
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Servidor" }), { key: "o", ctrlKey: true });
+    fireEvent.keyDown(document.body, { key: "o", ctrlKey: true });
+    expect(onSelect).toHaveBeenCalledOnce();
+  });
+
+  it("no responde a Ctrl+O mientras la selección no está disponible", () => {
+    const onSelect = vi.fn();
+    render(<LoadPhase {...loadPhaseProps({ onSelect, disabled: true })} />);
+    fireEvent.keyDown(document.body, { key: "O", ctrlKey: true });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("presenta los ejemplos como filas con su acción, como los recientes", () => {
+    const onSelectSample = vi.fn();
+    render(<LoadPhase {...loadPhaseProps({
+      onSelectSample,
+      sampleDatasets: [{ id: "quality", name: "Clientes", format: "csv", description: "Nulos." }],
+    })} />);
+    fireEvent.click(screen.getByRole("radio", { name: /^Ejemplo/ }));
+    const row = screen.getByText("Clientes").closest("li");
+    expect(row).toHaveClass("recent-datasets__item");
+    expect(row).toHaveTextContent("Nulos. · CSV");
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Cargar el ejemplo Clientes" }));
+    expect(onSelectSample).toHaveBeenCalledWith("quality");
+    expect(document.querySelector(".sample-datasets__item")).toBeNull();
+  });
+
+  it("el diálogo de importación tiene una sola región viva y las acciones al pie", () => {
+    const reviewed = completeSchemaPreview(
+      completeDelimitedHeaderReview(delimitedHeaderInspection(delimitedSource), delimitedHeaderReview),
+      { rowCount: 2, columns: delimitedHeaderReview.firstRow.columns, schemaMismatch: null },
+    );
+    render(<LoadPhase {...loadPhaseProps()} inspection={reviewed} />);
+    const dialog = screen.getByRole("dialog", { name: "Revisar encabezados de ventas.csv" });
+    // No live region inside another one.
+    expect(dialog.querySelectorAll("[aria-live] [aria-live], [aria-live] [role='status'], [aria-live] [role='alert']")).toHaveLength(0);
+    expect(within(dialog).getByRole("status")).toHaveTextContent("2 filas · 1 columnas");
+    const actions = within(dialog).getByRole("button", { name: "Cargar archivo" }).parentElement;
+    expect(actions).toHaveClass("sheet-dialog__actions--sticky");
+  });
+
+  it("avisa de columnas de texto con nombre de fecha cuando las fechas están sin definir", () => {
+    const columns = [
+      { name: "id", dataType: "Int64" },
+      { name: "fecha_alta", dataType: "String" },
+      { name: "created_at", dataType: "String" },
+    ];
+    const reviewed = completeSchemaPreview(
+      completeDelimitedHeaderReview(delimitedHeaderInspection(delimitedSource), delimitedHeaderReview),
+      { rowCount: 2, columns, schemaMismatch: null },
+    );
+    if (reviewed.kind !== "sheet") throw new Error("estado inesperado");
+    const view = render(<LoadPhase {...loadPhaseProps()} inspection={reviewed} />);
+    const hint = screen.getByText(/Estas columnas parecen de fechas/).closest("p");
+    expect(hint).toHaveTextContent("«fecha_alta», «created_at». Con las fechas en «Sin definir» se cargarán como texto.");
+    expect(hint).toHaveTextContent("«Interpretación de fechas y números (opcional)»");
+    expect(hint).not.toHaveClass("notice");
+
+    // Read by blocks, the conventions are not available: the hint points to Preparar.
+    const sourceBacked = {
+      ...reviewed,
+      source: { ...reviewed.source, resourceEstimate: { ...reviewed.source.resourceEstimate, processingPath: "sourceBacked" as const } },
+    };
+    view.rerender(<LoadPhase {...loadPhaseProps()} inspection={sourceBacked} />);
+    expect(screen.getByText(/Estas columnas parecen de fechas/).closest("p")).toHaveTextContent("conviértelas después en Preparar");
+
+    view.rerender(<LoadPhase {...loadPhaseProps()} inspection={{ ...reviewed, dateConvention: "dmy" }} />);
+    expect(screen.queryByText(/parecen de fechas/)).not.toBeInTheDocument();
+
+    const excel = completeSchemaPreview(workbookInspection(workbook), { rowCount: 2, columns, schemaMismatch: null });
+    view.rerender(<LoadPhase {...loadPhaseProps()} inspection={excel} />);
+    expect(screen.queryByText(/parecen de fechas/)).not.toBeInTheDocument();
+  });
+
+  it("dice qué formatos se leen por bloques y cómo decide el motor si cabe en memoria", () => {
+    render(<LoadPhase {...loadPhaseProps()} inspection={{ kind: "resource_preflight", source: delimitedSource }} />);
+    expect(screen.getByText(/Los CSV, TSV, TXT, JSON, Parquet y Excel \(\.xlsx, \.xlsb\) de 512 MiB o más se leen por bloques/))
+      .toHaveTextContent("en los CSV, TSV y TXT, las fechas y los números no se convierten al cargar");
+    expect(screen.getByRole("dialog")).toHaveTextContent("el motor comprueba la RAM libre y, si no alcanza, no la ejecuta");
   });
 });

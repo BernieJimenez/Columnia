@@ -50,7 +50,7 @@ for (const fixture of importCases) {
     await installSyntheticImportBridge(page, fixture);
     await page.goto("/", { waitUntil: "commit" });
 
-    await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+    await page.getByRole("button", { name: "Elegir archivo" }).click();
 
     if (fixture.format === "csv") {
       const dialog = page.getByRole("dialog", { name: `Revisar encabezados de ${fixture.fileName}` });
@@ -109,7 +109,7 @@ test("revisa y permite aplicar una tarea recién guardada al esquema activo", as
   await installSyntheticImportBridge(page, fixture);
   await page.goto("/", { waitUntil: "commit" });
 
-  await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+  await page.getByRole("button", { name: "Elegir archivo" }).click();
   const dialog = page.getByRole("dialog", { name: `Revisar encabezados de ${fixture.fileName}` });
   await expect(dialog.getByRole("button", { name: "Cargar archivo" })).toBeEnabled();
   await dialog.getByRole("button", { name: "Cargar archivo" }).click();
@@ -118,7 +118,7 @@ test("revisa y permite aplicar una tarea recién guardada al esquema activo", as
   await expect(workflow.getByRole("button", { name: "Revisar", exact: true })).toHaveAttribute("aria-current", "step");
   await workflow.getByRole("button", { name: "Cargar", exact: true }).click();
   await page.getByText("Reutilizar una tarea").click();
-  await page.getByLabel("Guardar configuración actual").fill("Ventas semanales");
+  await page.getByLabel("Guardar la configuración actual como tarea").fill("Ventas semanales");
   await page.getByRole("button", { name: "Guardar", exact: true }).click();
 
   await expect(page.getByText("Tarea “Ventas semanales” guardada en este equipo.")).toBeVisible();

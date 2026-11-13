@@ -1408,7 +1408,7 @@ fn assess_remote_export(
             "blocking",
             "policy",
             None,
-            "Crear; fallar si existe está seleccionado y la tabla ya existe.".to_owned(),
+            "La tabla ya existe y está elegido «Crear una tabla nueva»: elige otro nombre o «Reemplazar la tabla».".to_owned(),
         ),
         (DatabaseTablePolicy::Replace, true) => push_issue(
             &mut issues,

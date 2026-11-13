@@ -1,6 +1,121 @@
 use super::*;
 use crate::crash_report::LockRecovering;
 
+/// The active dataset as a comparison reads it: its name and rows, and the
+/// history snapshot or source file the engine can read from disk, if any.
+pub(super) struct CurrentComparisonSide {
+    file_name: String,
+    row_count: usize,
+    snapshot: Option<PathBuf>,
+    source: Option<(PathBuf, String)>,
+}
+
+pub(super) fn current_comparison_side(app: &AppHandle) -> Result<CurrentComparisonSide, String> {
+    let state = app.state::<DatasetState>();
+    let current = state.current.lock_recovering();
+    let dataset = current.as_ref().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    let snapshot = current_history_parquet_snapshot(dataset).map(|(path, _, _)| path);
+    let source = current_duckdb_file_source(dataset).and_then(|(path, _)| {
+        dataset_extension(&path)
+            .ok()
+            .map(|extension| (path, extension))
+    });
+    Ok(CurrentComparisonSide {
+        file_name: dataset.file_name.clone(),
+        row_count: dataset.row_count,
+        snapshot,
+        source,
+    })
+}
+
+/// Compares the active dataset with a compared snapshot already on disk, by
+/// the given key; from disk when it can, in memory otherwise (ARQ-08).
+fn compare_with_current(
+    app: &AppHandle,
+    current: CurrentComparisonSide,
+    compared_path: &Path,
+    compared_file_name: &str,
+    compared_row_count: usize,
+    key_columns: &[String],
+    cancellation: &DatasetComparisonCancellation,
+) -> Result<DatasetComparison, String> {
+    let is_cancelled = cancellation.callback();
+    let state = app.state::<DatasetState>();
+    let read_from_disk = current.snapshot.is_some() || current.source.is_some();
+    let (_current_directory, current_path, current_row_count) = if let Some(current_path) =
+        current.snapshot
+    {
+        (None, current_path, current.row_count)
+    } else if let Some((current_path, current_extension)) = current.source {
+        let (directory, snapshot_path, row_count) = match persist_comparison_file_with_cancel(
+            &current_path,
+            &current_extension,
+            is_cancelled.clone(),
+        ) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                cancellation.ensure()?;
+                return Err(error);
+            }
+        };
+        (Some(directory), snapshot_path, row_count)
+    } else {
+        let (current_frame, _) = materialize_current_dataset_with_cancel(&state, &is_cancelled)?;
+        let row_count = current_frame.height();
+        let (directory, snapshot_path) =
+            persist_comparison_snapshot_with_cancel(&current_frame, &is_cancelled)?;
+        (Some(directory), snapshot_path, row_count)
+    };
+
+    match compare_parquet_sources_with_cancel(
+        &current_path,
+        &current.file_name,
+        current_row_count,
+        compared_path,
+        compared_file_name,
+        compared_row_count,
+        key_columns,
+        &is_cancelled,
+    ) {
+        Ok(comparison) => Ok(comparison),
+        // ARQ-08: a wrong key or a cancellation is the answer; retrying in
+        // memory only repeats the work and hides the cause.
+        Err(error) if !read_from_disk || !comparison_may_succeed_in_memory(&error) => {
+            cancellation.ensure()?;
+            Err(error)
+        }
+        Err(disk_error) => {
+            cancellation.ensure()?;
+            let retry = || -> Result<DatasetComparison, String> {
+                let (current_frame, fallback_file_name) =
+                    materialize_current_dataset_with_cancel(&state, &is_cancelled)?;
+                let fallback_row_count = current_frame.height();
+                let (_fallback_directory, fallback_path) =
+                    persist_comparison_snapshot_with_cancel(&current_frame, &is_cancelled)?;
+                compare_parquet_sources_with_cancel(
+                    &fallback_path,
+                    &fallback_file_name,
+                    fallback_row_count,
+                    compared_path,
+                    compared_file_name,
+                    compared_row_count,
+                    key_columns,
+                    &is_cancelled,
+                )
+            };
+            match retry() {
+                Ok(comparison) => Ok(comparison),
+                Err(error) if error == OPERATION_CANCELLED_MESSAGE => Err(error),
+                Err(memory_error) => Err(format!(
+                    "{disk_error} Tampoco se pudo comparar en memoria: {memory_error}"
+                )),
+            }
+        }
+    }
+}
+
 pub(super) async fn compare_dataset_impl(
     app: AppHandle,
     key_columns: Option<Vec<String>>,
@@ -9,25 +124,7 @@ pub(super) async fn compare_dataset_impl(
     let key_columns = normalize_key_columns(key_columns)?;
     let cancellation = DatasetComparisonCancellation::begin(&app);
     cancellation.ensure()?;
-    let (current_file_name, current_row_count, current_snapshot, current_source) = {
-        let state = app.state::<DatasetState>();
-        let current = state.current.lock_recovering();
-        let dataset = current.as_ref().ok_or_else(|| {
-            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-        })?;
-        let current_snapshot = current_history_parquet_snapshot(dataset).map(|(path, _, _)| path);
-        let current_source = current_duckdb_file_source(dataset).and_then(|(path, _)| {
-            dataset_extension(&path)
-                .ok()
-                .map(|extension| (path, extension))
-        });
-        (
-            dataset.file_name.clone(),
-            dataset.row_count,
-            current_snapshot,
-            current_source,
-        )
-    };
+    let current = current_comparison_side(&app)?;
     cancellation.ensure()?;
     let selection = app
         .dialog()
@@ -68,84 +165,18 @@ pub(super) async fn compare_dataset_impl(
                 }
             };
 
-        let state = app.state::<DatasetState>();
-        let read_from_disk = current_snapshot.is_some() || current_source.is_some();
-        let (current_directory, current_path, current_row_count) = if let Some(current_path) =
-            current_snapshot
-        {
-            (None, current_path, current_row_count)
-        } else if let Some((current_path, current_extension)) = current_source {
-            let (directory, snapshot_path, row_count) = match persist_comparison_file_with_cancel(
-                &current_path,
-                &current_extension,
-                is_cancelled.clone(),
-            ) {
-                Ok(snapshot) => snapshot,
-                Err(error) => {
-                    cancellation_for_work.ensure()?;
-                    return Err(error);
-                }
-            };
-            (Some(directory), snapshot_path, row_count)
-        } else {
-            let (current_frame, _) =
-                materialize_current_dataset_with_cancel(&state, &is_cancelled)?;
-            let row_count = current_frame.height();
-            let (directory, snapshot_path) =
-                persist_comparison_snapshot_with_cancel(&current_frame, &is_cancelled)?;
-            (Some(directory), snapshot_path, row_count)
-        };
-
-        let mut comparison = match compare_parquet_sources_with_cancel(
-            &current_path,
-            &current_file_name,
-            current_row_count,
+        let mut comparison = compare_with_current(
+            &app,
+            current,
             &snapshot_path,
             &compared_file_name,
             compared_row_count,
             &key_columns,
-            &is_cancelled,
-        ) {
-            Ok(comparison) => comparison,
-            // ARQ-08: a wrong key or a cancellation is the answer; retrying in
-            // memory only repeats the work and hides the cause.
-            Err(error) if !read_from_disk || !comparison_may_succeed_in_memory(&error) => {
-                cancellation_for_work.ensure()?;
-                return Err(error);
-            }
-            Err(disk_error) => {
-                cancellation_for_work.ensure()?;
-                let retry = || -> Result<DatasetComparison, String> {
-                    let (current_frame, fallback_file_name) =
-                        materialize_current_dataset_with_cancel(&state, &is_cancelled)?;
-                    let fallback_row_count = current_frame.height();
-                    let (_fallback_directory, fallback_path) =
-                        persist_comparison_snapshot_with_cancel(&current_frame, &is_cancelled)?;
-                    compare_parquet_sources_with_cancel(
-                        &fallback_path,
-                        &fallback_file_name,
-                        fallback_row_count,
-                        &snapshot_path,
-                        &compared_file_name,
-                        compared_row_count,
-                        &key_columns,
-                        &is_cancelled,
-                    )
-                };
-                match retry() {
-                    Ok(comparison) => comparison,
-                    Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
-                    Err(memory_error) => {
-                        return Err(format!(
-                            "{disk_error} Tampoco se pudo comparar en memoria: {memory_error}"
-                        ))
-                    }
-                }
-            }
-        };
-        let _ = &current_directory;
+            &cancellation_for_work,
+        )?;
         comparison.compared_source_note = compared_source_note(&path, &extension);
         cancellation_for_work.ensure()?;
+        let state = app.state::<DatasetState>();
         cancellation_for_work.commit(|| {
             clear_conflict_index();
             *state.comparison.lock_recovering() = Some(PendingComparison {
@@ -163,6 +194,72 @@ pub(super) async fn compare_dataset_impl(
     .await
     .map_err(|error| {
         crate::crash_report::task_interrupted("La comparación se interrumpió", &error)
+    })?
+}
+
+/// Preparar: repeats the active comparison against the dataset as it is now,
+/// with the same compared file, key and options, after a correction or an
+/// undo. `None` when there is no comparison to repeat, or another one replaced
+/// it meanwhile. The compared file is not read again: its snapshot stays.
+pub(super) async fn refresh_dataset_comparison_impl(
+    app: AppHandle,
+) -> Result<Option<DatasetComparison>, String> {
+    let cancellation = DatasetComparisonCancellation::begin(&app);
+    cancellation.ensure()?;
+    let pending = {
+        let state = app.state::<DatasetState>();
+        let comparison = state.comparison.lock_recovering();
+        comparison.as_ref().map(|pending| {
+            (
+                pending.snapshot_path.clone(),
+                pending.file_name.clone(),
+                pending.row_count,
+                pending.key_columns.clone(),
+                pending.options,
+            )
+        })
+    };
+    let Some((snapshot_path, compared_file_name, compared_row_count, key_columns, options)) =
+        pending
+    else {
+        return Ok(None);
+    };
+    let current = current_comparison_side(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _options = ComparisonOptionsScope::enter(options);
+        cancellation.ensure()?;
+        let comparison = compare_with_current(
+            &app,
+            current,
+            &snapshot_path,
+            &compared_file_name,
+            compared_row_count,
+            &key_columns,
+            &cancellation,
+        )?;
+        let state = app.state::<DatasetState>();
+        cancellation.commit(|| {
+            let still_active = state
+                .comparison
+                .lock_recovering()
+                .as_ref()
+                .is_some_and(|pending| {
+                    pending.snapshot_path == snapshot_path && pending.key_columns == key_columns
+                });
+            if !still_active {
+                return Ok(None);
+            }
+            // The conflict pages belong to the dataset compared before.
+            clear_conflict_index();
+            Ok(Some(comparison))
+        })
+    })
+    .await
+    .map_err(|error| {
+        crate::crash_report::task_interrupted(
+            "La actualización de la comparación se interrumpió",
+            &error,
+        )
     })?
 }
 

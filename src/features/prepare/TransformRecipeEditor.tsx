@@ -61,7 +61,6 @@ function TransformAdvisor({ preview }: { preview: TransformPreview }) {
     <section className={`transform-advisor transform-advisor--${preview.risk}`} aria-labelledby="transform-advisor-title">
       <div className="transform-advisor__header">
         <div>
-          <p className="step">Revisión antes de ejecutar</p>
           <h4 id="transform-advisor-title">Cambios estimados al aplicar</h4>
           <p>{riskDescription}</p>
         </div>
@@ -415,8 +414,23 @@ export function TransformRecipeEditor({
     else onApply(recipe);
   }
 
+  // Why «Guardar receta» does nothing yet, said next to it (null: it can save).
+  const saveBlockedReason = recipeFileStatus.kind === "working"
+    ? null
+    : busy
+      ? "Para guardar la receta, espera a que termine el cambio en curso."
+      : schemaReviewRecipe !== null
+        ? "Para guardar la receta, termina de revisar sus columnas."
+        : operationCount === 0
+          ? "Para guardar la receta, añade al menos una operación."
+          : invalid
+            ? "Para guardar la receta, corrige los campos marcados."
+            : !recipeName.trim()
+              ? "Para guardar la receta, ponle un nombre."
+              : null;
+
   async function saveRecipeDraft() {
-    if (recipeBusy || operationCount === 0 || invalid || !recipeName.trim()) return;
+    if (recipeBusy || schemaReviewRecipe !== null || operationCount === 0 || invalid || !recipeName.trim()) return;
     setRecipeFileStatus({ kind: "working", action: "save" });
     try {
       const recipe = buildRecipe();
@@ -502,7 +516,6 @@ export function TransformRecipeEditor({
     <section className="transform-recipe" aria-labelledby="transform-recipe-title">
       <div className="transform-recipe__intro">
         <div>
-          <p className="step">Cambios en los datos</p>
           <h3 id="transform-recipe-title">Cambiar columnas y tipos</h3>
           <p>
             Configura varios cambios y aplícalos juntos. Si una operación no es válida, no se
@@ -516,14 +529,6 @@ export function TransformRecipeEditor({
         </span>
       </div>
 
-      {operationCount === 0 && (
-        <ol className="recipe-steps" aria-label="Cómo aplicar una receta">
-          <li><span aria-hidden="true">1</span><strong>Añade</strong><small>Elige una operación</small></li>
-          <li><span aria-hidden="true">2</span><strong>Revisa</strong><small>Comprueba sus campos</small></li>
-          <li><span aria-hidden="true">3</span><strong>Aplica</strong><small>Ejecuta todo junto</small></li>
-        </ol>
-      )}
-
       <div className="recipe-files" aria-label="Archivo de receta">
         <label>
           <span>Nombre de la receta</span>
@@ -531,8 +536,10 @@ export function TransformRecipeEditor({
             disabled={recipeBusy}
             onChange={(event) => { setRecipeName(event.target.value); if (recipeFileStatus.kind !== "working") setRecipeFileStatus({ kind: "idle" }); }} />
         </label>
+        {/* Focusable while blocked, with the reason read with it. */}
         <button type="button" onClick={saveRecipeDraft}
-          disabled={recipeBusy || schemaReviewRecipe !== null || operationCount === 0 || invalid || !recipeName.trim()}>
+          aria-disabled={saveBlockedReason !== null || undefined}
+          aria-describedby={saveBlockedReason !== null ? "recipe-save-reason" : undefined}>
           {recipeFileStatus.kind === "working" && recipeFileStatus.action === "save" ? "Guardando…" : "Guardar receta"}
         </button>
         <button type="button" onClick={loadRecipeDraft} disabled={recipeBusy || schemaReviewRecipe !== null}>
@@ -541,6 +548,9 @@ export function TransformRecipeEditor({
         <p className="recipe-file-status recipe-file-status--hint">
           Solo se aceptan recetas nativas de Columnia; las operaciones se validan antes de aplicarlas.
         </p>
+        {saveBlockedReason !== null && (
+          <p id="recipe-save-reason" className="recipe-file-status recipe-file-status--hint">{saveBlockedReason}</p>
+        )}
         {recipeFileStatus.kind === "success" && <p className="recipe-file-status" role="status">{recipeFileStatus.message}</p>}
         {recipeFileStatus.kind === "error" && <p className="recipe-error recipe-file-status" role="alert">No se pudo completar la operación: {recipeFileStatus.message}</p>}
         {schemaReviewRecipe && (
@@ -943,7 +953,6 @@ export function TransformRecipeEditor({
           describedBy="filter-confirm-description"
           onDismiss={() => setPendingConfirmation(null)}
         >
-            <p className="step">Cambio de alto impacto</p>
             <h3 id="filter-confirm-title">Confirmar cambios de alto impacto</h3>
             <p id="filter-confirm-description">
               {(pendingConfirmation.recipe.casts.some((cast) => cast.target !== "string") || pendingConfirmation.recipe.dateParses.length > 0) && <>Las conversiones de tipo y de fecha dejarán nulas las celdas que no encajen en el tipo nuevo. </>}

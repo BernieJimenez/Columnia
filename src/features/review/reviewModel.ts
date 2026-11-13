@@ -102,6 +102,12 @@ export function commaDecimalColumns(profile: DatasetProfile): string[] {
     .map((column) => column.name);
 }
 
+/**
+ * The one decimal convention the import profile offers for these columns,
+ * named as Cargar names it, so Review can point to the exact setting.
+ */
+export const COMMA_DECIMAL_SETTING = "Decimal coma · miles punto";
+
 /** A duration as «menos de 1 s», seconds with one decimal, or minutes and seconds. */
 function profileDuration(milliseconds: number): string {
   if (milliseconds < 1_000) return "menos de 1 s";
@@ -128,7 +134,9 @@ export function profileProvenanceText(profile: DatasetProfile): string | null {
   const time = Number.isNaN(computedAt.getTime())
     ? ""
     : ` a las ${computedAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
-  return `Perfil de ${rows} ${engine}, en ${profileDuration(provenance.durationMs)}${time}.`;
+  const sentence = `Perfil de ${rows} ${engine}, en ${profileDuration(provenance.durationMs)}${time}`;
+  // «a. m.» already ends in a full stop: a second one would read «a. m..».
+  return sentence.endsWith(".") ? sentence : `${sentence}.`;
 }
 
 /**

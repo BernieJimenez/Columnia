@@ -50,37 +50,70 @@ describe("ServerConnectionForm", () => {
   });
 });
 
+const READY = /^Controlador: Driver\.$/;
+
 describe("motivo asociado al campo que falta", () => {
-  it.each(["sqlserver", "postgresql", "mysql"] as const)("%s: el servidor es obligatorio y el motivo vive en un único contenedor de estado", async (kind) => {
+  it.each(["sqlserver", "postgresql", "mysql"] as const)("%s: el motivo del servidor espera a que se toque el campo y vive en un único contenedor de estado", async (kind) => {
     vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue(["Driver"]);
     render(<DatabaseConnectionForm kind={kind} disabled={false} onChange={vi.fn()} />);
 
     const server = screen.getByLabelText("Servidor");
-    const status = await screen.findByText("Indica el servidor.");
+    await screen.findByText(READY);
     expect(server).toBeRequired();
-    expect(status).toHaveAttribute("role", "status");
-    expect(server).toHaveAccessibleDescription("Indica el servidor.");
-    // A freshly opened form is not announced as an error.
+    // A freshly opened form says nothing about the missing field and does not announce an error.
+    expect(screen.queryByText("Indica el servidor.")).toBeNull();
     expect(server).not.toHaveAttribute("aria-invalid");
+    expect(server).not.toHaveAttribute("aria-describedby");
+    const status = screen.getByText(READY).nextElementSibling as HTMLElement;
+    expect(status).toHaveAttribute("role", "status");
+    expect(status).toBeEmptyDOMElement();
 
     fireEvent.blur(server);
+    // The same element stays in place; only its text changes.
+    expect(status).toHaveTextContent("Indica el servidor.");
+    expect(server).toHaveAccessibleDescription("Indica el servidor.");
     expect(server).toHaveAttribute("aria-invalid", "true");
 
     fireEvent.change(server, { target: { value: "localhost" } });
     expect(server).not.toHaveAttribute("aria-invalid");
     expect(server).not.toHaveAttribute("aria-describedby");
-    // The same element stays in place; only its text changes.
-    expect(screen.getAllByRole("status")).toEqual([status]);
+    expect(status.isConnected).toBe(true);
+    expect(screen.queryByText("Indica el servidor.")).toBeNull();
   });
 
-  it("PostgreSQL y MySQL: el usuario falta y el motivo lo nombra", async () => {
+  it("escribir en otro campo no destapa el motivo del servidor", async () => {
+    vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue(["Driver"]);
+    render(<DatabaseConnectionForm kind="postgresql" disabled={false} onChange={vi.fn()} />);
+    await screen.findByText(READY);
+    fireEvent.change(screen.getByLabelText("Base de datos"), { target: { value: "datos" } });
+    expect(screen.queryByText("Indica el servidor.")).toBeNull();
+  });
+
+  it("si el padre da el id de su mensaje, el motivo se muestra aunque no se haya tocado nada", async () => {
+    vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue(["Driver"]);
+    render(<DatabaseConnectionForm kind="mysql" disabled={false} onChange={vi.fn()} errorId="aviso" />);
+    const server = screen.getByLabelText("Servidor");
+    expect(await screen.findByText("Indica el servidor.")).toBeInTheDocument();
+    expect(server).toHaveAttribute("aria-invalid", "true");
+    expect(server.getAttribute("aria-describedby")).toContain("aviso");
+  });
+
+  it("sin controlador instalado lo dice enseguida, sin esperar a que se toque nada", async () => {
+    vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue([]);
+    render(<DatabaseConnectionForm kind="postgresql" disabled={false} onChange={vi.fn()} />);
+    expect(await screen.findByText(/No hay un controlador ODBC de PostgreSQL instalado/)).toBeInTheDocument();
+  });
+
+  it("PostgreSQL y MySQL: el usuario falta y el motivo lo nombra al salir del campo", async () => {
     vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue(["Driver"]);
     render(<DatabaseConnectionForm kind="mysql" disabled={false} onChange={vi.fn()} />);
-    await screen.findByText("Indica el servidor.");
+    await screen.findByText(READY);
 
     fireEvent.change(screen.getByLabelText("Servidor"), { target: { value: "localhost" } });
     const user = screen.getByLabelText("Usuario");
     expect(user).toBeRequired();
+    expect(screen.queryByText("Indica el usuario de MySQL.")).toBeNull();
+    fireEvent.blur(user);
     expect(user).toHaveAccessibleDescription("Indica el usuario de MySQL.");
     expect(user).toHaveAttribute("aria-invalid", "true");
   });
@@ -88,15 +121,44 @@ describe("motivo asociado al campo que falta", () => {
   it("SQL Server: con Windows el usuario no existe; con usuario y contraseña falta y se nombra", async () => {
     vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue(["Driver"]);
     render(<DatabaseConnectionForm kind="sqlserver" disabled={false} onChange={vi.fn()} />);
-    await screen.findByText("Indica el servidor.");
+    await screen.findByText(READY);
 
     fireEvent.change(screen.getByLabelText("Servidor"), { target: { value: "localhost" } });
     expect(screen.queryByLabelText("Usuario")).toBeNull();
-    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(screen.getByText(READY).nextElementSibling).toBeEmptyDOMElement();
 
     fireEvent.click(screen.getByRole("radio", { name: "Usuario y contraseña de SQL Server" }));
-    expect(screen.getByLabelText("Usuario")).toHaveAccessibleDescription("Indica el usuario de SQL Server.");
-    expect(screen.getByLabelText("Usuario")).toBeRequired();
+    const user = screen.getByLabelText("Usuario");
+    expect(user).toBeRequired();
+    fireEvent.blur(user);
+    expect(user).toHaveAccessibleDescription("Indica el usuario de SQL Server.");
+  });
+});
+
+describe("cambio de motor", () => {
+  it("conserva servidor y usuario, descarta la contraseña y lo dice", async () => {
+    vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue(["Driver"]);
+    const { rerender } = render(<DatabaseConnectionForm kind="postgresql" disabled={false} onChange={vi.fn()} />);
+    await screen.findByText(READY);
+    fireEvent.change(screen.getByLabelText("Servidor"), { target: { value: "db.ejemplo.com" } });
+    fireEvent.change(screen.getByLabelText("Usuario"), { target: { value: "ana" } });
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "secreta" } });
+
+    rerender(<DatabaseConnectionForm kind="mysql" disabled={false} onChange={vi.fn()} />);
+    expect(screen.getByLabelText("Servidor")).toHaveValue("db.ejemplo.com");
+    expect(screen.getByLabelText("Usuario")).toHaveValue("ana");
+    expect(screen.getByLabelText("Contraseña")).toHaveValue("");
+    expect(screen.getByText("Al cambiar a MySQL se conservaron el servidor y el usuario. No se traslada la contraseña.")).toBeInTheDocument();
+  });
+
+  it("de SQL Server a PostgreSQL quita la instancia y lo dice", async () => {
+    vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue(["Driver"]);
+    const { rerender } = render(<DatabaseConnectionForm kind="sqlserver" disabled={false} onChange={vi.fn()} />);
+    await screen.findByText(READY);
+    fireEvent.change(screen.getByLabelText("Servidor"), { target: { value: "equipo\\SQLEXPRESS" } });
+    rerender(<DatabaseConnectionForm kind="postgresql" disabled={false} onChange={vi.fn()} />);
+    expect(screen.getByLabelText("Servidor")).toHaveValue("equipo");
+    expect(screen.getByText(/No se traslada el nombre de instancia/)).toBeInTheDocument();
   });
 });
 

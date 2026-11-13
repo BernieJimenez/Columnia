@@ -142,7 +142,6 @@ export function RevisionComparison({
   return (
     <section className="prepare-card revision-comparison" aria-labelledby="revision-comparison-title">
       <div>
-        <p className="step">Análisis comparativo</p>
         <h3 id="revision-comparison-title">Comparar revisiones</h3>
         <p>
           Elige dos cambios del historial para medir el antes y el después. Cada comparación vuelve a

@@ -25,7 +25,8 @@ export type ChangeStatus =
     }
   /** `changes` lists what a proposal applied, one line each, for its result screen. */
   /** `unchanged`: the dataset already met the plan, nothing was written (FUN-46). */
-  | { kind: "applied"; message: string; changes?: string[]; unchanged?: boolean }
+  /** `origin`: the change came from «Deshacer» or «Rehacer» of the history. */
+  | { kind: "applied"; message: string; changes?: string[]; unchanged?: boolean; origin?: "undo" | "redo" }
   | { kind: "cancelled"; message: string }
   | { kind: "error"; message: string };
 
@@ -108,14 +109,14 @@ export function changeProgressMessage(action: Extract<ChangeStatus, { kind: "wor
     personal_mask: "Protegiendo valores personales detectados…",
     sentinels: "Normalizando marcadores «sin dato»…",
     booleans: "Normalizando booleanos…",
-    encoding: "Corrigiendo doble codificación UTF-8…",
+    encoding: "Corrigiendo acentos mal leídos…",
     invalid_types: "Apartando valores incompatibles…",
     impute: "Imputando nulos de forma conservadora…",
     categorical_impute: "Completando nulos textuales…",
     parse_dates: "Interpretando fechas detectadas…",
     cast_numeric: "Convirtiendo números detectados…",
     outlier_impute: "Reemplazando valores atípicos por la mediana…",
-    outlier_cap: "Limitando valores atípicos con IQR…",
+    outlier_cap: "Limitando valores atípicos al rango normal…",
     outlier_drop: "Eliminando filas atípicas…",
     audit: "Activando trazabilidad por fila…",
     columns: "Normalizando nombres de columnas…",

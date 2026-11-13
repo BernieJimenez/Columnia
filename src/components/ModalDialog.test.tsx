@@ -61,7 +61,7 @@ describe("ModalDialog", () => {
       const [busy, setBusy] = useState(false);
       return (
         <>
-          <button type="button" disabled={busy} onClick={() => setBusy(true)}>Seleccionar dataset</button>
+          <button type="button" disabled={busy} onClick={() => setBusy(true)}>Elegir archivo</button>
           <button type="button" onClick={() => setOpen(true)}>Mostrar revisión</button>
           {open && (
             <ModalDialog role="dialog" labelledBy="busy-title" onDismiss={() => { setOpen(false); setBusy(false); }}>
@@ -74,7 +74,7 @@ describe("ModalDialog", () => {
     }
 
     render(<BusyTriggerHarness />);
-    const trigger = screen.getByRole("button", { name: "Seleccionar dataset" });
+    const trigger = screen.getByRole("button", { name: "Elegir archivo" });
     trigger.focus();
     // Browsers drop focus to <body> when the focused trigger becomes disabled;
     // jsdom needs the blur before disabling to reach the same state.

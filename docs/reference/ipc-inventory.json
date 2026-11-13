@@ -140,6 +140,11 @@
       "debug": false
     },
     {
+      "name": "refresh_dataset_comparison",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "get_dataset_conflict_page",
       "module": "dataset",
       "debug": false

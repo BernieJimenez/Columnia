@@ -347,6 +347,93 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Cargar ya no dice cosas que no son verdad (crítica de diseño del
+  2026-11-12). «Archivos recientes» cuenta «nombres recordados» y cada uno
+  ofrece «Buscar en el equipo», con el nombre del archivo para los lectores de
+  pantalla, en lugar de un «Elegir de nuevo» que prometía reabrirlo. El error
+  al elegir un archivo aparece junto al botón, dice qué hacer y se retira al
+  cambiar de fuente. Una tabla de base de datos se revisa por su nombre
+  («Revisar la tabla dbo.Ventas», origen, filas leídas y «Cargar tabla») y no
+  como un archivo Parquet; antes de traerla, una línea dice cuántas filas se
+  leerán y de dónde, y el aviso de filas leídas ya no queda en pantalla si se
+  cancela. El texto explica qué confirma el diálogo de Windows al conectar.
+- Cargar habla con las palabras del oficio y sin jerga interna (crítica de
+  diseño del 2026-11-12). El botón de la tarjeta «Archivo» se llama «Elegir
+  archivo» («Elegir otro archivo» con un dataset cargado) y la pantalla se
+  titula «Carga un dataset»; la zona de selección dice qué hacer y que el
+  original no se modifica, y concreta qué archivos se leen por bloques (CSV,
+  TSV, TXT y Parquet de 512 MiB o más). La estimación de memoria y disco deja
+  de decir «source-backed», «snapshot», «materializar» y «admisión nativa»;
+  los diálogos pierden «Preflight local», «cast ni mapeo» y el rótulo de
+  encima del título, y el perfil guardado se llama siempre «perfil de
+  importación». En «Reutilizar una tarea», la lista vacía explica qué guarda
+  una tarea y «Preparar próxima importación» pasa a «Usar en la próxima
+  importación», para no confundirse con la etapa Preparar. La barra lateral y
+  la barra superior ya no hablan de «fuente local» ni de «un archivo» cuando
+  también se puede cargar desde una base de datos.
+- Cargar con un dataset ya cargado tiene una sola acción primaria,
+  «Continuar a Revisar», con las cifras pegadas a la cabecera y debajo
+  «Cambiar de datos»; «Elegir otro archivo» solo aparece con la tarjeta
+  Archivo. Ctrl+O abre el selector. El error de elegir un archivo recibe el
+  foco, el diálogo de revisión es más ancho y deja sus botones al pie, y una
+  nota avisa si una columna con nombre de fecha va a cargarse como texto. Los
+  ejemplos se listan como los recientes, los paneles que tardan en abrir dicen
+  qué cargan y la tarjeta de opción enseña el foco entera, también en
+  Entregar.
+- Cambiar de motor en Cargar > Base de datos ya no borra la conexión: se
+  conservan servidor, base de datos y usuario (y el puerto si no era el
+  predeterminado) y se avisa de que la contraseña no se traslada. «Indica el
+  servidor.» ya no aparece en un formulario sin tocar junto a «Completa la
+  conexión para ver las tablas.».
+- «Reutilizar una tarea» dice cuántas tareas hay, no enseña un formulario
+  deshabilitado cuando aún no hay nada que guardar, y la confirmación de
+  borrar lleva el foco a «Conservar» y se cancela con Esc.
+- La lectura por bloques de 512 MiB o más incluye también JSON y Excel
+  (.xlsx, .xlsb), no solo CSV, TSV y Parquet; lo dicen Cargar, el README y el
+  glosario.
+- Revisar ya no cambia el dataset (crítica de diseño del 2026-11-13). «Comparar
+  con otro archivo» compara y enseña el resultado en solo lectura; unir,
+  añadir las filas nuevas y resolver conflictos pasan a «Combinar con otro
+  archivo», en Preparar, donde dicen antes qué quedará y qué se descarta y
+  quedan como un paso del historial con «Deshacer». Unir reutiliza el archivo
+  ya comparado (`join_dataset` acepta `fromComparison`) y los tipos de unión
+  van en español con el término SQL entre paréntesis.
+- Revisar tiene una sola lista de problemas y un bloque «No se corrige solo»
+  (nulos, valores incompatibles, datos personales, coma decimal, valores no
+  finitos), cada uno con su cifra y su acción; desaparecen el plan de
+  prioridades y la vista rápida, que repetían el titular con otras cifras. El
+  error del perfil lleva «Reintentar análisis» dentro, la hora ya no sale con
+  doble punto, la completitud es texto, se quitan los rótulos sobre los
+  títulos y «Valores atípicos (regla IQR)» sustituye a «outliers». Las tablas
+  anchas ya no provocan scroll horizontal a 320 px.
+- Explorar: el foco ya no se pierde al quitar filtros y se anuncia qué se
+  quitó. Con filtros, la cabecera, el resumen y el pie dicen sobre cuántas
+  filas cuentan, y el filtro de rango se lee como el tramo. La selección del
+  histograma y la tendencia se marca con un contorno, las barras se recorren
+  con flechas y en pantallas estrechas el eje se desplaza con las columnas.
+  El estado vacío es un solo aviso con «Interpretar fechas en Preparar»;
+  «Sin dato» pasa a «nulo» y el título es «Explora los datos».
+- Entregar: antes de escribir en una base de datos, el resumen dice servidor,
+  base de datos y autenticación; «Reemplazar la tabla» avisa de que borrará sus
+  filas, pide su propia confirmación y su botón nombra la tabla y el servidor.
+  El resumen completo va en flujo y solo el botón queda fijo, con un margen
+  medido para que el foco no quede tapado. Al exportar, el foco va al
+  resultado, que es una lista corta, y el botón pasa a «Exportar otra copia».
+  «Conectar y escribir la tabla» propone el esquema del motor y una tabla con
+  el nombre del archivo; un contrato fallido explica qué hacer y no repite la
+  validación sin cambios. Textos: «Comprobación previa», «Configuraciones
+  guardadas», «Paquete Columnia» e «incumplimientos».
+- Preparar: con el historial al lado, las señales ya no se parten a una
+  palabra por línea (la columna responde a su propio ancho). «Deshacer» una
+  combinación recupera también el contrato, la receta, el perfil de
+  importación, el origen, el historial SQL y el vínculo con el proyecto que se
+  habían descartado, y las correcciones ya no borran la comparación: se
+  recalcula sin volver a pedir el archivo (nuevo comando
+  `refresh_dataset_comparison`). El foco va al resultado al aplicar y a
+  «Rehacer» al deshacer; las correcciones destructivas dicen cuántas y cuáles;
+  tras aplicar, «Continuar a Explorar» es la acción principal; se quitan los
+  rótulos sobre los títulos y se explican IQR, acentos mal leídos y
+  `[REDACTED]`.
 - La mediana para rellenar vacíos de una columna entera con valores mayores que
   2^53 ya no se redondea al pasar por coma flotante: coincide con la de un dataset en
   memoria (AUD-111).

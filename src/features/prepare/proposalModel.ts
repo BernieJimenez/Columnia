@@ -436,6 +436,35 @@ function typedColumnsOf(items: ProposalItem[], selection: ProposalSelection): st
   return item ? typedColumns(item, selection) : [];
 }
 
+/**
+ * Why a proposed change is not part of «Aplicar N cambios» although Columnia
+ * proposed it: said under the list, so «propone 6» and «Aplicar 4» agree.
+ * Changes the person unchecked need no reason.
+ */
+export function uncheckedProposalNote(
+  items: ProposalItem[],
+  selection: ProposalSelection,
+  ambiguousOrder: DateOrder | null,
+  titleOf: (item: ProposalItem) => string,
+): string | null {
+  const reasons = items.flatMap((item) => {
+    if (item.id === "impute" && !selection.impute) {
+      return [`«${titleOf(item)}» viene sin marcar porque rellenar inventa valores (la mediana o el más frecuente): márcalo solo si te sirve una estimación`];
+    }
+    if (item.id === "dates" && selection.dates && resolvedDateColumns(item, ambiguousOrder).length === 0) {
+      return ["«Convertir a fecha» no cuenta hasta que elijas cómo se leen las fechas"];
+    }
+    if (item.id === "dates" && !selection.dates && hasAmbiguousDates(item) && ambiguousOrder === null) {
+      return ["«Convertir a fecha» viene sin marcar porque sus fechas se pueden leer de dos formas: elige cómo se leen"];
+    }
+    if (item.id === "types" && selection.types && item.columns && typedColumns(item, selection).length === 0) {
+      return ["«Convertir a número» no cuenta mientras no conviertas los marcadores «sin dato»"];
+    }
+    return [];
+  });
+  return reasons.length === 0 ? null : `${reasons.join(". ")}.`;
+}
+
 export function applyLabel(count: number): string {
   // QA-33: a disabled «Aplicar 0 cambios» read as an action; say what is missing.
   if (count === 0) return "Elige un cambio";

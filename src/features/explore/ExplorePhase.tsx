@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 
 import { getExplorePanel } from "../../bridge";
 import type { DatasetPreview, ExploreFilter, ExploreLayout, ExplorePanel } from "../../bridge";
@@ -7,9 +8,9 @@ import {
   axisTicks,
   binLabel,
   filterLabel,
+  histogramYears,
   formatNumber,
   ignoredRowsText,
-  looksLikeYears,
   isPeriodSelected,
   isRangeSelected,
   isValueSelected,
@@ -34,6 +35,8 @@ interface ExplorePhaseProps {
   /** UX-09: the filters a reopened project had. */
   initialFilters?: ExploreFilter[];
   onFiltersChange?: (filters: ExploreFilter[]) => void;
+  /** Opens Preparar, where text dates are interpreted; without it the notice only explains. */
+  onGoToPrepare?: () => void;
 }
 
 type PanelState =
@@ -53,6 +56,7 @@ function ChartTable({ caption, headers, rows }: {
   return (
     <details className="explore__table">
       <summary>Ver como tabla</summary>
+      <div className="explore__table-scroll" role="group" tabIndex={0} aria-label={`Tabla: ${caption}`}>
       <table>
         <caption className="visually-hidden">{caption}</caption>
         <thead>
@@ -64,6 +68,7 @@ function ChartTable({ caption, headers, rows }: {
           ))}
         </tbody>
       </table>
+      </div>
     </details>
   );
 }
@@ -81,19 +86,59 @@ function trendTableRows(points: { period: string; count: number }[]): { byYear: 
   return { byYear: true, rows: [...years.entries()] };
 }
 
-/** ACC-18: one Tab stop per chart; the arrows, Home and End move between its columns. */
-function moveAmongColumns(event: React.KeyboardEvent<HTMLDivElement>) {
-  const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
-  const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-  if (index < 0) return;
-  const targets: Record<string, number> = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: buttons.length - 1 };
-  const target = targets[event.key];
-  if (target === undefined) return;
-  event.preventDefault();
-  buttons[Math.max(0, Math.min(buttons.length - 1, target))]?.focus();
+/**
+ * ACC-18: one Tab stop per chart; the arrows, Home and End move between its
+ * columns or bars (up and down too in a list of bars).
+ */
+function moveAmong(vertical: boolean) {
+  return (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
+    const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (index < 0) return;
+    const targets: Record<string, number> = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: buttons.length - 1 };
+    if (vertical) { targets.ArrowDown = index + 1; targets.ArrowUp = index - 1; }
+    const target = targets[event.key];
+    if (target === undefined) return;
+    event.preventDefault();
+    buttons[Math.max(0, Math.min(buttons.length - 1, target))]?.focus();
+  };
+}
+const moveAmongColumns = moveAmong(false);
+const moveAmongBars = moveAmong(true);
+
+/**
+ * The columns and their axis scroll together; the hint shows only when the
+ * columns (at least 24 px each, WCAG 2.5.8) do not fit.
+ */
+function ScrollPlot({ count, hint, children }: { count: number; hint: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [overflows, setOverflows] = useState(false);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => setOverflows(element.scrollWidth > element.clientWidth + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+    // `count` re-measures when the columns change; the observer covers resizes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [count]);
+  return (
+    <>
+      <div ref={ref} className="explore__scroll">
+        <div className="explore__plot" style={{ "--columns": count } as CSSProperties}>{children}</div>
+      </div>
+      {overflows && <p className="explore__note">{hint}</p>}
+    </>
+  );
 }
 
-export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFilters, onFiltersChange }: ExplorePhaseProps) {
+type FocusTarget = { chip: string } | { chart: string } | "customize";
+
+
+export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFilters, onFiltersChange, onGoToPrepare }: ExplorePhaseProps) {
   const [filters, setFilters] = useState<ExploreFilter[]>(initialFilters ?? []);
   useEffect(() => { onFiltersChange?.(filters); }, [filters, onFiltersChange]);
   // «Personalizar»: empty means Columnia chooses the charts.
@@ -101,6 +146,10 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
   const [customizing, setCustomizing] = useState(false);
   const [state, setState] = useState<PanelState>({ kind: "loading", previous: null });
   const [attempt, setAttempt] = useState(0);
+  // What a change did that the person may not see; shown while the filters are the ones it produced.
+  const [announcement, setAnnouncement] = useState<{ text: string; filters: ExploreFilter[] } | null>(null);
+  const rootRef = useRef<HTMLElement>(null);
+  const pendingFocus = useRef<FocusTarget | null>(null);
   const custom = Object.keys(layout).length > 0;
   const [shownRevision, setShownRevision] = useState(datasetRevision);
   if (shownRevision !== datasetRevision) {
@@ -108,6 +157,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
     setShownRevision(datasetRevision);
     setFilters([]);
     setLayout({});
+    setAnnouncement(null);
   }
 
   useEffect(() => {
@@ -134,37 +184,88 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, layout, datasetRevision, profileReady, attempt]);
 
+  // A removed filter takes its chip, and the focus with it: put the focus where the person can go on.
+  useEffect(() => {
+    const target = pendingFocus.current;
+    const root = rootRef.current;
+    if (!target || !root) return;
+    pendingFocus.current = null;
+    let element: HTMLElement | null | undefined;
+    if (typeof target === "object" && "chip" in target) {
+      element = [...root.querySelectorAll<HTMLElement>("[data-filter-chip]")].find((chip) => chip.dataset.filterChip === target.chip);
+    } else if (typeof target === "object") {
+      element = [...root.querySelectorAll<HTMLElement>("[data-chart]")]
+        .find((chart) => chart.dataset.chart === target.chart)
+        ?.querySelector<HTMLElement>('button[tabindex="0"]');
+    }
+    (element ?? root.querySelector<HTMLElement>(".explore__customize"))?.focus();
+    // Runs after the render that changed the filters or the layout; the target travels in a ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, layout]);
+
   const panel = state.kind === "ready" ? state.panel : state.previous;
   const shownCharts = panel?.categories.map((chart) => chart.column) ?? [];
-  // A chart that leaves the panel takes its filter with it.
-  function changeLayout(next: ExploreLayout, dropped?: string | null) {
-    setLayout(next);
-    if (dropped) setFilters((current) => current.filter((filter) => filter.column !== dropped));
+  const text = (filter: ExploreFilter) => filterLabel(filter, panel?.histogram ?? null);
+  function say(message: string, next: ExploreFilter[]) { setAnnouncement({ text: message, filters: next }); }
+  function removeFilter(column: string) {
+    const index = filters.findIndex((filter) => filter.column === column);
+    if (index < 0) return;
+    const next = filters.filter((filter) => filter.column !== column);
+    const neighbour = filters[index + 1] ?? filters[index - 1];
+    pendingFocus.current = neighbour ? { chip: neighbour.column } : { chart: column };
+    setFilters(next);
+    say(`Filtro quitado: ${text(filters[index]!)}.`, next);
   }
+  function clearFilters() {
+    pendingFocus.current = "customize";
+    const next: ExploreFilter[] = [];
+    setFilters(next);
+    say("Filtros quitados.", next);
+  }
+  // A chart that leaves the panel takes its filter with it, and says so.
+  function changeLayout(next: ExploreLayout, dropped: string | null | undefined, reason: string) {
+    setLayout(next);
+    const gone = dropped ? filters.find((filter) => filter.column === dropped) : undefined;
+    if (!gone) return;
+    const remaining = filters.filter((filter) => filter.column !== dropped);
+    setFilters(remaining);
+    say(`Se quitó el filtro ${text(gone)} ${reason}.`, remaining);
+  }
+
+  const hasTrend = !!(panel?.trend && panel.trend.points.length > 0);
+  const noCharts = !!panel && panel.categories.length === 0 && !panel.histogram && !hasTrend;
+  const filtered = filters.length > 0 && !!panel;
+  const summary = filters.length === 0 || !panel
+    ? "Pulsa una barra para filtrar todo el panel."
+    : `${plural(panel.rowCount, "fila", "filas")} de ${formatNumber(panel.totalRowCount)} cumplen los filtros.`;
+  const shownAnnouncement = announcement && announcement.filters === filters ? announcement.text : null;
 
   return (
     <>
       <header className="phase-header phase-header--compact">
         <div>
-          <h2>Explora los datos limpios</h2>
+          <h2>Explora los datos</h2>
           <p className="phase-lead">
-            {custom ? "Tú elegiste estos gráficos" : "Columnia eligió estos gráficos"} sobre las {formatNumber(dataset.rowCount)} filas.
+            {custom ? "Tú elegiste estos gráficos" : "Columnia eligió estos gráficos"}{" "}
+            {filtered
+              ? `sobre ${formatNumber(panel.rowCount)} de ${formatNumber(panel.totalRowCount)} filas (filtradas)`
+              : `sobre las ${formatNumber(dataset.rowCount)} filas`}.
           </p>
         </div>
       </header>
 
       {!profileReady && (
-        <p className="notice" role="status">Analizando la calidad para preparar el panel…</p>
+        <p className="explore__info" role="status">Analizando la calidad para preparar el panel…</p>
       )}
       {/* UX-11: the first panel of a large dataset takes a moment. */}
       {profileReady && state.kind === "loading" && !state.previous && (
-        <p className="notice" role="status">Preparando el panel…</p>
+        <p className="explore__info" role="status">Preparando el panel…</p>
       )}
       {state.kind === "error" && (
         <div className="notice notice--error" role="alert">
           <p>No se pudo preparar el panel: {state.message}</p>
           {filters.length > 0 || custom ? (
-            <button type="button" className="secondary-action" onClick={() => { setFilters([]); setLayout({}); }}>
+            <button type="button" className="secondary-action" onClick={() => { pendingFocus.current = "customize"; setFilters([]); setLayout({}); }}>
               Quitar filtros y volver a lo automático
             </button>
           ) : (
@@ -176,39 +277,45 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
       )}
 
       {panel && (
-        <section className="explore" aria-labelledby="explore-title" aria-busy={state.kind === "loading"}>
+        <section ref={rootRef} className="explore" aria-labelledby="explore-title" aria-busy={state.kind === "loading"}>
           <h3 id="explore-title" className="visually-hidden">Panel de los datos</h3>
-          <div className="explore__filters" aria-live="polite">
-            {filters.length === 0 ? (
-              <span className="explore__hint">Pulsa una barra para filtrar todo el panel.</span>
-            ) : (
-              <>
-                {filters.map((filter) => (
-                  <button
-                    key={filter.column}
-                    type="button"
-                    className="explore__chip"
-                    aria-label={`Quitar filtro ${filterLabel(filter)}`}
-                    onClick={() => setFilters((current) => current.filter((item) => item.column !== filter.column))}
-                  >
-                    {filterLabel(filter)} ✕
-                  </button>
-                ))}
-                <button type="button" className="explore__clear" onClick={() => setFilters([])}>Quitar filtros</button>
-              </>
-            )}
-            <button
-              type="button"
-              className="secondary-action explore__customize"
-              aria-expanded={customizing}
-              aria-controls="explore-custom"
-              onClick={() => setCustomizing((open) => !open)}
-            >
-              Personalizar
-            </button>
-          </div>
+          {(!noCharts || filters.length > 0) && (
+            <div className="explore__filters">
+              {/* Only this text is announced: not the buttons beside it. */}
+              <p className="explore__summary" role="status">
+                {shownAnnouncement && <span>{shownAnnouncement}</span>}
+                <span className="explore__hint">{summary}</span>
+              </p>
+              {filters.map((filter) => (
+                <button
+                  key={filter.column}
+                  type="button"
+                  className="explore__chip"
+                  data-filter-chip={filter.column}
+                  aria-label={`Quitar filtro ${text(filter)}`}
+                  onClick={() => removeFilter(filter.column)}
+                >
+                  {text(filter)} ✕
+                </button>
+              ))}
+              {filters.length > 0 && (
+                <button type="button" className="explore__clear" onClick={clearFilters}>Quitar filtros</button>
+              )}
+              {!noCharts && (
+                <button
+                  type="button"
+                  className="secondary-action explore__customize"
+                  aria-expanded={customizing}
+                  aria-controls="explore-custom"
+                  onClick={() => setCustomizing((open) => !open)}
+                >
+                  Personalizar
+                </button>
+              )}
+            </div>
+          )}
 
-          {customizing && (
+          {customizing && !noCharts && (
             <div id="explore-custom" className="explore__custom">
               <fieldset>
                 <legend>Gráficos de barras (hasta {MAX_CHARTS})</legend>
@@ -221,7 +328,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                           type="checkbox"
                           checked={checked}
                           disabled={!checked && shownCharts.length >= MAX_CHARTS}
-                          onChange={() => changeLayout(toggleChart(layout, shownCharts, column), checked ? column : null)}
+                          onChange={() => changeLayout(toggleChart(layout, shownCharts, column), checked ? column : null, "porque ya no se muestra ese gráfico")}
                         />
                         {column}
                       </label>
@@ -234,7 +341,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                   Medida
                   <select
                     value={panel.histogram?.column ?? ""}
-                    onChange={(event) => changeLayout({ ...layout, measure: event.target.value }, panel.histogram?.column)}
+                    onChange={(event) => changeLayout({ ...layout, measure: event.target.value }, panel.histogram?.column, "al cambiar la medida")}
                   >
                     {panel.options.measures.map((column) => <option key={column}>{column}</option>)}
                   </select>
@@ -245,14 +352,14 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                   Fecha
                   <select
                     value={panel.trend?.column ?? ""}
-                    onChange={(event) => changeLayout({ ...layout, date: event.target.value }, panel.trend?.column)}
+                    onChange={(event) => changeLayout({ ...layout, date: event.target.value }, panel.trend?.column, "al cambiar la fecha")}
                   >
                     {panel.options.dates.map((column) => <option key={column}>{column}</option>)}
                   </select>
                 </label>
               )}
               {custom && (
-                <button type="button" className="explore__clear" onClick={() => { setLayout({}); setFilters([]); }}>
+                <button type="button" className="explore__clear" onClick={() => { pendingFocus.current = "customize"; setLayout({}); setFilters([]); }}>
                   Volver a lo automático
                 </button>
               )}
@@ -263,7 +370,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
             {panel.kpis.map((kpi) => (
               <div key={`${kpi.kind}:${kpi.column ?? ""}`} className="explore__kpi">
                 <dt>{kpiLabel(kpi)}</dt>
-                <dd>{kpiValue(kpi)}</dd>
+                <dd className={kpi.value === null ? "explore__kpi-empty" : undefined}>{kpiValue(kpi)}</dd>
                 {kpi.kind === "count" && panel.rowCount !== panel.totalRowCount && (
                   <small>de {formatNumber(panel.totalRowCount)}</small>
                 )}
@@ -276,6 +383,8 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
             {panel.categories.map((chart, index) => {
               const max = Math.max(1, ...chart.bars.map((bar) => bar.count));
               const active = filters.some((filter) => filter.column === chart.column);
+              // The value column grows with the longest figure so it never cuts one.
+              const valueWidth = Math.max(...chart.bars.map((bar) => formatNumber(bar.count).length), 1) + 1;
               // An odd chart out takes the whole row instead of leaving half of it empty.
               const alone = index === panel.categories.length - 1 && panel.categories.length % 2 === 1;
               return (
@@ -284,15 +393,22 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                     <h4>{chart.column}</h4>
                     <p className="explore__kind">Filas por valor</p>
                   </div>
-                  <div className={`explore__bars${active ? " explore__bars--dim" : ""}`}>
-                    {chart.bars.map((bar) => {
+                  <div
+                    className={`explore__bars${active ? " explore__bars--dim" : ""}`}
+                    data-chart={chart.column}
+                    style={{ "--value-width": `${valueWidth}ch` } as CSSProperties}
+                    onKeyDown={moveAmongBars}
+                  >
+                    {chart.bars.map((bar, barIndex) => {
                       const selected = isValueSelected(filters, chart.column, bar.value);
                       return (
                         <button
                           key={bar.value ?? "\u0000"}
                           type="button"
                           className="explore__bar"
+                          tabIndex={barIndex === 0 ? 0 : -1}
                           aria-pressed={selected}
+                          aria-label={`${valueLabel(bar.value)}: ${plural(bar.count, "fila", "filas")}`}
                           onClick={() => setFilters((current) => toggleValue(current, chart.column, bar.value))}
                         >
                           <span className="explore__label" title={bar.value === null ? undefined : bar.value}>{valueLabel(bar.value)}</span>
@@ -323,7 +439,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
               const histogram = panel.histogram;
               const max = Math.max(1, ...histogram.bins.map((bin) => bin.count));
               const active = filters.some((filter) => filter.column === histogram.column);
-              const years = histogram.integer && looksLikeYears(histogram.bins[0]?.lower ?? 0, histogram.bins.at(-1)?.upper ?? 0);
+              const years = histogramYears(histogram);
               const ignored = ignoredRowsText(histogram.ignoredCount);
               return (
                 <section className="explore__panel explore__panel--wide" aria-label={`Distribución de ${histogram.column}`}>
@@ -331,30 +447,34 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                     <h4>{histogram.column}</h4>
                     <p className="explore__kind">Distribución</p>
                   </div>
-                  <div className={`explore__columns${active ? " explore__bars--dim" : ""}`} onKeyDown={moveAmongColumns}>
-                    {histogram.bins.map((bin, index) => {
-                      const selected = isRangeSelected(filters, histogram.column, bin.lower, bin.upper);
-                      return (
-                        <button
-                          key={bin.lower}
-                          type="button"
-                          className="explore__column"
-                          tabIndex={index === 0 ? 0 : -1}
-                          aria-pressed={selected}
-                          aria-label={`${histogram.column} de ${binLabel(bin.lower, bin.upper, histogram.integer, index === histogram.bins.length - 1, years)}: ${plural(bin.count, "fila", "filas")}`}
-                          onClick={() => setFilters((current) =>
-                            toggleRange(current, histogram.column, bin.lower, bin.upper, index === histogram.bins.length - 1))}
-                        >
-                          <span className="explore__area"><span className="explore__fill" style={{ height: `${(bin.count / max) * 100}%` }} /></span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="explore__axis">
-                    {axisTicks(histogram.bins[0]?.lower ?? 0, histogram.bins.at(-1)?.upper ?? 0).map((tick, index) => (
-                      <span key={index}>{formatNumber(histogram.integer ? Math.round(tick) : tick, 2, !years)}</span>
-                    ))}
-                  </p>
+                  <ScrollPlot count={histogram.bins.length} hint="Desliza para ver todos los tramos.">
+                    <div className={`explore__columns${active ? " explore__bars--dim" : ""}`} data-chart={histogram.column} onKeyDown={moveAmongColumns}>
+                      {histogram.bins.map((bin, index) => {
+                        const selected = isRangeSelected(filters, histogram.column, bin.lower, bin.upper);
+                        const label = binLabel(bin.lower, bin.upper, histogram.integer, index === histogram.bins.length - 1, years);
+                        return (
+                          <button
+                            key={bin.lower}
+                            type="button"
+                            className="explore__column"
+                            tabIndex={index === 0 ? 0 : -1}
+                            aria-pressed={selected}
+                            aria-label={`${histogram.column} de ${label}: ${plural(bin.count, "fila", "filas")}`}
+                            title={`${label}: ${formatNumber(bin.count)}`}
+                            onClick={() => setFilters((current) =>
+                              toggleRange(current, histogram.column, bin.lower, bin.upper, index === histogram.bins.length - 1))}
+                          >
+                            <span className="explore__area"><span className="explore__fill" style={{ height: `${(bin.count / max) * 100}%` }} /></span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="explore__axis">
+                      {axisTicks(histogram.bins[0]?.lower ?? 0, histogram.bins.at(-1)?.upper ?? 0).map((tick, index) => (
+                        <span key={index}>{formatNumber(histogram.integer ? Math.round(tick) : tick, 2, !years)}</span>
+                      ))}
+                    </p>
+                  </ScrollPlot>
                   <p className="explore__note">
                     Filas por tramo de {histogram.column}; el tramo más alto tiene {plural(max, "fila", "filas")}.
                     {ignored ? ` ${ignored}: no aparece en ningún tramo.` : ""}
@@ -371,7 +491,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
               );
             })()}
 
-            {panel.trend && panel.trend.points.length > 0 && (() => {
+            {panel.trend && hasTrend && (() => {
               const trend = panel.trend;
               const max = Math.max(1, ...trend.points.map((point) => point.count));
               const active = filters.some((filter) => filter.column === trend.column);
@@ -381,26 +501,28 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                     <h4>{trend.column}</h4>
                     <p className="explore__kind">Filas en el tiempo</p>
                   </div>
-                  <div className={`explore__columns${active ? " explore__bars--dim" : ""}`} onKeyDown={moveAmongColumns}>
-                    {trend.points.map((point, index) => (
-                      <button
-                        key={point.period}
-                        type="button"
-                        className="explore__column"
-                        tabIndex={index === 0 ? 0 : -1}
-                        aria-pressed={isPeriodSelected(filters, trend.column, point.period)}
-                        aria-label={`${point.period}: ${plural(point.count, "fila", "filas")}`}
-                        title={`${point.period}: ${formatNumber(point.count)}`}
-                        onClick={() => setFilters((current) => togglePeriod(current, trend.column, point.period))}
-                      >
-                        <span className="explore__area"><span className="explore__fill" style={{ height: `${(point.count / max) * 100}%` }} /></span>
-                      </button>
-                    ))}
-                  </div>
-                  <p className="explore__axis">
-                    <span>{trend.points[0]?.period}</span>
-                    <span>{trend.points.at(-1)?.period}</span>
-                  </p>
+                  <ScrollPlot count={trend.points.length} hint="Desliza para ver todos los periodos.">
+                    <div className={`explore__columns${active ? " explore__bars--dim" : ""}`} data-chart={trend.column} onKeyDown={moveAmongColumns}>
+                      {trend.points.map((point, index) => (
+                        <button
+                          key={point.period}
+                          type="button"
+                          className="explore__column"
+                          tabIndex={index === 0 ? 0 : -1}
+                          aria-pressed={isPeriodSelected(filters, trend.column, point.period)}
+                          aria-label={`${point.period}: ${plural(point.count, "fila", "filas")}`}
+                          title={`${point.period}: ${formatNumber(point.count)}`}
+                          onClick={() => setFilters((current) => togglePeriod(current, trend.column, point.period))}
+                        >
+                          <span className="explore__area"><span className="explore__fill" style={{ height: `${(point.count / max) * 100}%` }} /></span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="explore__axis">
+                      <span>{trend.points[0]?.period}</span>
+                      <span>{trend.points.at(-1)?.period}</span>
+                    </p>
+                  </ScrollPlot>
                   {(() => {
                     const table = trendTableRows(trend.points);
                     return (
@@ -415,22 +537,28 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
               );
             })()}
           </div>
-          {/* UX-09: say why a panel has no charts or no trend. */}
-          {panel.categories.length === 0 && !panel.histogram && !(panel.trend && panel.trend.points.length > 0) && (
-            <p className="notice">
-              {panel.totalRowCount <= 1
-                ? "Con una sola fila no hay distribución que mostrar: los gráficos aparecen con más filas."
-                : "Ninguna columna sirve para un gráfico: hacen falta categorías con valores repetidos, números o fechas."}
+          {/* UX-09: say why a panel has no charts or no trend, once, with the way out. */}
+          {(noCharts || (!panel.trend && panel.options.textDates.length > 0)) && (
+            <div className="explore__info">
+              <p>
+                {noCharts && (panel.totalRowCount <= 1
+                  ? "Con una sola fila no hay distribución que mostrar: los gráficos aparecen con más filas. "
+                  : "Ninguna columna sirve para un gráfico: hacen falta categorías con valores repetidos, números o fechas. ")}
+                {!panel.trend && panel.options.textDates.length === 1 &&
+                  `«${panel.options.textDates[0]}» parece una fecha guardada como texto. Interprétala en Preparar («Interpretar fechas») para ver su tendencia.`}
+                {!panel.trend && panel.options.textDates.length > 1 &&
+                  `${panel.options.textDates.map((column) => `«${column}»`).join(", ")} parecen fechas guardadas como texto. Interprétalas en Preparar («Interpretar fechas») para ver su tendencia.`}
+              </p>
+              {!panel.trend && panel.options.textDates.length > 0 && onGoToPrepare && (
+                <button type="button" className="secondary-action" onClick={onGoToPrepare}>Interpretar fechas en Preparar</button>
+              )}
+            </div>
+          )}
+          {!noCharts && (
+            <p className="explore__note">
+              {filters.length > 0 ? "Los gráficos usan todas las filas que cumplen los filtros, no una muestra." : "Los gráficos usan todas las filas, no una muestra."} Nada sale de tu equipo.
             </p>
           )}
-          {!panel.trend && panel.options.textDates.length > 0 && (
-            <p className="notice">
-              {panel.options.textDates.length === 1
-                ? `«${panel.options.textDates[0]}» parece una fecha guardada como texto. Interprétala en Preparar («Interpretar fechas») para ver su tendencia.`
-                : `${panel.options.textDates.map((column) => `«${column}»`).join(", ")} parecen fechas guardadas como texto. Interprétalas en Preparar («Interpretar fechas») para ver su tendencia.`}
-            </p>
-          )}
-          <p className="explore__note">Los gráficos usan todas las filas, no una muestra. Nada sale de tu equipo.</p>
         </section>
       )}
     </>

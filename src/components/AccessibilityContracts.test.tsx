@@ -124,7 +124,7 @@ describe("contratos de accesibilidad de la interfaz", () => {
       return (
         <>
           <button type="button" disabled={busy} onClick={() => { setBusy(true); setOpen(true); }}>
-            Seleccionar dataset
+            Elegir archivo
           </button>
           {open && (
             <ModalDialog role="dialog" labelledBy="import-title" onDismiss={() => { setOpen(false); setTimeout(() => setBusy(false), 30); }}>
@@ -136,7 +136,7 @@ describe("contratos de accesibilidad de la interfaz", () => {
       );
     }
     render(<Harness />);
-    const trigger = screen.getByRole("button", { name: "Seleccionar dataset" });
+    const trigger = screen.getByRole("button", { name: "Elegir archivo" });
     trigger.focus();
     fireEvent.click(trigger);
     // A native picker held the focus while the dialog opened.
@@ -146,6 +146,6 @@ describe("contratos de accesibilidad de la interfaz", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cargar archivo" }));
 
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Seleccionar dataset" })));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Elegir archivo" })));
   });
 });

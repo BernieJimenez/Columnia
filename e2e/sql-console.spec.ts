@@ -19,7 +19,7 @@ test.describe("consulta SQL desde la barra superior", () => {
     // Without a dataset there is nothing to query.
     await expect(page.getByRole("button", { name: "Consulta SQL" })).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+    await page.getByRole("button", { name: "Elegir archivo" }).click();
     await page.getByRole("dialog", { name: /Revisar encabezados/ }).getByRole("button", { name: "Cargar archivo" }).click();
     await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
     await page.getByRole("navigation", { name: "Flujo de preparación de datos" })
@@ -54,7 +54,7 @@ test.describe("consulta SQL desde la barra superior", () => {
     await page.setViewportSize({ width: 1280, height: 860 });
     await installTauriMock(page, { dataset: wide });
     await page.goto("/", { waitUntil: "commit" });
-    await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+    await page.getByRole("button", { name: "Elegir archivo" }).click();
     await page.getByRole("dialog", { name: /Revisar encabezados/ }).getByRole("button", { name: "Cargar archivo" }).click();
     await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
 

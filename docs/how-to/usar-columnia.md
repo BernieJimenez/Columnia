@@ -9,7 +9,7 @@ cuando tú eliges entregar a una base de datos remota.
 
 ## 1. Cargar
 
-1. Pulsa **Seleccionar dataset** y elige un CSV, TSV, JSON, Parquet, Excel u
+1. Pulsa **Elegir archivo** y elige un CSV, TSV, JSON, Parquet, Excel u
    ODS. También puedes arrastrar el archivo a la ventana o abrir uno de
    **Explora con un dataset de ejemplo**.
 2. Revisa el diálogo antes de cargar:
@@ -33,7 +33,7 @@ no hay nada que corregir).
 
 La consola SQL de Revisar consulta el dataset sin cambiarlo.
 
-Para comparar con otra versión del archivo, abre «Comparar con otro dataset».
+Para comparar con otra versión del archivo, abre «Comparar con otro archivo» en Revisar; para unir o añadir sus filas, sigue con «Combinar en Preparar».
 En «Qué cuenta como igual» puedes tolerar el redondeo de los decimales e
 ignorar mayúsculas o espacios, para que solo aparezcan los cambios reales.
 

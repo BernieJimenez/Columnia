@@ -1,4 +1,4 @@
-import type { ExploreFilter, ExploreKpi, ExploreLayout } from "../../bridge";
+import type { ExploreFilter, ExploreKpi, ExploreLayout, ExplorePanel } from "../../bridge";
 
 export const MAX_CHARTS = 6;
 
@@ -66,7 +66,7 @@ export function axisTicks(lower: number, upper: number): number[] {
 }
 
 export function valueLabel(value: string | null): string {
-  return value === null ? "Sin dato" : value;
+  return value === null ? "nulo" : value;
 }
 
 export function formatNumber(value: number, fractionDigits = 0, useGrouping = true): string {
@@ -92,11 +92,25 @@ export function ignoredRowsText(count: number | undefined): string | null {
   return count === 1 ? "1 fila sin número no cuenta" : `${formatNumber(count)} filas sin número no cuentan`;
 }
 
-/** Chip text for an active filter. */
-export function filterLabel(filter: ExploreFilter): string {
+type Histogram = NonNullable<ExplorePanel["histogram"]>;
+
+/** Whether a histogram's whole-number bins read as years. */
+export function histogramYears(histogram: Pick<Histogram, "integer" | "bins">): boolean {
+  return histogram.integer && looksLikeYears(histogram.bins[0]?.lower ?? 0, histogram.bins.at(-1)?.upper ?? 0);
+}
+
+/**
+ * Chip text for an active filter. A range reads like the histogram bin it came
+ * from («100 a 149», years as years), so it needs that histogram.
+ */
+export function filterLabel(filter: ExploreFilter, histogram?: Pick<Histogram, "column" | "integer" | "bins"> | null): string {
   if (filter.period) return `${filter.column}: ${filter.period}`;
   if (filter.range) {
-    return `${filter.column}: ${formatNumber(filter.range.min, 2)}–${formatNumber(filter.range.max, 2)}`;
+    const { min, max, exclusiveMax } = filter.range;
+    const label = histogram?.column === filter.column
+      ? binLabel(min, max, histogram.integer, !exclusiveMax, histogramYears(histogram))
+      : `${formatNumber(min, 2)} a ${formatNumber(max, 2)}`;
+    return `${filter.column}: ${label}`;
   }
   return `${filter.column}: ${(filter.values ?? []).map(valueLabel).join(", ")}`;
 }
@@ -107,6 +121,6 @@ export function kpiLabel(kpi: ExploreKpi): string {
 }
 
 export function kpiValue(kpi: ExploreKpi): string {
-  if (kpi.value === null) return "—";
+  if (kpi.value === null) return "sin valores numéricos";
   return formatNumber(kpi.value, kpi.kind === "count" ? 0 : 2);
 }

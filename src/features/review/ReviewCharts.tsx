@@ -54,7 +54,6 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
     <section className="quality-visuals" aria-labelledby="quality-visuals-title">
       <div className="quality-visuals__heading">
         <div>
-          <p className="step">Lectura rápida</p>
           <h4 id="quality-visuals-title">Señales del perfil</h4>
         </div>
         <p>
@@ -86,9 +85,9 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
         </div>
         {numericColumns.length > 0 && (
           <div className="quality-chart" role="group" aria-labelledby="quality-outliers-title">
-            <h5 id="quality-outliers-title">Posibles outliers</h5>
-            <p className="quality-chart__note">Filas fuera del rango IQR de 1.5×.</p>
-            <div className="quality-chart__bars" role="list" aria-label="Posibles outliers por columna">
+            <h5 id="quality-outliers-title">Valores atípicos (regla IQR)</h5>
+            <p className="quality-chart__note">Filas fuera de 1.5 veces el rango intercuartílico (IQR).</p>
+            <div className="quality-chart__bars" role="list" aria-label="Valores atípicos por columna">
               {numericColumns.map((column) => {
                 const count = Math.max(0, column.outlierCount ?? 0);
                 const percentage = (count / maxOutlierCount) * 100;

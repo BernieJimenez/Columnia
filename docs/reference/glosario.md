@@ -10,7 +10,7 @@ Términos internos que aparecen en la documentación, el roadmap y el código.
 | Receta | Lista ordenada de transformaciones de Preparar que se puede guardar y volver a aplicar a otro archivo con el mismo esquema. |
 | Tarea reutilizable | Receta, reglas de calidad y formato de entrega guardados juntos para repetir el mismo trabajo. |
 | Reglas de calidad / contrato | Condiciones que la copia entregada debe cumplir (por ejemplo, ninguna fila sin importe). Entregar valida antes de exportar. |
-| Source-backed | Modo para CSV, TSV, TXT delimitado y Parquet de al menos 512 MiB: el dataset activo guarda solo el esquema y la primera página, y las operaciones leen el archivo de origen desde disco. |
+| Source-backed | Modo para CSV, TSV, TXT delimitado, JSON, Parquet y Excel (.xlsx, .xlsb) de 512 MiB o más: el dataset activo guarda solo el esquema y la primera página, y las operaciones leen desde disco el archivo de origen (Parquet) o una copia Parquet privada (los demás). En la interfaz se dice «se lee por bloques». |
 | Snapshot | Copia Parquet de un estado del dataset. El historial de Preparar y cada versión de un proyecto guardan una. |
 | Gate | Comprobación automática que debe pasar antes de integrar o publicar (por ejemplo, `npm run docs:check` o `npm run ipc:check`). `tools/check.ps1` los agrupa por perfiles. |
 | Tier | Una verificación completa y reproducible: tests, build, accesibilidad, benchmark, smokes y gates finales (`npm run verify:tier`). «Tier 10» nombra también la reauditoría del 2026-09-23, que se cerró con esa verificación. |

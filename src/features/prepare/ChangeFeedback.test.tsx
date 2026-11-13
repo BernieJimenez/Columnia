@@ -33,7 +33,7 @@ describe("ChangeFeedback", () => {
     expect(screen.getByRole("button", { name: "Cancelar" })).toBeEnabled();
   });
 
-  it("la línea de resultado ofrece Deshacer y Cerrar, sin duplicar el anuncio (AUD-057)", () => {
+  it("la línea de resultado ofrece «Deshacer este cambio» y Cerrar, sin duplicar el anuncio (AUD-057)", () => {
     const onUndo = vi.fn();
     const onDismiss = vi.fn();
     render(
@@ -48,24 +48,63 @@ describe("ChangeFeedback", () => {
 
     expect(screen.getByText("Se eliminó 1 fila vacía.")).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Deshacer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Deshacer este cambio" }));
     expect(onUndo).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
-  it("la línea de resultado deshabilita Deshacer si no hay a qué volver y lo omite si nada cambió (AUD-057)", () => {
+  it("sin a qué volver, Deshacer sigue enfocable con aria-disabled; si nada cambió, no aparece (AUD-057)", () => {
+    const onUndo = vi.fn();
     const { rerender } = render(
-      <ChangeResultLine status={{ kind: "applied", message: "Listo." }} canUndo={false} busy={false} onUndo={vi.fn()} onDismiss={vi.fn()} />,
+      <ChangeResultLine status={{ kind: "applied", message: "Listo." }} canUndo={false} busy={false} onUndo={onUndo} onDismiss={vi.fn()} />,
     );
-    expect(screen.getByRole("button", { name: "Deshacer" })).toBeDisabled();
+    const undo = screen.getByRole("button", { name: "Deshacer este cambio" });
+    expect(undo).toBeEnabled();
+    expect(undo).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(undo);
+    expect(onUndo).not.toHaveBeenCalled();
 
     rerender(
       <ChangeResultLine status={{ kind: "applied", message: "Sin cambios.", unchanged: true }} canUndo busy={false} onUndo={vi.fn()} onDismiss={vi.fn()} />,
     );
-    expect(screen.queryByRole("button", { name: "Deshacer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Deshacer/ })).not.toBeInTheDocument();
 
     rerender(<ChangeResultLine status={{ kind: "idle" }} canUndo busy={false} onUndo={vi.fn()} onDismiss={vi.fn()} />);
     expect(screen.queryByLabelText("Resultado del último cambio")).not.toBeInTheDocument();
+  });
+
+  it("tras deshacer ofrece «Rehacer» y se lleva el foco cuando se lo piden", () => {
+    const onRedo = vi.fn();
+    const onFocusHandled = vi.fn();
+    render(
+      <ChangeResultLine
+        status={{ kind: "applied", message: "Se deshizo «Recortar espacios».", origin: "undo" }}
+        canUndo
+        canRedo
+        busy={false}
+        focusAction
+        onFocusHandled={onFocusHandled}
+        onUndo={vi.fn()}
+        onRedo={onRedo}
+        onDismiss={vi.fn()}
+      />,
+    );
+    const redo = screen.getByRole("button", { name: "Rehacer el cambio deshecho" });
+    expect(redo).toHaveFocus();
+    expect(onFocusHandled).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: /Deshacer/ })).not.toBeInTheDocument();
+    fireEvent.click(redo);
+    expect(onRedo).toHaveBeenCalledOnce();
+  });
+
+  it("mientras trabaja, la acción no se ejecuta y dice por qué", () => {
+    const onUndo = vi.fn();
+    render(<ChangeResultLine status={{ kind: "applied", message: "Listo." }} canUndo busy onUndo={onUndo} onDismiss={vi.fn()} />);
+    const undo = screen.getByRole("button", { name: "Deshacer este cambio" });
+    expect(undo).toHaveAttribute("aria-disabled", "true");
+    expect(undo).toHaveAttribute("aria-describedby", "busy-reason");
+    fireEvent.click(undo);
+    expect(onUndo).not.toHaveBeenCalled();
   });
 });

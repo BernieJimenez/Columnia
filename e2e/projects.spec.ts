@@ -32,7 +32,7 @@ async function installTauriProjectMock(page: Page, seedRecoveryCandidate = false
 }
 
 async function selectAndConfirmDataset(page: Page) {
-  await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+  await page.getByRole("button", { name: "Elegir archivo" }).click();
   const headerReview = page.getByRole("dialog", { name: "Revisar encabezados de ventas.csv" });
   const loadButton = headerReview.getByRole("button", { name: "Cargar archivo" });
   await expect(loadButton).toBeEnabled();
@@ -43,7 +43,7 @@ test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulad
   await installTauriProjectMock(page);
   await page.goto("/", { waitUntil: "commit" });
 
-  await expect(page.getByRole("button", { name: "Seleccionar dataset" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Elegir archivo" })).toBeVisible();
   await selectAndConfirmDataset(page);
   const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
   await expect(workflow.getByRole("button", { name: "Revisar", exact: true })).toHaveAttribute("aria-current", "step");

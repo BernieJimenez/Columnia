@@ -70,7 +70,22 @@ describe("DatabaseImportPanel", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Usuario y contraseña de SQL Server" }));
     expect(screen.getByLabelText("Contraseña")).toHaveAttribute("type", "password");
     expect(screen.getByRole("button", { name: "Ver tablas" })).toBeDisabled();
+    // The reason waits until the user leaves the field.
+    expect(screen.queryByText("Indica el usuario de SQL Server.")).not.toBeInTheDocument();
+    fireEvent.blur(screen.getByLabelText("Usuario"));
     expect(screen.getByText("Indica el usuario de SQL Server.")).toBeInTheDocument();
+  });
+
+  it("en un formulario sin tocar solo da la guía general, sin el motivo del campo", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByLabelText("Controlador ODBC")).toBeInTheDocument());
+    expect(screen.getByText("Completa la conexión para ver las tablas.")).toBeInTheDocument();
+    expect(screen.queryByText("Indica el servidor.")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Servidor")).not.toHaveAttribute("aria-invalid");
+
+    fireEvent.blur(screen.getByLabelText("Servidor"));
+    expect(screen.getByText("Indica el servidor.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Servidor")).toHaveAttribute("aria-invalid", "true");
   });
 
   it("no ofrece escribir una cadena ODBC: solo campos, y el usuario hostil viaja como un valor más", async () => {
@@ -127,8 +142,10 @@ describe("DatabaseImportPanel", () => {
     await waitFor(() => expect(importTable).toHaveBeenCalledWith(
       { kind: "sqlserver", connection }, "dbo", "Ventas", 10_000, expect.any(Function),
     ));
-    const done = await screen.findByText(/Se trajeron/);
-    expect(done).toHaveTextContent(/Se trajeron 1[.,]?000 filas de dbo\.Ventas/);
+    expect(screen.getByText(/Columnia leerá hasta 10[.,]?000 filas de dbo\.Ventas en localhost/)).toBeInTheDocument();
+    const done = await screen.findByText(/Se leyeron/);
+    expect(done).toHaveTextContent(/Se leyeron 1[.,]?000 filas de dbo\.Ventas/);
+    expect(done).toHaveTextContent("Aún no se han cargado");
     expect(done).toHaveTextContent("La tabla tiene más filas");
     expect(screen.getByText(/«Notas» tenían más de 8\.000 caracteres/)).toBeInTheDocument();
     expect(screen.getByText(/«Texto» tenían caracteres no válidos y se sustituyeron por �/)).toBeInTheDocument();
@@ -147,11 +164,29 @@ describe("DatabaseImportPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Traer dbo.Ventas" }));
     await waitFor(() => expect(onImported).toHaveBeenCalledWith("selection-1", {
       table: "dbo.Ventas", rowsImported: 10_000, partial: true, truncatedColumns: ["Notas"], replacedColumns: [],
+    }, {
+      selectionId: "selection-1", table: "dbo.Ventas", engine: "SQL Server", server: "localhost",
+      rowsImported: 10_000, rowLimit: 100_000, moreRowsAvailable: true,
     }));
 
     importTable.mockResolvedValueOnce({ inspection, rowsImported: 5, moreRowsAvailable: false, truncatedColumns: [], replacedColumns: [] });
     fireEvent.click(screen.getByRole("button", { name: "Traer dbo.Ventas" }));
-    await waitFor(() => expect(onImported).toHaveBeenLastCalledWith("selection-1", null));
+    await waitFor(() => expect(onImported).toHaveBeenLastCalledWith("selection-1", null, expect.objectContaining({
+      rowsImported: 5, moreRowsAvailable: false,
+    })));
+  });
+
+  it("las filas leídas solo se anuncian mientras su selección está en revisión: al cancelar no queda un éxito", async () => {
+    vi.spyOn(bridge, "listDatabaseTables").mockResolvedValue([{ schema: "dbo", name: "Ventas", isView: false }]);
+    vi.spyOn(bridge, "importDatabaseTable").mockResolvedValue({ inspection, rowsImported: 5, moreRowsAvailable: false, truncatedColumns: [], replacedColumns: [] });
+    const { rerender } = render(<DatabaseImportPanel connected blocked={false} onImport={(run) => void run()} reviewingSelectionId="selection-1" />);
+    await fillConnection();
+    fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Traer dbo.Ventas" }));
+    expect(await screen.findByText(/Se leyeron 5 filas de dbo\.Ventas/)).toBeInTheDocument();
+
+    rerender(<DatabaseImportPanel connected blocked={false} onImport={(run) => void run()} reviewingSelectionId={null} />);
+    expect(screen.queryByText(/Se leyeron 5 filas/)).not.toBeInTheDocument();
   });
 
   it("muestra el error del servidor cerca de la acción y no carga nada", async () => {
@@ -229,7 +264,7 @@ describe("DatabaseImportPanel", () => {
     expect(importTable).toHaveBeenCalledTimes(1);
 
     finish({ inspection, rowsImported: 5, moreRowsAvailable: false, truncatedColumns: [], replacedColumns: [] });
-    const done = await screen.findByText(/Se trajeron 5 filas/);
+    const done = await screen.findByText(/Se leyeron 5 filas/);
     await waitFor(() => expect(document.activeElement).toBe(done.closest("[role=status]")));
 
     traer.focus();
@@ -280,14 +315,71 @@ describe("DatabaseImportPanel", () => {
     expect(await screen.findByRole("button", { name: "Traer public.pedidos" })).toBeEnabled();
   });
 
-  it("al cambiar de motor vacía la conexión y dice qué controlador instalar", async () => {
+  it("al cambiar de motor conserva servidor, base de datos y usuario, descarta la contraseña y lo dice", async () => {
+    const list = vi.spyOn(bridge, "listDatabaseTables").mockResolvedValue([]);
+    renderPanel();
+    await fillConnection();
+    fireEvent.click(screen.getByRole("radio", { name: "Usuario y contraseña de SQL Server" }));
+    fireEvent.change(screen.getByLabelText("Usuario"), { target: { value: "ana" } });
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "secreta" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ver tablas" })).toBeEnabled());
+
+    fireEvent.click(screen.getByRole("radio", { name: "PostgreSQL" }));
+    await waitFor(() => expect(screen.getByText("Controlador: PostgreSQL Unicode(x64).")).toBeInTheDocument());
+    expect(screen.getByLabelText("Servidor")).toHaveValue("localhost");
+    expect(screen.getByLabelText("Base de datos")).toHaveValue("VentasRetail");
+    expect(screen.getByLabelText("Usuario")).toHaveValue("ana");
+    expect(screen.getByLabelText("Contraseña")).toHaveValue("");
+    expect(screen.getByLabelText("Puerto")).toHaveValue("");
+    expect(screen.getByText("Al cambiar a PostgreSQL se conservaron el servidor, la base de datos y el usuario. No se traslada la contraseña.")).toBeInTheDocument();
+    // What was kept is a connection again: nothing to retype.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ver tablas" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
+    await waitFor(() => expect(list).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "postgresql",
+      connection: expect.objectContaining({ server: "localhost", database: "VentasRetail", user: "ana", password: "" }),
+    })));
+  });
+
+  it("al cambiar de motor mantiene un puerto propio y deja el predeterminado vacío", async () => {
+    vi.spyOn(bridge, "listDatabaseDrivers").mockResolvedValue(["Driver"]);
+    renderPanel();
+    fireEvent.click(screen.getByRole("radio", { name: "PostgreSQL" }));
+    await waitFor(() => expect(screen.getByText("Controlador: Driver.")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Servidor"), { target: { value: "db.ejemplo.com" } });
+    fireEvent.change(screen.getByLabelText("Puerto"), { target: { value: "5432" } });
+    fireEvent.click(screen.getByRole("radio", { name: "MySQL" }));
+    await waitFor(() => expect(screen.getByLabelText("Puerto")).toHaveAttribute("placeholder", "3306"));
+    expect(screen.getByLabelText("Puerto")).toHaveValue("");
+    expect(screen.getByLabelText("Servidor")).toHaveValue("db.ejemplo.com");
+
+    fireEvent.change(screen.getByLabelText("Puerto"), { target: { value: "3307" } });
+    fireEvent.click(screen.getByRole("radio", { name: "PostgreSQL" }));
+    await waitFor(() => expect(screen.getByLabelText("Puerto")).toHaveAttribute("placeholder", "5432"));
+    expect(screen.getByLabelText("Puerto")).toHaveValue("3307");
+  });
+
+  it("al cambiar de motor sin controlador conserva los campos y dice qué instalar", async () => {
     renderPanel();
     await fillConnection();
     expect(screen.getByRole("button", { name: "Ver tablas" })).toBeEnabled();
     fireEvent.click(screen.getByRole("radio", { name: "MySQL" }));
     expect(await screen.findByText(/No hay un controlador ODBC de MySQL instalado\. Instala MySQL Connector\/ODBC/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Servidor")).toHaveValue("");
+    expect(screen.getByLabelText("Servidor")).toHaveValue("localhost");
     expect(screen.getByRole("button", { name: "Ver tablas" })).toBeDisabled();
+  });
+
+  it("volver a un motor ya visitado no trae la contraseña de antes", async () => {
+    renderPanel();
+    await fillConnection();
+    fireEvent.click(screen.getByRole("radio", { name: "Usuario y contraseña de SQL Server" }));
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "secreta" } });
+    fireEvent.click(screen.getByRole("radio", { name: "PostgreSQL" }));
+    await waitFor(() => expect(screen.getByText("Controlador: PostgreSQL Unicode(x64).")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("radio", { name: "SQL Server" }));
+    await waitFor(() => expect(screen.getByLabelText("Controlador ODBC")).toBeInTheDocument());
+    expect(screen.getByLabelText("Servidor")).toHaveValue("localhost");
+    expect(screen.queryByDisplayValue("secreta")).not.toBeInTheDocument();
   });
 
   it("asocia el motivo de ocupado al motor, la conexión y «Ver tablas» solo mientras está bloqueado (AUD-059)", () => {

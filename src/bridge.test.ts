@@ -314,6 +314,7 @@ describe("desktop bridge", () => {
     expect(invoke).toHaveBeenNthCalledWith(2, "join_dataset", {
       keyColumns: ["id"],
       joinType: "left",
+      fromComparison: false,
     });
     expect(invoke).toHaveBeenNthCalledWith(3, "use_consolidated_dataset");
     expect(invoke).toHaveBeenNthCalledWith(4, "clear_dataset_comparison");

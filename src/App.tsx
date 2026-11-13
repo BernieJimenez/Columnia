@@ -10,6 +10,7 @@ import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
 import { ReusableTaskPanel } from "./features/load/ReusableTaskPanel";
 import { LazyDatabaseImportPanel, LazyProjectsPanel } from "./features/load/secondaryPanels";
 import { ImportOriginNotice } from "./features/load/ImportOriginNotice";
+import type { DatabaseRead } from "./features/load/importOrigin";
 import {
   createReusableTaskExceptionPolicy,
   exceptionPolicyMatchesSchema,
@@ -64,6 +65,7 @@ import {
   normalizePageOffset,
 } from "./features/review/reviewModel";
 import { useReviewController } from "./features/review/useReviewController";
+import { combinationResultMessage } from "./features/review/joinModel";
 import type { QualityActionTarget } from "./features/review/qualityActionPlan";
 import { ResourceMonitor } from "./components/ResourceMonitor";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
@@ -96,6 +98,9 @@ import {
   previewDelimitedHeaderReview,
   previewDatasetSelection,
   type AppInfo,
+  type HistoryState,
+  type ProjectSummary,
+  type SqlQueryHistoryEntry,
   type DatasetSourceInspection,
   type ExploreFilter,
   type ImportOrigin,
@@ -116,6 +121,35 @@ import {
 } from "./features/settings/performanceModel";
 import { errorMessage } from "./bridge/errors";
 import { useTopbarHeight } from "./useTopbarHeight";
+import { useLatest } from "./useLatest";
+
+type HistoryEntryRef = HistoryState["entries"][number];
+
+/** What combining with another file sets aside, and «Deshacer» brings back. */
+interface CombinationContext {
+  recipeDraft: SavedRecipe | null;
+  exceptionPolicy: ReusableTaskExceptionPolicy | null;
+  importProfile: ImportProfile | null;
+  importOrigin: ImportOrigin | null;
+  delivery: Parameters<ReturnType<typeof useDeliveryController>["applySettings"]>[0];
+  project: ProjectSummary | null;
+  performanceProfile: PerformanceProfile;
+  sqlHistory: SqlQueryHistoryEntry[];
+}
+
+/** A combination step of the history: the versions around it and its context. */
+interface CombinationRecord {
+  before: HistoryEntryRef;
+  after: HistoryEntryRef;
+  context: CombinationContext;
+  resetsOutput: boolean;
+  /** «set_aside» while the combined version is current; «restored» after undoing it. */
+  state: "set_aside" | "restored";
+}
+
+function sameHistoryEntry(left: HistoryEntryRef, right: HistoryEntryRef): boolean {
+  return left.index === right.index && left.id === right.id && left.label === right.label;
+}
 
 type AppStatus =
   | { kind: "loading" }
@@ -211,6 +245,9 @@ export function App() {
   const [recentCrashReports, setRecentCrashReports] = useState(0);
   const [setAsideCatalogs, setSetAsideCatalogs] = useState<string[]>([]);
   const [prepareFocusTarget, setPrepareFocusTarget] = useState<QualityActionTarget | null>(null);
+  // «Combinar en Preparar» from Revisar opens that section of Preparar.
+  const [prepareCombineFocus, setPrepareCombineFocus] = useState(false);
+  const clearPrepareCombineFocus = useCallback(() => setPrepareCombineFocus(false), []);
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
   const [workbookInspectionCancellationPending, setWorkbookInspectionCancellationPending] = useState(false);
   const [selectionFinalizing, setSelectionFinalizing] = useState(false);
@@ -230,6 +267,8 @@ export function App() {
   // of an import waits by its selection until that selection is loaded.
   const [importOrigin, setImportOrigin] = useState<ImportOrigin | null>(null);
   const pendingImportOriginRef = useRef<{ selectionId: string; origin: ImportOrigin | null } | null>(null);
+  // The table read from a database that the import dialog is about to review.
+  const [databaseRead, setDatabaseRead] = useState<DatabaseRead | null>(null);
   const [queuedReusableTask, setQueuedReusableTask] = useState<QueuedReusableTask | null>(null);
   const [reusableTaskApplicationReview, setReusableTaskApplicationReview] = useState<ReusableTaskApplicationReview | null>(null);
   const [recentDatasets, setRecentDatasets] = useState<RecentDataset[]>(readRecentDatasets);
@@ -268,6 +307,8 @@ export function App() {
   function bumpDatasetRevision(sameDataset = false) {
     const nextRevision = datasetRevisionRef.current + 1;
     datasetRevisionRef.current = nextRevision;
+    // Another dataset has another history: no combination to undo.
+    if (!sameDataset) combinationRecordsRef.current = [];
     setCompletedPhaseRevisions((current) => (sameDataset ? { ...current, load: nextRevision } : { load: nextRevision }));
     review.invalidateRequests();
     pageRequestRef.current += 1;
@@ -307,24 +348,32 @@ export function App() {
     datasetRevisionRef,
     datasetRevision,
     datasetReady: datasetStatus.kind === "ready",
-    onDatasetReplaced: async (dataset, mutation) => {
+    // Joining, consolidating or resolving conflicts in Preparar: the engine
+    // records the result as a step of the history; what depends on the old
+    // table (contract, recipe, import profile, project link) is discarded,
+    // as the summary before the action says.
+    onDatasetReplaced: async (dataset, mutation, detail) => {
+      // Kept with the history step, so «Deshacer» can bring it back.
+      const context = combinationContextRef.current;
+      const before = prepareHistoryRef.current.entries.find((entry) => entry.isCurrent) ?? null;
       setChangedSinceSave(true);
       setDatasetStatus(createReadyDatasetStatus(dataset));
       bumpDatasetRevision(true);
-      if (mutation !== "join") delivery.resetOutput();
       review.invalidateProfile();
-      projects.unlinkActiveProject();
-      setActiveImportProfile(null);
-      // Joined or consolidated with another file, it is no longer that table.
-      setImportOrigin(null);
-      delivery.resetContract();
-      setRecipeDraft(null);
-      setActiveExceptionPolicy(null);
-      setRecipeSession((current) => current + 1);
+      setAsideCombinationContext(mutation !== "join");
       prepare.resetChangeStatus();
       if (mutation === "join") await clearDatasetComparison().catch(() => undefined);
-      await prepare.refreshHistory();
-      if (mutation === "join") setActivePhase("review");
+      const history = await prepare.refreshHistory();
+      const after = history.entries.find((entry) => entry.isCurrent) ?? null;
+      if (history.snapshotsEnabled && before && after && after.index === before.index + 1) {
+        combinationRecordsRef.current = [
+          ...combinationRecordsRef.current,
+          { before, after, context, resetsOutput: mutation !== "join", state: "set_aside" },
+        ];
+      }
+      prepare.reportExternalChange(
+        combinationResultMessage(mutation, dataset, detail.comparedFileName, detail.joinType),
+      );
     },
   });
   const { profileStatus } = review;
@@ -349,8 +398,9 @@ export function App() {
         ? current
         : null);
       setDatasetStatus({ kind: "ready", dataset, pageOffset: 0, pageLoading: false });
-      review.resetForDataset();
-      void clearDatasetComparison().catch(() => undefined);
+      // The comparison with another file stays, computed again, while its key
+      // columns exist; otherwise Combinar says why it was dropped.
+      void review.syncComparisonWithDataset(dataset.columns);
     },
     onProfileInvalidated: review.invalidateProfile,
     onDeliveryInvalidated: delivery.invalidateGate,
@@ -438,6 +488,84 @@ export function App() {
       setPerformanceProfile(selectedPerformanceProfile);
     },
   });
+  // Combining with another file in Preparar sets aside what belonged to the
+  // old table (contract, recipe, import profile, origin, SQL history, project
+  // link). It is kept with the two versions of the history around that step:
+  // «Deshacer» back to the version before brings it back, «Rehacer» sets it
+  // aside again. Only what is still empty is restored, so nothing configured
+  // after combining is overwritten.
+  const combinationContextRef = useLatest<CombinationContext>({
+    recipeDraft,
+    exceptionPolicy: activeExceptionPolicy,
+    importProfile: activeImportProfile,
+    importOrigin,
+    delivery: delivery.workspace,
+    project: projects.activeProject,
+    performanceProfile,
+    sqlHistory: review.sqlHistory,
+  });
+  const prepareHistoryRef = useLatest(prepare.historyStatus);
+  const combinationRecordsRef = useRef<CombinationRecord[]>([]);
+
+  function setAsideCombinationContext(resetsOutput: boolean) {
+    if (resetsOutput) delivery.resetOutput();
+    projects.unlinkActiveProject();
+    setActiveImportProfile(null);
+    // Joined or consolidated with another file, it is no longer that table.
+    setImportOrigin(null);
+    delivery.resetContract();
+    setRecipeDraft(null);
+    setActiveExceptionPolicy(null);
+    setRecipeSession((current) => current + 1);
+  }
+
+  function restoreCombinationContext(saved: CombinationContext) {
+    const latest = combinationContextRef.current;
+    if (latest.recipeDraft === null && saved.recipeDraft !== null) {
+      setRecipeDraft(saved.recipeDraft);
+      setRecipeSession((current) => current + 1);
+    }
+    if (latest.exceptionPolicy === null) setActiveExceptionPolicy(saved.exceptionPolicy);
+    if (latest.importProfile === null) setActiveImportProfile(saved.importProfile);
+    if (latest.importOrigin === null) setImportOrigin(saved.importOrigin);
+    if ((latest.delivery.qualityRules?.length ?? 0) === 0) delivery.applySettings(saved.delivery);
+    if (latest.sqlHistory.length === 0 && saved.sqlHistory.length > 0) review.setSqlHistory(saved.sqlHistory);
+    const project = saved.project;
+    const projectStillSaved = project !== null && projects.catalog.kind === "ready"
+      && projects.catalog.projects.some((candidate) => candidate.id === project.id);
+    if (latest.project === null && project !== null && projectStillSaved) {
+      projects.relinkProject(project);
+      setPerformanceProfile(saved.performanceProfile);
+    }
+  }
+
+  const combinationChangeStatus = prepare.changeStatus;
+  const combinationHistory = prepare.historyStatus;
+  useEffect(() => {
+    if (combinationRecordsRef.current.length === 0) return;
+    const entries = combinationHistory.entries;
+    const present = (entry: HistoryEntryRef) => entries.some((candidate) => sameHistoryEntry(candidate, entry));
+    // A new change after undoing drops the step that was undone.
+    combinationRecordsRef.current = combinationRecordsRef.current.filter(
+      (record) => present(record.before) && present(record.after),
+    );
+    if (combinationChangeStatus.kind !== "applied" || !combinationChangeStatus.origin) return;
+    const current = entries.find((entry) => entry.isCurrent);
+    if (!current) return;
+    for (const record of combinationRecordsRef.current) {
+      if (combinationChangeStatus.origin === "undo" && record.state === "set_aside" && sameHistoryEntry(current, record.before)) {
+        record.state = "restored";
+        restoreCombinationContext(record.context);
+      } else if (combinationChangeStatus.origin === "redo" && record.state === "restored" && sameHistoryEntry(current, record.after)) {
+        record.context = combinationContextRef.current;
+        record.state = "set_aside";
+        setAsideCombinationContext(record.resetsOutput);
+      }
+    }
+    // Only the history step decides; the functions read the latest values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [combinationChangeStatus, combinationHistory]);
+
   useEffect(() => {
     if (typeof performance !== "undefined") {
       performance.mark("columnia:app-render");
@@ -1205,7 +1333,9 @@ export function App() {
       case "explore":
         return completedPhaseRevisions[phase] === datasetRevision;
       case "prepare":
-        return prepare.changeStatus.kind === "applied";
+        // Undoing every change back to the loaded data leaves nothing prepared.
+        return prepare.changeStatus.kind === "applied"
+          && !(prepare.changeStatus.origin === "undo" && !prepare.historyStatus.canUndo);
       case "deliver":
         return delivery.exportStatus.kind === "success";
     }
@@ -1252,6 +1382,13 @@ export function App() {
   const reviewHasContextualContinue = activePhase === "review"
     && review.reviewTab === "diagnosis"
     && profileStatus.kind === "ready";
+  // The profile error notice of Revisar carries «Reintentar análisis» itself.
+  // Preparar does the same for an error and for a cancelled analysis.
+  const reviewRetryInNotice = (activePhase === "review" && profileStatus.kind === "error")
+    || (activePhase === "prepare" && (profileStatus.kind === "error" || profileStatus.kind === "cancelled"));
+  // With a dataset, Cargar puts «Continuar a Revisar» by its name and figures;
+  // the footer would repeat it as a second primary action.
+  const loadHasContextualContinue = activePhase === "load" && Boolean(activeDataset);
   const loadRuntime: LoadRuntimeState = status.kind === "ready"
     ? { kind: "connected" }
     : status.kind === "browser"
@@ -1422,7 +1559,7 @@ export function App() {
               <p className="dataset-bar__meta">
                 {activeDataset
                   ? `${plural(activeDataset.dataset.rowCount, "fila", "filas")} · ${plural(activeDataset.dataset.columnCount, "columna", "columnas")} · ${formatBytes(activeDataset.dataset.fileSizeBytes)}`
-                  : "Elige un archivo en Cargar para empezar"}
+                  : "Elige una fuente en Cargar para empezar"}
               </p>
               {activeDataset && <ImportOriginNotice origin={importOrigin} />}
             </div>
@@ -1504,15 +1641,22 @@ export function App() {
                   />
                 )}
                 databaseImportPanel={(
-                  <Suspense fallback={<div className="load-panel-loading" aria-hidden="true" />}>
+                  <Suspense fallback={<p className="load-panel-loading" role="status">Cargando la conexión a bases de datos…</p>}>
                     <LazyDatabaseImportPanel
                       connected={loadRuntime.kind === "connected"}
                       blocked={operationBusy}
                       onImport={(run) => whenWorkCanBeReplaced(() => void inspectDatasetSource(run(), "database"))}
-                      onImported={(selectionId, origin) => { pendingImportOriginRef.current = { selectionId, origin }; }}
+                      onImported={(selectionId, origin, read) => {
+                        pendingImportOriginRef.current = { selectionId, origin };
+                        setDatabaseRead(read);
+                      }}
+                      reviewingSelectionId={"source" in loadInspection && loadInspection.kind !== "selection_cancelling"
+                        ? loadInspection.source.selectionId
+                        : null}
                     />
                   </Suspense>
                 )}
+                databaseRead={databaseRead}
                 pendingTaskName={queuedReusableTask?.task.name ?? null}
                 disabled={operationBusy}
                 datasetStatus={datasetStatus}
@@ -1520,6 +1664,8 @@ export function App() {
                 recentDatasets={recentDatasets}
                 sampleDatasets={sampleDatasets}
                 onSelect={selectDataset}
+                onContinue={handleNextPhase}
+                continueDisabled={navigationBusy}
                 onSelectSample={selectSampleDataset}
                 onSelectRecent={selectRecentDataset}
                 onClearRecent={() => setRecentDatasets([])}
@@ -1544,7 +1690,7 @@ export function App() {
                 onCancelWorkbookInspection={() => void cancelWorkbookInspection()}
                 onRetrySelectionCancellation={() => void retrySelectionCancellation()}
               >
-                <Suspense fallback={<div className="load-panel-loading" aria-hidden="true" />}>
+                <Suspense fallback={<p className="load-panel-loading" role="status">Cargando proyectos guardados…</p>}>
                   <LazyProjectsPanel
                     catalog={projects.catalog}
                     catalogCancellationPending={projects.catalogCancellationPending}
@@ -1606,6 +1752,12 @@ export function App() {
                   setActivePhase("prepare");
                 }}
                 comparison={review.comparison}
+                onReturnToLoad={() => setActivePhase("load")}
+                onRetryProfile={() => void review.analyzeQuality()}
+                onCombineInPrepare={() => {
+                  setPrepareCombineFocus(true);
+                  setActivePhase("prepare");
+                }}
                 sqlHistory={review.sqlHistory}
                 onSqlHistoryChange={review.setSqlHistory}
                 datasetRevision={datasetRevision}
@@ -1657,6 +1809,11 @@ export function App() {
                 onRecipeEditChange={(draft) => setRecipeEdit(draft ? { session: recipeSession, draft } : null)}
                 onUndo={prepare.undoChange}
                 onRedo={prepare.redoChange}
+                comparison={review.comparison}
+                focusCombine={prepareCombineFocus}
+                onCombineFocusHandled={clearPrepareCombineFocus}
+                onRetryProfile={() => void review.analyzeQuality()}
+                onContinue={() => setActivePhase("explore")}
               />
             )}
 
@@ -1668,6 +1825,7 @@ export function App() {
                 profileReady={profileStatus.kind === "ready"}
                 initialFilters={exploreFilters.revision === datasetRevision ? exploreFilters.filters : undefined}
                 onFiltersChange={changeExploreFilters}
+                onGoToPrepare={() => setActivePhase("prepare")}
               />
             )}
 
@@ -1702,7 +1860,7 @@ export function App() {
           </Suspense>
           </ErrorBoundary>
           </div>
-          {(previousPhase || activeDataset) && (
+          {(previousPhase || activeDataset) && !loadHasContextualContinue && (
           <footer className={`flow-footer${nextPhase ? "" : " flow-footer--terminal"}`} aria-label="Navegación entre etapas">
             {nextPhase && activeDataset && !reviewHasContextualContinue && (
               <div className="flow-footer__copy">
@@ -1726,7 +1884,7 @@ export function App() {
                   Volver a {previousPhase.label}
                 </button>
               )}
-              {nextPhase && activeDataset && !reviewHasContextualContinue && (
+              {nextPhase && activeDataset && !reviewHasContextualContinue && !reviewRetryInNotice && (
                 <button
                   type="button"
                   className="primary-action flow-footer__next-action"

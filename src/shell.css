@@ -292,7 +292,8 @@
   opacity: 1;
 }
 
-/* Entregar: contract and export side by side when there is room. */
+/* Entregar: the destination first (2026-11-13), then contract and export side by side when there is room. */
+.delivery-destination { margin-bottom: 24px; }
 .delivery-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; align-items: start; }
 .app-shell .delivery-layout .quality-contract { margin: 0; padding-top: 4px; min-width: 0; }
 .delivery-layout .quality-rule { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
@@ -305,7 +306,7 @@
 }
 .export-blocked-reason { grid-column: 1 / -1; margin: 0; color: var(--text-secondary); font-size: .875rem; font-weight: 600; }
 /* Always mounted for the live region; cancel the grid gap while it is empty. */
-.export-blocked-reason:empty { margin-top: -10px; }
+.export-blocked-reason:empty { margin-top: -8px; }
 .delivery-layout .privacy-signals .quality-rule__check { display: flex; align-items: flex-start; gap: 10px; }
 .delivery-layout .privacy-signals .quality-rule__check input { flex: 0 0 auto; width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
 @media (max-width: 700px) {
@@ -514,23 +515,33 @@ html[data-columnia-zoom="2"] .app-shell .workspace h2 { font-size: 1.5rem; }
   .flow-nav__marker { transition: none; }
 }
 
-/* 2026-11-01: what the export will do, beside its button. On wide screens it
-   stays at the bottom while the options scroll; the scroll padding keeps a
-   focused field from hiding behind it. */
-.delivery-commit { display: grid; gap: 10px; grid-column: 1 / -1; min-width: 0; padding: 12px 0 0; border-top: 1px solid var(--border-subtle); }
+/* 2026-11-13: the full summary of what the export will do sits in the flow,
+   right above the button. Only the button and one line (destination · rows)
+   stay fixed at the bottom on wide, tall windows; DeliveryPhase publishes
+   their real height as --delivery-commit-height, so the scroll padding keeps
+   a focused control from hiding behind them (WCAG 2.4.11). */
+.delivery-summary-block { display: grid; gap: 10px; grid-column: 1 / -1; min-width: 0; padding: 12px 0 0; border-top: 1px solid var(--border-subtle); }
+.delivery-commit { display: grid; gap: 8px; grid-column: 1 / -1; min-width: 0; }
 .delivery-commit__title { margin: 0; color: var(--text-primary); font-size: .875rem; font-weight: 650; }
+.delivery-commit__line { margin: 0; overflow-wrap: anywhere; color: var(--text-secondary); font-size: .8125rem; font-weight: 600; }
 .delivery-summary { display: grid; gap: 4px; margin: 0; font-size: .8125rem; }
 .delivery-summary > div { display: grid; grid-template-columns: minmax(7.5rem, auto) minmax(0, 1fr); gap: 8px; }
 .delivery-summary dt { color: var(--text-secondary); }
 .delivery-summary dd { margin: 0; overflow-wrap: anywhere; color: var(--text-primary); font-weight: 600; }
-@media (min-width: 1180px) {
+.delivery-replace { display: grid; gap: 8px; margin: 0; }
+.delivery-replace p { margin: 0; }
+@media (max-width: 420px) {
+  .delivery-summary > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+@media (min-width: 1180px) and (min-height: 700px) {
   .delivery-commit {
     position: sticky;
     bottom: 0;
     z-index: 2;
-    padding: 12px 0 14px;
+    padding: 10px 0 12px;
+    border-top: 1px solid var(--border-subtle);
     background: var(--surface);
     box-shadow: 0 -10px 12px -12px rgb(0 0 0 / .35);
   }
-  html:has(.delivery-commit) { scroll-padding-bottom: 260px; }
+  html:has(.delivery-commit) { --delivery-commit-height: 140px; scroll-padding-bottom: calc(var(--delivery-commit-height, 140px) + 16px); }
 }

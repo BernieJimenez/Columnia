@@ -30,7 +30,7 @@ async function installTauriProjectMock(page: Page) {
 }
 
 async function selectAndConfirmDataset(page: Page) {
-  await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+  await page.getByRole("button", { name: "Elegir archivo" }).click();
   const headerReview = page.getByRole("dialog", { name: "Revisar encabezados de ventas.csv" });
   const loadButton = headerReview.getByRole("button", { name: "Cargar archivo" });
   await expect(loadButton).toBeEnabled();
@@ -40,7 +40,7 @@ async function selectAndConfirmDataset(page: Page) {
 test.describe("contratos de accesibilidad del shell", () => {
   test("axe-core no encuentra violaciones al abrir y detecta una nueva (QA-56)", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("button", { name: "Seleccionar dataset" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Elegir archivo" })).toBeVisible();
     expect(await axeViolations(page, "Cargar")).toEqual([]);
 
     // A button without an accessible name is what axe must catch.

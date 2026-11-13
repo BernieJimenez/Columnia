@@ -68,7 +68,8 @@ describe("HistoryBar design", () => {
     const retention = screen.getByLabelText("Uso y retención del historial");
     expect(retention).toHaveTextContent(/3 \/ 12 estados · 512 B \/ 1[.,]0 KiB de historial local/);
     expect(retention).toHaveTextContent("se retiran primero los estados más antiguos");
-    expect(retention).toHaveTextContent("la operación puede quedar sin historial reversible");
+    expect(retention).toHaveTextContent("ese cambio puede quedar sin historial reversible");
+    expect(retention).not.toHaveTextContent(/snapshot/i);
     fireEvent.click(screen.getByRole("button", { name: "Deshacer" }));
     expect(onUndo).toHaveBeenCalledOnce();
   });
@@ -95,7 +96,7 @@ describe("HistoryBar versiones deshechas", () => {
         onRedo={() => undefined}
       />,
     );
-    expect(screen.getByRole("button", { name: "Deshacer" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Deshacer" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText("Aún no hay cambios que deshacer.")).toBeVisible();
   });
 
@@ -120,5 +121,34 @@ describe("HistoryBar resumen común (PROD-10)", () => {
       />,
     );
     expect(screen.getByRole("status")).toHaveTextContent("2 celdas quedaron nulas · se quitó 1 fila · puedes deshacerlo.");
+  });
+});
+
+describe("HistoryBar foco (ACC)", () => {
+  it("Deshacer sigue enfocable mientras trabaja y al terminar el foco pasa a Rehacer", () => {
+    const onUndo = vi.fn();
+    const { rerender } = render(<HistoryBar status={history} busy={false} onUndo={onUndo} onRedo={() => undefined} />);
+    const undo = screen.getByRole("button", { name: "Deshacer" });
+    undo.focus();
+    fireEvent.click(undo);
+    expect(onUndo).toHaveBeenCalledOnce();
+
+    rerender(<HistoryBar status={history} busy onUndo={onUndo} onRedo={() => undefined} />);
+    expect(undo).toBeEnabled();
+    expect(undo).toHaveAttribute("aria-disabled", "true");
+    expect(undo).toHaveAttribute("aria-describedby", "busy-reason");
+    expect(undo).toHaveFocus();
+    fireEvent.click(undo);
+    expect(onUndo).toHaveBeenCalledOnce();
+
+    rerender(
+      <HistoryBar
+        status={{ ...history, currentIndex: 1, canRedo: true, entries: history.entries.map((entry) => ({ ...entry, isCurrent: entry.index === 1 })) }}
+        busy={false}
+        onUndo={onUndo}
+        onRedo={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Rehacer" })).toHaveFocus();
   });
 });

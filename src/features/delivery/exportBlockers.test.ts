@@ -8,6 +8,7 @@ const KEYS: (keyof ExportBlockerFlags)[] = [
   "needsPersonalDataConfirmation",
   "needsUnvalidatedConfirmation",
   "databaseNotReady",
+  "needsReplaceConfirmation",
   "exceedsExcel",
 ];
 
@@ -34,5 +35,12 @@ describe("exportBlockers", () => {
       const active = KEYS.filter((_, index) => (mask & (1 << index)) !== 0);
       expect(exportBlockers(flagsFor(mask))).toHaveLength(active.length);
     }
+  });
+
+  it("un contrato fallido dice qué hacer y nombra las reglas", () => {
+    expect(exportBlockers({ ...flagsFor(0), failedRuleNumbers: [2] }))
+      .toEqual(["corrige los datos en Preparar o ajusta la regla 2"]);
+    expect(exportBlockers({ ...flagsFor(0), failedRuleNumbers: [1, 3, 4] }))
+      .toEqual(["corrige los datos en Preparar o ajusta las reglas 1, 3 y 4"]);
   });
 });

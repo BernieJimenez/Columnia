@@ -1,7 +1,7 @@
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 
 // A trigger that becomes disabled while an async action runs (for example
-// "Seleccionar dataset" while inspecting) drops focus to <body> before the
+// "Elegir archivo" while inspecting) drops focus to <body> before the
 // dialog mounts. Remember the last element focused outside any dialog so the
 // dialog can still return focus to it on close.
 let lastFocusedOutsideDialog: HTMLElement | null = null;

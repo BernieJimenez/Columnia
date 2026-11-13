@@ -1,8 +1,9 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import type { ReusableTask, ReusableTaskExceptionPolicy, ReusableTaskSchema } from "../../bridge";
 import { busyDescribedBy } from "../../busyReasons";
 import { createReusableTaskExceptionPolicy, exceptionPolicyMatchesSchema } from "./reusableTaskExceptions";
+import { plural } from "../../plural";
 import { useReusableTasks } from "./useReusableTasks";
 
 interface ReusableTaskPanelProps {
@@ -44,6 +45,19 @@ export function ReusableTaskPanel({
   // PROD-07: deleting a task asks once, inline, before it is gone.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deletedTaskName, setDeletedTaskName] = useState<string | null>(null);
+  // Focus follows the inline confirmation: safe button on open, a logical place on close.
+  const keepButtonRef = useRef<HTMLButtonElement>(null);
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
+  const selectRef = useRef<HTMLSelectElement>(null);
+  const summaryRef = useRef<HTMLElement>(null);
+  const [focusTarget, setFocusTarget] = useState<"keep" | "delete" | "select" | null>(null);
+  useEffect(() => {
+    if (focusTarget === null) return;
+    if (focusTarget === "keep") keepButtonRef.current?.focus();
+    else if (focusTarget === "delete") deleteButtonRef.current?.focus();
+    else (selectRef.current ?? summaryRef.current)?.focus();
+    setFocusTarget(null);
+  }, [focusTarget]);
   const schemaFingerprint = useMemo(() => schema === null ? null : JSON.stringify(schema), [schema]);
   const openedTask = reusableTasks.openedTask?.id === selectedTaskId
     ? reusableTasks.openedTask.task
@@ -122,11 +136,31 @@ export function ReusableTaskPanel({
     return saved ? nextTask : null;
   }
 
+  function cancelDelete() {
+    setConfirmingDelete(false);
+    setFocusTarget("delete");
+  }
+
+  function onConfirmationKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    cancelDelete();
+  }
+
+  const catalogReady = reusableTasks.catalogState === "ready";
+  const summaryDetail = !catalogReady
+    ? "Importación, preparación y validación guardadas"
+    : reusableTasks.tasks.length === 0
+      ? "Ninguna tarea guardada"
+      : plural(reusableTasks.tasks.length, "tarea guardada", "tareas guardadas");
+  const showSaveForm = draft !== null || reusableTasks.tasks.length > 0;
+
   return (
     <details className="load-secondary reusable-task-panel">
-      <summary>
+      <summary ref={summaryRef}>
         <span>Reutilizar una tarea</span>
-        <small>Importación, preparación y validación guardadas</small>
+        <small>{summaryDetail}</small>
       </summary>
       <div className="load-secondary__content">
         {reusableTasks.catalogState === "loading" && (
@@ -173,11 +207,12 @@ export function ReusableTaskPanel({
         {reusableTasks.catalogState === "ready" && (
           <section aria-label="Tareas guardadas">
             {reusableTasks.tasks.length === 0 ? (
-              <p className="recipe-hint">Todavía no hay tareas guardadas en este equipo.</p>
+              <p className="recipe-hint">Todavía no hay tareas guardadas en este equipo. Una tarea guarda cómo se importó un archivo, la receta de Preparar, las reglas de calidad y el formato de entrega, para repetir el mismo trabajo con otro archivo. {draft === null ? "Carga un dataset para guardar la primera." : "Guarda la configuración actual con el formulario de abajo."}</p>
             ) : (
               <div className="reusable-task-panel__select-row">
                 <label htmlFor="reusable-task-select">Tarea guardada</label>
                 <select
+                  ref={selectRef}
                   id="reusable-task-select"
                   value={selectedTaskId}
                   onChange={(event) => {
@@ -201,9 +236,13 @@ export function ReusableTaskPanel({
                 </select>
                 {selectedTaskId && !confirmingDelete && (
                   <button
+                    ref={deleteButtonRef}
                     type="button"
                     className="secondary-action"
-                    onClick={() => setConfirmingDelete(true)}
+                    onClick={() => {
+                      setConfirmingDelete(true);
+                      setFocusTarget("keep");
+                    }}
                     disabled={blocked || reusableTasks.isBusy}
                     aria-describedby={busyDescribedBy(blocked)}
                   >
@@ -215,8 +254,13 @@ export function ReusableTaskPanel({
             {selectedTaskId && confirmingDelete && (() => {
               const deletingName = reusableTasks.tasks.find((task) => task.id === selectedTaskId)?.name ?? "la tarea";
               return (
-                <div className="notice notice--warning" role="alertdialog" aria-label={`Eliminar ${deletingName}`}>
-                  <p>¿Eliminar «{deletingName}»? Se borra de este equipo y no se puede deshacer; tus datasets y proyectos no cambian.</p>
+                <div
+                  className="notice notice--warning"
+                  role="group"
+                  aria-labelledby="reusable-task-delete-question"
+                  onKeyDown={onConfirmationKeyDown}
+                >
+                  <p id="reusable-task-delete-question">¿Eliminar «{deletingName}»? Se borra de este equipo y no se puede deshacer; tus datasets y proyectos no cambian.</p>
                   <button
                     type="button"
                     className="danger-action"
@@ -225,7 +269,11 @@ export function ReusableTaskPanel({
                     onClick={async () => {
                       const removed = await reusableTasks.remove(selectedTaskId);
                       setConfirmingDelete(false);
-                      if (!removed) return;
+                      if (!removed) {
+                        setFocusTarget("delete");
+                        return;
+                      }
+                      setFocusTarget("select");
                       setDeletedTaskName(deletingName);
                       setSelectedTaskId("");
                       setReviewedSchema(null);
@@ -234,7 +282,7 @@ export function ReusableTaskPanel({
                   >
                     Eliminar definitivamente
                   </button>
-                  <button type="button" className="secondary-action" onClick={() => setConfirmingDelete(false)}>
+                  <button ref={keepButtonRef} type="button" className="secondary-action" onClick={cancelDelete}>
                     Conservar
                   </button>
                 </div>
@@ -254,7 +302,7 @@ export function ReusableTaskPanel({
                 <h4>Configuración que se reutilizará</h4>
                 <dl>
                   <div>
-                    <dt>Perfil de entrada</dt>
+                    <dt>Perfil de importación</dt>
                     <dd>
                       {openedTask.importProfile.format.toUpperCase()} · {openedTask.importProfile.schema.length} columnas ·
                       {" "}{openedTask.importProfile.headerMode === "generated"
@@ -272,7 +320,7 @@ export function ReusableTaskPanel({
                     <div>
                       <dt>Decisiones de conversión</dt>
                       <dd>
-                        {exceptionPolicyDraft.conversions.length} decisión{exceptionPolicyDraft.conversions.length === 1 ? "" : "es"} · base léxica
+                        {exceptionPolicyDraft.conversions.length} decisión{exceptionPolicyDraft.conversions.length === 1 ? "" : "es"} sobre valores que no se pueden convertir
                       </dd>
                     </div>
                   )}
@@ -313,7 +361,7 @@ export function ReusableTaskPanel({
                       </label>
                     ))}
                     <p className="recipe-hint">
-                      La decisión se guarda con la tarea al prepararla o aplicarla. Solo se usa con el esquema exacto y la acción existente de aplicar transformaciones.
+                      La decisión se guarda con la tarea al prepararla o aplicarla. Solo se usa si el esquema es idéntico, al aplicar las transformaciones de la receta.
                     </p>
                   </fieldset>
                 )}
@@ -366,7 +414,7 @@ export function ReusableTaskPanel({
                   aria-disabled={!canPrepareImport || undefined}
                   aria-describedby={busyDescribedBy(blocked)}
                 >
-                  {pendingTaskId === selectedTaskId ? "Tarea lista para importar" : "Preparar próxima importación"}
+                  {pendingTaskId === selectedTaskId ? "Se usará en la próxima importación" : "Usar en la próxima importación"}
                 </button>
                 {schema !== null && (
                   <button
@@ -385,7 +433,7 @@ export function ReusableTaskPanel({
             {pendingTaskId && (
               <div className="notice notice--success reusable-task-panel__pending" role="status">
                 <span>
-                  Tarea “{pendingTaskName ?? reusableTasks.tasks.find((task) => task.id === pendingTaskId)?.name ?? "guardada"}” preparada. Al importar un archivo con el esquema compatible se aplicarán sus reglas y opciones de entrega; la receta quedará como borrador y no se ejecutará hasta que la apliques.
+                  La tarea “{pendingTaskName ?? reusableTasks.tasks.find((task) => task.id === pendingTaskId)?.name ?? "guardada"}” se usará en la próxima importación. Si el archivo tiene un esquema compatible, se aplicarán sus reglas y opciones de entrega; la receta quedará como borrador y no se ejecutará hasta que la apliques.
                 </span>
                 <button type="button" className="inline-action" onClick={onClearPendingImport} disabled={blocked} aria-describedby={busyDescribedBy(blocked)}>
                   Quitar
@@ -393,8 +441,9 @@ export function ReusableTaskPanel({
               </div>
             )}
 
+            {showSaveForm && (
             <form className="project-save reusable-task-panel__save" onSubmit={(event) => void saveCurrentTask(event)}>
-              <label htmlFor="reusable-task-name">Guardar configuración actual</label>
+              <label htmlFor="reusable-task-name">Guardar la configuración actual como tarea</label>
               <div>
                 <input
                   id="reusable-task-name"
@@ -421,9 +470,10 @@ export function ReusableTaskPanel({
               <small id="reusable-task-name-help">
                 {draft
                   ? "Se guardan las opciones de importación, preparación, calidad y salida."
-                  : "Carga un archivo y configura su flujo para guardar una tarea."}
+                  : "Para guardar una tarea, carga antes un dataset."}
               </small>
             </form>
+            )}
             {saveMessage && <p className="notice notice--success" role="status">{saveMessage}</p>}
           </section>
         )}

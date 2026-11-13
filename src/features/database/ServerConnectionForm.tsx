@@ -19,6 +19,10 @@ interface ServerConnectionFormProps {
   onChange: (connection: DatabaseConnection | null) => void;
   /** The id of a message saying the connection is incomplete; marks its first field. */
   errorId?: string;
+  /** Fields the form starts with (kept from another engine). */
+  initial?: Partial<DatabaseConnection>;
+  /** Every state of the fields, complete or not, so the parent can carry them to another engine. */
+  onDraft?: (fields: DatabaseConnection) => void;
 }
 
 /**
@@ -26,12 +30,13 @@ interface ServerConnectionFormProps {
  * ODBC string (Rust builds it from the fields), with the preferred installed
  * driver. Nothing is saved.
  */
-export function ServerConnectionForm({ kind, disabled, blockedByBusy = false, onChange, errorId }: ServerConnectionFormProps) {
+export function ServerConnectionForm({ kind, disabled, blockedByBusy = false, onChange, errorId, initial, onDraft }: ServerConnectionFormProps) {
   const id = useId();
   const engine = SERVER_ENGINES[kind];
   const statusId = `${id}-status`;
-  const [touched, setTouched] = useState(false);
-  const [fields, setFields] = useState<DatabaseConnection>(EMPTY_SERVER_CONNECTION);
+  // Fields the user has left or changed: a problem is only shown for those.
+  const [touched, setTouched] = useState<ReadonlySet<string>>(new Set());
+  const [fields, setFields] = useState<DatabaseConnection>(() => ({ ...EMPTY_SERVER_CONNECTION, ...initial }));
   // null while loading, the installed drivers, or why they could not be listed.
   const [driverList, setDriverList] = useState<null | string[] | { error: string }>(null);
   const driverError = driverList !== null && !Array.isArray(driverList) ? driverList.error : null;
@@ -65,8 +70,13 @@ export function ServerConnectionForm({ kind, disabled, blockedByBusy = false, on
     onChangeRef.current(serverConnectionProblem(kind, fields) === null ? fields : null);
   }, [kind, fields]);
 
-  function update(next: DatabaseConnection) {
-    setTouched(true);
+  useEffect(() => {
+    onDraft?.(fields);
+  }, [fields, onDraft]);
+
+  const touch = (field: string) => setTouched((current) => current.has(field) ? current : new Set(current).add(field));
+  function update(next: DatabaseConnection, field?: string) {
+    if (field) touch(field);
     setFields(next);
   }
 
@@ -78,12 +88,15 @@ export function ServerConnectionForm({ kind, disabled, blockedByBusy = false, on
     : serverConnectionProblem(kind, { ...fields, port: "" }) !== problem ? "port"
     : !fields.user.trim() ? "user"
     : null;
-  // Do not flag a freshly opened form: only once the user has touched a
-  // required field or the parent reports the incomplete connection.
+  // Do not flag a freshly opened form: a field is only flagged once the user
+  // has left or changed it, or the parent reports the incomplete connection.
   const flagged = missing ?? (errorId && problem !== null ? "server" : null);
-  const invalid = (field: string) => (touched || Boolean(errorId)) && flagged === field ? true : undefined;
+  const showing = flagged !== null && (Boolean(errorId) || touched.has(flagged));
+  const invalid = (field: string) => showing && flagged === field ? true : undefined;
   const describedBy = (field: string) =>
-    [flagged === field ? statusId : undefined, field === "server" ? errorId : undefined].filter(Boolean).join(" ") || undefined;
+    [showing && flagged === field ? statusId : undefined, field === "server" ? errorId : undefined].filter(Boolean).join(" ") || undefined;
+  // A missing driver belongs to no field, so it is said at once.
+  const statusText = driverError !== null ? null : problem !== null && (showing || !fields.driver) ? problem : null;
 
   return (
     <div className="connection-form" role="group" aria-label="Datos de conexión" aria-describedby={busyDescribedBy(blockedByBusy)}>
@@ -96,12 +109,12 @@ export function ServerConnectionForm({ kind, disabled, blockedByBusy = false, on
             required
             aria-invalid={invalid("server")}
             aria-describedby={describedBy("server")}
-            onBlur={() => setTouched(true)}
+            onBlur={() => touch("server")}
             disabled={disabled}
             autoComplete="off"
             spellCheck={false}
             placeholder="localhost o db.ejemplo.com"
-            onChange={(event) => update({ ...fields, server: event.target.value })}
+            onChange={(event) => update({ ...fields, server: event.target.value }, "server")}
           />
         </div>
         <div className="connection-form__field connection-form__port">
@@ -110,12 +123,13 @@ export function ServerConnectionForm({ kind, disabled, blockedByBusy = false, on
             id={`${id}-port`}
             aria-invalid={invalid("port")}
             aria-describedby={describedBy("port")}
+            onBlur={() => touch("port")}
             value={fields.port}
             disabled={disabled}
             inputMode="numeric"
             autoComplete="off"
             placeholder={engine.port}
-            onChange={(event) => update({ ...fields, port: event.target.value })}
+            onChange={(event) => update({ ...fields, port: event.target.value }, "port")}
           />
         </div>
       </div>
@@ -140,12 +154,12 @@ export function ServerConnectionForm({ kind, disabled, blockedByBusy = false, on
             required
             aria-invalid={invalid("user")}
             aria-describedby={describedBy("user")}
-            onBlur={() => setTouched(true)}
+            onBlur={() => touch("user")}
             value={fields.user}
             disabled={disabled}
             autoComplete="off"
             spellCheck={false}
-            onChange={(event) => update({ ...fields, user: event.target.value })}
+            onChange={(event) => update({ ...fields, user: event.target.value }, "user")}
           />
         </div>
         <div className="connection-form__field">
@@ -194,7 +208,7 @@ export function ServerConnectionForm({ kind, disabled, blockedByBusy = false, on
         className={driverError === null && drivers !== null && drivers.length === 0 ? "notice" : "connection-form__note"}
         role="status"
       >
-        {driverError === null ? problem : null}
+        {statusText}
       </p>
       {driverError !== null && (
         <p className="notice" role="alert">No se pudieron comprobar los controladores ODBC instalados. {driverError}</p>

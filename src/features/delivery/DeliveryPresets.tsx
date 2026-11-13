@@ -21,7 +21,7 @@ interface DeliveryPresetsProps {
   onApply: (preset: DeliveryPreset) => string | null;
 }
 
-/** «Presets de entrega guardados»: save, open, apply and delete local presets. */
+/** «Configuraciones de entrega guardadas»: save, open, apply and delete local presets. */
 export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPresetsProps) {
   const [presets, setPresets] = useState<DeliveryPresetSummary[]>([]);
   const [presetsLoaded, setPresetsLoaded] = useState(false);
@@ -106,7 +106,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
       setPresetsCancelled(false);
       setSelectedPresetId(summary.id);
       setOpenedPreset(preset);
-      setPresetNotice("Preset guardado localmente. Las credenciales de conexión no se almacenan.");
+      setPresetNotice("Configuración guardada en este equipo. Los datos de conexión no se guardan.");
     } catch (error: unknown) {
       setPresetsError(errorMessage(error));
     } finally {
@@ -143,7 +143,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
       setSelectedPresetId("");
       setOpenedPreset(null);
       setPresetName("");
-      setPresetNotice("Preset eliminado del catálogo local.");
+      setPresetNotice("Configuración eliminada de este equipo.");
     } catch (error: unknown) {
       setPresetsError(errorMessage(error));
     } finally {
@@ -160,7 +160,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
       const added = currentColumns.filter((column) => !openedPreset.selectedColumns.includes(column));
       setPresetNotice(`Esquema distinto: ${missing.length} columna(s) guardada(s) no aparecen y ${added.length} columna(s) nueva(s). Se aplicará la configuración a todas las columnas actuales.`);
     } else {
-      setPresetNotice("Preset verificado contra el esquema actual.");
+      setPresetNotice("Configuración comprobada con las columnas actuales.");
     }
     const databaseNotice = onApply(openedPreset);
     if (databaseNotice) setPresetNotice(databaseNotice);
@@ -179,12 +179,12 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
               }
             }}
           >
-            <summary>Presets de entrega guardados</summary>
-            <p>Guarda el formato, la protección y la tabla de destino para repetirlos; las columnas solo se usan para avisar si el esquema cambió. Las credenciales quedan fuera del preset.</p>
+            <summary>Configuraciones de entrega guardadas</summary>
+            <p>Guarda el formato, la protección y la tabla de destino para repetirlos; las columnas solo se usan para avisar si el esquema cambió. Los datos de conexión no se guardan.</p>
             <label>
-              Preset de entrega local
+              Configuración guardada
               <select
-                aria-label="Preset de entrega local"
+                aria-label="Configuración guardada"
                 value={selectedPresetId}
                 onChange={(event) => {
                   setSelectedPresetId(event.target.value);
@@ -195,7 +195,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
                 }}
                 disabled={presetWorking || presetsLoading}
               >
-                <option value="">Selecciona un preset</option>
+                <option value="">Selecciona una configuración</option>
                 {presets.map((preset) => (
                   <option key={preset.id} value={preset.id}>
                     {preset.name} · {preset.format} · guardado con {preset.selectedColumnCount} columnas
@@ -204,9 +204,9 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
               </select>
             </label>
             <label>
-              Nombre del preset
+              Nombre de la configuración
               <input
-                aria-label="Nombre del preset de entrega"
+                aria-label="Nombre de la configuración"
                 value={presetName}
                 maxLength={80}
                 onChange={(event) => setPresetName(event.target.value)}
@@ -215,10 +215,10 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
             </label>
             <div className="delivery-presets__actions">
               <button type="button" className="secondary-action" onClick={() => void loadSelectedDeliveryPreset()} disabled={!selectedPresetId || presetWorking || presetsLoading}>
-                {presetWorking ? "Procesando preset…" : "Abrir y verificar"}
+                {presetWorking ? "Procesando la configuración…" : "Abrir y verificar"}
               </button>
               <button type="button" className="secondary-action" onClick={() => void saveCurrentDeliveryPreset()} disabled={!presetName.trim() || presetWorking || presetsLoading || presetsCancellationPending}>
-                {selectedPresetId ? "Actualizar preset" : "Guardar preset"}
+                {selectedPresetId ? "Actualizar configuración" : "Guardar configuración"}
               </button>
               {selectedPresetId && (
                 <button type="button" className="secondary-action" onClick={() => void saveCurrentDeliveryPreset(true)} disabled={!presetName.trim() || presetWorking || presetsLoading || presetsCancellationPending}>
@@ -227,7 +227,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
               )}
               {selectedPresetId && (
                 <button type="button" className="secondary-action" onClick={() => void deleteSelectedDeliveryPreset()} disabled={presetWorking || presetsLoading || presetsCancellationPending}>
-                  Eliminar preset
+                  Eliminar configuración
                 </button>
               )}
             </div>
@@ -248,7 +248,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
             )}
             {presetsCancelled && !presetsLoading && !presetsError && (
               <div className="notice" role="status">
-                <span>Se canceló la carga de presets locales.</span>
+                <span>Se canceló la carga de las configuraciones guardadas.</span>
                 <button
                   type="button"
                   className="secondary-action"
@@ -259,7 +259,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
                 </button>
               </div>
             )}
-            {!presetsLoading && presetsLoaded && presets.length === 0 && <p role="note">Aún no hay presets locales.</p>}
+            {!presetsLoading && presetsLoaded && presets.length === 0 && <p role="note">Aún no hay configuraciones guardadas.</p>}
             {presetsError && (
               <div className="notice notice--error" role="alert">
                 <p>{presetsError}</p>
@@ -279,7 +279,7 @@ export function DeliveryPresets({ dataset, currentPreset, onApply }: DeliveryPre
                   </p>
                 )}
                 <button type="button" className="secondary-action" onClick={applyOpenedDeliveryPreset} disabled={presetWorking}>
-                  {openedPresetSchemaMatches ? "Aplicar preset verificado" : "Aplicar tras revisar esquema"}
+                  {openedPresetSchemaMatches ? "Aplicar configuración verificada" : "Aplicar tras revisar esquema"}
                 </button>
               </div>
             )}

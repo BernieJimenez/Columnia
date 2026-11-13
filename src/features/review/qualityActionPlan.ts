@@ -1,54 +1,107 @@
+import type { DatasetProfile } from "../../bridge";
 import { plural } from "../../plural";
+import { isRowAuditColumn } from "../../rowAudit";
+import { COMMA_DECIMAL_SETTING, commaDecimalColumns, nonFiniteColumns } from "./reviewModel";
 
 export type QualityActionTarget = "missingValues" | "duplicates" | "incompatibleTypes";
-
-interface QualityActionCounts {
-  nullCount: number;
-  nullColumnCount: number;
-  duplicateCount: number;
-  invalidTypeCount: number;
-}
-
-interface QualityActionRecommendation {
-  target: QualityActionTarget;
-  title: string;
-  explanation: string;
-  impact: string;
-  actionLabel: string;
-}
 
 export function qualityActionTargetDomId(target: QualityActionTarget): string {
   return `prepare-quality-${target}`;
 }
 
-export function buildQualityActionPlan(counts: QualityActionCounts): QualityActionRecommendation[] {
-  const plan: QualityActionRecommendation[] = [];
-  if (counts.nullCount > 0) {
-    plan.push({
-      target: "missingValues",
-      title: "Valores sin dato",
-      explanation: `${plural(counts.nullCount, "celda", "celdas")} sin valor en ${counts.nullColumnCount.toLocaleString()} ${counts.nullColumnCount === 1 ? "columna" : "columnas"}. Un nulo puede ser válido; primero revisa por qué falta antes de completarlo o retirar una columna.`,
-      impact: "Rellenar puede cambiar la interpretación del dataset. Columnia conserva los nulos hasta que elijas una corrección reversible.",
-      actionLabel: "Revisar opciones para nulos",
+/** Where a problem Preparar does not fix on its own is dealt with. */
+export type UncorrectedAction =
+  | { kind: "prepare"; label: string; target?: QualityActionTarget }
+  | { kind: "load"; label: string };
+
+export interface UncorrectedIssue {
+  id: "nulls" | "incompatible" | "personal" | "commaDecimal" | "nonFinite";
+  /** What it is and how many cells, rows or columns, counted over every row. */
+  title: string;
+  /** Why it is not fixed alone, or what to do about it. */
+  detail: string;
+  /** Null when there is nothing to press: the issue only informs. */
+  action: UncorrectedAction | null;
+}
+
+const MAX_LISTED_COLUMNS = 3;
+
+/** «la única fila» or «las 48.213 filas»: the figures count every row. */
+export function allRows(rowCount: number): string {
+  return rowCount === 1 ? "la única fila" : `las ${rowCount.toLocaleString()} filas`;
+}
+
+function columnNames(names: string[]): string {
+  const shown = names.slice(0, MAX_LISTED_COLUMNS).map((name) => `«${name}»`).join(", ");
+  const rest = names.length - MAX_LISTED_COLUMNS;
+  return rest > 0 ? `${shown} y ${rest.toLocaleString()} más` : shown;
+}
+
+/**
+ * What the Preparar proposal leaves alone, so «No se corrige solo» lists the
+ * rest of what the profile found: nulls, values that do not fit the suggested
+ * type, personal data and decimal commas. Duplicates, «sin dato» markers and
+ * spaces are not here: the proposal lists them.
+ */
+export function buildUncorrectedIssues(profile: DatasetProfile): UncorrectedIssue[] {
+  const issues: UncorrectedIssue[] = [];
+  const columns = profile.columns.filter((column) => !isRowAuditColumn(column.name));
+
+  const nullColumns = columns.filter((column) => column.nullCount > 0);
+  const nullCount = nullColumns.reduce((total, column) => total + column.nullCount, 0);
+  if (nullCount > 0) {
+    issues.push({
+      id: "nulls",
+      title: `${plural(nullCount, "nulo", "nulos")} en ${plural(nullColumns.length, "columna", "columnas")}`,
+      detail: "Un nulo puede ser válido: revisa por qué falta antes de rellenarlo o de retirar la columna.",
+      action: { kind: "prepare", label: "Ver nulos en Preparar", target: "missingValues" },
     });
   }
-  if (counts.duplicateCount > 0) {
-    plan.push({
-      target: "duplicates",
-      title: "Filas duplicadas exactas",
-      explanation: `${plural(counts.duplicateCount, "fila adicional coincide", "filas adicionales coinciden")} con otra fila en todas las columnas.`,
-      impact: "Retirarlas puede evitar doble conteo; confirma que las repeticiones no representen eventos distintos. La primera fila se conserva y el cambio se puede deshacer.",
-      actionLabel: "Revisar duplicados exactos",
+
+  const invalidColumns = columns.filter((column) => (column.invalidTypeCount ?? 0) > 0);
+  const invalidCount = invalidColumns.reduce((total, column) => total + Math.max(0, column.invalidTypeCount ?? 0), 0);
+  if (invalidCount > 0) {
+    issues.push({
+      id: "incompatible",
+      title: `${plural(invalidCount, "valor incompatible", "valores incompatibles")} con el tipo sugerido en ${plural(invalidColumns.length, "columna", "columnas")}`,
+      detail: "Apartarlos como nulos puede ocultar códigos o excepciones válidas: confirma la sugerencia antes de aplicarla.",
+      action: { kind: "prepare", label: "Ver incompatibles en Preparar", target: "incompatibleTypes" },
     });
   }
-  if (counts.invalidTypeCount > 0) {
-    plan.push({
-      target: "incompatibleTypes",
-      title: "Valores incompatibles con el tipo sugerido",
-      explanation: `${plural(counts.invalidTypeCount, "celda no coincide", "celdas no coinciden")} con un tipo sugerido por el perfil.`,
-      impact: "Apartar valores como nulos puede ocultar códigos o excepciones válidas. Revisa la sugerencia y su confirmación antes de aplicar el cambio reversible.",
-      actionLabel: "Revisar tipos incompatibles",
+
+  const personal = columns.filter((column) => column.privacySignal !== null && column.privacySignal !== "identifier");
+  if (personal.length > 0) {
+    issues.push({
+      id: "personal",
+      title: `${plural(personal.length, "columna", "columnas")} con datos personales: ${columnNames(personal.map((column) => column.name))}`,
+      detail: `Presentes en ${allRows(profile.rowCount)}. Retíralas o enmascara sus valores antes de entregar.`,
+      action: { kind: "prepare", label: "Ver datos personales en Preparar" },
     });
   }
-  return plan;
+
+  const commaNames = commaDecimalColumns(profile);
+  if (commaNames.length > 0) {
+    const commaCells = columns
+      .filter((column) => commaNames.includes(column.name))
+      .reduce((total, column) => total + (column.commaDecimalCount ?? 0), 0);
+    issues.push({
+      id: "commaDecimal",
+      title: `${plural(commaCells, "celda", "celdas")} con coma decimal leída${commaCells === 1 ? "" : "s"} como texto en ${columnNames(commaNames)}`,
+      detail: `Por eso no se analizan como número (1,5 o 1.234,56). Vuelve a cargar el archivo y elige «${COMMA_DECIMAL_SETTING}» en Números.`,
+      action: { kind: "load", label: "Volver a cargar con coma decimal" },
+    });
+  }
+
+  const nonFinite = nonFiniteColumns(profile).filter(({ name }) => !isRowAuditColumn(name));
+  if (nonFinite.length > 0) {
+    const total = nonFinite.reduce((sum, { count }) => sum + count, 0);
+    issues.push({
+      id: "nonFinite",
+      title: `${plural(total, "valor no finito", "valores no finitos")} (NaN o infinito) en ${columnNames(nonFinite.map(({ name }) => name))}`,
+      detail: "Quedan fuera del mínimo, el máximo, la media y los gráficos.",
+      action: null,
+    });
+  }
+
+  return issues;
 }

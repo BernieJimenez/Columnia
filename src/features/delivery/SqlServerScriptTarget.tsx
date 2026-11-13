@@ -2,6 +2,7 @@ import { useId } from "react";
 
 import type { ColumnProfile, SqlServerScriptOptions } from "../../bridge";
 import { busyDescribedBy } from "../../busyReasons";
+import { plural } from "../../plural";
 import { keyColumnWarnings } from "./deliverySignals";
 
 /** A new table named after the saved file, in dbo, with fitted text. */
@@ -121,6 +122,7 @@ export function SqlServerScriptTarget({
           <p id={`${id}-keys-note`}>
             Identifican cada fila, como un código o un ID. En los datos no pueden tener nulos ni repetirse;
             si pasa, el script se detiene sin tocar la tabla.
+            {columns.length > 10 && ` Hay ${plural(columns.length, "columna", "columnas")}: desplázate dentro de la lista para verlas todas.`}
           </p>
           <div className="sqlserver-script-target__key-list">
             {columns.map((column) => (

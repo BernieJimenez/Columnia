@@ -48,6 +48,86 @@ export const INITIAL_DATABASE_TARGET: DatabaseTargetDraft = {
   tablePolicy: "create_only",
 };
 
+/** The usual schema of each engine; MySQL has none (the table goes to the connection's database). */
+const DEFAULT_DATABASE_SCHEMA: Record<DatabaseTarget["kind"], string> = {
+  sqlserver: "dbo",
+  postgresql: "public",
+  mysql: "",
+};
+
+export function defaultDatabaseSchema(kind: DatabaseTarget["kind"]): string {
+  return DEFAULT_DATABASE_SCHEMA[kind];
+}
+
+/**
+ * A table name taken from the file name, as `tsql_table_name` in
+ * tsql_script.rs does for the T-SQL script: letters, digits and underscores,
+ * `t_` before a leading digit and «dataset» when nothing is left.
+ */
+export function databaseTableName(fileName: string): string {
+  const stem = fileName.replace(/\.[^.]*$/, "");
+  let name = stem.replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "");
+  if (!name) name = "dataset";
+  if (/^\d/.test(name)) name = `t_${name}`;
+  return name.slice(0, 128);
+}
+
+/** The target an engine starts with: its usual schema and a table named after the file. */
+export function defaultDatabaseTarget(kind: DatabaseTarget["kind"], fileName: string): DatabaseTargetDraft {
+  return {
+    ...INITIAL_DATABASE_TARGET,
+    kind,
+    schema: defaultDatabaseSchema(kind),
+    table: databaseTableName(fileName),
+  };
+}
+
+/**
+ * Moves the target to another engine. A schema left at the old engine's
+ * default takes the new one's; a schema the person typed stays.
+ */
+export function retargetDatabaseKind(current: DatabaseTargetDraft, kind: DatabaseTarget["kind"]): DatabaseTargetDraft {
+  if (current.kind === kind) return current;
+  return {
+    ...current,
+    kind,
+    // Another engine starts with an empty form: the old connection is dropped.
+    connection: null,
+    schema: current.schema.trim() === defaultDatabaseSchema(current.kind) ? defaultDatabaseSchema(kind) : current.schema,
+    ...(kind === "mysql" && current.tablePolicy === "replace" ? { tablePolicy: "create_only" as const } : {}),
+  };
+}
+
+/** The table name as the person reads it: «esquema.tabla», or just the table. */
+export function qualifiedDatabaseTable(target: Pick<DatabaseTarget, "schema" | "table">): string {
+  return [target.schema.trim(), target.table.trim() || "(sin tabla)"].filter(Boolean).join(".");
+}
+
+/** Where a direct delivery writes: «servidor · base · esquema.tabla». */
+export function databaseLocation(target: DatabaseTargetDraft): string {
+  return [
+    target.connection?.server.trim() || null,
+    target.connection?.database.trim() || null,
+    qualifiedDatabaseTable(target),
+  ].filter(Boolean).join(" · ");
+}
+
+/**
+ * What «Reemplazar» deletes, said before it happens. The preflight only says
+ * whether the table exists, not how many rows it holds.
+ */
+export function replaceTableWarning(
+  table: string,
+  preflight: { tableExists: boolean; rowCount?: number | null } | null,
+): string | null {
+  if (preflight && !preflight.tableExists) return null;
+  if (!preflight) return `Si la tabla ${table} ya existe, se borrarán sus filas y se volverá a crear con estos datos.`;
+  const rows = typeof preflight.rowCount !== "number"
+    ? "sus filas"
+    : preflight.rowCount === 1 ? "su única fila" : `sus ${plural(preflight.rowCount, "fila", "filas")}`;
+  return `La tabla ${table} ya existe: se borrarán ${rows} y se volverá a crear con estos datos.`;
+}
+
 /** The target to send, once its connection is complete. */
 export function completeDatabaseTarget(draft: DatabaseTargetDraft): DatabaseTarget | null {
   return draft.connection ? { ...draft, connection: draft.connection } : null;
@@ -93,7 +173,7 @@ export const DELIVERY_DESTINATIONS: readonly DeliveryDestinationOption[] = [
       { format: "json", label: "JSON", description: "Una lista de objetos, para aplicaciones y APIs." },
       { format: "sqlite", label: "SQLite", description: "Una base de datos completa en un solo archivo." },
       { format: "sql", label: "SQL portable", description: "CREATE TABLE e INSERT en SQL estándar, para PostgreSQL o SQLite." },
-      { format: "bundle", label: "Paquete ZIP", description: "El dataset con su diccionario de columnas y el resumen de calidad." },
+      { format: "bundle", label: "Paquete Columnia (.zip)", description: "Un ZIP con el dataset, su diccionario de columnas y el resumen de calidad." },
     ],
   },
   {
@@ -138,7 +218,7 @@ export function destinationForFormat(format: ExportFormat): DeliveryDestination 
   return "file";
 }
 
-interface DeliverySummaryItem {
+export interface DeliverySummaryItem {
   label: string;
   value: string;
 }
@@ -151,6 +231,8 @@ interface DeliverySummaryInput {
   columnCount: number;
   /** Where the rows land in a database, already described; null for a file. */
   table: string | null;
+  /** A direct database delivery: server, database and sign-in (`databaseConnectionSummary`). */
+  connection?: readonly DeliverySummaryItem[];
   quality: { kind: "rules"; count: number; passed: boolean } | { kind: "unvalidated" };
   privacyMode: PrivacyMode;
   personalDataColumnCount: number;
@@ -221,8 +303,24 @@ export function tsqlScriptIsTooLarge(rowCount: number, columnCount: number): boo
 
 /** The table line of a direct database delivery. */
 export function databaseTargetTable(target: Pick<DatabaseTarget, "schema" | "table" | "tablePolicy">): string {
-  const name = [target.schema.trim(), target.table.trim() || "(sin tabla)"].filter(Boolean).join(".");
-  return `${name} · ${TABLE_POLICY_LABEL[target.tablePolicy]}`;
+  return `${qualifiedDatabaseTable(target)} · ${TABLE_POLICY_LABEL[target.tablePolicy]}`;
+}
+
+/** The connection lines of the summary: server, database and sign-in, never the password. */
+export function databaseConnectionSummary(connection: DatabaseConnection | null): DeliverySummaryItem[] {
+  if (!connection) {
+    return [{ label: "Servidor", value: "falta completar la conexión" }];
+  }
+  return [
+    { label: "Servidor", value: connection.server.trim() },
+    { label: "Base de datos", value: connection.database.trim() || "la predeterminada del usuario" },
+    {
+      label: "Autenticación",
+      value: connection.authentication === "windows"
+        ? "tu sesión de Windows"
+        : `usuario ${connection.user.trim()} con contraseña`,
+    },
+  ];
 }
 
 /**
@@ -234,6 +332,7 @@ export function deliverySummary(input: DeliverySummaryInput): DeliverySummaryIte
   const items: DeliverySummaryItem[] = [
     { label: "Destino", value: `${input.destination} · ${input.format}` },
   ];
+  if (input.connection) items.push(...input.connection);
   if (input.table) items.push({ label: "Tabla", value: input.table });
   items.push({
     label: "Datos",
@@ -556,7 +655,7 @@ export function validateQualityRuleDraft(
         return `${label}: then solo admite sin nulos, texto no vacío, rango numérico, valores permitidos, regex o tipo esperado.`;
       }
       if (then.maxInvalid !== 0 || then.maxInvalidPct !== undefined) {
-        return `${label}: la tolerancia de then debe ser exactamente 0 inválidos.`;
+        return `${label}: la tolerancia de then debe ser exactamente 0 incumplimientos.`;
       }
       const thenError = validateQualityRuleDraft([then], dataset);
       if (thenError) return `${label}: la comprobación then no es válida (${thenError}).`;
@@ -566,7 +665,7 @@ export function validateQualityRuleDraft(
     const hasPercentage = rule.maxInvalidPct !== undefined;
     if (!hasCount && !hasPercentage) return `${label}: activa al menos una tolerancia.`;
     if (hasCount && (!Number.isInteger(rule.maxInvalid) || (rule.maxInvalid ?? -1) < 0)) {
-      return `${label}: el máximo de inválidos debe ser un entero igual o mayor que cero.`;
+      return `${label}: el máximo de incumplimientos debe ser un entero igual o mayor que cero.`;
     }
     if (hasPercentage && (
       !Number.isFinite(rule.maxInvalidPct) ||

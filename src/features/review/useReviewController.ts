@@ -10,6 +10,7 @@ import {
   getDatasetConflictPage,
   getDatasetProfile,
   joinDataset,
+  refreshDatasetComparison,
   resolveDatasetConflicts,
   type ComparisonOptions,
   type ConflictResolution,
@@ -46,11 +47,16 @@ import {
   type ProfileStatus,
 } from "./reviewModel";
 import { errorMessage } from "../../bridge/errors";
+import { useLatest } from "../../useLatest";
 
 const CONFLICT_PAGE_SIZE = 50;
 const EXACT_COMPARISON: ComparisonOptions = { numericTolerance: false, ignoreCase: false, trimSpaces: false };
 
-/** Everything the comparison and join tools of Revisar show and do. */
+/**
+ * The comparison with another file: Revisar compares and shows the result;
+ * Preparar uses the same comparison to join, consolidate or resolve
+ * conflicts, which replace the active dataset as a step of its history.
+ */
 export interface ReviewComparison {
   status: ComparisonStatus;
   cancellationPending?: boolean;
@@ -72,6 +78,11 @@ export interface ReviewComparison {
   onJoinTypeChange: (joinType: DatasetJoinType) => void;
   onJoin: (joinType: DatasetJoinType) => void;
   onCancelMutation?: () => void;
+  /**
+   * Why the last comparison was dropped after a change in Preparar
+   * («La comparación se descartó porque cambió id»), until the next one.
+   */
+  notice?: string | null;
 }
 
 /** Review settings a project stores and restores. */
@@ -93,7 +104,17 @@ interface ReviewControllerOptions {
    * A comparison or join replaced the active dataset. The review state is
    * already reset; the owner publishes the dataset and resets the rest.
    */
-  onDatasetReplaced: (dataset: DatasetPreview, mutation: ReviewMutationKind) => Promise<void>;
+  onDatasetReplaced: (
+    dataset: DatasetPreview,
+    mutation: ReviewMutationKind,
+    detail: CombinationDetail,
+  ) => Promise<void>;
+}
+
+/** What the result line of a combination names. */
+export interface CombinationDetail {
+  comparedFileName: string | null;
+  joinType: DatasetJoinType;
 }
 
 
@@ -119,6 +140,8 @@ export function useReviewController({
   const [joinType, setJoinType] = useState<DatasetJoinType>("inner");
   const [mutationStatus, setMutationStatus] = useState<ReviewMutationStatus>({ kind: "idle" });
   const [mutationCancellationPending, setMutationCancellationPending] = useState(false);
+  const [comparisonNotice, setComparisonNotice] = useState<string | null>(null);
+  const comparisonStatusRef = useLatest(comparisonStatus);
   const autoProfileRevisionRef = useRef<number | null>(null);
   const profileRequestSequenceRef = useRef(0);
   const activeProfileRequestRef = useRef<{ revision: number; sequence: number } | null>(null);
@@ -145,10 +168,75 @@ export function useReviewController({
   function resetForDataset() {
     setSqlHistory([]);
     setComparisonStatus(clearComparison());
+    setComparisonNotice(null);
     setComparisonKeyColumns([]);
     setJoinStatus(clearJoin());
     setMutationStatus({ kind: "idle" });
     setJoinType("inner");
+  }
+
+  /**
+   * A change of Preparar (a correction, «Deshacer» or «Rehacer») keeps the
+   * comparison with the other file while its key columns still exist: it is
+   * computed again against the new data, with the same file, key and options,
+   * so its figures stay true. Otherwise it is dropped and `notice` says why.
+   */
+  async function syncComparisonWithDataset(columns: DatasetColumn[]) {
+    setSqlHistory([]);
+    setJoinStatus(clearJoin());
+    setMutationStatus({ kind: "idle" });
+    const current = comparisonStatusRef.current;
+    if (current.kind !== "ready") {
+      setComparisonStatus(clearComparison());
+      setComparisonNotice(null);
+      await clearDatasetComparison().catch(() => undefined);
+      return;
+    }
+    const previous = current.comparison;
+    const available = new Set(columns.map((column) => column.name));
+    const missing = previous.keyColumns.filter((column) => !available.has(column));
+    if (missing.length > 0) {
+      comparisonRequestRef.current += 1;
+      setComparisonStatus(clearComparison());
+      setComparisonKeyColumns((keys) => keys.filter((column) => available.has(column)));
+      setComparisonNotice(
+        `La comparación con ${previous.comparedFileName} se descartó porque cambió ${missing.length === 1 ? "la columna clave" : "las columnas clave"} ${missing.join(", ")}. Compara de nuevo para combinar.`,
+      );
+      await clearDatasetComparison().catch(() => undefined);
+      return;
+    }
+    if (comparisonOperationInFlightRef.current) return;
+    comparisonOperationInFlightRef.current = true;
+    const requestId = ++comparisonRequestRef.current;
+    comparisonPageRequestRef.current += 1;
+    const requestedRevision = datasetRevisionRef.current;
+    const isCurrentRequest = () =>
+      comparisonRequestRef.current === requestId && datasetRevisionRef.current === requestedRevision;
+    setComparisonNotice(null);
+    setComparisonStatus(beginComparison());
+    try {
+      const comparison = await refreshDatasetComparison();
+      if (!isCurrentRequest()) return;
+      if (comparison === null) {
+        setComparisonStatus(clearComparison());
+        return;
+      }
+      // The compared file was not read again: how it was read still holds.
+      setComparisonStatus(completeComparison({
+        ...comparison,
+        comparedSourceNote: comparison.comparedSourceNote ?? previous.comparedSourceNote,
+      }));
+    } catch (error: unknown) {
+      if (!isCurrentRequest()) return;
+      setComparisonStatus(clearComparison());
+      setComparisonNotice(isCancellationError(error)
+        ? `La comparación con ${previous.comparedFileName} se descartó porque se canceló al actualizarla. Compara de nuevo para combinar.`
+        : `La comparación con ${previous.comparedFileName} se descartó porque no se pudo actualizar: ${errorMessage(error)}`);
+      await clearDatasetComparison().catch(() => undefined);
+    } finally {
+      comparisonOperationInFlightRef.current = false;
+      if (comparisonRequestRef.current === requestId) setComparisonCancellationPending(false);
+    }
   }
 
   function forgetProjectSettings({ clearSqlHistory }: { clearSqlHistory: boolean }) {
@@ -248,6 +336,7 @@ export function useReviewController({
     const isCurrentRequest = () =>
       comparisonRequestRef.current === requestId && datasetRevisionRef.current === requestedRevision;
     setComparisonCancellationPending(false);
+    setComparisonNotice(null);
     setComparisonStatus(beginComparison());
     try {
       const comparison = await compareDataset(comparisonKeyColumns, comparisonOptions);
@@ -289,6 +378,7 @@ export function useReviewController({
     const requestId = ++comparisonRequestRef.current;
     comparisonPageRequestRef.current += 1;
     setMutationStatus({ kind: "idle" });
+    setComparisonNotice(null);
     try {
       await cancelOperation("datasetComparison");
       await clearDatasetComparison();
@@ -336,8 +426,13 @@ export function useReviewController({
     requestRef: MutableRefObject<number>,
     execute: () => Promise<DatasetPreview | null>,
     handlers: { onEmpty?: () => void; onCancelled?: () => void; onError: (message: string) => void },
+    mutationJoinType: DatasetJoinType = joinType,
   ) {
     if (comparisonOperationInFlightRef.current) return;
+    const detail: CombinationDetail = {
+      comparedFileName: comparisonStatus.kind === "ready" ? comparisonStatus.comparison.comparedFileName : null,
+      joinType: mutationJoinType,
+    };
     comparisonOperationInFlightRef.current = true;
     const requestId = ++requestRef.current;
     const requestedRevision = datasetRevisionRef.current;
@@ -371,7 +466,7 @@ export function useReviewController({
       } else {
         setJoinType("inner");
       }
-      await onDatasetReplaced(dataset, mutationKind);
+      await onDatasetReplaced(dataset, mutationKind, detail);
     } catch (error: unknown) {
       if (!isCurrent()) return;
       if (isCancellationError(error)) {
@@ -408,18 +503,20 @@ export function useReviewController({
     });
   }
 
+  /** Joins with the file already compared, by the key of that comparison. */
   function join(requestedJoinType: DatasetJoinType) {
-    if (comparisonKeyColumns.length === 0) {
-      setJoinStatus(failJoin("Selecciona al menos una columna clave para unir datasets."));
+    const keyColumns = comparisonStatus.kind === "ready" ? comparisonStatus.comparison.keyColumns : [];
+    if (keyColumns.length === 0) {
+      setJoinStatus(failJoin("Para unir, compara antes con otro archivo eligiendo al menos una columna clave."));
       return;
     }
     if (comparisonOperationInFlightRef.current) return;
     setJoinStatus(beginJoin(requestedJoinType));
-    return runMutation("join", joinRequestRef, () => joinDataset(comparisonKeyColumns, requestedJoinType), {
+    return runMutation("join", joinRequestRef, () => joinDataset(keyColumns, requestedJoinType, true), {
       onEmpty: () => setJoinStatus(clearJoin()),
       onCancelled: () => setJoinStatus(clearJoin()),
       onError: (message) => setJoinStatus(failJoin(message)),
-    });
+    }, requestedJoinType);
   }
 
   async function cancelMutation() {
@@ -475,6 +572,7 @@ export function useReviewController({
     onJoinTypeChange: setJoinType,
     onJoin: (requestedJoinType) => void join(requestedJoinType),
     onCancelMutation: () => void cancelMutation(),
+    notice: comparisonNotice,
   };
 
   const busy =
@@ -519,6 +617,7 @@ export function useReviewController({
     invalidateProfile,
     invalidateRequests,
     resetForDataset,
+    syncComparisonWithDataset,
     forgetProjectSettings,
     restoreWorkspace,
   };

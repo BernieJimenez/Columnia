@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ColumnProfile, DatasetPreview, DatasetProfile } from "../../bridge";
 import { createReadyDatasetStatus } from "../load/loadModel";
@@ -168,6 +168,13 @@ describe("profileProvenanceText", () => {
       .toBe("Perfil de la única fila en memoria, con Polars, en menos de 1 s.");
     expect(profileProvenanceText({ ...base, provenance: { mode: "in_memory", durationMs: 125_000, computedAt: "x" } }))
       .toContain("en 2 min 5 s.");
+  });
+
+  it("no repite el punto cuando la hora termina en «a. m.»", () => {
+    const clock = vi.spyOn(Date.prototype, "toLocaleTimeString").mockReturnValue("05:41 a. m.");
+    const text = profileProvenanceText({ ...base, provenance: { mode: "in_memory", durationMs: 120, computedAt: "2026-11-01T14:05:00Z" } });
+    clock.mockRestore();
+    expect(text).toMatch(/^Perfil de las 3.000.000 filas en memoria, con Polars, en menos de 1 s a las 05:41 a. m.$/);
   });
 
   it("calla en los perfiles guardados antes de registrarlo", () => {

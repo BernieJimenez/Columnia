@@ -1,4 +1,7 @@
+import { useEffect, useRef } from "react";
+
 import type { HistoryState } from "../../bridge";
+import { busyDescribedBy } from "../../busyReasons";
 import { changeProgressMessage, formatChangeSummary, type ChangeStatus } from "./prepareModel";
 import { formatBytes } from "../../format";
 import { OperationProgressView } from "../../components/OperationProgressView";
@@ -19,6 +22,23 @@ export function HistoryBar({
   const visibleEntries = status.entries.slice(-MAX_VISIBLE_VERSIONS);
   const hiddenCount = status.entries.length - visibleEntries.length;
   const nothingToUndo = status.snapshotsEnabled && !status.canUndo && !status.canRedo;
+  const undoBlocked = busy || !status.snapshotsEnabled || !status.canUndo;
+  const redoBlocked = busy || !status.snapshotsEnabled || !status.canRedo;
+  const undoRef = useRef<HTMLButtonElement>(null);
+  const redoRef = useRef<HTMLButtonElement>(null);
+  // ACC: the pressed button stays focusable while the change runs
+  // (aria-disabled, not disabled); when it ends, the focus moves to the
+  // opposite action, so «Rehacer» is one key away after «Deshacer».
+  const focusAfter = useRef<"undo" | "redo" | null>(null);
+
+  useEffect(() => {
+    if (busy || focusAfter.current === null) return;
+    const target = focusAfter.current === "redo"
+      ? (status.canRedo ? redoRef : undoRef)
+      : (status.canUndo ? undoRef : redoRef);
+    focusAfter.current = null;
+    target.current?.focus();
+  }, [busy, status.canUndo, status.canRedo]);
 
   return (
     // AUD-053: the landmark is the <aside> in PreparePhase; this block stays unnamed.
@@ -39,10 +59,32 @@ export function HistoryBar({
       )}
       {/* AUD-057: Deshacer and Rehacer sit under the heading, so a tall list never pushes them out of view. */}
       <div className="history-actions">
-        <button type="button" className="secondary-action" onClick={onUndo} disabled={busy || !status.snapshotsEnabled || !status.canUndo}>
+        <button
+          ref={undoRef}
+          type="button"
+          className="secondary-action"
+          aria-disabled={undoBlocked || undefined}
+          aria-describedby={busyDescribedBy(busy)}
+          onClick={() => {
+            if (undoBlocked) return;
+            focusAfter.current = "redo";
+            onUndo();
+          }}
+        >
           Deshacer
         </button>
-        <button type="button" className="secondary-action" onClick={onRedo} disabled={busy || !status.snapshotsEnabled || !status.canRedo}>
+        <button
+          ref={redoRef}
+          type="button"
+          className="secondary-action"
+          aria-disabled={redoBlocked || undefined}
+          aria-describedby={busyDescribedBy(busy)}
+          onClick={() => {
+            if (redoBlocked) return;
+            focusAfter.current = "undo";
+            onRedo();
+          }}
+        >
           Rehacer
         </button>
       </div>
@@ -85,7 +127,7 @@ export function HistoryBar({
               {status.entryCount.toLocaleString()} / {status.maxEntries.toLocaleString()} estados · {formatHistoryBytes(status.diskBytes)} / {formatHistoryBytes(status.diskBudgetBytes)} de historial local
             </p>
             <p>
-              Se conservan hasta {status.maxEntries.toLocaleString()} estados o {formatHistoryBytes(status.diskBudgetBytes)} por dataset. Al llegar a un límite, se retiran primero los estados más antiguos del historial y se mantiene el actual. Si un snapshot individual supera el presupuesto, la operación puede quedar sin historial reversible.
+              Se conservan hasta {status.maxEntries.toLocaleString()} estados o {formatHistoryBytes(status.diskBudgetBytes)} por dataset. Al llegar a un límite, se retiran primero los estados más antiguos del historial y se mantiene el actual. Si la copia de un solo estado supera el espacio disponible, ese cambio puede quedar sin historial reversible.
             </p>
           </div>
         </details>
@@ -103,30 +145,62 @@ function formatHistoryBytes(bytes: number): string {
 }
 
 /**
- * AUD-057: the result of the change, with «Deshacer», where the change was made.
- * It is not a live region: the history panel already announces the same text.
+ * AUD-057: the result of the change where the change was made, with the way
+ * back: «Deshacer» after a change, «Rehacer» after undoing one. It is not a
+ * live region: the history panel already announces the same text.
  */
 export function ChangeResultLine({
   status,
   canUndo,
+  canRedo = false,
   busy,
+  focusAction = false,
+  onFocusHandled,
   onUndo,
+  onRedo,
   onDismiss,
 }: {
   status: ChangeStatus;
   canUndo: boolean;
+  canRedo?: boolean;
   busy: boolean;
+  /** Move the focus here when the line appears (after «Deshacer» elsewhere). */
+  focusAction?: boolean;
+  onFocusHandled?: () => void;
   onUndo: () => void;
+  onRedo?: () => void;
   onDismiss: () => void;
 }) {
+  const groupRef = useRef<HTMLDivElement>(null);
+  const actionRef = useRef<HTMLButtonElement>(null);
+  const applied = status.kind === "applied";
+  useEffect(() => {
+    if (!focusAction || !applied) return;
+    (actionRef.current ?? groupRef.current)?.focus();
+    onFocusHandled?.();
+  }, [focusAction, applied, onFocusHandled]);
+
   if (status.kind !== "applied") return null;
+  const undone = status.origin === "undo";
+  const action = undone
+    ? onRedo && { label: "Rehacer", name: "Rehacer el cambio deshecho", available: canRedo, run: onRedo }
+    : status.unchanged !== true && { label: "Deshacer", name: "Deshacer este cambio", available: canUndo, run: onUndo };
+  const blocked = !action || busy || !action.available;
   return (
-    <div className="change-result" role="group" aria-label="Resultado del último cambio">
+    <div ref={groupRef} tabIndex={-1} className="change-result" role="group" aria-label="Resultado del último cambio">
       <p>{status.message}</p>
       <div className="change-result__actions">
-        {status.unchanged !== true && (
-          <button type="button" className="secondary-action" onClick={onUndo} disabled={busy || !canUndo}>
-            Deshacer
+        {action && (
+          <button
+            ref={actionRef}
+            type="button"
+            className="secondary-action"
+            aria-label={action.name}
+            aria-disabled={blocked || undefined}
+            aria-describedby={busyDescribedBy(busy)}
+            onClick={() => { if (!blocked) action.run(); }}
+          >
+            {action.label}
           </button>
         )}
         <button type="button" className="secondary-action" onClick={onDismiss}>

@@ -87,7 +87,10 @@ html[data-density="compact"] .col-profile { min-height: calc(30px + 4.05 * .75re
 
 /* Preparar: the work on the left, the versions in view on the right. */
 .prepare-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; align-items: start; }
-.prepare-layout__main { min-width: 0; }
+/* The work column measures itself: with the history beside it, it is about
+   620 px wide whatever the window, so its rows respond to @container rules
+   instead of viewport media queries. */
+.prepare-layout__main { min-width: 0; container: prepare-main / inline-size; }
 @media (min-width: 1180px) {
   .prepare-layout { grid-template-columns: minmax(0, 1fr) 300px; }
   /* AUD-057: taller than the window, the panel scrolls on its own. */
@@ -108,7 +111,6 @@ html[data-density="compact"] .col-profile { min-height: calc(30px + 4.05 * .75re
   margin: 0 0 14px;
   padding: 10px 14px;
   border: 1px solid var(--border-subtle);
-  border-left: 3px solid var(--accent);
   border-radius: 6px;
   background: var(--surface);
 }
@@ -296,6 +298,9 @@ html[data-density="compact"] .col-profile { min-height: calc(30px + 4.05 * .75re
   font-weight: 400;
   color: var(--text-secondary);
 }
+/* Inside Entregar `.database-target label` is a grid, which made the marker
+   its own grid item: «Servidor» and «(obligatorio)» on two lines. */
+.database-target .connection-form .connection-form__required-label { display: block; }
 
 /* Cargar by source (2026-10-31): the cards, then only that source's panel. */
 .load-sources { margin: 4px 0 18px; }
@@ -338,13 +343,57 @@ html[data-density="compact"] .col-profile { min-height: calc(30px + 4.05 * .75re
   padding: 6px 10px;
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
-  background: var(--surface);
+  /* Scroll hint: a shadow appears at the edge only while more keys lie beyond it. */
+  background:
+    linear-gradient(var(--surface) 30%, transparent) top / 100% 24px no-repeat local,
+    linear-gradient(transparent, var(--surface) 70%) bottom / 100% 24px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / .18), transparent) top / 100% 10px no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / .18), transparent) bottom / 100% 10px no-repeat scroll,
+    var(--surface);
 }
-.database-target .sqlserver-script-target__key { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 36px; color: var(--text-primary); font-weight: 500; cursor: pointer; }
+.database-target .sqlserver-script-target__key { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; color: var(--text-primary); font-weight: 500; cursor: pointer; }
 .database-target .sqlserver-script-target__key input { margin: 0; }
 .database-target .sqlserver-script-target__key span { min-width: 0; overflow-wrap: anywhere; }
 .sqlserver-script-target:disabled .sqlserver-script-target__mode,
 .sqlserver-script-target:disabled .sqlserver-script-target__key { cursor: not-allowed; opacity: .7; }
 @media (max-width: 700px) {
   .database-target .sqlserver-script-target__names { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Revisar (2026-11-13): «No se corrige solo», the figure of global completeness and the profile error. */
+p.quality-snapshot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin: 16px 0 0;
+  font-size: .875rem;
+}
+p.quality-snapshot > span { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.quality-uncorrected {
+  display: grid;
+  gap: 8px;
+  max-width: 680px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+.quality-uncorrected h5 { margin: 0; color: var(--text-primary); font-size: 1rem; }
+.quality-uncorrected__lead { margin: 0; color: var(--text-secondary); font-size: .875rem; line-height: 1.4; }
+.quality-uncorrected__list { display: grid; gap: 14px; margin: 4px 0 0; padding: 0; list-style: none; }
+.quality-uncorrected__item {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 2px solid var(--control-border);
+}
+.quality-uncorrected__title { font-weight: 600; overflow-wrap: anywhere; }
+.quality-uncorrected__detail { color: var(--text-secondary); font-size: .875rem; line-height: 1.4; }
+.quality-uncorrected__item .secondary-action { margin-top: 6px; }
+.profile-error { display: grid; justify-items: start; gap: 8px; }
+.profile-error p { margin: 0; }
+.profile-error:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 2px; }
+@media (forced-colors: active) {
+  .quality-uncorrected__item { border-left-color: CanvasText; }
 }

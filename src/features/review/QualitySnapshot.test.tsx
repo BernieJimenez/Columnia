@@ -6,24 +6,18 @@ import { QualitySnapshot } from "./QualitySnapshot";
 afterEach(cleanup);
 
 describe("QualitySnapshot", () => {
-  it("resume completitud y señales con porcentajes comparables", () => {
-    render(
-      <QualitySnapshot rowCount={4} columnCount={5} nullCount={3} duplicateCount={1}
-        duplicatePercentage={25} invalidTypeCount={2} />,
-    );
+  it("dice la completitud global con su cifra, como texto y no como barra de progreso", () => {
+    render(<QualitySnapshot rowCount={4} columnCount={5} nullCount={3} />);
 
-    expect(screen.getByRole("progressbar", { name: "Completitud global" })).toHaveAttribute("aria-valuenow", "85");
-    expect(screen.getByText(localeText("3 · 15.0%"))).toBeInTheDocument();
-    expect(screen.getByText(localeText("1 · 25.0%"))).toBeInTheDocument();
-    expect(screen.getByText(localeText("2 · 10.0%"))).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(screen.getByText(localeText("85.0%"), { exact: false })).toHaveTextContent("de las celdas tienen valor");
+    expect(screen.getByText(/3 nulos en 20 celdas/)).toBeInTheDocument();
   });
 
   it("evita porcentajes inválidos cuando no hay celdas", () => {
-    render(
-      <QualitySnapshot rowCount={0} columnCount={0} nullCount={0} duplicateCount={0}
-        duplicatePercentage={0} invalidTypeCount={0} />,
-    );
+    render(<QualitySnapshot rowCount={0} columnCount={0} nullCount={0} />);
 
-    expect(screen.getByRole("progressbar", { name: "Completitud global" })).toHaveAttribute("aria-valuenow", "100");
+    expect(screen.getByText(localeText("100.0%"), { exact: false })).toBeInTheDocument();
+    expect(screen.queryByText(/celdas\)/)).not.toBeInTheDocument();
   });
 });

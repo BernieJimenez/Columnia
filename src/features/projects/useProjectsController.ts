@@ -579,6 +579,12 @@ export function useProjectsController({
       setActiveProject(null);
       onActiveProjectUnlinked?.();
     },
+    /**
+     * «Deshacer» of a combination in Preparar brings back the link it
+     * removed, when no other project was opened or saved since (App checks
+     * that the project still exists).
+     */
+    relinkProject: (project: ProjectSummary) => setActiveProject(project),
     clearFeedback: () => setOperation({ kind: "idle" }),
   };
 }

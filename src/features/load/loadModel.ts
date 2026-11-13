@@ -159,6 +159,40 @@ export function looksLikeTitleRow(columns: ReadonlyArray<{ name: string }>): boo
   return !generated(columns[0]?.name ?? "column_1") && columns.slice(1).every((column) => generated(column.name));
 }
 
+const TEXT_TYPES = new Set(["string", "str", "utf8", "varchar"]);
+// Whole words of a column name that usually hold a date. Plurals such as
+// «dias» are left out on purpose: they tend to be counts, not dates.
+const DATE_NAME_WORDS = new Set(["fecha", "fechas", "fec", "date", "dates", "datetime", "timestamp", "dt", "dia", "day", "mes", "month"]);
+
+function columnNameWords(name: string): string[] {
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+/**
+ * Text columns whose name suggests a date (`fecha_alta`, `f_pago`,
+ * `created_at`, `OrderDate`): with dates left as «Sin definir» they load as
+ * text, and the import dialog says so before loading.
+ */
+export function dateLikeTextColumns(columns: ReadonlyArray<{ name: string; dataType: string }>): string[] {
+  return columns
+    .filter((column) => TEXT_TYPES.has(column.dataType.trim().toLowerCase()))
+    .filter((column) => {
+      const words = columnNameWords(column.name);
+      if (words.some((word) => DATE_NAME_WORDS.has(word))) return true;
+      // `f_alta`, `fh_pago`: a leading abbreviation of «fecha».
+      if (words.length > 1 && (words[0] === "f" || words[0] === "fh")) return true;
+      // `created_at`, `updatedAt`.
+      return words.length > 1 && words.at(-1) === "at";
+    })
+    .map((column) => column.name);
+}
+
 export function workbookInspection(
   source: DatasetSourceInspection,
   savedProfile: ImportProfile | null = null,

@@ -16,6 +16,7 @@ import {
   proposalItemTitle,
   proposalOptions,
   selectedProposalCount,
+  uncheckedProposalNote,
   type DateOrder,
   type ProposalItem,
   type ProposalItemId,
@@ -41,16 +42,44 @@ interface PrepareProposalProps {
   onPreview?: (options: SafeCorrectionOptions) => Promise<SafeCorrectionsPreview>;
   onUndo: () => void;
   onDismissResult: () => void;
+  /** «Continuar a Explorar», the primary action once the changes are applied. */
+  onContinue?: () => void;
 }
 
-const STEP_QUESTIONS: Record<ProposalItemId, { question: string; yes: string; no: string }> = {
-  sentinels: { question: "¿Convertimos los marcadores «sin dato» en nulos?", yes: "Sí, convertir", no: "No, dejarlos como texto" },
-  trim: { question: "¿Recortamos los espacios sobrantes del texto?", yes: "Sí, recortar", no: "No, dejarlos" },
-  types: { question: "¿Convertimos a número las columnas que solo tienen números?", yes: "Sí, convertir", no: "No, dejarlas como texto" },
-  dates: { question: "¿Convertimos a fecha las columnas que solo tienen fechas?", yes: "Sí, convertir", no: "No, dejarlas como texto" },
-  duplicates: { question: "¿Quitamos las filas duplicadas?", yes: "Sí, quitarlas", no: "No, pueden ser registros distintos" },
-  impute: { question: "¿Rellenamos los nulos?", yes: "Sí, rellenar", no: "No, dejarlos como nulos" },
+type StepQuestion = { question: string; yes: string; no: string };
+
+/** One and many: the question agrees in number with the figure of its hint. */
+const STEP_QUESTIONS: Record<ProposalItemId, { one: StepQuestion; many: StepQuestion }> = {
+  sentinels: {
+    one: { question: "¿Convertimos el marcador «sin dato» en nulo?", yes: "Sí, convertirlo", no: "No, dejarlo como texto" },
+    many: { question: "¿Convertimos los marcadores «sin dato» en nulos?", yes: "Sí, convertirlos", no: "No, dejarlos como texto" },
+  },
+  trim: {
+    one: { question: "¿Recortamos los espacios sobrantes de la celda?", yes: "Sí, recortar", no: "No, dejarla" },
+    many: { question: "¿Recortamos los espacios sobrantes de las celdas?", yes: "Sí, recortar", no: "No, dejarlas" },
+  },
+  types: {
+    one: { question: "¿Convertimos a número la columna que solo tiene números?", yes: "Sí, convertirla", no: "No, dejarla como texto" },
+    many: { question: "¿Convertimos a número las columnas que solo tienen números?", yes: "Sí, convertirlas", no: "No, dejarlas como texto" },
+  },
+  dates: {
+    one: { question: "¿Convertimos a fecha la columna que solo tiene fechas?", yes: "Sí, convertirla", no: "No, dejarla como texto" },
+    many: { question: "¿Convertimos a fecha las columnas que solo tienen fechas?", yes: "Sí, convertirlas", no: "No, dejarlas como texto" },
+  },
+  duplicates: {
+    one: { question: "¿Quitamos la fila duplicada?", yes: "Sí, quitarla", no: "No, puede ser un registro distinto" },
+    many: { question: "¿Quitamos las filas duplicadas?", yes: "Sí, quitarlas", no: "No, pueden ser registros distintos" },
+  },
+  impute: {
+    one: { question: "¿Rellenamos el nulo?", yes: "Sí, rellenarlo", no: "No, dejarlo como nulo" },
+    many: { question: "¿Rellenamos los nulos?", yes: "Sí, rellenarlos", no: "No, dejarlos como nulos" },
+  },
 };
+
+/** Whether the first figure of a title is 1: «Convertir 1 columna a número». */
+function firstFigureIsOne(title: string): boolean {
+  return title.match(/\d(?:[\d.,   ]*\d)?/)?.[0] === "1";
+}
 
 /**
  * Empty cells plus text markers such as «N/A»: both mean the value is missing,
@@ -75,6 +104,7 @@ export function PrepareProposal({
   onPreview,
   onUndo,
   onDismissResult,
+  onContinue,
 }: PrepareProposalProps) {
   const signature = items.map((item) => `${item.id}:${item.title}`).join("|");
   const [selection, setSelection] = useState<ProposalSelection>(() => defaultProposalSelection(items));
@@ -118,10 +148,12 @@ export function PrepareProposal({
   }, [previewKey, onPreview]);
   // ACC-17: «Siguiente», «Atrás», «Personalizar» and «Aplicar» replace the
   // button just pressed; the new view's title takes the focus instead of
-  // leaving it on the page body. Not on the first render.
+  // leaving it on the page body. Not on the first render, except for the
+  // result: the proposal unmounts while the change runs, so «Listo: cambios
+  // aplicados» takes the focus when it appears.
   const titleRef = useRef<HTMLHeadingElement & HTMLLegendElement>(null);
   const view = `${result ? "result" : mode}-${step}`;
-  const shownView = useRef(view);
+  const shownView = useRef<string | null>(result ? null : view);
   useEffect(() => {
     if (shownView.current === view) return;
     shownView.current = view;
@@ -144,7 +176,7 @@ export function PrepareProposal({
     const after = result.after;
     const rows = after === null ? [] : [
       { label: "Filas", before: result.before.rowCount, after: after.rowCount },
-      { label: "Valores sin dato", before: missingTotal(result.before), after: missingTotal(after) },
+      { label: "Nulos y marcadores «sin dato»", before: missingTotal(result.before), after: missingTotal(after) },
       { label: "Filas duplicadas", before: result.before.duplicateRowCount, after: after.duplicateRowCount },
       { label: "Columnas", before: result.before.columns.length, after: after.columns.length },
     ].filter((row) => row.before !== row.after);
@@ -171,11 +203,24 @@ export function PrepareProposal({
             ))}
           </dl>
         )}
+        {/* The work of this step is done: moving on is the primary action. */}
         <div className="prepare-proposal__actions">
-          <button type="button" className="prepare-proposal__primary" onClick={onDismissResult}>
+          {onContinue && (
+            <button type="button" className="prepare-proposal__primary" onClick={onContinue}>
+              Continuar a Explorar
+            </button>
+          )}
+          <button type="button" className="secondary-action" onClick={onDismissResult}>
             Ver qué más se puede mejorar
           </button>
-          <button type="button" className="secondary-action" aria-label="Deshacer estos cambios" onClick={onUndo} disabled={busy || !canUndo} aria-describedby={busyDescribedBy(busy)}>
+          <button
+            type="button"
+            className="secondary-action"
+            aria-label="Deshacer estos cambios"
+            aria-disabled={busy || !canUndo || undefined}
+            aria-describedby={busyDescribedBy(busy)}
+            onClick={() => { if (!busy && canUndo) onUndo(); }}
+          >
             Deshacer
           </button>
         </div>
@@ -221,10 +266,11 @@ export function PrepareProposal({
     const isNamesStep = step === items.length;
     const applyBlocked = disabled || !fillsReady || datesPending || (selectedProposalCount(items, selection) === 0 && !normalizeNames);
     const current = isNamesStep ? null : items[step];
+    const currentTitle = current ? titleOf(current) : "";
     const question = current
-      ? STEP_QUESTIONS[current.id]
+      ? STEP_QUESTIONS[current.id][firstFigureIsOne(currentTitle) ? "one" : "many"]
       : { question: columnCount === 1 ? "¿Normalizamos el nombre de la columna?" : `¿Normalizamos los nombres de las ${columnCount} columnas?`, yes: "Sí, normalizar", no: columnCount === 1 ? "No, dejarlo" : "No, dejarlos" };
-    const hint = current ? `${titleOf(current)}. ${current.hint}` : "Minúsculas y sin espacios. Puede afectar consultas e integraciones.";
+    const hint = current ? `${currentTitle}. ${current.hint}` : "Minúsculas y sin espacios. Puede afectar consultas e integraciones.";
     const value = current ? selection[current.id] : normalizeNames;
     const choose = (next: boolean) => {
       if (current) setSelection((previous) => ({ ...previous, [current.id]: next }));
@@ -286,7 +332,7 @@ export function PrepareProposal({
         <h3 id="prepare-proposal-title" ref={titleRef} tabIndex={-1} className="prepare-proposal__title">No hay cambios que proponer</h3>
         <p className="prepare-proposal__lead">No se detectaron espacios sobrantes, duplicados ni vacíos que rellenar.</p>
         <div className="prepare-proposal__actions">
-          <button type="button" className="secondary-action" disabled={disabled} aria-describedby={busyDescribedBy(disabled)} onClick={() => { setMode("steps"); setStep(0); }}>
+          <button type="button" className="secondary-action" aria-disabled={disabled || undefined} aria-describedby={busyDescribedBy(disabled)} onClick={() => { if (!disabled) { setMode("steps"); setStep(0); } }}>
             Personalizar paso a paso
           </button>
         </div>
@@ -296,6 +342,7 @@ export function PrepareProposal({
 
   const count = selectedProposalCount(items, selection);
   const applyBlocked = disabled || count === 0 || !fillsReady || datesPending;
+  const uncheckedNote = uncheckedProposalNote(items, selection, ambiguousDateOrder, titleOf);
   // One table for every checked change, instead of a toggle per change.
   // Every filled column keeps its row: it shows the value it will receive.
   const beforeAfter = [
@@ -313,8 +360,10 @@ export function PrepareProposal({
       <h3 id="prepare-proposal-title" ref={titleRef} tabIndex={-1} className="prepare-proposal__title">
         {items.length === 1 ? "Columnia propone 1 cambio" : `Columnia propone ${items.length} cambios`}
       </h3>
-      <p className="prepare-proposal__lead">Revísalos y aplícalos. Puedes deshacerlo después.</p>
-      <ul className="prepare-proposal__list">
+      <p className="prepare-proposal__lead">
+        {items.length === 1 ? "Revísalo y aplícalo." : "Revísalos y aplícalos."} Puedes deshacerlo después.
+      </p>
+      <ul className="prepare-proposal__list" aria-describedby={uncheckedNote ? "prepare-unchecked-note" : undefined}>
         {items.map((item) => {
           return (
             <li key={item.id} className="prepare-proposal__item">
@@ -335,6 +384,7 @@ export function PrepareProposal({
           );
         })}
       </ul>
+      {uncheckedNote && <p id="prepare-unchecked-note" className="prepare-proposal__unchecked">{uncheckedNote}</p>}
       {beforeAfter.length > 0 && (
         <div className="prepare-proposal__before-after">
           <button
@@ -382,11 +432,11 @@ export function PrepareProposal({
         >
           {applyLabel(count)}
         </button>
-        <button type="button" className="secondary-action" disabled={disabled} aria-describedby={busyDescribedBy(disabled)} onClick={() => { setMode("steps"); setStep(0); }}>
+        <button type="button" className="secondary-action" aria-disabled={disabled || undefined} aria-describedby={busyDescribedBy(disabled)} onClick={() => { if (!disabled) { setMode("steps"); setStep(0); } }}>
           Personalizar paso a paso
         </button>
         {canUndo && (
-          <button type="button" className="secondary-action" disabled={busy} aria-describedby={busyDescribedBy(busy)} onClick={onUndo}>
+          <button type="button" className="secondary-action" aria-disabled={busy || undefined} aria-describedby={busyDescribedBy(busy)} onClick={() => { if (!busy) onUndo(); }}>
             Deshacer último cambio
           </button>
         )}
