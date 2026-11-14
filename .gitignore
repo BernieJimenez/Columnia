@@ -28,3 +28,6 @@ skills-lock.json
 *.p12
 .tauri/
 *.sha256
+
+# Impeccable: local hook cache (its critique/ folder ignores itself)
+.impeccable/hook.cache.json

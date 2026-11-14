@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/data-views.css"
+        ],
+        "createdAt": "2026-11-10T01:05:07.377Z",
+        "reason": "Claude (auditoría tanda 7): la línea de resultado de Preparar sigue el patrón de aviso del proyecto, borde izquierdo de 3px como .change-feedback, .notice y .quality-gate en styles.css"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/styles.css"
+        ],
+        "createdAt": "2026-11-12T23:39:15.813Z",
+        "reason": "Claude (auditoría 2026-11-05, cierre): el borde izquierdo de 3px es el patrón de aviso del sistema de diseño (.notice, .change-feedback, .quality-gate), anterior a la sesión; el dueño delegó la decisión, misma razón que la excepción de src/data-views.css"
+      }
+    ]
+  }
+}
