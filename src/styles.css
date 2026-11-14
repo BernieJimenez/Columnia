@@ -1583,11 +1583,13 @@ body { color: var(--text-primary); background: var(--canvas); }
 }
 .prepare-analysis-prompt > button:hover:not(:disabled) { background: var(--surface-raised); }
 .prepare-analysis-prompt > button:disabled { cursor: wait; opacity: .45; }
-.advanced-corrections,
-.detected-signals { margin-top: 8px; border-bottom: 1px solid var(--border-subtle); }
-.advanced-corrections > summary,
-.detected-signals > summary,
-.transform-recipe__operations > summary {
+/* Más cambios: one row per disclosure, separated by a single line. */
+.prepare-more { margin-top: 32px; }
+.prepare-more__heading { padding-bottom: 12px; border-bottom: 1px solid var(--border-subtle); }
+.prepare-more__heading h3 { margin: 0; font-size: 1.25rem; }
+.prepare-more__heading p { max-width: 68ch; margin: 4px 0 0; color: var(--text-secondary); font-size: .875rem; line-height: 1.5; }
+.prepare-tool { border-bottom: 1px solid var(--border-subtle); }
+.prepare-tool > summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1598,14 +1600,15 @@ body { color: var(--text-primary); background: var(--canvas); }
   font-weight: 800;
   cursor: pointer;
 }
-.advanced-corrections > summary small,
-.detected-signals > summary small,
-.transform-recipe__operations > summary small { color: var(--text-secondary); font-size: .875rem; font-weight: 600; text-align: right; }
-.advanced-corrections__content,
-.detected-signals__content { padding-bottom: 4px; }
-.detected-signals__content { padding-top: 12px; }
+.prepare-tool > summary small { color: var(--text-secondary); font-size: .875rem; font-weight: 600; text-align: right; }
+.prepare-tool__content { padding: 8px 0 20px; }
+/* Headings inside a disclosure sit one step below «Más cambios». */
+.prepare-tool__content :is(.prepare-card, .transform-recipe__intro, .revision-comparison) h3 { font-size: 1.0625rem; }
+.prepare-tool__empty { max-width: 68ch; margin: 0; padding-top: 12px; color: var(--text-secondary); font-size: .875rem; line-height: 1.5; }
+.cleaning-signals__lead { max-width: 68ch; margin: 0; color: var(--text-secondary); font-size: .875rem; line-height: 1.5; }
+.detected-signals { display: grid; gap: 8px; margin-top: 8px; }
+.detected-signals > h4 { margin: 0; font-size: 1rem; }
 
-.transform-recipe__operations { margin-top: 14px; border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); }
 .transform-recipe__grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
@@ -1789,10 +1792,6 @@ body { color: var(--text-primary); background: var(--canvas); }
   .metrics dd { font-size: 1.15rem; }
   .prepare-card { gap: 12px; padding: 14px 0; }
   .prepare-card button { align-self: flex-start; min-width: 0; width: 100%; }
-  .advanced-corrections > summary,
-.transform-recipe__operations > summary { align-items: flex-start; flex-direction: column; gap: 3px; }
-  .advanced-corrections > summary small,
-.transform-recipe__operations > summary small { text-align: left; }
   .transform-recipe__grid { grid-template-columns: 1fr; gap: 8px; }
   .transform-recipe__group[open] { grid-column: auto; }
   .transform-advisor__metrics,

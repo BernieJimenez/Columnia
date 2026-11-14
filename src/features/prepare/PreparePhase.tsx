@@ -142,8 +142,8 @@ export function PreparePhase({
     sourceRevision: number;
     profile: DatasetProfile;
   } | null>(null);
-  // UX-13: kept here across tab changes, and in App across phases when it
-  // passes `recipeEdit`.
+  // UX-13: kept here while «Transformar columnas» is closed (the editor
+  // unmounts), and in App across phases when it passes `recipeEdit`.
   // Tied to the recipe session: another dataset or recipe starts clean.
   const [localEdit, setLocalEdit] = useState<{ session: number; draft: SavedRecipe } | null>(null);
   const unfinishedEdit = recipeEdit !== undefined
@@ -159,7 +159,7 @@ export function PreparePhase({
   const currentPlanComparison = planComparison?.revision === datasetRevision ? planComparison : null;
   // The result line closes for one result; the next change brings it back.
   const [dismissedResult, setDismissedResult] = useState<ChangeStatus | null>(null);
-  const [activeTab, setActiveTab] = useState<"corrections" | "transformations">("corrections");
+  const [transformOpen, setTransformOpen] = useState(false);
   const [nearDuplicateConfirmation, setNearDuplicateConfirmation] = useState(false);
   const [identifierConfirmation, setIdentifierConfirmation] = useState(false);
   const [personalConfirmation, setPersonalConfirmation] = useState(false);
@@ -271,11 +271,8 @@ export function PreparePhase({
     if (!focusCombine) return;
     const target = document.getElementById("combine-title");
     if (target) {
-      let ancestor = target.parentElement;
-      while (ancestor) {
-        if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
-        ancestor = ancestor.parentElement;
-      }
+      const disclosure = target.parentElement;
+      if (disclosure instanceof HTMLDetailsElement) disclosure.open = true;
       target.focus({ preventScroll: true });
       target.scrollIntoView?.({ behavior: "smooth", block: "start" });
     }
@@ -284,7 +281,7 @@ export function PreparePhase({
 
   useEffect(() => {
     if (!initialQualityFocus) return;
-    setActiveTab("corrections");
+    // The target sits inside «Corregir columna por columna»: open it first.
     const target = document.getElementById(qualityActionTargetDomId(initialQualityFocus));
     if (target) {
       let ancestor = target.parentElement;
@@ -384,260 +381,244 @@ export function PreparePhase({
           onContinue={onContinue}
         />
       )}
-      <details className="advanced-corrections prepare-advanced">
-        <summary>
-          <span>Diagnóstico y herramientas avanzadas</span>
-          <small>Señales, transformaciones, efecto y combinar con otro archivo</small>
-        </summary>
-        <div className="advanced-corrections__content">
-      <details className="review-tool review-tool--nested prepare-revision-comparison">
-        <summary>
-          <span>Medir el efecto de los cambios</span>
-          <small>Opcional · comparar métricas agregadas entre revisiones</small>
-        </summary>
-        <RevisionComparison
-          historyStatus={historyStatus}
-          qualityRules={qualityRules}
-          datasetRevision={datasetRevision}
-          busy={changing || profileStatus.kind === "loading"}
-        />
-      </details>
-      {comparison && (
-        <details className="review-tool review-tool--nested prepare-combine">
-          {/* «Combinar en Preparar» opens this and focuses its summary. */}
-          <summary id="combine-title">
-            <span>Combinar con otro archivo</span>
-            <small>Opcional · unir por clave, añadir filas nuevas o resolver conflictos</small>
-          </summary>
-          <CombineWithFileSection
-            comparison={comparison}
-            datasetColumns={dataset.columns}
-            datasetRevision={datasetRevision}
-            historyStatus={historyStatus}
-            busy={changing}
-          />
-        </details>
-      )}
-      <div className="stage-tabs" role="tablist" aria-label="Herramientas de preparación">
-        <button
-          id="prepare-corrections-tab"
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "corrections"}
-          aria-controls="prepare-corrections-panel"
-          tabIndex={activeTab === "corrections" ? 0 : -1}
-          className={activeTab === "corrections" ? "stage-tab--active" : undefined}
-          onClick={() => setActiveTab("corrections")}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-              event.preventDefault();
-              setActiveTab("transformations");
-              document.getElementById("prepare-transformations-tab")?.focus();
-            }
-          }}
-        >
-          Correcciones
-        </button>
-        <button
-          id="prepare-transformations-tab"
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "transformations"}
-          aria-controls="prepare-transformations-panel"
-          tabIndex={activeTab === "transformations" ? 0 : -1}
-          className={activeTab === "transformations" ? "stage-tab--active" : undefined}
-          onClick={() => setActiveTab("transformations")}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-              event.preventDefault();
-              setActiveTab("corrections");
-              document.getElementById("prepare-corrections-tab")?.focus();
-            }
-          }}
-        >
-          Transformaciones
-        </button>
-      </div>
-      {activeTab === "transformations" ? (
-        <div
-          id="prepare-transformations-panel"
-          role="tabpanel"
-          aria-labelledby="prepare-transformations-tab"
+      {/* One level of disclosures under the proposal: each is a kind of change. */}
+      <section className="prepare-more" aria-labelledby="prepare-more-title">
+        <div className="prepare-more__heading">
+          <h3 id="prepare-more-title">Más cambios</h3>
+          <p>Correcciones sueltas, transformaciones y combinaciones. Cada cambio queda en el historial.</p>
+        </div>
+        {hasColumns && (
+          <details className="prepare-tool prepare-tool--signals" aria-describedby={busyDescribedBy(changing)}>
+            <summary>
+              <span>Corregir columna por columna</span>
+              <small>
+                {profileStatus.kind === "ready"
+                  ? "Nulos, duplicados, tipos, privacidad y valores atípicos"
+                  : profileStatus.kind === "idle" || profileStatus.kind === "loading"
+                    ? "Disponible cuando termine el análisis"
+                    : "Necesita el análisis de calidad"}
+              </small>
+            </summary>
+            <div className="prepare-tool__content">
+              {profileStatus.kind === "ready" ? (
+                <>
+                  <CleaningSignals
+                    profile={profileStatus.profile}
+                    proposalImpute={proposalImpute}
+                    busy={changing}
+                    undoNote={undoNote}
+                    onRemoveConstantColumns={onRemoveConstantColumns}
+                    onRemoveEmptyColumns={onRemoveEmptyColumns}
+                    onRemoveHighNullColumns={onRemoveHighNullColumns}
+                    onRemoveIdentifierColumns={onRemoveIdentifierColumns && (() => setIdentifierConfirmation(true))}
+                    onRemovePersonalColumns={onRemovePersonalColumns && (() => setPersonalConfirmation(true))}
+                    onMaskPersonalValues={onMaskPersonalValues && (() => setMaskPersonalConfirmation(true))}
+                    onNormalizeBooleans={onNormalizeBooleans}
+                    onParseDates={onParseDates && (() => requestConversion("dates"))}
+                    onCastNumeric={onCastNumeric && (() => requestConversion("numeric"))}
+                    onFixEncoding={onFixEncoding}
+                    onNullifyInvalidTypes={onNullifyInvalidTypes && (() => setInvalidTypeConfirmation(true))}
+                    onImputeMissingValues={onImputeMissingValues}
+                    onImputeCategoricalValues={onImputeCategoricalValues}
+                    onImputeOutliers={onImputeOutliers && (() => setOutlierConfirmation("impute"))}
+                    onCapOutliers={onCapOutliers && (() => setOutlierConfirmation("cap"))}
+                    onDropOutliers={onDropOutliers && (() => setOutlierConfirmation("drop"))}
+                  />
+                  {nearDuplicateCount !== null && nearDuplicateCount > 0 && onRemoveNearDuplicates && (
+                    <section className="prepare-card" aria-labelledby="near-duplicates-title">
+                      <div>
+                        <h3 id="near-duplicates-title">Duplicados parecidos</h3>
+                        <p>
+                          Se identificaron {plural(nearDuplicateCount, "fila parecida", "filas parecidas")} por normalización de texto.
+                          La primera fila y las copias exactas se conservarán.
+                        </p>
+                      </div>
+                      <EffectButton busy={changing} onClick={() => setNearDuplicateConfirmation(true)}>
+                        {nearDuplicateCount === 1 ? "Eliminar 1 fila parecida…" : `Eliminar ${nearDuplicateCount.toLocaleString()} filas parecidas…`}
+                      </EffectButton>
+                    </section>
+                  )}
+                </>
+              ) : (
+                <p className="prepare-tool__empty">
+                  {profileStatus.kind === "idle" || profileStatus.kind === "loading"
+                    ? "Las señales por columna aparecen cuando termine el análisis de arriba."
+                    : "Sin el análisis de calidad no hay señales por columna. Reinténtalo arriba."}
+                </p>
+              )}
+            </div>
+          </details>
+        )}
+        {(textColumns.length > 0 || hasRowsAndColumns) && (
+          <details className="prepare-tool" aria-describedby={busyDescribedBy(changing)}>
+            <summary>
+              <span>Limpiar texto y filas</span>
+              <small>Normalizar texto, quitar filas vacías y anotar cambios por fila</small>
+            </summary>
+            <div className="prepare-tool__content">
+              {textColumns.length > 0 && (
+                <section className="prepare-card prepare-card--stacked" aria-labelledby="normalize-text-title">
+                  <div>
+                    <h3 id="normalize-text-title">Normalizar texto</h3>
+                    <p>
+                      Convierte a minúsculas, compacta espacios y, opcionalmente, elimina acentos. Puede
+                      unir categorías que antes eran distintas; elige las columnas conscientemente.
+                    </p>
+                  </div>
+                  <div className="text-cleaning-options">
+                    <fieldset>
+                      <legend>Columnas de texto</legend>
+                      {textColumns.map((column) => (
+                        <label key={column.name}>
+                          <input
+                            type="checkbox"
+                            checked={selectedTextColumns.includes(column.name)}
+                            onChange={(event) =>
+                              setSelectedTextColumns((current) =>
+                                event.target.checked
+                                  ? [...current, column.name]
+                                  : current.filter((name) => name !== column.name),
+                              )
+                            }
+                          />
+                          {column.name}
+                        </label>
+                      ))}
+                    </fieldset>
+                    <label className="option-toggle">
+                      <input
+                        type="checkbox"
+                        checked={removeAccents}
+                        onChange={(event) => setRemoveAccents(event.target.checked)}
+                      />
+                      Eliminar acentos
+                    </label>
+                    {selectedTextColumns.length === 0 && (
+                      <p id="normalize-text-reason" className="prepare-card__reason">Elige al menos una columna para normalizar.</p>
+                    )}
+                    <EffectButton
+                      busy={changing}
+                      blocked={selectedTextColumns.length === 0}
+                      describedBy={selectedTextColumns.length === 0 ? "normalize-text-reason" : undefined}
+                      onClick={() => onNormalizeText(selectedTextColumns, removeAccents)}
+                    >
+                      {selectedTextColumns.length === 0
+                        ? "Normalizar texto seleccionado"
+                        : `Normalizar ${plural(selectedTextColumns.length, "columna", "columnas")}`}
+                    </EffectButton>
+                  </div>
+                </section>
+              )}
+              {hasRowsAndColumns && (
+                <section className="prepare-card" aria-labelledby="empty-rows-title">
+                  <div>
+                    <h3 id="empty-rows-title">Filas completamente vacías</h3>
+                    <p id="empty-rows-description">
+                      Elimina filas cuyos valores son todos nulos o texto en blanco. La operación conserva el orden.{undoNote}
+                      {emptyRowBound === 0
+                        ? " El análisis no encontró ninguna: hay columnas sin ningún nulo ni texto en blanco."
+                        : emptyRowBound !== null
+                          ? ` Según el análisis puede haber hasta ${plural(emptyRowBound, "fila vacía", "filas vacías")}; al aplicarlo se dice cuántas se eliminaron.`
+                          : ""}
+                    </p>
+                  </div>
+                  <EffectButton
+                    busy={changing}
+                    blocked={emptyRowBound === 0}
+                    describedBy="empty-rows-description"
+                    onClick={onRemoveEmptyRows}
+                  >
+                    {emptyRowBound !== null && emptyRowBound > 0
+                      ? `Eliminar hasta ${plural(emptyRowBound, "fila vacía", "filas vacías")}`
+                      : "Eliminar filas vacías"}
+                  </EffectButton>
+                </section>
+              )}
+              {hasRowsAndColumns && (
+                <section className="prepare-card" aria-labelledby="row-audit-title">
+                  <div>
+                    <h3 id="row-audit-title">Cambios por fila</h3>
+                    <p>
+                      {hasRowAuditColumn
+                        ? "La columna _cambios está activa; cada corrección posterior añadirá su operación a la fila afectada."
+                        : "Activa una columna reservada _cambios para conservar una etiqueta breve de las correcciones posteriores."}
+                    </p>
+                  </div>
+                  {!hasRowAuditColumn && (
+                    <EffectButton busy={changing} onClick={onEnableRowAudit}>
+                      Activar trazabilidad
+                    </EffectButton>
+                  )}
+                </section>
+              )}
+            </div>
+          </details>
+        )}
+        {/* The editor mounts only while open; an unfinished edit is kept
+            above it (UX-13), so closing the disclosure never loses it. */}
+        <details
+          className="prepare-tool prepare-tool--transform"
+          open={transformOpen}
+          onToggle={(event) => setTransformOpen(event.currentTarget.open)}
           aria-describedby={busyDescribedBy(changing)}
         >
-          <TransformRecipeEditor
-            key={recipeSession}
-            dataset={dataset}
-            datasetRevision={datasetRevision}
-            busy={changing}
-            initialDraft={unfinishedEdit ?? recipeDraft}
-            onApply={onApplyTransforms}
-            onDraftChange={onRecipeDraftChange}
-            onUnfinishedChange={changeUnfinishedEdit}
-          />
-        </div>
-      ) : (
-      <div
-        id="prepare-corrections-panel"
-        role="tabpanel"
-        aria-labelledby="prepare-corrections-tab"
-        aria-describedby={busyDescribedBy(changing)}
-      >
-      {profileStatus.kind === "ready" && (
-        <details className="advanced-corrections prepare-signal-details">
-          <summary>
-            <span>Revisar señales individuales</span>
-            <small>Diagnóstico completo y acciones específicas</small>
+          <summary
+            onClick={(event) => {
+              event.preventDefault();
+              setTransformOpen((current) => !current);
+            }}
+          >
+            <span>Transformar columnas</span>
+            <small>Renombrar, convertir, filtrar y más, en una receta</small>
           </summary>
-          <div className="advanced-corrections__content">
-            <CleaningSignals
-              profile={profileStatus.profile}
-              proposalImpute={proposalImpute}
-              busy={changing}
-              undoNote={undoNote}
-              onRemoveConstantColumns={onRemoveConstantColumns}
-              onRemoveEmptyColumns={onRemoveEmptyColumns}
-              onRemoveHighNullColumns={onRemoveHighNullColumns}
-              onRemoveIdentifierColumns={onRemoveIdentifierColumns && (() => setIdentifierConfirmation(true))}
-              onRemovePersonalColumns={onRemovePersonalColumns && (() => setPersonalConfirmation(true))}
-              onMaskPersonalValues={onMaskPersonalValues && (() => setMaskPersonalConfirmation(true))}
-              onNormalizeBooleans={onNormalizeBooleans}
-              onParseDates={onParseDates && (() => requestConversion("dates"))}
-              onCastNumeric={onCastNumeric && (() => requestConversion("numeric"))}
-              onFixEncoding={onFixEncoding}
-              onNullifyInvalidTypes={onNullifyInvalidTypes && (() => setInvalidTypeConfirmation(true))}
-              onImputeMissingValues={onImputeMissingValues}
-              onImputeCategoricalValues={onImputeCategoricalValues}
-              onImputeOutliers={onImputeOutliers && (() => setOutlierConfirmation("impute"))}
-              onCapOutliers={onCapOutliers && (() => setOutlierConfirmation("cap"))}
-              onDropOutliers={onDropOutliers && (() => setOutlierConfirmation("drop"))}
+          {transformOpen && (
+            <div className="prepare-tool__content">
+              <TransformRecipeEditor
+                key={recipeSession}
+                dataset={dataset}
+                datasetRevision={datasetRevision}
+                busy={changing}
+                initialDraft={unfinishedEdit ?? recipeDraft}
+                onApply={onApplyTransforms}
+                onDraftChange={onRecipeDraftChange}
+                onUnfinishedChange={changeUnfinishedEdit}
+              />
+            </div>
+          )}
+        </details>
+        {comparison && (
+          <details className="prepare-tool prepare-combine" aria-describedby={busyDescribedBy(changing)}>
+            {/* «Combinar en Preparar» opens this and focuses its summary. */}
+            <summary id="combine-title">
+              <span>Combinar con otro archivo</span>
+              <small>Unir por clave, añadir filas nuevas o resolver conflictos</small>
+            </summary>
+            <div className="prepare-tool__content">
+              <CombineWithFileSection
+                comparison={comparison}
+                datasetColumns={dataset.columns}
+                datasetRevision={datasetRevision}
+                historyStatus={historyStatus}
+                busy={changing}
+              />
+            </div>
+          </details>
+        )}
+        <details className="prepare-tool prepare-revision-comparison" aria-describedby={busyDescribedBy(changing)}>
+          <summary>
+            <span>Medir el efecto de los cambios</span>
+            <small>Comparar métricas entre dos versiones del historial</small>
+          </summary>
+          <div className="prepare-tool__content">
+            <RevisionComparison
+              historyStatus={historyStatus}
+              qualityRules={qualityRules}
+              datasetRevision={datasetRevision}
+              busy={changing || profileStatus.kind === "loading"}
             />
-            {nearDuplicateCount !== null && nearDuplicateCount > 0 && onRemoveNearDuplicates && (
-              <section className="prepare-card" aria-labelledby="near-duplicates-title" aria-describedby={busyDescribedBy(changing)}>
-                <div>
-                  <h3 id="near-duplicates-title">Duplicados parecidos</h3>
-                  <p>
-                    Se identificaron {plural(nearDuplicateCount, "fila parecida", "filas parecidas")} por normalización de texto.
-                    La primera fila y las copias exactas se conservarán.
-                  </p>
-                </div>
-                <EffectButton busy={changing} onClick={() => setNearDuplicateConfirmation(true)}>
-                  {nearDuplicateCount === 1 ? "Eliminar 1 fila parecida…" : `Eliminar ${nearDuplicateCount.toLocaleString()} filas parecidas…`}
-                </EffectButton>
-              </section>
-            )}
           </div>
         </details>
-      )}
-      {hasColumns && (
-      <details className="advanced-corrections">
-        <summary>
-          <span>Más herramientas</span>
-          <small>Correcciones avanzadas</small>
-        </summary>
-        <div className="advanced-corrections__content">
-      {hasRowsAndColumns && (
-      <section className="prepare-card" aria-labelledby="row-audit-title" aria-describedby={busyDescribedBy(changing)}>
-        <div>
-          <h3 id="row-audit-title">Cambios por fila</h3>
-          <p>
-            {hasRowAuditColumn
-              ? "La columna _cambios está activa; cada corrección posterior añadirá su operación a la fila afectada."
-              : "Activa una columna reservada _cambios para conservar una etiqueta breve de las correcciones posteriores."}
-          </p>
-        </div>
-        {!hasRowAuditColumn && (
-          <EffectButton busy={changing} onClick={onEnableRowAudit}>
-            Activar trazabilidad
-          </EffectButton>
-        )}
       </section>
-      )}
-      {textColumns.length > 0 && (
-      <section className="prepare-card prepare-card--stacked" aria-labelledby="normalize-text-title" aria-describedby={busyDescribedBy(changing)}>
-        <div>
-          <h3 id="normalize-text-title">Normalizar texto</h3>
-          <p>
-            Convierte a minúsculas, compacta espacios y, opcionalmente, elimina acentos. Puede
-            unir categorías que antes eran distintas; elige las columnas conscientemente.
-          </p>
-        </div>
-        <div className="text-cleaning-options">
-            <fieldset>
-              <legend>Columnas de texto</legend>
-              {textColumns.map((column) => (
-                <label key={column.name}>
-                  <input
-                    type="checkbox"
-                    checked={selectedTextColumns.includes(column.name)}
-                    onChange={(event) =>
-                      setSelectedTextColumns((current) =>
-                        event.target.checked
-                          ? [...current, column.name]
-                          : current.filter((name) => name !== column.name),
-                      )
-                    }
-                  />
-                  {column.name}
-                </label>
-              ))}
-            </fieldset>
-            <label className="option-toggle">
-              <input
-                type="checkbox"
-                checked={removeAccents}
-                onChange={(event) => setRemoveAccents(event.target.checked)}
-              />
-              Eliminar acentos
-            </label>
-            {selectedTextColumns.length === 0 && (
-              <p id="normalize-text-reason" className="prepare-card__reason">Elige al menos una columna para normalizar.</p>
-            )}
-            <EffectButton
-              busy={changing}
-              blocked={selectedTextColumns.length === 0}
-              describedBy={selectedTextColumns.length === 0 ? "normalize-text-reason" : undefined}
-              onClick={() => onNormalizeText(selectedTextColumns, removeAccents)}
-            >
-              {selectedTextColumns.length === 0
-                ? "Normalizar texto seleccionado"
-                : `Normalizar ${plural(selectedTextColumns.length, "columna", "columnas")}`}
-            </EffectButton>
-        </div>
-      </section>
-      )}
-      {hasRowsAndColumns && (
-      <section className="prepare-card" aria-labelledby="empty-rows-title" aria-describedby={busyDescribedBy(changing)}>
-        <div>
-          <h3 id="empty-rows-title">Filas completamente vacías</h3>
-          <p id="empty-rows-description">
-            Elimina filas cuyos valores son todos nulos o texto en blanco. La operación conserva el orden.{undoNote}
-            {emptyRowBound === 0
-              ? " El análisis no encontró ninguna: hay columnas sin ningún nulo ni texto en blanco."
-              : emptyRowBound !== null
-                ? ` Según el análisis puede haber hasta ${plural(emptyRowBound, "fila vacía", "filas vacías")}; al aplicarlo se dice cuántas se eliminaron.`
-                : ""}
-          </p>
-        </div>
-        <EffectButton
-          busy={changing}
-          blocked={emptyRowBound === 0}
-          describedBy="empty-rows-description"
-          onClick={onRemoveEmptyRows}
-        >
-          {emptyRowBound !== null && emptyRowBound > 0
-            ? `Eliminar hasta ${plural(emptyRowBound, "fila vacía", "filas vacías")}`
-            : "Eliminar filas vacías"}
-        </EffectButton>
-      </section>
-      )}
-        </div>
-      </details>
-      )}
-      </div>
-      )}
-        </div>
-      </details>
       </div>
       {/* The history stays in view: every change here can be undone from it. */}
       <aside className="prepare-layout__aside" aria-label="Historial de cambios" aria-describedby={busyDescribedBy(changing)}>
@@ -1086,11 +1067,8 @@ function CleaningSignals({
   const proposalColumns = proposalImpute?.columns?.length ?? 0;
 
   return (
-    <section className="prepare-card prepare-card--stacked cleaning-signals" aria-labelledby="cleaning-signals-title" aria-describedby={busyDescribedBy(busy)}>
-      <div>
-        <h3 id="cleaning-signals-title">Señales para revisar</h3>
-        <p>Las señales usan solo esquema y métricas agregadas; no muestran celdas ni valores personales.</p>
-      </div>
+    <div className="prepare-card prepare-card--stacked cleaning-signals">
+      <p className="cleaning-signals__lead">Las señales usan solo esquema y métricas agregadas; no muestran celdas ni valores personales.</p>
       <section
         id={qualityActionTargetDomId("missingValues")}
         className="missing-data-plan"
@@ -1189,12 +1167,8 @@ function CleaningSignals({
         </details>
       </section>
       {hasOtherSignals ? (
-        <details className="detected-signals">
-          <summary>
-            <span>Otras señales detectadas</span>
-            <small>Duplicados, privacidad, tipos y valores atípicos</small>
-          </summary>
-          <div className="detected-signals__content">
+        <section className="detected-signals" aria-labelledby="detected-signals-title">
+          <h4 id="detected-signals-title">Otras señales detectadas</h4>
           <ul className="cleaning-signals__list" aria-label="Señales de limpieza detectadas">
           {profile.duplicateRowCount > 0 && (
             <li><strong>Duplicados exactos:</strong> {plural(profile.duplicateRowCount, "fila adicional", "filas adicionales")}; puedes {profile.duplicateRowCount === 1 ? "eliminarla" : "eliminarlas"}.</li>
@@ -1366,11 +1340,10 @@ function CleaningSignals({
               )}
             </div>
           )}
-          </div>
-        </details>
+        </section>
       ) : (
         <p className="notice notice--success" role="status">No se detectaron otras señales de limpieza en el perfil actual.</p>
       )}
-    </section>
+    </div>
   );
 }

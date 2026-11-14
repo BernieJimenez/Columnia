@@ -153,6 +153,15 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - Preparar muestra una sola tabla «Ver antes y después» con ejemplos de los
   cambios marcados, en lugar de un botón «Ver ejemplos» por cambio. Desmarcar un
   cambio lo quita de la tabla.
+- Preparar tiene un solo nivel de plegables bajo la propuesta. El plegable
+  «Diagnóstico y herramientas avanzadas», las pestañas Correcciones y
+  Transformaciones y los envoltorios «Revisar señales individuales» y «Más
+  herramientas» dejan paso a «Más cambios» con cinco plegables hermanos:
+  «Corregir columna por columna», «Limpiar texto y filas», «Transformar
+  columnas», «Combinar con otro archivo» y «Medir el efecto de los cambios».
+  «Otras señales detectadas» ya no se pliega y el editor de receta deja de
+  envolver sus operaciones en otro plegable. Las acciones, confirmaciones y la
+  edición a medias de la receta siguen igual.
 - Guía «Probar con NVDA» (recorrido de 30 minutos para RV09) e invitación para
   participantes de la beta; la guía de la beta describe la interfaz actual.
 - Entregar y el diálogo de importación muestran menos a la vez. Entregar pone

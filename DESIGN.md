@@ -286,19 +286,24 @@ historial a la derecha (`.prepare-layout`). Arriba va la propuesta
 «Ver antes y después», una sola acción primaria («Aplicar…») y «Personalizar
 paso a paso», que pregunta de uno en uno con respuesta Sí o No; tras aplicar, la
 propuesta se sustituye por el resultado con solo las cifras que cambiaron y
-«Deshacer». Lo demás está en el plegable «Diagnóstico y herramientas avanzadas»
-(`.prepare-advanced`): medir el efecto de los cambios y dos pestañas,
-Correcciones (señales y acciones sueltas) y Transformaciones
-(`TransformRecipeEditor.tsx`, el editor de receta: varias operaciones que se
-aplican juntas y se pueden guardar y cargar como archivo). El historial
+«Deshacer». Debajo, el encabezado «Más cambios» (`.prepare-more`) y un solo
+nivel de plegables hermanos (`.prepare-tool`, una fila separada por una línea,
+sin cajas): «Corregir columna por columna» (señales por columna y duplicados
+parecidos; sin análisis el plegable sigue y dice por qué está vacío), «Limpiar
+texto y filas» (normalizar texto, filas vacías y `_cambios`), «Transformar
+columnas» (`TransformRecipeEditor.tsx`, el editor de receta: varias operaciones
+que se aplican juntas y se pueden guardar y cargar como archivo; se monta al
+abrirlo y la edición a medias se conserva al cerrarlo), «Combinar con otro
+archivo» (solo con comparación) y «Medir el efecto de los cambios», al final
+porque comprueba, no cambia. Dentro solo se pliegan la ayuda («Cómo decide
+Columnia») y los grupos de operaciones del formulario de receta. El historial
 (`HistoryBar.tsx`, `<aside>` «Historial de cambios») lleva «Deshacer» y
 «Rehacer» bajo el título y la lista de versiones. A partir de 1180 CSS px es un
 panel de 300 px pegajoso bajo la barra superior (`position: sticky` a
 `calc(var(--topbar-height) + 8px)`, con scroll propio si es más alto que la
 ventana, `src/data-views.css`); por debajo pasa a una columna, tras el trabajo.
 El resultado de un cambio con «Deshacer» (`.change-result`) queda fijo arriba
-mientras se usan las herramientas. Dentro del plegable avanzado, «Combinar con
-otro archivo» (`CombineWithFileSection.tsx`) reutiliza la comparación de
+mientras se usan las herramientas. «Combinar con otro archivo» (`CombineWithFileSection.tsx`) reutiliza la comparación de
 Revisar, o permite hacerla allí, y ofrece unir por clave, añadir las filas
 nuevas y resolver conflictos. Los tipos de unión van en español con el término
 SQL entre paréntesis («Solo coincidencias (inner)», «Todas las filas del activo

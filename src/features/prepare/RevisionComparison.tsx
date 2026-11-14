@@ -142,7 +142,7 @@ export function RevisionComparison({
   return (
     <section className="prepare-card revision-comparison" aria-labelledby="revision-comparison-title">
       <div>
-        <h3 id="revision-comparison-title">Comparar revisiones</h3>
+        <h3 id="revision-comparison-title" className="visually-hidden">Comparar revisiones</h3>
         <p>
           Elige dos cambios del historial para medir el antes y el después. Cada comparación vuelve a
           analizar ambas revisiones y solo muestra totales; no guarda análisis ni muestra valores de las filas.

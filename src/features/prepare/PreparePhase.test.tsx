@@ -31,13 +31,16 @@ const emptyRecipe: TransformRecipe = {
   outlierTreatments: [], groupSummary: null, contactNormalizations: [], textExtractions: [],
 };
 
-function openAdvancedTools() {
-  fireEvent.click(screen.getByText("Diagnóstico y herramientas avanzadas"));
+function openColumnCorrections() {
+  fireEvent.click(screen.getByText("Corregir columna por columna"));
 }
 
-function openIndividualSignalActions() {
-  openAdvancedTools();
-  fireEvent.click(screen.getByText("Revisar señales individuales"));
+function openTextAndRows() {
+  fireEvent.click(screen.getByText("Limpiar texto y filas"));
+}
+
+function toggleTransforms() {
+  fireEvent.click(screen.getByText("Transformar columnas"));
 }
 
 const cleaningSignalsProfile: DatasetProfile = {
@@ -334,7 +337,6 @@ describe("PreparePhase", () => {
     expect(summary).not.toBeNull();
     const disclosure = summary?.closest("details");
     expect(disclosure).not.toHaveAttribute("open");
-    openAdvancedTools();
     expect(screen.getByRole("complementary", { name: "Historial de cambios" })).toBeVisible();
     // AUD-053: a single history landmark; the inner block carries no name of its own.
     expect(screen.queryAllByRole("region", { name: /historial/i })).toHaveLength(0);
@@ -403,9 +405,9 @@ describe("PreparePhase", () => {
     fireEvent.click(normalize);
     expect(onNormalizeText).toHaveBeenCalledWith(["nombre"], true);
 
-    const correctionsTab = screen.getByRole("tab", { name: "Correcciones" });
-    fireEvent.keyDown(correctionsTab, { key: "ArrowRight" });
-    expect(screen.getByRole("tab", { name: "Transformaciones" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Cambiar columnas y tipos" })).not.toBeInTheDocument();
+    toggleTransforms();
     expect(screen.getByRole("heading", { name: "Cambiar columnas y tipos" })).toBeInTheDocument();
   });
 
@@ -517,9 +519,9 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
-    expect(screen.getByRole("heading", { name: "Señales para revisar" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Otras señales detectadas" })).toBeInTheDocument();
     expect(document.getElementById("prepare-quality-incompatibleTypes")).toHaveFocus();
-    expect(screen.getByText("Otras señales detectadas").closest("details")).toHaveAttribute("open");
+    expect(screen.getByText("Corregir columna por columna").closest("details")).toHaveAttribute("open");
     expect(onQualityFocusHandled).toHaveBeenCalledOnce();
     expect(screen.getByRole("heading", { name: "Nulos y datos faltantes" })).toBeInTheDocument();
     expect(screen.getByLabelText("Resumen de nulos")).toHaveTextContent("10 nulos en total");
@@ -539,7 +541,7 @@ describe("PreparePhase", () => {
     expect(screen.queryByRole("button", { name: "Eliminar duplicados" })).not.toBeInTheDocument();
     // The duplicate count waits for the simulation of the chain (FUN-12).
     expect(await screen.findByRole("checkbox", { name: "Quitar 1 fila duplicada" })).toBeChecked();
-    expect(screen.getByRole("button", { name: "Eliminar 1 fila parecida…" }).closest("details")).toHaveClass("prepare-signal-details");
+    expect(screen.getByRole("button", { name: "Eliminar 1 fila parecida…" }).closest("details")).toHaveClass("prepare-tool--signals");
     fireEvent.click(screen.getByRole("button", { name: "Eliminar la columna constante estado" }));
     expect(onRemoveConstantColumns).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar la columna vacía empty_column" }));
@@ -620,7 +622,7 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
-    openIndividualSignalActions();
+    openColumnCorrections();
     fireEvent.click(screen.getByRole("button", { name: "Convertir números detectados" }));
     const dialog = screen.getByRole("alertdialog", { name: "Convertir números detectados" });
     expect(dialog).toHaveTextContent("2 celdas que no son números quedarán nulas: cantidad (2)");
@@ -691,7 +693,7 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
-    openIndividualSignalActions();
+    openColumnCorrections();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar 1 fila parecida…" }));
     const dialog = screen.getByRole("alertdialog", { name: "Eliminar duplicados parecidos" });
     expect(dialog).toHaveTextContent("1 fila que coincide");
@@ -732,7 +734,7 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
-    openIndividualSignalActions();
+    openColumnCorrections();
     fireEvent.click(screen.getByRole("button", { name: "Retirar 1 columna identificadora…" }));
     const dialog = screen.getByRole("alertdialog", { name: "Retirar identificadores detectados" });
     expect(dialog).toHaveTextContent("1 columna identificadora");
@@ -777,7 +779,7 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
-    openIndividualSignalActions();
+    openColumnCorrections();
     fireEvent.click(screen.getByRole("button", { name: "Retirar 1 columna de datos personales…" }));
     const dialog = screen.getByRole("alertdialog", { name: "Retirar datos personales detectados" });
     expect(dialog).toHaveTextContent("1 columna personal");
@@ -836,7 +838,7 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
-    openIndividualSignalActions();
+    openColumnCorrections();
     fireEvent.click(screen.getByRole("button", { name: "Dejar como nulos hasta 1 valor incompatible…" }));
     const dialog = screen.getByRole("alertdialog", { name: "Apartar valores incompatibles" });
     expect(dialog).toHaveTextContent("1 columna");
@@ -882,7 +884,7 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
-    openIndividualSignalActions();
+    openColumnCorrections();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar 1 fila parecida…" }));
     fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Eliminar duplicados parecidos" }), { key: "Escape" });
     expect(screen.queryByRole("alertdialog", { name: "Eliminar duplicados parecidos" })).not.toBeInTheDocument();
@@ -920,7 +922,7 @@ describe("PreparePhase", () => {
     expect(screen.queryByRole("alertdialog", { name: "Ocultar datos personales detectados" })).not.toBeInTheDocument();
   });
 
-  it("cubre estados de análisis, navegación de tabs y limpieza de texto seleccionada", () => {
+  it("cubre estados de análisis, plegables de Más cambios y limpieza de texto seleccionada", () => {
     const callbacks = {
       onCancelProfile: vi.fn(),
       onCancelPrepare: vi.fn(),
@@ -956,11 +958,12 @@ describe("PreparePhase", () => {
     expect(screen.getByText("En cuanto termine verás los cambios propuestos.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Analizar antes de preparar" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Analizar calidad" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
-    fireEvent.keyDown(screen.getByRole("tab", { name: "Transformaciones" }), { key: "ArrowLeft" });
-    expect(screen.getByRole("tab", { name: "Correcciones" })).toHaveAttribute("aria-selected", "true");
-    fireEvent.keyDown(screen.getByRole("tab", { name: "Correcciones" }), { key: "ArrowRight" });
-    expect(screen.getByRole("tab", { name: "Transformaciones" })).toHaveAttribute("aria-selected", "true");
+    // Without the analysis, «Corregir columna por columna» stays and says why it is empty.
+    expect(screen.getByText("Disponible cuando termine el análisis")).toBeInTheDocument();
+    openColumnCorrections();
+    expect(screen.getByText("Las señales por columna aparecen cuando termine el análisis de arriba.")).toBeVisible();
+    toggleTransforms();
+    expect(screen.getByRole("heading", { name: "Cambiar columnas y tipos" })).toBeVisible();
 
     cleanup();
     render(<PreparePhase
@@ -1042,8 +1045,7 @@ describe("PreparePhase", () => {
       recipeSession={0}
       {...callbacks}
     />);
-    openIndividualSignalActions();
-    fireEvent.click(screen.getByText("Correcciones avanzadas"));
+    openTextAndRows();
     fireEvent.click(screen.getByLabelText("nombre"));
     fireEvent.click(screen.getByLabelText("nombre"));
     fireEvent.click(screen.getByLabelText("nombre"));
@@ -1289,10 +1291,13 @@ describe("PreparePhase", () => {
       recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "cliente" }] },
     };
     render(<PreparePhase {...props} recipeDraft={restored} />);
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    toggleTransforms();
     fireEvent.change(screen.getByRole("textbox", { name: "Nuevo nombre 1" }), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("tab", { name: "Correcciones" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    // Closing «Transformar columnas» unmounts the editor; opening it again restores the edit.
+    toggleTransforms();
+    expect(screen.getByText("Transformar columnas").closest("details")).not.toHaveAttribute("open");
+    expect(screen.queryByRole("textbox", { name: "Nuevo nombre 1" })).not.toBeInTheDocument();
+    toggleTransforms();
 
     // UX-13: the unfinished edit comes back; the project draft stays the last
     // valid one, and the recipe cannot be applied while it is invalid.
@@ -1316,12 +1321,12 @@ describe("PreparePhase", () => {
     };
     let kept: SavedRecipe | null = null;
     const view = render(<PreparePhase {...props} recipeEdit={kept} onRecipeEditChange={(draft) => { kept = draft; }} />);
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    toggleTransforms();
     fireEvent.change(screen.getByRole("textbox", { name: "Nuevo nombre 1" }), { target: { value: "" } });
     view.unmount();
     expect(kept).not.toBeNull();
     render(<PreparePhase {...props} recipeEdit={kept} onRecipeEditChange={(draft) => { kept = draft; }} />);
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    toggleTransforms();
     expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue("");
     expect(props.onRecipeDraftChange).not.toHaveBeenCalled();
   });
@@ -1365,7 +1370,7 @@ describe("PreparePhase", () => {
       onUndo={() => undefined}
       onRedo={() => undefined}
     />);
-    openIndividualSignalActions();
+    openColumnCorrections();
     expect(screen.queryByRole("button", { name: /como «Desconocido»/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Rellenar hasta/ })).not.toBeInTheDocument();
   });
@@ -1421,10 +1426,10 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
-    expect(screen.getByText("Revisar señales individuales")).toBeInTheDocument();
-    expect(screen.getByText("Revisar señales individuales").closest("details")).not.toHaveAttribute("open");
-    openIndividualSignalActions();
-    expect(screen.getByRole("heading", { name: "Señales para revisar" })).toBeInTheDocument();
+    expect(screen.getByText("Corregir columna por columna")).toBeInTheDocument();
+    expect(screen.getByText("Corregir columna por columna").closest("details")).not.toHaveAttribute("open");
+    openColumnCorrections();
+    expect(screen.getByRole("heading", { name: "Nulos y datos faltantes" })).toBeVisible();
     expect(screen.getByText("No se detectaron otras señales de limpieza en el perfil actual.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Filas duplicadas" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Duplicados parecidos" })).not.toBeInTheDocument();
@@ -1838,7 +1843,7 @@ describe("TransformRecipeEditor", () => {
     }));
   });
 
-  it("asocia el motivo de ocupado a los paneles mientras cambia el dataset (AUD-059)", () => {
+  it("asocia el motivo de ocupado a los plegables mientras cambia el dataset (AUD-059)", () => {
     const common = {
       dataset, profileStatus: { kind: "idle" } as const, historyStatus: EMPTY_HISTORY, recipeDraft: null, recipeSession: 0,
       onCancelProfile: vi.fn(), onCancelPrepare: vi.fn(), onRemoveEmptyRows: vi.fn(), onRemoveConstantColumns: vi.fn(),
@@ -1848,11 +1853,13 @@ describe("TransformRecipeEditor", () => {
       onApplyTransforms: vi.fn(), onRecipeDraftChange: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(),
     };
     render(<PreparePhase {...common} changeStatus={{ kind: "working", action: "duplicates" }} />);
-    expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-describedby", "busy-reason");
+    const tools = () => Array.from(document.querySelectorAll(".prepare-more > details"));
+    expect(tools().length).toBeGreaterThan(0);
+    for (const tool of tools()) expect(tool).toHaveAttribute("aria-describedby", "busy-reason");
     expect(screen.getByRole("complementary", { name: "Historial de cambios" })).toHaveAttribute("aria-describedby", "busy-reason");
     cleanup();
     render(<PreparePhase {...common} changeStatus={{ kind: "idle" }} />);
-    expect(screen.getByRole("tabpanel")).not.toHaveAttribute("aria-describedby");
+    for (const tool of tools()) expect(tool).not.toHaveAttribute("aria-describedby");
     expect(screen.getByRole("complementary", { name: "Historial de cambios" })).not.toHaveAttribute("aria-describedby");
   });
 });
@@ -1879,8 +1886,7 @@ describe("PreparePhase acciones con cifra y foco", () => {
     const props = callbacks();
     const { rerender } = render(<PreparePhase dataset={dataset} profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
       changeStatus={{ kind: "idle" }} historyStatus={EMPTY_HISTORY} recipeDraft={null} recipeSession={0} {...props} />);
-    openAdvancedTools();
-    fireEvent.click(screen.getByText("Correcciones avanzadas"));
+    openTextAndRows();
     const none = screen.getByRole("button", { name: "Eliminar filas vacías" });
     expect(none).toHaveAttribute("aria-disabled", "true");
     expect(none).toHaveAccessibleDescription(/El análisis no encontró ninguna/);
@@ -1897,11 +1903,42 @@ describe("PreparePhase acciones con cifra y foco", () => {
     expect(props.onRemoveEmptyRows).toHaveBeenCalledOnce();
   });
 
+  it("bajo la propuesta hay un solo nivel de plegables, cada uno con el aviso de ocupado", () => {
+    const props = callbacks();
+    const draft: LoadedRecipe = {
+      version: 1, name: "Con renombre", savedAt: "2026-11-14T00:00:00Z",
+      recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "cliente" }] },
+    };
+    render(<PreparePhase dataset={dataset} profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
+      changeStatus={{ kind: "working", action: "trim" }} historyStatus={EMPTY_HISTORY} recipeDraft={draft} recipeSession={0} {...props} />);
+
+    const more = screen.getByRole("region", { name: "Más cambios" });
+    const tools = Array.from(more.querySelectorAll<HTMLDetailsElement>(":scope > details"));
+    expect(tools.map((tool) => tool.querySelector(":scope > summary > span")?.textContent)).toEqual([
+      "Corregir columna por columna",
+      "Limpiar texto y filas",
+      "Transformar columnas",
+      "Medir el efecto de los cambios",
+    ]);
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    for (const tool of tools) expect(tool).toHaveAttribute("aria-describedby", "busy-reason");
+
+    toggleTransforms();
+    for (const tool of tools) tool.open = true;
+    // Inside a disclosure only help and the editor's form groups may fold.
+    const nested = Array.from(more.querySelectorAll("details details")).filter((details) =>
+      !details.matches(".missing-data-plan__help, .transform-recipe__group, .transform-advisor__recovery")
+      && !details.closest(".revision-comparison__result"));
+    expect(nested).toEqual([]);
+    expect(more.querySelector("details details details")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Otras señales detectadas" })).toBeVisible();
+  });
+
   it("mientras trabaja, las acciones de las señales siguen enfocables y no actúan", () => {
     const props = callbacks();
     render(<PreparePhase dataset={dataset} profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
       changeStatus={{ kind: "working", action: "trim" }} historyStatus={EMPTY_HISTORY} recipeDraft={null} recipeSession={0} {...props} />);
-    openIndividualSignalActions();
+    openColumnCorrections();
     const constant = screen.getByRole("button", { name: "Eliminar la columna constante estado" });
     expect(constant).toBeEnabled();
     expect(constant).toHaveAttribute("aria-disabled", "true");

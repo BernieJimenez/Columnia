@@ -291,7 +291,6 @@ export function TransformRecipeEditor({
   const contactInvalid = contacts.some((item) => !item.column || !searchableTextColumns.some((column) => column.name === item.column)) || contactDuplicate || contacts.length > 16 || contactDependencyInvalid;
   const extractionInvalid = extractions.length > 16 || (groupEnabled && extractions.length > 0) || extractionDependencyInvalid || new Set(extractionNames).size !== extractionNames.length || extractions.some((item) => !item.source || !searchableTextColumns.some((column) => column.name === item.source) || !item.name.trim() || item.name !== item.name.trim() || postRenameNames.has(item.name.trim()) || item.name.trim() === calculatedName || parsedSplitNames.includes(item.name.trim()) || item.name.trim() === merge.name.trim() || (["before", "after"].includes(item.kind) && !item.delimiter));
   const operationCount = activeRenames.length + activeCasts.length + activeDateParses.length + activeFilters.length + (calculationEnabled ? 1 : 0) + (findReplaceEnabled ? 1 : 0) + (dropsColumns ? 1 : 0) + (splitEnabled ? 1 : 0) + (mergeEnabled ? 1 : 0) + outlierTreatments.length + (groupEnabled ? 1 : 0) + contacts.length + extractions.length;
-  const [operationsOpen, setOperationsOpen] = useState(operationCount > 0);
   const renameInvalid = activeRenames.some((item) => !item.from || !item.to.trim());
   const filterInvalid = activeFilters.some((item) =>
     !["eq", "neq", "is_null", "not_null"].includes(item.operator) && !item.value?.trim(),
@@ -478,7 +477,6 @@ export function TransformRecipeEditor({
     setPendingConfirmation(null);
     setRecipeName(loaded.name);
     setExportOptions(loaded.exportOptions ?? null);
-    setOperationsOpen(true);
     setDraftSavedAt(loaded.savedAt);
   }
 
@@ -516,7 +514,7 @@ export function TransformRecipeEditor({
     <section className="transform-recipe" aria-labelledby="transform-recipe-title">
       <div className="transform-recipe__intro">
         <div>
-          <h3 id="transform-recipe-title">Cambiar columnas y tipos</h3>
+          <h3 id="transform-recipe-title" className="visually-hidden">Cambiar columnas y tipos</h3>
           <p>
             Configura varios cambios y aplícalos juntos. Si una operación no es válida, no se
             modifica ninguna columna.
@@ -599,15 +597,8 @@ export function TransformRecipeEditor({
         )}
       </div>
 
-      <details
-        className="transform-recipe__operations"
-        open={operationsOpen}
-        onToggle={(event) => setOperationsOpen(event.currentTarget.open)}
-      >
-        <summary>
-          <span>{operationCount === 0 ? "Añadir la primera operación" : "Configurar operaciones"}</span>
-          <small>Renombres, tipos, filtros y transformaciones estructurales</small>
-        </summary>
+      {/* Each kind of operation is a group of the form; «Transformar columnas»
+          in Preparar is the only disclosure around the editor. */}
       <div className="transform-recipe__grid">
         <RecipeOperationGroup
           title="Renombrar columnas"
@@ -899,7 +890,6 @@ export function TransformRecipeEditor({
           {groupEnabled && <p className="recipe-error">No puedes extraer texto y resumir filas en el mismo paso; sí puedes limpiar datos de contacto.</p>}
         </RecipeOperationGroup>
       </div>
-      </details>
 
       {transformPreview && <TransformAdvisor preview={transformPreview} />}
 

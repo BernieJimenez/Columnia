@@ -571,7 +571,7 @@ describe("App", () => {
     ));
 
     expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
-    fireEvent.click(await screen.findByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(await screen.findByText("Transformar columnas"));
     expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Renombrar id");
     expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue("id_limpio");
     expect(applyRecipeSpy).not.toHaveBeenCalled();
@@ -619,7 +619,7 @@ describe("App", () => {
     expect(applyRecipeSpy).not.toHaveBeenCalled();
 
     await screen.findByRole("heading", { name: "Prepara datos consistentes" });
-    fireEvent.click(await screen.findByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(await screen.findByText("Transformar columnas"));
     expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Renombrar id");
     expect(applyRecipeSpy).not.toHaveBeenCalled();
 
@@ -1131,7 +1131,7 @@ describe("App", () => {
     expect(screen.queryByText("Contrato aprobado")).not.toBeInTheDocument();
 
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByText("Transformar columnas"));
     expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Renombrar total");
     expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue("importe");
     expect(profileSpy).not.toHaveBeenCalled();
@@ -1145,7 +1145,7 @@ describe("App", () => {
     await switchPhase("Entregar");
     expect(screen.getByRole("radio", { name: /^Validar calidad/ })).not.toBeChecked();
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByText("Transformar columnas"));
     expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Mi receta");
     expect(screen.getByRole("combobox", { name: "Columna para renombrar 1" })).toHaveValue("");
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
@@ -1498,7 +1498,7 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Elegir archivo" }));
     await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ });
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByText("Más herramientas"));
+    fireEvent.click(screen.getByText("Limpiar texto y filas"));
     fireEvent.click(screen.getByRole("button", { name: "Eliminar filas vacías" }));
     await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(2));
     await screen.findByRole("heading", { name: "Actualizando el análisis" });
@@ -2654,11 +2654,8 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Elegir archivo" }));
     await switchPhase("Preparar");
 
-    const correctionsTab = screen.getByRole("tab", { name: "Correcciones" });
-    const transformationsTab = screen.getByRole("tab", { name: "Transformaciones" });
-    expect(correctionsTab).toHaveAttribute("aria-selected", "true");
-    fireEvent.keyDown(correctionsTab, { key: "ArrowRight" });
-    expect(transformationsTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("tab", { name: "Transformaciones" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Transformar columnas"));
 
     fireEvent.change(screen.getByLabelText("Columna para renombrar 1"), {
       target: { value: "Total venta" },
@@ -2717,7 +2714,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Elegir archivo" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByText("Transformar columnas"));
     expect(screen.getByRole("button", { name: "Guardar receta" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("button", { name: "Guardar receta" })).toHaveAccessibleDescription("Para guardar la receta, añade al menos una operación.");
     fireEvent.change(screen.getByLabelText("Columna para renombrar 1"), { target: { value: "estado" } });
@@ -2764,7 +2761,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Elegir archivo" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByText("Transformar columnas"));
     fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
 
     expect(await screen.findByDisplayValue("Receta completa")).toBeInTheDocument();
@@ -2791,7 +2788,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Elegir archivo" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByText("Transformar columnas"));
     fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo completar la operación: JSON inválido");
   });
@@ -2819,7 +2816,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Elegir archivo" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByText("Transformar columnas"));
     expect(screen.getByText(/comparaciones numéricas estrictas/)).toHaveTextContent(/literales ISO 8601/);
     fireEvent.click(screen.getByRole("button", { name: "+ Añadir filtro AND" }));
     fireEvent.change(screen.getByLabelText("Columna del filtro 1"), { target: { value: "estado" } });
@@ -2887,7 +2884,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Elegir archivo" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByText("Transformar columnas"));
 
     fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "codigo" } });
     fireEvent.click(screen.getByRole("button", { name: "+ Añadir conversión" }));
@@ -2923,7 +2920,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Elegir archivo" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByText("Transformar columnas"));
     fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "importe" } });
     fireEvent.change(screen.getByLabelText("Tipo destino 1"), { target: { value: "decimal" } });
     fireEvent.click(screen.getByRole("button", { name: "+ Añadir conversión" }));
@@ -2972,7 +2969,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Elegir archivo" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByText("Transformar columnas"));
     fireEvent.click(screen.getByRole("button", { name: "+ Añadir regla" }));
     fireEvent.change(screen.getByLabelText("Columna de valores atípicos 1"), { target: { value: "valor" } });
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
@@ -3004,7 +3001,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Elegir archivo" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByText("Transformar columnas"));
     fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "importe" } });
     fireEvent.change(screen.getByLabelText("Tipo destino 1"), { target: { value: "decimal" } });
     fireEvent.click(screen.getByRole("checkbox", { name: "Sustituir las filas por un resumen" }));
@@ -3046,7 +3043,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Elegir archivo" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByText("Transformar columnas"));
     fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "codigo" } });
     fireEvent.click(screen.getByRole("button", { name: "+ Añadir contacto" }));
     fireEvent.change(screen.getByLabelText("Columna de contacto 1"), { target: { value: "correo" } });
@@ -3618,7 +3615,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Elegir archivo" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByText("Transformar columnas"));
     fireEvent.change(screen.getByLabelText("Columna para renombrar 1"), { target: { value: "valor" } });
     fireEvent.change(screen.getByLabelText("Nuevo nombre 1"), { target: { value: "importe" } });
 
@@ -3627,7 +3624,7 @@ describe("App", () => {
     expect(within(combine).getByText(/«Deshacer» vuelve a las filas de antes y recupera lo descartado/)).toBeInTheDocument();
     fireEvent.click(within(combine).getByRole("button", { name: "Añadir 1 fila nueva" }));
     expect(await screen.findByRole("group", { name: "Resultado del último cambio" })).toHaveTextContent("Filas nuevas de «nuevo.csv» añadidas");
-    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByText("Transformar columnas"));
     expect(screen.getByLabelText("Nuevo nombre 1")).toHaveValue("");
 
     fireEvent.click(within(screen.getByRole("complementary", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" }));

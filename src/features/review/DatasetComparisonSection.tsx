@@ -179,7 +179,7 @@ export function ComparisonSetup({
       <div className="comparison-actions">
         <button
           type="button"
-          className={primary && !loading ? "primary-action" : undefined}
+          className={primary && !loading ? "primary-action" : "secondary-action"}
           onClick={loading ? comparison.onCancelComparison : comparison.onCompare}
           disabled={busy || (loading && cancellationPending)}
           aria-describedby={busyDescribedBy(busy)}
