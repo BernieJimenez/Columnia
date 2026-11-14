@@ -292,30 +292,22 @@
   opacity: 1;
 }
 
-/* Entregar: the destination first (2026-11-13), then contract and export side by side when there is room. */
-.delivery-destination { margin-bottom: 24px; }
-.delivery-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; align-items: start; }
-.app-shell .delivery-layout .quality-contract { margin: 0; padding-top: 4px; min-width: 0; }
-.delivery-layout .quality-rule { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-.app-shell .delivery-layout .export-panel {
-  margin: 0;
-  padding: 22px 24px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--surface);
-}
+/* Entregar (2026-11-14): one column of reading width, four numbered steps in
+   order (destination, quality rules, format, confirm and export), all visible.
+   Steps part with space and one line, never with a box. */
+.delivery-flow { display: grid; grid-template-columns: minmax(0, 1fr); max-width: 760px; }
+.delivery-step { display: grid; gap: 12px; min-width: 0; padding: 24px 0 28px; border-top: 1px solid var(--border-subtle); }
+.delivery-step:first-child { padding-top: 16px; border-top: 0; }
+.delivery-step > h3 { margin: 0 0 4px; color: var(--text-primary); font-size: 1.0625rem; line-height: 1.3; }
+.delivery-flow .delivery-step > * { min-width: 0; margin-block: 0; }
+.delivery-flow .quality-rule { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .export-blocked-reason { grid-column: 1 / -1; margin: 0; color: var(--text-secondary); font-size: .875rem; font-weight: 600; }
 /* Always mounted for the live region; cancel the grid gap while it is empty. */
 .export-blocked-reason:empty { margin-top: -8px; }
-.delivery-layout .privacy-signals .quality-rule__check { display: flex; align-items: flex-start; gap: 10px; }
-.delivery-layout .privacy-signals .quality-rule__check input { flex: 0 0 auto; width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
+.delivery-flow .privacy-signals .quality-rule__check { display: flex; align-items: flex-start; gap: 10px; }
+.delivery-flow .privacy-signals .quality-rule__check input { flex: 0 0 auto; width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
 @media (max-width: 700px) {
-  .delivery-layout .export-controls { grid-template-columns: minmax(0, 1fr); }
-}
-@media (min-width: 1180px) {
-  .delivery-layout { grid-template-columns: minmax(0, 3fr) minmax(340px, 2fr); }
-  .delivery-layout .export-controls { grid-template-columns: minmax(0, 1fr); }
-  .delivery-layout .export-actions-row > button { flex: 1 1 auto; }
+  .delivery-flow .export-controls { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* Density: «Compacta» fits more data on screen. Targets keep 44 px; only
@@ -341,7 +333,8 @@ html[data-density="compact"] .explore__kpi { padding: 8px 14px; }
 html[data-density="compact"] .explore__kpi dd { font-size: 1.3rem; }
 html[data-density="compact"] .version-history { gap: 10px; padding: 14px 16px; }
 html[data-density="compact"] .version-history__entry { padding-bottom: 8px; }
-html[data-density="compact"] :is(.prepare-layout, .delivery-layout) { gap: 20px; }
+html[data-density="compact"] .prepare-layout { gap: 20px; }
+html[data-density="compact"] .delivery-step { padding-block: 18px 20px; }
 
 /* Short desktop windows: a tighter rail keeps every step and tool in view. */
 @media (min-width: 901px) and (max-height: 700px) {
@@ -515,15 +508,12 @@ html[data-columnia-zoom="2"] .app-shell .workspace h2 { font-size: 1.5rem; }
   .flow-nav__marker { transition: none; }
 }
 
-/* 2026-11-13: the full summary of what the export will do sits in the flow,
-   right above the button. Only the button and one line (destination · rows)
-   stay fixed at the bottom on wide, tall windows; DeliveryPhase publishes
-   their real height as --delivery-commit-height, so the scroll padding keeps
-   a focused control from hiding behind them (WCAG 2.4.11). */
-.delivery-summary-block { display: grid; gap: 10px; grid-column: 1 / -1; min-width: 0; padding: 12px 0 0; border-top: 1px solid var(--border-subtle); }
-.delivery-commit { display: grid; gap: 8px; grid-column: 1 / -1; min-width: 0; }
+/* 2026-11-14: step 4 holds the full summary of what the export will do and,
+   right after it, the only export button. Nothing stays fixed: the button is
+   never pressed with the summary out of view and no bar can cover the focus. */
+.delivery-summary-block { display: grid; gap: 10px; min-width: 0; padding: 12px 14px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-subtle); }
+.delivery-commit { display: grid; gap: 8px; min-width: 0; }
 .delivery-commit__title { margin: 0; color: var(--text-primary); font-size: .875rem; font-weight: 650; }
-.delivery-commit__line { margin: 0; overflow-wrap: anywhere; color: var(--text-secondary); font-size: .8125rem; font-weight: 600; }
 .delivery-summary { display: grid; gap: 4px; margin: 0; font-size: .8125rem; }
 .delivery-summary > div { display: grid; grid-template-columns: minmax(7.5rem, auto) minmax(0, 1fr); gap: 8px; }
 .delivery-summary dt { color: var(--text-secondary); }
@@ -532,16 +522,4 @@ html[data-columnia-zoom="2"] .app-shell .workspace h2 { font-size: 1.5rem; }
 .delivery-replace p { margin: 0; }
 @media (max-width: 420px) {
   .delivery-summary > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
-}
-@media (min-width: 1180px) and (min-height: 700px) {
-  .delivery-commit {
-    position: sticky;
-    bottom: 0;
-    z-index: 2;
-    padding: 10px 0 12px;
-    border-top: 1px solid var(--border-subtle);
-    background: var(--surface);
-    box-shadow: 0 -10px 12px -12px rgb(0 0 0 / .35);
-  }
-  html:has(.delivery-commit) { --delivery-commit-height: 140px; scroll-padding-bottom: calc(var(--delivery-commit-height, 140px) + 16px); }
 }

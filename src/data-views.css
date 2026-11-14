@@ -326,7 +326,7 @@ html[data-density="compact"] .col-profile { min-height: calc(30px + 4.05 * .75re
   background: var(--surface);
   cursor: pointer;
 }
-.database-target .sqlserver-script-target__mode:has(input:checked) { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.database-target .sqlserver-script-target__mode:has(input:checked) { border-color: var(--accent); background: var(--accent-soft, var(--surface-subtle)); box-shadow: inset 0 0 0 1px var(--accent); }
 .database-target .sqlserver-script-target__mode span { display: grid; gap: 2px; min-width: 0; }
 .database-target .sqlserver-script-target__mode strong { color: var(--text-primary); font-size: .875rem; }
 .database-target .sqlserver-script-target__mode small,

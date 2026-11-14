@@ -131,11 +131,10 @@ acento y el anillo de foco.
   (`.delivery-summary`) dice qué va a pasar junto al botón. En Entregar el
   resumen completo («Vas a exportar», `.delivery-summary-block`) va en flujo e
   incluye destino, servidor, base de datos y autenticación (nunca la
-  contraseña), tabla y política; solo `.delivery-commit` (botón, una línea
-  «destino · filas» y el motivo del bloqueo) queda fijo, con ventana de al
-  menos 1180 × 700. Su altura real se publica en `--delivery-commit-height` y
-  `scroll-padding-bottom` la usa para que ningún control con foco quede tapado
-  (WCAG 2.4.11).
+  contraseña), tabla y política. Justo debajo va `.delivery-commit` (el único
+  botón de exportar y el motivo del bloqueo), también en flujo: nada queda
+  fijo, así que no se puede exportar sin el resumen a la vista y ningún
+  control con foco queda tapado (WCAG 2.4.11).
 - Una acción destructiva lleva texto explícito, una confirmación propia ligada
   al objeto exacto («Entiendo que se borrará el contenido actual de <tabla>»)
   y un botón con verbo y objeto («Reemplazar <tabla> en <servidor>»). Una
@@ -351,8 +350,20 @@ Preparar»; se ocultan «Personalizar», la pista y el pie. El valor nulo se lla
 «nulo». «Ver como tabla» tiene tope de alto con scroll. Por debajo de 760 CSS px
 la cuadrícula pasa a una columna.
 
-**Entregar** (`src/features/delivery/`) pregunta primero «¿A dónde va la
-copia?», después cómo validar y después el formato. «Conectar y escribir la
+**Entregar** (`src/features/delivery/`) es un recorrido lineal en una sola
+columna de hasta 760 CSS px, alineada a la izquierda, con cuatro pasos visibles
+a la vez (no es un asistente, no hay «Siguiente»). Cada paso es una sección con
+un `h3` numerado, porque el orden es información, y se separa del anterior con
+espacio y una línea, sin caja: «1. Destino» (las tarjetas de «¿A dónde va la
+copia?»), «2. Reglas de calidad» (validar o exportar sin validar, reglas
+sugeridas, «Qué se exige» e «Importar o guardar reglas»), «3. Formato y
+protección» o «3. Formato y conexión» con una base de datos (formato,
+protección de datos personales, script T-SQL/BULK o conexión, tabla y
+política) y «4. Confirmar y exportar» (confirmación de exportar sin validar,
+«Vas a exportar», el botón y, mientras valida, el progreso con «Cancelar
+validación»). «Configuraciones de entrega guardadas» va plegada antes del paso
+1, porque rellena destino, formato, protección y tabla. El resultado aparece
+después del paso 4. «Conectar y escribir la
 tabla» propone el esquema del motor (`dbo`, `public` o la base en MySQL) y una
 tabla con el nombre del archivo saneado, como el script T-SQL; la política de
 tabla son opciones con descripción. Un contrato fallido no se vuelve a validar
@@ -392,8 +403,8 @@ numerado. El término es «incumplimientos»; también «comprobación previa»,
 Puntos de corte del shell (`src/shell.css`, salvo que se indique otro archivo):
 
 - 1180 CSS px o más: Preparar pone el historial en columna aparte
-  (`src/data-views.css`), Entregar coloca contrato y exportación lado a lado y
-  el resumen `.delivery-commit` queda fijo abajo.
+  (`src/data-views.css`). Entregar no cambia: es siempre una columna de hasta
+  760 CSS px y no tiene nada fijo.
 - 901 a 1100: `.load-brief` reduce la ilustración a 100 px
   (`src/workflow-styles.css`).
 - 901 o más de ancho y 700 de alto o menos: barra lateral más ajustada y sin la
@@ -402,7 +413,7 @@ Puntos de corte del shell (`src/shell.css`, salvo que se indique otro archivo):
 - 900 o menos: vista compacta, barra lateral convertida en franjas sobre el
   trabajo (ver Navegación).
 - 700 o menos: desaparecen los números de las etapas y queda el ✓ como marca en
-  la esquina; la exportación de Entregar pasa a una columna y el estado de la
+  la esquina; formato y protección de Entregar pasan a una columna y el estado de la
   barra superior se alinea a la izquierda.
 - 480 o menos: la fila servidor y puerto de la conexión a SQL Server se apila.
 - 420 o menos: la barra lateral pasa a una columna (marca, utilidades, etapas),

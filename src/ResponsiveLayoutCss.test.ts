@@ -9,7 +9,7 @@ const styles = read("src/styles.css");
 
 describe("diseño a 320 px (AUD-055)", () => {
   it("las ramas de una columna usan minmax(0, 1fr)", () => {
-    expect(shell).toMatch(/\.delivery-layout \{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
+    expect(shell).toMatch(/\.delivery-flow \{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
     expect(dataViews).toMatch(/\.prepare-layout \{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
     expect(dataViews).toMatch(/\.database-import \{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
   });
@@ -25,6 +25,15 @@ describe("diseño a 320 px (AUD-055)", () => {
     expect(styles).toMatch(/\.table-region \{[^}]*position: relative/);
     expect(styles).toMatch(/\.profile-region \{[^}]*position: relative/);
     expect(styles).toMatch(/\.quality-chart__table \{[^}]*position: relative/);
+  });
+});
+
+describe("Entregar en una sola columna (2026-11-14)", () => {
+  it("los pasos van en una columna de lectura, sin rejilla de dos columnas ni barra fija", () => {
+    expect(shell).toMatch(/\.delivery-flow \{[^}]*max-width: 760px/);
+    expect(shell).not.toMatch(/delivery-layout/);
+    expect(shell).not.toMatch(/\.delivery-commit \{[^}]*position: sticky/);
+    expect(shell).not.toMatch(/--delivery-commit-height/);
   });
 });
 

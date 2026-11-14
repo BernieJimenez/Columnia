@@ -72,11 +72,11 @@ La interfaz sigue cinco fases declaradas en `src/features/workspaces/workspaceMo
 Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una operación activa bloquea la navegación que pueda competir con ella. Si el dataset cambia, cualquier validación de entrega previa queda obsoleta y debe ejecutarse de nuevo.
 
 Falsos positivos verificados en la auditoría del 2026-11-05 (no se vuelven a
-reportar salvo que el código cambie): el resumen de Entregar sí queda fijo abajo
-en ventanas de 1536×864 o más (en una de 640 px de alto mide más que el hueco);
-de 640 a 1180 px de ancho ninguna fase desborda en horizontal; con
+reportar salvo que el código cambie): de 640 a 1180 px de ancho ninguna fase desborda en horizontal; con
 `forced-colors: active` la pestaña activa de Revisar conserva su subrayado; y
-`npm test` es `vitest run`, la misma suite que `test:coverage`.
+`npm test` es `vitest run`, la misma suite que `test:coverage`. Desde el
+2026-11-14 Entregar no tiene resumen fijo: el botón va en flujo tras «Vas a
+exportar».
 
 ## Arquitectura por archivo
 

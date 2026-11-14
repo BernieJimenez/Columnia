@@ -1957,3 +1957,36 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("button", { name: "Exportar script T-SQL" })).toHaveAttribute("aria-disabled", "true");
   });
 });
+
+describe("recorrido en una columna (2026-11-14)", () => {
+  it("muestra los cuatro pasos numerados en orden y a la vez, sin «Siguiente»", () => {
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    const steps = screen.getAllByRole("heading", { level: 3 })
+      .map((heading) => heading.textContent ?? "")
+      .filter((text) => /^\d\. /.test(text));
+    expect(steps).toEqual(["1. Destino", "2. Reglas de calidad", "3. Formato y protección", "4. Confirmar y exportar"]);
+    for (const step of steps) {
+      expect(screen.getByRole("region", { name: step })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: /^Siguiente/ })).not.toBeInTheDocument();
+    expect(document.querySelector(".delivery-layout")).toBeNull();
+  });
+
+  it("el resumen y el único botón primario están en el paso 4, el botón después del resumen", () => {
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    const confirm = screen.getByRole("region", { name: "4. Confirmar y exportar" });
+    const primaries = document.querySelectorAll(".primary-action");
+    expect(primaries).toHaveLength(1);
+    expect(confirm).toContainElement(primaries[0] as HTMLElement);
+    const summary = within(confirm).getByRole("region", { name: "Vas a exportar" });
+    expect(summary.compareDocumentPosition(primaries[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // No fixed copy of the button and no height published for one.
+    expect(document.documentElement.style.getPropertyValue("--delivery-commit-height")).toBe("");
+  });
+
+  it("con una base de datos de destino el paso 3 se llama «Formato y conexión»", () => {
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    fireEvent.click(screen.getByRole("radio", { name: /^Otra base de datos/ }));
+    expect(screen.getByRole("heading", { level: 3, name: "3. Formato y conexión" })).toBeInTheDocument();
+  });
+});

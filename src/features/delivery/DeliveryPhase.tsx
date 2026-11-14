@@ -267,7 +267,6 @@ export function DeliveryPhase({
         takeFocus: false,
       }
     : null);
-  const commitRef = useRef<HTMLDivElement>(null);
   // Remounts the connection form whenever the target is reset, so it never shows a dropped connection.
   const [connectionFormKey, setConnectionFormKey] = useState(0);
   const [databasePreflightState, setDatabasePreflightState] = useState<
@@ -493,29 +492,7 @@ export function DeliveryPhase({
     }
     return validate ? `Validar y exportar ${exportFormatLabel}` : `Exportar ${exportFormatLabel}`;
   })();
-  const compactCommitLine = `${summary[0]?.value ?? ""} · ${summary.find((item) => item.label === "Datos")?.value.split(" · ")[0] ?? ""}`;
 
-  // AUD-058 pattern: the sticky commit bar publishes its real height, so the
-  // scroll padding keeps a focused control from hiding behind it (WCAG 2.4.11).
-  useEffect(() => {
-    const element = commitRef.current;
-    const root = document.documentElement;
-    if (!element) return;
-    const publish = () => {
-      const height = Math.ceil(element.getBoundingClientRect().height);
-      if (height > 0) root.style.setProperty("--delivery-commit-height", `${height}px`);
-    };
-    publish();
-    if (typeof ResizeObserver === "undefined") {
-      return () => root.style.removeProperty("--delivery-commit-height");
-    }
-    const observer = new ResizeObserver(publish);
-    observer.observe(element);
-    return () => {
-      observer.disconnect();
-      root.style.removeProperty("--delivery-commit-height");
-    };
-  }, []);
   useEffect(() => {
     if (!rulesEditorOpen || pendingRuleFocus === null) return;
     focusQualityRule(pendingRuleFocus);
@@ -816,9 +793,39 @@ export function DeliveryPhase({
           <p className="phase-lead">Comprueba las reglas de aceptación y exporta. El archivo original no se modifica.</p>
         </div>
       </header>
+      {/* A saved configuration sets destination, format, protection and table at once: it goes before the steps it fills. */}
+      <DeliveryPresets
+        dataset={dataset}
+        currentPreset={(name) => ({
+          version: 1,
+          name,
+          format: selectedExportFormat,
+          selectedColumns: dataset.columns.map((column) => column.name),
+          privacyMode: selectedPrivacyMode,
+          ...(isSqlServerFile ? {
+            sqlServerScript: {
+              ...sqlServerScript,
+              keyColumns: sqlServerScript.mode === "upsert" ? sqlServerKeys : [],
+            },
+          } : {}),
+          ...(isDatabaseExportFormat(selectedExportFormat) ? {
+            databaseTarget: {
+              kind: databaseTarget.kind,
+              schema: databaseTarget.schema,
+              table: databaseTarget.table,
+              tablePolicy: databaseTarget.tablePolicy,
+            },
+          } : {}),
+        })}
+        onApply={applyDeliveryPreset}
+      />
+      {/* One column, four steps in order, all visible: the sequence is information, so the headings are numbered. */}
+      <div className="delivery-flow">
+      <section className="delivery-step" aria-labelledby="delivery-step-destination">
+        <h3 id="delivery-step-destination">1. Destino</h3>
       {/* The destination comes first: it decides the format, the table and what the summary says. */}
       <fieldset className="choice-cards delivery-destination" disabled={busy}>
-        <legend>¿A dónde va la copia?</legend>
+        <legend className="visually-hidden">¿A dónde va la copia?</legend>
         <div className="choice-cards__options">
           {DELIVERY_DESTINATIONS.map((option) => (
             <label key={option.id} className="choice-card" data-selected={destination === option.id || undefined}>
@@ -837,13 +844,9 @@ export function DeliveryPhase({
           ))}
         </div>
       </fieldset>
-      <div className="delivery-layout">
-      <section className="quality-contract" aria-labelledby="quality-contract-title">
-        <div className="quality-contract__header">
-          <div>
-            <h3 id="quality-contract-title">Elige cómo validar la entrega</h3>
-          </div>
-        </div>
+      </section>
+      <section className="delivery-step" aria-labelledby="quality-contract-title">
+        <h3 id="quality-contract-title">2. Reglas de calidad</h3>
 
         <fieldset className="delivery-route">
           <legend className="visually-hidden">Ruta de entrega</legend>
@@ -1013,27 +1016,6 @@ export function DeliveryPhase({
           </>
         ) : null}
 
-        {contract.gate.kind === "loading" && (
-          <div className="quality-contract__validation-progress">
-            <p className="notice" role="status">
-              {qualityValidationCancellationPending ? "Esperando que termine la validación…" : "Validando contrato localmente…"}
-            </p>
-            <button
-              type="button"
-              className="secondary-action"
-              onClick={() => void cancelQualityValidation()}
-              disabled={qualityValidationCancellationPending}
-            >
-              {qualityValidationCancellationPending ? "Esperando cancelación…" : "Cancelar validación"}
-            </button>
-            {qualityValidationCancellationError && (
-              <p className="notice notice--error" role="alert">
-                No se pudo cancelar la validación: {qualityValidationCancellationError}
-              </p>
-            )}
-          </div>
-        )}
-        {contract.gate.kind === "error" && <p className="notice notice--error" role="alert">No se pudo validar: {contract.gate.message}</p>}
         {(contract.gate.kind === "ready" || contract.gate.kind === "stale") && (
           <div className={`quality-gate quality-gate--${contract.gate.result.passed ? "passed" : "failed"}`} role="status">
             <strong>{contract.gate.kind === "stale"
@@ -1075,10 +1057,8 @@ export function DeliveryPhase({
           </div>
         )}
       </section>
-      <section className="export-panel" aria-labelledby="export-title">
-        <div>
-          <h3 id="export-title">Exportar dataset activo</h3>
-        </div>
+      <section className="delivery-step" aria-labelledby="export-title">
+        <h3 id="export-title">{isDatabaseExportFormat(selectedExportFormat) ? "3. Formato y conexión" : "3. Formato y protección"}</h3>
         <div className="export-controls">
           <label className="export-format">
             {destination === "sqlserver" ? "Cómo llevarlo" : "Formato"}
@@ -1116,6 +1096,23 @@ export function DeliveryPhase({
               </small>
             )}
           </label>
+          {exceedsExcel && (
+            <div className="notice notice--warning" role="alert">
+              <p><strong>Este dataset no cabe en Excel.</strong> CSV y Parquet lo conservan entero.</p>
+              <ul>{excelLimitIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+              <button type="button" className="secondary-action" disabled={busy} onClick={() => changeExportFormat("csv")}>
+                Exportar como CSV
+              </button>
+            </div>
+          )}
+          {selectedExportFormat === "bundle" && (
+            <p className="export-requirement" role="note">
+              {`El paquete contendrá ${listFileNames(bundleFileNames({ recipe: recipeDraft !== null, quality: contract.kind === "with_contract" }))}.`}
+              {recipeDraft
+                ? " recipe.json lleva la receta activa validada, con sus hashes en manifest.json."
+                : " No lleva recipe.json porque no hay una receta activa: los cambios aplicados desde la propuesta no forman una receta."}
+            </p>
+          )}
           {personalDataColumns.length > 0 && (
             <div className="notice privacy-signals" role="note" aria-labelledby="privacy-signals-title">
               <p id="privacy-signals-title">
@@ -1283,118 +1280,100 @@ export function DeliveryPhase({
               )}
             </fieldset>
           )}
-          {contract.kind === "without_contract" && (
-            <label className="export-confirmation">
-              <input
-                type="checkbox"
-                checked={contract.confirmation === "confirmed"}
-                disabled={busy}
-                onChange={(event) => onContractAction({
-                  kind: "confirmation_changed",
-                  confirmation: event.target.checked ? "confirmed" : "required",
-                })}
-              />
-              Confirmo que quiero exportar sin validar la calidad
-            </label>
-          )}
-          {/* PRODUCT.md, principle 2: the full summary, in the flow, right above the button. */}
-          <section className="delivery-summary-block" aria-labelledby="delivery-summary-title">
-            <h4 id="delivery-summary-title" className="delivery-commit__title">Vas a exportar</h4>
-            <dl className="delivery-summary">
-              {summary.map((item) => (
-                <div key={item.label}>
-                  <dt>{item.label}</dt>
-                  <dd>{item.value}</dd>
-                </div>
-              ))}
-            </dl>
-            {replacesTable && (
-              <div className="notice notice--warning delivery-replace" role="note">
-                {replaceWarning && <p><strong>{replaceWarning}</strong></p>}
-                <label className="export-confirmation">
-                  <input
-                    type="checkbox"
-                    checked={!needsReplaceConfirmation}
-                    disabled={busy}
-                    onChange={(event) => setConfirmedReplaceKey(event.target.checked ? replaceKey : null)}
-                  />
-                  {activePreflight?.tableExists
-                    ? `Entiendo que se borrará el contenido actual de ${replaceTableName}`
-                    : `Entiendo que se borrará el contenido actual de ${replaceTableName} si ya existe`}
-                </label>
-              </div>
-            )}
-          </section>
-          {/* Only the button and one line stay fixed at the bottom; their real height sets the scroll padding. */}
-          <div className="delivery-commit" ref={commitRef}>
-            <p className="delivery-commit__line">{compactCommitLine}</p>
-            <div className="export-actions-row">
-              <button
-                className={`${showsCurrentResult ? "secondary-action" : "primary-action"} export-action`}
-                type="button"
-                onClick={() => {
-                  if (exportDisabled) {
-                    if (databaseTargetProblem) setConnectionAttempted(true);
-                    return;
-                  }
-                  openPowerBiAfterExportRef.current = destination === "powerbi";
-                  void requestExport(selectedExportFormat);
-                }}
-                aria-disabled={exportDisabled || undefined}
-                aria-describedby="export-blocked-reason"
-              >
-                {exportActionLabel}
-              </button>
-            </div>
-            {/* Always mounted: a live region announces text that changes, not one that appears. */}
-            <p id="export-blocked-reason" className="export-blocked-reason" role="status">{exportBlockedReason}</p>
-            {contract.kind === "with_contract" && !gatePassed && !validationError && failedRuleNumbers.length === 0 && (
-              <p className="export-requirement">Las reglas se comprobarán antes de crear la copia.</p>
-            )}
-          </div>
-          <DeliveryPresets
-            dataset={dataset}
-            currentPreset={(name) => ({
-              version: 1,
-              name,
-              format: selectedExportFormat,
-              selectedColumns: dataset.columns.map((column) => column.name),
-              privacyMode: selectedPrivacyMode,
-              ...(isSqlServerFile ? {
-                sqlServerScript: {
-                  ...sqlServerScript,
-                  keyColumns: sqlServerScript.mode === "upsert" ? sqlServerKeys : [],
-                },
-              } : {}),
-              ...(isDatabaseExportFormat(selectedExportFormat) ? {
-                databaseTarget: {
-                  kind: databaseTarget.kind,
-                  schema: databaseTarget.schema,
-                  table: databaseTarget.table,
-                  tablePolicy: databaseTarget.tablePolicy,
-                },
-              } : {}),
-            })}
-            onApply={applyDeliveryPreset}
-          />
         </div>
-        {exceedsExcel && (
-          <div className="notice notice--warning" role="alert">
-            <p><strong>Este dataset no cabe en Excel.</strong> CSV y Parquet lo conservan entero.</p>
-            <ul>{excelLimitIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
-            <button type="button" className="secondary-action" disabled={busy} onClick={() => changeExportFormat("csv")}>
-              Exportar como CSV
+      </section>
+      <section className="delivery-step" aria-labelledby="delivery-step-confirm">
+        <h3 id="delivery-step-confirm">4. Confirmar y exportar</h3>
+        {contract.kind === "without_contract" && (
+          <label className="export-confirmation">
+            <input
+              type="checkbox"
+              checked={contract.confirmation === "confirmed"}
+              disabled={busy}
+              onChange={(event) => onContractAction({
+                kind: "confirmation_changed",
+                confirmation: event.target.checked ? "confirmed" : "required",
+              })}
+            />
+            Confirmo que quiero exportar sin validar la calidad
+          </label>
+        )}
+        {/* PRODUCT.md, principle 2: the full summary, in the flow, right above the only export button. */}
+        <section className="delivery-summary-block" aria-labelledby="delivery-summary-title">
+          <h4 id="delivery-summary-title" className="delivery-commit__title">Vas a exportar</h4>
+          <dl className="delivery-summary">
+            {summary.map((item) => (
+              <div key={item.label}>
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+          {replacesTable && (
+            <div className="notice notice--warning delivery-replace" role="note">
+              {replaceWarning && <p><strong>{replaceWarning}</strong></p>}
+              <label className="export-confirmation">
+                <input
+                  type="checkbox"
+                  checked={!needsReplaceConfirmation}
+                  disabled={busy}
+                  onChange={(event) => setConfirmedReplaceKey(event.target.checked ? replaceKey : null)}
+                />
+                {activePreflight?.tableExists
+                  ? `Entiendo que se borrará el contenido actual de ${replaceTableName}`
+                  : `Entiendo que se borrará el contenido actual de ${replaceTableName} si ya existe`}
+              </label>
+            </div>
+          )}
+        </section>
+        {/* The button stays in the flow, after the summary: no fixed copy can export with the summary out of view. */}
+        <div className="delivery-commit">
+          <div className="export-actions-row">
+            <button
+              className={`${showsCurrentResult ? "secondary-action" : "primary-action"} export-action`}
+              type="button"
+              onClick={() => {
+                if (exportDisabled) {
+                  if (databaseTargetProblem) setConnectionAttempted(true);
+                  return;
+                }
+                openPowerBiAfterExportRef.current = destination === "powerbi";
+                void requestExport(selectedExportFormat);
+              }}
+              aria-disabled={exportDisabled || undefined}
+              aria-describedby="export-blocked-reason"
+            >
+              {exportActionLabel}
             </button>
           </div>
-        )}
-        {selectedExportFormat === "bundle" && (
-          <p className="export-requirement" role="note">
-            {`El paquete contendrá ${listFileNames(bundleFileNames({ recipe: recipeDraft !== null, quality: contract.kind === "with_contract" }))}.`}
-            {recipeDraft
-              ? " recipe.json lleva la receta activa validada, con sus hashes en manifest.json."
-              : " No lleva recipe.json porque no hay una receta activa: los cambios aplicados desde la propuesta no forman una receta."}
-          </p>
-        )}
+          {/* Always mounted: a live region announces text that changes, not one that appears. */}
+          <p id="export-blocked-reason" className="export-blocked-reason" role="status">{exportBlockedReason}</p>
+          {contract.kind === "with_contract" && !gatePassed && !validationError && failedRuleNumbers.length === 0 && (
+            <p className="export-requirement">Las reglas se comprobarán antes de crear la copia.</p>
+          )}
+          {/* The validation runs from this button, so its progress and its error stay beside it. */}
+          {contract.gate.kind === "loading" && (
+            <div className="quality-contract__validation-progress">
+              <p className="notice" role="status">
+                {qualityValidationCancellationPending ? "Esperando que termine la validación…" : "Validando contrato localmente…"}
+              </p>
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => void cancelQualityValidation()}
+                disabled={qualityValidationCancellationPending}
+              >
+                {qualityValidationCancellationPending ? "Esperando cancelación…" : "Cancelar validación"}
+              </button>
+              {qualityValidationCancellationError && (
+                <p className="notice notice--error" role="alert">
+                  No se pudo cancelar la validación: {qualityValidationCancellationError}
+                </p>
+              )}
+            </div>
+          )}
+          {contract.gate.kind === "error" && <p className="notice notice--error" role="alert">No se pudo validar: {contract.gate.message}</p>}
+        </div>
       </section>
       </div>
       {exportState.kind === "loading" && (

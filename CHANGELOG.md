@@ -153,6 +153,19 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 - Preparar muestra una sola tabla «Ver antes y después» con ejemplos de los
   cambios marcados, en lugar de un botón «Ver ejemplos» por cambio. Desmarcar un
   cambio lo quita de la tabla.
+- Entregar es un recorrido en una sola columna con cuatro pasos numerados y
+  visibles a la vez: «1. Destino», «2. Reglas de calidad», «3. Formato y
+  protección» (o «Formato y conexión» con una base de datos) y «4. Confirmar y
+  exportar». Desaparecen las dos columnas a partir de 1180 px, que dejaban un
+  hueco grande junto al bloque de exportar, y la caja que lo envolvía; la
+  conexión y el script ya no van en otra caja dentro. El resumen «Vas a
+  exportar» y el único botón de exportar quedan al final del paso 4, en flujo:
+  ya no hay barra fija abajo, así que no se exporta sin ver el resumen y ningún
+  control con foco queda tapado. El progreso de la validación y su error salen
+  junto al botón que la lanza. Las configuraciones guardadas pasan arriba,
+  plegadas, porque rellenan los pasos que siguen. Esquema y tabla comparten
+  fila a medias. Bloqueos, confirmaciones, comprobación previa y foco al
+  resultado no cambian.
 - Preparar tiene un solo nivel de plegables bajo la propuesta. El plegable
   «Diagnóstico y herramientas avanzadas», las pestañas Correcciones y
   Transformaciones y los envoltorios «Revisar señales individuales» y «Más

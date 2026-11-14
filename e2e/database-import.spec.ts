@@ -101,7 +101,7 @@ test.describe("entregar como script para SQL Server", () => {
     await page.getByRole("button", { name: "Ver cambios propuestos" }).click();
     await page.getByRole("button", { name: "Continuar a Explorar" }).click();
     await page.getByRole("button", { name: "Continuar a Entregar" }).click();
-    await expect(page.getByRole("heading", { name: "Exportar dataset activo" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "4. Confirmar y exportar" })).toBeVisible();
 
     await page.getByRole("radio", { name: /^SQL Server/ }).check();
     await expect(page.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("sqlserver_script");

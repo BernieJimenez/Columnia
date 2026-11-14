@@ -127,7 +127,7 @@ async function loadSyntheticDataset(page: Page, stopAt: "review" | "delivery" = 
   await activateWithKeyboard(page, continueToDelivery, "Continuar a Entregar");
   const deliverStep = workflow.getByRole("button", { name: "Entregar", exact: true });
   await expect(deliverStep).toHaveAttribute("aria-current", "step");
-  await expect(page.getByRole("heading", { name: "Exportar dataset activo" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "4. Confirmar y exportar" })).toBeVisible();
 }
 
 test.describe("CSP de producción (SEG-08)", () => {
@@ -342,7 +342,7 @@ test.describe("recorrido cargado de accesibilidad", () => {
     await expect(page.getByRole("heading", { name: "Explora los datos" })).toBeVisible();
     await inspectHorizontalLayout("viewport de 320 píxeles CSS · Explorar");
     await activateWithKeyboard(page, page.getByRole("button", { name: "Continuar a Entregar" }), "Continuar a Entregar · 320 px");
-    await expect(page.getByRole("heading", { name: "Exportar dataset activo" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "4. Confirmar y exportar" })).toBeVisible();
     await inspectHorizontalLayout("viewport de 320 píxeles CSS · Entregar");
   });
 });

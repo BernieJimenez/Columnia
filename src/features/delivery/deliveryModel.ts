@@ -247,7 +247,7 @@ const SQL_SERVER_MODE_LABEL: Record<SqlServerScriptOptions["mode"], string> = {
 };
 
 const TABLE_POLICY_LABEL: Record<DatabaseTarget["tablePolicy"], string> = {
-  create_only: "crear; fallar si existe",
+  create_only: "crear una tabla nueva (no escribe si ya existe)",
   append: "añadir filas",
   replace: "reemplazar la tabla",
 };
