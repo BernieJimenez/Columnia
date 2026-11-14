@@ -97,7 +97,7 @@ export function requiresImpactConfirmation(recipe: TransformRecipe): boolean {
 
 export function changeProgressMessage(action: Extract<ChangeStatus, { kind: "working" }>["action"]): string {
   const messages: Record<typeof action, string> = {
-    safe: "Aplicando correcciones recomendadas…",
+    safe: "Aplicando la propuesta…",
     duplicates: "Eliminando duplicados…",
     near_duplicates: "Eliminando duplicados parecidos…",
     empty_rows: "Eliminando filas vacías…",

@@ -264,13 +264,20 @@ confirmar.
 corrección en Preparar. El Diagnóstico abre con una lista (la misma que propone
 Preparar, ordenada por consecuencia) y una sola acción primaria, «Ver cambios
 propuestos»; el titular no promete que sea todo («N cosas se pueden corregir
-con la propuesta»). Debajo, el bloque «No se corrige solo» recoge nulos,
-valores incompatibles con el tipo sugerido, columnas con datos personales, coma
-decimal y valores no finitos, cada uno con su cifra de todas las filas y una
-acción secundaria («Ver … en Preparar» o «Volver a cargar con coma decimal»).
-La completitud global es texto con cifra, no una barra de progreso. Un error
-del perfil lleva dentro «Reintentar análisis» y una causa probable, y el pie no
-repite el botón. El resultado de la Consulta SQL anuncia solo «N filas».
+con la propuesta»). Debajo, el bloque informativo «No se corrige solo» (fondo
+apagado, sin botones con borde) recoge los nulos que la propuesta no rellena
+(los que sí rellena solo se cuentan arriba), valores incompatibles con el tipo
+sugerido, columnas con datos personales, coma decimal y valores no finitos,
+cada uno con su cifra de todas las filas y una acción terciaria: botón de texto
+de 44 px («Ver … en Preparar» o «Volver a cargar con coma decimal»). «Más
+análisis y herramientas» es un solo plegable con secciones de un nivel
+(Completitud global, Señales del perfil, Perfil por columna, Configuración del
+análisis); dentro solo se pliegan las tablas «Ver datos exactos». La Consulta
+SQL vive solo en la barra superior. Las columnas con marcadores «sin dato» lo
+dicen donde la completitud podría engañar («incluye N marcadores «sin dato»»),
+y una nota avisa de que el perfil numérico no reconoce marcadores como -999.
+Un error del perfil y un análisis cancelado llevan dentro «Reintentar
+análisis», y el pie no repite el botón.
 «Comparar con otro archivo» (`DatasetComparisonSection.tsx`) es un plegable en
 dos pasos: la clave, qué cuenta como igual y una sola primaria; después el
 resultado (filas nuevas, filas que faltan, conflictos, coinciden, claves
@@ -287,8 +294,17 @@ paso a paso», que pregunta de uno en uno con respuesta Sí o No; tras aplicar, 
 propuesta se sustituye por el resultado con solo las cifras que cambiaron y
 «Deshacer». Debajo, el encabezado «Más cambios» (`.prepare-more`) y un solo
 nivel de plegables hermanos (`.prepare-tool`, una fila separada por una línea,
-sin cajas): «Corregir columna por columna» (señales por columna y duplicados
-parecidos; sin análisis el plegable sigue y dice por qué está vacío), «Limpiar
+sin cajas): «Corregir columna por columna» (`columnFixes.ts`: una frase de
+nulos con la misma cifra que la propuesta, una fila por columna con algo que
+corregir —nombre y tipo, qué le pasa con cifras de todas las filas y una sola
+acción recomendada; las alternativas en «Otras opciones»— y un grupo «En varias
+columnas» para las acciones del motor que tocan varias a la vez; prioridad:
+retirar si está vacía, con 80 % o más de nulos o constante —y entonces nunca se
+ofrece rellenarla—, convertir o apartar tipos incompatibles, ocultar o retirar
+datos personales, atípicos, acentos y sí/no, y al final rellenar; rellenar
+siempre pide confirmación con cifra y columnas, y «Desconocido» nunca toca
+columnas vacías ni las que se ofrecen para convertir; sin análisis el plegable
+sigue y dice por qué está vacío), «Limpiar
 texto y filas» (normalizar texto, filas vacías y `_cambios`), «Transformar
 columnas» (`TransformRecipeEditor.tsx`, el editor de receta: varias operaciones
 que se aplican juntas y se pueden guardar y cargar como archivo; se monta al
@@ -344,7 +360,11 @@ tendencia (una parada de Tab por gráfico) y se nombran «Norte: 18.200 filas».
 La columna seleccionada se marca con un contorno de 2 px alrededor del relleno
 (`CanvasText` en colores forzados), no solo con la intensidad. Las columnas
 miden al menos 24 px; con muchas, columnas y eje se desplazan juntos y aparece
-«Desliza para ver todos los tramos». Sin gráficos hay un único aviso neutro con
+«Desliza para ver todos los tramos»; fuera de la zona que se desplaza quedan
+siempre el rango completo («De 0 a 700») y una línea de lectura con las filas
+del tramo enfocado, apuntado o seleccionado. Las marcas del eje caen en bordes
+reales de tramo, la tendencia dice su periodo con más filas y cambiar la medida
+o la fecha que quita un filtro ofrece «Deshacer». Sin gráficos hay un único aviso neutro con
 el motivo y, si una fecha está guardada como texto, «Interpretar fechas en
 Preparar»; se ocultan «Personalizar», la pista y el pie. El valor nulo se llama
 «nulo». «Ver como tabla» tiene tope de alto con scroll. Por debajo de 760 CSS px
@@ -361,7 +381,14 @@ protección» o «3. Formato y conexión» con una base de datos (formato,
 protección de datos personales, script T-SQL/BULK o conexión, tabla y
 política) y «4. Confirmar y exportar» (confirmación de exportar sin validar,
 «Vas a exportar», el botón y, mientras valida, el progreso con «Cancelar
-validación»). «Configuraciones de entrega guardadas» va plegada antes del paso
+validación»). Una escritura en base de datos gasta el análisis y la
+confirmación que la autorizaron: al terminar, el botón conserva su verbo y
+objeto pero queda bloqueado hasta volver a analizar y, con «Reemplazar»,
+volver a confirmar; «Exportar otra copia» existe solo para archivos. La
+confirmación de «Reemplazar» solo se da tras el análisis, está atada a la
+tabla tal como la dejó (incluido si existe) y el aviso dice cuántas filas se
+borrarán. El resultado de una escritura dice si se reemplazó, se añadió o se
+creó la tabla. «Analizar compatibilidad» tiene ancho propio junto a su estado. «Configuraciones de entrega guardadas» va plegada antes del paso
 1, porque rellena destino, formato, protección y tabla. El resultado aparece
 después del paso 4. «Conectar y escribir la
 tabla» propone el esquema del motor (`dbo`, `public` o la base en MySQL) y una

@@ -42,18 +42,29 @@ function columnNames(names: string[]): string {
  * rest of what the profile found: nulls, values that do not fit the suggested
  * type, personal data and decimal commas. Duplicates, «sin dato» markers and
  * spaces are not here: the proposal lists them.
+ *
+ * `filledColumns` are the columns the proposal's «Rellenar nulos» item fills
+ * (the same names `buildPrepareProposal` puts in that item): their nulls are
+ * not counted here, so «Rellenar 347 nulos» above and this list never show
+ * two unrelated figures for the same gaps.
  */
-export function buildUncorrectedIssues(profile: DatasetProfile): UncorrectedIssue[] {
+export function buildUncorrectedIssues(
+  profile: DatasetProfile,
+  filledColumns: ReadonlySet<string> = new Set(),
+): UncorrectedIssue[] {
   const issues: UncorrectedIssue[] = [];
   const columns = profile.columns.filter((column) => !isRowAuditColumn(column.name));
 
-  const nullColumns = columns.filter((column) => column.nullCount > 0);
+  const nullColumns = columns.filter((column) => column.nullCount > 0 && !filledColumns.has(column.name));
   const nullCount = nullColumns.reduce((total, column) => total + column.nullCount, 0);
+  const offeredCount = columns
+    .filter((column) => column.nullCount > 0 && filledColumns.has(column.name))
+    .reduce((total, column) => total + column.nullCount, 0);
   if (nullCount > 0) {
     issues.push({
       id: "nulls",
-      title: `${plural(nullCount, "nulo", "nulos")} en ${plural(nullColumns.length, "columna", "columnas")}`,
-      detail: "Un nulo puede ser válido: revisa por qué falta antes de rellenarlo o de retirar la columna.",
+      title: `${plural(nullCount, "nulo", "nulos")} en ${plural(nullColumns.length, "columna", "columnas")} que la propuesta no rellena`,
+      detail: `${offeredCount > 0 ? `Son distintos de los ${offeredCount.toLocaleString()} que la propuesta ofrece rellenar. ` : ""}Un nulo puede ser válido: revisa por qué falta antes de rellenarlo o de retirar la columna.`,
       action: { kind: "prepare", label: "Ver nulos en Preparar", target: "missingValues" },
     });
   }

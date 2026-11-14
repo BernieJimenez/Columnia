@@ -865,6 +865,9 @@ pub struct RemoteExportPreflight {
     pub table: String,
     pub table_policy: DatabaseTablePolicy,
     pub table_exists: bool,
+    /// Rows the existing table holds, only asked when «Reemplazar» is chosen; `None` when not asked or the count failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub existing_row_count: Option<u64>,
     pub ready: bool,
     pub issues: Vec<RemotePreflightIssue>,
 }
@@ -987,13 +990,18 @@ where
     ensure_not_cancelled(is_cancelled)?;
     let (table_exists, is_base_table, existing_columns) = inspect_destination(&connection, target)?;
     ensure_not_cancelled(is_cancelled)?;
-    Ok(assess_remote_export(
+    let mut preflight = assess_remote_export(
         target,
         input_columns,
         table_exists,
         is_base_table,
         &existing_columns,
-    ))
+    );
+    if table_exists && is_base_table && target.table_policy == DatabaseTablePolicy::Replace {
+        preflight.existing_row_count = existing_row_count(&connection, target);
+        ensure_not_cancelled(is_cancelled)?;
+    }
+    Ok(preflight)
 }
 
 pub(crate) fn preflight_source_backed<C>(
@@ -1536,9 +1544,33 @@ fn assess_remote_export(
         table: target.table.clone(),
         table_policy: target.table_policy,
         table_exists,
+        existing_row_count: None,
         ready,
         issues,
     }
+}
+
+/// How many rows «Reemplazar» would delete, so the warning can say it. A best
+/// effort with its own timeout: any failure is `None` and never blocks the analysis.
+fn existing_row_count(
+    connection: &odbc_api::Connection<'_>,
+    target: &DatabaseTarget,
+) -> Option<u64> {
+    use odbc_api::Cursor;
+    let count = match target.kind {
+        DatabaseKind::SqlServer => "COUNT_BIG(*)",
+        _ => "COUNT(*)",
+    };
+    let sql = ["SELECT ", count, " FROM ", &qualified_table(target)].concat();
+    let mut cursor = connection
+        .execute(&sql, (), Some(ODBC_CATALOG_TIMEOUT_SEC))
+        .ok()??;
+    let mut row = cursor.next_row().ok()??;
+    let mut text = Vec::new();
+    if !row.get_text(1, &mut text).ok()? {
+        return None;
+    }
+    std::str::from_utf8(&text).ok()?.trim().parse().ok()
 }
 
 /// Column names the engine cannot create (FUN-20, FUN-21): longer than its

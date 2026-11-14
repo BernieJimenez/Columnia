@@ -78,6 +78,8 @@ const STEP_QUESTIONS: Record<ProposalItemId, { one: StepQuestion; many: StepQues
 
 /** Whether the first figure of a title is 1: «Convertir 1 columna a número». */
 function firstFigureIsOne(title: string): boolean {
+  // «Convertir «importe» a número»: one column, named instead of counted.
+  if (/^Convertir «/.test(title)) return true;
   return title.match(/\d(?:[\d.,   ]*\d)?/)?.[0] === "1";
 }
 
@@ -330,7 +332,7 @@ export function PrepareProposal({
     return (
       <section className="prepare-proposal" aria-labelledby="prepare-proposal-title">
         <h3 id="prepare-proposal-title" ref={titleRef} tabIndex={-1} className="prepare-proposal__title">No hay cambios que proponer</h3>
-        <p className="prepare-proposal__lead">No se detectaron espacios sobrantes, duplicados ni vacíos que rellenar.</p>
+        <p className="prepare-proposal__lead">No se detectaron espacios sobrantes, duplicados ni nulos que rellenar.</p>
         <div className="prepare-proposal__actions">
           <button type="button" className="secondary-action" aria-disabled={disabled || undefined} aria-describedby={busyDescribedBy(disabled)} onClick={() => { if (!disabled) { setMode("steps"); setStep(0); } }}>
             Personalizar paso a paso
@@ -345,11 +347,19 @@ export function PrepareProposal({
   const uncheckedNote = uncheckedProposalNote(items, selection, ambiguousDateOrder, titleOf);
   // One table for every checked change, instead of a toggle per change.
   // Every filled column keeps its row: it shows the value it will receive.
+  const seenExamples = new Set<string>();
   const beforeAfter = [
     ...items
       .filter((item) => selection[item.id] && item.id !== "impute")
       .flatMap((item) => (item.id === "dates" ? dateExamples(item, ambiguousDateOrder) : item.examples)
         .map((example) => ({ item, example })))
+      // The same change on the same before and after is shown once.
+      .filter(({ item, example }) => {
+        const key = `${item.id}\u0000${example.column}\u0000${example.before ?? ""}\u0000${example.after}`;
+        if (seenExamples.has(key)) return false;
+        seenExamples.add(key);
+        return true;
+      })
       .slice(0, MAX_BEFORE_AFTER_ROWS),
     ...items
       .filter((item) => selection[item.id] && item.id === "impute" && fillsReady)
@@ -389,7 +399,7 @@ export function PrepareProposal({
         <div className="prepare-proposal__before-after">
           <button
             type="button"
-            className="prepare-proposal__examples-toggle"
+            className="secondary-action"
             aria-expanded={showBeforeAfter}
             aria-controls="prepare-before-after"
             onClick={() => setShowBeforeAfter(!showBeforeAfter)}

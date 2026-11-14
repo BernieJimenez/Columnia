@@ -15,6 +15,22 @@ import { formatDecimal, formatPercent, withoutNegativeZero } from "../../format"
 import { plural } from "../../plural";
 import { errorMessage } from "../../bridge/errors";
 
+/**
+ * A column whose «sin dato» markers (N/A, «-», «s/d»…) count as values in its
+ * completeness: said next to the figure, so «100 % con valor» does not mislead.
+ * The profile only knows text markers; `wording` says how the chart counts them.
+ */
+export function MarkerNote({ column, wording = "includes" }: { column: ColumnProfile; wording?: "includes" | "excludes" }) {
+  const count = column.sentinelCount ?? 0;
+  if (count <= 0) return null;
+  const markers = plural(count, "marcador «sin dato»", "marcadores «sin dato»");
+  return (
+    <small className="quality-marker-note">
+      {wording === "includes" ? `incluye ${markers}` : `sin contar ${markers}, que no son nulos`}
+    </small>
+  );
+}
+
 export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetProfile; datasetRevision: number }) {
   const [activeTemporalAggregation, setActiveTemporalAggregation] = useState<TemporalAggregationOwner | null>(null);
   const activeTemporalAggregationRef = useRef<TemporalAggregationOwner | null>(null);
@@ -61,6 +77,13 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
           y el equivalente para lector de pantalla.
         </p>
       </div>
+      {numericColumns.length > 0 && (
+        <p className="quality-visuals__caveat">
+          Los rangos, las cajas y los atípicos cuentan todos los números como datos reales: el perfil
+          numérico no reconoce marcadores como -999 o 9999. Si tu archivo los usa, aparecerán como
+          valores extremos.
+        </p>
+      )}
       <div className="quality-chart-grid">
         <div className="quality-chart" role="group" aria-labelledby="quality-completeness-title">
           <h5 id="quality-completeness-title">Completitud por columna</h5>
@@ -78,6 +101,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                   <div className="quality-chart__track" aria-hidden="true">
                     <span style={{ width: `${percentage}%` }} />
                   </div>
+                  <MarkerNote column={column} />
                 </div>
               );
             })}
@@ -126,6 +150,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                     <div className="quality-chart__track" aria-hidden="true">
                       <span className="quality-chart__track-fill--warning" style={{ width: `${percentage}%` }} />
                     </div>
+                    <MarkerNote column={column} wording="excludes" />
                   </div>
                 );
               })}
@@ -398,7 +423,10 @@ function TemporalCoverageChart({
 
               return (
                 <tr key={column.name}>
-                  <th scope="row">{column.name}</th>
+                  <th scope="row">
+                    {column.name}
+                    <MarkerNote column={column} />
+                  </th>
                   <td>{temporalTypeLabel(column)}</td>
                   <td className="quality-temporal__range">
                     <span className="quality-temporal__range-value">
@@ -573,7 +601,7 @@ function TemporalTrendChart({
         <>
           <div className="quality-temporal-trend__toolbar">
             <div>
-              <span className="quality-temporal-trend__metric-caption">Lectura visible</span>
+              <span className="quality-temporal-trend__metric-caption">Mostrando</span>
               <strong>{temporalMetricLabel(metric)}</strong>
             </div>
             <label htmlFor={metricId}>

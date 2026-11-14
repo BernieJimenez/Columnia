@@ -66,6 +66,7 @@ import {
   validateQualityRuleDraft,
 } from "./deliveryModel";
 import { formatPercent } from "../../format";
+import { plural } from "../../plural";
 import { DeliveryPresets } from "./DeliveryPresets";
 import { DeliveryResult } from "./DeliveryResult";
 import { exportBlockers } from "./exportBlockers";
@@ -92,6 +93,11 @@ interface DeliveryPhaseProps {
   columnProfiles?: readonly ColumnProfile[] | null;
   /** AUD-061: the dataset is a part of a database table, or had texts cut or replaced. */
   importOrigin?: ImportOrigin | null;
+  /**
+   * Takes the person back to Preparar from a failed contract («Corregir en Preparar»).
+   * Without it the notice only says what to fix.
+   */
+  onReviewPreparation?: () => void;
   onContractAction: (action: DeliveryContractAction) => void;
   onExport: (request: DeliveryExportRequest) => void;
   onCancelExport: () => void;
@@ -200,7 +206,7 @@ function summarizeQualityRule(rule: QualityRule): string {
       ? rule.columns.join(", ")
       : rule.column;
   const tolerance = [
-    rule.maxInvalid !== undefined ? `${rule.maxInvalid} incumplimientos` : null,
+    rule.maxInvalid !== undefined ? plural(rule.maxInvalid, "incumplimiento", "incumplimientos") : null,
     rule.maxInvalidPct !== undefined ? `${rule.maxInvalidPct}%` : null,
   ].filter(Boolean).join(" y ");
   const toleranceSummary = rule.maxInvalid === 0 && rule.maxInvalidPct === undefined
@@ -230,6 +236,7 @@ export function DeliveryPhase({
   excelLimitIssues = [],
   columnProfiles = null,
   importOrigin = null,
+  onReviewPreparation,
   onContractAction,
   onExport,
   onCancelExport,
@@ -258,12 +265,15 @@ export function DeliveryPhase({
     destination: DeliveryDestination;
     format: ExportFormat;
     location: string | null;
+    /** What the table policy was when it was asked for: the result says what happened to the table. */
+    tablePolicy: DatabaseTargetDraft["tablePolicy"] | null;
     takeFocus: boolean;
   } | null>(() => exportState.kind === "success"
     ? {
         destination: destinationForFormat(exportFormat ?? "csv"),
         format: exportFormat ?? "csv",
         location: null,
+        tablePolicy: null,
         takeFocus: false,
       }
     : null);
@@ -388,8 +398,16 @@ export function DeliveryPhase({
   const replacesTable = isDatabaseExportFormat(selectedExportFormat) && databaseTarget.tablePolicy === "replace";
   const replaceTableName = qualifiedDatabaseTable(databaseTarget);
   const replaceServer = databaseTarget.connection?.server.trim() ?? "";
+  // The confirmation is for the table as the analysis found it: analysing again (or the table
+  // appearing or disappearing) asks for it again.
   const replaceKey = replacesTable
-    ? JSON.stringify([databaseTarget.kind, replaceServer, databaseTarget.connection?.database.trim() ?? "", replaceTableName])
+    ? JSON.stringify([
+      databaseTarget.kind,
+      replaceServer,
+      databaseTarget.connection?.database.trim() ?? "",
+      replaceTableName,
+      activePreflight?.tableExists ?? null,
+    ])
     : null;
   const needsReplaceConfirmation = replaceKey !== null && confirmedReplaceKey !== replaceKey;
   const exportBlockerList = exportBlockers({
@@ -422,13 +440,15 @@ export function DeliveryPhase({
     bundle: "Paquete Columnia",
     sqlserver_script: "script T-SQL",
     sqlserver_bulk: "paquete BULK INSERT",
-    postgresql: "PostgreSQL",
-    mysql: "MySQL",
+    postgresql: "a PostgreSQL",
+    mysql: "a MySQL",
     sqlserver: "a SQL Server",
   }[selectedExportFormat];
   // The legend names the place («Conexión · SQL Server»); the button reads
   // «Exportar a SQL Server», so only that label carries the «a».
-  const exportDestinationLabel = selectedExportFormat === "sqlserver" ? "SQL Server" : exportFormatLabel;
+  const exportDestinationLabel = isDatabaseExportFormat(selectedExportFormat)
+    ? exportFormatLabel.replace(/^a /, "")
+    : exportFormatLabel;
   // 2026-10-31: Entregar asks where the copy goes, then the format of that place.
   const [destination, setDestination] = useState<DeliveryDestination>(() => destinationForFormat(selectedExportFormat));
   const destinationFormats = deliveryDestination(destination).formats;
@@ -484,7 +504,9 @@ export function DeliveryPhase({
       || (exportedWith.destination === destination && exportedWith.format === selectedExportFormat));
   const exportActionLabel = (() => {
     const validate = contract.kind === "with_contract" && !gatePassed;
-    if (showsCurrentResult) return "Exportar otra copia";
+    // A copy of a file can be made again; a write to a database cannot until it is analysed (and
+    // confirmed) again, so its button keeps saying what it will do.
+    if (showsCurrentResult && !isDatabaseExportFormat(selectedExportFormat)) return "Exportar otra copia";
     if (destination === "powerbi") return validate ? "Validar, exportar y abrir en Power BI" : "Exportar y abrir en Power BI";
     if (replacesTable) {
       const target = `${replaceTableName}${replaceServer ? ` en ${replaceServer}` : ""}`;
@@ -581,6 +603,7 @@ export function DeliveryPhase({
         destination,
         format,
         location: isDatabaseExportFormat(format) ? databaseLocation(databaseTarget) : null,
+        tablePolicy: isDatabaseExportFormat(format) ? databaseTarget.tablePolicy : null,
         takeFocus: true,
       };
       if (contract.kind === "with_contract") {
@@ -785,6 +808,41 @@ export function DeliveryPhase({
     }
   }, [exportState]);
 
+  // A write to a database spends what the analysis and the confirmation vouched for: the table
+  // is no longer the one analysed, so the next write needs both again (whatever the policy).
+  const settleDatabaseWrite = useEffectEvent(() => {
+    if (!exportedWith?.takeFocus || !isDatabaseExportFormat(exportedWith.format)) return;
+    setConfirmedReplaceKey(null);
+    setDatabasePreflightState({ kind: "idle" });
+    databaseRequestGeneration.current += 1;
+  });
+  useEffect(() => {
+    if (exportState.kind === "success" || (exportState.kind === "error" && exportState.uncertain)) {
+      settleDatabaseWrite();
+    }
+  }, [exportState]);
+
+  // A contract that just failed after «Exportar» takes the focus: the button it came from
+  // ends up far from the notice that explains it.
+  const gateTitleRef = useRef<HTMLHeadingElement>(null);
+  const previousGateKind = useRef(contract.gate.kind);
+  const focusGateFailure = useEffectEvent(() => {
+    const title = gateTitleRef.current;
+    if (!title) return;
+    title.focus({ preventScroll: true });
+    title.scrollIntoView?.({
+      block: "start",
+      behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  });
+  useEffect(() => {
+    const previous = previousGateKind.current;
+    previousGateKind.current = contract.gate.kind;
+    if (previous === "loading" && contract.gate.kind === "ready" && !contract.gate.result.passed) {
+      focusGateFailure();
+    }
+  }, [contract.gate]);
+
   return (
     <>
       <header className="phase-header phase-header--compact">
@@ -878,6 +936,7 @@ export function DeliveryPhase({
             />
             <span>
               <strong>Exportar sin validar</strong>
+              <small>La copia se crea sin comprobar reglas; lo confirmas en el paso 4.</small>
             </span>
           </label>
         </fieldset>
@@ -1017,17 +1076,37 @@ export function DeliveryPhase({
         ) : null}
 
         {(contract.gate.kind === "ready" || contract.gate.kind === "stale") && (
-          <div className={`quality-gate quality-gate--${contract.gate.result.passed ? "passed" : "failed"}`} role="status">
-            <strong>{contract.gate.kind === "stale"
-              ? "Resultado desactualizado"
-              : contract.gate.result.passed ? "Contrato aprobado" : "Contrato fallido"}</strong>
-            <span>{contract.gate.result.failedRules} de {contract.gate.result.totalRules} reglas fallaron · {contract.gate.result.rowCount.toLocaleString()} filas comprobadas</span>
+          // Only an approval is announced as a status; a failure takes the focus on its title instead,
+          // so a screen reader says one sentence once.
+          <div
+            className={`quality-gate quality-gate--${contract.gate.result.passed ? "passed" : "failed"}`}
+            role={contract.gate.kind === "ready" && contract.gate.result.passed ? "status" : undefined}
+          >
+            <h4 ref={gateTitleRef} tabIndex={-1} className="quality-gate__title" aria-describedby="quality-gate-summary">
+              {contract.gate.kind === "stale"
+                ? "Resultado desactualizado"
+                : contract.gate.result.passed ? "Contrato aprobado" : "Contrato fallido"}
+            </h4>
+            <span id="quality-gate-summary">
+              {contract.gate.result.failedRules === 1 || contract.gate.result.totalRules === 1
+                ? `${contract.gate.result.failedRules.toLocaleString()} de ${plural(contract.gate.result.totalRules, "regla", "reglas")} falló`
+                : `${contract.gate.result.failedRules.toLocaleString()} de ${plural(contract.gate.result.totalRules, "regla", "reglas")} fallaron`}
+              {" · "}
+              {contract.gate.result.rowCount === 1
+                ? "1 fila comprobada"
+                : `${contract.gate.result.rowCount.toLocaleString()} filas comprobadas`}
+            </span>
             {failedRuleNumbers.length > 0 && (
               <p className="quality-gate__next">
                 No se volverá a validar sin cambios: corrige los datos en Preparar o ajusta {failedRuleNumbers.length === 1
                   ? `la regla ${failedRuleNumbers[0]}`
                   : `las reglas ${failedRuleNumbers.slice(0, -1).join(", ")} y ${failedRuleNumbers.at(-1)}`}.
               </p>
+            )}
+            {failedRuleNumbers.length > 0 && onReviewPreparation && (
+              <button type="button" className="secondary-action quality-gate__action" onClick={onReviewPreparation}>
+                Corregir en Preparar
+              </button>
             )}
             {contract.gate.result.failedRules > 0 && (
               <div className="quality-gate__issues" aria-label="Resumen de problemas de calidad">
@@ -1040,8 +1119,8 @@ export function DeliveryPhase({
                       <li key={index}>
                         <strong>{guidance.title} · {result.column === QUALITY_DATASET_COLUMN ? "Dataset" : result.column}</strong>
                         <span>
-                          {result.invalidCount.toLocaleString()} incumplimientos entre {result.checkedCount.toLocaleString()} elementos evaluados
-                          ({formatPercent(result.invalidPct, 2)}). {guidance.nextStep}
+                          {plural(result.invalidCount, "incumplimiento", "incumplimientos")} entre {plural(result.checkedCount, "elemento evaluado", "elementos evaluados")}
+                          {" "}({formatPercent(result.invalidPct, 1)}). {guidance.nextStep}
                         </span>
                         {contract.gate.kind === "ready" && rules[index] && (
                           <button type="button" onClick={() => editQualityRule(index)}>
@@ -1224,16 +1303,21 @@ export function DeliveryPhase({
                   {databaseTargetError}
                 </p>
               )}
-              <button
-                className="secondary-action"
-                type="button"
-                onClick={() => void preflightDatabaseTarget()}
-                disabled={busy}
-                aria-disabled={databaseTargetError !== null || undefined}
-                aria-describedby={showDatabaseTargetError ? "database-target-validation-error" : undefined}
-              >
-                {databasePreflightState.kind === "working" ? "Analizando compatibilidad…" : "Analizar compatibilidad"}
-              </button>
+              <div className="database-target__analyze">
+                <button
+                  className="secondary-action"
+                  type="button"
+                  onClick={() => void preflightDatabaseTarget()}
+                  disabled={busy}
+                  aria-disabled={databaseTargetError !== null || undefined}
+                  aria-describedby={showDatabaseTargetError ? "database-target-validation-error" : undefined}
+                >
+                  {databasePreflightState.kind === "working" ? "Analizando compatibilidad…" : "Analizar compatibilidad"}
+                </button>
+                {!activePreflight && databasePreflightState.kind === "idle" && !showDatabaseTargetError && (
+                  <p className="export-requirement" role="note">Analiza el esquema y los datos para habilitar la entrega remota. Este paso no escribe en el destino.</p>
+                )}
+              </div>
               {databasePreflightState.kind === "working" && (
                 <div className="database-preflight__progress">
                   <p className="notice" role="status">
@@ -1275,9 +1359,6 @@ export function DeliveryPhase({
               {databasePreflightState.kind === "error" && (
                 <p className="notice notice--error" role="alert">{databasePreflightState.message}</p>
               )}
-              {!activePreflight && databasePreflightState.kind !== "error" && !showDatabaseTargetError && (
-                <p className="export-requirement" role="note">Analiza el esquema y los datos para habilitar la entrega remota. Este paso no escribe en el destino.</p>
-              )}
             </fieldset>
           )}
         </div>
@@ -1316,13 +1397,16 @@ export function DeliveryPhase({
                 <input
                   type="checkbox"
                   checked={!needsReplaceConfirmation}
-                  disabled={busy}
+                  disabled={busy || activePreflight === null}
                   onChange={(event) => setConfirmedReplaceKey(event.target.checked ? replaceKey : null)}
                 />
                 {activePreflight?.tableExists
                   ? `Entiendo que se borrará el contenido actual de ${replaceTableName}`
                   : `Entiendo que se borrará el contenido actual de ${replaceTableName} si ya existe`}
               </label>
+              {activePreflight === null && (
+                <p className="delivery-replace__hint">Se podrá confirmar cuando analices la compatibilidad: así se sabe qué hay en la tabla.</p>
+              )}
             </div>
           )}
         </section>
@@ -1376,51 +1460,54 @@ export function DeliveryPhase({
         </div>
       </section>
       </div>
-      {exportState.kind === "loading" && (
-        <OperationProgressView
-          progress={exportState.progress}
-          cancellation={exportState.cancellation === "requested"
-            ? { kind: "requested" }
-            : {
-                kind: "available",
-                onCancel: onCancelExport,
-                ...(exportState.cancellationError ? { error: exportState.cancellationError } : {}),
-              }}
-        />
-      )}
-      {exportState.kind === "success" && (
-        <DeliveryResult
-          result={exportState.result}
-          autoOpenPowerBi={autoOpenResult === exportState.result}
-          contract={contract}
-          recipeDraft={recipeDraft}
-          preparationChanges={preparationChanges}
-          approvedQualitySummary={approvedQualitySummary}
-          current={showsCurrentResult}
-          takeFocus={exportedWith?.takeFocus ?? false}
-          databaseLocation={exportedWith?.location ?? null}
-        />
-      )}
-      {exportState.kind === "cancelled" && (
-        <div className="notice" role="status">
-          <strong>Exportación cancelada.</strong> No se publicó una salida; el dataset preparado sigue disponible para reintentar.
-        </div>
-      )}
-      {exportState.kind === "error" && (
-        <div className="notice notice--error" role="alert">
-          {/* DAT-10: when the commit fails the rows may already be saved. */}
-          {exportState.uncertain ? (
-            <>
-              <strong>Resultado incierto.</strong> {exportState.message}
-            </>
-          ) : (
-            <>
-              <strong>No se pudo crear la copia.</strong> {exportState.message}
-              <p>El dataset preparado sigue disponible. Revisa el destino e inténtalo de nuevo.</p>
-            </>
-          )}
-        </div>
-      )}
+      <div className="delivery-outcome">
+        {exportState.kind === "loading" && (
+          <OperationProgressView
+            progress={exportState.progress}
+            cancellation={exportState.cancellation === "requested"
+              ? { kind: "requested" }
+              : {
+                  kind: "available",
+                  onCancel: onCancelExport,
+                  ...(exportState.cancellationError ? { error: exportState.cancellationError } : {}),
+                }}
+          />
+        )}
+        {exportState.kind === "success" && (
+          <DeliveryResult
+            result={exportState.result}
+            autoOpenPowerBi={autoOpenResult === exportState.result}
+            contract={contract}
+            recipeDraft={recipeDraft}
+            preparationChanges={preparationChanges}
+            approvedQualitySummary={approvedQualitySummary}
+            current={showsCurrentResult}
+            takeFocus={exportedWith?.takeFocus ?? false}
+            databaseLocation={exportedWith?.location ?? null}
+            databasePolicy={exportedWith?.tablePolicy ?? null}
+          />
+        )}
+        {exportState.kind === "cancelled" && (
+          <div className="notice" role="status">
+            <strong>Exportación cancelada.</strong> No se publicó una salida; el dataset preparado sigue disponible para reintentar.
+          </div>
+        )}
+        {exportState.kind === "error" && (
+          <div className="notice notice--error" role="alert">
+            {/* DAT-10: when the commit fails the rows may already be saved. */}
+            {exportState.uncertain ? (
+              <>
+                <strong>Resultado incierto.</strong> {exportState.message}
+              </>
+            ) : (
+              <>
+                <strong>No se pudo crear la copia.</strong> {exportState.message}
+                <p>El dataset preparado sigue disponible. Revisa el destino e inténtalo de nuevo.</p>
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </>
   );
 }

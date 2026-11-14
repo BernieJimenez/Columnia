@@ -25,6 +25,8 @@ describe("diseño a 320 px (AUD-055)", () => {
     expect(styles).toMatch(/\.table-region \{[^}]*position: relative/);
     expect(styles).toMatch(/\.profile-region \{[^}]*position: relative/);
     expect(styles).toMatch(/\.quality-chart__table \{[^}]*position: relative/);
+    expect(styles).toMatch(/\.quality-temporal__table \{[^}]*position: relative/);
+    expect(styles).toMatch(/\.quality-temporal-trend__table \{[^}]*position: relative/);
   });
 });
 
@@ -41,13 +43,15 @@ describe("columna de trabajo de Preparar con el historial al lado", () => {
   const workflow = read("src/workflow-styles.css");
   it("la columna es un contenedor y sus filas responden a su ancho, no al de la ventana", () => {
     expect(dataViews).toMatch(/\.prepare-layout__main \{[^}]*container: prepare-main \/ inline-size/);
-    expect(styles).toMatch(/@container prepare-main \(max-width: 40rem\) \{[^@]*\.cleaning-signals__action,\s*\.missing-data-plan__steps li \{ align-items: stretch; flex-direction: column; \}/);
+    // A narrow column puts each row's button under its own text, full width.
+    expect(styles).toMatch(/@container prepare-main \(max-width: 36rem\) \{[^@]*\.cleaning-signals__column \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+    expect(styles).toMatch(/@container prepare-main \(max-width: 36rem\) \{[^@]*\.cleaning-signals__action-button \{ justify-self: stretch; width: 100%;/);
   });
-  it("el texto de una señal conserva 22rem y los botones bajan de línea", () => {
-    expect(styles).toMatch(/\.cleaning-signals__action \{[^}]*flex-wrap: wrap/);
-    expect(styles).toMatch(/\.cleaning-signals__action p \{[^}]*flex: 1 1 22rem/);
-    expect(styles).toMatch(/\.missing-data-plan__steps li \{[^}]*flex-wrap: wrap/);
-    expect(styles).toMatch(/\.missing-data-plan__steps li > div:first-child \{[^}]*flex: 1 1 22rem/);
+  it("una fila por columna: el texto encoge junto a su botón, sin base flex que se vuelva altura", () => {
+    expect(styles).toMatch(/\.cleaning-signals__column \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto/);
+    // The text of a row is .875rem in --text-secondary, never .78rem.
+    expect(styles).toMatch(/\.cleaning-signals__column-text p \{[^}]*color: var\(--text-secondary\); font-size: \.875rem/);
+    expect(styles).not.toMatch(/cleaning-signals[^{]*\{[^}]*font-size: \.78rem/);
   });
   it("el título de un plegable guarda 12rem y su nota pasa debajo en una columna estrecha", () => {
     expect(workflow).toMatch(/grid-template-columns: minmax\(12rem, 1fr\) minmax\(0, max-content\) 24px/);

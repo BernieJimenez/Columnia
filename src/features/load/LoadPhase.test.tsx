@@ -1111,10 +1111,41 @@ describe("LoadPhase: dataset cargado, errores, atajo y diálogo (crítica del 20
     expect(screen.queryByText(/parecen de fechas/)).not.toBeInTheDocument();
   });
 
+  it("abre sola la interpretación de fechas con una columna con nombre de fecha, y respeta si el usuario la cierra", () => {
+    const reviewedWith = (columns: Array<{ name: string; dataType: string }>, selectionId = delimitedSource.selectionId) => {
+      const inspection = completeSchemaPreview(
+        completeDelimitedHeaderReview(delimitedHeaderInspection(delimitedSource), delimitedHeaderReview),
+        { rowCount: 2, columns, schemaMismatch: null },
+      );
+      if (inspection.kind !== "sheet") throw new Error("estado inesperado");
+      return { ...inspection, source: { ...inspection.source, selectionId } };
+    };
+    const plain = reviewedWith([{ name: "id", dataType: "Int64" }, { name: "nombre", dataType: "String" }]);
+    const dated = reviewedWith([{ name: "id", dataType: "Int64" }, { name: "fecha_alta", dataType: "String" }]);
+    const options = () => screen.getByText("Interpretación de fechas y números (opcional)").closest("details") as HTMLDetailsElement;
+
+    const view = render(<LoadPhase {...loadPhaseProps()} inspection={plain} />);
+    expect(options()).not.toHaveAttribute("open");
+
+    view.rerender(<LoadPhase {...loadPhaseProps()} inspection={dated} />);
+    expect(options()).toHaveAttribute("open");
+
+    // The user closes it: a later render of the same review keeps it closed.
+    options().open = false;
+    fireEvent(options(), new Event("toggle"));
+    view.rerender(<LoadPhase {...loadPhaseProps()} inspection={{ ...dated }} />);
+    expect(options()).not.toHaveAttribute("open");
+
+    // Another file starts with the default again.
+    view.rerender(<LoadPhase {...loadPhaseProps()} inspection={{ ...dated, source: { ...dated.source, selectionId: "otro-archivo" } }} />);
+    expect(options()).toHaveAttribute("open");
+  });
+
   it("dice qué formatos se leen por bloques y cómo decide el motor si cabe en memoria", () => {
     render(<LoadPhase {...loadPhaseProps()} inspection={{ kind: "resource_preflight", source: delimitedSource }} />);
-    expect(screen.getByText(/Los CSV, TSV, TXT, JSON, Parquet y Excel \(\.xlsx, \.xlsb\) de 512 MiB o más se leen por bloques/))
-      .toHaveTextContent("en los CSV, TSV y TXT, las fechas y los números no se convierten al cargar");
+    expect(screen.getByText(/CSV · TSV · TXT · JSON · Parquet · Excel · ODS\./)).toHaveTextContent(
+      "Los de 512 MiB o más se leen por bloques desde el disco. En CSV, TSV y TXT de ese tamaño, las fechas y los números no se convierten al cargar.",
+    );
     expect(screen.getByRole("dialog")).toHaveTextContent("el motor comprueba la RAM libre y, si no alcanza, no la ejecuta");
   });
 });

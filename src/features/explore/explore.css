@@ -29,7 +29,7 @@
 .explore__kpi dt { color: var(--text-secondary); font-size: .8rem; overflow-wrap: anywhere; }
 .explore__kpi dd { margin: 4px 0 0; color: var(--text-primary); font-family: var(--font-display); font-size: 1.6rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .explore__kpi small { color: var(--text-secondary); font-size: .75rem; font-variant-numeric: tabular-nums; }
-.explore__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.explore__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px; }
 .explore__panel { display: grid; align-content: start; gap: 12px; min-width: 0; padding: 16px 18px; border: 1px solid var(--border-subtle); border-radius: 8px; }
 .explore__heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
 .explore__kind { margin: 0; color: var(--text-secondary); font-size: .8125rem; }
@@ -62,7 +62,14 @@
 .explore__column { display: flex; align-items: stretch; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 4px; background: none; cursor: pointer; }
 .explore__area { display: flex; align-items: flex-end; width: 100%; }
 .explore__area .explore__fill { width: 100%; min-height: 1px; border-radius: 3px 3px 0 0; }
-.explore__axis { display: flex; justify-content: space-between; margin: 0; color: var(--text-secondary); font-size: .75rem; font-variant-numeric: tabular-nums; }
+.explore__axis { position: relative; height: 1.2em; margin: 0; color: var(--text-secondary); font-size: .75rem; font-variant-numeric: tabular-nums; }
+.explore__axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.explore__axis .explore__tick--first { transform: none; }
+.explore__axis .explore__tick--last { transform: translateX(-100%); }
+/* Outside the box that scrolls: the whole range and the reading of the column under the pointer or the focus. */
+.explore__readout { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 16px; min-height: 1.4em; color: var(--text-secondary); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.explore__readout p { margin: 0; }
+.explore__reading { color: var(--text-primary); }
 /* Information, not a warning: neutral border and tint, no side accent. */
 .explore__info { display: grid; justify-items: start; gap: 10px; margin: 18px 0 0; padding: 12px 15px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-subtle); color: var(--text-primary); font-size: .9rem; }
 .explore__info p { margin: 0; }
@@ -80,7 +87,8 @@
 
 /* ACC-18: the chart's numbers as a table, closed by default. */
 .explore__table { margin-top: 8px; font-size: .85rem; }
-.explore__table summary { cursor: pointer; color: var(--text-secondary); min-height: 32px; }
+.explore__table summary { display: flex; align-items: center; width: fit-content; min-height: 44px; padding: 0 4px; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.explore__table summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .explore__table-scroll { max-height: 280px; margin-top: 6px; overflow: auto; }
 .explore__table table { border-collapse: collapse; }
 .explore__table th, .explore__table td { padding: 4px 12px 4px 0; text-align: left; border-bottom: 1px solid var(--border-subtle); }

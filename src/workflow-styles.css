@@ -425,7 +425,7 @@ summary:focus-visible,
 .comparison-key-options label,
 .join-selector,
 .join-options label,
-.cleaning-signals__action,
+.cleaning-signals__column,
 .conflict-resolution,
 .conflict-resolution__item,
 .conflict-resolution__choices label,
@@ -435,7 +435,7 @@ summary:focus-visible,
 .conflict-resolution__item legend,
 .conflict-resolution__item li,
 .conflict-resolution__item code,
-.cleaning-signals__action p { color: CanvasText; }
+.cleaning-signals__column p { color: CanvasText; }
   .comparison-key-options label:has(input:checked),
 .join-options label:has(input:checked) { border-color: Highlight; background: HighlightText; }
   .quality-chart__track { border-color: ButtonText; background: Canvas; }
@@ -560,7 +560,8 @@ td {
   border-color: var(--accent);
 }
 
-.load-brief__illustration { align-self: center; width: 140px; max-width: 100%; color: var(--accent); }
+/* Only the text column is left: no empty track where the illustration was. */
+.load-brief { grid-template-columns: minmax(0, 1fr); }
 
 .load-brief__lead > div > p { margin: 0; max-width: 54ch; color: var(--text-secondary); }
 
@@ -579,7 +580,7 @@ a:visited { color: #80548b; }
 @media (max-width: 1100px) and (min-width: 901px) {
  .workspace { padding: 24px; }
 
- .load-brief { grid-template-columns: 100px minmax(0, 1fr); padding: 24px; gap: 16px; }
+ .load-brief { padding: 24px; gap: 16px; }
 }
 
 @media (max-width: 900px) {
@@ -603,7 +604,6 @@ a:visited { color: #80548b; }
  .workspace h2 { font-size: 1.65rem; }
  .stage-tabs { gap: 8px; }
  .load-brief { grid-template-columns: 1fr; padding: 24px 20px; gap: 16px; }
- .load-brief__illustration { width: 96px; }
  .load-brief h3 { font-size: 1.35rem; }
  .load-brief .primary-action { width: 100%; }
  .flow-footer { align-items: stretch; }
@@ -642,6 +642,8 @@ a:visited { color: #80548b; }
 /* A rule the last validation broke: text in the legend, a thicker border, not only colour. */
 .quality-rule[data-failed] { border: 2px solid var(--danger); }
 .quality-rule[data-failed] > legend { color: var(--text-primary); }
+.quality-gate__title { margin: 0; font-size: .9375rem; font-weight: 750; scroll-margin-top: calc(var(--topbar-height, 88px) + 16px); }
+.quality-gate__action { justify-self: start; min-height: 44px; margin-top: 4px; }
 .quality-gate__next { margin: 4px 0 0; color: var(--text-primary); font-weight: 600; }
 .quality-contract__summary .secondary-action {
   align-self: start;
@@ -650,6 +652,9 @@ a:visited { color: #80548b; }
 .quality-rules-editor { margin-top: 14px; }
 .quality-contract__utilities { margin-top: 12px; }
 .quality-contract__utilities > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
   width: fit-content;
   color: var(--text-secondary);
   font-size: .8125rem;
@@ -906,7 +911,6 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .prepare-proposal__row input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
 .prepare-proposal__row label { flex: 1 1 auto; font-size: 1.05rem; font-weight: 650; cursor: pointer; }
 .prepare-proposal__hint { margin: 0 0 0 34px; color: var(--text-secondary); font-size: .9rem; }
-.prepare-proposal__examples-toggle { min-height: 44px; padding: 0 12px; border: 1px solid var(--border-subtle); border-radius: 6px; background: transparent; color: var(--accent); font: inherit; text-decoration: none; cursor: pointer; }
 .prepare-proposal__examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin: 4px 0 0 34px; padding: 0; list-style: none; }
 .prepare-proposal__examples li { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface); font-size: .9rem; }
 .prepare-proposal__before { color: var(--text-secondary); }
@@ -914,12 +918,14 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .prepare-proposal__primary { min-height: 48px; padding: 0 24px; border: 0; border-radius: 6px; background: var(--accent); color: var(--on-accent); font: inherit; font-size: 1.05rem; font-weight: 750; cursor: pointer; }
 .prepare-proposal button:disabled { cursor: not-allowed; opacity: .5; }
 .prepare-proposal__unchecked { margin: 0; color: var(--text-secondary); font-size: .9rem; line-height: 1.45; }
+/* DESIGN.md: a blocked action is a dashed outline with readable text, never a
+   grey block (same as the shell's disabled actions). */
 .workspace .prepare-proposal__primary[aria-disabled="true"] {
-  border-color: var(--border-subtle);
-  background: var(--disabled-surface);
+  border: 1px dashed var(--control-border);
+  background: transparent;
   color: var(--disabled-text);
   cursor: not-allowed;
-  opacity: .5;
+  opacity: 1;
 }
 .prepare-proposal__date-order { display: grid; gap: 8px; margin: 8px 0 0; padding: 0; border: 0; }
 .prepare-proposal__date-order legend { margin-bottom: 4px; font-weight: 600; }

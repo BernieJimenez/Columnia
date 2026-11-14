@@ -370,30 +370,53 @@ p.quality-snapshot {
   font-size: .875rem;
 }
 p.quality-snapshot > span { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+/* Informative tone: a quiet block below the primary action; its links are tertiary (text, 44 px target). */
 .quality-uncorrected {
   display: grid;
   gap: 8px;
   max-width: 680px;
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-subtle);
+  margin-top: 24px;
+  padding: 14px 16px;
+  background: var(--surface-subtle);
 }
-.quality-uncorrected h5 { margin: 0; color: var(--text-primary); font-size: 1rem; }
+.quality-uncorrected h5 { margin: 0; color: var(--text-primary); font-size: .9375rem; }
 .quality-uncorrected__lead { margin: 0; color: var(--text-secondary); font-size: .875rem; line-height: 1.4; }
-.quality-uncorrected__list { display: grid; gap: 14px; margin: 4px 0 0; padding: 0; list-style: none; }
+.quality-uncorrected__list { display: grid; gap: 0; margin: 4px 0 0; padding: 0; list-style: none; }
 .quality-uncorrected__item {
   display: grid;
   justify-items: start;
   gap: 2px;
-  padding-left: 12px;
-  border-left: 2px solid var(--control-border);
+  padding: 10px 0;
+  border-top: 1px solid var(--border-subtle);
 }
 .quality-uncorrected__title { font-weight: 600; overflow-wrap: anywhere; }
 .quality-uncorrected__detail { color: var(--text-secondary); font-size: .875rem; line-height: 1.4; }
-.quality-uncorrected__item .secondary-action { margin-top: 6px; }
+.quality-uncorrected__action {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--accent);
+  font-size: .875rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.quality-uncorrected__action:hover { color: var(--text-primary); }
+.quality-uncorrected__action:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+/* A «sin dato» marker the completeness figure counts as a value (Más análisis). */
+.quality-marker-note { display: block; margin-top: 2px; color: var(--text-secondary); font-size: .75rem; line-height: 1.4; }
+.quality-visuals__caveat { margin: 10px 0 0; color: var(--text-secondary); font-size: .78rem; line-height: 1.5; }
+.review-more__section { display: grid; gap: 10px; min-width: 0; }
+.review-more__section > h4 { margin: 0; font-size: 1rem; }
+.review-more__section > .quality-visuals { margin-top: 0; }
+.review-more__section > p { margin: 0; }
 .profile-error { display: grid; justify-items: start; gap: 8px; }
 .profile-error p { margin: 0; }
 .profile-error:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 2px; }
 @media (forced-colors: active) {
-  .quality-uncorrected__item { border-left-color: CanvasText; }
+  .quality-uncorrected__item { border-top-color: CanvasText; }
+  .quality-uncorrected__action { color: LinkText; }
 }

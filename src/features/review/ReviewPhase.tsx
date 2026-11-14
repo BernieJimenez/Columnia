@@ -45,6 +45,7 @@ import { formatDataType, formatDecimal, formatNumber, formatPercent } from "../.
 import { isRowAuditColumn } from "../../rowAudit";
 import { isNumericType } from "../../dataTypes";
 import {
+  MarkerNote,
   QualityVisuals,
   formatStatistic,
   readsAsCode,
@@ -72,10 +73,6 @@ interface ReviewPhaseProps {
   /** «Combinar en Preparar»: Revisar compares; Preparar joins and consolidates. */
   onCombineInPrepare?: () => void;
   datasetRevision?: number;
-  sqlHistory?: SqlQueryHistoryEntry[];
-  onSqlHistoryChange?: (entries: SqlQueryHistoryEntry[]) => void;
-  queryEngine?: DatasetQueryEngine;
-  onQueryEngineChange?: (engine: DatasetQueryEngine) => void;
   analysisSampleRows?: AnalysisSampleRows;
   onAnalysisSampleRowsChange?: (sampleRows: AnalysisSampleRows) => void;
 }
@@ -95,10 +92,6 @@ export function ReviewPhase({
   comparison,
   onCombineInPrepare,
   datasetRevision = 0,
-  sqlHistory = NO_SQL_HISTORY,
-  onSqlHistoryChange = () => undefined,
-  queryEngine,
-  onQueryEngineChange = () => undefined,
   analysisSampleRows,
   onAnalysisSampleRowsChange = () => undefined,
 }: ReviewPhaseProps) {
@@ -106,7 +99,6 @@ export function ReviewPhase({
   const comparisonActive = comparisonStatus.kind !== "idle" || comparison.joinStatus.kind !== "idle";
   const [comparisonOpen, setComparisonOpen] = useState(comparisonActive);
   const [localAnalysisSampleRows, setLocalAnalysisSampleRows] = useState(readAnalysisSampleRowsPreference);
-  const [sqlDraft, setSqlDraft] = useState<SqlQueryDraft | null>(null);
   const selectedAnalysisSampleRows = analysisSampleRows ?? localAnalysisSampleRows;
 
   useEffect(() => {
@@ -132,13 +124,6 @@ export function ReviewPhase({
             onContinueToPrepare={onContinueToPrepare}
             onReturnToLoad={onReturnToLoad}
             onRetryProfile={onRetryProfile}
-            comparisonAvailable={comparisonStatus.kind === "ready"}
-            sqlHistory={sqlHistory}
-            onSqlHistoryChange={onSqlHistoryChange}
-            sqlDraft={sqlDraft}
-            onSqlDraftChange={setSqlDraft}
-            queryEngine={queryEngine}
-            onQueryEngineChange={onQueryEngineChange}
             analysisSampleRows={selectedAnalysisSampleRows}
             onAnalysisSampleRowsChange={(sampleRows) => {
               setLocalAnalysisSampleRows(sampleRows);
@@ -188,13 +173,6 @@ function QualitySection({
   onContinueToPrepare,
   onReturnToLoad,
   onRetryProfile,
-  comparisonAvailable,
-  sqlHistory,
-  onSqlHistoryChange,
-  sqlDraft,
-  onSqlDraftChange,
-  queryEngine,
-  onQueryEngineChange,
   analysisSampleRows,
   onAnalysisSampleRowsChange,
   datasetRevision,
@@ -206,62 +184,41 @@ function QualitySection({
   onContinueToPrepare: (target?: QualityActionTarget) => void;
   onReturnToLoad?: () => void;
   onRetryProfile?: () => void;
-  comparisonAvailable: boolean;
-  sqlHistory: SqlQueryHistoryEntry[];
-  onSqlHistoryChange: (entries: SqlQueryHistoryEntry[]) => void;
-  sqlDraft: SqlQueryDraft | null;
-  onSqlDraftChange: (draft: SqlQueryDraft) => void;
-  queryEngine?: DatasetQueryEngine;
-  onQueryEngineChange: (engine: DatasetQueryEngine) => void;
   analysisSampleRows: AnalysisSampleRows;
   onAnalysisSampleRowsChange: (sampleRows: AnalysisSampleRows) => void;
   datasetRevision: number;
 }) {
+  // One level inside «Más análisis y herramientas»: sections with a heading, not nested disclosures.
+  // The SQL query lives in the top bar («Consulta SQL»), not here.
   const tools = (
-    <>
-      <details className="review-tool review-tool--nested quality-settings">
-        <summary>
-          <span>Configuración del análisis</span>
-          <small>Muestra usada para calcular correlaciones</small>
-        </summary>
-        <div className="quality-sample-control">
-          <label>
-            Filas de muestra para correlaciones
-            <select
-              aria-label="Filas de muestra para correlaciones"
-              value={analysisSampleRows}
-              onChange={(event) => {
-                const nextSampleRows = Number(event.target.value);
-                if (isAnalysisSampleRows(nextSampleRows)) onAnalysisSampleRowsChange(nextSampleRows);
-              }}
-            >
-              {ANALYSIS_SAMPLE_ROW_OPTIONS.map((sampleRows) => (
-                <option key={sampleRows} value={sampleRows}>
-                  {sampleRows.toLocaleString()} filas
-                </option>
-              ))}
-            </select>
-          </label>
-          <p>
-            {analysisSampleRows >= dataset.rowCount
-              ? `Con esta muestra las correlaciones usan todas las filas (${dataset.rowCount.toLocaleString()}). `
-              : ""}
-            Al cambiarla, el análisis se repite con esta muestra; solo limita las correlaciones y el resto del perfil conserva su cobertura.
-          </p>
-        </div>
-      </details>
-      <LocalQueryPanel
-        columnNames={dataset.columns.map((column) => column.name).filter((name) => !isRowAuditColumn(name))}
-        comparisonAvailable={comparisonAvailable}
-        queryHistory={sqlHistory}
-        onQueryHistoryChange={onSqlHistoryChange}
-        draft={sqlDraft}
-        onDraftChange={onSqlDraftChange}
-        queryEngine={queryEngine}
-        onQueryEngineChange={onQueryEngineChange}
-        datasetRevision={datasetRevision}
-      />
-    </>
+    <section className="review-more__section quality-settings" aria-labelledby="quality-settings-title">
+      <h4 id="quality-settings-title">Configuración del análisis</h4>
+      <div className="quality-sample-control">
+        <label>
+          Filas de muestra para correlaciones
+          <select
+            aria-label="Filas de muestra para correlaciones"
+            value={analysisSampleRows}
+            onChange={(event) => {
+              const nextSampleRows = Number(event.target.value);
+              if (isAnalysisSampleRows(nextSampleRows)) onAnalysisSampleRowsChange(nextSampleRows);
+            }}
+          >
+            {ANALYSIS_SAMPLE_ROW_OPTIONS.map((sampleRows) => (
+              <option key={sampleRows} value={sampleRows}>
+                {sampleRows.toLocaleString()} filas
+              </option>
+            ))}
+          </select>
+        </label>
+        <p>
+          {analysisSampleRows >= dataset.rowCount
+            ? `Con esta muestra las correlaciones usan todas las filas (${dataset.rowCount.toLocaleString()}). `
+            : ""}
+          Al cambiarla, el análisis se repite con esta muestra; solo limita las correlaciones y el resto del perfil conserva su cobertura.
+        </p>
+      </div>
+    </section>
   );
   return (
     <section className="phase-section" aria-labelledby="quality-title">
@@ -279,10 +236,14 @@ function QualitySection({
         />
       )}
       {status.kind === "cancelled" && (
-        <p className="notice" role="status">
-          El análisis se canceló. No se publicó ningún resultado parcial; pulsa
-          «Reintentar análisis», abajo, para volver a empezar.
-        </p>
+        <div className="notice profile-cancelled" role="status">
+          <p>El análisis se canceló. No se publicó ningún resultado parcial.</p>
+          {onRetryProfile && (
+            <button type="button" className="secondary-action" onClick={onRetryProfile}>
+              Reintentar análisis
+            </button>
+          )}
+        </div>
       )}
       {status.kind === "error" && <ProfileErrorNotice message={status.message} onRetry={onRetryProfile} />}
       {status.kind === "ready" ? (
@@ -331,9 +292,6 @@ function ProfileErrorNotice({ message, onRetry }: { message: string; onRetry?: (
   );
 }
 
-/** A stable default, so that a re-render does not look like a new history. */
-const NO_SQL_HISTORY: SqlQueryHistoryEntry[] = [];
-
 /**
  * PROD-12: a column name as both engines read it: plain when it is a simple
  * identifier, otherwise between double quotes with inner quotes doubled.
@@ -360,7 +318,6 @@ export function LocalQueryPanel({
   queryEngine,
   onQueryEngineChange,
   datasetRevision,
-  standalone = false,
 }: {
   columnNames: string[];
   comparisonAvailable: boolean;
@@ -371,8 +328,6 @@ export function LocalQueryPanel({
   queryEngine?: DatasetQueryEngine;
   onQueryEngineChange: (engine: DatasetQueryEngine) => void;
   datasetRevision: number;
-  /** Shown open on its own (the SQL console), not as a disclosure of Revisar. */
-  standalone?: boolean;
 }) {
   // A result belongs to its revision; the text survives a new revision.
   const restoredResult = draft?.revision === datasetRevision ? draft.result : null;
@@ -400,7 +355,6 @@ export function LocalQueryPanel({
     | { kind: "cancelled" }
     | { kind: "error"; message: string }
   >(restoredResult ? { kind: "ready", result: restoredResult } : { kind: "idle" });
-  const [queryOpen, setQueryOpen] = useState(standalone || (draft?.open ?? false));
   const [queryHistory, setQueryHistory] = useState<SqlQueryHistoryEntry[]>(persistedQueryHistory);
   const activeQueryRef = useRef(0);
   const cancelledQueryRef = useRef<number | null>(null);
@@ -441,17 +395,13 @@ export function LocalQueryPanel({
   }, [persistedQueryHistory]);
 
   useEffect(() => {
-    if (state.kind !== "idle") setQueryOpen(true);
-  }, [state.kind]);
-
-  useEffect(() => {
     onDraftChange({
       text: query,
-      open: queryOpen,
+      open: true,
       result: state.kind === "ready" ? state.result : null,
       revision: datasetRevision,
     });
-  }, [query, queryOpen, state, datasetRevision, onDraftChange]);
+  }, [query, state, datasetRevision, onDraftChange]);
 
   // A query still running when the panel goes away is cancelled (FUN-27).
   const runningRef = useLatest(state.kind === "loading");
@@ -530,8 +480,8 @@ export function LocalQueryPanel({
   }
 
   // AUD-053: under the drawer's h2 the panel starts at h3, so the levels never skip.
-  const TitleHeading = standalone ? "h3" : "h4";
-  const HistoryHeading = standalone ? "h4" : "h5";
+  const TitleHeading = "h3";
+  const HistoryHeading = "h4";
   const panel = (
       <section className="local-query" aria-labelledby="local-query-title">
         <div className="local-query__heading">
@@ -541,8 +491,8 @@ export function LocalQueryPanel({
               Solo se acepta SELECT sobre <code>dataset</code>, columnas existentes, filtros simples,
               GROUP BY y COUNT/SUM/AVG/MIN/MAX; LIMIT/OFFSET queda acotado a 200 filas.
               {comparisonAvailable
-                ? " La comparación cargada también está disponible como compared para JOIN INNER, LEFT o FULL."
-                : " Carga una comparación para habilitar JOIN con la tabla compared."}
+                ? " El archivo de la comparación también se puede cruzar con el dataset: en la consulta se llama compared y admite JOIN, LEFT JOIN y FULL JOIN."
+                : " Carga una comparación para poder cruzar con ese archivo (en la consulta se llamará compared)."}
             </p>
             {comparisonAvailable && (
               <p className="local-query__example">
@@ -589,8 +539,8 @@ export function LocalQueryPanel({
               onQueryEngineChange(nextEngine);
             }}
           >
-            <option value="polars">Polars · el habitual</option>
-            <option value="duckdb">DuckDB · SQL local</option>
+            <option value="polars">Habitual (Polars)</option>
+            <option value="duckdb">Alternativo (DuckDB)</option>
           </select>
         </label>
         <p className="local-query__engine-note">
@@ -651,21 +601,8 @@ export function LocalQueryPanel({
         {state.kind === "ready" && <LocalQueryResult result={state.result} />}
       </section>
   );
-  // In the SQL console drawer the query is the whole content: no disclosure.
-  if (standalone) return panel;
-  return (
-    <details
-      className="review-tool review-tool--nested"
-      open={queryOpen}
-      onToggle={(event) => setQueryOpen(event.currentTarget.open)}
-    >
-      <summary>
-        <span>Consulta SQL</span>
-        <small>Opcional · consulta segura y de solo lectura</small>
-      </summary>
-      {panel}
-    </details>
-  );
+  // The SQL console drawer shows the query as its whole content: no disclosure.
+  return panel;
 }
 
 function formatQueryDuration(durationMs: number): string {
@@ -833,7 +770,7 @@ function ReviewMoreTools({ children }: { children: ReactNode }) {
     <details className="review-tool review-more">
       <summary>
         <span>Más análisis y herramientas</span>
-        <small>Detalle, perfil por columna, configuración y SQL</small>
+        <small>Detalle, perfil por columna y configuración</small>
       </summary>
       <div className="review-more__content">{children}</div>
     </details>
@@ -866,7 +803,10 @@ function QualityProfile({
   const proposal = buildPrepareProposal(profile, dataset);
   const proposalSelection = defaultProposalSelection(proposal);
   const priorityCount = proposal.length;
-  const uncorrected = buildUncorrectedIssues(profile);
+  // The nulls the proposal offers to fill are counted there, not again in «No se corrige solo».
+  const filledColumns = new Set(proposal.find((item) => item.id === "impute")?.columns?.map((column) => column.name));
+  const uncorrected = buildUncorrectedIssues(profile, filledColumns);
+  const markerCount = userColumns.reduce((total, column) => total + Math.max(0, column.sentinelCount ?? 0), 0);
   const provenance = profileProvenanceText(profile);
   return (
     <>
@@ -916,14 +856,14 @@ function QualityProfile({
                   {issue.action?.kind === "prepare" && (
                     <button
                       type="button"
-                      className="secondary-action"
+                      className="quality-uncorrected__action"
                       onClick={() => onContinueToPrepare(issue.action?.kind === "prepare" ? issue.action.target : undefined)}
                     >
                       {issue.action.label}
                     </button>
                   )}
                   {issue.action?.kind === "load" && onReturnToLoad && (
-                    <button type="button" className="secondary-action" onClick={onReturnToLoad}>
+                    <button type="button" className="quality-uncorrected__action" onClick={onReturnToLoad}>
                       {issue.action.label}
                     </button>
                   )}
@@ -934,28 +874,21 @@ function QualityProfile({
         )}
       </section>
       <ReviewMoreTools>
-        <QualitySnapshot
-          rowCount={profile.rowCount}
-          columnCount={userColumns.length}
-          nullCount={totalNullCount}
-        />
-        <p className="quality-overview__meta">
-          <span>Filas analizadas</span>
-          <strong>{profile.rowCount.toLocaleString()}</strong>
-        </p>
-      <details className="review-tool quality-details">
-        <summary>
-          <span>Ver análisis detallado</span>
-          <small>Gráficos, distribuciones, fechas y correlaciones</small>
-        </summary>
-        <QualityVisuals profile={profile} datasetRevision={datasetRevision} />
-      </details>
-      <details className="review-tool quality-details">
-        <summary>
-          <span>Ver perfil por columna</span>
-          <small>Valores exactos y estadísticas por tipo</small>
-        </summary>
-        <div className="quality-profile-tables">
+        <section className="review-more__section" aria-labelledby="quality-completeness-global-title">
+          <h4 id="quality-completeness-global-title">Completitud global</h4>
+          <QualitySnapshot
+            rowCount={profile.rowCount}
+            columnCount={userColumns.length}
+            nullCount={totalNullCount}
+            markerCount={markerCount}
+          />
+        </section>
+        <div className="review-more__section">
+          <QualityVisuals profile={profile} datasetRevision={datasetRevision} />
+        </div>
+        <section className="review-more__section quality-profile-tables" aria-labelledby="quality-profile-title">
+          <h4 id="quality-profile-title">Perfil por columna</h4>
+
       <div
         className="profile-region"
         role="region"
@@ -981,7 +914,10 @@ function QualityProfile({
                   <span>{column.name}</span>
                   <small>{profileColumnTypeLabel(column)}</small>
                 </th>
-                <td>{formatPercent(column.completenessPercentage, 1)}</td>
+                <td>
+                  {formatPercent(column.completenessPercentage, 1)}
+                  <MarkerNote column={column} />
+                </td>
                 <td>{column.nullCount.toLocaleString()}</td>
                 <td>{column.uniqueCount.toLocaleString()}</td>
                 <td>{column.minimum ?? "—"}</td>
@@ -996,10 +932,13 @@ function QualityProfile({
           </tbody>
         </table>
       </div>
-      <p className="profile-note">El conteo de valores únicos excluye los nulos.</p>
+      <p className="profile-note">
+        El conteo de valores únicos excluye los nulos.
+        {markerCount > 0 ? " Los marcadores «sin dato» no son nulos: cuentan como valores en Completitud." : ""}
+      </p>
       {numericColumns.length > 0 && (
         <>
-          <h4 className="text-profile-title">Detalle de columnas numéricas</h4>
+          <h5 className="text-profile-title">Detalle de columnas numéricas</h5>
           <div
             className="profile-region profile-region--detail"
             role="region"
@@ -1043,7 +982,7 @@ function QualityProfile({
       )}
       {textColumns.length > 0 && (
         <>
-          <h4 className="text-profile-title">Detalle de columnas de texto</h4>
+          <h5 className="text-profile-title">Detalle de columnas de texto</h5>
           <div
             className="profile-region profile-region--detail"
             role="region"
@@ -1086,13 +1025,12 @@ function QualityProfile({
             </table>
           </div>
           <p className="profile-note">
-            “Vacíos” incluye cadenas sin caracteres o compuestas solamente por espacios. Las
+            «Vacíos» incluye cadenas sin caracteres o compuestas solamente por espacios. Las
             sugerencias requieren al menos tres valores y una coincidencia del 90%.
           </p>
         </>
       )}
-        </div>
-      </details>
+        </section>
       {extraTools}
       </ReviewMoreTools>
     </>

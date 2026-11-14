@@ -1382,10 +1382,10 @@ export function App() {
   const reviewHasContextualContinue = activePhase === "review"
     && review.reviewTab === "diagnosis"
     && profileStatus.kind === "ready";
-  // The profile error notice of Revisar carries «Reintentar análisis» itself.
-  // Preparar does the same for an error and for a cancelled analysis.
-  const reviewRetryInNotice = (activePhase === "review" && profileStatus.kind === "error")
-    || (activePhase === "prepare" && (profileStatus.kind === "error" || profileStatus.kind === "cancelled"));
+  // The profile notices of Revisar and Preparar carry «Reintentar análisis» themselves,
+  // for an error and for a cancelled analysis.
+  const reviewRetryInNotice = (activePhase === "review" || activePhase === "prepare")
+    && (profileStatus.kind === "error" || profileStatus.kind === "cancelled");
   // With a dataset, Cargar puts «Continuar a Revisar» by its name and figures;
   // the footer would repeat it as a second primary action.
   const loadHasContextualContinue = activePhase === "load" && Boolean(activeDataset);
@@ -1758,11 +1758,7 @@ export function App() {
                   setPrepareCombineFocus(true);
                   setActivePhase("prepare");
                 }}
-                sqlHistory={review.sqlHistory}
-                onSqlHistoryChange={review.setSqlHistory}
                 datasetRevision={datasetRevision}
-                queryEngine={review.queryEngine}
-                onQueryEngineChange={review.setQueryEngine}
                 analysisSampleRows={review.analysisSampleRows}
                 onAnalysisSampleRowsChange={review.setAnalysisSampleRows}
               />
@@ -1832,6 +1828,7 @@ export function App() {
             {activePhase === "deliver" && readyDataset && (
               <DeliveryPhase
                 dataset={readyDataset.dataset}
+                onReviewPreparation={() => setActivePhase("prepare")}
                 personalDataColumns={personalDataColumnNames(
                   profileStatus.kind === "ready" ? profileStatus.profile.columns : null,
                 )}
@@ -1934,7 +1931,6 @@ export function App() {
                 queryEngine={review.queryEngine}
                 onQueryEngineChange={review.setQueryEngine}
                 datasetRevision={datasetRevision}
-                standalone
               />
             </Suspense>
           </div>

@@ -296,6 +296,7 @@
    order (destination, quality rules, format, confirm and export), all visible.
    Steps part with space and one line, never with a box. */
 .delivery-flow { display: grid; grid-template-columns: minmax(0, 1fr); max-width: 760px; }
+.delivery-outcome { max-width: 760px; min-width: 0; }
 .delivery-step { display: grid; gap: 12px; min-width: 0; padding: 24px 0 28px; border-top: 1px solid var(--border-subtle); }
 .delivery-step:first-child { padding-top: 16px; border-top: 0; }
 .delivery-step > h3 { margin: 0 0 4px; color: var(--text-primary); font-size: 1.0625rem; line-height: 1.3; }
@@ -520,6 +521,7 @@ html[data-columnia-zoom="2"] .app-shell .workspace h2 { font-size: 1.5rem; }
 .delivery-summary dd { margin: 0; overflow-wrap: anywhere; color: var(--text-primary); font-weight: 600; }
 .delivery-replace { display: grid; gap: 8px; margin: 0; }
 .delivery-replace p { margin: 0; }
+.delivery-replace .delivery-replace__hint { color: var(--text-secondary); font-size: .8125rem; }
 @media (max-width: 420px) {
   .delivery-summary > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }

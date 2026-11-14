@@ -17503,7 +17503,7 @@ fn categorical_imputation_uses_desconocido_without_touching_row_audit() {
     .unwrap();
 
     let (cleaned, affected_rows, changed_cells, changed_columns) =
-        impute_categorical_values_in_frame(&frame).unwrap();
+        impute_categorical_values_in_frame(&frame, &HashSet::new()).unwrap();
     assert_eq!(affected_rows, 3);
     assert_eq!(changed_cells, 3);
     assert_eq!(changed_columns.len(), 1);
@@ -17517,6 +17517,55 @@ fn categorical_imputation_uses_desconocido_without_touching_row_audit() {
         cleaned.column("_cambios").unwrap().str().unwrap().get(1),
         None
     );
+}
+
+#[test]
+fn imputation_never_fills_columns_offered_for_removal() {
+    // Preparar recommends removing an empty column or one with 80 % or more
+    // nulls; «Desconocido» and the dataset-wide fill leave them as they are.
+    let frame = df!(
+        "status" => [Some("a"), Some("a"), None, Some("b"), Some("b")],
+        "mostly_empty" => [Some("x"), None, None, None, None],
+        "empty" => [None::<&str>, None, None, None, None],
+        "amount" => [Some(1i64), None, None, None, None]
+    )
+    .unwrap();
+
+    let (_, _, _, changed_columns) =
+        impute_categorical_values_in_frame(&frame, &HashSet::new()).unwrap();
+    let names = changed_columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["status"]);
+
+    let (_, _, _, changed_columns) = impute_missing_values_in_frame(&frame).unwrap();
+    let names = changed_columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["status"]);
+}
+
+#[test]
+fn unknown_fill_skips_numbers_stored_as_text() {
+    // The profile offers to convert «importe» to a number; «Desconocido» would
+    // be an invalid value that blocks the conversion, so it is left alone.
+    let frame = df!(
+        "status" => [Some("a"), Some("a"), None, Some("b"), Some("b")],
+        "importe" => [Some("10"), Some("12.5"), None, Some("7"), Some("3")]
+    )
+    .unwrap();
+
+    let convertible = HashSet::from(["importe".to_owned()]);
+    let (cleaned, _, _, changed_columns) =
+        impute_categorical_values_in_frame(&frame, &convertible).unwrap();
+    let names = changed_columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["status"]);
+    assert_eq!(cleaned.column("importe").unwrap().null_count(), 1);
 }
 
 #[test]
@@ -19701,11 +19750,11 @@ fn safe_correction_history_labels_say_what_was_applied() {
     );
     assert_eq!(
         safe_corrections_label(false, true, true, false, true, true, true),
-        "Marcadores «sin dato» a vacío · Normalizar nombres de columna · Convertir a número · Convertir a fecha · Rellenar vacíos"
+        "Marcadores «sin dato» a nulo · Normalizar nombres de columna · Convertir a número · Convertir a fecha · Rellenar nulos"
     );
     assert_eq!(
         safe_corrections_label(false, false, false, false, false, false, false),
-        "Aplicar correcciones recomendadas"
+        "Aplicar la propuesta"
     );
 }
 
@@ -21511,7 +21560,8 @@ fn every_prepare_operation_matches_between_both_paths() {
         (
             "imputación categórica",
             |frame| {
-                let (frame, rows, cells, _) = impute_categorical_values_in_frame(frame).unwrap();
+                let (frame, rows, cells, _) =
+                    impute_categorical_values_in_frame(frame, &HashSet::new()).unwrap();
                 (frame, rows, cells)
             },
             |dataset| {
@@ -23812,7 +23862,7 @@ fn categorical_fill_leaves_personal_and_identifier_columns_alone() {
     ]
     .unwrap();
     let (cleaned, _, changed_cells, changed_columns) =
-        impute_categorical_values_in_frame(&frame).unwrap();
+        impute_categorical_values_in_frame(&frame, &HashSet::new()).unwrap();
     assert_eq!(changed_cells, 1);
     assert_eq!(
         changed_columns

@@ -108,11 +108,25 @@ const moveAmongBars = moveAmong(true);
 
 /**
  * The columns and their axis scroll together; the hint shows only when the
- * columns (at least 24 px each, WCAG 2.5.8) do not fit.
+ * columns (at least 24 px each, WCAG 2.5.8) do not fit. Outside the box that
+ * scrolls stay the whole range as text and a reading of the column the pointer
+ * or the focus is on (or the selected one), so neither depends on `title`.
  */
-function ScrollPlot({ count, hint, children }: { count: number; hint: string; children: ReactNode }) {
+function ScrollPlot({ count, hint, range, readings, selected, idle, children }: {
+  count: number;
+  hint: string;
+  /** «De 0 a 700»: always visible, the axis marks inside may be scrolled away. */
+  range: string;
+  /** One line per column, in order. */
+  readings: string[];
+  /** Index of the selected column, -1 if none. */
+  selected: number;
+  idle: string;
+  children: ReactNode;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [overflows, setOverflows] = useState(false);
+  const [active, setActive] = useState<number | null>(null);
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
@@ -125,17 +139,55 @@ function ScrollPlot({ count, hint, children }: { count: number; hint: string; ch
     // `count` re-measures when the columns change; the observer covers resizes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [count]);
+  function track(event: { target: EventTarget }) {
+    const column = (event.target as HTMLElement).closest<HTMLElement>("button.explore__column");
+    if (!column?.parentElement) return;
+    setActive(Array.prototype.indexOf.call(column.parentElement.children, column));
+  }
+  const shown = active ?? (selected >= 0 ? selected : null);
   return (
     <>
-      <div ref={ref} className="explore__scroll">
+      <div
+        ref={ref}
+        className="explore__scroll"
+        onFocus={track}
+        onPointerOver={track}
+        onBlur={() => setActive(null)}
+        onPointerLeave={() => setActive(null)}
+      >
         <div className="explore__plot" style={{ "--columns": count } as CSSProperties}>{children}</div>
+      </div>
+      <div className="explore__readout">
+        <p className="explore__range">{range}</p>
+        {/* The column's accessible name already says this: the line is for eyes, not for the screen reader. */}
+        <p className="explore__reading" aria-hidden="true">{shown === null ? idle : readings[shown]}</p>
       </div>
       {overflows && <p className="explore__note">{hint}</p>}
     </>
   );
 }
 
-type FocusTarget = { chip: string } | { chart: string } | "customize";
+/** Axis marks placed by position (0 to 1) along the plot. */
+function Axis({ ticks }: { ticks: { label: string; position: number }[] }) {
+  return (
+    <p className="explore__axis">
+      {ticks.map((tick, index) => (
+        <span
+          key={index}
+          className={tick.position <= 0 ? "explore__tick--first" : tick.position >= 1 ? "explore__tick--last" : undefined}
+          style={{ left: `${tick.position * 100}%` }}
+        >
+          {tick.label}
+        </span>
+      ))}
+    </p>
+  );
+}
+
+/** How long a plain announcement stays on screen. */
+const ANNOUNCEMENT_MS = 6000;
+
+type FocusTarget = { chip: string } | { chart: string; index?: number } | "customize";
 
 
 export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFilters, onFiltersChange, onGoToPrepare }: ExplorePhaseProps) {
@@ -147,7 +199,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
   const [state, setState] = useState<PanelState>({ kind: "loading", previous: null });
   const [attempt, setAttempt] = useState(0);
   // What a change did that the person may not see; shown while the filters are the ones it produced.
-  const [announcement, setAnnouncement] = useState<{ text: string; filters: ExploreFilter[] } | null>(null);
+  const [announcement, setAnnouncement] = useState<{ text: string; filters: ExploreFilter[]; undo?: () => void } | null>(null);
   const rootRef = useRef<HTMLElement>(null);
   const pendingFocus = useRef<FocusTarget | null>(null);
   const custom = Object.keys(layout).length > 0;
@@ -194,9 +246,11 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
     if (typeof target === "object" && "chip" in target) {
       element = [...root.querySelectorAll<HTMLElement>("[data-filter-chip]")].find((chip) => chip.dataset.filterChip === target.chip);
     } else if (typeof target === "object") {
-      element = [...root.querySelectorAll<HTMLElement>("[data-chart]")]
+      // The bar or column that made the filter, else the first.
+      const buttons = [...root.querySelectorAll<HTMLElement>("[data-chart]")]
         .find((chart) => chart.dataset.chart === target.chart)
-        ?.querySelector<HTMLElement>('button[tabindex="0"]');
+        ?.querySelectorAll<HTMLElement>("button");
+      element = buttons?.[target.index ?? 0] ?? buttons?.[0];
     }
     (element ?? root.querySelector<HTMLElement>(".explore__customize"))?.focus();
     // Runs after the render that changed the filters or the layout; the target travels in a ref.
@@ -206,13 +260,26 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
   const panel = state.kind === "ready" ? state.panel : state.previous;
   const shownCharts = panel?.categories.map((chart) => chart.column) ?? [];
   const text = (filter: ExploreFilter) => filterLabel(filter, panel?.histogram ?? null);
-  function say(message: string, next: ExploreFilter[]) { setAnnouncement({ text: message, filters: next }); }
+  function say(message: string, next: ExploreFilter[], undo?: () => void) { setAnnouncement({ text: message, filters: next, undo }); }
+  // Plain announcements fade after a few seconds (the live region has said them by then); one with «Deshacer» stays until the next change.
+  useEffect(() => {
+    if (!announcement || announcement.undo) return;
+    const timer = setTimeout(() => setAnnouncement(null), ANNOUNCEMENT_MS);
+    return () => clearTimeout(timer);
+  }, [announcement]);
   function removeFilter(column: string) {
     const index = filters.findIndex((filter) => filter.column === column);
     if (index < 0) return;
     const next = filters.filter((filter) => filter.column !== column);
     const neighbour = filters[index + 1] ?? filters[index - 1];
-    pendingFocus.current = neighbour ? { chip: neighbour.column } : { chart: column };
+    let focusIndex: number | undefined;
+    if (!neighbour) {
+      // Where the filter came from: the pressed bar or column, read before the re-render clears it.
+      const chart = [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-chart]") ?? [])].find((item) => item.dataset.chart === column);
+      const position = [...(chart?.querySelectorAll("button") ?? [])].findIndex((button) => button.getAttribute("aria-pressed") === "true");
+      focusIndex = position >= 0 ? position : undefined;
+    }
+    pendingFocus.current = neighbour ? { chip: neighbour.column } : { chart: column, index: focusIndex };
     setFilters(next);
     say(`Filtro quitado: ${text(filters[index]!)}.`, next);
   }
@@ -228,17 +295,24 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
     const gone = dropped ? filters.find((filter) => filter.column === dropped) : undefined;
     if (!gone) return;
     const remaining = filters.filter((filter) => filter.column !== dropped);
+    const before = { layout, filters };
     setFilters(remaining);
-    say(`Se quitó el filtro ${text(gone)} ${reason}.`, remaining);
+    say(`Se quitó el filtro ${text(gone)} ${reason}.`, remaining, () => {
+      pendingFocus.current = "customize";
+      setLayout(before.layout);
+      setFilters(before.filters);
+      say(`Se restauró el filtro ${text(gone)}.`, before.filters);
+    });
   }
 
   const hasTrend = !!(panel?.trend && panel.trend.points.length > 0);
   const noCharts = !!panel && panel.categories.length === 0 && !panel.histogram && !hasTrend;
   const filtered = filters.length > 0 && !!panel;
   const summary = filters.length === 0 || !panel
-    ? "Pulsa una barra para filtrar todo el panel."
+    ? "Cada barra cuenta las filas de un valor; pulsa una para filtrar todo el panel."
     : `${plural(panel.rowCount, "fila", "filas")} de ${formatNumber(panel.totalRowCount)} cumplen los filtros.`;
   const shownAnnouncement = announcement && announcement.filters === filters ? announcement.text : null;
+  const shownUndo = announcement && announcement.filters === filters ? announcement.undo : undefined;
 
   return (
     <>
@@ -286,6 +360,9 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                 {shownAnnouncement && <span>{shownAnnouncement}</span>}
                 <span className="explore__hint">{summary}</span>
               </p>
+              {shownUndo && (
+                <button type="button" className="explore__clear" onClick={shownUndo}>Deshacer</button>
+              )}
               {filters.map((filter) => (
                 <button
                   key={filter.column}
@@ -391,7 +468,6 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                 <section key={chart.column} className={`explore__panel${alone ? " explore__panel--wide" : ""}`} aria-label={`Filas por ${chart.column}`}>
                   <div className="explore__heading">
                     <h4>{chart.column}</h4>
-                    <p className="explore__kind">Filas por valor</p>
                   </div>
                   <div
                     className={`explore__bars${active ? " explore__bars--dim" : ""}`}
@@ -441,13 +517,21 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
               const active = filters.some((filter) => filter.column === histogram.column);
               const years = histogramYears(histogram);
               const ignored = ignoredRowsText(histogram.ignoredCount);
+              const tickText = (value: number) => formatNumber(histogram.integer ? Math.round(value) : value, 2, !years);
               return (
                 <section className="explore__panel explore__panel--wide" aria-label={`Distribución de ${histogram.column}`}>
                   <div className="explore__heading">
                     <h4>{histogram.column}</h4>
                     <p className="explore__kind">Distribución</p>
                   </div>
-                  <ScrollPlot count={histogram.bins.length} hint="Desliza para ver todos los tramos.">
+                  <ScrollPlot
+                    count={histogram.bins.length}
+                    hint="Desliza para ver todos los tramos."
+                    range={`De ${tickText(histogram.bins[0]?.lower ?? 0)} a ${tickText(histogram.bins.at(-1)?.upper ?? 0)}`}
+                    readings={histogram.bins.map((bin, index) => `${histogram.column} de ${binLabel(bin.lower, bin.upper, histogram.integer, index === histogram.bins.length - 1, years)}: ${plural(bin.count, "fila", "filas")}`)}
+                    selected={histogram.bins.findIndex((bin) => isRangeSelected(filters, histogram.column, bin.lower, bin.upper))}
+                    idle="Enfoca o toca un tramo para leer sus filas."
+                  >
                     <div className={`explore__columns${active ? " explore__bars--dim" : ""}`} data-chart={histogram.column} onKeyDown={moveAmongColumns}>
                       {histogram.bins.map((bin, index) => {
                         const selected = isRangeSelected(filters, histogram.column, bin.lower, bin.upper);
@@ -460,7 +544,6 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                             tabIndex={index === 0 ? 0 : -1}
                             aria-pressed={selected}
                             aria-label={`${histogram.column} de ${label}: ${plural(bin.count, "fila", "filas")}`}
-                            title={`${label}: ${formatNumber(bin.count)}`}
                             onClick={() => setFilters((current) =>
                               toggleRange(current, histogram.column, bin.lower, bin.upper, index === histogram.bins.length - 1))}
                           >
@@ -469,11 +552,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                         );
                       })}
                     </div>
-                    <p className="explore__axis">
-                      {axisTicks(histogram.bins[0]?.lower ?? 0, histogram.bins.at(-1)?.upper ?? 0).map((tick, index) => (
-                        <span key={index}>{formatNumber(histogram.integer ? Math.round(tick) : tick, 2, !years)}</span>
-                      ))}
-                    </p>
+                    <Axis ticks={axisTicks(histogram.bins).map((tick) => ({ label: tickText(tick.value), position: tick.position }))} />
                   </ScrollPlot>
                   <p className="explore__note">
                     Filas por tramo de {histogram.column}; el tramo más alto tiene {plural(max, "fila", "filas")}.
@@ -494,6 +573,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
             {panel.trend && hasTrend && (() => {
               const trend = panel.trend;
               const max = Math.max(1, ...trend.points.map((point) => point.count));
+              const peak = trend.points.reduce((best, point) => (point.count > best.count ? point : best), trend.points[0]!);
               const active = filters.some((filter) => filter.column === trend.column);
               return (
                 <section className="explore__panel explore__panel--wide" aria-label={`Filas en el tiempo por ${trend.column}`}>
@@ -501,7 +581,14 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                     <h4>{trend.column}</h4>
                     <p className="explore__kind">Filas en el tiempo</p>
                   </div>
-                  <ScrollPlot count={trend.points.length} hint="Desliza para ver todos los periodos.">
+                  <ScrollPlot
+                    count={trend.points.length}
+                    hint="Desliza para ver todos los periodos."
+                    range={`De ${trend.points[0]?.period} a ${trend.points.at(-1)?.period}`}
+                    readings={trend.points.map((point) => `${point.period}: ${plural(point.count, "fila", "filas")}`)}
+                    selected={trend.points.findIndex((point) => isPeriodSelected(filters, trend.column, point.period))}
+                    idle="Enfoca o toca un periodo para leer sus filas."
+                  >
                     <div className={`explore__columns${active ? " explore__bars--dim" : ""}`} data-chart={trend.column} onKeyDown={moveAmongColumns}>
                       {trend.points.map((point, index) => (
                         <button
@@ -511,18 +598,20 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                           tabIndex={index === 0 ? 0 : -1}
                           aria-pressed={isPeriodSelected(filters, trend.column, point.period)}
                           aria-label={`${point.period}: ${plural(point.count, "fila", "filas")}`}
-                          title={`${point.period}: ${formatNumber(point.count)}`}
                           onClick={() => setFilters((current) => togglePeriod(current, trend.column, point.period))}
                         >
                           <span className="explore__area"><span className="explore__fill" style={{ height: `${(point.count / max) * 100}%` }} /></span>
                         </button>
                       ))}
                     </div>
-                    <p className="explore__axis">
-                      <span>{trend.points[0]?.period}</span>
-                      <span>{trend.points.at(-1)?.period}</span>
-                    </p>
+                    <Axis ticks={[
+                      { label: trend.points[0]?.period ?? "", position: 0 },
+                      { label: trend.points.at(-1)?.period ?? "", position: 1 },
+                    ]} />
                   </ScrollPlot>
+                  <p className="explore__note">
+                    Filas por periodo de {trend.column}; el periodo con más filas es {peak.period}, con {plural(peak.count, "fila", "filas")}.
+                  </p>
                   {(() => {
                     const table = trendTableRows(trend.points);
                     return (

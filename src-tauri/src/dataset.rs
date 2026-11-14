@@ -5362,6 +5362,7 @@ fn source_backed_imputation_with_cancellation(
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
+    let convertible = columns_offered_for_conversion(dataset.profile.as_ref());
     let columns = dataset
         .frame
         .columns()
@@ -5372,6 +5373,7 @@ fn source_backed_imputation_with_cancellation(
                 && if categorical_only {
                     // FUN-47: same exclusions as the in-memory path.
                     column.dtype() == &DataType::String
+                        && !convertible.contains(column.name().as_str())
                 } else {
                     column.dtype() == &DataType::String
                         || source_backed_numeric_imputation_type(column.dtype()).is_some()
@@ -5423,7 +5425,7 @@ fn source_backed_imputation_with_cancellation(
     let mut predicates = Vec::new();
     for ((name, kind), stats) in typed_columns.iter().zip(stats) {
         let numeric = *kind != crate::duckdb_query::FileImputationKind::Text;
-        if stats.null_count == 0 {
+        if stats.null_count == 0 || too_empty_to_fill(stats.null_count, dataset.row_count) {
             continue;
         }
         let replacement = if categorical_only {
@@ -5786,19 +5788,19 @@ fn safe_corrections_label(
     impute_missing: bool,
 ) -> String {
     let parts = [
-        (normalize_sentinels, "Marcadores «sin dato» a vacío"),
+        (normalize_sentinels, "Marcadores «sin dato» a nulo"),
         (trim_text, "Recortar espacios"),
         (normalize_column_names, "Normalizar nombres de columna"),
         (cast_columns, "Convertir a número"),
         (date_columns, "Convertir a fecha"),
         (remove_duplicates, "Quitar duplicados"),
-        (impute_missing, "Rellenar vacíos"),
+        (impute_missing, "Rellenar nulos"),
     ]
     .into_iter()
     .filter_map(|(applied, label)| applied.then_some(label))
     .collect::<Vec<_>>();
     if parts.is_empty() {
-        "Aplicar correcciones recomendadas".to_owned()
+        "Aplicar la propuesta".to_owned()
     } else {
         parts.join(" · ")
     }
@@ -6805,6 +6807,14 @@ fn parse_inferred_date_columns(
     ))
 }
 
+/// A column with at least the removal share of nulls (80 %, or empty) is
+/// offered for removal in Preparar: filling it would invent most of it.
+fn too_empty_to_fill(null_count: usize, row_count: usize) -> bool {
+    row_count > 0
+        && null_count.saturating_mul(100)
+            >= row_count.saturating_mul(HIGH_NULL_COLUMN_THRESHOLD_PERCENTAGE)
+}
+
 fn impute_missing_values_in_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
@@ -6861,6 +6871,11 @@ fn impute_missing_values_in_columns(
         // FUN-47: filling every column skips personal data and identifiers;
         // an explicit list (the reviewed proposal) already left them out.
         if columns.is_none() && privacy_signal(&name).is_some() {
+            continue;
+        }
+        // Preparar offers to remove these columns: filling every column never
+        // invents most of one (the proposal's list already leaves them out).
+        if columns.is_none() && too_empty_to_fill(column.null_count(), frame.height()) {
             continue;
         }
 
@@ -6988,8 +7003,24 @@ fn impute_missing_values_in_columns(
     ))
 }
 
+/// Text columns the stored profile offers to convert to a number, a date or
+/// yes/no: «Desconocido» would block that conversion, so it skips them.
+fn columns_offered_for_conversion(profile: Option<&DatasetProfile>) -> HashSet<String> {
+    profile
+        .map(|profile| {
+            profile
+                .columns
+                .iter()
+                .filter(|column| column.suggested_type.is_some())
+                .map(|column| column.name.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn impute_categorical_values_in_frame(
     frame: &DataFrame,
+    convertible: &HashSet<String>,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
     let mut cleaned = frame.clone();
     let mut changed_rows = vec![false; frame.height()];
@@ -7004,6 +7035,15 @@ fn impute_categorical_values_in_frame(
         // FUN-47: «Desconocido» would be a fabricated email, name, phone,
         // address or identifier; those columns keep their gaps.
         if privacy_signal(&name).is_some() {
+            continue;
+        }
+        // An empty column, or one Preparar offers to remove, is not filled.
+        if too_empty_to_fill(column.null_count(), frame.height()) {
+            continue;
+        }
+        // Numbers, dates or yes/no stored as text are offered for conversion:
+        // «Desconocido» would be an invalid value that blocks it.
+        if convertible.contains(&name) {
             continue;
         }
         let values = column
@@ -12378,7 +12418,10 @@ pub async fn impute_categorical_values(app: AppHandle) -> Result<TextCleaningRes
         cancellation.ensure()?;
         materialize_loaded_dataset_with_cancel(dataset, || cancellation.is_cancelled())?;
         let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
-            impute_categorical_values_in_frame(&dataset.frame)?;
+            impute_categorical_values_in_frame(
+                &dataset.frame,
+                &columns_offered_for_conversion(dataset.profile.as_ref()),
+            )?;
         cancellation.ensure()?;
         let preview = if changed_cell_count > 0 {
             publish_candidate_with_cancellation(

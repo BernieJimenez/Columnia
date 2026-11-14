@@ -289,7 +289,7 @@ describe("compuerta de calidad y editor de reglas (QA-11)", () => {
     }} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
-    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Contrato fallido"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Contrato fallido" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Editar reglas" }));
     fireEvent.change(screen.getByRole("spinbutton", { name: "Incumplimientos máximos regla 1" }), {
       target: { value: "0" },
@@ -301,7 +301,7 @@ describe("compuerta de calidad y editor de reglas (QA-11)", () => {
 
     await waitFor(() => expect(validate).toHaveBeenCalledTimes(2));
     expect(validate).toHaveBeenLastCalledWith([{ column: "limite", kind: "not_null", maxInvalid: 0 }]);
-    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Contrato fallido"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Contrato fallido" })).toBeInTheDocument());
     expect(onExport).not.toHaveBeenCalled();
   });
 });
@@ -762,7 +762,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
 
-    await waitFor(() => expect(getStateStatus()).toHaveTextContent("Contrato fallido"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Contrato fallido" })).toBeInTheDocument());
     expect(screen.getByText("Valores nulos · total")).toBeInTheDocument();
     expect(validate).toHaveBeenCalledOnce();
     expect(onExport).not.toHaveBeenCalled();
@@ -987,7 +987,7 @@ describe("DeliveryPhase", () => {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
     selectFormat("postgresql");
-    const exportButton = screen.getByRole("button", { name: "Exportar PostgreSQL" });
+    const exportButton = screen.getByRole("button", { name: "Exportar a PostgreSQL" });
     expect(exportButton).toHaveAttribute("aria-disabled", "true");
     await fillConnection("localhost", "ana", "secret");
     fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
@@ -1095,6 +1095,146 @@ describe("DeliveryPhase", () => {
     }));
   });
 
+  describe("tras escribir en una base de datos", () => {
+    function WritingHarness({ onExport }: { onExport: (request: DeliveryExportRequest) => void }) {
+      const [exportState, setExportState] = useState<DeliveryExportState>({ kind: "idle" });
+      return (
+        <DeliveryPhase
+          dataset={dataset}
+          contract={{ kind: "without_contract", confirmation: "confirmed", gate: { kind: "idle" } }}
+          exportState={exportState}
+          onContractAction={() => undefined}
+          onExport={(request) => {
+            onExport(request);
+            setExportState({
+              kind: "success",
+              result: {
+                fileName: "ventas", fileSizeBytes: 0, format: "PostgreSQL", rowCount: 2,
+                protectedColumnCount: 0, protectedColumns: [], replacedControlCellCount: 0,
+              },
+            });
+          }}
+          onCancelExport={vi.fn()}
+        />
+      );
+    }
+
+    async function analyseWith(policy: "replace" | "append", tableExists: boolean, existingRowCount?: number) {
+      const onExport = vi.fn();
+      const preflight = vi.spyOn(bridge, "preflightDatabaseExport").mockResolvedValue({
+        ...preflightResult("postgresql"),
+        table: "ventas",
+        tablePolicy: policy,
+        tableExists,
+        existingRowCount,
+      });
+      render(<WritingHarness onExport={onExport} />);
+      selectFormat("postgresql");
+      await fillConnection("db.local", "ana", "secret");
+      fireEvent.click(screen.getByRole("radio", { name: policy === "replace" ? /^Reemplazar la tabla/ : /^Añadir filas/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
+      await waitFor(() => expect(getStateStatus()).toHaveTextContent("Comprobación previa completa"));
+      return { onExport, preflight };
+    }
+
+    it("Reemplazar: el botón queda bloqueado, la casilla desmarcada y hace falta analizar y confirmar de nuevo", async () => {
+      const { onExport, preflight } = await analyseWith("replace", true, 1_200);
+      expect(screen.getByText(/se borrarán sus 1.?200 filas/)).toBeInTheDocument();
+      const confirmName = "Entiendo que se borrará el contenido actual de public.ventas";
+      fireEvent.click(screen.getByRole("checkbox", { name: confirmName }));
+      const button = screen.getByRole("button", { name: "Reemplazar public.ventas en db.local" });
+      fireEvent.click(button);
+      expect(onExport).toHaveBeenCalledOnce();
+
+      // The result says what happened to the table, and the button does not become «Exportar otra copia».
+      expect(screen.getByRole("heading", { name: "Tabla escrita" })).toHaveAccessibleDescription(/Se reemplazó la tabla anterior\.$/);
+      expect(screen.queryByRole("button", { name: "Exportar otra copia" })).not.toBeInTheDocument();
+      await waitFor(() => expect(button).toHaveAttribute("aria-disabled", "true"));
+      const box = screen.getByRole("checkbox", { name: /Entiendo que se borrará el contenido actual de public\.ventas/ });
+      expect(box).not.toBeChecked();
+      expect(box).toBeDisabled();
+      expect(document.getElementById("export-blocked-reason"))
+        .toHaveTextContent("Para exportar, analiza la compatibilidad con el destino y confirma que se borrará el contenido actual de la tabla.");
+      // The old warning is not repeated in the present tense.
+      expect(screen.queryByText(/ya existe: se borrarán/)).not.toBeInTheDocument();
+      fireEvent.click(button);
+      expect(onExport).toHaveBeenCalledOnce();
+
+      fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
+      await waitFor(() => expect(preflight).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.getByRole("checkbox", { name: confirmName })).toBeEnabled());
+      expect(button).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(screen.getByRole("checkbox", { name: confirmName }));
+      expect(button).not.toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("Añadir: tras escribir también hay que analizar de nuevo, y el resultado cuenta las filas añadidas", async () => {
+      const { onExport } = await analyseWith("append", true);
+      const button = screen.getByRole("button", { name: "Exportar a PostgreSQL" });
+      fireEvent.click(button);
+      expect(onExport).toHaveBeenCalledOnce();
+      expect(screen.getByRole("heading", { name: "Tabla escrita" })).toHaveAccessibleDescription(/Se añadieron 2 filas a la tabla existente\.$/);
+      await waitFor(() => expect(button).toHaveAttribute("aria-disabled", "true"));
+      expect(document.getElementById("export-blocked-reason")).toHaveTextContent("analiza la compatibilidad con el destino");
+    });
+
+    it("Crear: el resultado dice que se creó la tabla", async () => {
+      vi.spyOn(bridge, "preflightDatabaseExport").mockResolvedValue(preflightResult("postgresql"));
+      render(<WritingHarness onExport={vi.fn()} />);
+      selectFormat("postgresql");
+      await fillConnection("db.local", "ana", "secret");
+      fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
+      await waitFor(() => expect(getStateStatus()).toHaveTextContent("Comprobación previa completa"));
+      fireEvent.click(screen.getByRole("button", { name: "Exportar a PostgreSQL" }));
+      expect(screen.getByRole("heading", { name: "Tabla escrita" })).toHaveAccessibleDescription(/Se creó la tabla\.$/);
+    });
+
+    it("la confirmación de Reemplazar solo se puede dar tras el análisis", async () => {
+      render(<DeliveryHarness onExport={vi.fn()} />);
+      selectFormat("postgresql");
+      await fillConnection("db.local", "ana", "secret");
+      fireEvent.click(screen.getByRole("radio", { name: /^Reemplazar la tabla/ }));
+      const box = screen.getByRole("checkbox", { name: /Entiendo que se borrará el contenido actual de public\.dataset si ya existe|Entiendo que se borrará el contenido actual de public\.ventas si ya existe/ });
+      expect(box).toBeDisabled();
+      expect(screen.getByText(/Se podrá confirmar cuando analices la compatibilidad/)).toBeInTheDocument();
+    });
+  });
+
+  it("un contrato fallido ofrece Corregir en Preparar si hay adónde ir", () => {
+    const onReview = vi.fn();
+    render(<DeliveryPhase
+      dataset={dataset}
+      contract={{
+        kind: "with_contract",
+        rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+        gate: { kind: "ready", result: failingNotNull },
+      }}
+      exportState={{ kind: "idle" }}
+      onContractAction={() => undefined}
+      onExport={vi.fn()}
+      onCancelExport={vi.fn()}
+      onReviewPreparation={onReview}
+    />);
+    fireEvent.click(screen.getByRole("button", { name: "Corregir en Preparar" }));
+    expect(onReview).toHaveBeenCalledOnce();
+  });
+
+  it("el contrato fallido se anuncia una sola vez: el título recibe el foco y la caja no es una región de estado", async () => {
+    vi.spyOn(bridge, "validateQualityRules").mockResolvedValue(failingNotNull);
+    render(<DeliveryHarness onExport={vi.fn()} initialContract={{
+      kind: "with_contract",
+      rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      gate: { kind: "idle" },
+    }} />);
+    expect(screen.queryByRole("button", { name: "Corregir en Preparar" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
+    const title = await screen.findByRole("heading", { name: "Contrato fallido" });
+    await waitFor(() => expect(title).toHaveFocus());
+    expect(title).toHaveAccessibleDescription("1 de 1 regla falló · 2 filas comprobadas");
+    expect(title.closest(".quality-gate")).not.toHaveAttribute("role");
+    expect(screen.getByText(localeText("1 incumplimiento entre 2 elementos evaluados (50.0%)"))).toBeInTheDocument();
+  });
+
   it("deriva el motor ODBC del formato remoto seleccionado", async () => {
     const preflight = vi.spyOn(bridge, "preflightDatabaseExport")
       .mockImplementation(async (target) => preflightResult(target.kind));
@@ -1128,7 +1268,7 @@ describe("DeliveryPhase", () => {
     resolvePreflight(preflightResult("mysql"));
     await Promise.resolve();
     expect(screen.queryByText("Comprobación previa completa para dataset.")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Exportar MySQL" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "Exportar a MySQL" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("bloquea la exportación cuando el preflight detecta un conflicto de política", async () => {
@@ -1143,7 +1283,7 @@ describe("DeliveryPhase", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Comprobación previa bloqueada");
     expect(screen.getByRole("alert")).toHaveTextContent("La tabla ya existe");
-    expect(screen.getByRole("button", { name: "Exportar PostgreSQL" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "Exportar a PostgreSQL" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("relee presets, verifica el esquema y exige volver a autorizar una política replace", async () => {
@@ -1192,7 +1332,7 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("radio", { name: /^Reemplazar la tabla/ })).not.toBeChecked();
     expect(screen.getByLabelText("Servidor")).toHaveValue("");
     expect(screen.getByText(/La configuración proponía reemplazar la tabla/)).toHaveTextContent("Se cargó «Crear una tabla nueva»");
-    expect(screen.getByRole("button", { name: "Exportar PostgreSQL" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "Exportar a PostgreSQL" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("expone los parámetros de una regla avanzada según su tipo", () => {
@@ -1535,10 +1675,10 @@ describe("DeliveryPhase", () => {
     };
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} initialContract={failedContract} />);
-    expect(getStateStatus()).toHaveTextContent("Contrato fallido");
+    expect(screen.getByRole("heading", { name: "Contrato fallido" })).toBeInTheDocument();
     expect(screen.getByText("Problemas detectados")).toBeInTheDocument();
     expect(screen.getByText("Valores nulos · total")).toBeInTheDocument();
-    expect(screen.getByText(localeText("1 incumplimientos entre 2 elementos evaluados (50.00%)"))).toBeInTheDocument();
+    expect(screen.getByText(localeText("1 incumplimiento entre 2 elementos evaluados (50.0%)"))).toBeInTheDocument();
     // «Qué se exige» names the rule by number and marks it as broken in text.
     expect(screen.getByText("Regla 1:").closest("li")).toHaveTextContent(/No se cumple\.$/);
     // The same validation is not run again unchanged: the reason says what to do.
@@ -1561,7 +1701,7 @@ describe("DeliveryPhase", () => {
     };
     cleanup();
     render(<DeliveryHarness onExport={onExport} initialContract={staleContract} />);
-    expect(getStateStatus()).toHaveTextContent("Resultado desactualizado");
+    expect(screen.getByRole("heading", { name: "Resultado desactualizado" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Revisar regla 1" })).not.toBeInTheDocument();
 
     vi.restoreAllMocks();

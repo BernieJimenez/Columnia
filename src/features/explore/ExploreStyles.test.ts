@@ -35,4 +35,11 @@ describe("estilos de Explorar", () => {
     expect(info).not.toMatch(/#c98a2f|#fff7e8/i);
     expect(css).toMatch(/\.explore__table-scroll\s*\{[^}]*max-height/);
   });
+
+  it("las tarjetas no se estiran a la altura de la vecina y «Ver como tabla» es una acción de texto de 44 px", () => {
+    expect(/\.explore__grid\s*\{([^}]*)\}/.exec(css)?.[1]).toMatch(/align-items:\s*start/);
+    const summary = /\.explore__table summary\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(summary).toMatch(/min-height:\s*44px/);
+    expect(summary).toMatch(/color:\s*var\(--accent\)/);
+  });
 });

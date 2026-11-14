@@ -343,6 +343,7 @@ export function ConflictPager({
       <nav className="conflict-resolution__pager" aria-label="Paginación de conflictos">
         <button
           type="button"
+          className="secondary-action"
           onClick={() => void requestPage(Math.max(0, comparison.conflictOffset - CONFLICT_PAGE_SIZE))}
           disabled={busy || loading || comparison.conflictOffset === 0}
           aria-describedby={busyDescribedBy(busy)}
@@ -354,6 +355,7 @@ export function ConflictPager({
         </span>
         <button
           type="button"
+          className="secondary-action"
           onClick={() => void requestPage(last)}
           disabled={busy || loading || !comparison.conflictsTruncated || nextBlocked}
           aria-describedby={busyDescribedBy(busy)}

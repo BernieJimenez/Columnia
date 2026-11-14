@@ -211,7 +211,7 @@ describe("numeric typing (RV18 / FUN-07)", () => {
 
     // Without converting the markers, «NA» stays text and the column cannot type.
     const keepMarkers = { ...selection, sentinels: false };
-    expect(proposalItemTitle(types, keepMarkers)).toBe("Convertir 1 columna a número");
+    expect(proposalItemTitle(types, keepMarkers)).toBe("Convertir «precio» a número");
     expect(proposalOptions(items, keepMarkers).castColumns).toEqual(["precio"]);
   });
 

@@ -424,7 +424,7 @@ describe("usePrepareController", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Proteger personales" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se protegieron 4 valores en 2 columnas con el texto [REDACTED] (valor oculto). No se muestran nombres ni valores; el cambio puede revertirse desde el historial.",
+      "Se ocultaron 4 valores en 2 columnas: ahora dicen [REDACTED]. No se muestran nombres ni valores; el cambio puede revertirse desde el historial.",
     ));
     expect(bridge.maskPersonalValues).toHaveBeenCalledOnce();
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
@@ -477,7 +477,7 @@ describe("usePrepareController", () => {
     expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
   });
 
-  it("corrige doble codificación UTF-8 y publica el impacto", async () => {
+  it("corrige acentos mal leídos y publica el impacto", async () => {
     vi.spyOn(bridge, "fixEncodingValues").mockResolvedValue({
       dataset,
       affectedRowCount: 2,
@@ -492,7 +492,7 @@ describe("usePrepareController", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Codificación" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se corrigieron acentos mal leídos (doble codificación UTF-8) en 2 celdas.",
+      "Se corrigieron acentos mal leídos en 2 celdas.",
     ));
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
@@ -803,7 +803,7 @@ describe("usePrepareController", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Solo tipos" }));
 
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Plan aplicado: 1 columna convertida a número."));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Propuesta aplicada: 1 columna convertida a número."));
     expect(apply).toHaveBeenCalledWith(expect.objectContaining({ castColumns: ["Quantity"] }), expect.any(Function));
     expect(callbacks.onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(callbacks.onDeliveryInvalidated).toHaveBeenCalled();
@@ -877,7 +877,7 @@ describe("usePrepareController", () => {
       ["Columnas", "Se normalizó 1 nombre"],
       ["Recortar", "1 celda en 1 fila"],
       ["Texto", "1 celda en 1 fila"],
-      ["Recomendadas", "Plan aplicado: 1 celda actualizada"],
+      ["Recomendadas", "Propuesta aplicada: 1 celda actualizada"],
     ] as const) {
       fireEvent.click(screen.getByRole("button", { name }));
       await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(expected));

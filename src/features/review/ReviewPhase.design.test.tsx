@@ -98,8 +98,8 @@ describe("ReviewPhase design", () => {
     for (const item of items) expect(item.querySelector(".quality-issue__impact")?.textContent).toBeTruthy();
     expect(within(issues).queryByText(/duplicad/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Resumen del dataset")).not.toBeInTheDocument();
-    expect(screen.getByText("Ver análisis detallado").closest("details")).not.toHaveAttribute("open");
-    expect(screen.getByText("Configuración del análisis").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("Más análisis y herramientas").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByRole("heading", { name: "Configuración del análisis" })).toBeInTheDocument();
 
     // One list on top; what the proposal does not fix goes below, with its own actions.
     expect(screen.queryByRole("list", { name: "Prioridades de revisión" })).not.toBeInTheDocument();
@@ -107,6 +107,9 @@ describe("ReviewPhase design", () => {
     const uncorrected = screen.getByRole("list", { name: "Lo que no se corrige solo" });
     expect(uncorrected).toHaveTextContent("1 nulo en 1 columna");
     expect(uncorrected).toHaveTextContent("1 valor incompatible con el tipo sugerido en 1 columna");
+    // The links to Preparar are tertiary (text), so the one primary stays «Ver cambios propuestos».
+    expect(screen.getByRole("button", { name: "Ver nulos en Preparar" })).toHaveClass("quality-uncorrected__action");
+    expect(screen.getByRole("button", { name: "Ver nulos en Preparar" })).not.toHaveClass("secondary-action");
     fireEvent.click(screen.getByRole("button", { name: "Ver nulos en Preparar" }));
     expect(onContinueToPrepare).toHaveBeenLastCalledWith("missingValues");
     fireEvent.click(screen.getByRole("button", { name: "Ver cambios propuestos" }));

@@ -81,11 +81,7 @@ test.describe("consulta SQL desde la barra superior", () => {
     await close.click();
     await expect(drawer).toHaveCount(0);
 
-    // The same query inside Revisar › Más análisis widened the whole page.
-    await page.getByText("Más análisis y herramientas").click();
-    await page.locator("summary").getByText("Consulta SQL", { exact: true }).click();
-    await page.getByRole("button", { name: "Ejecutar consulta" }).click();
-    await expect(page.getByRole("region", { name: "Resultado de consulta SQL" })).toBeVisible();
+    // The Consulta SQL lives only in the top bar; closing it leaves the page without horizontal scroll.
     const pageOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(pageOverflow).toBeLessThanOrEqual(1);
   });

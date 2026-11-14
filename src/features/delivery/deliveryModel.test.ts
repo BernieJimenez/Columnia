@@ -106,7 +106,8 @@ describe("destino de base de datos (2026-11-13)", () => {
   it("avisa de lo que borra Reemplazar según lo que sabe la comprobación previa", () => {
     expect(replaceTableWarning("dbo.ventas", { tableExists: true }))
       .toBe("La tabla dbo.ventas ya existe: se borrarán sus filas y se volverá a crear con estos datos.");
-    expect(replaceTableWarning("dbo.ventas", { tableExists: true, rowCount: 1 })).toContain("se borrarán su única fila");
+    expect(replaceTableWarning("dbo.ventas", { tableExists: true, existingRowCount: 1 })).toContain("se borrará su única fila");
+    expect(replaceTableWarning("dbo.ventas", { tableExists: true, existingRowCount: 1_200 })).toContain("se borrarán sus 1");
     expect(replaceTableWarning("dbo.ventas", { tableExists: false })).toBeNull();
     expect(replaceTableWarning("dbo.ventas", null)).toMatch(/^Si la tabla dbo\.ventas ya existe/);
   });
@@ -525,7 +526,9 @@ describe("resumen de la entrega", () => {
     expect(items.find((item) => item.label === "Calidad")?.value).toBe("sin validar");
     expect(items.find((item) => item.label === "Datos personales")?.value).toBe("sin proteger en 1 columna");
     expect(sqlServerScriptTable({ schema: "", table: "", mode: "create", keyColumns: [], textSize: "fitted" }, []))
-      .toBe("dbo.(nombre del archivo) · crear tabla nueva");
+      .toBe("dbo.dataset · crear tabla nueva");
+    expect(sqlServerScriptTable({ schema: "", table: "", mode: "create", keyColumns: [], textSize: "fitted" }, [], "ventas 2026.csv"))
+      .toBe("dbo.ventas_2026 · crear tabla nueva");
     expect(databaseTargetTable({ schema: "public", table: "ventas", tablePolicy: "append" }))
       .toBe("public.ventas · añadir filas");
   });

@@ -185,6 +185,17 @@ export function LoadPhase({
     ? databaseRead
     : null;
 
+  // The import options open by themselves while a date-like text column waits
+  // for a convention; the user's own open or close is kept for that selection.
+  const dateLikeColumns = sheetSelection?.schemaPreview && isDelimitedSelection && sheetSelection.dateConvention === "unresolved"
+    ? dateLikeTextColumns(sheetSelection.schemaPreview.columns)
+    : [];
+  const importOptionsSelectionId = sheetSelection?.source.selectionId ?? null;
+  const [importOptionsChoice, setImportOptionsChoice] = useState<{ selectionId: string | null; open: boolean } | null>(null);
+  const importOptionsOpen = importOptionsChoice !== null && importOptionsChoice.selectionId === importOptionsSelectionId
+    ? importOptionsChoice.open
+    : dateLikeColumns.length > 0;
+
   // An error of the file source stays by its action and leaves when another
   // source is chosen; a new attempt shows it again even with the same text.
   const loadErrorKey = `${datasetStatus.kind === "error" ? datasetStatus.message : ""}\u0000${importError ?? ""}`;
@@ -381,13 +392,6 @@ export function LoadPhase({
 
       {source === "file" && !current && (
         <section className="load-brief" aria-labelledby="load-brief-title">
-          <svg className="load-brief__illustration" viewBox="0 0 180 144" fill="none" aria-hidden="true">
-            <rect x="16" y="12" width="148" height="120" rx="8" fill="var(--surface-raised)" stroke="currentColor" />
-            <path d="M16 44h148M16 73h148M16 102h148M65 44v88M115 44v88" stroke="currentColor" opacity=".35" />
-            <path d="M30 28h20m29 0h20m29 0h20" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
-            <rect x="116" y="86" width="48" height="48" rx="8" fill="var(--accent)" />
-            <path d="M140 121V99m-8 8 8-8 8 8" stroke="var(--surface)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
           <div className="load-brief__lead">
             <div>
               <h3 id="load-brief-title">{runtime.kind === "connected" ? "Elige un archivo o arrástralo a esta ventana" : "Elige un archivo"}</h3>
@@ -396,7 +400,7 @@ export function LoadPhase({
               {loadErrors}
               <p className="load-brief__formats">
                 CSV · TSV · TXT · JSON · Parquet · Excel · ODS.{runtime.kind === "connected" && " Atajo: Ctrl+O."}<br />
-                Los CSV, TSV, TXT, JSON, Parquet y Excel (.xlsx, .xlsb) de 512 MiB o más se leen por bloques desde el disco; en los CSV, TSV y TXT, las fechas y los números no se convierten al cargar.
+                Los de 512 MiB o más se leen por bloques desde el disco. En CSV, TSV y TXT de ese tamaño, las fechas y los números no se convierten al cargar.
               </p>
             </div>
           </div>
@@ -879,8 +883,7 @@ export function LoadPhase({
                 )}
                 {(() => {
                   // Prevention: a date column read as text is otherwise only seen in «Ver columnas y tipos».
-                  if (!isDelimitedSelection || sheetSelection.dateConvention !== "unresolved") return null;
-                  const dateLike = dateLikeTextColumns(sheetSelection.schemaPreview.columns);
+                  const dateLike = dateLikeColumns;
                   if (dateLike.length === 0) return null;
                   const shown = dateLike.slice(0, 5).map((name) => `«${name}»`).join(", ");
                   const more = dateLike.length > 5 ? ` y ${(dateLike.length - 5).toLocaleString()} más` : "";
@@ -920,7 +923,11 @@ export function LoadPhase({
             )}
           </section>
           {isDelimitedSelection && (
-            <details className="sheet-import-options">
+            <details
+              className="sheet-import-options"
+              open={importOptionsOpen}
+              onToggle={(event) => setImportOptionsChoice({ selectionId: importOptionsSelectionId, open: event.currentTarget.open })}
+            >
               <summary>Interpretación de fechas y números (opcional)</summary>
               <p role="note">
                 “Sin definir” conserva el texto. Una convención convierte una columna solo si todos sus valores no nulos cumplen; si alguno no cumple, se conserva la columna completa como texto.

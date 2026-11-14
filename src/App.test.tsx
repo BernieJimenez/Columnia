@@ -128,7 +128,7 @@ function renderAppWithHeaderConfirmation() {
   return view;
 }
 async function openQualityAndAnalyze() {
-  await screen.findByText("Filas analizadas");
+  await screen.findByText("Completitud global");
 }
 
 async function switchPhase(label: "Cargar" | "Revisar" | "Preparar" | "Entregar") {
@@ -328,7 +328,7 @@ describe("App", () => {
 
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("button", { name: /^Aplicar \d+ cambios?$/ }));
-    expect(await screen.findByText("Plan aplicado: 1 celda actualizada.")).toBeInTheDocument();
+    expect(await screen.findByText("Propuesta aplicada: 1 celda actualizada.")).toBeInTheDocument();
 
     expect(screen.getByRole("button", { name: "Cargar" })).toHaveAttribute("aria-description", "Completada");
     expect(screen.getByRole("button", { name: "Revisar" })).not.toHaveAttribute("aria-description", "Completada");
@@ -371,7 +371,7 @@ describe("App", () => {
     }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("button", { name: /^Aplicar \d+ cambios?$/ }));
-    expect(await screen.findByText("Plan aplicado: 1 celda actualizada.")).toBeInTheDocument();
+    expect(await screen.findByText("Propuesta aplicada: 1 celda actualizada.")).toBeInTheDocument();
     await waitFor(() => expect(unsaved).toHaveBeenLastCalledWith(true));
 
     const pick = vi.mocked(bridge.pickDatasetSource);
@@ -1121,7 +1121,7 @@ describe("App", () => {
     expect(await screen.findByText("ventas.csv", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-current", "step");
     expect(await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
-    expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
+    expect(screen.getByText(/de las celdas tienen valor/)).toBeInTheDocument();
 
     await switchPhase("Entregar");
     expect(screen.getByRole("radio", { name: /^Validar calidad/ })).toBeChecked();
@@ -1379,8 +1379,11 @@ describe("App", () => {
     expect(within(comparison).getByRole("checkbox", { name: /email/ })).toBeChecked();
     expect(screen.getByRole("tab", { name: "Vista previa" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: "Diagnóstico" }));
-    fireEvent.click(screen.getByText("Consulta SQL", { selector: "summary span" }));
-    expect(screen.getByRole("combobox", { name: "Motor de consulta" })).toHaveValue("duckdb");
+    // The SQL query lives in the top bar only; it keeps the project's engine.
+    fireEvent.click(screen.getByRole("button", { name: "Consulta SQL" }));
+    const queryDrawer = await screen.findByRole("dialog", { name: "Consulta SQL" });
+    expect(await within(queryDrawer).findByRole("combobox", { name: "Motor de consulta" })).toHaveValue("duckdb");
+    fireEvent.keyDown(queryDrawer, { key: "Escape" });
     expect(screen.getByRole("combobox", { name: "Filas de muestra para correlaciones" })).toHaveValue("50000");
     fireEvent.click(screen.getByText("Preferencias y recursos"));
     expect(screen.getByRole("combobox", { name: "Modo de rendimiento" })).toHaveValue("maximum");
@@ -1428,7 +1431,7 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Abrir\b/ }));
 
     expect(await screen.findByRole("button", { name: /Continuar a Preparar|Ver cambios propuestos/ })).toBeInTheDocument();
-    expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
+    expect(screen.getByText(/de las celdas tienen valor/)).toBeInTheDocument();
     expect(profileSpy).toHaveBeenCalledOnce();
   });
 
@@ -2120,7 +2123,7 @@ describe("App", () => {
     await switchPhase("Preparar");
     applyProposalWithColumnNames();
 
-    expect(await screen.findByText("Plan aplicado: 1 columna renombrada.")).toBeInTheDocument();
+    expect(await screen.findByText("Propuesta aplicada: 1 columna renombrada.")).toBeInTheDocument();
     expect(within(screen.getByRole("complementary", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-description", "Completada");
     expect(normalizeSpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: false, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false }), expect.any(Function));
@@ -2175,7 +2178,7 @@ describe("App", () => {
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("button", { name: /^Aplicar \d+ cambios?$/ }));
 
-    expect(await screen.findByText("Plan aplicado: 1 celda actualizada.")).toBeInTheDocument();
+    expect(await screen.findByText("Propuesta aplicada: 1 celda actualizada.")).toBeInTheDocument();
     expect(trimSpy).toHaveBeenCalledWith(expect.objectContaining({ trimText: true, normalizeSentinels: false, normalizeColumnNames: false, removeDuplicates: false }), expect.any(Function));
 
     fireEvent.click(screen.getByRole("checkbox", { name: "city" }));
@@ -2226,7 +2229,7 @@ describe("App", () => {
     applyProposalWithColumnNames();
 
     expect(
-      await screen.findByText(/Plan aplicado: 1 celda actualizada y 1 columna renombrada/),
+      await screen.findByText(/Propuesta aplicada: 1 celda actualizada y 1 columna renombrada/),
     ).toBeInTheDocument();
     expect(within(screen.getByRole("complementary", { name: "Historial de cambios" })).getByRole("button", { name: "Deshacer" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Rehacer" })).toHaveAttribute("aria-disabled", "true");
@@ -2347,7 +2350,7 @@ describe("App", () => {
     await switchPhase("Preparar");
     expect(screen.getByRole("checkbox", { name: "Quitar 1 fila duplicada" })).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: /^Aplicar \d+ cambios?$/ }));
-    expect(await screen.findByText(/^Plan aplicado:/)).toBeInTheDocument();
+    expect(await screen.findByText(/^Propuesta aplicada:/)).toBeInTheDocument();
     expect(safeCorrectionSpy).toHaveBeenCalledWith(expect.objectContaining({
       trimText: false, normalizeSentinels: false, normalizeColumnNames: false, removeDuplicates: true,
     }), expect.any(Function));
@@ -3849,7 +3852,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Usuario"), { target: { value: "ana" } });
     fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
     await screen.findByText(/Comprobación previa completa/);
-    fireEvent.click(screen.getByRole("button", { name: "Exportar PostgreSQL" }));
+    fireEvent.click(screen.getByRole("button", { name: "Exportar a PostgreSQL" }));
     await waitFor(() => expect(exportSpy).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "postgresql", schema: "public", table: "remoto" }),
       [], true, expect.any(Function), "none",

@@ -60,9 +60,18 @@ export function toggleExpanded(layout: ExploreLayout, column: string): ExploreLa
   return { ...layout, expanded };
 }
 
-/** Five evenly spaced marks for the histogram axis. */
-export function axisTicks(lower: number, upper: number): number[] {
-  return [0, 1, 2, 3, 4].map((step) => lower + ((upper - lower) * step) / 4);
+/**
+ * Three to five axis marks that sit on real bin edges (never between two
+ * columns). `position` is the edge's place along the plot, from 0 to 1.
+ */
+export function axisTicks(bins: { lower: number; upper: number }[]): { value: number; position: number }[] {
+  if (bins.length === 0) return [];
+  const edges = [...bins.map((bin) => bin.lower), bins[bins.length - 1]!.upper];
+  const last = edges.length - 1;
+  const picked = edges.length <= 5
+    ? edges.map((_, index) => index)
+    : [...new Set([0, 1, 2, 3, 4].map((step) => Math.round((last * step) / 4)))];
+  return picked.map((index) => ({ value: edges[index]!, position: index / last }));
 }
 
 export function valueLabel(value: string | null): string {

@@ -9,7 +9,10 @@ import type {
   TemporalAggregationSeries,
 } from "../../bridge";
 import * as bridge from "../../bridge";
-import { DatasetPreviewPanel, ReviewPhase, sqlIdentifier } from "./ReviewPhase";
+import { useState } from "react";
+import { buildPrepareProposal } from "../prepare/proposalModel";
+import type { DatasetQueryEngine, SqlQueryHistoryEntry } from "../../bridge";
+import { DatasetPreviewPanel, LocalQueryPanel, ReviewPhase, sqlIdentifier, type SqlQueryDraft } from "./ReviewPhase";
 import { formatNumber } from "../../format";
 import { formatStatistic, readsAsCode } from "./ReviewCharts";
 import { createReadyDatasetStatus } from "../load/loadModel";
@@ -20,6 +23,46 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+
+const NO_HISTORY: SqlQueryHistoryEntry[] = [];
+
+/**
+ * The SQL query lives in the top bar's console, not in Revisar: this harness
+ * mounts the same panel the way App does (the draft is kept by the owner, and
+ * the panel is gone while the preview tab is shown).
+ */
+function SqlPanelHarness({
+  datasetStatus,
+  datasetRevision = 0,
+  reviewTab = "diagnosis",
+  comparison,
+  sqlHistory = NO_HISTORY,
+  onSqlHistoryChange = () => undefined,
+  queryEngine,
+  onQueryEngineChange = () => undefined,
+}: Partial<Parameters<typeof ReviewPhase>[0]> & {
+  datasetStatus: Parameters<typeof ReviewPhase>[0]["datasetStatus"];
+  sqlHistory?: SqlQueryHistoryEntry[];
+  onSqlHistoryChange?: (entries: SqlQueryHistoryEntry[]) => void;
+  queryEngine?: DatasetQueryEngine;
+  onQueryEngineChange?: (engine: DatasetQueryEngine) => void;
+}) {
+  const [draft, setDraft] = useState<SqlQueryDraft | null>(null);
+  if (reviewTab === "preview") return null;
+  return (
+    <LocalQueryPanel
+      columnNames={datasetStatus.dataset.columns.map((column) => column.name)}
+      comparisonAvailable={comparison?.status.kind === "ready"}
+      queryHistory={sqlHistory}
+      onQueryHistoryChange={onSqlHistoryChange}
+      draft={draft}
+      onDraftChange={setDraft}
+      queryEngine={queryEngine}
+      onQueryEngineChange={onQueryEngineChange}
+      datasetRevision={datasetRevision}
+    />
+  );
+}
 
 const dataset: DatasetPreview = {
   fileName: "datos.csv",
@@ -514,7 +557,8 @@ describe("ReviewPhase", () => {
     expect(onRetryProfile).toHaveBeenCalledOnce();
   });
 
-  it("el análisis cancelado nombra la acción concreta", () => {
+  it("el análisis cancelado lleva dentro «Reintentar análisis», sin mandar al pie", () => {
+    const onRetryProfile = vi.fn();
     render(
       <ReviewPhase
         datasetStatus={createReadyDatasetStatus(dataset)}
@@ -523,11 +567,108 @@ describe("ReviewPhase", () => {
         onTabChange={() => undefined}
         onPageChange={() => undefined}
         onCancelProfile={() => undefined}
+        onRetryProfile={onRetryProfile}
         comparison={baseComparison}
       />,
     );
-    expect(screen.getByRole("status")).toHaveTextContent("«Reintentar análisis»");
-    expect(screen.getByRole("status")).not.toHaveTextContent("acción principal");
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent("El análisis se canceló");
+    expect(notice).not.toHaveTextContent(/abajo|acción principal/);
+    fireEvent.click(within(notice).getByRole("button", { name: "Reintentar análisis" }));
+    expect(onRetryProfile).toHaveBeenCalledOnce();
+  });
+
+  it("«Más análisis y herramientas» tiene un solo nivel: secciones con encabezado, sin plegables anidados ni la consulta SQL", () => {
+    render(temporalTrendElement(profile, 17, () => undefined));
+
+    const more = screen.getByText("Más análisis y herramientas").closest("details") as HTMLElement;
+    // Nothing inside is a disclosure that structures the page; only the «Ver datos exactos» alternates remain.
+    const nested = [...more.querySelectorAll("details")].filter((details) => !details.classList.contains("quality-data-details"));
+    expect(nested).toEqual([]);
+    for (const name of ["Completitud global", "Señales del perfil", "Perfil por columna", "Configuración del análisis"]) {
+      expect(within(more).getByRole("heading", { level: 4, name })).toBeInTheDocument();
+    }
+    expect(screen.queryByText("Ver análisis detallado")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ver perfil por columna")).not.toBeInTheDocument();
+    expect(within(more).queryByRole("textbox", { name: "Consulta SQL" })).not.toBeInTheDocument();
+    expect(within(more).queryByText("Filas analizadas")).not.toBeInTheDocument();
+    // The exact-data tables stay as helpers of one table, closed.
+    for (const details of more.querySelectorAll("details.quality-data-details")) expect(details).not.toHaveAttribute("open");
+  });
+
+  it("los nulos que la propuesta rellena no se cuentan otra vez en «No se corrige solo»", () => {
+    const base = profile.columns.find((column) => column.name === "nombre")!;
+    const filled = {
+      ...base,
+      name: "categoria",
+      dataType: "String",
+      nullCount: 4,
+      sentinelCount: 0,
+      suggestedType: null,
+      invalidTypeCount: 0,
+      uniqueCount: 3,
+      averageLength: 5,
+      emptyCount: 0,
+    };
+    const unfilled = { ...base, name: "comentario", nullCount: 9, sentinelCount: 0, suggestedType: null, invalidTypeCount: 0, uniqueCount: 100, averageLength: 80, emptyCount: 0 };
+    const mixed: DatasetProfile = {
+      ...profile,
+      columns: [...profile.columns.filter((column) => column.name !== "nombre"), filled, unfilled],
+    };
+    const mixedDataset: DatasetPreview = {
+      ...dataset,
+      columns: [...dataset.columns, { name: "categoria", dataType: "String" }, { name: "comentario", dataType: "String" }],
+      rows: dataset.rows.map((row) => [...row, "a", "b"]),
+    };
+    const proposal = buildPrepareProposal(mixed, mixedDataset);
+    const impute = proposal.find((item) => item.id === "impute");
+    expect(impute?.columns?.map((column) => column.name)).toEqual(["categoria"]);
+
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(mixedDataset)}
+        profileStatus={{ kind: "ready", profile: mixed }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        comparison={baseComparison}
+      />,
+    );
+    // Above: «Rellenar 4 nulos»; below, only the 9 nulls the proposal leaves alone.
+    expect(within(screen.getByLabelText("Resumen de calidad del dataset")).getByText(/Rellenar 4 nulos en 1 columna/)).toBeInTheDocument();
+    const block = screen.getByRole("list", { name: "Lo que no se corrige solo" });
+    expect(block).toHaveTextContent("9 nulos en 1 columna que la propuesta no rellena");
+    expect(block).toHaveTextContent("Son distintos de los 4 que la propuesta ofrece rellenar");
+    expect(block).not.toHaveTextContent("13 nulos");
+  });
+
+  it("marca las columnas con marcadores «sin dato» donde la completitud podría engañar", () => {
+    const base = profile.columns.find((column) => column.name === "nombre")!;
+    const marked: DatasetProfile = {
+      ...profile,
+      columns: profile.columns.map((column) =>
+        column === base ? { ...column, sentinelCount: 7 } : column,
+      ),
+    };
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "ready", profile: marked }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        comparison={baseComparison}
+      />,
+    );
+    const completeness = screen.getByRole("list", { name: "Completitud por columna" });
+    expect(completeness).toHaveTextContent("incluye 7 marcadores «sin dato»");
+    expect(within(completeness).getAllByText(/marcadores? «sin dato»/)).toHaveLength(1);
+    expect(screen.getByRole("list", { name: "Patrones de nulos por columna" })).toHaveTextContent("sin contar 7 marcadores «sin dato»");
+    expect(screen.getByText(/Completitud global/).closest("section")).toHaveTextContent("incluye 7 marcadores «sin dato»");
+    // The numeric profile does not know numeric markers (-999): one general note, not per column.
+    expect(screen.getByText(/no reconoce marcadores como -999/)).toBeInTheDocument();
   });
 
   it("con una muestra mayor que el dataset dice que las correlaciones usan todas las filas", () => {
@@ -649,8 +790,6 @@ describe("ReviewPhase", () => {
 
     expect(screen.getByText("actualizacion.csv")).toBeInTheDocument();
     expect(screen.getByText("Coinciden")).toBeInTheDocument();
-    expect(screen.getByText(/La comparación cargada también está disponible como compared/)).toBeInTheDocument();
-    expect(screen.getByText(/SELECT id, segmento FROM dataset LEFT JOIN compared/)).toBeInTheDocument();
     // Revisar only looks: joining and consolidating moved to Preparar.
     expect(screen.queryByRole("button", { name: "Consolidar filas" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Unir/ })).not.toBeInTheDocument();
@@ -684,7 +823,7 @@ describe("ReviewPhase", () => {
       truncated: true,
     });
     render(
-      <ReviewPhase
+      <SqlPanelHarness
         datasetStatus={createReadyDatasetStatus(dataset)}
         profileStatus={{ kind: "idle" }}
         reviewTab="diagnosis"
@@ -767,7 +906,7 @@ describe("ReviewPhase", () => {
       onJoin: () => undefined,
     };
     const view = (reviewTab: "diagnosis" | "preview", profileStatus: ProfileStatus) => (
-      <ReviewPhase
+      <SqlPanelHarness
         datasetStatus={createReadyDatasetStatus(dataset)}
         profileStatus={profileStatus}
         reviewTab={reviewTab}
@@ -796,7 +935,7 @@ describe("ReviewPhase", () => {
     // A failed cancellation on the way out is not an error the person sees.
     const cancel = vi.spyOn(bridge, "cancelOperation").mockRejectedValue(new Error("terminada"));
     const { unmount } = render(
-      <ReviewPhase
+      <SqlPanelHarness
         datasetStatus={createReadyDatasetStatus(dataset)}
         profileStatus={{ kind: "idle" }}
         reviewTab="diagnosis"
@@ -833,7 +972,7 @@ describe("ReviewPhase", () => {
     vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
 
     render(
-      <ReviewPhase
+      <SqlPanelHarness
         datasetStatus={createReadyDatasetStatus(dataset)}
         profileStatus={{ kind: "idle" }}
         reviewTab="diagnosis"
@@ -888,7 +1027,7 @@ describe("ReviewPhase", () => {
     vi.spyOn(bridge, "queryDataset").mockReturnValue(pendingQuery);
     const nextDataset = { ...dataset, fileName: "nuevo.csv", fileSizeBytes: 101 };
     const view = render(
-      <ReviewPhase
+      <SqlPanelHarness
         datasetStatus={createReadyDatasetStatus(dataset)}
         datasetRevision={0}
         profileStatus={{ kind: "idle" }}
@@ -914,7 +1053,7 @@ describe("ReviewPhase", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
     view.rerender(
-      <ReviewPhase
+      <SqlPanelHarness
         datasetStatus={createReadyDatasetStatus(nextDataset)}
         datasetRevision={1}
         profileStatus={{ kind: "idle" }}
@@ -1001,7 +1140,7 @@ describe("ReviewPhase", () => {
     expect(screen.getByRole("table", { name: "Tabla de validación de formato" })).toHaveTextContent(
       "6",
     );
-    expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("120");
+    expect(screen.getByText(/de las celdas tienen valor/)).toHaveTextContent("240 celdas");
     expect(screen.getByRole("heading", { name: "Distribución numérica" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Distribución numérica por columna" })).toHaveTextContent(
       "Q1 30 · Mediana 60 · Q3 90",
@@ -1501,9 +1640,9 @@ describe("ReviewPhase · consulta SQL local", () => {
     onJoinTypeChange: () => undefined,
     onJoin: () => undefined,
   };
-  function renderQueryPanel(props: Partial<Parameters<typeof ReviewPhase>[0]> = {}) {
+  function renderQueryPanel(props: Partial<Parameters<typeof SqlPanelHarness>[0]> = {}) {
     return render(
-      <ReviewPhase
+      <SqlPanelHarness
         datasetStatus={createReadyDatasetStatus(dataset)}
         profileStatus={{ kind: "idle" }}
         reviewTab="diagnosis"
@@ -1578,7 +1717,17 @@ describe("ReviewPhase · consulta SQL local", () => {
 
   it("recuerda las filas de muestra elegidas aunque la fase no reciba un manejador", () => {
     window.localStorage.removeItem("columnia.analysis-sample-rows");
-    renderQueryPanel();
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "idle" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        comparison={idleComparison}
+      />,
+    );
 
     fireEvent.change(screen.getByRole("combobox", { name: "Filas de muestra para correlaciones" }), {
       target: { value: "10000" },
@@ -1588,10 +1737,19 @@ describe("ReviewPhase · consulta SQL local", () => {
     expect(window.localStorage.getItem("columnia.analysis-sample-rows")).toBe("10000");
   });
 
+  it("con una comparación cargada la consulta nombra la tabla compared en lenguaje llano", () => {
+    renderQueryPanel({ comparison: { ...idleComparison, status: { kind: "ready" } as never } });
+
+    expect(screen.getByText(/en la consulta se llama compared/)).toBeInTheDocument();
+    expect(screen.queryByText(/JOIN INNER/)).not.toBeInTheDocument();
+    expect(screen.getByText(/SELECT id, segmento FROM dataset LEFT JOIN compared/)).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Habitual (Polars)" })).toBeInTheDocument();
+  });
+
   it("muestra el historial de consultas que llega de un proyecto abierto", () => {
     const view = renderQueryPanel({ sqlHistory: [] });
     view.rerender(
-      <ReviewPhase
+      <SqlPanelHarness
         datasetStatus={createReadyDatasetStatus(dataset)}
         profileStatus={{ kind: "idle" }}
         reviewTab="diagnosis"

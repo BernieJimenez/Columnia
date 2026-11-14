@@ -113,19 +113,20 @@ export function databaseLocation(target: DatabaseTargetDraft): string {
 }
 
 /**
- * What «Reemplazar» deletes, said before it happens. The preflight only says
- * whether the table exists, not how many rows it holds.
+ * What «Reemplazar» deletes, said before it happens: the preflight says whether
+ * the table exists and, when the engine answered, how many rows it holds.
  */
 export function replaceTableWarning(
   table: string,
-  preflight: { tableExists: boolean; rowCount?: number | null } | null,
+  preflight: { tableExists: boolean; existingRowCount?: number | null } | null,
 ): string | null {
   if (preflight && !preflight.tableExists) return null;
   if (!preflight) return `Si la tabla ${table} ya existe, se borrarán sus filas y se volverá a crear con estos datos.`;
-  const rows = typeof preflight.rowCount !== "number"
+  const rows = typeof preflight.existingRowCount !== "number"
     ? "sus filas"
-    : preflight.rowCount === 1 ? "su única fila" : `sus ${plural(preflight.rowCount, "fila", "filas")}`;
-  return `La tabla ${table} ya existe: se borrarán ${rows} y se volverá a crear con estos datos.`;
+    : preflight.existingRowCount === 1 ? "su única fila" : `sus ${plural(preflight.existingRowCount, "fila", "filas")}`;
+  const verb = preflight.existingRowCount === 1 ? "se borrará" : "se borrarán";
+  return `La tabla ${table} ya existe: ${verb} ${rows} y se volverá a crear con estos datos.`;
 }
 
 /** The target to send, once its connection is complete. */
@@ -253,8 +254,13 @@ const TABLE_POLICY_LABEL: Record<DatabaseTarget["tablePolicy"], string> = {
 };
 
 /** The table line of a SQL Server script or package. */
-export function sqlServerScriptTable(options: SqlServerScriptOptions, keyColumns: readonly string[]): string {
-  const name = `${options.schema.trim() || "dbo"}.${options.table.trim() || "(nombre del archivo)"}`;
+export function sqlServerScriptTable(
+  options: SqlServerScriptOptions,
+  keyColumns: readonly string[],
+  fileName = "",
+): string {
+  // An empty name is taken from the saved file; the dataset's name is the one the save dialog offers.
+  const name = `${options.schema.trim() || "dbo"}.${options.table.trim() || databaseTableName(fileName)}`;
   const keys = options.mode === "upsert" && keyColumns.length > 0 ? ` (${keyColumns.join(", ")})` : "";
   return `${name} · ${SQL_SERVER_MODE_LABEL[options.mode]}${keys}`;
 }

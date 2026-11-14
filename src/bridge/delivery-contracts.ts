@@ -233,6 +233,8 @@ export interface RemoteExportPreflight {
   table: string;
   tablePolicy: DatabaseTablePolicy;
   tableExists: boolean;
+  /** Rows of the existing table, asked only with «Reemplazar»; absent when not asked or the count was not possible. */
+  existingRowCount?: number;
   ready: boolean;
   issues: RemotePreflightIssue[];
 }

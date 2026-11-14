@@ -97,13 +97,27 @@ function isImputable(column: ColumnProfile, rowCount: number): boolean {
   if (column.privacySignal || column.suggestedType === "date" || looksLikeIdentifier(column.name)) return false;
   const observed = rowCount - column.nullCount;
   if (isNumericType(column.dataType)) return observed > 0 && column.median !== null;
+  return isCategoryColumn(column, rowCount);
+}
+
+/** A text column of few, short, repeated values: its most frequent value means something. */
+export function isCategoryColumn(column: ColumnProfile, rowCount: number): boolean {
   if (!isTextType(column.dataType)) return false;
+  const observed = rowCount - column.nullCount;
   return (
     column.uniqueCount < observed
     && column.uniqueCount <= MAX_CATEGORY_VALUES
     && column.uniqueCount / Math.max(observed, 1) <= MAX_CATEGORY_SHARE
     && (column.averageLength ?? 0) <= MAX_CATEGORY_LENGTH
   );
+}
+
+/**
+ * What «Rellenar nulos» of the proposal fills, as its title says: the gaps
+ * and the «sin dato» markers it converts into gaps first.
+ */
+export function proposalImputeCells(item: ProposalItem): number {
+  return (item.columns ?? []).reduce((sum, column) => sum + column.missing + column.sentinels, 0);
 }
 
 /**
@@ -133,8 +147,13 @@ function isDateable(column: ColumnProfile): boolean {
   );
 }
 
-function datesTitle(columnCount: number): string {
-  return `Convertir ${plural(columnCount, "columna", "columnas")} a fecha`;
+/** «Convertir «importe» a número» for one column, «Convertir 3 columnas a número» for more. */
+function columnsPhrase(names: string[]): string {
+  return names.length === 1 ? `«${names[0] ?? ""}»` : plural(names.length, "columna", "columnas");
+}
+
+function datesTitle(names: string[]): string {
+  return `Convertir ${columnsPhrase(names)} a fecha`;
 }
 
 function sampleValue(dataset: DatasetPreview, name: string): string | null {
@@ -180,13 +199,14 @@ export function resolvedDateColumns(item: ProposalItem, ambiguousOrder: DateOrde
  * (FUN-24).
  */
 export function datesItemTitle(item: ProposalItem, ambiguousOrder: DateOrder | null): string {
-  const resolved = resolvedDateColumns(item, ambiguousOrder).length;
-  const pending = (item.dateColumns ?? []).length - resolved;
-  if (pending === 0) return datesTitle(resolved);
-  if (resolved === 0) {
-    return `Convertir ${plural(pending, "columna", "columnas")} a fecha: elige cómo se lee${pending === 1 ? "" : "n"}`;
+  const resolvedNames = resolvedDateColumns(item, ambiguousOrder).map((column) => column.column);
+  const pendingNames = (item.dateColumns ?? []).map((column) => column.name).filter((name) => !resolvedNames.includes(name));
+  const pending = pendingNames.length;
+  if (pending === 0) return datesTitle(resolvedNames);
+  if (resolvedNames.length === 0) {
+    return `Convertir ${columnsPhrase(pendingNames)} a fecha: elige cómo se lee${pending === 1 ? "" : "n"}`;
   }
-  return `${datesTitle(resolved)} (${plural(pending, "columna necesita", "columnas necesitan")} que elijas el orden)`;
+  return `${datesTitle(resolvedNames)} (${pending === 1 ? `«${pendingNames[0] ?? ""}» necesita` : plural(pending, "columna necesita", "columnas necesitan")} que elijas el orden)`;
 }
 
 export function hasAmbiguousDates(item: ProposalItem): boolean {
@@ -268,7 +288,7 @@ export function buildPrepareProposal(profile: DatasetProfile, dataset: DatasetPr
   if (typeable.length > 0) {
     items.push({
       id: "types",
-      title: `Convertir ${plural(typeable.length, "columna", "columnas")} a número`,
+      title: `Convertir ${columnsPhrase(typeable.map((column) => column.name))} a número`,
       hint: "Todos sus valores son números; así se suman, ordenan y exportan como números. Los identificadores no se tocan.",
       // A column whose only non-numbers are «sin dato» markers types once
       // those markers become gaps, so it depends on that change.
@@ -290,7 +310,7 @@ export function buildPrepareProposal(profile: DatasetProfile, dataset: DatasetPr
     }));
     items.push({
       id: "dates",
-      title: datesTitle(dateColumns.length),
+      title: datesTitle(dateColumns.map((column) => column.name)),
       hint: "Todos sus valores son fechas; así se ordenan y filtran como fechas.",
       dateColumns,
       examples: [],
@@ -373,10 +393,10 @@ export function proposalItemTitle(
   preview?: SafeCorrectionsPreview | null,
 ): string {
   if (item.id === "types" && item.columns) {
-    const count = typedColumns(item, selection).length;
-    return count === 0
+    const typed = typedColumns(item, selection);
+    return typed.length === 0
       ? "Convertir a número: requiere convertir los marcadores «sin dato»"
-      : `Convertir ${plural(count, "columna", "columnas")} a número`;
+      : `Convertir ${columnsPhrase(typed)} a número`;
   }
   // Trimming spaces can make more rows identical: the engine's simulation
   // counts the duplicates that will really go (FUN-12).

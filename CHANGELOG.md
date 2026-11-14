@@ -369,6 +369,42 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Entregar ya no repite un reemplazo de un clic (segunda crítica de diseño del
+  2026-11-14): tras escribir en una base de datos el botón conserva su verbo y
+  objeto pero queda bloqueado hasta volver a analizar y, con «Reemplazar»,
+  volver a confirmar; «Exportar otra copia» queda solo para archivos. La
+  confirmación de reemplazo solo se da tras el análisis, que ahora cuenta las
+  filas de la tabla existente («se borrarán sus N filas»), y el resultado dice
+  si se reemplazó, se añadió o se creó la tabla. Un contrato fallido lleva el
+  foco a su título y ofrece «Corregir en Preparar»; plurales y porcentajes
+  correctos, «Exportar a PostgreSQL/MySQL» y el nombre real de la tabla en el
+  resumen del script.
+- Preparar: «Corregir columna por columna» muestra una fila por columna con
+  algo que corregir y una sola acción recomendada; las alternativas se pliegan
+  en «Otras opciones» y lo que toca varias columnas va en «En varias columnas».
+  Una columna vacía o con 80 % o más de nulos solo se ofrece para eliminar, y
+  «Desconocido» ya no rellena esas columnas ni las de números, fechas o sí/no
+  guardados como texto (también en el motor, en memoria y por bloques).
+  Rellenar pide confirmación con cifra y columnas, la cifra de nulos coincide
+  con la de la propuesta, la propuesta se llama siempre «propuesta» y nombra la
+  columna cuando es una sola, hay un solo «Deshacer» por zona, el primario
+  bloqueado es un contorno discontinuo y, en una columna estrecha, el texto ya
+  no reserva huecos de cientos de píxeles. Las etiquetas del historial dicen
+  «Marcadores «sin dato» a nulo» y «Rellenar nulos».
+- Revisar: «No se corrige solo» ya no cuenta los nulos que la propuesta
+  rellena y sus acciones son enlaces de texto bajo la única primaria. «Más
+  análisis y herramientas» tiene un solo nivel, sin la Consulta SQL duplicada
+  de la barra superior; las columnas con marcadores «sin dato» lo indican en
+  completitud, cobertura temporal y perfil. El análisis cancelado lleva
+  «Reintentar análisis» dentro, y las tablas de cobertura temporal ya no
+  provocan scroll horizontal a 320 px.
+- Explorar: el histograma y la tendencia muestran siempre el rango completo y
+  una línea con las filas del tramo enfocado o tocado; las marcas del eje caen
+  en bordes de tramo, la tendencia dice su periodo con más filas y cambiar la
+  medida o la fecha que quita un filtro ofrece «Deshacer».
+- Cargar: el apartado de fechas del diálogo se abre solo si hay una columna con
+  nombre de fecha, la zona vacía pierde la ilustración decorativa y la frase de
+  los formatos se parte en dos.
 - Cargar ya no dice cosas que no son verdad (crítica de diseño del
   2026-11-12). «Archivos recientes» cuenta «nombres recordados» y cada uno
   ofrece «Buscar en el equipo», con el nombre del archivo para los lectores de

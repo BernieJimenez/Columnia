@@ -27,6 +27,8 @@ interface DeliveryResultProps {
   takeFocus?: boolean;
   /** A database delivery: «servidor · base · esquema.tabla», as chosen when it was sent. */
   databaseLocation?: string | null;
+  /** The table policy the database write was asked with: the result says what happened to the table. */
+  databasePolicy?: "create_only" | "append" | "replace" | null;
 }
 
 function isDatabaseResult(result: ExportResult): boolean {
@@ -53,6 +55,7 @@ export function DeliveryResult({
   current = true,
   takeFocus = true,
   databaseLocation = null,
+  databasePolicy = null,
 }: DeliveryResultProps) {
   const [openOutputState, setOpenOutputState] = useState<"idle" | "working" | "opened" | "error">("idle");
   const [powerBiState, setPowerBiState] = useState<
@@ -112,10 +115,15 @@ export function DeliveryResult({
   const where = database
     ? databaseLocation ?? result.fileName
     : result.folderName != null ? `${result.fileName} en la carpeta ${result.folderName}` : result.fileName;
+  const tableOutcome = databasePolicy === "replace"
+    ? " Se reemplazó la tabla anterior."
+    : databasePolicy === "append"
+      ? ` Se ${result.rowCount === 1 ? "añadió 1 fila" : rows ? `añadieron ${rows}` : "añadieron las filas"} a la tabla existente.`
+      : databasePolicy === "create_only" ? " Se creó la tabla." : "";
   const sentence = !current
     ? "Se creó antes de cambiar el destino o el formato; la entrega actual aún no se ha hecho."
     : database
-      ? `${result.rowCount === 1 ? "La fila quedó" : rows ? `Las ${rows} quedaron` : "Los datos quedaron"} en ${where}.`
+      ? `${result.rowCount === 1 ? "La fila quedó" : rows ? `Las ${rows} quedaron` : "Los datos quedaron"} en ${where}.${tableOutcome}`
       : `Se guardó ${where}. El dataset preparado sigue disponible en Columnia.`;
   const protectedCells = result.formulaProtectedCellCount ?? 0;
   const actionClass = current ? "primary-action" : "secondary-action";

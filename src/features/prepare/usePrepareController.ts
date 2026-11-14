@@ -330,7 +330,7 @@ export function usePrepareController({
         kind: "applied",
         message: result.changedCellCount === 0
           ? "No se encontraron valores personales no nulos que proteger."
-          : `Se protegieron ${cells} en ${columns} con el texto [REDACTED] (valor oculto). No se muestran nombres ni valores; el cambio puede revertirse desde el historial.`,
+          : `Se ocultaron ${cells} en ${columns}: ahora dicen [REDACTED]. No se muestran nombres ni valores; el cambio puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -394,8 +394,8 @@ export function usePrepareController({
       setChangeStatus({
         kind: "applied",
         message: result.changedCellCount === 0
-          ? "No se detectaron valores con doble codificación UTF-8."
-          : `Se corrigieron acentos mal leídos (doble codificación UTF-8) en ${detail}.`,
+          ? "No se detectaron acentos mal leídos."
+          : `Se corrigieron acentos mal leídos en ${detail}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -658,11 +658,18 @@ export function usePrepareController({
           ? `se rellenaron ${imputedCellCount.toLocaleString()} ${imputedCellCount === 1 ? "nulo" : "nulos"}`
           : null,
       ].filter((change): change is string => change !== null);
+      // «Rellenar» of one column in «Corregir columna por columna» uses the same
+      // engine with only imputation: it is not the proposal.
+      const onlyFill = options.imputeMissing === true && !options.trimText && !options.normalizeSentinels
+        && !options.normalizeColumnNames && !options.removeDuplicates && !castsColumns;
+      const filledColumns = options.imputeColumns ?? [];
       setChangeStatus({
         kind: "applied",
-        message: changed
-          ? "Plan aplicado: " + changes.join(" y ") + "."
-          : "El dataset ya cumplía las correcciones seleccionadas.",
+        message: !changed
+          ? onlyFill ? "No quedaba ningún nulo que rellenar." : "El dataset ya cumplía los cambios seleccionados."
+          : onlyFill
+            ? `${imputedCellCount === 1 ? "Se rellenó" : "Se rellenaron"} ${plural(imputedCellCount, "nulo", "nulos")}${filledColumns.length > 0 ? ` en ${filledColumns.join(", ")}` : ""}.`
+            : "Propuesta aplicada: " + changes.join(" y ") + ".",
         changes: appliedPlanChanges(options, result),
         unchanged: !changed,
       });

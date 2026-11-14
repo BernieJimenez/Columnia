@@ -118,7 +118,7 @@ describe("PrepareProposal ambiguous dates (RV18)", () => {
     const question = screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" });
     fireEvent.click(within(question).getByLabelText("Día/mes: 2024-02-01"));
 
-    expect(screen.getByLabelText("Convertir 1 columna a fecha")).toBeChecked();
+    expect(screen.getByLabelText("Convertir «alta» a fecha")).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Ver antes y después" }));
     expect(screen.getByText("2024-02-01", { selector: "strong" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Aplicar 1 cambio" }));
@@ -253,7 +253,7 @@ describe("PrepareProposal date count (FUN-24)", () => {
       <PrepareProposal items={mixed} columnCount={3} busy={false} canUndo={false} result={null}
         onApply={vi.fn()} onUndo={vi.fn()} onDismissResult={vi.fn()} />,
     );
-    expect(screen.getByLabelText("Convertir 2 columnas a fecha (1 columna necesita que elijas el orden)")).toBeChecked();
+    expect(screen.getByLabelText("Convertir 2 columnas a fecha («pago» necesita que elijas el orden)")).toBeChecked();
     fireEvent.click(screen.getByLabelText("Mes/día: 2024-01-02"));
     expect(screen.getByLabelText("Convertir 3 columnas a fecha")).toBeChecked();
   });
