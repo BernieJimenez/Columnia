@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../bridge";
@@ -240,7 +240,35 @@ describe("usePrepareController", () => {
       "No se detectaron duplicados parecidos adicionales.",
     ));
     expect(removeNearDuplicates).toHaveBeenCalledOnce();
-    expect(callbacks.onDatasetChanged).toHaveBeenCalledTimes(2);
+    // The second removal found nothing, so the dataset is not published again.
+    expect(callbacks.onDatasetChanged).toHaveBeenCalledOnce();
+  });
+
+  it("un cambio que no toca ninguna celda no ofrece Deshacer ni invalida Revisar y Entregar", async () => {
+    vi.spyOn(bridge, "trimTextValues").mockResolvedValue({
+      dataset,
+      affectedRowCount: 0,
+      changedCellCount: 0,
+      changedColumns: [],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const callbacks = {
+      onDatasetChanged: vi.fn(),
+      onProfileInvalidated: vi.fn(),
+      onDeliveryInvalidated: vi.fn(),
+    };
+    const { result } = renderHook(() => usePrepareController({ activeDataset: dataset, ...callbacks }));
+
+    await act(() => result.current.trimText());
+
+    expect(result.current.changeStatus).toMatchObject({
+      kind: "applied",
+      message: "No se encontraron valores que necesitaran esta corrección.",
+      unchanged: true,
+    });
+    expect(callbacks.onDatasetChanged).not.toHaveBeenCalled();
+    expect(callbacks.onProfileInvalidated).not.toHaveBeenCalled();
+    expect(callbacks.onDeliveryInvalidated).not.toHaveBeenCalled();
   });
 
   it("publica la eliminación de parecidos y refresca el historial", async () => {

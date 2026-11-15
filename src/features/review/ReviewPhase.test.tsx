@@ -513,6 +513,28 @@ describe("ReviewPhase", () => {
     expect(onReturnToLoad).toHaveBeenCalledOnce();
   });
 
+  it("avisa de que las cifras son de la versión actual tras cambiar los datos en Preparar", () => {
+    const element = (currentChange?: string) => (
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "ready", profile }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onCancelProfile={() => undefined}
+        onReturnToLoad={() => undefined}
+        comparison={baseComparison}
+        currentChange={currentChange}
+      />
+    );
+    const { rerender } = render(element());
+    expect(screen.queryByText(/Los datos cambiaron en Preparar/)).not.toBeInTheDocument();
+    rerender(element("Rellenar nulos de cpu_usage"));
+    expect(screen.getByText(/Los datos cambiaron en Preparar/)).toHaveTextContent(
+      "Los datos cambiaron en Preparar: estas cifras son de la versión actual («Rellenar nulos de cpu_usage»), no del archivo que cargaste.",
+    );
+  });
+
   it("los datos personales y los valores no finitos entran en el bloque", () => {
     const personalProfile = {
       ...profile,

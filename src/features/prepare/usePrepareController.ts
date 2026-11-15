@@ -155,19 +155,33 @@ export function usePrepareController({
     setChangeStatus({ kind: "applied", message });
   }
 
+  /**
+   * The result of a change. One that touched nothing wrote no version (the
+   * engine skips it), so the line offers no «Deshacer», which would undo the
+   * change before it, and Revisar and Entregar keep what they had.
+   */
+  async function settleChange(
+    dataset: DatasetPreview,
+    changed: boolean,
+    status: { message: string; changes?: string[] },
+  ) {
+    if (changed) {
+      onDatasetChanged(dataset);
+      onProfileInvalidated();
+    }
+    setChangeStatus({ kind: "applied", ...status, ...(changed ? {} : { unchanged: true }) });
+    await refreshHistory();
+    if (changed) onDeliveryInvalidated();
+  }
+
   async function applyDuplicateRemoval() {
     if (activeDataset === null) return;
     setChangeStatus({ kind: "working", action: "duplicates" });
     try {
       const result = await removeDuplicates();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.affectedRowCount > 0, {
         message: `${result.affectedRowCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.affectedRowCount, "fila duplicada adicional", "filas duplicadas adicionales")}.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -178,16 +192,11 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "near_duplicates" });
     try {
       const result = await removeNearDuplicates();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.affectedRowCount > 0, {
         message: result.affectedRowCount === 0
           ? "No se detectaron duplicados parecidos adicionales."
           : `${result.affectedRowCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.affectedRowCount, "fila duplicada parecida", "filas duplicadas parecidas")}. La primera fila de cada grupo y las copias exactas se conservaron.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -198,16 +207,11 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "empty_rows" });
     try {
       const result = await removeEmptyRows();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.affectedRowCount > 0, {
         message: result.affectedRowCount === 0
           ? "No se detectaron filas completamente vacías."
           : `${result.affectedRowCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.affectedRowCount, "fila completamente vacía", "filas completamente vacías")}.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -218,16 +222,11 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "constant_columns" });
     try {
       const result = await removeConstantColumns();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.removedColumnCount > 0, {
         message: result.removedColumnCount === 0
           ? "No se eliminaron columnas constantes; se conserva al menos una columna del dataset."
           : `${result.removedColumnCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.removedColumnCount, "columna constante", "columnas constantes")}: ${result.removedColumns.join(", ")}.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -238,16 +237,11 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "empty_columns" });
     try {
       const result = await removeEmptyColumns();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.removedColumnCount > 0, {
         message: result.removedColumnCount === 0
           ? "No se eliminaron columnas vacías; se conserva al menos una columna del dataset."
           : `${result.removedColumnCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.removedColumnCount, "columna completamente vacía", "columnas completamente vacías")}: ${result.removedColumns.join(", ")}.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -258,16 +252,11 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "high_null_columns" });
     try {
       const result = await removeHighNullColumns();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.removedColumnCount > 0, {
         message: result.removedColumnCount === 0
           ? `No se detectaron columnas con al menos ${result.thresholdPercentage ?? 80} % de valores nulos.`
           : `${result.removedColumnCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.removedColumnCount, "columna con alta nulidad", "columnas con alta nulidad")}: ${result.removedColumns.join(", ")}.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -278,16 +267,11 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "identifier_columns" });
     try {
       const result = await removeIdentifierColumns();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.removedColumnCount > 0, {
         message: result.removedColumnCount === 0
           ? "No se detectaron columnas identificadoras para retirar; se conserva al menos una columna del dataset."
           : `${result.removedColumnCount === 1 ? "Se retiró" : "Se retiraron"} ${plural(result.removedColumnCount, "columna identificadora", "columnas identificadoras")}: ${result.removedColumns.join(", ")}. La operación puede revertirse desde el historial.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -298,16 +282,11 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "personal_columns" });
     try {
       const result = await removePersonalColumns();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.removedColumnCount > 0, {
         message: result.removedColumnCount === 0
           ? "No se detectaron columnas de datos personales para retirar; se conserva al menos una columna del dataset."
           : `${result.removedColumnCount === 1 ? "Se retiró" : "Se retiraron"} ${plural(result.removedColumnCount, "columna de datos personales", "columnas de datos personales")}. No se muestran nombres ni valores. La operación puede revertirse desde el historial.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -318,22 +297,17 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "personal_mask" });
     try {
       const result = await maskPersonalValues();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
       const cells = result.changedCellCount === 1
         ? "1 valor"
         : `${result.changedCellCount.toLocaleString("es-ES")} valores`;
       const columns = result.changedColumnCount === 1
         ? "1 columna"
         : `${result.changedColumnCount.toLocaleString("es-ES")} columnas`;
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.changedCellCount > 0, {
         message: result.changedCellCount === 0
           ? "No se encontraron valores personales no nulos que proteger."
           : `Se ocultaron ${cells} en ${columns}: ahora dicen [REDACTED]. No se muestran nombres ni valores; el cambio puede revertirse desde el historial.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -344,17 +318,12 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "booleans" });
     try {
       const result = await normalizeBooleanValues();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
       const columns = result.changedColumns.map((column) => column.name).join(", ");
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.changedCellCount > 0, {
         message: result.changedCellCount === 0
           ? "No se encontraron alias booleanos que necesitaran normalización."
           : `${result.changedCellCount === 1 ? "Se normalizó" : "Se normalizaron"} ${plural(result.changedCellCount, "valor booleano", "valores booleanos")} en: ${columns}.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -365,17 +334,12 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "parse_dates" });
     try {
       const result = await parseDateValues();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
       const columns = result.changedColumns.map((column) => column.name).join(", ");
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.changedCellCount > 0, {
         message: result.changedCellCount === 0
           ? "No se detectaron columnas de texto con un formato de fecha dominante y seguro."
           : `${result.changedCellCount === 1 ? "Se interpretó" : "Se interpretaron"} ${plural(result.changedCellCount, "valor de fecha", "valores de fecha")} en: ${columns}.${nullifiedCellsSentence(result.changedColumns)} Las columnas ambiguas se dejaron intactas y el cambio puede revertirse desde el historial.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -386,19 +350,14 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "encoding" });
     try {
       const result = await fixEncodingValues();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
       const detail = result.changedCellCount === 1
         ? "1 celda"
         : `${result.changedCellCount.toLocaleString("es-ES")} celdas`;
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.changedCellCount > 0, {
         message: result.changedCellCount === 0
           ? "No se detectaron acentos mal leídos."
           : `Se corrigieron acentos mal leídos en ${detail}.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -409,17 +368,12 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "cast_numeric" });
     try {
       const result = await castNumericValues();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
       const columns = result.changedColumns.map((column) => column.name).join(", ");
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.changedCellCount > 0, {
         message: result.changedCellCount === 0
           ? "No se detectaron columnas de texto numéricas seguras para convertir."
           : `${result.changedCellCount === 1 ? "Se convirtió" : "Se convirtieron"} ${plural(result.changedCellCount, "valor numérico", "valores numéricos")} en: ${columns}.${nullifiedCellsSentence(result.changedColumns)} Los identificadores y códigos con ceros iniciales se conservaron; el cambio puede revertirse desde el historial.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -430,21 +384,16 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "invalid_types" });
     try {
       const result = await nullifyInvalidTypeValues();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
       const detail = result.changedCellCount === 1
         ? "1 valor"
         : `${result.changedCellCount.toLocaleString("es-ES")} valores`;
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.changedCellCount > 0, {
         message: result.changedCellCount === 0
           ? "No se encontraron valores incompatibles con un tipo sugerido con confianza."
           : result.changedCellCount === 1
             ? `Se apartó ${detail} incompatible como nulo; el cambio puede revertirse desde el historial.`
             : `Se apartaron ${detail} incompatibles como nulos; el cambio puede revertirse desde el historial.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -455,17 +404,12 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "impute" });
     try {
       const result = await imputeMissingValues();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
       const columns = result.changedColumns.map((column) => column.name).join(", ");
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.changedCellCount > 0, {
         message: result.changedCellCount === 0
           ? "No se encontraron nulos imputables con una señal conservadora."
           : `${result.changedCellCount === 1 ? "Se imputó" : "Se imputaron"} ${plural(result.changedCellCount, "valor nulo", "valores nulos")} en: ${columns}.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -476,17 +420,12 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "outlier_impute" });
     try {
       const result = await imputeOutlierValues();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
       const columns = result.changedColumns.map((column) => column.name).join(", ");
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.changedCellCount > 0, {
         message: result.changedCellCount === 0
           ? "No se detectaron valores atípicos que necesitaran reemplazo."
           : `${result.changedCellCount === 1 ? "Se reemplazó" : "Se reemplazaron"} ${plural(result.changedCellCount, "valor atípico", "valores atípicos")} por la mediana en: ${columns}. El cambio puede revertirse desde el historial.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -499,11 +438,8 @@ export function usePrepareController({
       const result = action === "cap"
         ? await capOutlierValues()
         : await dropOutlierValues();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
       const columns = result.changedColumns.map((column) => column.name).join(", ");
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, (action === "cap" ? result.changedCellCount : result.affectedRowCount) > 0, {
         message: action === "cap"
           ? result.changedCellCount === 0
             ? "No se detectaron valores atípicos que necesitaran limitación."
@@ -512,8 +448,6 @@ export function usePrepareController({
             ? "No se detectaron filas atípicas para eliminar."
             : `${result.affectedRowCount === 1 ? "Se eliminó" : "Se eliminaron"} ${plural(result.affectedRowCount, "fila atípica", "filas atípicas")} fuera del rango normal (regla IQR). El cambio puede revertirse desde el historial.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -524,17 +458,12 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "categorical_impute" });
     try {
       const result = await imputeCategoricalValues();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
       const columns = result.changedColumns.map((column) => column.name).join(", ");
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.changedCellCount > 0, {
         message: result.changedCellCount === 0
           ? "No se encontraron nulos textuales para completar como Desconocido."
           : `${result.changedCellCount === 1 ? "Se completó" : "Se completaron"} ${plural(result.changedCellCount, "nulo textual", "nulos textuales")} como Desconocido en: ${columns}. El cambio puede revertirse desde el historial.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -545,17 +474,12 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "audit" });
     try {
       const result = await enableRowAudit();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
       const enabled = result.dataset.columns.some((column) => isRowAuditColumn(column.name));
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, enabled, {
         message: enabled
           ? "La trazabilidad por fila está activa; los cambios futuros se anotarán en _cambios."
           : "La trazabilidad por fila no produjo cambios.",
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -566,10 +490,7 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "columns" });
     try {
       const result = await normalizeColumnNames();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.renamedColumnCount > 0, {
         message:
           result.renamedColumnCount === 0
             ? "Los nombres de las columnas ya estaban normalizados."
@@ -577,8 +498,6 @@ export function usePrepareController({
               ? "Se normalizó 1 nombre de columna."
               : `${result.renamedColumnCount === 1 ? "Se normalizó" : "Se normalizaron"} ${plural(result.renamedColumnCount, "nombre de columna", "nombres de columnas")}.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -591,8 +510,6 @@ export function usePrepareController({
       const result = action === "trim"
         ? await trimTextValues()
         : await normalizeTextValues(columns, removeAccents);
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
       const cells = result.changedCellCount === 1
         ? "1 celda"
         : `${result.changedCellCount.toLocaleString("es-ES")} celdas`;
@@ -600,8 +517,7 @@ export function usePrepareController({
         ? "1 fila"
         : `${result.affectedRowCount.toLocaleString("es-ES")} filas`;
       const detail = `${cells} en ${rows}`;
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, result.changedCellCount > 0, {
         message:
           result.changedCellCount === 0
             ? "No se encontraron valores que necesitaran esta corrección."
@@ -609,8 +525,6 @@ export function usePrepareController({
               ? `Se recortaron espacios en ${detail}.`
               : `Se normalizó texto en ${detail}.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }
@@ -685,22 +599,17 @@ export function usePrepareController({
     setChangeStatus({ kind: "working", action: "transform" });
     try {
       const result = await applyTransformRecipe(recipe, exceptionPolicy);
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
       const total = result.renamedColumnCount + result.convertedColumnCount +
         result.parsedDateColumnCount + result.removedRowCount + result.calculatedColumnCount +
         result.replacedCellCount + result.droppedColumnCount + result.splitColumnCount +
         result.mergedColumnCount + result.droppedSourceColumnCount + result.adjustedOutlierCellCount +
         result.outlierRemovedRowCount + result.collapsedRowCount + result.aggregatedColumnCount +
         result.normalizedContactCellCount + result.extractedColumnCount;
-      setChangeStatus({
-        kind: "applied",
+      await settleChange(result.dataset, total > 0, {
         message: total === 0
           ? "La receta no produjo cambios en el dataset."
           : `Receta aplicada: ${recipeResultParts(result)}.`,
       });
-      await refreshHistory();
-      onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus(changeFailureStatus(error));
     }

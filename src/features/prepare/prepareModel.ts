@@ -36,6 +36,18 @@ export type RecipeFileStatus =
   | { kind: "success"; message: string }
   | { kind: "error"; message: string };
 
+/** The engine's label for the version recorded when the dataset is loaded. */
+export const ORIGIN_LABEL = "Dataset original";
+
+/**
+ * The label of the current version when Preparar changed the data, or null
+ * while it is still the loaded dataset (or after undoing back to it).
+ */
+export function currentChangeLabel(history: HistoryState): string | null {
+  const current = history.entries.find((entry) => entry.isCurrent);
+  return current && current.label !== ORIGIN_LABEL ? current.label : null;
+}
+
 export const EMPTY_HISTORY: HistoryState = {
   canUndo: false,
   canRedo: false,

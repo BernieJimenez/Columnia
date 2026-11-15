@@ -369,6 +369,20 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Preparar ya no llama «Origen» a la versión más antigua que conserva el
+  historial: con archivos grandes se retiran las primeras versiones para no
+  pasar de 12 ni de 1 GiB, y entonces la lista numera «Versión N» y dice que el
+  origen se retiró. «Rellenar nulos» de una columna nombra la columna
+  («Rellenar nulos de cpu_usage»), así varias versiones seguidas se distinguen.
+- Un cambio de Preparar que no toca ninguna celda ya no ofrece «Deshacer» (que
+  deshacía el cambio anterior), no repite el resumen del cambio anterior en
+  «Último resultado» y no marca Revisar ni Entregar como pendientes.
+- Revisar dice, dentro de la página, que sus cifras son de la versión actual
+  cuando Preparar cambió los datos, y qué versión es.
+- El histograma de Explorar ya no muestra una barra de desplazamiento vertical.
+- Entregar no da por elegido «Exportar sin validar» mientras propone
+  comprobaciones: queda sin elegir hasta que se marca, y al marcarlo la
+  propuesta desaparece.
 - Las cifras salen siempre en formato español («12.400», «50,0%»), también en
   un Windows en inglés, donde antes aparecían «12,400» o «50.0%» dentro de una
   interfaz solo en español (tercera crítica de diseño del 2026-11-14).

@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 import type { HistoryState } from "../../bridge";
 import { busyDescribedBy } from "../../busyReasons";
-import { changeProgressMessage, formatChangeSummary, type ChangeStatus } from "./prepareModel";
+import { changeProgressMessage, formatChangeSummary, ORIGIN_LABEL, type ChangeStatus } from "./prepareModel";
 import { formatBytes } from "../../format";
 import { OperationProgressView } from "../../components/OperationProgressView";
 
@@ -10,16 +10,25 @@ export function HistoryBar({
   status,
   busy,
   latestChange,
+  latestUnchanged = false,
   onUndo,
   onRedo,
 }: {
   status: HistoryState;
   busy: boolean;
   latestChange?: string;
+  /** The latest change touched nothing: the summary below belongs to the one before. */
+  latestUnchanged?: boolean;
   onUndo: () => void;
   onRedo: () => void;
 }) {
   const visibleEntries = status.entries.slice(-MAX_VISIBLE_VERSIONS);
+  // The history keeps a limited number of versions: once the oldest are
+  // retired, the first one kept is a change, not the loaded dataset.
+  const originKept = status.entries[0]?.label === ORIGIN_LABEL;
+  const stepName = (index: number) => originKept
+    ? index === 0 ? "Origen" : `Cambio ${index}`
+    : `Versión ${index + 1}`;
   const hiddenCount = status.entries.length - visibleEntries.length;
   const nothingToUndo = status.snapshotsEnabled && !status.canUndo && !status.canRedo;
   const undoBlocked = busy || !status.snapshotsEnabled || !status.canUndo;
@@ -91,6 +100,9 @@ export function HistoryBar({
       {nothingToUndo && <p className="version-history__hint">Aún no hay cambios que deshacer.</p>}
       {status.snapshotsEnabled && visibleEntries.length > 0 && (
         <ol className="version-history__list" aria-label="Versiones del dataset">
+          {!originKept && (
+            <li className="version-history__more">El origen y los primeros cambios se retiraron para no superar el espacio del historial.</li>
+          )}
           {hiddenCount > 0 && (
             <li className="version-history__more">{hiddenCount === 1 ? "1 versión anterior" : `${hiddenCount.toLocaleString("es-ES")} versiones anteriores`}</li>
           )}
@@ -103,7 +115,7 @@ export function HistoryBar({
                 aria-current={entry.isCurrent ? "step" : undefined}
               >
                 <span className="version-history__marker" aria-hidden="true" />
-                <span className="version-history__step">{entry.index === 0 ? "Origen" : `Cambio ${entry.index}`}</span>
+                <span className="version-history__step">{stepName(entry.index)}</span>
                 <span className="version-history__label">{entry.label}</span>
                 {state === "current" && <strong className="version-history__state">Actual</strong>}
                 {state === "undone" && <small className="version-history__state">Deshecho · se puede rehacer</small>}
@@ -116,7 +128,7 @@ export function HistoryBar({
         <div className="version-history__latest" role="status">
           <span>Último resultado</span>
           <p>{latestChange}</p>
-          {status.lastChange != null && <p className="version-history__summary">{formatChangeSummary(status.lastChange)}</p>}
+          {status.lastChange != null && !latestUnchanged && <p className="version-history__summary">{formatChangeSummary(status.lastChange)}</p>}
         </div>
       )}
       {status.snapshotsEnabled && (

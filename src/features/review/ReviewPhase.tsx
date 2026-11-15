@@ -73,6 +73,8 @@ interface ReviewPhaseProps {
   /** «Combinar en Preparar»: Revisar compares; Preparar joins and consolidates. */
   onCombineInPrepare?: () => void;
   datasetRevision?: number;
+  /** Label of the current version once Preparar changed the data. */
+  currentChange?: string | null;
   analysisSampleRows?: AnalysisSampleRows;
   onAnalysisSampleRowsChange?: (sampleRows: AnalysisSampleRows) => void;
 }
@@ -92,6 +94,7 @@ export function ReviewPhase({
   comparison,
   onCombineInPrepare,
   datasetRevision = 0,
+  currentChange = null,
   analysisSampleRows,
   onAnalysisSampleRowsChange = () => undefined,
 }: ReviewPhaseProps) {
@@ -113,6 +116,12 @@ export function ReviewPhase({
           <p className="phase-lead">Entiende la calidad y la estructura de los datos. Nada cambia hasta que apruebes una corrección.</p>
         </div>
       </header>
+      {/* The figures are recalculated after each change; say which version they describe. */}
+      {currentChange && (
+        <p className="notice" role="note">
+          Los datos cambiaron en Preparar: estas cifras son de la versión actual («{currentChange}»), no del archivo que cargaste.
+        </p>
+      )}
       <ReviewTabList activeTab={reviewTab} onTabChange={onTabChange} />
 
       {reviewTab === "diagnosis" ? (

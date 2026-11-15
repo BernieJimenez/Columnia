@@ -98,6 +98,22 @@ describe("HistoryBar versiones deshechas", () => {
     );
     expect(screen.getByRole("button", { name: "Deshacer" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText("Aún no hay cambios que deshacer.")).toBeVisible();
+
+    // Once the oldest versions are retired, the first one kept is not the origin.
+    rerender(
+      <HistoryBar
+        status={{ ...history, currentIndex: 1, entryCount: 2, entries: [
+          { id: "history-test-5", index: 0, label: "Rellenar nulos de cpu_usage", isCurrent: false },
+          { id: "history-test-6", index: 1, label: "Rellenar nulos de memory_usage", isCurrent: true },
+        ] }}
+        busy={false}
+        onUndo={() => undefined}
+        onRedo={() => undefined}
+      />,
+    );
+    expect(screen.queryByText("Origen")).not.toBeInTheDocument();
+    expect(screen.getByText("Rellenar nulos de cpu_usage").closest("li")).toHaveTextContent("Versión 1");
+    expect(screen.getByText(/El origen y los primeros cambios se retiraron/)).toBeVisible();
   });
 
   it("pone Deshacer y Rehacer antes de la lista de versiones (AUD-057)", () => {

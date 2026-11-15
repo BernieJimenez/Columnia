@@ -5786,7 +5786,9 @@ fn safe_corrections_label(
     cast_columns: bool,
     date_columns: bool,
     impute_missing: bool,
+    impute_columns: Option<&[String]>,
 ) -> String {
+    let fill = fill_label(impute_columns);
     let parts = [
         (normalize_sentinels, "Marcadores «sin dato» a nulo"),
         (trim_text, "Recortar espacios"),
@@ -5794,7 +5796,7 @@ fn safe_corrections_label(
         (cast_columns, "Convertir a número"),
         (date_columns, "Convertir a fecha"),
         (remove_duplicates, "Quitar duplicados"),
-        (impute_missing, "Rellenar nulos"),
+        (impute_missing, fill.as_str()),
     ]
     .into_iter()
     .filter_map(|(applied, label)| applied.then_some(label))
@@ -5803,6 +5805,26 @@ fn safe_corrections_label(
         "Aplicar la propuesta".to_owned()
     } else {
         parts.join(" · ")
+    }
+}
+
+/// «Rellenar nulos» names the columns it filled, so several fills of one
+/// column at a time read apart in the history.
+fn fill_label(columns: Option<&[String]>) -> String {
+    const MAX_NAMED: usize = 3;
+    const MAX_CHARS: usize = 120;
+    match columns {
+        Some(columns) if !columns.is_empty() => {
+            let named = format!("Rellenar nulos de {}", columns.join(", "));
+            if columns.len() <= MAX_NAMED && named.chars().count() <= MAX_CHARS {
+                named
+            } else if columns.len() == 1 {
+                "Rellenar nulos de 1 columna".to_owned()
+            } else {
+                format!("Rellenar nulos de {} columnas", columns.len())
+            }
+        }
+        _ => "Rellenar nulos".to_owned(),
     }
 }
 
@@ -6080,6 +6102,7 @@ fn source_backed_safe_corrections_with_cancellation(
             !cast_candidates.is_empty(),
             date_columns.is_some_and(|plans| !plans.is_empty()),
             impute_columns.is_some(),
+            impute_columns,
         ),
         force_publish,
         cancellation.clone(),
@@ -12728,6 +12751,7 @@ fn apply_safe_corrections_to_dataset(
                 typed_column_count > 0,
                 dated_column_count > 0,
                 impute_missing,
+                impute_columns.as_deref(),
             ),
             Some(cancellation),
         )?

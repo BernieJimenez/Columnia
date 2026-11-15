@@ -19745,16 +19745,27 @@ fn safe_correction_history_labels_say_what_was_applied() {
     // UX-01: two entries both called «Aplicar correcciones recomendadas»
     // did not say which one removed duplicates and which one trimmed.
     assert_eq!(
-        safe_corrections_label(true, false, false, true, false, false, false),
+        safe_corrections_label(true, false, false, true, false, false, false, None),
         "Recortar espacios · Quitar duplicados"
     );
     assert_eq!(
-        safe_corrections_label(false, true, true, false, true, true, true),
+        safe_corrections_label(false, true, true, false, true, true, true, None),
         "Marcadores «sin dato» a nulo · Normalizar nombres de columna · Convertir a número · Convertir a fecha · Rellenar nulos"
     );
     assert_eq!(
-        safe_corrections_label(false, false, false, false, false, false, false),
+        safe_corrections_label(false, false, false, false, false, false, false, None),
         "Aplicar la propuesta"
+    );
+    // Several one-column fills read apart in the history.
+    let one = ["cpu_usage".to_owned()];
+    assert_eq!(
+        safe_corrections_label(false, false, false, false, false, false, true, Some(&one)),
+        "Rellenar nulos de cpu_usage"
+    );
+    let many = ["a", "b", "c", "d"].map(str::to_owned);
+    assert_eq!(
+        safe_corrections_label(false, false, false, false, false, false, true, Some(&many)),
+        "Rellenar nulos de 4 columnas"
     );
 }
 

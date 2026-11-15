@@ -412,6 +412,18 @@ describe("comprobaciones propuestas en Entregar", () => {
     expect(screen.queryByRole("button", { name: /sugeridas que faltan|sugerida que falta/ })).not.toBeInTheDocument();
   });
 
+  it("no da por elegido «Exportar sin validar» mientras propone comprobaciones", () => {
+    render(<DeliveryHarness onExport={vi.fn()} suggestedRules={suggestedRules} />);
+    expect(screen.getByRole("radio", { name: /^Exportar sin validar/ })).not.toBeChecked();
+    expect(screen.getByRole("radio", { name: /^Validar calidad/ })).not.toBeChecked();
+    expect(screen.getByRole("group", { name: "Columnia propone 3 comprobaciones" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: /^Exportar sin validar/ }));
+
+    expect(screen.getByRole("radio", { name: /^Exportar sin validar/ })).toBeChecked();
+    expect(screen.queryByRole("group", { name: /Columnia propone/ })).not.toBeInTheDocument();
+  });
+
   it("no propone nada cuando ya hay reglas o no hay sugerencias", () => {
     render(<DeliveryHarness onExport={vi.fn()} />);
     expect(screen.queryByRole("group", { name: /Columnia propone/ })).not.toBeInTheDocument();

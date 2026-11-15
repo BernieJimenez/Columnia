@@ -350,6 +350,14 @@ export function DeliveryPhase({
   const missingSuggestions = suggestedRules.filter((suggestion) =>
     !rules.some((rule) => rule.kind === suggestion.kind && rule.column === suggestion.column));
 
+  // No rules is where every delivery starts, not a decision: «Exportar sin
+  // validar» shows as chosen only once the person picks it (or confirms it in
+  // step 4), so it never sits selected beside the recommended route and the
+  // proposal that belongs to that route.
+  const [skipChosen, setSkipChosen] = useState(false);
+  const skipsValidation = contract.kind === "without_contract"
+    && (skipChosen || suggestedRules.length === 0 || contract.confirmation === "confirmed");
+
   function toggleSuggestion(index: number) {
     setSuggestionChoice({
       key: suggestionsKey,
@@ -949,6 +957,7 @@ export function DeliveryPhase({
               disabled={busy || dataset.columns.length === 0}
               onChange={() => {
                 if (contract.kind === "with_contract") return;
+                setSkipChosen(false);
                 setRulesEditorOpen(true);
                 const next = withAddedRule(rules, dataset);
                 if (next) changeRules(next);
@@ -963,13 +972,16 @@ export function DeliveryPhase({
               </small>
             </span>
           </label>
-          <label data-selected={contract.kind === "without_contract" || undefined}>
+          <label data-selected={skipsValidation || undefined}>
             <input
               type="radio"
               name="delivery-validation-route"
-              checked={contract.kind === "without_contract"}
+              checked={skipsValidation}
               disabled={busy}
-              onChange={() => contract.kind !== "without_contract" && changeRules([])}
+              onChange={() => {
+                setSkipChosen(true);
+                if (contract.kind !== "without_contract") changeRules([]);
+              }}
             />
             <span>
               <strong>Exportar sin validar</strong>
@@ -978,7 +990,7 @@ export function DeliveryPhase({
           </label>
         </fieldset>
 
-        {contract.kind === "without_contract" && suggestedRules.length > 0 && (
+        {contract.kind === "without_contract" && !skipsValidation && (
           <div className="quality-suggestions" role="group" aria-labelledby="quality-suggestions-title">
             <h4 id="quality-suggestions-title">
               {suggestedRules.length === 1

@@ -28,6 +28,8 @@ describe("estilos de Explorar", () => {
     expect(css).toMatch(/\.explore__columns\s*\{[^}]*minmax\(24px, 1fr\)/);
     expect(/\.explore__columns\s*\{([^}]*)\}/.exec(css)?.[1]).not.toMatch(/overflow/);
     expect(css).toMatch(/\.explore__scroll\s*\{[^}]*overflow-x:\s*auto/);
+    // Without it, overflow-y computes to auto and the axis text adds a vertical scrollbar.
+    expect(css).toMatch(/\.explore__scroll\s*\{[^}]*overflow-y:\s*hidden/);
   });
 
   it("los avisos informativos son neutros, no ámbar, y las tablas tienen tope de alto", () => {

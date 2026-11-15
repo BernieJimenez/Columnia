@@ -55,6 +55,7 @@ import {
   type RecentDataset,
 } from "./features/load/recentFilesModel";
 import { usePrepareController } from "./features/prepare/usePrepareController";
+import { currentChangeLabel } from "./features/prepare/prepareModel";
 import { useProjectsController } from "./features/projects/useProjectsController";
 import { SidebarSave } from "./features/projects/SidebarSave";
 import {
@@ -1759,6 +1760,7 @@ export function App() {
                   setActivePhase("prepare");
                 }}
                 datasetRevision={datasetRevision}
+                currentChange={currentChangeLabel(prepare.historyStatus)}
                 analysisSampleRows={review.analysisSampleRows}
                 onAnalysisSampleRowsChange={review.setAnalysisSampleRows}
               />

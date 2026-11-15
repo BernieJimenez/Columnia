@@ -702,6 +702,7 @@ export function PreparePhase({
           status={historyStatus}
           busy={changing}
           latestChange={changeStatus.kind === "applied" ? changeStatus.message : undefined}
+          latestUnchanged={changeStatus.kind === "applied" && changeStatus.unchanged === true}
           onUndo={onUndo}
           onRedo={onRedo}
         />
