@@ -1024,3 +1024,74 @@ fn perf_probe_compared_rows_of_a_conflict_page() {
         );
     }
 }
+
+/// Load and history phases of «Cargar archivo» over `COLUMNIA_PROBE_LOAD_FILE`:
+/// the CSV read, the initial history snapshot (synchronous and in the
+/// background) and the snapshot each Preparar change writes.
+#[test]
+#[ignore = "sonda opt-in de carga e historial con un archivo grande"]
+fn perf_probe_load_and_history() {
+    let Ok(path) = std::env::var("COLUMNIA_PROBE_LOAD_FILE") else {
+        println!("probe   COLUMNIA_PROBE_LOAD_FILE no definida; nada que medir");
+        return;
+    };
+    crate::configure_allocator();
+    let path = PathBuf::from(path);
+    let mib = |bytes: u64| bytes as f64 / (1024.0 * 1024.0);
+    let (frame, _) = timed("lectura (load_dataset_with_header_mode)", || {
+        load_dataset_with_header_mode(&path, SpreadsheetHeaderMode::FirstRow, |_, _| {}, || false)
+            .expect("carga")
+    });
+    println!(
+        "probe   filas={} columnas={} chunks(col0)={}",
+        frame.height(),
+        frame.width(),
+        frame.first_col_n_chunks()
+    );
+    let history = timed("HistoryManager::new (sincrono)", || {
+        HistoryManager::new(&frame).expect("historial")
+    });
+    println!("probe   snapshot original {:.1} MiB", mib(history.entries[0].bytes));
+    let prepared = timed("prepare_frame_snapshot", || {
+        history
+            .prepare_frame_snapshot(&frame, || false)
+            .expect("snapshot")
+    });
+    println!("probe   snapshot preparado {:.1} MiB", mib(prepared.bytes));
+    drop(prepared);
+    // The reference: the same frame written at once, without cancellation.
+    let reference = history.directory.path().join("referencia.parquet");
+    timed("ParquetWriter::finish (referencia)", || {
+        let mut snapshot = frame.clone();
+        ParquetWriter::new(File::create(&reference).unwrap())
+            .with_row_group_size(Some(parquet_row_group_rows(&frame)))
+            .finish(&mut snapshot)
+            .unwrap()
+    });
+    let _ = fs::remove_file(&reference);
+    drop(history);
+
+    // What «Cargar archivo» waits for now: building the history returns at
+    // once, and the snapshot settles on the next use of the history.
+    let started = Instant::now();
+    let mut background = timed("with_background_baseline (vuelve)", || {
+        HistoryManager::with_background_baseline(&frame).expect("historial")
+    });
+    let profile = timed("perfil mientras se escribe la copia", || {
+        profile_dataset_with_progress(&frame, |_, _| {}, || false, MAX_NUMERIC_CORRELATION_SAMPLE_ROWS)
+            .expect("perfil")
+    });
+    drop(profile);
+    if let Some(slot) = background.baseline_in_progress() {
+        slot.wait();
+    }
+    assert!(background.settle_baseline());
+    println!(
+        "probe   copia original registrada a los {:.1} ms ({:.1} MiB, {} entradas)",
+        started.elapsed().as_secs_f64() * 1000.0,
+        mib(background.disk_bytes()),
+        background.entries.len()
+    );
+    let cancelled = HistoryManager::with_background_baseline(&frame).expect("historial");
+    timed("soltar una copia pendiente (cancela)", || drop(cancelled));
+}

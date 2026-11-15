@@ -65,6 +65,8 @@ pub struct DeliveryPresetState {
     catalog_generation: AtomicU64,
 }
 
+const PRESET_SCHEMA_VERSION: i64 = 1;
+
 impl DeliveryPresetState {
     pub fn initialize(app_data_dir: PathBuf) -> Result<Self, String> {
         Ok(Self {
@@ -117,6 +119,16 @@ impl DeliveryPresetStore {
 
     fn migrate(&self) -> Result<(), String> {
         let mut connection = self.connection()?;
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(|_| storage_error())?;
+        if version > PRESET_SCHEMA_VERSION {
+            return Err("El catálogo de entregas pertenece a una versión más reciente.".to_owned());
+        }
+        // DAT-19: an up-to-date catalog is left untouched.
+        if version == PRESET_SCHEMA_VERSION {
+            return Ok(());
+        }
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| storage_error())?;
@@ -129,7 +141,8 @@ impl DeliveryPresetStore {
                    updated_at TEXT NOT NULL
                  );
                  CREATE INDEX IF NOT EXISTS delivery_presets_updated_at
-                   ON delivery_presets(updated_at DESC, id ASC);",
+                   ON delivery_presets(updated_at DESC, id ASC);
+                 PRAGMA user_version = 1;",
             )
             .map_err(|_| storage_error())?;
         transaction.commit().map_err(|_| storage_error())

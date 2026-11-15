@@ -13,6 +13,10 @@ use std::{
     fs::{self, File},
     io::{Read, Write},
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Condvar, Mutex,
+    },
 };
 use tauri::{AppHandle, Manager, State};
 
@@ -102,6 +106,8 @@ const LOCKED_DIRECTORY_PREFIXES: [&str; 4] = [
 /// Held open while a session uses its folder; a folder whose lock can be
 /// deleted belongs to a session that is over.
 const HISTORY_LOCK_FILE: &str = "en-uso.lock";
+/// The label of the first version of every loaded dataset.
+const ORIGINAL_LABEL: &str = "Dataset original";
 
 /// A new history folder and its open lock (DAT-04).
 ///
@@ -232,8 +238,82 @@ fn is_legacy_history_directory(path: &std::path::Path) -> bool {
     snapshots > 0
 }
 
+/// What the thread writing an initial snapshot shares with its history.
+#[derive(Debug, Default)]
+pub(super) struct BaselineSlot {
+    cancelled: AtomicBool,
+    result: Mutex<Option<Result<PreparedHistorySnapshot, String>>>,
+    ready: Condvar,
+}
+
+impl BaselineSlot {
+    fn publish(&self, result: Result<PreparedHistorySnapshot, String>) {
+        *self.result.lock_recovering() = Some(result);
+        self.ready.notify_all();
+    }
+
+    fn is_ready(&self) -> bool {
+        self.result.lock_recovering().is_some()
+    }
+
+    /// Blocks until the snapshot is written, has failed or was cancelled.
+    pub(super) fn wait(&self) {
+        let mut result = self.result.lock_recovering();
+        while result.is_none() {
+            result = self
+                .ready
+                .wait(result)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+}
+
+/// Publishes a failure if the writing thread ends without a result (a panic),
+/// so nobody waits for it forever.
+struct BaselinePublisher(Arc<BaselineSlot>);
+
+impl Drop for BaselinePublisher {
+    fn drop(&mut self) {
+        let mut result = self.0.result.lock_recovering();
+        if result.is_none() {
+            *result = Some(Err(
+                "La copia del dataset original se interrumpió.".to_owned()
+            ));
+            self.0.ready.notify_all();
+        }
+    }
+}
+
+/// The snapshot of «Dataset original» while another thread writes it, so a
+/// load reports the dataset ready without waiting for that copy (2,7 s of
+/// zstd for 2 M rows).
+///
+/// Until it is settled the history has no entry and undo is unavailable;
+/// `DatasetState::current` settles it before handing the dataset to anything
+/// that reads or changes the history, waiting for the thread if needed. The
+/// frame cannot change before that: every change goes through that lock.
+/// Dropping it (another dataset loaded, the app closing) cancels the thread
+/// and waits for it, so its temporary file is removed before the folder.
+#[derive(Debug)]
+pub(super) struct PendingBaseline {
+    slot: Arc<BaselineSlot>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for PendingBaseline {
+    fn drop(&mut self) {
+        self.slot.cancelled.store(true, Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct HistoryManager {
+    /// Declared first: it cancels and joins its thread before the folder that
+    /// thread writes into is deleted.
+    pub(super) pending_baseline: Option<PendingBaseline>,
     /// Dropped before `directory`, so the folder can be deleted (DAT-04).
     pub(super) _lock: std::fs::File,
     pub(super) directory: tempfile::TempDir,
@@ -265,12 +345,78 @@ thread_local! {
         const { std::cell::Cell::new(0) };
 }
 
+/// Writes `frame` as a zstd Parquet snapshot into a temporary file of
+/// `directory`, one row group per write so a cancellation is noticed within
+/// one group. Each group is a single chunk and its columns are encoded in
+/// parallel: as fast as `ParquetWriter::finish` (2,7 s against 6,3 s for the
+/// serial writer over 8 Ki-row chunks on a 2 M-row CSV) with the same file.
+pub(super) fn write_frame_snapshot<C>(
+    directory: &Path,
+    frame: &DataFrame,
+    mut is_cancelled: C,
+) -> Result<PreparedHistorySnapshot, String>
+where
+    C: FnMut() -> bool,
+{
+    if is_cancelled() {
+        return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+    }
+    let mut temporary = tempfile::NamedTempFile::new_in(directory)
+        .map_err(|error| format!("No se pudo preparar el snapshot del historial: {error}"))?;
+    let schema_frame = frame.slice(0, 0);
+    let schema = schema_frame.schema();
+    let mut writer = ParquetWriter::new(temporary.as_file_mut())
+        .set_parallel(true)
+        .batched(schema)
+        .map_err(|error| format!("No se pudo preparar el snapshot del historial: {error}"))?;
+    let batch_rows = parquet_row_group_rows(frame);
+    let mut offset = 0;
+    while offset < frame.height() {
+        if is_cancelled() {
+            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+        }
+        let row_count = batch_rows.min(frame.height() - offset);
+        let mut batch = frame.slice(offset as i64, row_count);
+        // The batched writer needs equal chunk layouts and writes one row
+        // group per chunk: a single chunk keeps groups of `batch_rows` rows
+        // whatever chunks a streamed load or a mutation left behind.
+        batch.rechunk_mut_par();
+        writer
+            .write_batch(&batch)
+            .map_err(|error| format!("No se pudo escribir el snapshot del historial: {error}"))?;
+        offset += row_count;
+    }
+    if is_cancelled() {
+        return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+    }
+    writer
+        .finish()
+        .map_err(|error| format!("No se pudo cerrar el snapshot del historial: {error}"))?;
+    if is_cancelled() {
+        return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+    }
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar el snapshot del historial: {error}"))?;
+    if is_cancelled() {
+        return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+    }
+    let bytes = temporary
+        .as_file()
+        .metadata()
+        .map_err(|error| format!("No se pudo verificar el snapshot del historial: {error}"))?
+        .len();
+    Ok(PreparedHistorySnapshot { temporary, bytes })
+}
+
 impl HistoryManager {
     pub(super) fn deferred() -> Result<Self, String> {
         #[cfg(test)]
         DEFERRED_HISTORIES_CREATED.with(|count| count.set(count.get() + 1));
         let folder = history_directory()?;
         Ok(Self {
+            pending_baseline: None,
             _lock: folder.lock,
             directory: folder.directory,
             source_snapshot_path: None,
@@ -299,8 +445,27 @@ impl HistoryManager {
         max_entries: usize,
         disk_budget_bytes: u64,
     ) -> Result<Self, String> {
+        Self::with_limits_and_cancel(frame, max_entries, disk_budget_bytes, || false)
+    }
+
+    pub(super) fn with_limits_and_cancel<C>(
+        frame: &DataFrame,
+        max_entries: usize,
+        disk_budget_bytes: u64,
+        is_cancelled: C,
+    ) -> Result<Self, String>
+    where
+        C: FnMut() -> bool,
+    {
+        let mut manager = Self::without_entries(max_entries, disk_budget_bytes)?;
+        manager.record_with_cancel(frame, ORIGINAL_LABEL, is_cancelled)?;
+        Ok(manager)
+    }
+
+    fn without_entries(max_entries: usize, disk_budget_bytes: u64) -> Result<Self, String> {
         let folder = history_directory()?;
-        let mut manager = Self {
+        Ok(Self {
+            pending_baseline: None,
             _lock: folder.lock,
             directory: folder.directory,
             source_snapshot_path: None,
@@ -308,16 +473,179 @@ impl HistoryManager {
             cursor: 0,
             snapshots_enabled: true,
             degraded_reason: None,
-            current_label: "Dataset original".to_owned(),
+            current_label: ORIGINAL_LABEL.to_owned(),
             next_id: 0,
             max_entries: max_entries.max(1),
             disk_budget_bytes,
             revision: 0,
             unsaved_current: None,
             last_change: None,
-        };
-        manager.record(frame, "Dataset original")?;
+        })
+    }
+
+    /// `new`, with the snapshot of the original written on another thread
+    /// (see `PendingBaseline`). The history looks exactly as after `new`
+    /// once `settle_baseline` registers it.
+    pub(super) fn with_background_baseline(frame: &DataFrame) -> Result<Self, String> {
+        Self::with_background_baseline_and_limits(
+            frame,
+            HISTORY_MAX_ENTRIES,
+            HISTORY_DISK_BUDGET_BYTES,
+        )
+    }
+
+    pub(super) fn with_background_baseline_and_limits(
+        frame: &DataFrame,
+        max_entries: usize,
+        disk_budget_bytes: u64,
+    ) -> Result<Self, String> {
+        Self::spawn_background_baseline(frame, max_entries, disk_budget_bytes, None)
+    }
+
+    /// A background baseline whose thread starts writing only when the
+    /// returned sender sends or is dropped, so a test can act while it is
+    /// still pending.
+    #[cfg(test)]
+    pub(super) fn with_gated_background_baseline(
+        frame: &DataFrame,
+        max_entries: usize,
+        disk_budget_bytes: u64,
+    ) -> Result<(Self, std::sync::mpsc::Sender<()>), String> {
+        let (sender, gate) = std::sync::mpsc::channel();
+        let manager =
+            Self::spawn_background_baseline(frame, max_entries, disk_budget_bytes, Some(gate))?;
+        Ok((manager, sender))
+    }
+
+    fn spawn_background_baseline(
+        frame: &DataFrame,
+        max_entries: usize,
+        disk_budget_bytes: u64,
+        gate: Option<std::sync::mpsc::Receiver<()>>,
+    ) -> Result<Self, String> {
+        let mut manager = Self::without_entries(max_entries, disk_budget_bytes)?;
+        // `record` touches the revision before the snapshot; so does this.
+        manager.touch();
+        let slot = Arc::new(BaselineSlot::default());
+        let publisher = BaselinePublisher(Arc::clone(&slot));
+        let directory = manager.directory.path().to_owned();
+        let frame = frame.clone();
+        let thread = std::thread::Builder::new()
+            .name("columnia-history-baseline".to_owned())
+            .spawn(move || {
+                let publisher = publisher;
+                if let Some(gate) = gate {
+                    // Each wait sleeps up to 10 ms: not a busy loop.
+                    while !publisher.0.cancelled.load(Ordering::Acquire) {
+                        match gate.recv_timeout(std::time::Duration::from_millis(10)) {
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                            _ => break,
+                        }
+                    }
+                }
+                let result = write_frame_snapshot(&directory, &frame, || {
+                    publisher.0.cancelled.load(Ordering::Acquire)
+                });
+                drop(frame);
+                publisher.0.publish(result);
+            })
+            .map_err(|error| format!("No se pudo preparar el historial: {error}"))?;
+        manager.pending_baseline = Some(PendingBaseline {
+            slot,
+            thread: Some(thread),
+        });
         Ok(manager)
+    }
+
+    pub(super) fn baseline_pending(&self) -> bool {
+        self.pending_baseline.is_some()
+    }
+
+    /// What to wait on while the initial snapshot is still being written.
+    pub(super) fn baseline_in_progress(&self) -> Option<Arc<BaselineSlot>> {
+        self.pending_baseline
+            .as_ref()
+            .filter(|pending| !pending.slot.is_ready())
+            .map(|pending| Arc::clone(&pending.slot))
+    }
+
+    /// Registers the initial snapshot once its thread has finished, exactly
+    /// as `new` would have: entry 0, «Dataset original», no revision change.
+    /// A failure leaves the history disabled with the reason instead of
+    /// failing a load that already succeeded. Returns false, and changes
+    /// nothing, while the thread is still writing.
+    pub(super) fn settle_baseline(&mut self) -> bool {
+        let Some(pending) = self.pending_baseline.as_ref() else {
+            return true;
+        };
+        if !pending.slot.is_ready() {
+            return false;
+        }
+        let Some(mut pending) = self.pending_baseline.take() else {
+            return true;
+        };
+        if let Some(thread) = pending.thread.take() {
+            let _ = thread.join();
+        }
+        let result = pending
+            .slot
+            .result
+            .lock_recovering()
+            .take()
+            .unwrap_or_else(|| Err("La copia del dataset original se interrumpió.".to_owned()));
+        drop(pending);
+        let registered = result.and_then(|prepared| {
+            if prepared.bytes > self.disk_budget_bytes {
+                self.disable_for_size(ORIGINAL_LABEL, prepared.bytes);
+                return Ok(());
+            }
+            let (id, destination) = self.next_snapshot_destination(self.next_id, &[])?;
+            let bytes = prepared.bytes;
+            prepared.temporary.persist(&destination).map_err(|error| {
+                format!(
+                    "No se pudo publicar el snapshot del historial: {}",
+                    error.error
+                )
+            })?;
+            self.entries.push(HistoryEntry {
+                id: fresh_history_entry_id(),
+                label: ORIGINAL_LABEL.to_owned(),
+                path: destination,
+                bytes,
+            });
+            self.cursor = 0;
+            self.next_id = id.wrapping_add(1);
+            Ok(())
+        });
+        if let Err(error) = registered {
+            self.entries.clear();
+            self.cursor = 0;
+            self.snapshots_enabled = false;
+            self.degraded_reason = Some(format!(
+                "No se pudo guardar la versión original para deshacer: {error}. Los cambios se aplican sin historial reversible."
+            ));
+        }
+        true
+    }
+
+    /// The cursor entry path, cursor, entry count and next id that a
+    /// `DatasetMutationStamp` compares, as they will be once a pending
+    /// initial snapshot is registered: a stamp taken before it settles
+    /// still matches after.
+    pub(super) fn stamp_view(&self) -> (Option<PathBuf>, usize, usize, u64) {
+        if self.pending_baseline.is_some() {
+            let path = self
+                .directory
+                .path()
+                .join(format!("snapshot-{:020}.parquet", self.next_id));
+            return (Some(path), 0, 1, self.next_id.wrapping_add(1));
+        }
+        (
+            self.entries.get(self.cursor).map(|entry| entry.path.clone()),
+            self.cursor,
+            self.entries.len(),
+            self.next_id,
+        )
     }
 
     /// PROD-10: the last summary while the frame is still the one it describes.
@@ -444,28 +772,31 @@ impl HistoryManager {
         retired_paths
     }
 
+    #[cfg(test)]
     pub(super) fn record(&mut self, frame: &DataFrame, label: &str) -> Result<(), String> {
-        self.touch();
-        self.current_label = label.to_owned();
+        self.record_with_cancel(frame, label, || false)
+    }
+
+    /// `record`, abandoned without changing the history when `is_cancelled`
+    /// answers true before the snapshot is published.
+    pub(super) fn record_with_cancel<C>(
+        &mut self,
+        frame: &DataFrame,
+        label: &str,
+        is_cancelled: C,
+    ) -> Result<(), String>
+    where
+        C: FnMut() -> bool,
+    {
         if !self.snapshots_enabled {
+            self.touch();
+            self.current_label = label.to_owned();
             return Ok(());
         }
-
-        let temporary = tempfile::NamedTempFile::new_in(self.directory.path())
-            .map_err(|error| format!("No se pudo preparar el snapshot del historial: {error}"))?;
-        let mut snapshot = frame.clone();
-        ParquetWriter::new(temporary.as_file())
-            .with_row_group_size(Some(parquet_row_group_rows(frame)))
-            .finish(&mut snapshot)
-            .map_err(|error| format!("No se pudo escribir el snapshot del historial: {error}"))?;
-        temporary.as_file().sync_all().map_err(|error| {
-            format!("No se pudo sincronizar el snapshot del historial: {error}")
-        })?;
-        let bytes = temporary
-            .as_file()
-            .metadata()
-            .map_err(|error| format!("No se pudo verificar el snapshot del historial: {error}"))?
-            .len();
+        let PreparedHistorySnapshot { temporary, bytes } =
+            write_frame_snapshot(self.directory.path(), frame, is_cancelled)?;
+        self.touch();
+        self.current_label = label.to_owned();
         if bytes > self.disk_budget_bytes {
             drop(temporary);
             self.disable_for_size(label, bytes);
@@ -621,59 +952,12 @@ impl HistoryManager {
     pub(super) fn prepare_frame_snapshot<C>(
         &self,
         frame: &DataFrame,
-        mut is_cancelled: C,
+        is_cancelled: C,
     ) -> Result<PreparedHistorySnapshot, String>
     where
         C: FnMut() -> bool,
     {
-        if is_cancelled() {
-            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
-        }
-        let mut temporary = tempfile::NamedTempFile::new_in(self.directory.path())
-            .map_err(|error| format!("No se pudo preparar el snapshot del historial: {error}"))?;
-        let schema_frame = frame.slice(0, 0);
-        let schema = schema_frame.schema();
-        let mut writer = ParquetWriter::new(temporary.as_file_mut())
-            .set_parallel(false)
-            .batched(schema)
-            .map_err(|error| format!("No se pudo preparar el snapshot del historial: {error}"))?;
-        let batch_rows = parquet_row_group_rows(frame);
-        let mut offset = 0;
-        while offset < frame.height() {
-            if is_cancelled() {
-                return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
-            }
-            let row_count = batch_rows.min(frame.height() - offset);
-            let mut batch = frame.slice(offset as i64, row_count);
-            // Mutations rebuild some columns as one chunk while streamed loads
-            // keep several; the batched writer requires equal chunk layouts.
-            batch.align_chunks_par();
-            writer.write_batch(&batch).map_err(|error| {
-                format!("No se pudo escribir el snapshot del historial: {error}")
-            })?;
-            offset += row_count;
-        }
-        if is_cancelled() {
-            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
-        }
-        writer
-            .finish()
-            .map_err(|error| format!("No se pudo cerrar el snapshot del historial: {error}"))?;
-        if is_cancelled() {
-            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
-        }
-        temporary.as_file().sync_all().map_err(|error| {
-            format!("No se pudo sincronizar el snapshot del historial: {error}")
-        })?;
-        if is_cancelled() {
-            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
-        }
-        let bytes = temporary
-            .as_file()
-            .metadata()
-            .map_err(|error| format!("No se pudo verificar el snapshot del historial: {error}"))?
-            .len();
-        Ok(PreparedHistorySnapshot { temporary, bytes })
+        write_frame_snapshot(self.directory.path(), frame, is_cancelled)
     }
 
     pub(super) fn record_prepared_snapshot(

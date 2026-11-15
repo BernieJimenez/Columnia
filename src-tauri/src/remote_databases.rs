@@ -2316,14 +2316,16 @@ const IMPORT_TEMPORARY_SUFFIX: &str = ".parquet.partial";
 /// would stay as plain copies of the person's data, plus any temporary left by
 /// a killed write. Safe at startup: the single-instance plugin guarantees no
 /// other Columnia process uses them. Links and folders are left alone.
-/// Returns how many files were removed.
-pub(crate) fn purge_database_imports(app_data_dir: &Path) -> usize {
+/// It runs off the main thread, so only files last modified before `started`
+/// go. Returns how many files were removed.
+pub(crate) fn purge_database_imports(app_data_dir: &Path, started: std::time::SystemTime) -> usize {
     let Ok(entries) = std::fs::read_dir(app_data_dir.join(DATABASE_IMPORT_DIRECTORY)) else {
         return 0;
     };
     entries
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .filter(|entry| crate::dataset::modified_before(entry, started))
         .filter(|entry| std::fs::remove_file(entry.path()).is_ok())
         .count()
 }
@@ -6684,12 +6686,17 @@ mod tests {
         fs::write(imports.join(".tmpAbC123"), b"resto").expect("temporal viejo");
         fs::create_dir(imports.join("carpeta")).expect("subcarpeta");
 
-        let removed = purge_database_imports(directory.path());
+        // A start-up sweep that began before these files keeps them.
+        let earlier = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        assert_eq!(purge_database_imports(directory.path(), earlier), 0);
+
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+        let removed = purge_database_imports(directory.path(), later);
 
         assert_eq!(removed, 3);
         let left: Vec<_> = fs::read_dir(&imports).expect("carpeta").flatten().collect();
         assert_eq!(left.len(), 1, "solo la subcarpeta ajena queda");
-        assert_eq!(purge_database_imports(&directory.path().join("nada")), 0);
+        assert_eq!(purge_database_imports(&directory.path().join("nada"), later), 0);
     }
 
     /// AUD-103: Cancelar returns while the import thread is still blocked in the

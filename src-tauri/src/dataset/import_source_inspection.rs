@@ -50,15 +50,17 @@ pub(super) async fn inspect_dataset_path_impl(
     } else {
         "csv"
     };
-    state.commit_load(generation, || {
-        *state.pending_selection.lock_recovering() = Some(PendingSelection {
+    // The replaced selection, with any frame its schema review kept, is
+    // dropped after the locks.
+    let _replaced = state.commit_load(generation, || {
+        Ok(state.pending_selection.lock_recovering().replace(PendingSelection {
             id: selection_id.clone(),
             generation,
             path,
             file_size_bytes,
             sheets: Vec::new(),
-        });
-        Ok(())
+            cached_frame: None,
+        }))
     })?;
     Ok(DatasetSourceInspection {
         selection_id,
@@ -308,7 +310,8 @@ pub(super) async fn reinterpret_dataset_selection_impl(
 
     let state = app.state::<DatasetState>();
     state.commit_load(generation, || {
-        let current = state.current.lock_recovering();
+        // Only the active source path is read: no need to wait for history.
+        let current = state.current.lock_now();
         let mut selection = state.pending_selection.lock_recovering();
         let pending = selection
             .as_mut()
@@ -316,6 +319,7 @@ pub(super) async fn reinterpret_dataset_selection_impl(
             .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
         pending.path = converted.clone();
         pending.file_size_bytes = converted_size;
+        pending.cached_frame = None;
         // The selection now belongs to this load step, so the header review
         // that follows is not treated as a superseded request.
         pending.generation = generation;

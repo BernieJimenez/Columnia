@@ -1,5 +1,4 @@
 use super::*;
-use crate::crash_report::LockRecovering;
 
 pub(super) fn source_scan(path: &Path, extension: &str) -> Result<LazyFrame, String> {
     source_scan_with_header(path, extension, true)

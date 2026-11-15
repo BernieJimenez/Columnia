@@ -7,7 +7,6 @@ import { excelLimitIssues, personalDataColumnNames, suggestQualityRules } from "
 import { useDeliveryController } from "./features/delivery/useDeliveryController";
 import { useDismissablePanel } from "./useDismissablePanel";
 import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
-import { ReusableTaskPanel } from "./features/load/ReusableTaskPanel";
 import { LazyDatabaseImportPanel, LazyProjectsPanel } from "./features/load/secondaryPanels";
 import { ImportOriginNotice } from "./features/load/ImportOriginNotice";
 import type { DatabaseRead } from "./features/load/importOrigin";
@@ -68,9 +67,7 @@ import {
 import { useReviewController } from "./features/review/useReviewController";
 import { combinationResultMessage } from "./features/review/joinModel";
 import type { QualityActionTarget } from "./features/review/qualityActionPlan";
-import { ResourceMonitor } from "./components/ResourceMonitor";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
-import { UpdatePanel } from "./components/UpdatePanel";
 import type { DatasetMetricInput } from "./features/diagnostics/diagnosticsModel";
 import { WorkspaceNav } from "./features/workspaces/WorkspaceNav";
 import { workflowPhases, type WorkflowPhase } from "./features/workspaces/workspaceModel";
@@ -171,6 +168,22 @@ interface ReusableTaskApplicationReview {
 
 const loadDiagnosticsDialog = () => import("./features/diagnostics/DiagnosticsDialog");
 
+// Panels inside collapsed sections: nothing in Cargar needs them to paint.
+const ReusableTaskPanel = lazy(async () => {
+  const module = await import("./features/load/ReusableTaskPanel");
+  return { default: module.ReusableTaskPanel };
+});
+
+const ResourceMonitor = lazy(async () => {
+  const module = await import("./components/ResourceMonitor");
+  return { default: module.ResourceMonitor };
+});
+
+const UpdatePanel = lazy(async () => {
+  const module = await import("./components/UpdatePanel");
+  return { default: module.UpdatePanel };
+});
+
 const DiagnosticsDialog = lazy(async () => {
   const module = await loadDiagnosticsDialog();
   return { default: module.DiagnosticsDialog };
@@ -214,8 +227,8 @@ function preloadPhase(phase: WorkflowPhase): void {
   if (phase === "deliver") void loadDeliveryPhase();
 }
 
-/** COD-05: «listo» only once `get_app_info` answered; until then the
- * catalogs and listeners that need the engine wait. */
+/** The runtime flag (`ready`) waits for `get_app_info`; the first requests
+ * (session, samples, projects, tasks, listeners) do not, they go out in parallel. */
 function initialAppStatus(): AppStatus {
   return isTauriRuntime() ? { kind: "loading" } : { kind: "browser" };
 }
@@ -424,7 +437,7 @@ export function App() {
     loadInspection.kind === "schema_mismatch" ||
     selectionFinalizing;
   const projects = useProjectsController({
-    connected: status.kind === "ready",
+    connected: isTauriRuntime(),
     blocked: coreOperationBusy || loadSelectionBusy,
     hasDataset: datasetStatus.kind === "ready",
     datasetRevision,
@@ -607,7 +620,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (status.kind !== "ready") return;
+    if (!isTauriRuntime()) return;
     let active = true;
     // DAT-01: a failed query only means no notice; it never blocks Cargar.
     Promise.resolve()
@@ -622,10 +635,10 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [status.kind]);
+  }, []);
 
   useEffect(() => {
-    if (status.kind !== "ready") return;
+    if (!isTauriRuntime()) return;
     let active = true;
     listSampleDatasets()
       .then((samples) => active && setSampleDatasets(samples))
@@ -633,7 +646,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [status.kind]);
+  }, []);
 
   const onDatasetDrop = useEffectEvent(() => {
     if (operationBusyRef.current) return;
@@ -641,7 +654,7 @@ export function App() {
   });
 
   useEffect(() => {
-    if (status.kind !== "ready") return;
+    if (!isTauriRuntime()) return;
 
     let disposed = false;
     let unlisten: (() => void) | undefined;
@@ -657,7 +670,7 @@ export function App() {
       disposed = true;
       unlisten?.();
     };
-  }, [status.kind]);
+  }, []);
 
   useEffect(() => {
     writeRecentDatasets(recentDatasets);
@@ -1483,20 +1496,22 @@ export function App() {
           <div className="sidebar__utilities-content">
             {/* The theme is what people change most; the resource monitor is technical detail. */}
             <ThemeSwitcher />
-            <ResourceMonitor
-              enabled={status.kind === "ready"}
-              visible={sidebarUtilitiesOpen}
-              observeUsage={sidebarUtilitiesOpen}
-              performanceProfile={performanceProfile}
-              onPerformanceProfileChange={(profile) => {
-                setPerformanceProfile(profile);
-                if (!projects.activeProject) writePerformanceProfile(profile);
-              }}
-            />
-            {/* Builds without an updater have nothing the user can do here. */}
-            {status.kind === "ready" && status.info?.updaterConfigured === true && (
-              <UpdatePanel enabled currentVersion={status.info.version} />
-            )}
+            <Suspense fallback={null}>
+              <ResourceMonitor
+                enabled={status.kind === "ready"}
+                visible={sidebarUtilitiesOpen}
+                observeUsage={sidebarUtilitiesOpen}
+                performanceProfile={performanceProfile}
+                onPerformanceProfileChange={(profile) => {
+                  setPerformanceProfile(profile);
+                  if (!projects.activeProject) writePerformanceProfile(profile);
+                }}
+              />
+              {/* Builds without an updater have nothing the user can do here. */}
+              {status.kind === "ready" && status.info?.updaterConfigured === true && (
+                <UpdatePanel enabled currentVersion={status.info.version} />
+              )}
+            </Suspense>
             <button
               type="button"
               className="sidebar__diagnostics-trigger"
@@ -1629,17 +1644,19 @@ export function App() {
               <LoadPhase
                 runtime={loadRuntime}
                 reusableTaskPanel={(
-                  <ReusableTaskPanel
-                    connected={loadRuntime.kind === "connected"}
-                    blocked={operationBusy}
-                    schema={reusableTaskSchema}
-                    draft={reusableTaskDraft}
-                    onApply={applyReusableTask}
-                    onPrepareImport={prepareReusableTaskImport}
-                    pendingTaskId={queuedReusableTask?.id ?? null}
-                    pendingTaskName={queuedReusableTask?.task.name ?? null}
-                    onClearPendingImport={() => setQueuedReusableTask(null)}
-                  />
+                  <Suspense fallback={null}>
+                    <ReusableTaskPanel
+                      connected={isTauriRuntime()}
+                      blocked={operationBusy}
+                      schema={reusableTaskSchema}
+                      draft={reusableTaskDraft}
+                      onApply={applyReusableTask}
+                      onPrepareImport={prepareReusableTaskImport}
+                      pendingTaskId={queuedReusableTask?.id ?? null}
+                      pendingTaskName={queuedReusableTask?.task.name ?? null}
+                      onClearPendingImport={() => setQueuedReusableTask(null)}
+                    />
+                  </Suspense>
                 )}
                 databaseImportPanel={(
                   <Suspense fallback={<p className="load-panel-loading" role="status">Cargando la conexión a bases de datos…</p>}>

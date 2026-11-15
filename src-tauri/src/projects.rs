@@ -186,14 +186,8 @@ pub struct ProjectState {
 
 impl ProjectState {
     pub fn initialize(app_data_dir: PathBuf) -> Result<Self, String> {
-        let store = ProjectStore::initialize_deferred(app_data_dir)?;
-        // DAT-03: the app runs once at a time, so at start-up every `.tmp*`
-        // in the store is the leftover of a save that was interrupted.
-        crate::project_recovery::remove_stale_temporaries(
-            &store.snapshots,
-            SystemTime::now(),
-            Duration::ZERO,
-        );
+        let mut store = ProjectStore::initialize_deferred(app_data_dir)?;
+        store.owns_store = true;
         Ok(Self {
             store,
             operation: Mutex::new(()),
@@ -207,6 +201,10 @@ struct ProjectStore {
     snapshots: PathBuf,
     catalog: PathBuf,
     initialized: Arc<Mutex<bool>>,
+    /// The app itself owns the store: before its first operation every `.tmp*`
+    /// is a leftover. The CLI may share the store with a running app and
+    /// leaves recent temporaries alone.
+    owns_store: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -324,6 +322,7 @@ impl ProjectStore {
             root,
             snapshots,
             initialized: Arc::new(Mutex::new(false)),
+            owns_store: false,
         };
         Ok(store)
     }
@@ -341,6 +340,17 @@ impl ProjectStore {
         if *initialized {
             ensure_project_operation_not_cancelled(is_cancelled())?;
             return Ok(());
+        }
+        // DAT-03: the app runs once at a time, so before the first operation
+        // every `.tmp*` in the store is the leftover of a save that was
+        // interrupted. It runs here, off the start-up path, and under the
+        // lock that every operation takes first, so no save is writing yet.
+        if self.owns_store {
+            crate::project_recovery::remove_stale_temporaries(
+                &self.snapshots,
+                SystemTime::now(),
+                Duration::ZERO,
+            );
         }
         self.back_up_before_migrating()?;
         self.migrate()?;

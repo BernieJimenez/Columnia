@@ -1291,7 +1291,11 @@ fn stale_utf8_conversion_copies_are_removed_at_startup() {
     )
     .unwrap();
 
-    assert_eq!(remove_stale_converted_sources(temp.path()), 2);
+    // A start-up sweep that began before these copies keeps them.
+    let earlier = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+    assert_eq!(remove_stale_converted_sources(temp.path(), earlier), 0);
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+    assert_eq!(remove_stale_converted_sources(temp.path(), later), 2);
     assert!(!temp.path().join("columnia-utf8-a1").exists());
     assert!(
         temp.path().join("otra-app-utf8").exists(),
@@ -2664,7 +2668,7 @@ fn source_backed_project_snapshot_streams_to_parquet_without_materializing_state
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let state = DatasetState {
-        current: Mutex::new(Some(LoadedDataset {
+        current: CurrentDataset::new(Some(LoadedDataset {
             source_path: Some(path.path_buf()),
             file_name: "dataset.csv".to_owned(),
             file_size_bytes,

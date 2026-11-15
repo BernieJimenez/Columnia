@@ -270,24 +270,40 @@ pub fn run() {
             std::thread::spawn(dataset::purge_finished_history_directories);
             let mut session = session_guard::SessionGuard::begin(&app_data_dir);
             app.manage(session_guard::UnsavedWork::default());
-            dataset::remove_stale_converted_sources(&std::env::temp_dir());
-            // AUD-020: the last database import is a plain copy; nothing reads it now.
-            remote_databases::purge_database_imports(&app_data_dir);
+            // Off the main thread: both sweeps grow with what earlier sessions
+            // left behind. Only entries older than this start are removed, so a
+            // copy the current session creates meanwhile is never touched.
+            let started = std::time::SystemTime::now();
+            let sweep_dir = app_data_dir.clone();
+            std::thread::spawn(move || {
+                dataset::remove_stale_converted_sources(&std::env::temp_dir(), started);
+                // AUD-020: the last database import is a plain copy; nothing reads it now.
+                remote_databases::purge_database_imports(&sweep_dir, started);
+            });
             let projects = projects::ProjectState::initialize(app_data_dir.clone())
                 .map_err(std::io::Error::other)?;
             app.manage(projects);
-            // ARQ-02: a damaged secondary catalog is set aside, not fatal.
-            let (reusable_tasks, tasks_aside) = catalog_recovery::initialize_or_set_aside(
-                &app_data_dir.join("reusable-tasks.sqlite3"),
-                || reusable_tasks::ReusableTaskState::initialize(app_data_dir.clone()),
-            )
-            .map_err(std::io::Error::other)?;
+            // ARQ-02: a damaged secondary catalog is set aside, not fatal. The
+            // two catalogs are independent files, so they open side by side.
+            let (tasks, presets) = std::thread::scope(|scope| {
+                let presets = scope.spawn(|| {
+                    catalog_recovery::initialize_or_set_aside(
+                        &app_data_dir.join("delivery-presets.sqlite3"),
+                        || delivery_presets::DeliveryPresetState::initialize(app_data_dir.clone()),
+                    )
+                });
+                let tasks = catalog_recovery::initialize_or_set_aside(
+                    &app_data_dir.join("reusable-tasks.sqlite3"),
+                    || reusable_tasks::ReusableTaskState::initialize(app_data_dir.clone()),
+                );
+                let presets = presets.join().unwrap_or_else(|_| {
+                    Err("No se pudo abrir el catálogo de entregas.".to_owned())
+                });
+                (tasks, presets)
+            });
+            let (reusable_tasks, tasks_aside) = tasks.map_err(std::io::Error::other)?;
             app.manage(reusable_tasks);
-            let (delivery_presets, presets_aside) = catalog_recovery::initialize_or_set_aside(
-                &app_data_dir.join("delivery-presets.sqlite3"),
-                || delivery_presets::DeliveryPresetState::initialize(app_data_dir.clone()),
-            )
-            .map_err(std::io::Error::other)?;
+            let (delivery_presets, presets_aside) = presets.map_err(std::io::Error::other)?;
             app.manage(delivery_presets);
             session.record_set_aside_catalogs(tasks_aside.into_iter().chain(presets_aside));
             app.manage(session);

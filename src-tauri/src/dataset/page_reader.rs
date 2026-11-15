@@ -1,5 +1,4 @@
 use super::*;
-use crate::crash_report::LockRecovering;
 
 fn validate_dataset_page_request(
     row_count: usize,
@@ -192,10 +191,15 @@ where
 {
     ensure_not_cancelled(is_cancelled())?;
     let source = {
-        let current = state.current.lock_recovering();
+        // A page does not wait for a pending initial history snapshot: the
+        // frame in memory is that version, and 50 rows of it cost nothing.
+        let current = state.current.lock_now();
         let dataset = current.as_ref().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.history.baseline_pending() && !dataset.source_backed {
+            return dataset_page_with_cancel(&dataset.frame, offset, limit, is_cancelled);
+        }
         if let Some((path, _, row_count)) = current_history_parquet_snapshot(dataset) {
             Some(PageSource::Snapshot { path, row_count })
         } else {

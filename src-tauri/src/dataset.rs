@@ -27,7 +27,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc, Arc, Mutex,
+        mpsc, Arc, Mutex, MutexGuard,
     },
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -1688,43 +1688,39 @@ struct DatasetMutationStamp {
 
 impl DatasetMutationStamp {
     fn capture(dataset: &LoadedDataset) -> Self {
+        // As the history will be once a pending initial snapshot settles.
+        let (history_cursor_path, history_cursor, history_entry_count, history_next_id) =
+            dataset.history.stamp_view();
         Self {
             source_path: dataset.source_path.clone(),
             history_source_snapshot_path: dataset.history.source_snapshot_path.clone(),
-            history_cursor_path: dataset
-                .history
-                .entries
-                .get(dataset.history.cursor)
-                .map(|entry| entry.path.clone()),
+            history_cursor_path,
             file_name: dataset.file_name.clone(),
             file_size_bytes: dataset.file_size_bytes,
             row_count: dataset.row_count,
             source_backed: dataset.source_backed,
             frame: dataset.frame.clone(),
-            history_cursor: dataset.history.cursor,
-            history_entry_count: dataset.history.entries.len(),
-            history_next_id: dataset.history.next_id,
+            history_cursor,
+            history_entry_count,
+            history_next_id,
             history_current_label: dataset.history.current_label.clone(),
         }
     }
 
     fn matches(&self, dataset: &LoadedDataset) -> bool {
+        let (history_cursor_path, history_cursor, history_entry_count, history_next_id) =
+            dataset.history.stamp_view();
         self.source_path == dataset.source_path
             && self.history_source_snapshot_path == dataset.history.source_snapshot_path
-            && self.history_cursor_path
-                == dataset
-                    .history
-                    .entries
-                    .get(dataset.history.cursor)
-                    .map(|entry| entry.path.clone())
+            && self.history_cursor_path == history_cursor_path
             && self.file_name == dataset.file_name
             && self.file_size_bytes == dataset.file_size_bytes
             && self.row_count == dataset.row_count
             && self.source_backed == dataset.source_backed
             && self.frame.equals_missing(&dataset.frame)
-            && self.history_cursor == dataset.history.cursor
-            && self.history_entry_count == dataset.history.entries.len()
-            && self.history_next_id == dataset.history.next_id
+            && self.history_cursor == history_cursor
+            && self.history_entry_count == history_entry_count
+            && self.history_next_id == history_next_id
             && self.history_current_label == dataset.history.current_label
     }
 }
@@ -1912,6 +1908,74 @@ struct PendingSelection {
     path: PathBuf,
     file_size_bytes: u64,
     sheets: Vec<String>,
+    /// The frame the schema review of a delimited file read, so the load that
+    /// follows with the same reading does not parse the file again. It is
+    /// taken (never cloned) by the next review or load, and goes with the
+    /// selection when it is discarded or replaced.
+    cached_frame: Option<CachedSelectionFrame>,
+}
+
+impl PendingSelection {
+    /// The selection without its cached frame, which stays where it is.
+    fn without_cached_frame(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            generation: self.generation,
+            path: self.path.clone(),
+            file_size_bytes: self.file_size_bytes,
+            sheets: self.sheets.clone(),
+            cached_frame: None,
+        }
+    }
+}
+
+/// A delimited file read in memory before conventions are applied, with the
+/// reading it came from and the file's identity at that moment.
+#[derive(Clone)]
+struct CachedSelectionFrame {
+    path: PathBuf,
+    header_mode: SpreadsheetHeaderMode,
+    file_size_bytes: u64,
+    modified: Option<SystemTime>,
+    frame: DataFrame,
+}
+
+impl CachedSelectionFrame {
+    /// The identity of `path` that a cached frame must still match.
+    fn file_identity(path: &Path) -> Option<(u64, Option<SystemTime>)> {
+        fs::metadata(path)
+            .ok()
+            .map(|metadata| (metadata.len(), metadata.modified().ok()))
+    }
+
+    /// The frame, if it was read from `path` with `header_mode` and the file
+    /// has neither grown, shrunk nor been written since.
+    fn into_frame_for(self, path: &Path, header_mode: SpreadsheetHeaderMode) -> Option<DataFrame> {
+        let (size, modified) = Self::file_identity(path)?;
+        (self.path == path
+            && self.header_mode == header_mode
+            && self.file_size_bytes == size
+            && self.modified.is_some()
+            && self.modified == modified)
+            .then_some(self.frame)
+    }
+}
+
+/// Takes the cached frame out of the selection `selection_id` and returns a
+/// copy of the selection without it. The frame is dropped after the lock.
+fn take_pending_selection(
+    state: &DatasetState,
+    selection_id: &str,
+) -> Result<(PendingSelection, Option<CachedSelectionFrame>), String> {
+    let mut selection = state.pending_selection.lock_recovering();
+    let pending = selection
+        .as_mut()
+        .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
+    if pending.id != selection_id {
+        return Err("La selección no coincide con el archivo pendiente.".to_owned());
+    }
+    let cached = pending.cached_frame.take();
+    Ok((pending.without_cached_frame(), cached))
 }
 
 struct PendingComparison {
@@ -1980,9 +2044,54 @@ fn query_frame_snapshot_path(
     Ok(location)
 }
 
+/// The active dataset. Its usual lock settles a pending initial history
+/// snapshot first (`PendingBaseline`), waiting for its thread without holding
+/// the lock, so whatever reads or changes the history sees it exactly as
+/// after a synchronous load. `lock_now` skips that wait, for the few readers
+/// that never use the history entries or that replace the whole dataset.
+#[derive(Default)]
+pub(crate) struct CurrentDataset(Mutex<Option<LoadedDataset>>);
+
+impl CurrentDataset {
+    fn new(dataset: Option<LoadedDataset>) -> Self {
+        Self(Mutex::new(dataset))
+    }
+
+    fn lock_recovering(&self) -> MutexGuard<'_, Option<LoadedDataset>> {
+        loop {
+            let mut current = self.0.lock_recovering();
+            let Some(dataset) = current.as_mut() else {
+                return current;
+            };
+            if dataset.history.settle_baseline() {
+                return current;
+            }
+            let in_progress = dataset.history.baseline_in_progress();
+            drop(current);
+            if let Some(slot) = in_progress {
+                slot.wait();
+            }
+        }
+    }
+
+    /// The lock without waiting for a pending initial snapshot: the history
+    /// may still have no entry (see `HistoryManager::stamp_view`).
+    fn lock_now(&self) -> MutexGuard<'_, Option<LoadedDataset>> {
+        self.0.lock_recovering()
+    }
+
+    /// The plain mutex lock, for tests that check poisoning.
+    #[cfg(test)]
+    fn lock(
+        &self,
+    ) -> std::sync::LockResult<MutexGuard<'_, Option<LoadedDataset>>> {
+        self.0.lock()
+    }
+}
+
 #[derive(Default)]
 pub struct DatasetState {
-    current: Mutex<Option<LoadedDataset>>,
+    current: CurrentDataset,
     query_frame_snapshot: Mutex<Option<QueryFrameSnapshot>>,
     pending_selection: Mutex<Option<PendingSelection>>,
     /// UTF-8 copies of Windows-1252 files the person approved converting
@@ -5778,6 +5887,7 @@ fn source_backed_safe_corrections(
 
 /// History label that says which corrections a plan applied (UX-01), in
 /// the order the engine applies them.
+#[allow(clippy::too_many_arguments)]
 fn safe_corrections_label(
     trim_text: bool,
     normalize_sentinels: bool,
@@ -8064,8 +8174,13 @@ pub(crate) const CONVERTED_SOURCE_PREFIX: &str = "columnia-utf8-";
 /// Removes UTF-8 copies left by a forced close, which skips `TempDir`
 /// cleanup and would keep copies of the person's data in the temp folder.
 /// Safe at startup: the single-instance plugin guarantees no other Columnia
-/// process is using them. Returns how many folders were removed.
-pub fn remove_stale_converted_sources(temp_directory: &Path) -> usize {
+/// process is using them. It runs off the main thread, so only folders last
+/// modified before `started` go: a copy this session makes meanwhile stays.
+/// Returns how many folders were removed.
+pub fn remove_stale_converted_sources(
+    temp_directory: &Path,
+    started: std::time::SystemTime,
+) -> usize {
     let Ok(entries) = fs::read_dir(temp_directory) else {
         return 0;
     };
@@ -8077,9 +8192,18 @@ pub fn remove_stale_converted_sources(temp_directory: &Path) -> usize {
                     .file_name()
                     .to_str()
                     .is_some_and(|name| name.starts_with(CONVERTED_SOURCE_PREFIX))
+                && modified_before(entry, started)
         })
         .filter(|entry| fs::remove_dir_all(entry.path()).is_ok())
         .count()
+}
+
+/// An entry last modified before `started`; an unknown time keeps it.
+pub(crate) fn modified_before(entry: &fs::DirEntry, started: std::time::SystemTime) -> bool {
+    entry
+        .metadata()
+        .and_then(|metadata| metadata.modified())
+        .is_ok_and(|modified| modified < started)
 }
 
 /// «CSV (Macintosh)» and old exports end lines with \r only: the sample has
@@ -8294,10 +8418,15 @@ where
     });
     ensure_not_cancelled(callback_cancelled.load(Ordering::Acquire) || is_cancelled())?;
     collect_result?;
-    collected
+    let mut frame = collected
         .lock()
-        .map(|frame| frame.clone())
-        .map_err(|_| "No se pudo recuperar el dataset leído por bloques.".to_owned())
+        .map(|mut frame| std::mem::replace(&mut *frame, DataFrame::empty()))
+        .map_err(|_| "No se pudo recuperar el dataset leído por bloques.".to_owned())?;
+    // The batches arrive as chunks of `CANCELLABLE_READ_BATCH_ROWS` rows (923
+    // per column for 2 M rows). One chunk per column costs ~40 ms there and
+    // takes 0,4 s off the profile, and pages and mutations read it faster.
+    frame.rechunk_mut_par();
+    Ok(frame)
 }
 
 #[cfg(test)]
@@ -12988,7 +13117,9 @@ impl DatasetState {
     ) -> Result<(T, DatasetPreview), String> {
         ensure_not_cancelled(self.project_open_was_cancelled(generation))?;
         // Esperar aquí deja que cancelar gane mientras la sesión esté ocupada.
-        let mut current = self.current.lock_recovering();
+        // The dataset is replaced, not read: a pending snapshot of it is
+        // cancelled by its drop instead of awaited.
+        let mut current = self.current.lock_now();
         let _guard = self.project_open_commit_lock.lock_recovering();
         ensure_not_cancelled(self.project_open_was_cancelled(generation))?;
 
@@ -13019,7 +13150,7 @@ impl DatasetState {
         let history = HistoryManager::new(&frame)
             .map_err(|_| "No se pudo iniciar el historial del proyecto.".to_owned())?;
         Ok(Self {
-            current: Mutex::new(Some(LoadedDataset {
+            current: CurrentDataset::new(Some(LoadedDataset {
                 source_path: None,
                 file_name,
                 file_size_bytes: 0,
@@ -13043,7 +13174,7 @@ impl DatasetState {
             load_source_backed_dataset_for_automation(input, sheet_name, header_mode)?;
         Ok((
             Self {
-                current: Mutex::new(Some(loaded)),
+                current: CurrentDataset::new(Some(loaded)),
                 ..Self::default()
             },
             preview,
@@ -13357,8 +13488,19 @@ impl DatasetState {
             Some(history) => {
                 restore_project_history_with_cancel(&frame, history, || is_cancelled())?
             }
-            None => HistoryManager::new(&frame)
-                .map_err(|_| "No se pudo iniciar el historial temporal del proyecto.".to_owned())?,
+            None => HistoryManager::with_limits_and_cancel(
+                &frame,
+                HISTORY_MAX_ENTRIES,
+                HISTORY_DISK_BUDGET_BYTES,
+                || is_cancelled(),
+            )
+            .map_err(|error| {
+                if error == OPERATION_CANCELLED_MESSAGE {
+                    error
+                } else {
+                    "No se pudo iniciar el historial temporal del proyecto.".to_owned()
+                }
+            })?,
         };
         ensure_not_cancelled(is_cancelled())?;
         Ok(ProjectDatasetCandidate {
@@ -13394,7 +13536,7 @@ impl DatasetState {
         candidate: ProjectDatasetCandidate,
     ) -> Result<DatasetPreview, String> {
         let ProjectDatasetCandidate { loaded, preview } = candidate;
-        let mut current = self.current.lock_recovering();
+        let mut current = self.current.lock_now();
         let previous = current.replace(loaded);
         self.release_replaced_dataset_state(previous);
         drop(current);
@@ -13670,3 +13812,6 @@ mod tests;
 
 #[cfg(test)]
 mod perf_probe_tests;
+
+#[cfg(test)]
+mod history_baseline_tests;

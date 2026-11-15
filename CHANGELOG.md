@@ -1494,6 +1494,19 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Mejorado
 
+- Cargar un archivo grande es más rápido: el dataset aparece sin esperar la
+  copia del original para el historial, que se escribe en segundo plano (con
+  un CSV de 2.000.000 de filas y 338 MiB, «Dataset listo» pasa de unos 5 s a
+  1 s, y el perfil se calcula a la vez que la copia). Deshacer, cambiar,
+  guardar o cargar otro archivo esperan o cancelan esa copia, así que el
+  historial queda igual que antes. El CSV ya no
+  se lee dos veces (la vista de esquema y la carga comparten la lectura) y los
+  datos se reagrupan al leerlos, lo que acelera el perfil.
+- Cada cambio de Preparar guarda su versión del historial en menos de la mitad
+  de tiempo (de unos 7 s a unos 3 s con ese archivo), con la misma compresión.
+- El arranque ya no espera a limpiar temporales de sesiones anteriores, abre
+  a la vez los catálogos de tareas y de entregas, y lanza en paralelo sus
+  primeras peticiones al motor. Tres paneles secundarios se cargan al usarse.
 - En la vista previa de Revisar, las cabeceras reservan el sitio del perfil
   mientras se calcula, y la tabla ya no salta cuando llega; solo una columna
   estrecha con varias señales crece unos 9 píxeles (AUD-068).

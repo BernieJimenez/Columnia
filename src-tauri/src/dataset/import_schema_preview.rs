@@ -11,18 +11,9 @@ pub(super) async fn preview_dataset_selection_impl(
     number_convention: Option<ImportNumberConvention>,
 ) -> Result<DatasetImportSchemaPreview, String> {
     let generation = app.state::<DatasetState>().begin_load()?;
-    let pending = {
-        let state = app.state::<DatasetState>();
-        let selection = state.pending_selection.lock_recovering();
-        let pending = selection
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
-        if pending.id != selection_id {
-            return Err("La selección no coincide con el archivo pendiente.".to_owned());
-        }
-        pending
-    };
+    // A frame an earlier review kept is reused when this one reads the same
+    // way, and dropped otherwise before the file is read again.
+    let (pending, cached) = take_pending_selection(&app.state::<DatasetState>(), &selection_id)?;
 
     tauri::async_runtime::spawn_blocking(move || {
         let cancellation_app = app.clone();
@@ -83,6 +74,12 @@ pub(super) async fn preview_dataset_selection_impl(
         }
 
         let mut title_row_count = None;
+        // The delimited frame before conventions, and the identity the file
+        // had before it was read, kept for the load if the review succeeds.
+        let mut raw_delimited_frame = None;
+        let mut cache_identity = cached
+            .as_ref()
+            .map(|cached| (cached.file_size_bytes, cached.modified));
         let (mut frame, row_count, source_backed) = if is_spreadsheet {
             let header_mode = header_mode
                 .ok_or_else(|| "Elige cómo interpretar los encabezados del libro.".to_owned())?;
@@ -142,12 +139,23 @@ pub(super) async fn preview_dataset_selection_impl(
                 )?;
                 (frame, row_count, true)
             } else {
-                let (frame, _) = load_dataset_with_header_mode(
-                    &path,
-                    selected_header_mode,
-                    |_, _| {},
-                    is_cancelled.clone(),
-                )?;
+                let cached = cached.and_then(|cached| {
+                    cached.into_frame_for(&pending.path, selected_header_mode)
+                });
+                let frame = match cached {
+                    Some(frame) => frame,
+                    None => {
+                        cache_identity = CachedSelectionFrame::file_identity(&pending.path);
+                        load_dataset_with_header_mode(
+                            &path,
+                            selected_header_mode,
+                            |_, _| {},
+                            is_cancelled.clone(),
+                        )?
+                        .0
+                    }
+                };
+                raw_delimited_frame = Some(frame.clone());
                 let row_count = frame.height();
                 (frame, row_count, false)
             }
@@ -229,6 +237,30 @@ pub(super) async fn preview_dataset_selection_impl(
                 data_type: column.dtype().to_string(),
             })
             .collect();
+        drop(frame);
+        if let (Some(frame), Some((file_size_bytes, modified))) =
+            (raw_delimited_frame, cache_identity)
+        {
+            let state = app.state::<DatasetState>();
+            // Only while this review is the latest step of this selection.
+            let _ = state.commit_load(generation, || {
+                if let Some(selection) = state
+                    .pending_selection
+                    .lock_recovering()
+                    .as_mut()
+                    .filter(|selection| selection.id == pending.id && selection.path == pending.path)
+                {
+                    selection.cached_frame = Some(CachedSelectionFrame {
+                        path: pending.path.clone(),
+                        header_mode: selected_header_mode,
+                        file_size_bytes,
+                        modified,
+                        frame,
+                    });
+                }
+                Ok(())
+            });
+        }
         Ok(DatasetImportSchemaPreview {
             row_count,
             columns,

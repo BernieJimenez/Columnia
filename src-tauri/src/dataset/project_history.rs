@@ -92,7 +92,7 @@ impl ProjectDatasetCandidate {
 
     pub(crate) fn into_dataset_state(self) -> DatasetState {
         DatasetState {
-            current: Mutex::new(Some(self.loaded)),
+            current: CurrentDataset::new(Some(self.loaded)),
             ..DatasetState::default()
         }
     }
@@ -348,6 +348,7 @@ where
     ensure_not_cancelled(is_cancelled())?;
     let next_id = entries.len() as u64;
     Ok(HistoryManager {
+        pending_baseline: None,
         _lock: folder.lock,
         directory: folder.directory,
         source_snapshot_path: None,

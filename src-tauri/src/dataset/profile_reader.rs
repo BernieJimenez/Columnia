@@ -1,5 +1,4 @@
 use super::*;
-use crate::crash_report::LockRecovering;
 
 enum ProfileWork {
     Source {
@@ -29,8 +28,11 @@ pub(super) async fn get_dataset_profile_impl(
         // The analysis can take minutes on large files. It runs without holding
         // `current`, so history and page reads do not wait for it (T10-16);
         // the result is cached only if the dataset did not change meanwhile.
+        // QA: a pending initial history snapshot is not waited for: the
+        // profile reads the frame only, and the stamp already describes the
+        // history as it will be once that snapshot settles.
         let (work, stamp) = {
-            let mut current = state.current.lock_recovering();
+            let mut current = state.current.lock_now();
             let dataset = current.as_mut().ok_or_else(|| {
                 "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
             })?;
@@ -134,7 +136,7 @@ pub(super) async fn get_dataset_profile_impl(
         };
         profile.provenance = Some(ProfileProvenance::now(mode, started.elapsed()));
 
-        let mut current = state.current.lock_recovering();
+        let mut current = state.current.lock_now();
         if let Some(dataset) = current.as_mut().filter(|dataset| stamp.matches(dataset)) {
             dataset.profile = Some(profile.clone());
         }

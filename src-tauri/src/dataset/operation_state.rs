@@ -15,7 +15,7 @@ impl DatasetState {
     /// remove it.
     pub(crate) fn active_source_path(&self) -> Option<PathBuf> {
         self.current
-            .lock_recovering()
+            .lock_now()
             .as_ref()
             .and_then(|dataset| dataset.source_path.clone())
     }

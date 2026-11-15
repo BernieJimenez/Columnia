@@ -258,8 +258,8 @@ describe("App", () => {
     render(<App />);
     expect(screen.getByText("Conectando con el motor local…")).toBeInTheDocument();
     expect(screen.queryByText("Motor local listo")).not.toBeInTheDocument();
-    // The project catalog waits for the engine too.
-    expect(listProjects).not.toHaveBeenCalled();
+    // The project catalog does not wait for the engine: both go out together.
+    await waitFor(() => expect(listProjects).toHaveBeenCalled());
     await act(async () => answer({ name: "Columnia", version: "0.26.0", platform: "windows" }));
     expect(await screen.findByText("Motor local listo")).toBeInTheDocument();
   });

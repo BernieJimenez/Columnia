@@ -1,4 +1,3 @@
-use crate::crash_report::LockRecovering;
 use std::collections::{HashMap, HashSet};
 
 use tauri::{ipc::Channel, AppHandle, Manager};

@@ -13,18 +13,9 @@ pub(super) async fn load_dataset_selection_impl(
     on_progress: Channel<OperationProgress>,
 ) -> Result<DatasetPreview, String> {
     let generation = app.state::<DatasetState>().begin_load()?;
-    let pending = {
-        let state = app.state::<DatasetState>();
-        let selection = state.pending_selection.lock_recovering();
-        let pending = selection
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
-        if pending.id != selection_id {
-            return Err("La selección no coincide con el archivo pendiente.".to_owned());
-        }
-        pending
-    };
+    // The frame the schema review read, if it kept one: reused below when the
+    // reading and the file are the same, dropped otherwise.
+    let (pending, cached) = take_pending_selection(&app.state::<DatasetState>(), &selection_id)?;
     tauri::async_runtime::spawn_blocking(move || {
         send_progress(&on_progress, "load", "Validando archivo", 10);
         let current_size = validate_dataset_file(&pending.path)?.1;
@@ -160,17 +151,29 @@ pub(super) async fn load_dataset_selection_impl(
                 send_progress(&on_progress, "load", "Preparando vista previa", 85);
                 (frame, preview, row_count, true)
             } else {
-                let cancellation_app = app.clone();
-                let (frame, preview) = load_dataset_with_header_mode(
-                    &pending.path,
-                    selected_header_mode,
-                    |stage, percent| send_progress(&on_progress, "load", stage, percent),
-                    move || {
-                        cancellation_app
-                            .state::<DatasetState>()
-                            .load_was_cancelled(generation)
-                    },
-                )?;
+                let reused = cached
+                    .and_then(|cached| cached.into_frame_for(&pending.path, selected_header_mode));
+                let (frame, preview) = match reused {
+                    Some(frame) => {
+                        ensure_materialization_budget(pending.file_size_bytes)?;
+                        send_progress(&on_progress, "load", "Preparando vista previa", 85);
+                        let preview = dataset_preview(&pending.path, &frame)?;
+                        (frame, preview)
+                    }
+                    None => {
+                        let cancellation_app = app.clone();
+                        load_dataset_with_header_mode(
+                            &pending.path,
+                            selected_header_mode,
+                            |stage, percent| send_progress(&on_progress, "load", stage, percent),
+                            move || {
+                                cancellation_app
+                                    .state::<DatasetState>()
+                                    .load_was_cancelled(generation)
+                            },
+                        )?
+                    }
+                };
                 let row_count = frame.height();
                 (frame, preview, row_count, false)
             }
@@ -270,7 +273,10 @@ pub(super) async fn load_dataset_selection_impl(
                 None => HistoryManager::deferred()?,
             }
         } else {
-            HistoryManager::new(&frame)?
+            // «Dataset listo» does not wait for the snapshot of the original:
+            // it is written on another thread and settled by the next use of
+            // the history (`CurrentDataset::lock_recovering`).
+            HistoryManager::with_background_baseline(&frame)?
         };
         let loaded = LoadedDataset {
             source_path: Some(pending.path.clone()),
@@ -288,10 +294,16 @@ pub(super) async fn load_dataset_selection_impl(
             profile: None,
             history,
         };
-        state.commit_load(generation, || {
+        // The replaced dataset, comparison and selection leave the locks
+        // first and are dropped after: freeing a large frame and deleting
+        // its history folder must not block pages or history reads (and
+        // dropping a pending snapshot waits for its thread to stop).
+        let replaced = state.commit_load(generation, || {
+            // The old dataset is replaced, not read: no need to wait for its
+            // initial snapshot, which its drop cancels.
             let mut current = state
                 .current
-                .lock_recovering();
+                .lock_now();
             let mut comparison = state
                 .comparison
                 .lock_recovering();
@@ -305,13 +317,14 @@ pub(super) async fn load_dataset_selection_impl(
                 return Err("La selección ya no corresponde al archivo pendiente.".to_owned());
             }
 
-            *current = Some(loaded);
-            *comparison = None;
+            let previous = current.replace(loaded);
+            let previous_comparison = comparison.take();
             clear_conflict_index();
             clear_profile_snapshot();
-            *selection = None;
-            Ok(())
+            let previous_selection = selection.take();
+            Ok((previous, previous_comparison, previous_selection))
         })?;
+        drop(replaced);
         send_progress(&on_progress, "load", "Dataset listo", 100);
         Ok(preview)
     })
