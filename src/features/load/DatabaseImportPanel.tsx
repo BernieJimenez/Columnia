@@ -280,7 +280,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported, 
                       onChange={(event) => setRowLimit(Number(event.target.value))}
                     >
                       {DATABASE_ROW_LIMITS.map((limit) => (
-                        <option key={limit} value={limit}>{limit.toLocaleString()}</option>
+                        <option key={limit} value={limit}>{limit.toLocaleString("es-ES")}</option>
                       ))}
                     </select>
                   </div>
@@ -302,7 +302,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported, 
                     aria-describedby={busyDescribedBy(blocked)}
                     onClick={importChosen}
                   >
-                    {chosen ? `Traer ${tableLabel(chosen)}` : "Traer tabla"}
+                    {chosen ? `Leer ${tableLabel(chosen)}` : "Leer tabla"}
                   </button>
                 </div>
               </>
@@ -320,7 +320,7 @@ export function DatabaseImportPanel({ connected, blocked, onImport, onImported, 
                   <p>
                     {importState.result.rowsImported === 1 ? "Se leyó" : "Se leyeron"} {plural(importState.result.rowsImported, "fila", "filas")} de {importState.table}.
                     Aún no se han cargado: falta confirmarlo en el diálogo.
-                    {importState.result.moreRowsAvailable && " La tabla tiene más filas: sube el límite para traerlas."}
+                    {importState.result.moreRowsAvailable && " La tabla tiene más filas: sube el límite para leerlas."}
                   </p>
                   {importState.result.truncatedColumns.length > 0 && (
                     <p>

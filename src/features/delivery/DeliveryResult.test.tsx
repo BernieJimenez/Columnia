@@ -16,7 +16,11 @@ const baseResult: ExportResult = {
   replacedControlCellCount: 0,
 };
 
-function renderResult(result: ExportResult, databaseLocation: string | null = null) {
+function renderResult(
+  result: ExportResult,
+  databaseLocation: string | null = null,
+  extra: { databasePolicy?: "replace"; replacedRowCount?: number | null } = {},
+) {
   render(
     <DeliveryResult
       result={result}
@@ -26,6 +30,7 @@ function renderResult(result: ExportResult, databaseLocation: string | null = nu
       preparationChanges={[]}
       approvedQualitySummary={null}
       databaseLocation={databaseLocation}
+      {...extra}
     />,
   );
 }
@@ -33,7 +38,7 @@ function renderResult(result: ExportResult, databaseLocation: string | null = nu
 describe("DeliveryResult", () => {
   it("muestra las filas, la carpeta y las celdas protegidas de la copia (PROD-13)", () => {
     renderResult({ ...baseResult, rowCount: 1250, folderName: "Entregas", formulaProtectedCellCount: 1 });
-    expect(screen.getByText("Filas").nextElementSibling).toHaveTextContent(`${(1250).toLocaleString()} filas`);
+    expect(screen.getByText("Filas").nextElementSibling).toHaveTextContent(`${(1250).toLocaleString("es-ES")} filas`);
     expect(screen.getByText("Filas").nextElementSibling)
       .toHaveTextContent("1 celda empezaba como una fórmula y se guardó como texto");
     expect(screen.getByText("Archivo").nextElementSibling).toHaveTextContent("ventas.csv en la carpeta Entregas");
@@ -45,6 +50,21 @@ describe("DeliveryResult", () => {
     expect(screen.queryByText("Filas")).not.toBeInTheDocument();
     expect(screen.queryByText(/en la carpeta/)).not.toBeInTheDocument();
     expect(screen.queryByText(/fórmula/)).not.toBeInTheDocument();
+  });
+
+  it("con Reemplazar dice cuántas filas se borraron, con plural y sin inventar el recuento", () => {
+    const sqlResult = { ...baseResult, fileName: "ventas", format: "SQL Server" as const, rowCount: 3 };
+    renderResult(sqlResult, "db · dbo.ventas", { databasePolicy: "replace", replacedRowCount: 1 });
+    expect(screen.getByRole("heading", { name: "Tabla escrita" }))
+      .toHaveAccessibleDescription(/Se reemplazó la tabla anterior\. Se borró la única fila anterior\.$/);
+    cleanup();
+    renderResult(sqlResult, "db · dbo.ventas", { databasePolicy: "replace", replacedRowCount: 40 });
+    expect(screen.getByRole("heading", { name: "Tabla escrita" }))
+      .toHaveAccessibleDescription(/Se borraron las 40 filas anteriores\.$/);
+    cleanup();
+    renderResult(sqlResult, "db · dbo.ventas", { databasePolicy: "replace", replacedRowCount: null });
+    expect(screen.getByRole("heading", { name: "Tabla escrita" }))
+      .toHaveAccessibleDescription(/Se reemplazó la tabla anterior\.$/);
   });
 
   it("dice dónde quedó una entrega a base de datos: servidor, base y tabla", () => {

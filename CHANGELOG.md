@@ -369,6 +369,32 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
 
 ### Corregido
 
+- Las cifras salen siempre en formato español («12.400», «50,0%»), también en
+  un Windows en inglés, donde antes aparecían «12,400» o «50.0%» dentro de una
+  interfaz solo en español (tercera crítica de diseño del 2026-11-14).
+- Preparar: las columnas con fechas que se leen de dos formas ya no recomiendan
+  «Convertir a fecha», que el motor no aplicaba, y las columnas identificadoras
+  ya no recomiendan eliminarse: se señalan como probable clave de la tabla.
+  «Corregir columna por columna» ordena las filas por gravedad bajo subtítulos,
+  el botón «Aplicar» muestra el progreso sin apagarse, un solo verbo
+  («Eliminar») para quitar columnas y rellenar confirma sin estilo de peligro.
+- Revisar: «Distribución numérica» ya no desborda a 320 px ni recorta el nombre
+  de la columna; las cifras de nulos coinciden con las de la propuesta y dicen
+  cuántas son marcadores; un aviso nuevo señala las columnas que se rellenan
+  con valores como -999. La comparación abierta ya no compite con «Ver cambios
+  propuestos» y «Completitud por columna» solo muestra las columnas
+  incompletas.
+- Entregar: con un contrato fallido, «Vas a exportar» dice «N reglas
+  incumplidas» y no se oyen dos anuncios a la vez; tras reemplazar una tabla,
+  el resultado dice cuántas filas se borraron y el motivo explica que ya se
+  escribió. «Reemplazar» usa un botón de peligro sobrio y «Validar calidad» solo
+  dice «Recomendado» si Columnia propone comprobaciones.
+- Explorar: «Quitar filtros» y «Volver a lo automático» se pueden deshacer, el
+  anuncio con «Deshacer» ya no mueve «Personalizar», cada gráfico de barras
+  dice que cuenta filas por valor y las marcas del eje usan pasos redondos.
+- Cargar: el apartado de fechas aparece justo bajo su aviso, el diálogo dice
+  «Nada se carga hasta que confirmes» si no hay dataset, «Traer tabla» pasa a
+  «Leer tabla» y, con un dataset cargado, «Cambiar de datos» va plegado.
 - Entregar ya no repite un reemplazo de un clic (segunda crítica de diseño del
   2026-11-14): tras escribir en una base de datos el botón conserva su verbo y
   objeto pero queda bloqueado hasta volver a analizar y, con «Reemplazar»,

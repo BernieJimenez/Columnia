@@ -66,6 +66,10 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
 
   if (profile.columns.length === 0) return null;
 
+  // Only the columns with gaps are worth a bar: the rest collapse into one line.
+  const incompleteColumns = profile.columns.filter((column) => clampPercentage(column.completenessPercentage) < 100);
+  const completeColumnCount = profile.columns.length - incompleteColumns.length;
+
   return (
     <section className="quality-visuals" aria-labelledby="quality-visuals-title">
       <div className="quality-visuals__heading">
@@ -87,9 +91,14 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
       <div className="quality-chart-grid">
         <div className="quality-chart" role="group" aria-labelledby="quality-completeness-title">
           <h5 id="quality-completeness-title">Completitud por columna</h5>
-          <p className="quality-chart__note">Porcentaje de filas con un valor no nulo.</p>
+          <p className="quality-chart__note">
+            Porcentaje de filas con un valor no nulo.
+            {incompleteColumns.length === 0
+              ? ` ${completeColumnsText(completeColumnCount, true)}`
+              : completeColumnCount > 0 ? ` Se omiten ${completeColumnsText(completeColumnCount, false)}.` : ""}
+          </p>
           <div className="quality-chart__bars" role="list" aria-label="Completitud por columna">
-            {profile.columns.map((column) => {
+            {incompleteColumns.map((column) => {
               const percentage = clampPercentage(column.completenessPercentage);
 
               return (
@@ -120,7 +129,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                   <div className="quality-chart__item" role="listitem" key={column.name}>
                     <div className="quality-chart__label">
                       <span title={column.name}>{column.name}</span>
-                      <strong>{count.toLocaleString()}</strong>
+                      <strong>{count.toLocaleString("es-ES")}</strong>
                     </div>
                     <div className="quality-chart__track" aria-hidden="true">
                       <span style={{ width: `${percentage}%` }} />
@@ -145,7 +154,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                   <div className="quality-chart__item" role="listitem" key={column.name}>
                     <div className="quality-chart__label">
                       <span title={column.name}>{column.name}</span>
-                      <strong>{column.nullCount.toLocaleString()} nulos · {formatPercent(percentage, 1)}</strong>
+                      <strong>{column.nullCount.toLocaleString("es-ES")} nulos · {formatPercent(percentage, 1)}</strong>
                     </div>
                     <div className="quality-chart__track" aria-hidden="true">
                       <span className="quality-chart__track-fill--warning" style={{ width: `${percentage}%` }} />
@@ -169,7 +178,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                   {nullPatternColumns.map((column) => (
                     <tr key={column.name}>
                       <th scope="row">{column.name}</th>
-                      <td>{column.nullCount.toLocaleString()}</td>
+                      <td>{column.nullCount.toLocaleString("es-ES")}</td>
                       <td>{formatPercent(clampPercentage(100 - column.completenessPercentage), 1)}</td>
                     </tr>
                   ))}
@@ -193,7 +202,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                   <div className="quality-chart__item" role="listitem" key={column.name}>
                     <div className="quality-chart__label">
                       <span title={column.name}>{column.name}</span>
-                      <strong>{formatPercent(percentage, 1)} · {invalidCount.toLocaleString()} inválidos</strong>
+                      <strong>{formatPercent(percentage, 1)} · {invalidCount.toLocaleString("es-ES")} inválidos</strong>
                     </div>
                     <div className="quality-chart__track" aria-hidden="true">
                       <span style={{ width: `${percentage}%` }} />
@@ -231,7 +240,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                           Coincidencia: {formatPercent(clampPercentage(column.typeMatchPercentage ?? 0), 1)}
                         </span>
                       </td>
-                      <td>{Math.max(0, column.invalidTypeCount ?? 0).toLocaleString()}</td>
+                      <td>{Math.max(0, column.invalidTypeCount ?? 0).toLocaleString("es-ES")}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -276,7 +285,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
 
                 return (
                   <div className="quality-chart__item" role="listitem" key={column.name}>
-                    <div className="quality-chart__label">
+                    <div className="quality-chart__label quality-chart__label--stats">
                       <span title={column.name}>{column.name}</span>
                       <strong>Q1 {formatStatistic(firstQuartile, grouping)} · Mediana {formatStatistic(median, grouping)} · Q3 {formatStatistic(thirdQuartile, grouping)}</strong>
                     </div>
@@ -345,7 +354,7 @@ export function QualityVisuals({ profile, datasetRevision }: { profile: DatasetP
                               <th scope="row">
                                 {histogramIntervalLabel(bucket.lower, bucket.upper, bucketIndex === buckets.length - 1, grouping)}
                               </th>
-                              <td>{bucket.count.toLocaleString()}</td>
+                              <td>{bucket.count.toLocaleString("es-ES")}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -429,17 +438,23 @@ function TemporalCoverageChart({
                   </th>
                   <td>{temporalTypeLabel(column)}</td>
                   <td className="quality-temporal__range">
-                    <span className="quality-temporal__range-value">
-                      {formatTemporalValue(column.minimum)}
-                      <span aria-hidden="true"> → </span>
-                      <span className="visually-hidden"> hasta </span>
-                      {formatTemporalValue(column.maximum)}
-                    </span>
-                    {(column.minimum === null || column.maximum === null) && (
-                      <span className="visually-hidden">Rango parcial o no disponible</span>
+                    {column.minimum === null && column.maximum === null ? (
+                      <span className="quality-temporal__range-value">No disponible</span>
+                    ) : (
+                      <>
+                        <span className="quality-temporal__range-value">
+                          {formatTemporalValue(column.minimum)}
+                          <span aria-hidden="true"> → </span>
+                          <span className="visually-hidden"> hasta </span>
+                          {formatTemporalValue(column.maximum)}
+                        </span>
+                        {(column.minimum === null || column.maximum === null) && (
+                          <span className="visually-hidden">Rango parcial</span>
+                        )}
+                      </>
                     )}
                   </td>
-                  <td>{availableRows.toLocaleString()} de {Math.max(0, rowCount).toLocaleString()}</td>
+                  <td>{availableRows.toLocaleString("es-ES")} de {Math.max(0, rowCount).toLocaleString("es-ES")}</td>
                   <td>{formatPercent(coverage, 1)}</td>
                 </tr>
               );
@@ -594,8 +609,8 @@ function TemporalTrendChart({
         {metric === "numeric"
           ? `${aggregationLabel(aggregation)} de ${valueColumn || "una columna numérica"} por ${granularityLabel}; el cálculo recorre el dataset completo y solo devuelve agregados. `
           : `${metric === "rows" ? "Conteo de filas" : "Porcentaje de valores interpretables"} por ${granularityLabel}; solo se muestran agregados del perfil, nunca valores de celdas. `}
-        Se incluyen {summary.parsedRowCount.toLocaleString()}{" "}
-        de {(summary.parsedRowCount + summary.unparsedRowCount).toLocaleString()} filas interpretables.
+        Se incluyen {summary.parsedRowCount.toLocaleString("es-ES")}{" "}
+        de {(summary.parsedRowCount + summary.unparsedRowCount).toLocaleString("es-ES")} filas interpretables.
       </p>
       {summary.periods.length > 0 ? (
         <>
@@ -731,8 +746,8 @@ function TemporalTrendChart({
                 {aggregationSeries.periods.map((period) => (
                   <tr key={`table-${period.period}`}>
                     <th scope="row">{period.period}</th>
-                    <td>{period.rowCount.toLocaleString()}</td>
-                    <td>{period.valueCount.toLocaleString()}</td>
+                    <td>{period.rowCount.toLocaleString("es-ES")}</td>
+                    <td>{period.valueCount.toLocaleString("es-ES")}</td>
                     <td>{formatTemporalAggregate(period.value)}</td>
                   </tr>
                 ))}
@@ -757,7 +772,7 @@ function TemporalTrendChart({
                 {summary.periods.map((period) => (
                   <tr key={`table-${period.period}`}>
                     <th scope="row">{period.period}</th>
-                    <td>{period.rowCount.toLocaleString()}</td>
+                    <td>{period.rowCount.toLocaleString("es-ES")}</td>
                     <td>{formatPercent(clampPercentage(period.percentage), 1)}</td>
                   </tr>
                 ))}
@@ -850,7 +865,7 @@ function TemporalAggregationChart({
     <div className="quality-temporal-line" role="group" aria-labelledby={titleId}>
       <div className="quality-temporal-line__legend">
         <span><i aria-hidden="true" /> {title}</span>
-        <span>Valores válidos: {series.periods.reduce((total, period) => total + period.valueCount, 0).toLocaleString()}</span>
+        <span>Valores válidos: {series.periods.reduce((total, period) => total + period.valueCount, 0).toLocaleString("es-ES")}</span>
       </div>
       <div className="quality-temporal-line__viewport" role="region" tabIndex={0} aria-label={`Gráfica desplazable: ${title}`}>
         <svg
@@ -864,7 +879,7 @@ function TemporalAggregationChart({
         >
           <title id={titleId}>Tendencia temporal: {title} por {series.granularity === "day" ? "día" : series.granularity === "month" ? "mes" : "año"}</title>
           <desc id={descriptionId}>
-            Línea calculada con el dataset completo y {series.periods.length.toLocaleString()} periodos. Los periodos sin valores válidos dejan un hueco. La tabla muestra los valores exactos.
+            Línea calculada con el dataset completo y {series.periods.length.toLocaleString("es-ES")} periodos. Los periodos sin valores válidos dejan un hueco. La tabla muestra los valores exactos.
           </desc>
           {[0, 0.5, 1].map((ratio) => {
             const y = padding.top + plotHeight * ratio;
@@ -938,7 +953,7 @@ function temporalGranularityLabel(granularity: TemporalSeriesSummary["granularit
 function formatTemporalAggregate(value: number | null): string {
   return value === null || !Number.isFinite(value)
     ? "—"
-    : value.toLocaleString(undefined, { maximumFractionDigits: 6 });
+    : value.toLocaleString("es-ES", { maximumFractionDigits: 6 });
 }
 
 function TemporalLineChart({
@@ -999,7 +1014,7 @@ function TemporalLineChart({
             Serie temporal de {summary.column} por {temporalMetricLabel(metric).toLowerCase()}
           </title>
           <desc id={descriptionId}>
-            Línea con {summary.periods.length.toLocaleString()} periodos. La tabla inferior contiene los mismos datos.
+            Línea con {summary.periods.length.toLocaleString("es-ES")} periodos. La tabla inferior contiene los mismos datos.
           </desc>
           {[0, 0.5, 1].map((ratio) => {
             const y = padding.top + plotHeight * ratio;
@@ -1125,7 +1140,7 @@ function DailyTemporalCalendar({ summary: rawSummary }: { summary: TemporalSerie
           const level = period.rowCount === 0
             ? 0
             : Math.max(1, Math.ceil((period.rowCount / maximumCount) * 4));
-          const rowLabel = `${period.rowCount.toLocaleString()} ${period.rowCount === 1 ? "fila" : "filas"}`;
+          const rowLabel = `${period.rowCount.toLocaleString("es-ES")} ${period.rowCount === 1 ? "fila" : "filas"}`;
 
           return (
             <li
@@ -1134,7 +1149,7 @@ function DailyTemporalCalendar({ summary: rawSummary }: { summary: TemporalSerie
               aria-label={`${period.period}: ${rowLabel}, ${formatPercent(clampPercentage(period.percentage), 1)} de los valores interpretables`}
             >
               <time dateTime={period.period}>{formatCalendarDay(period.period)}</time>
-              <strong>{period.rowCount.toLocaleString()}</strong>
+              <strong>{period.rowCount.toLocaleString("es-ES")}</strong>
               <small>filas</small>
             </li>
           );
@@ -1170,7 +1185,7 @@ function CategoricalGroupChart({
             <div className="quality-chart__item" role="listitem" key={`${group.label}-${group.isOther}`}>
               <div className="quality-chart__label">
                 <span title={group.label}>{group.label}</span>
-                <strong>{group.rowCount.toLocaleString()} filas · {formatPercent(percentage, 1)}</strong>
+                <strong>{group.rowCount.toLocaleString("es-ES")} filas · {formatPercent(percentage, 1)}</strong>
               </div>
               <div className="quality-chart__track" aria-hidden="true">
                 <span
@@ -1199,7 +1214,7 @@ function CategoricalGroupChart({
                   {group.label}
                   {group.isOther && <span className="visually-hidden">, categorías restantes</span>}
                 </th>
-                <td>{group.rowCount.toLocaleString()}</td>
+                <td>{group.rowCount.toLocaleString("es-ES")}</td>
                 <td>{formatPercent(clampPercentage(group.percentage), 1)}</td>
               </tr>
             ))}
@@ -1207,7 +1222,7 @@ function CategoricalGroupChart({
         </table>
       </QualityDataDetails>
       <p className="profile-note">
-        {summary.distinctCount.toLocaleString()} valores distintos detectados
+        {summary.distinctCount.toLocaleString("es-ES")} valores distintos detectados
         {summary.truncated ? "; el resto está agrupado para evitar ruido y preservar privacidad." : "."}
       </p>
     </div>
@@ -1221,7 +1236,7 @@ function correlationSampleText(matrix: NumericCorrelationMatrix): string {
   if (matrix.rowCount <= matrix.sampledRowCount) {
     return matrix.rowCount === 1 ? "La lectura usa la única fila" : `La lectura usa las ${plural(matrix.rowCount, "fila", "filas")}`;
   }
-  return `La lectura usa una muestra de ${matrix.sampledRowCount.toLocaleString()} de ${plural(matrix.rowCount, "fila", "filas")} repartida por todo el archivo`;
+  return `La lectura usa una muestra de ${matrix.sampledRowCount.toLocaleString("es-ES")} de ${plural(matrix.rowCount, "fila", "filas")} repartida por todo el archivo`;
 }
 
 function NumericCorrelationChart({ matrix }: { matrix: NumericCorrelationMatrix }) {
@@ -1315,6 +1330,12 @@ function temporalTypeLabel(column: ColumnProfile): string {
   return "Fecha detectada";
 }
 
+/** «3 columnas completas», or «Las 3 columnas están completas.» when none has gaps. */
+function completeColumnsText(count: number, all: boolean): string {
+  if (all) return count === 1 ? "La columna está completa." : `Las ${count.toLocaleString("es-ES")} columnas están completas.`;
+  return `${count.toLocaleString("es-ES")} ${count === 1 ? "columna completa" : "columnas completas"}`;
+}
+
 function formatTemporalValue(value: string | null): string {
   if (!value) return "No disponible";
   return value.replace("T", " ").replace(/\+00:00$/, " UTC");
@@ -1334,7 +1355,7 @@ function temporalMetricValue(
 }
 
 function temporalMetricDisplay(value: number, metric: Exclude<TemporalMetric, "numeric">): string {
-  return metric === "rows" ? Math.round(value).toLocaleString() : `${formatPercent(clampPercentage(value), 0)}`;
+  return metric === "rows" ? Math.round(value).toLocaleString("es-ES") : `${formatPercent(clampPercentage(value), 0)}`;
 }
 
 function temporalAxisIndexes(periodCount: number): number[] {
@@ -1424,10 +1445,10 @@ export function formatStatistic(value: number | null, useGrouping = true): strin
   if (value === null) return "—";
   // FUN-28: small magnitudes keep their significant digits instead of «0».
   if (value !== 0 && Math.abs(value) < 0.001) {
-    return value.toLocaleString(undefined, { maximumSignificantDigits: 3, useGrouping });
+    return value.toLocaleString("es-ES", { maximumSignificantDigits: 3, useGrouping });
   }
   // UX-08: -0 (and -0.0001 rounded to three decimals) reads «0».
-  return withoutNegativeZero(value, 3).toLocaleString(undefined, { maximumFractionDigits: 3, useGrouping });
+  return withoutNegativeZero(value, 3).toLocaleString("es-ES", { maximumFractionDigits: 3, useGrouping });
 }
 
 /**

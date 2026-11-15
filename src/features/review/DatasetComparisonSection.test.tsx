@@ -42,10 +42,29 @@ describe("DatasetComparisonSection (Revisar)", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /Ignorar mayúsculas/ }));
     expect(props.onOptionsChange).toHaveBeenCalledWith({ numericTolerance: false, ignoreCase: true, trimSpaces: false });
     const compare = screen.getByRole("button", { name: "Comparar con otro archivo" });
-    expect(compare).toHaveClass("primary-action");
-    expect(document.querySelectorAll(".primary-action")).toHaveLength(1);
+    // Inside Revisar the primary action is «Ver cambios propuestos», not this button.
+    expect(compare).toHaveClass("secondary-action");
+    expect(document.querySelectorAll(".primary-action")).toHaveLength(0);
     fireEvent.click(compare);
     expect(props.onCompare).toHaveBeenCalledOnce();
+  });
+
+  it("el resultado son cifras en línea, sin fichas, y las notas van juntas", () => {
+    renderSection({ status: { kind: "ready", comparison: { ...comparison, options: { numericTolerance: false, ignoreCase: true, trimSpaces: false } } } });
+    const counts = screen.getByLabelText("Resultado por clave");
+    expect(counts.tagName).toBe("DL");
+    expect(counts).toHaveClass("comparison-counts");
+    expect(counts).not.toHaveClass("quality-summary");
+    const notes = screen.getByText("Se comparó ignorando mayúsculas.").parentElement!;
+    expect(notes).toHaveClass("comparison-notes");
+    expect(within(notes).getByText(/Para cambiar la clave/)).toBeInTheDocument();
+  });
+
+  it("no muestra el paginador si todos los conflictos caben en una página", () => {
+    const fits = { ...withConflicts, conflictingKeyCount: 1, conflictOffset: 0, conflictsTruncated: false };
+    renderSection({ status: { kind: "ready", comparison: fits } });
+    expect(screen.getByText(/Clave 7/)).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Paginación de conflictos" })).not.toBeInTheDocument();
   });
 
   it("no ofrece unir, consolidar ni resolver: Revisar no cambia el dataset", () => {

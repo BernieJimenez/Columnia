@@ -3,5 +3,5 @@
  * or plural form of what it counts.
  */
 export function plural(count: number, one: string, many: string): string {
-  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
+  return `${count.toLocaleString("es-ES")} ${count === 1 ? one : many}`;
 }

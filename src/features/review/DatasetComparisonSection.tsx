@@ -86,7 +86,7 @@ export function DatasetComparisonSection({
             Compara tu dataset con otro archivo para ver las filas nuevas, las que faltan y los valores que no
             coinciden. Tu dataset no cambia.
           </p>
-          <ComparisonSetup comparison={comparison} datasetColumns={datasetColumns} primary busy={busy} />
+          <ComparisonSetup comparison={comparison} datasetColumns={datasetColumns} primary={false} busy={busy} />
         </>
       )}
     </section>
@@ -232,27 +232,29 @@ export function ComparisonResult({
         {" · "}
         {keyed ? <>por <strong>{comparison.keyColumns.join(", ")}</strong></> : "por filas completas"}
       </p>
-      {comparison.comparedSourceNote && <p className="comparison-key-status">{comparison.comparedSourceNote}</p>}
-      {optionsSummary && <p className="comparison-key-status">{optionsSummary}</p>}
-      <p className="comparison-key-status">Para cambiar la clave, descarta antes la comparación.</p>
+      <div className="comparison-notes">
+        {comparison.comparedSourceNote && <p className="comparison-key-status">{comparison.comparedSourceNote}</p>}
+        {optionsSummary && <p className="comparison-key-status">{optionsSummary}</p>}
+        <p className="comparison-key-status">Para cambiar la clave, descarta antes la comparación.</p>
+      </div>
       {keyed ? (
-        <dl className="quality-summary comparison-counts" aria-label="Resultado por clave">
-          <div><dt>Filas nuevas (solo en el otro archivo)</dt><dd>{comparison.comparedOnlyKeyCount.toLocaleString()}</dd></div>
-          <div><dt>Filas que faltan (solo en tu dataset)</dt><dd>{comparison.currentOnlyKeyCount.toLocaleString()}</dd></div>
-          <div><dt>Conflictos (misma clave, valores distintos)</dt><dd>{comparison.conflictingKeyCount.toLocaleString()}</dd></div>
-          <div><dt>Coinciden</dt><dd>{comparison.matchedKeyCount.toLocaleString()}</dd></div>
-          <div><dt>Claves repetidas</dt><dd>{comparison.duplicateKeyCount.toLocaleString()}</dd></div>
+        <dl className="comparison-counts" aria-label="Resultado por clave">
+          <div><dt>Filas nuevas (solo en el otro archivo)</dt><dd>{comparison.comparedOnlyKeyCount.toLocaleString("es-ES")}</dd></div>
+          <div><dt>Filas que faltan (solo en tu dataset)</dt><dd>{comparison.currentOnlyKeyCount.toLocaleString("es-ES")}</dd></div>
+          <div><dt>Conflictos (misma clave, valores distintos)</dt><dd>{comparison.conflictingKeyCount.toLocaleString("es-ES")}</dd></div>
+          <div><dt>Coinciden</dt><dd>{comparison.matchedKeyCount.toLocaleString("es-ES")}</dd></div>
+          <div><dt>Claves repetidas</dt><dd>{comparison.duplicateKeyCount.toLocaleString("es-ES")}</dd></div>
         </dl>
       ) : (
-        <dl className="quality-summary comparison-counts" aria-label="Resultado por filas completas">
-          <div><dt>Filas en los dos</dt><dd>{comparison.commonRowCount.toLocaleString()}</dd></div>
-          <div><dt>Solo en tu dataset</dt><dd>{comparison.currentOnlyRowCount.toLocaleString()}</dd></div>
-          <div><dt>Solo en el otro archivo</dt><dd>{comparison.comparedOnlyRowCount.toLocaleString()}</dd></div>
+        <dl className="comparison-counts" aria-label="Resultado por filas completas">
+          <div><dt>Filas en los dos</dt><dd>{comparison.commonRowCount.toLocaleString("es-ES")}</dd></div>
+          <div><dt>Solo en tu dataset</dt><dd>{comparison.currentOnlyRowCount.toLocaleString("es-ES")}</dd></div>
+          <div><dt>Solo en el otro archivo</dt><dd>{comparison.comparedOnlyRowCount.toLocaleString("es-ES")}</dd></div>
         </dl>
       )}
       {(comparison.duplicateKeyRowCount ?? 0) > 0 && (
         <p className="notice" role="note">
-          {(comparison.duplicateKeyRowCount ?? 0).toLocaleString()} filas tienen una clave repetida en alguno de los dos archivos y no se comparan: no aparecen como conflicto aunque sus valores difieran. Quita los duplicados o elige más columnas clave.
+          {(comparison.duplicateKeyRowCount ?? 0).toLocaleString("es-ES")} filas tienen una clave repetida en alguno de los dos archivos y no se comparan: no aparecen como conflicto aunque sus valores difieran. Quita los duplicados o elige más columnas clave.
         </p>
       )}
       <div className="comparison-columns" aria-label="Resultado de columnas">
@@ -285,7 +287,7 @@ export function ComparisonResult({
               </li>
             ))}
           </ul>
-          <ConflictPager comparison={comparison} onConflictPageChange={onConflictPageChange} busy={busy} />
+          <ConflictPager comparison={comparison} onConflictPageChange={onConflictPageChange} busy={busy} hideWhenFits />
         </section>
       )}
     </div>
@@ -301,11 +303,14 @@ export function ConflictPager({
   onConflictPageChange,
   busy,
   nextBlocked = false,
+  hideWhenFits = false,
 }: {
   comparison: DatasetComparison;
   onConflictPageChange: (offset: number) => void | Promise<void>;
   busy: boolean;
   nextBlocked?: boolean;
+  /** Revisar: with every conflict on one page there is nothing to page through. */
+  hideWhenFits?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [cancellationPending, setCancellationPending] = useState(false);
@@ -336,6 +341,7 @@ export function ConflictPager({
   }
 
   if (comparison.conflicts.length === 0) return null;
+  if (hideWhenFits && !loading && comparison.conflictOffset === 0 && !comparison.conflictsTruncated) return null;
   const first = comparison.conflictOffset + 1;
   const last = comparison.conflictOffset + comparison.conflicts.length;
   return (
@@ -351,7 +357,7 @@ export function ConflictPager({
           Conflictos anteriores
         </button>
         <span>
-          Conflictos {first}–{last} de {comparison.conflictingKeyCount.toLocaleString()}
+          Conflictos {first}–{last} de {comparison.conflictingKeyCount.toLocaleString("es-ES")}
         </span>
         <button
           type="button"

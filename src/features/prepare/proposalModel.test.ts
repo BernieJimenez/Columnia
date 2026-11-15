@@ -10,6 +10,8 @@ import {
   dateExamples,
   defaultProposalSelection,
   imputationExamples,
+  proposalImputeCells,
+  proposalImputeFigures,
   proposalItemTitle,
   proposalOptions,
   selectedProposalCount,
@@ -128,6 +130,30 @@ describe("buildPrepareProposal", () => {
     expect(proposalItemTitle(impute, { ...selection, sentinels: false })).toBe(
       "Rellenar 5 nulos en 2 columnas",
     );
+  });
+
+  it("gives Revisar the figures of «Rellenar nulos» per column, the same as the item (proposalImputeFigures)", () => {
+    const filled = profile({
+      columns: [
+        column({ name: "CustomerID", nullCount: 3, uniqueCount: 40 }),
+        column({ name: "categoria", nullCount: 3, uniqueCount: 3, sentinelCount: 2 }),
+        column({ name: "monto", dataType: "i64", nullCount: 2, uniqueCount: 80, median: 30 }),
+      ],
+    });
+    const figures = proposalImputeFigures(filled);
+    expect(figures).toEqual({
+      columns: [
+        { column: "categoria", nulls: 3, markers: 2, cells: 5 },
+        { column: "monto", nulls: 2, markers: 0, cells: 2 },
+      ],
+      nulls: 5,
+      markers: 2,
+      cells: 7,
+    });
+    const impute = buildPrepareProposal(filled, dataset).find((item) => item.id === "impute")!;
+    expect(proposalImputeCells(impute)).toBe(figures.cells);
+    expect(impute.title).toBe(`Rellenar ${figures.cells} nulos en ${figures.columns.length} columnas`);
+    expect(proposalImputeFigures(profile({ columns: [column({ name: "id", nullCount: 2 })] })).cells).toBe(0);
   });
 
   it("uses the engine's simulation of the whole chain when there is one (RV17)", () => {
@@ -326,7 +352,7 @@ describe("trim count (UX-01)", () => {
       ],
     });
     const trim = buildPrepareProposal(withSpaces, dataset).find((item) => item.id === "trim");
-    expect(trim?.title).toBe(`Recortar espacios en ${(1205).toLocaleString()} celdas`);
+    expect(trim?.title).toBe(`Recortar espacios en ${(1205).toLocaleString("es-ES")} celdas`);
 
     const clean = profile({ columns: [column({ name: "ciudad", untrimmedCount: 0 })] });
     expect(buildPrepareProposal(clean, dataset).some((item) => item.id === "trim")).toBe(false);

@@ -22,13 +22,13 @@ const EXCEL_MAX_CELL_CHARS = 32_767;
 export function excelLimitIssues(rowCount: number, columns: readonly ColumnProfile[] | null): string[] {
   const issues: string[] = [];
   if (rowCount > EXCEL_MAX_DATA_ROWS) {
-    issues.push(`Tiene ${rowCount.toLocaleString()} filas y una hoja de Excel admite ${EXCEL_MAX_DATA_ROWS.toLocaleString()}.`);
+    issues.push(`Tiene ${rowCount.toLocaleString("es-ES")} filas y una hoja de Excel admite ${EXCEL_MAX_DATA_ROWS.toLocaleString("es-ES")}.`);
   }
   const longColumns = (columns ?? [])
     .filter((column) => (column.maximumLength ?? 0) > EXCEL_MAX_CELL_CHARS)
     .map((column) => column.name);
   if (longColumns.length > 0) {
-    issues.push(`${longColumns.join(", ")}: hay celdas de más de ${EXCEL_MAX_CELL_CHARS.toLocaleString()} caracteres, el máximo de Excel.`);
+    issues.push(`${longColumns.join(", ")}: hay celdas de más de ${EXCEL_MAX_CELL_CHARS.toLocaleString("es-ES")} caracteres, el máximo de Excel.`);
   }
   return issues;
 }

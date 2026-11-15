@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { formatBytes, formatDataType, formatDecimal, formatPercent } from "./format";
 
-const decimalSeparator = new Intl.NumberFormat(undefined).format(1.5).charAt(1);
+// The interface is only in Spanish: the decimal comma does not depend on the system locale.
+const decimalSeparator = ",";
 
 describe("formateo visible", () => {
-  it("usa el separador decimal del sistema en decimales y porcentajes", () => {
+  it("usa la coma decimal española en decimales y porcentajes, sea cual sea el idioma del sistema", () => {
     expect(formatDecimal(8.333)).toBe(`8${decimalSeparator}3`);
     expect(formatPercent(8.333)).toBe(`8${decimalSeparator}3%`);
   });
@@ -45,5 +46,13 @@ describe("formateo visible", () => {
     expect(formatDataType("enum")).toBe("Categoría");
     expect(formatDataType("binary")).toBe("Binario");
     expect(formatDataType("MiTipoRaro")).toBe("MiTipoRaro");
+  });
+});
+
+describe("cifras en español", () => {
+  it("agrupa los miles con punto aunque el sistema esté en inglés", () => {
+    expect((12400).toLocaleString("es-ES")).toBe("12.400");
+    expect(formatDecimal(1234.5)).toBe("1234,5");
+    expect(formatDecimal(12345.5)).toBe("12.345,5");
   });
 });

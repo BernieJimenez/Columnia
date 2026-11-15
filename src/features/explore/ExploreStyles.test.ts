@@ -42,4 +42,17 @@ describe("estilos de Explorar", () => {
     expect(summary).toMatch(/min-height:\s*44px/);
     expect(summary).toMatch(/color:\s*var\(--accent\)/);
   });
+
+  it("los selectores de «Personalizar» llevan el estilo de los de la app: borde de control y 44 px de alto", () => {
+    const select = /\.explore__custom select\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(select).toMatch(/min-height:\s*44px/);
+    expect(select).toMatch(/border:\s*1px solid var\(--control-border\)/);
+    expect(select).toMatch(/background:\s*var\(--surface-raised\)/);
+  });
+
+  it("el texto del encabezado de filtros crece y se encoge, para que «Personalizar» no cambie de fila", () => {
+    const message = /\.explore__message\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(message).toMatch(/flex:\s*1 1/);
+    expect(message).toMatch(/min-width:\s*0/);
+  });
 });

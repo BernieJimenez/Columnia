@@ -448,7 +448,7 @@ function ConflictResolutionAction({
     onResolve(decisions());
   }
 
-  const what = `Cada celda en conflicto toma el valor que elijas${excludedCount > 0 ? ` y se ${excludedCount === 1 ? "quita 1 fila" : `quitan ${excludedCount.toLocaleString()} filas`}` : ""}: ${sizeText(comparison.currentRowCount - excludedCount, comparison.sharedColumns.length + comparison.currentOnlyColumns.length)}.`;
+  const what = `Cada celda en conflicto toma el valor que elijas${excludedCount > 0 ? ` y se ${excludedCount === 1 ? "quita 1 fila" : `quitan ${excludedCount.toLocaleString("es-ES")} filas`}` : ""}: ${sizeText(comparison.currentRowCount - excludedCount, comparison.sharedColumns.length + comparison.currentOnlyColumns.length)}.`;
 
   return (
     <section className="combine-action conflict-resolution" aria-labelledby="conflict-resolution-title">

@@ -30,6 +30,21 @@ describe("diseño a 320 px (AUD-055)", () => {
   });
 });
 
+describe("Revisar a 320 px", () => {
+  it("la etiqueta de la distribución numérica envuelve: nombre legible y Q1/Mediana/Q3 en --text-secondary", () => {
+    expect(styles).toMatch(/\.quality-chart__label--stats \{[^}]*flex-wrap: wrap/);
+    expect(styles).toMatch(/\.quality-chart__label--stats span \{[^}]*flex: 1 1 auto;[^}]*white-space: normal;[^}]*overflow-wrap: anywhere/);
+    expect(styles).toMatch(/max-width: 520px\) \{\s*\.quality-chart__label--stats strong \{ flex-basis: 100%/);
+    expect(styles).toMatch(/\.quality-chart__label--stats strong \{[^}]*color: var\(--text-secondary\)/);
+    expect(styles).toMatch(/\.quality-chart__label--stats strong \{ color: var\(--text-secondary\)/);
+    expect(styles).not.toMatch(/\.quality-chart__label--stats[^{]*\{[^}]*var\(--accent\)/);
+  });
+  it("«Más análisis» no pone una caja dentro del plegable y el resultado de la comparación va en línea", () => {
+    expect(dataViews).toMatch(/\.review-more__section > \.quality-visuals \{[^}]*border: 0/);
+    expect(read("src/workflow-styles.css")).toMatch(/\.comparison-counts \{ display: flex; flex-wrap: wrap/);
+  });
+});
+
 describe("Entregar en una sola columna (2026-11-14)", () => {
   it("los pasos van en una columna de lectura, sin rejilla de dos columnas ni barra fija", () => {
     expect(shell).toMatch(/\.delivery-flow \{[^}]*max-width: 760px/);
@@ -44,11 +59,17 @@ describe("columna de trabajo de Preparar con el historial al lado", () => {
   it("la columna es un contenedor y sus filas responden a su ancho, no al de la ventana", () => {
     expect(dataViews).toMatch(/\.prepare-layout__main \{[^}]*container: prepare-main \/ inline-size/);
     // A narrow column puts each row's button under its own text, full width.
-    expect(styles).toMatch(/@container prepare-main \(max-width: 36rem\) \{[^@]*\.cleaning-signals__column \{ grid-template-columns: minmax\(0, 1fr\); \}/);
-    expect(styles).toMatch(/@container prepare-main \(max-width: 36rem\) \{[^@]*\.cleaning-signals__action-button \{ justify-self: stretch; width: 100%;/);
+    expect(styles).toMatch(/@container prepare-main \(max-width: 36rem\) \{[^@]*\.cleaning-signals__column-text \{ flex-basis: 100%;/);
+    expect(styles).toMatch(/@container prepare-main \(max-width: 36rem\) \{[^@]*\.cleaning-signals__action-button \{ flex-basis: 100%; width: 100%;/);
   });
-  it("una fila por columna: el texto encoge junto a su botón, sin base flex que se vuelva altura", () => {
-    expect(styles).toMatch(/\.cleaning-signals__column \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto/);
+  it("una fila por columna: el texto guarda su ancho y el botón pasa debajo, sin base flex que se vuelva altura", () => {
+    expect(styles).toMatch(/\.cleaning-signals__column \{[^}]*display: flex;[^}]*flex-wrap: wrap/);
+    expect(styles).toMatch(/\.cleaning-signals__column-text \{[^}]*flex: 1 1 26rem/);
+    // Always a row: in a column the 26rem basis would become a height.
+    expect(styles).not.toMatch(/\.cleaning-signals__column \{[^}]*flex-direction: column/);
+  });
+  it("el primario de la propuesta mientras se aplica conserva su color, no el contorno discontinuo", () => {
+    expect(workflow).toMatch(/\.workspace \.prepare-proposal__primary\[aria-disabled="true"\]\[aria-busy="true"\] \{[^}]*background: var\(--accent\);[^}]*color: var\(--on-accent\)/);
     // The text of a row is .875rem in --text-secondary, never .78rem.
     expect(styles).toMatch(/\.cleaning-signals__column-text p \{[^}]*color: var\(--text-secondary\); font-size: \.875rem/);
     expect(styles).not.toMatch(/cleaning-signals[^{]*\{[^}]*font-size: \.78rem/);

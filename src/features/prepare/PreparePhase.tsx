@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ModalDialog } from "../../components/ModalDialog";
@@ -15,11 +15,13 @@ import { PrepareProposal, type ProposalResult } from "./PrepareProposal";
 import { buildPrepareProposal, looksLikeIdentifier, proposalImputeCells, type ProposalItem } from "./proposalModel";
 import {
   cellCount,
+  changeProgressMessage,
   conversionNullEstimate,
   type ChangeStatus,
   type TypeConversionKind,
 } from "./prepareModel";
 import {
+  COLUMN_FIX_GROUPS,
   REMOVAL_NULL_PERCENTAGE,
   actionColumns,
   actionEffect,
@@ -212,12 +214,13 @@ export function PreparePhase({
   const typeDriftColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => (column.invalidTypeCount ?? 0) > 0)
     : [];
+  const typeDriftTotal = typeDriftColumns.reduce((total, column) => total + (column.invalidTypeCount ?? 0), 0);
   const outlierColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => (column.outlierCount ?? 0) > 0 && !isRowAuditColumn(column.name))
     : [];
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
   const outlierTotal = outlierColumns.reduce((total, column) => total + (column.outlierCount ?? 0), 0);
-  const outlierTotalPhrase = `${outlierTotal === 1 ? "el valor atípico" : `los ${outlierTotal.toLocaleString()} valores atípicos`} de ${listNames(outlierColumns.map((column) => column.name))}`;
+  const outlierTotalPhrase = `${outlierTotal === 1 ? "el valor atípico" : `los ${outlierTotal.toLocaleString("es-ES")} valores atípicos`} de ${listNames(outlierColumns.map((column) => column.name))}`;
   const conversionLoss = profileStatus.kind === "ready" && conversionConfirmation !== null
     ? conversionNullEstimate(profileStatus.profile, conversionConfirmation)
     : [];
@@ -457,6 +460,7 @@ export function PreparePhase({
           items={proposalItems}
           columnCount={dataset.columns.length}
           busy={changing}
+          applyingLabel={proposalProgressLabel(changeStatus)}
           // One «Deshacer» per zone: the result line above already has it.
           canUndo={historyStatus.canUndo && !resultLineShown}
           result={currentPlanComparison}
@@ -612,8 +616,8 @@ export function PreparePhase({
                     <h3 id="row-audit-title">Cambios por fila</h3>
                     <p>
                       {hasRowAuditColumn
-                        ? "La columna _cambios está activa: cada corrección posterior añade su etiqueta a las filas que cambia."
-                        : "Añade una columna _cambios con la etiqueta de cada corrección que apliques después, en las filas que cambie."}
+                        ? "La columna de auditoría _cambios está activa: en cada fila anota qué corrección posterior la cambió."
+                        : "Añade una columna de auditoría, _cambios, que anota en cada fila qué corrección aplicada después la cambió."}
                     </p>
                   </div>
                   {!hasRowAuditColumn && (
@@ -742,11 +746,12 @@ export function PreparePhase({
           describedBy="identifier-confirm-description"
           onDismiss={() => setIdentifierConfirmation(false)}
         >
-          <h3 id="identifier-confirm-title">Retirar identificadores detectados</h3>
+          <h3 id="identifier-confirm-title">Eliminar columnas identificadoras</h3>
           <p id="identifier-confirm-description">
-            Se retirarán {identifierColumns.length === 1 ? "1 columna identificadora" : `${identifierColumns.length} columnas identificadoras`} detectadas por el nombre del encabezado: {identifierColumns.map((column) => column.name).join(", ")}.
+            Se eliminarán {identifierColumns.length === 1 ? "1 columna identificadora" : `${identifierColumns.length} columnas identificadoras`} detectadas por el nombre del encabezado: {identifierColumns.map((column) => column.name).join(", ")}.
+            Un identificador suele ser la clave de la tabla: sin él no se pueden unir ni distinguir las filas.
             No se mostrarán celdas ni valores del dataset. Se conservará al menos una columna.{undoNote}
-            Las columnas de email, teléfono, dirección y nombre no se retiran con esta acción.
+            Las columnas de email, teléfono, dirección y nombre no se eliminan con esta acción.
           </p>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => setIdentifierConfirmation(false)}>
@@ -762,7 +767,7 @@ export function PreparePhase({
               disabled={changing}
               aria-describedby={busyDescribedBy(changing)}
             >
-              Retirar identificadores
+              Eliminar {plural(identifierColumns.length, "columna", "columnas")}
             </button>
           </div>
         </ModalDialog>
@@ -774,11 +779,11 @@ export function PreparePhase({
           describedBy="personal-confirm-description"
           onDismiss={() => setPersonalConfirmation(false)}
         >
-          <h3 id="personal-confirm-title">Retirar datos personales detectados</h3>
+          <h3 id="personal-confirm-title">Eliminar columnas con datos personales</h3>
           <p id="personal-confirm-description">
-            Se retirarán {personalColumns.length === 1 ? "1 columna personal" : `${personalColumns.length} columnas personales`} identificadas por categorías agregadas: {personalCategories}.
-            No se mostrarán nombres de columnas, celdas ni valores del dataset. La columna _cambios (la etiqueta
-            de cada corrección) no se toca y se conservará al menos una columna utilizable.{undoNote}
+            Se eliminarán {personalColumns.length === 1 ? "1 columna personal" : `${personalColumns.length} columnas personales`} identificadas por categorías agregadas: {personalCategories}.
+            No se mostrarán nombres de columnas, celdas ni valores del dataset. La columna de auditoría _cambios (qué
+            corrección cambió cada fila) no se toca y se conservará al menos una columna utilizable.{undoNote}
             Los identificadores se gestionan con la acción separada de esta sección.
           </p>
           <div className="sheet-dialog__actions">
@@ -795,7 +800,7 @@ export function PreparePhase({
               disabled={changing}
               aria-describedby={busyDescribedBy(changing)}
             >
-              Retirar datos personales
+              Eliminar {plural(personalColumns.length, "columna", "columnas")}
             </button>
           </div>
         </ModalDialog>
@@ -809,9 +814,9 @@ export function PreparePhase({
         >
           <h3 id="personal-mask-confirm-title">Ocultar datos personales detectados</h3>
           <p id="personal-mask-confirm-description">
-            Se sustituirán los valores no nulos de {personalColumns.length === 1 ? "1 columna personal" : `${personalColumns.length} columnas personales`} por el texto <code>[REDACTED]</code>: la celda sigue diciendo que había un valor, pero ya no se puede leer. Columnas identificadas por categorías agregadas: {personalCategories}.
+            Se sustituirán los valores no nulos de {personalColumns.length === 1 ? "1 columna personal" : `${personalColumns.length} columnas personales`} por la marca de valor oculto <code>[REDACTED]</code> («censurado», en inglés): la celda sigue diciendo que había un valor, pero ya no se puede leer. Sirve para entregar los datos sin exponer a nadie; no es obligatorio. Columnas identificadas por categorías agregadas: {personalCategories}.
             No se mostrarán nombres de columnas, celdas ni valores del dataset. Se conservarán las columnas,
-            y la columna _cambios (la etiqueta de cada corrección) no se toca.{undoNote}
+            y la columna de auditoría _cambios (qué corrección cambió cada fila) no se toca.{undoNote}
             Los identificadores se gestionan con la acción separada de esta sección.
           </p>
           <div className="sheet-dialog__actions">
@@ -840,9 +845,9 @@ export function PreparePhase({
           describedBy="invalid-types-confirm-description"
           onDismiss={() => setInvalidTypeConfirmation(false)}
         >
-          <h3 id="invalid-types-confirm-title">Apartar valores incompatibles</h3>
+          <h3 id="invalid-types-confirm-title">Dejar como nulos los valores incompatibles</h3>
           <p id="invalid-types-confirm-description">
-            Se convertirán en nulos los valores que no coincidan con un tipo sugerido con al menos 90 % de coincidencia en {typeDriftColumns.length === 1 ? "1 columna" : `${typeDriftColumns.length} columnas`}: {listNames(typeDriftColumns.map((column) => `${column.name} (${(column.invalidTypeCount ?? 0).toLocaleString()})`))}. Las celdas no se mostrarán.{undoNote}
+            Se convertirán en nulos los valores que no coincidan con un tipo sugerido con al menos 90 % de coincidencia en {typeDriftColumns.length === 1 ? "1 columna" : `${typeDriftColumns.length} columnas`}: {listNames(typeDriftColumns.map((column) => `${column.name} (${(column.invalidTypeCount ?? 0).toLocaleString("es-ES")})`))}. Las celdas no se mostrarán.{undoNote}
           </p>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => setInvalidTypeConfirmation(false)}>
@@ -858,7 +863,7 @@ export function PreparePhase({
               disabled={changing}
               aria-describedby={busyDescribedBy(changing)}
             >
-              Apartar valores incompatibles
+              Dejar como nulos {plural(typeDriftTotal, "valor", "valores")}
             </button>
           </div>
         </ModalDialog>
@@ -875,7 +880,7 @@ export function PreparePhase({
           </h3>
           <p id="conversion-confirm-description">
             {cellCount(conversionLossTotal)} que no {conversionConfirmation === "numeric" ? "son números" : "son fechas"} {conversionLossTotal === 1 ? "quedará nula" : "quedarán nulas"}:{" "}
-            {conversionLoss.map((column) => `${column.name} (${column.count.toLocaleString()})`).join(", ")}. Puedes deshacerlo desde el historial.
+            {conversionLoss.map((column) => `${column.name} (${column.count.toLocaleString("es-ES")})`).join(", ")}.{undoNote}
           </p>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => setConversionConfirmation(null)}>
@@ -959,9 +964,10 @@ export function PreparePhase({
             <button type="button" className="secondary-action" onClick={() => setFillConfirmation(null)}>
               Cancelar
             </button>
+            {/* Filling can be undone: a normal primary, not a danger action. */}
             <button
               type="button"
-              className="danger-action"
+              className="primary-action"
               onClick={() => {
                 const fill = fillConfirmation;
                 setFillConfirmation(null);
@@ -985,8 +991,8 @@ export function PreparePhase({
           <h3 id="unknown-confirm-title">Completar nulos como «Desconocido»</h3>
           <p id="unknown-confirm-description">
             Se escribirá «Desconocido» en {plural(unknownTotal, "nulo", "nulos")} de {plural(unknownColumns.length, "columna", "columnas")} de
-            texto: {listNames(unknownColumns.map((column) => `${column.name} (${column.nullCount.toLocaleString()})`))}. «Desconocido» es un valor
-            inventado: contará como una categoría más. No se tocan los datos personales, la columna _cambios ni las
+            texto: {listNames(unknownColumns.map((column) => `${column.name} (${column.nullCount.toLocaleString("es-ES")})`))}. «Desconocido» es un valor
+            inventado: contará como una categoría más. No se tocan los datos personales, la columna de auditoría _cambios ni las
             columnas vacías o con {REMOVAL_NULL_PERCENTAGE} % o más de nulos.{undoNote}
           </p>
           <div className="sheet-dialog__actions">
@@ -995,7 +1001,7 @@ export function PreparePhase({
             </button>
             <button
               type="button"
-              className="danger-action"
+              className="primary-action"
               onClick={() => {
                 setUnknownConfirmation(false);
                 onImputeCategoricalValues?.();
@@ -1057,7 +1063,7 @@ function emptyRowUpperBound(profile: DatasetProfile): number | null {
 }
 
 /** How Columnia decides that a value is atypical, in words. */
-const OUTLIER_RULE = "Un valor es atípico si queda fuera del rango normal de su columna (regla IQR: más de 1,5 veces el rango intercuartílico por debajo del primer cuartil o por encima del tercero).";
+const OUTLIER_RULE = "Un valor es atípico si queda fuera del rango normal de su columna, lejos de la mitad central de sus datos: más de 1,5 veces el ancho de esa mitad por debajo del primer cuartil o por encima del tercero (regla IQR, del rango intercuartílico).";
 
 /** UX-14: the three outlier actions all change data and ask first. */
 const OUTLIER_ACTION_TITLES = {
@@ -1089,10 +1095,21 @@ function summarizePersonalPrivacySignals(columns: Array<{ privacySignal: string 
     .join(", ");
 }
 
+/**
+ * What the proposal's primary says while the proposal is being applied, so
+ * the progress is where the person pressed, not only in the notice above.
+ */
+function proposalProgressLabel(status: ChangeStatus): string | null {
+  if (status.kind !== "working" || status.action !== "safe") return null;
+  if (status.cancelRequested) return "Cancelando…";
+  const message = changeProgressMessage(status.action);
+  return status.progress ? `${message} ${Math.round(status.progress.percent)} %` : message;
+}
+
 /** The sentence that says whether a change can be undone (TXT-01). */
 function undoAvailabilityNote(snapshotsEnabled: boolean): string {
   return snapshotsEnabled
-    ? " Podrás deshacerlo desde el historial."
+    ? " Podrás deshacer el cambio desde el historial."
     : " El historial reversible está desactivado: este cambio no se podrá deshacer.";
 }
 
@@ -1119,18 +1136,14 @@ function CleaningSignals({
   nearDuplicateCount: number;
   onRemoveNearDuplicates?: () => void;
 }) {
-  const plan = buildColumnFixes(profile);
-  const { scopes } = plan;
-  const offered = (action: FixAction | null): action is FixAction =>
-    action !== null && (action.kind === "fill" || available(action.id));
-  const rows = plan.rows.map((row) => {
-    const alternatives = row.alternatives.filter(offered);
-    // An action the app does not offer gives way to its first alternative.
-    return offered(row.recommended)
-      ? { ...row, alternatives }
-      : { ...row, recommended: alternatives[0] ?? null, alternatives: alternatives.slice(1) };
-  });
-  const entries = sharedEntries({ rows, scopes });
+  // An action the app does not offer gives way to the next one.
+  const plan = buildColumnFixes(profile, available);
+  const { scopes, rows } = plan;
+  const groups = COLUMN_FIX_GROUPS
+    .map((group) => ({ ...group, rows: rows.filter((row) => row.group === group.id) }))
+    .filter((group) => group.rows.length > 0);
+  const idPrefix = useId();
+  const entries = sharedEntries(plan);
   const dataColumns = profile.columns.filter((column) => !isRowAuditColumn(column.name));
   const withNulls = dataColumns.filter((column) => column.nullCount > 0);
   const withSentinels = dataColumns.filter((column) => (column.sentinelCount ?? 0) > 0);
@@ -1148,8 +1161,8 @@ function CleaningSignals({
   return (
     <div className="prepare-card prepare-card--stacked cleaning-signals">
       <p className="cleaning-signals__lead">
-        Una fila por cada columna con algo que corregir, con una acción recomendada. Las cifras son de todas
-        las filas y salen de métricas agregadas: no se muestran celdas.{undoNote}
+        Una fila por cada columna con algo que corregir, de lo más grave a lo menos, con una acción recomendada
+        cuando la hay. Las cifras son de todas las filas y salen de métricas agregadas: no se muestran celdas.{undoNote}
       </p>
       <p
         id={qualityActionTargetDomId("missingValues")}
@@ -1172,25 +1185,29 @@ function CleaningSignals({
         <h4 id="column-fixes-title">Columnas con algo que corregir</h4>
         {rows.length === 0 ? (
           <p className="cleaning-signals__empty">Ninguna columna tiene nada que corregir según el análisis.</p>
-        ) : (
-          <ul className="cleaning-signals__columns" aria-labelledby="column-fixes-title">
-            {rows.map((row) => {
+        ) : groups.map((group) => (
+          <section key={group.id} className="cleaning-signals__group" aria-labelledby={`${idPrefix}-group-${group.id}`}>
+          <h5 id={`${idPrefix}-group-${group.id}`}>{group.title}</h5>
+          <ul className="cleaning-signals__columns" aria-labelledby={`${idPrefix}-group-${group.id}`}>
+            {group.rows.map((row) => {
               const name = row.column.name;
               const recommended = row.recommended;
+              const nameId = `${idPrefix}-column-${rows.indexOf(row)}`;
               return (
                 <li
                   key={name}
                   id={name === firstIncompatible ? qualityActionTargetDomId("incompatibleTypes") : undefined}
                   tabIndex={name === firstIncompatible ? -1 : undefined}
                   className="cleaning-signals__column"
-                  aria-label={name}
+                  // Named by the column only; the content is still read in full.
+                  aria-labelledby={nameId}
                 >
                   <div className="cleaning-signals__column-text">
                     <p className="cleaning-signals__column-name">
-                      <strong>{name}</strong> <span>{row.typeLabel}</span>
+                      <strong id={nameId}>{name}</strong> <span>{row.typeLabel}</span>
                     </p>
-                    <p className="cleaning-signals__issue">{row.issues.join(" · ")}</p>
-                    {row.note && <p className="cleaning-signals__note">{row.note}</p>}
+                    {row.issues.length > 0 && <p className="cleaning-signals__issue">{row.issues.join(" · ")}</p>}
+                    {row.notes.map((note) => <p key={note} className="cleaning-signals__note">{note}</p>)}
                     {recommended && isShared(recommended) && (
                       <p className="cleaning-signals__note">
                         Recomendado: «{actionLabel(recommended, scopes)}», en «En varias columnas», más abajo; toca también {others(recommended, name)}.
@@ -1224,7 +1241,8 @@ function CleaningSignals({
               );
             })}
           </ul>
-        )}
+          </section>
+        ))}
       </section>
       {(entries.length > 0 || (nearDuplicateCount > 0 && onRemoveNearDuplicates)) && (
         <section className="cleaning-signals__section" aria-labelledby="shared-fixes-title">
@@ -1269,7 +1287,7 @@ function CleaningSignals({
                   </p>
                 </div>
                 <EffectButton busy={busy} className="cleaning-signals__action-button" onClick={onRemoveNearDuplicates}>
-                  {nearDuplicateCount === 1 ? "Eliminar 1 fila parecida…" : `Eliminar ${nearDuplicateCount.toLocaleString()} filas parecidas…`}
+                  {nearDuplicateCount === 1 ? "Eliminar 1 fila parecida…" : `Eliminar ${nearDuplicateCount.toLocaleString("es-ES")} filas parecidas…`}
                 </EffectButton>
               </li>
             )}
@@ -1280,10 +1298,15 @@ function CleaningSignals({
         <summary>Cómo decide Columnia</summary>
         <div>
           <p>
-            Cada columna recibe una sola recomendación, por este orden: retirar la columna si está vacía, tiene
-            {` ${REMOVAL_NULL_PERCENTAGE}`} % o más de nulos o el mismo valor en todas las filas (entonces nunca se rellena);
-            convertir o apartar los valores de tipo incompatible; ocultar o retirar datos personales; tratar los
-            valores atípicos; y, al final, rellenar nulos.
+            Cada columna recibe como mucho una recomendación, y las filas van por este orden: eliminar la columna si
+            está vacía, tiene{` ${REMOVAL_NULL_PERCENTAGE}`} % o más de nulos o el mismo valor en todas las filas (entonces
+            nunca se rellena); convertir el tipo o dejar como nulos los valores incompatibles; ocultar datos personales;
+            tratar los valores atípicos; reparar el texto; y, al final, rellenar nulos.
+          </p>
+          <p>
+            Un identificador suele ser la clave de la tabla: no se recomienda tocarlo, y eliminarlo queda en «Otras
+            opciones». Las fechas que se leen de dos formas (día/mes o mes/día) se convierten en la propuesta de
+            arriba, cuando eliges el orden.
           </p>
           <p>
             Un nulo no siempre es un error y se conserva hasta que elijas. Rellenar con la mediana, el valor más

@@ -29,6 +29,8 @@ interface DeliveryResultProps {
   databaseLocation?: string | null;
   /** The table policy the database write was asked with: the result says what happened to the table. */
   databasePolicy?: "create_only" | "append" | "replace" | null;
+  /** With «Reemplazar», the rows the analysis found in the table and the write deleted, when known. */
+  replacedRowCount?: number | null;
 }
 
 function isDatabaseResult(result: ExportResult): boolean {
@@ -56,6 +58,7 @@ export function DeliveryResult({
   takeFocus = true,
   databaseLocation = null,
   databasePolicy = null,
+  replacedRowCount = null,
 }: DeliveryResultProps) {
   const [openOutputState, setOpenOutputState] = useState<"idle" | "working" | "opened" | "error">("idle");
   const [powerBiState, setPowerBiState] = useState<
@@ -116,7 +119,11 @@ export function DeliveryResult({
     ? databaseLocation ?? result.fileName
     : result.folderName != null ? `${result.fileName} en la carpeta ${result.folderName}` : result.fileName;
   const tableOutcome = databasePolicy === "replace"
-    ? " Se reemplazó la tabla anterior."
+    ? ` Se reemplazó la tabla anterior.${replacedRowCount === null || replacedRowCount === 0
+      ? ""
+      : replacedRowCount === 1
+        ? " Se borró la única fila anterior."
+        : ` Se borraron las ${plural(replacedRowCount, "fila", "filas")} anteriores.`}`
     : databasePolicy === "append"
       ? ` Se ${result.rowCount === 1 ? "añadió 1 fila" : rows ? `añadieron ${rows}` : "añadieron las filas"} a la tabla existente.`
       : databasePolicy === "create_only" ? " Se creó la tabla." : "";
@@ -177,7 +184,7 @@ export function DeliveryResult({
               {rows}
               {protectedCells > 0 && (protectedCells === 1
                 ? " · 1 celda empezaba como una fórmula y se guardó como texto"
-                : ` · ${protectedCells.toLocaleString()} celdas empezaban como una fórmula y se guardaron como texto`)}
+                : ` · ${protectedCells.toLocaleString("es-ES")} celdas empezaban como una fórmula y se guardaron como texto`)}
             </dd>
           </div>
         )}
@@ -194,7 +201,7 @@ export function DeliveryResult({
       </dl>
       {preparationChanges.length > 0 && (
         <details className="delivery-result__changes">
-          <summary>Ver los cambios de Preparar incluidos ({preparationChanges.length.toLocaleString()})</summary>
+          <summary>Ver los cambios de Preparar incluidos ({preparationChanges.length.toLocaleString("es-ES")})</summary>
           <ol>{preparationChanges.map((change, index) => <li key={`${index}-${change}`}>{change}</li>)}</ol>
         </details>
       )}
@@ -202,7 +209,7 @@ export function DeliveryResult({
         <p className="notice notice--warning">
           {result.replacedControlCellCount === 1
             ? "1 celda tenía caracteres de control que Excel no admite; se cambiaron por «�»."
-            : `${result.replacedControlCellCount.toLocaleString()} celdas tenían caracteres de control que Excel no admite; se cambiaron por «�».`}
+            : `${result.replacedControlCellCount.toLocaleString("es-ES")} celdas tenían caracteres de control que Excel no admite; se cambiaron por «�».`}
         </p>
       )}
       {result.format === "Paquete Columnia" && (

@@ -267,6 +267,8 @@ export function DeliveryPhase({
     location: string | null;
     /** What the table policy was when it was asked for: the result says what happened to the table. */
     tablePolicy: DatabaseTargetDraft["tablePolicy"] | null;
+    /** Rows the analysis found in the table «Reemplazar» emptied; null when the policy was another or the count was unknown. */
+    replacedRowCount: number | null;
     takeFocus: boolean;
   } | null>(() => exportState.kind === "success"
     ? {
@@ -274,6 +276,7 @@ export function DeliveryPhase({
         format: exportFormat ?? "csv",
         location: null,
         tablePolicy: null,
+        replacedRowCount: null,
         takeFocus: false,
       }
     : null);
@@ -484,7 +487,12 @@ export function DeliveryPhase({
       ? { connection: databaseConnectionSummary(databaseTarget.connection) }
       : {}),
     quality: contract.kind === "with_contract"
-      ? { kind: "rules", count: contract.rules.length, passed: gatePassed }
+      ? {
+          kind: "rules",
+          count: contract.rules.length,
+          status: gatePassed ? "passed" : failedRuleNumbers.length > 0 ? "failed" : "pending",
+          failedCount: failedRuleNumbers.length,
+        }
       : { kind: "unvalidated" },
     privacyMode: selectedPrivacyMode,
     personalDataColumnCount: personalDataColumns.length,
@@ -493,7 +501,7 @@ export function DeliveryPhase({
   const approvedQualitySummary = contract.kind === "with_contract"
     && contract.gate.kind === "ready"
     && contract.gate.result.passed
-    ? `${contract.gate.result.totalRules.toLocaleString()} ${contract.gate.result.totalRules === 1 ? "regla aprobada" : "reglas aprobadas"} sobre ${contract.gate.result.rowCount.toLocaleString()} ${contract.gate.result.rowCount === 1 ? "fila" : "filas"}`
+    ? `${contract.gate.result.totalRules.toLocaleString("es-ES")} ${contract.gate.result.totalRules === 1 ? "regla aprobada" : "reglas aprobadas"} sobre ${contract.gate.result.rowCount.toLocaleString("es-ES")} ${contract.gate.result.rowCount === 1 ? "fila" : "filas"}`
     : null;
   const replaceWarning = replacesTable
     ? replaceTableWarning(replaceTableName, activePreflight)
@@ -502,6 +510,15 @@ export function DeliveryPhase({
   const showsCurrentResult = exportState.kind === "success"
     && (exportedWith === null
       || (exportedWith.destination === destination && exportedWith.format === selectedExportFormat));
+  // The table was just written: the analysis and the confirmation were spent, and the result says so.
+  const wroteTableNow = showsCurrentResult
+    && isDatabaseExportFormat(selectedExportFormat)
+    && exportedWith?.takeFocus === true
+    && !databaseReady
+    && !busy;
+  const shownBlockedReason = wroteTableNow
+    ? "Ya se escribió la tabla. Para escribir de nuevo, vuelve a analizar la compatibilidad."
+    : exportBlockedReason;
   const exportActionLabel = (() => {
     const validate = contract.kind === "with_contract" && !gatePassed;
     // A copy of a file can be made again; a write to a database cannot until it is analysed (and
@@ -509,8 +526,14 @@ export function DeliveryPhase({
     if (showsCurrentResult && !isDatabaseExportFormat(selectedExportFormat)) return "Exportar otra copia";
     if (destination === "powerbi") return validate ? "Validar, exportar y abrir en Power BI" : "Exportar y abrir en Power BI";
     if (replacesTable) {
-      const target = `${replaceTableName}${replaceServer ? ` en ${replaceServer}` : ""}`;
-      return validate ? `Validar y reemplazar ${target}` : `Reemplazar ${target}`;
+      // Server and table names do not break at their hyphens on a narrow screen.
+      const target = (
+        <>
+          <span className="export-action__name">{replaceTableName}</span>
+          {replaceServer && <>{" en "}<span className="export-action__name">{replaceServer}</span></>}
+        </>
+      );
+      return validate ? <>Validar y reemplazar {target}</> : <>Reemplazar {target}</>;
     }
     return validate ? `Validar y exportar ${exportFormatLabel}` : `Exportar ${exportFormatLabel}`;
   })();
@@ -604,6 +627,12 @@ export function DeliveryPhase({
         format,
         location: isDatabaseExportFormat(format) ? databaseLocation(databaseTarget) : null,
         tablePolicy: isDatabaseExportFormat(format) ? databaseTarget.tablePolicy : null,
+        replacedRowCount: isDatabaseExportFormat(format)
+          && databaseTarget.tablePolicy === "replace"
+          && activePreflight?.tableExists
+          && typeof activePreflight.existingRowCount === "number"
+          ? activePreflight.existingRowCount
+          : null,
         takeFocus: true,
       };
       if (contract.kind === "with_contract") {
@@ -826,9 +855,13 @@ export function DeliveryPhase({
   // ends up far from the notice that explains it.
   const gateTitleRef = useRef<HTMLHeadingElement>(null);
   const previousGateKind = useRef(contract.gate.kind);
+  // While the focused title announces the failure (with its description), the reason beside the
+  // button changes at the same moment: it stays silent until the focus leaves the title.
+  const [gateTitleHasFocus, setGateTitleHasFocus] = useState(false);
   const focusGateFailure = useEffectEvent(() => {
     const title = gateTitleRef.current;
     if (!title) return;
+    setGateTitleHasFocus(true);
     title.focus({ preventScroll: true });
     title.scrollIntoView?.({
       block: "start",
@@ -923,7 +956,11 @@ export function DeliveryPhase({
             />
             <span>
               <strong>Validar calidad</strong>
-              <small>Recomendado</small>
+              <small>
+                {suggestedRules.length > 0 || contract.kind === "with_contract"
+                  ? "Recomendado"
+                  : "Columnia no propone comprobaciones para estos datos; añades las tuyas"}
+              </small>
             </span>
           </label>
           <label data-selected={contract.kind === "without_contract" || undefined}>
@@ -1082,19 +1119,25 @@ export function DeliveryPhase({
             className={`quality-gate quality-gate--${contract.gate.result.passed ? "passed" : "failed"}`}
             role={contract.gate.kind === "ready" && contract.gate.result.passed ? "status" : undefined}
           >
-            <h4 ref={gateTitleRef} tabIndex={-1} className="quality-gate__title" aria-describedby="quality-gate-summary">
+            <h4
+              ref={gateTitleRef}
+              tabIndex={-1}
+              className="quality-gate__title"
+              aria-describedby="quality-gate-summary"
+              onBlur={() => setGateTitleHasFocus(false)}
+            >
               {contract.gate.kind === "stale"
                 ? "Resultado desactualizado"
                 : contract.gate.result.passed ? "Contrato aprobado" : "Contrato fallido"}
             </h4>
             <span id="quality-gate-summary">
               {contract.gate.result.failedRules === 1 || contract.gate.result.totalRules === 1
-                ? `${contract.gate.result.failedRules.toLocaleString()} de ${plural(contract.gate.result.totalRules, "regla", "reglas")} falló`
-                : `${contract.gate.result.failedRules.toLocaleString()} de ${plural(contract.gate.result.totalRules, "regla", "reglas")} fallaron`}
+                ? `${contract.gate.result.failedRules.toLocaleString("es-ES")} de ${plural(contract.gate.result.totalRules, "regla", "reglas")} falló`
+                : `${contract.gate.result.failedRules.toLocaleString("es-ES")} de ${plural(contract.gate.result.totalRules, "regla", "reglas")} fallaron`}
               {" · "}
               {contract.gate.result.rowCount === 1
                 ? "1 fila comprobada"
-                : `${contract.gate.result.rowCount.toLocaleString()} filas comprobadas`}
+                : `${contract.gate.result.rowCount.toLocaleString("es-ES")} filas comprobadas`}
             </span>
             {failedRuleNumbers.length > 0 && (
               <p className="quality-gate__next">
@@ -1226,7 +1269,7 @@ export function DeliveryPhase({
             <div className="notice notice--warning" role="status">
               <p>
                 Este script será muy grande para SQL Server (unos{" "}
-                {Math.round(estimateTsqlScriptBytes(dataset.rowCount, exportedColumnCount) / (1024 * 1024)).toLocaleString()} MB):
+                {Math.round(estimateTsqlScriptBytes(dataset.rowCount, exportedColumnCount) / (1024 * 1024)).toLocaleString("es-ES")} MB):
                 puede rechazarlo al ejecutarlo en un solo lote. Usa el paquete BULK INSERT.
               </p>
               <button
@@ -1315,7 +1358,11 @@ export function DeliveryPhase({
                   {databasePreflightState.kind === "working" ? "Analizando compatibilidad…" : "Analizar compatibilidad"}
                 </button>
                 {!activePreflight && databasePreflightState.kind === "idle" && !showDatabaseTargetError && (
-                  <p className="export-requirement" role="note">Analiza el esquema y los datos para habilitar la entrega remota. Este paso no escribe en el destino.</p>
+                  <p className="export-requirement" role="note">
+                    {wroteTableNow
+                      ? "La tabla ya cambió con la última escritura, así que el análisis anterior no sirve: analiza el esquema y los datos de nuevo para escribir otra vez. Este paso no escribe en el destino."
+                      : "Analiza el esquema y los datos para habilitar la entrega remota. Este paso no escribe en el destino."}
+                  </p>
                 )}
               </div>
               {databasePreflightState.kind === "working" && (
@@ -1392,7 +1439,7 @@ export function DeliveryPhase({
           </dl>
           {replacesTable && (
             <div className="notice notice--warning delivery-replace" role="note">
-              {replaceWarning && <p><strong>{replaceWarning}</strong></p>}
+              {replaceWarning && !wroteTableNow && <p><strong>{replaceWarning}</strong></p>}
               <label className="export-confirmation">
                 <input
                   type="checkbox"
@@ -1414,7 +1461,7 @@ export function DeliveryPhase({
         <div className="delivery-commit">
           <div className="export-actions-row">
             <button
-              className={`${showsCurrentResult ? "secondary-action" : "primary-action"} export-action`}
+              className={`${showsCurrentResult ? "secondary-action" : replacesTable ? "danger-action" : "primary-action"} export-action`}
               type="button"
               onClick={() => {
                 if (exportDisabled) {
@@ -1431,7 +1478,12 @@ export function DeliveryPhase({
             </button>
           </div>
           {/* Always mounted: a live region announces text that changes, not one that appears. */}
-          <p id="export-blocked-reason" className="export-blocked-reason" role="status">{exportBlockedReason}</p>
+          <p
+            id="export-blocked-reason"
+            className="export-blocked-reason"
+            role="status"
+            aria-live={gateTitleHasFocus && contract.gate.kind === "ready" ? "off" : undefined}
+          >{shownBlockedReason}</p>
           {contract.kind === "with_contract" && !gatePassed && !validationError && failedRuleNumbers.length === 0 && (
             <p className="export-requirement">Las reglas se comprobarán antes de crear la copia.</p>
           )}
@@ -1485,6 +1537,7 @@ export function DeliveryPhase({
             takeFocus={exportedWith?.takeFocus ?? false}
             databaseLocation={exportedWith?.location ?? null}
             databasePolicy={exportedWith?.tablePolicy ?? null}
+            replacedRowCount={exportedWith?.replacedRowCount ?? null}
           />
         )}
         {exportState.kind === "cancelled" && (

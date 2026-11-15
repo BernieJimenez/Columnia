@@ -322,10 +322,10 @@ export function usePrepareController({
       onProfileInvalidated();
       const cells = result.changedCellCount === 1
         ? "1 valor"
-        : `${result.changedCellCount.toLocaleString()} valores`;
+        : `${result.changedCellCount.toLocaleString("es-ES")} valores`;
       const columns = result.changedColumnCount === 1
         ? "1 columna"
-        : `${result.changedColumnCount.toLocaleString()} columnas`;
+        : `${result.changedColumnCount.toLocaleString("es-ES")} columnas`;
       setChangeStatus({
         kind: "applied",
         message: result.changedCellCount === 0
@@ -390,7 +390,7 @@ export function usePrepareController({
       onProfileInvalidated();
       const detail = result.changedCellCount === 1
         ? "1 celda"
-        : `${result.changedCellCount.toLocaleString()} celdas`;
+        : `${result.changedCellCount.toLocaleString("es-ES")} celdas`;
       setChangeStatus({
         kind: "applied",
         message: result.changedCellCount === 0
@@ -434,7 +434,7 @@ export function usePrepareController({
       onProfileInvalidated();
       const detail = result.changedCellCount === 1
         ? "1 valor"
-        : `${result.changedCellCount.toLocaleString()} valores`;
+        : `${result.changedCellCount.toLocaleString("es-ES")} valores`;
       setChangeStatus({
         kind: "applied",
         message: result.changedCellCount === 0
@@ -595,10 +595,10 @@ export function usePrepareController({
       onProfileInvalidated();
       const cells = result.changedCellCount === 1
         ? "1 celda"
-        : `${result.changedCellCount.toLocaleString()} celdas`;
+        : `${result.changedCellCount.toLocaleString("es-ES")} celdas`;
       const rows = result.affectedRowCount === 1
         ? "1 fila"
-        : `${result.affectedRowCount.toLocaleString()} filas`;
+        : `${result.affectedRowCount.toLocaleString("es-ES")} filas`;
       const detail = `${cells} en ${rows}`;
       setChangeStatus({
         kind: "applied",
@@ -638,10 +638,10 @@ export function usePrepareController({
       }
       const changedCells = result.changedCellCount === 1
         ? "1 celda actualizada"
-        : `${result.changedCellCount.toLocaleString()} celdas actualizadas`;
+        : `${result.changedCellCount.toLocaleString("es-ES")} celdas actualizadas`;
       const renamedColumns = result.renamedColumnCount === 1
         ? "1 columna renombrada"
-        : `${result.renamedColumnCount.toLocaleString()} columnas renombradas`;
+        : `${result.renamedColumnCount.toLocaleString("es-ES")} columnas renombradas`;
       const changes = [
         (options.trimText || options.normalizeSentinels) && result.changedCellCount > 0 ? changedCells : null,
         options.normalizeColumnNames && result.renamedColumnCount > 0 ? renamedColumns : null,
@@ -649,13 +649,13 @@ export function usePrepareController({
           ? `${result.removedRowCount === 1 ? "se retiró" : "se retiraron"} ${plural(result.removedRowCount, "fila duplicada exacta", "filas duplicadas exactas")}`
           : null,
         result.typedColumnCount > 0
-          ? `${result.typedColumnCount.toLocaleString()} ${result.typedColumnCount === 1 ? "columna convertida" : "columnas convertidas"} a número`
+          ? `${result.typedColumnCount.toLocaleString("es-ES")} ${result.typedColumnCount === 1 ? "columna convertida" : "columnas convertidas"} a número`
           : null,
         result.datedColumnCount > 0
-          ? `${result.datedColumnCount.toLocaleString()} ${result.datedColumnCount === 1 ? "columna convertida" : "columnas convertidas"} a fecha`
+          ? `${result.datedColumnCount.toLocaleString("es-ES")} ${result.datedColumnCount === 1 ? "columna convertida" : "columnas convertidas"} a fecha`
           : null,
         options.imputeMissing && imputedCellCount > 0
-          ? `se rellenaron ${imputedCellCount.toLocaleString()} ${imputedCellCount === 1 ? "nulo" : "nulos"}`
+          ? `se rellenaron ${imputedCellCount.toLocaleString("es-ES")} ${imputedCellCount === 1 ? "nulo" : "nulos"}`
           : null,
       ].filter((change): change is string => change !== null);
       // «Rellenar» of one column in «Corregir columna por columna» uses the same

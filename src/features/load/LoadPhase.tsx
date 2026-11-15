@@ -195,6 +195,63 @@ export function LoadPhase({
   const importOptionsOpen = importOptionsChoice !== null && importOptionsChoice.selectionId === importOptionsSelectionId
     ? importOptionsChoice.open
     : dateLikeColumns.length > 0;
+  // The options sit right under the date hint when it shows, and in the dialog's foot otherwise.
+  const importOptionsUnderDateHint = dateLikeColumns.length > 0;
+  const importOptions = sheetSelection && isDelimitedSelection ? (
+    <details
+      className="sheet-import-options"
+      open={importOptionsOpen}
+      onToggle={(event) => setImportOptionsChoice({ selectionId: importOptionsSelectionId, open: event.currentTarget.open })}
+    >
+      <summary>Interpretación de fechas y números (opcional)</summary>
+      <p role="note">
+        “Sin definir” conserva el texto. Una convención convierte una columna solo si todos sus valores no nulos cumplen; si alguno no cumple, se conserva la columna completa como texto.
+        {sheetSelection.source.resourceEstimate.processingPath === "sourceBacked"
+          ? ` Este archivo se lee por bloques; las conversiones de fecha y número solo se aplican a archivos de menos de ${formatFileSize(sheetSelection.source.resourceEstimate.inMemoryLimitBytes ?? 512 * 1024 * 1024)}, que se cargan en memoria.`
+          : ""}
+      </p>
+      <label htmlFor="delimited-date-convention">Fechas</label>
+      <select
+        id="delimited-date-convention"
+        value={sheetSelection.dateConvention}
+        disabled={sheetSelection.schemaPreviewLoading === true}
+        onChange={(event) => onSheetAction({
+          kind: "date_convention_changed",
+          value: event.target.value as ImportDateConvention,
+        })}
+      >
+        {DATE_CONVENTIONS.map((item) => (
+          <option
+            key={item.value}
+            value={item.value}
+            disabled={sheetSelection.schemaPreviewLoading === true || (sheetSelection.source.resourceEstimate.processingPath === "sourceBacked" && item.value !== "unresolved")}
+          >
+            {item.label}
+          </option>
+        ))}
+      </select>
+      <label htmlFor="delimited-number-convention">Números</label>
+      <select
+        id="delimited-number-convention"
+        value={sheetSelection.numberConvention}
+        disabled={sheetSelection.schemaPreviewLoading === true}
+        onChange={(event) => onSheetAction({
+          kind: "number_convention_changed",
+          value: event.target.value as ImportNumberConvention,
+        })}
+      >
+        {NUMBER_CONVENTIONS.map((item) => (
+          <option
+            key={item.value}
+            value={item.value}
+            disabled={sheetSelection.schemaPreviewLoading === true || (sheetSelection.source.resourceEstimate.processingPath === "sourceBacked" && item.value !== "unresolved")}
+          >
+            {item.label}
+          </option>
+        ))}
+      </select>
+    </details>
+  ) : null;
 
   // An error of the file source stays by its action and leaves when another
   // source is chosen; a new attempt shows it again even with the same text.
@@ -230,6 +287,35 @@ export function LoadPhase({
         </div>
       )}
     </div>
+  );
+  // The source cards: shown on their own without a dataset, and inside «Cambiar de datos» with one.
+  const sourceCards = sourceOptions.length > 1 && (
+    <fieldset className="choice-cards load-sources">
+      <legend>¿De dónde vienen los datos?</legend>
+      <div className="choice-cards__options">
+        {sourceOptions.map((option) => (
+          <label
+            key={option.id}
+            className="choice-card"
+            data-selected={source === option.id || undefined}
+            onMouseEnter={() => preloadSourcePanel(option.id)}
+            onFocus={() => preloadSourcePanel(option.id)}
+          >
+            <input
+              type="radio"
+              name="load-source"
+              value={option.id}
+              checked={source === option.id}
+              onChange={() => { setChosenSource(option.id); setLeftBehindErrorKey(loadErrorKey); }}
+            />
+            <span>
+              <strong>{option.label}</strong>
+              <small>{option.description}</small>
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
   );
   const errorsBySelectButton = source === "file";
 
@@ -325,7 +411,7 @@ export function LoadPhase({
         <section className="notice" aria-labelledby="crash-reports-title">
           <h3 id="crash-reports-title">Columnia tuvo un fallo interno</h3>
           <p>
-            Desde la sesión anterior se guardó {recentCrashReports === 1 ? "1 informe de fallo" : `${recentCrashReports.toLocaleString()} informes de fallo`}.
+            Desde la sesión anterior se guardó {recentCrashReports === 1 ? "1 informe de fallo" : `${recentCrashReports.toLocaleString("es-ES")} informes de fallo`}.
             Están en la carpeta de datos de Columnia, en <code>crash-reports</code>; solo dicen la versión, la hora y el
             archivo del código donde ocurrió, así que no incluyen tus datos. Si el fallo se repite, guárdalos para revisarlo.
           </p>
@@ -347,36 +433,12 @@ export function LoadPhase({
         </section>
       )}
 
-      {current && <h3 className="load-change-title">Cambiar de datos</h3>}
-
-      {sourceOptions.length > 1 && (
-        <fieldset className="choice-cards load-sources">
-          <legend>¿De dónde vienen los datos?</legend>
-          <div className="choice-cards__options">
-            {sourceOptions.map((option) => (
-              <label
-                key={option.id}
-                className="choice-card"
-                data-selected={source === option.id || undefined}
-                onMouseEnter={() => preloadSourcePanel(option.id)}
-                onFocus={() => preloadSourcePanel(option.id)}
-              >
-                <input
-                  type="radio"
-                  name="load-source"
-                  value={option.id}
-                  checked={source === option.id}
-                  onChange={() => { setChosenSource(option.id); setLeftBehindErrorKey(loadErrorKey); }}
-                />
-                <span>
-                  <strong>{option.label}</strong>
-                  <small>{option.description}</small>
-                </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      )}
+      {current ? (
+        <details className="load-secondary">
+          <summary><span>Cambiar de datos</span></summary>
+          <div className="load-secondary__content">{sourceCards}</div>
+        </details>
+      ) : sourceCards}
 
       {source === "file" && current && (
         <div className="load-change">
@@ -399,7 +461,9 @@ export function LoadPhase({
               {selectionAction}
               {loadErrors}
               <p className="load-brief__formats">
-                CSV · TSV · TXT · JSON · Parquet · Excel · ODS.{runtime.kind === "connected" && " Atajo: Ctrl+O."}<br />
+                CSV · TSV · TXT · JSON · Parquet · Excel · ODS.{runtime.kind === "connected" && " Atajo: Ctrl+O."}
+              </p>
+              <p className="load-brief__note">
                 Los de 512 MiB o más se leen por bloques desde el disco. En CSV, TSV y TXT de ese tamaño, las fechas y los números no se convierten al cargar.
               </p>
             </div>
@@ -636,10 +700,10 @@ export function LoadPhase({
             {reviewedTable
               ? `Las filas ya están leídas y guardadas en este equipo; el servidor no cambió. Revisa las columnas antes de cargarlas. ${current ? "Tu dataset actual no cambia hasta que confirmes." : "Nada se carga hasta que confirmes."}`
               : sheetSelection.source.format === "excel"
-                ? "Elige la hoja y los encabezados. Tu dataset actual no cambia hasta que confirmes."
+                ? `Elige la hoja y los encabezados. ${current ? "Tu dataset actual no cambia hasta que confirmes." : "Nada se carga hasta que confirmes."}`
                 : isDelimitedSelection
-                  ? "Comprueba cómo se leen las columnas. Tu dataset actual no cambia hasta que confirmes."
-                  : "Revisa las columnas antes de importar. Tu dataset actual no cambia hasta que confirmes."}
+                  ? `Comprueba cómo se leen las columnas. ${current ? "Tu dataset actual no cambia hasta que confirmes." : "Nada se carga hasta que confirmes."}`
+                  : `Revisa las columnas antes de importar. ${current ? "Tu dataset actual no cambia hasta que confirmes." : "Nada se carga hasta que confirmes."}`}
           </p>
           {sheetSelection.source.isCompressedContainer && (
             <p className="notice" role="note">
@@ -687,14 +751,14 @@ export function LoadPhase({
                   )}
                   {mergedCount > 0 && (
                     <li>
-                      Esta hoja tiene {mergedCount === 1 ? "1 rango de celdas combinadas" : `${mergedCount.toLocaleString()} rangos de celdas combinadas`}:
+                      Esta hoja tiene {mergedCount === 1 ? "1 rango de celdas combinadas" : `${mergedCount.toLocaleString("es-ES")} rangos de celdas combinadas`}:
                       solo la primera celda de cada uno conserva el valor y las demás llegarán nulas.
                     </li>
                   )}
                   {skippedTitleRows > 0 && (
                     <li>
-                      Encabezados en la fila {(skippedTitleRows + 1).toLocaleString()}:{" "}
-                      {skippedTitleRows === 1 ? "la fila de encima parecía un título y no se carga" : `las ${skippedTitleRows.toLocaleString()} filas de encima parecían un título y no se cargan`}.
+                      Encabezados en la fila {(skippedTitleRows + 1).toLocaleString("es-ES")}:{" "}
+                      {skippedTitleRows === 1 ? "la fila de encima parecía un título y no se carga" : `las ${skippedTitleRows.toLocaleString("es-ES")} filas de encima parecían un título y no se cargan`}.
                       Si no es así, elige «Generar encabezados» para leer todas las filas como datos.
                     </li>
                   )}
@@ -751,7 +815,7 @@ export function LoadPhase({
                   <div>
                     <dt>Filas leídas</dt>
                     <dd>
-                      {reviewedTable.rowsImported.toLocaleString()}
+                      {reviewedTable.rowsImported.toLocaleString("es-ES")}
                       {reviewedTable.moreRowsAvailable
                         ? ` (la tabla tiene más; el límite era de ${plural(reviewedTable.rowLimit, "fila", "filas")})`
                         : " (la tabla completa)"}
@@ -849,7 +913,7 @@ export function LoadPhase({
             {sheetSelection.schemaPreview && (
               <section className="sheet-import-summary sheet-import-summary--nested" aria-labelledby="schema-preview-title">
                 <h4 id="schema-preview-title" className="visually-hidden">Esquema detectado antes de importar</h4>
-                <p role="status">{sheetSelection.schemaPreview.rowCount.toLocaleString()} filas · {sheetSelection.schemaPreview.columns.length} columnas</p>
+                <p role="status">{sheetSelection.schemaPreview.rowCount.toLocaleString("es-ES")} filas · {sheetSelection.schemaPreview.columns.length} columnas</p>
                 {sheetSelection.schemaPreview.schemaMismatch ? (
                   <div className="notice" role="alert">
                     <strong>El esquema no coincide con el perfil guardado.</strong> Si continúas, se importará con el esquema detectado y ese perfil no se aplicará.
@@ -875,7 +939,7 @@ export function LoadPhase({
                     <ul>
                       {(sheetSelection.schemaPreview.unconvertedColumns ?? []).map((item) => (
                         <li key={item.column}>
-                          {item.column}: {item.invalidCount === 1 ? "1 valor no es" : `${item.invalidCount.toLocaleString()} valores no son`} {item.convention === "date" ? "una fecha" : "un número"} (por ejemplo, «{item.example}»). Conviértela después en Preparar o deja ese valor nulo en el archivo.
+                          {item.column}: {item.invalidCount === 1 ? "1 valor no es" : `${item.invalidCount.toLocaleString("es-ES")} valores no son`} {item.convention === "date" ? "una fecha" : "un número"} (por ejemplo, «{item.example}»). Conviértela después en Preparar o deja ese valor nulo en el archivo.
                         </li>
                       ))}
                     </ul>
@@ -886,7 +950,7 @@ export function LoadPhase({
                   const dateLike = dateLikeColumns;
                   if (dateLike.length === 0) return null;
                   const shown = dateLike.slice(0, 5).map((name) => `«${name}»`).join(", ");
-                  const more = dateLike.length > 5 ? ` y ${(dateLike.length - 5).toLocaleString()} más` : "";
+                  const more = dateLike.length > 5 ? ` y ${(dateLike.length - 5).toLocaleString("es-ES")} más` : "";
                   const one = dateLike.length === 1;
                   const sourceBacked = sheetSelection.source.resourceEstimate.processingPath === "sourceBacked";
                   return (
@@ -895,10 +959,11 @@ export function LoadPhase({
                       {shown}{more}. Con las fechas en «Sin definir» se {one ? "cargará" : "cargarán"} como texto.{" "}
                       {sourceBacked
                         ? `Este archivo se lee por bloques, así que ${one ? "conviértela" : "conviértelas"} después en Preparar.`
-                        : "Puedes elegir su formato en «Interpretación de fechas y números (opcional)», más abajo."}
+                        : "Puedes elegir su formato en «Interpretación de fechas y números (opcional)», aquí debajo."}
                     </p>
                   );
                 })()}
+                {importOptionsUnderDateHint && importOptions}
                 {sheetSelection.schemaPreview.columns.length === 0 ? (
                   <p role="note">No se detectaron columnas.</p>
                 ) : (
@@ -922,61 +987,7 @@ export function LoadPhase({
               </section>
             )}
           </section>
-          {isDelimitedSelection && (
-            <details
-              className="sheet-import-options"
-              open={importOptionsOpen}
-              onToggle={(event) => setImportOptionsChoice({ selectionId: importOptionsSelectionId, open: event.currentTarget.open })}
-            >
-              <summary>Interpretación de fechas y números (opcional)</summary>
-              <p role="note">
-                “Sin definir” conserva el texto. Una convención convierte una columna solo si todos sus valores no nulos cumplen; si alguno no cumple, se conserva la columna completa como texto.
-                {sheetSelection.source.resourceEstimate.processingPath === "sourceBacked"
-                  ? ` Este archivo se lee por bloques; las conversiones de fecha y número solo se aplican a archivos de menos de ${formatFileSize(sheetSelection.source.resourceEstimate.inMemoryLimitBytes ?? 512 * 1024 * 1024)}, que se cargan en memoria.`
-                  : ""}
-              </p>
-              <label htmlFor="delimited-date-convention">Fechas</label>
-              <select
-                id="delimited-date-convention"
-                value={sheetSelection.dateConvention}
-                disabled={sheetSelection.schemaPreviewLoading === true}
-                onChange={(event) => onSheetAction({
-                  kind: "date_convention_changed",
-                  value: event.target.value as ImportDateConvention,
-                })}
-              >
-                {DATE_CONVENTIONS.map((item) => (
-                  <option
-                    key={item.value}
-                    value={item.value}
-                    disabled={sheetSelection.schemaPreviewLoading === true || (sheetSelection.source.resourceEstimate.processingPath === "sourceBacked" && item.value !== "unresolved")}
-                  >
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-              <label htmlFor="delimited-number-convention">Números</label>
-              <select
-                id="delimited-number-convention"
-                value={sheetSelection.numberConvention}
-                disabled={sheetSelection.schemaPreviewLoading === true}
-                onChange={(event) => onSheetAction({
-                  kind: "number_convention_changed",
-                  value: event.target.value as ImportNumberConvention,
-                })}
-              >
-                {NUMBER_CONVENTIONS.map((item) => (
-                  <option
-                    key={item.value}
-                    value={item.value}
-                    disabled={sheetSelection.schemaPreviewLoading === true || (sheetSelection.source.resourceEstimate.processingPath === "sourceBacked" && item.value !== "unresolved")}
-                  >
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </details>
-          )}
+          {!importOptionsUnderDateHint && importOptions}
           {sheetSelection.suggestedProfile && (
             <section className="sheet-import-summary" aria-labelledby="saved-import-profile-title">
               <h4 id="saved-import-profile-title">Perfil de importación guardado</h4>

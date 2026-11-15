@@ -61,17 +61,43 @@ export function toggleExpanded(layout: ExploreLayout, column: string): ExploreLa
 }
 
 /**
- * Three to five axis marks that sit on real bin edges (never between two
- * columns). `position` is the edge's place along the plot, from 0 to 1.
+ * Three to five axis marks at even, round steps (1, 2, 2.5 or 5 times a power
+ * of ten). The axis is continuous: a mark that is not on a bin edge sits
+ * proportionally inside its bin. `position` runs from 0 to 1 along the plot.
  */
 export function axisTicks(bins: { lower: number; upper: number }[]): { value: number; position: number }[] {
   if (bins.length === 0) return [];
   const edges = [...bins.map((bin) => bin.lower), bins[bins.length - 1]!.upper];
-  const last = edges.length - 1;
-  const picked = edges.length <= 5
-    ? edges.map((_, index) => index)
-    : [...new Set([0, 1, 2, 3, 4].map((step) => Math.round((last * step) / 4)))];
-  return picked.map((index) => ({ value: edges[index]!, position: index / last }));
+  const first = edges[0]!;
+  const end = edges[edges.length - 1]!;
+  const span = end - first;
+  const positionOf = (value: number) => {
+    const at = edges.findIndex((edge, index) => index > 0 && value <= edge);
+    const index = Math.max(0, at - 1);
+    const lower = edges[index]!;
+    const width = edges[index + 1]! - lower;
+    return (index + (width > 0 ? (value - lower) / width : 0)) / bins.length;
+  };
+  const endsOnly = () => [{ value: first, position: 0 }, ...(span > 0 ? [{ value: end, position: 1 }] : [])];
+  if (!(span > 0)) return endsOnly();
+  const magnitude = Math.floor(Math.log10(span));
+  for (let exponent = magnitude - 2; exponent <= magnitude + 1; exponent += 1) {
+    for (const factor of [1, 2, 2.5, 5]) {
+      const step = factor * 10 ** exponent;
+      const from = Math.ceil(first / step - 1e-9);
+      const to = Math.floor(end / step + 1e-9);
+      const count = to - from + 1;
+      if (count > 5) continue;
+      if (count < 3) return endsOnly();
+      const marks: { value: number; position: number }[] = [];
+      for (let k = from; k <= to; k += 1) {
+        const value = Number((k * step).toPrecision(12));
+        marks.push({ value, position: positionOf(value) });
+      }
+      return marks;
+    }
+  }
+  return endsOnly();
 }
 
 export function valueLabel(value: string | null): string {
@@ -79,7 +105,7 @@ export function valueLabel(value: string | null): string {
 }
 
 export function formatNumber(value: number, fractionDigits = 0, useGrouping = true): string {
-  return value.toLocaleString(undefined, { maximumFractionDigits: fractionDigits, useGrouping });
+  return value.toLocaleString("es-ES", { maximumFractionDigits: fractionDigits, useGrouping });
 }
 
 /** TXT-06: whole numbers between 1000 and 2999 read as years, written as such. */

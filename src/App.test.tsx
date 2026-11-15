@@ -1188,17 +1188,17 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Servidor"), { target: { value: "localhost" } });
     fireEvent.change(screen.getByLabelText("Base de datos"), { target: { value: "VentasRetail" } });
     fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Traer dbo.Ventas" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Leer dbo.Ventas" }));
 
     expect(await screen.findByText("dbo.Ventas.parquet", { selector: ".dataset-bar__name" })).toBeInTheDocument();
     const notice = await screen.findByText(/^Parte de la tabla:/);
     expect(notice).toHaveClass("dataset-bar__origin");
-    expect(notice).toHaveTextContent(`primeras ${(100_000).toLocaleString()} filas de dbo.Ventas`);
+    expect(notice).toHaveTextContent(`primeras ${(100_000).toLocaleString("es-ES")} filas de dbo.Ventas`);
 
     await switchPhase("Entregar");
     const summary = screen.getByRole("heading", { name: "Vas a exportar" }).closest("section")!;
     expect(within(summary).getByText("Origen").nextElementSibling)
-      .toHaveTextContent(`primeras ${(100_000).toLocaleString()} filas de dbo.Ventas`);
+      .toHaveTextContent(`primeras ${(100_000).toLocaleString("es-ES")} filas de dbo.Ventas`);
     expect(within(summary).getByText("Columnas con textos recortados").nextElementSibling).toHaveTextContent("Notas");
 
     await switchPhase("Cargar");
@@ -1252,7 +1252,7 @@ describe("App", () => {
     renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("radio", { name: /^Proyecto/ }));
     fireEvent.click(await screen.findByRole("button", { name: /^Abrir\b/ }));
-    expect(await screen.findByText(/^Parte de la tabla:/)).toHaveTextContent(`primeras ${(1_000).toLocaleString()} filas de dbo.Ventas`);
+    expect(await screen.findByText(/^Parte de la tabla:/)).toHaveTextContent(`primeras ${(1_000).toLocaleString("es-ES")} filas de dbo.Ventas`);
     await switchPhase("Entregar");
     const summary = screen.getByRole("heading", { name: "Vas a exportar" }).closest("section")!;
     expect(within(summary).getByText("Origen")).toBeInTheDocument();

@@ -391,10 +391,10 @@ function renderTemporalTrend(
 describe("formatStatistic", () => {
   it("no muestra 0 para magnitudes pequeñas (FUN-28)", () => {
     expect(formatStatistic(0.0001)).not.toBe("0");
-    expect(formatStatistic(0.0001)).toBe((0.0001).toLocaleString(undefined, { maximumSignificantDigits: 3 }));
-    expect(formatStatistic(-0.00025)).toBe((-0.00025).toLocaleString(undefined, { maximumSignificantDigits: 3 }));
+    expect(formatStatistic(0.0001)).toBe((0.0001).toLocaleString("es-ES", { maximumSignificantDigits: 3 }));
+    expect(formatStatistic(-0.00025)).toBe((-0.00025).toLocaleString("es-ES", { maximumSignificantDigits: 3 }));
     expect(formatStatistic(0)).toBe("0");
-    expect(formatStatistic(12.34567)).toBe((12.346).toLocaleString());
+    expect(formatStatistic(12.34567)).toBe((12.346).toLocaleString("es-ES"));
     expect(formatStatistic(null)).toBe("—");
   });
 
@@ -410,7 +410,7 @@ describe("formatStatistic", () => {
     expect(readsAsCode("release_year", 1925.5, 2013.25)).toBe(true);
     expect(formatStatistic(-0)).toBe("0");
     expect(formatNumber(-1.5e-15, 3)).toBe("0");
-    expect(formatNumber(2013.4, 3, false)).toBe((2013.4).toLocaleString(undefined, { useGrouping: false }));
+    expect(formatNumber(2013.4, 3, false)).toBe((2013.4).toLocaleString("es-ES", { useGrouping: false }));
   });
 
   it("la tabla de perfil y la de estadísticas escriben el año como «2013» (UX-08)", () => {
@@ -430,7 +430,7 @@ describe("formatStatistic", () => {
       }],
     };
     render(temporalTrendElement(years, 17, vi.fn()));
-    const grouped = (2013).toLocaleString();
+    const grouped = (2013).toLocaleString("es-ES");
     for (const table of screen.getAllByRole("table")) {
       if (grouped !== "2013") expect(table).not.toHaveTextContent(grouped);
     }
@@ -506,7 +506,7 @@ describe("ReviewPhase", () => {
     );
     const block = screen.getByRole("list", { name: "Lo que no se corrige solo" });
     expect(block).toHaveTextContent(
-      `${(profile.rowCount * 2).toLocaleString()} celdas con coma decimal leídas como texto en «${profile.columns[0].name}», «${profile.columns[1].name}»`,
+      `${(profile.rowCount * 2).toLocaleString("es-ES")} celdas con coma decimal leídas como texto en «${profile.columns[0].name}», «${profile.columns[1].name}»`,
     );
     expect(block).toHaveTextContent("«Decimal coma · miles punto»");
     fireEvent.click(within(block).getByRole("button", { name: "Volver a cargar con coma decimal" }));
@@ -594,6 +594,30 @@ describe("ReviewPhase", () => {
     expect(within(more).queryByText("Filas analizadas")).not.toBeInTheDocument();
     // The exact-data tables stay as helpers of one table, closed.
     for (const details of more.querySelectorAll("details.quality-data-details")) expect(details).not.toHaveAttribute("open");
+  });
+
+  it("«Completitud por columna» solo dibuja las columnas incompletas y resume las demás en una línea", () => {
+    render(temporalTrendElement(profile, 17, () => undefined));
+    const group = screen.getByRole("group", { name: "Completitud por columna" });
+    const items = within(screen.getByRole("list", { name: "Completitud por columna" })).getAllByRole("listitem");
+    const incomplete = profile.columns.filter((column) => column.completenessPercentage < 100).length;
+    expect(items).toHaveLength(incomplete);
+    expect(group).toHaveTextContent(new RegExp(`Se omiten ${profile.columns.length - incomplete} columnas? completas?`));
+    // The «Más análisis» section is not a box inside the disclosure.
+    expect(screen.getByRole("heading", { name: "Señales del perfil" }).closest("section")).toHaveClass("quality-visuals");
+  });
+
+  it("«Cobertura temporal» dice «No disponible» una vez cuando no hay rango", () => {
+    const withoutRange: DatasetProfile = {
+      ...profile,
+      columns: profile.columns.map((column, index) =>
+        index === 0 ? { ...column, dataType: "Date", minimum: null, maximum: null } : column),
+    };
+    render(temporalTrendElement(withoutRange, 18, () => undefined));
+    const table = screen.getByRole("table", { name: "Tabla de cobertura temporal" });
+    expect(within(table).getAllByText("No disponible")).toHaveLength(1);
+    expect(table).not.toHaveTextContent(/Rango parcial/);
+    expect(table).not.toHaveTextContent("→");
   });
 
   it("los nulos que la propuesta rellena no se cuentan otra vez en «No se corrige solo»", () => {

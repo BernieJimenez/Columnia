@@ -40,7 +40,7 @@ test.describe("cargar desde SQL Server", () => {
     await expect(page.getByText("2 tablas y vistas disponibles.")).toBeVisible();
 
     await page.getByLabel("Tabla o vista", { exact: true }).selectOption({ label: "Ventas" });
-    await page.getByRole("button", { name: "Traer dbo.Ventas" }).click();
+    await page.getByRole("button", { name: "Leer dbo.Ventas" }).click();
     // The dialog names the table that was read, not the local Parquet copy.
     await expect(page.getByRole("dialog", { name: "Revisar la tabla dbo.Ventas" })).toBeVisible();
     await expect(page.getByText(/Se leyeron 3 filas de dbo\.Ventas/)).toBeVisible();

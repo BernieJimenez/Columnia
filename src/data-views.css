@@ -411,7 +411,7 @@ p.quality-snapshot > span { color: var(--text-secondary); font-variant-numeric: 
 .quality-visuals__caveat { margin: 10px 0 0; color: var(--text-secondary); font-size: .78rem; line-height: 1.5; }
 .review-more__section { display: grid; gap: 10px; min-width: 0; }
 .review-more__section > h4 { margin: 0; font-size: 1rem; }
-.review-more__section > .quality-visuals { margin-top: 0; }
+.review-more__section > .quality-visuals { margin-top: 0; padding: 0; border: 0; background: none; }
 .review-more__section > p { margin: 0; }
 .profile-error { display: grid; justify-items: start; gap: 8px; }
 .profile-error p { margin: 0; }

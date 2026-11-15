@@ -239,7 +239,7 @@ export function ProjectsPanel({
                   <li key={project.id} className={active ? "project-list__active" : undefined}>
                     <div>
                       <strong>{project.name}{active ? " · activo" : ""}</strong>
-                      <span>{project.datasetFileName} · {project.rowCount.toLocaleString()} filas · {project.columnCount} columnas</span>
+                      <span>{project.datasetFileName} · {project.rowCount.toLocaleString("es-ES")} filas · {project.columnCount} columnas</span>
                       <small>Espacio persistente (snapshot + historial): {formatProjectStorage(project.storageBytes)}</small>
                       <small>Actualizado {projectDate(project.updatedAt)}</small>
                       {active && (
@@ -320,7 +320,7 @@ export function ProjectsPanel({
                               <ul>
                                 {versions.versions.map((version) => (
                                   <li key={version.id}>
-                                    <span>{projectDate(version.createdAt)} · {version.rowCount.toLocaleString()} filas · {formatProjectStorage(version.storageBytes)}</span>
+                                    <span>{projectDate(version.createdAt)} · {version.rowCount.toLocaleString("es-ES")} filas · {formatProjectStorage(version.storageBytes)}</span>
                                     <button
                                       type="button"
                                       className="secondary-action"

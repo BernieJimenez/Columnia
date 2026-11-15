@@ -444,7 +444,7 @@ describe("excelLimitIssues (RV19 / FUN-05)", () => {
     const issues = excelLimitIssues(1_100_000, [column("notas", 40_000), column("id", 6), column("detalle", 32_768)]);
 
     expect(issues).toHaveLength(2);
-    expect(issues[0]).toContain((1_100_000).toLocaleString());
+    expect(issues[0]).toContain((1_100_000).toLocaleString("es-ES"));
     expect(issues[1]).toMatch(/^notas, detalle: /);
   });
 });
@@ -499,16 +499,32 @@ describe("resumen de la entrega", () => {
       rowCount: 1_000,
       columnCount: 1,
       table,
-      quality: { kind: "rules", count: 3, passed: true },
+      quality: { kind: "rules", count: 3, status: "passed" },
       privacyMode: "mask",
       personalDataColumnCount: 2,
     }).map((item) => [item.label, item.value])).toEqual([
       ["Destino", "SQL Server · Script T-SQL"],
       ["Tabla", "dbo.Pedidos · actualizar por clave (id)"],
-      ["Datos", `${(1_000).toLocaleString()} filas · 1 columna`],
-      ["Calidad", "3 reglas aprobadas"],
+      ["Datos", `${(1_000).toLocaleString("es-ES")} filas · 1 columna`],
+      ["Calidad", "3 reglas cumplidas"],
       ["Datos personales", "enmascarados en 2 columnas"],
     ]);
+  });
+
+  it("la línea de calidad dice la verdad del contrato y concuerda en número", () => {
+    const base = {
+      destination: "Archivo", format: "CSV", rowCount: 2, columnCount: 4, table: null,
+      privacyMode: "none" as const, personalDataColumnCount: 0,
+    };
+    const quality = (q: Parameters<typeof deliverySummary>[0]["quality"]) =>
+      deliverySummary({ ...base, quality: q }).find((item) => item.label === "Calidad")?.value;
+    expect(quality({ kind: "rules", count: 1, status: "pending" })).toBe("1 regla, se comprueba al exportar");
+    expect(quality({ kind: "rules", count: 2, status: "pending" })).toBe("2 reglas, se comprueban al exportar");
+    expect(quality({ kind: "rules", count: 1, status: "passed" })).toBe("1 regla cumplida");
+    expect(quality({ kind: "rules", count: 3, status: "failed", failedCount: 1 }))
+      .toBe("1 regla incumplida: corrige los datos o la regla antes de exportar");
+    expect(quality({ kind: "rules", count: 3, status: "failed", failedCount: 2 }))
+      .toBe("2 reglas incumplidas: corrige los datos o las reglas antes de exportar");
   });
 
   it("un archivo no tiene tabla y avisa de lo que sale sin validar o sin proteger", () => {

@@ -44,15 +44,29 @@ export interface ColumnFill {
 
 export type FixAction = { kind: "shared"; id: SharedActionId } | ColumnFill;
 
+/** The groups of «Corregir columna por columna», most serious first. */
+export type ColumnFixGroup = "removal" | "types" | "personal" | "outliers" | "text" | "fill" | "identifier";
+
+export const COLUMN_FIX_GROUPS: ReadonlyArray<{ id: ColumnFixGroup; title: string }> = [
+  { id: "removal", title: "Columnas sin datos útiles" },
+  { id: "types", title: "Tipos que no cuadran" },
+  { id: "personal", title: "Datos personales" },
+  { id: "outliers", title: "Valores atípicos" },
+  { id: "text", title: "Texto" },
+  { id: "fill", title: "Huecos que rellenar" },
+  { id: "identifier", title: "Identificadores" },
+];
+
 export interface ColumnFixRow {
   column: ColumnProfile;
   typeLabel: string;
   /** What happens to the column, figures of every row. */
   issues: string[];
   recommended: FixAction | null;
-  /** Said instead of an action when nothing here fixes it. */
-  note: string | null;
+  /** What the row needs said besides its action: why, or what to do elsewhere. */
+  notes: string[];
   alternatives: FixAction[];
+  group: ColumnFixGroup;
 }
 
 export type FixScopes = Record<SharedActionId, ColumnProfile[]>;
@@ -87,7 +101,7 @@ function share(count: number, rowCount: number): string {
   if (rowCount === 0) return "0 %";
   const percent = (count * 100) / rowCount;
   if (percent > 0 && percent < 1) return "menos del 1 %";
-  return `${Math.floor(percent).toLocaleString()} %`;
+  return `${Math.floor(percent).toLocaleString("es-ES")} %`;
 }
 
 function suggestedWord(column: ColumnProfile): string {
@@ -155,34 +169,79 @@ function columnFill(column: ColumnProfile, rowCount: number): ColumnFill | null 
   return null;
 }
 
-export function buildColumnFixes(profile: DatasetProfile): ColumnFixPlan {
+/** Which group a recommended action puts its row in. */
+const ACTION_GROUP: Record<SharedActionId, ColumnFixGroup> = {
+  removeEmpty: "removal",
+  removeHighNull: "removal",
+  removeConstant: "removal",
+  castNumeric: "types",
+  parseDates: "types",
+  nullifyInvalid: "types",
+  maskPersonal: "personal",
+  removePersonal: "personal",
+  removeIdentifier: "identifier",
+  capOutliers: "outliers",
+  imputeOutliers: "outliers",
+  dropOutliers: "outliers",
+  fixEncoding: "text",
+  normalizeBooleans: "text",
+  fillUnknown: "fill",
+};
+
+/** Within a group, the more serious action first (an empty column before a constant one). */
+const ACTION_RANK: SharedActionId[] = [
+  "removeEmpty", "removeHighNull", "removeConstant", "nullifyInvalid", "castNumeric", "parseDates",
+  "maskPersonal", "removePersonal", "capOutliers", "imputeOutliers", "dropOutliers", "fixEncoding",
+  "normalizeBooleans", "fillUnknown", "removeIdentifier",
+];
+
+function actionRank(action: FixAction | null): number {
+  if (action === null) return ACTION_RANK.length + 1;
+  return action.kind === "fill" ? ACTION_RANK.length : ACTION_RANK.indexOf(action.id);
+}
+
+/** Text whose dates read both ways (01/02/2024): the engine never converts it without an answer. */
+function hasAmbiguousDates(column: ColumnProfile): boolean {
+  return isTextType(column.dataType) && column.suggestedType === "date" && column.dateOrder === "ambiguous";
+}
+
+/**
+ * `available` says whether the app offers a shared action (some callbacks are
+ * optional): an action it does not offer gives way to the next one.
+ */
+export function buildColumnFixes(
+  profile: DatasetProfile,
+  available: (id: SharedActionId) => boolean = () => true,
+): ColumnFixPlan {
   const scopes = columnFixScopes(profile);
   const rowCount = profile.rowCount;
   const inScope = (id: SharedActionId, column: ColumnProfile) => scopes[id].some((candidate) => candidate.name === column.name);
   const shared = (id: SharedActionId): FixAction => ({ kind: "shared", id });
+  const offered = (action: FixAction) => action.kind === "fill" || available(action.id);
 
   const rows = profile.columns.filter((column) => !isRowAuditColumn(column.name)).flatMap((column): ColumnFixRow[] => {
     const issues: string[] = [];
     const sentinels = countOf(column.sentinelCount);
     const invalid = countOf(column.invalidTypeCount);
     const empty = inScope("removeEmpty", column);
+    const ambiguousDates = hasAmbiguousDates(column);
+    const identifier = column.privacySignal === "identifier";
     if (empty) issues.push(`100 % nulos: no tiene ningún dato (${plural(rowCount, "fila", "filas")})`);
     else if (column.nullCount > 0) issues.push(`${share(column.nullCount, rowCount)} nulos (${plural(column.nullCount, "fila", "filas")})`);
     if (sentinels > 0) issues.push(plural(sentinels, "marcador «sin dato»", "marcadores «sin dato»"));
     if (inScope("removeConstant", column)) issues.push("el mismo valor en todas las filas");
     if (invalid > 0) issues.push(`${plural(invalid, "valor incompatible", "valores incompatibles")} con ${suggestedWord(column)}`);
     else if (inScope("castNumeric", column)) issues.push("texto con solo números");
-    else if (inScope("parseDates", column)) issues.push("texto con fechas");
+    else if (inScope("parseDates", column) || ambiguousDates) issues.push("texto con fechas");
     if (isPersonal(column)) issues.push(`posible ${PERSONAL_LABELS[column.privacySignal as keyof typeof PERSONAL_LABELS]}`);
-    if (column.privacySignal === "identifier") issues.push("identificador, por el nombre del encabezado");
     if (countOf(column.outlierCount) > 0) {
-      issues.push(`${plural(countOf(column.outlierCount), "valor", "valores")} fuera del rango normal (regla IQR)`);
+      issues.push(`${plural(countOf(column.outlierCount), "valor", "valores")} fuera del rango normal, lejos de la mitad central de sus datos (regla IQR)`);
     }
     if (countOf(column.encodingIssueCount) > 0) {
       issues.push(`${plural(countOf(column.encodingIssueCount), "valor", "valores")} con acentos mal leídos («Ã¡» en lugar de «á»)`);
     }
     if (inScope("normalizeBooleans", column)) issues.push("sí/no escrito de varias formas");
-    if (issues.length === 0) return [];
+    if (issues.length === 0 && !identifier) return [];
 
     const fill = columnFill(column, rowCount);
     const unknown = inScope("fillUnknown", column) && !looksLikeIdentifier(column.name) && column.suggestedType !== "date"
@@ -199,29 +258,53 @@ export function buildColumnFixes(profile: DatasetProfile): ColumnFixPlan {
       : inScope("removeHighNull", column)
         ? shared("removeHighNull")
         : inScope("removeConstant", column) ? shared("removeConstant") : null;
-    const candidates: FixAction[] = removal ? [removal] : [
+    // A key is a note, never a recommendation: removing it only sits under
+    // «Otras opciones».
+    const candidates: FixAction[] = (removal ? [removal] : [
       ...(inScope("castNumeric", column) ? [shared("castNumeric")] : []),
       ...(inScope("parseDates", column) ? [shared("parseDates")] : []),
       ...(invalid > 0 ? [shared("nullifyInvalid")] : []),
       ...(isPersonal(column) ? [shared("maskPersonal"), shared("removePersonal")] : []),
-      ...(column.privacySignal === "identifier" ? [shared("removeIdentifier")] : []),
       ...(countOf(column.outlierCount) > 0 ? [shared("capOutliers"), shared("imputeOutliers"), shared("dropOutliers")] : []),
       ...(countOf(column.encodingIssueCount) > 0 ? [shared("fixEncoding")] : []),
       ...(inScope("normalizeBooleans", column) ? [shared("normalizeBooleans")] : []),
       ...fills,
-    ];
+    ]).filter(offered);
     const recommended = candidates[0] ?? null;
-    const alternatives = candidates.slice(1);
+    const identifierRemoval = !removal && identifier && offered(shared("removeIdentifier")) ? [shared("removeIdentifier")] : [];
+    const alternatives = [...candidates.slice(1), ...identifierRemoval];
 
-    const note = recommended === null
-      ? sentinels > 0
+    const notes: string[] = [];
+    if (ambiguousDates && !removal) {
+      notes.push(column.privacySignal
+        ? "Sus fechas se leen de dos formas (día/mes o mes/día): conviértela en «Transformar columnas» con el formato que le corresponda."
+        : "Sus fechas se leen de dos formas (día/mes o mes/día): elige el orden en la propuesta de arriba.");
+    }
+    if (identifier && !removal) notes.push("Parece un identificador: suele ser la clave de la tabla.");
+    if (recommended?.kind === "shared" && recommended.id === "maskPersonal") {
+      notes.push("Ocultar sus valores protege la privacidad si vas a entregar los datos; no es obligatorio.");
+    }
+    if (recommended === null && (column.nullCount > 0 || sentinels > 0)) {
+      notes.push(sentinels > 0
         ? "Los marcadores «sin dato» se convierten en nulos con la propuesta de arriba; después se pueden rellenar aquí."
-        : "Nada de esta sección cambia esta columna sin inventar valores: sus nulos se conservan."
-      : null;
-    return [{ column, typeLabel: columnTypeLabel(column), issues, recommended, note, alternatives }];
+        : "Nada de esta sección cambia esta columna sin inventar valores: sus nulos se conservan.");
+    }
+    const group: ColumnFixGroup = recommended !== null
+      ? recommended.kind === "fill" ? "fill" : ACTION_GROUP[recommended.id]
+      : ambiguousDates ? "types" : identifier ? "identifier" : "fill";
+    return [{ column, typeLabel: columnTypeLabel(column), issues, recommended, notes, alternatives, group }];
   });
 
-  return { rows, scopes };
+  // Most serious first: by group, then by action; ties keep the profile order.
+  const groupIndex = (row: ColumnFixRow) => COLUMN_FIX_GROUPS.findIndex((group) => group.id === row.group);
+  const sorted = rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => groupIndex(a.row) - groupIndex(b.row)
+      || actionRank(a.row.recommended) - actionRank(b.row.recommended)
+      || a.index - b.index)
+    .map(({ row }) => row);
+
+  return { rows: sorted, scopes };
 }
 
 /** The columns a shared action touches, or the one column of a fill. */
@@ -252,6 +335,8 @@ export function actionLabel(action: FixAction, scopes: FixScopes): string {
   const where = one === null ? ` en ${plural(columns.length, "columna", "columnas")}` : ` de «${one}»`;
   const outliers = sum(columns, (column) => column.outlierCount);
   const cols = plural(columns.length, "columna", "columnas");
+  // A conversion asks first when some value would be left null (see conversionNullEstimate).
+  const asks = columns.some((column) => countOf(column.invalidTypeCount) > 0) ? "…" : "";
   switch (action.id) {
     case "removeEmpty":
       return one !== null ? `Eliminar columna «${one}»` : `Eliminar ${plural(columns.length, "columna vacía", "columnas vacías")}`;
@@ -262,17 +347,17 @@ export function actionLabel(action: FixAction, scopes: FixScopes): string {
     case "removeConstant":
       return one !== null ? `Eliminar columna «${one}»` : `Eliminar ${plural(columns.length, "columna constante", "columnas constantes")}`;
     case "castNumeric":
-      return one !== null ? `Convertir «${one}» a número` : `Convertir ${cols} a número`;
+      return one !== null ? `Convertir «${one}» a número${asks}` : `Convertir ${cols} a número${asks}`;
     case "parseDates":
-      return one !== null ? `Convertir «${one}» a fecha` : `Convertir ${cols} a fecha`;
+      return one !== null ? `Convertir «${one}» a fecha${asks}` : `Convertir ${cols} a fecha${asks}`;
     case "nullifyInvalid":
       return `Dejar como nulos ${plural(sum(columns, (column) => column.invalidTypeCount), "valor incompatible", "valores incompatibles")}${where}…`;
     case "maskPersonal":
       return one !== null ? `Ocultar los valores de «${one}»…` : `Ocultar valores personales en ${cols}…`;
     case "removePersonal":
-      return one !== null ? `Retirar columna «${one}»…` : `Retirar ${cols} de datos personales…`;
+      return one !== null ? `Eliminar columna «${one}»…` : `Eliminar ${cols} de datos personales…`;
     case "removeIdentifier":
-      return one !== null ? `Retirar columna identificadora «${one}»…` : `Retirar ${cols} identificadoras…`;
+      return one !== null ? `Eliminar columna identificadora «${one}»…` : `Eliminar ${cols} identificadoras…`;
     case "capOutliers":
       return `Limitar ${plural(outliers, "valor atípico", "valores atípicos")}${where} al rango normal…`;
     case "imputeOutliers":
@@ -292,11 +377,11 @@ export function actionLabel(action: FixAction, scopes: FixScopes): string {
 export function actionEffect(id: SharedActionId): string {
   switch (id) {
     case "removeEmpty":
-      return "Retira las columnas sin ningún dato; se conserva al menos una columna.";
+      return "Elimina las columnas sin ningún dato; se conserva al menos una columna.";
     case "removeHighNull":
-      return `Retira las columnas con ${REMOVAL_NULL_PERCENTAGE} % o más de nulos; nunca se rellenan.`;
+      return `Elimina las columnas con ${REMOVAL_NULL_PERCENTAGE} % o más de nulos; nunca se rellenan.`;
     case "removeConstant":
-      return "Retira las columnas con el mismo valor en todas las filas; se conserva al menos una columna.";
+      return "Elimina las columnas con el mismo valor en todas las filas; se conserva al menos una columna.";
     case "castNumeric":
       return "Pasa a número el texto que solo tiene números; los códigos con ceros iniciales no se tocan y, si algún valor quedaría nulo, se pide confirmación.";
     case "parseDates":
@@ -305,13 +390,13 @@ export function actionEffect(id: SharedActionId): string {
       return "Deja como nulos los valores que no encajan con el tipo que tiene al menos el 90 % de la columna.";
     case "maskPersonal":
     case "removePersonal":
-      return "Correo, teléfono, dirección y nombre detectados por el encabezado: se ocultan sus valores o se retiran las columnas.";
+      return "Correo, teléfono, dirección y nombre detectados por el encabezado: ocultar sus valores protege la privacidad al entregar los datos; no es obligatorio.";
     case "removeIdentifier":
-      return "Retira las columnas que el encabezado señala como identificadores.";
+      return "Elimina las columnas que el encabezado señala como identificadores; suelen ser la clave de la tabla.";
     case "capOutliers":
     case "imputeOutliers":
     case "dropOutliers":
-      return "Valores fuera del rango normal de su columna (regla IQR); cada opción pide confirmación.";
+      return "Valores fuera del rango normal de su columna, lejos de la mitad central de sus datos (regla IQR); cada opción pide confirmación.";
     case "fixEncoding":
       return "Repara acentos y signos mal leídos, como «Ã©» por «é»; solo cuando la reparación es inequívoca.";
     case "normalizeBooleans":

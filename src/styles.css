@@ -159,19 +159,22 @@ summary:focus-visible,
 /* Blocked Preparar actions keep their focus (aria-disabled) and look disabled. */
 .prepare-card button:is(:disabled, [aria-disabled="true"]) { cursor: not-allowed; opacity: .45; }
 .prepare-card__reason { margin: 0; color: var(--text-secondary); font-size: .8125rem; line-height: 1.45; }
-/* «Corregir columna por columna»: one row per column. A grid, not a flex row:
-   the text column shrinks, the button keeps its width beside it, and below
-   the container breakpoint the button goes under its own text, never apart. */
+/* «Corregir columna por columna»: one row per column, grouped by seriousness.
+   A wrapping row: the text keeps a stable measure (it never narrows below
+   26rem to make room) and the button goes under it when both do not fit.
+   Always a row, never flex-direction: column, so the basis stays a width. */
 .cleaning-signals__nulls { max-width: 68ch; margin: 0; color: var(--text-secondary); font-size: .875rem; line-height: 1.5; }
 .cleaning-signals__nulls strong { color: var(--text-primary); }
 .cleaning-signals__section { display: grid; gap: 4px; }
 .cleaning-signals__section > h4 { margin: 8px 0 0; font-size: 1rem; }
+.cleaning-signals__group { display: grid; gap: 0; }
+.cleaning-signals__group > h5 { margin: 16px 0 0; color: var(--text-primary); font-size: .875rem; font-weight: 700; }
 .cleaning-signals .cleaning-signals__empty { margin: 0; color: var(--text-secondary); font-size: .875rem; }
 .cleaning-signals__columns,
 .cleaning-signals__shared { display: grid; margin: 0; padding: 0; list-style: none; }
 .cleaning-signals__column {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px 16px;
   padding: 12px 0;
@@ -179,12 +182,12 @@ summary:focus-visible,
 }
 .cleaning-signals__column:first-child { border-top: 0; }
 .cleaning-signals__column:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.cleaning-signals__column-text { display: grid; gap: 2px; min-width: 0; }
+.cleaning-signals__column-text { display: grid; flex: 1 1 26rem; gap: 2px; min-width: 0; max-width: 68ch; }
 .cleaning-signals .cleaning-signals__column-text p { margin: 0; color: var(--text-secondary); font-size: .875rem; line-height: 1.5; overflow-wrap: anywhere; }
 .cleaning-signals__column-name strong { color: var(--text-primary); font-size: 1rem; }
 .cleaning-signals__column-name span { margin-left: 6px; color: var(--text-secondary); font-size: .8125rem; }
-.cleaning-signals .cleaning-signals__action-button { justify-self: end; max-width: 100%; white-space: normal; text-align: center; }
-.cleaning-signals__more { grid-column: 1 / -1; }
+.cleaning-signals .cleaning-signals__action-button { flex: 0 1 auto; max-width: 100%; white-space: normal; text-align: center; }
+.cleaning-signals__more { flex: 1 1 100%; }
 .cleaning-signals__more > summary {
   display: inline-flex;
   align-items: center;
@@ -197,8 +200,8 @@ summary:focus-visible,
 .cleaning-signals__more > ul { display: grid; justify-items: start; gap: 8px; margin: 0; padding: 0 0 4px; list-style: none; }
 .cleaning-signals .cleaning-signals__more > ul p { margin: 0; color: var(--text-secondary); font-size: .875rem; line-height: 1.5; }
 @container prepare-main (max-width: 36rem) {
-  .cleaning-signals__column { grid-template-columns: minmax(0, 1fr); }
-  .cleaning-signals .cleaning-signals__action-button { justify-self: stretch; width: 100%; margin-top: 6px; }
+  .cleaning-signals__column-text { flex-basis: 100%; max-width: none; }
+  .cleaning-signals .cleaning-signals__action-button { flex-basis: 100%; width: 100%; margin-top: 6px; }
 }
 .missing-data-plan__help { border-top: 1px solid var(--border-subtle); }
 .missing-data-plan__help p { max-width: 68ch; color: var(--text-secondary); font-size: .875rem; line-height: 1.5; }
@@ -600,6 +603,12 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 .quality-chart__label { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: var(--text-primary); font-size: .77rem; }
 .quality-chart__label span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quality-chart__label strong { flex: 0 0 auto; color: var(--accent); font-size: .76rem; }
+.quality-chart__label--stats { flex-wrap: wrap; }
+.quality-chart__label--stats span { flex: 1 1 auto; overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
+.quality-chart__label--stats strong { flex: 0 1 auto; min-width: 0; color: var(--text-secondary); font-weight: 600; overflow-wrap: anywhere; }
+@media (max-width: 520px) {
+  .quality-chart__label--stats strong { flex-basis: 100%; }
+}
 .quality-chart__track { height: 8px; margin-top: 6px; overflow: hidden; border: 1px solid var(--border-subtle); background: #e3ece8; }
 .quality-chart__track span { display: block; height: 100%; max-width: 100%; background: #16847d; }
 .quality-chart__track-fill--warning { background: #c58a33 !important; }
@@ -981,6 +990,7 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 :where(:root[data-resolved-theme="dark"]) .quality-chart__label,
 :where(:root[data-resolved-theme="dark"]) .quality-histogram h6 { color: var(--text-secondary); }
   :where(:root[data-resolved-theme="dark"]) .quality-chart__label strong { color: var(--accent); }
+  :where(:root[data-resolved-theme="dark"]) .quality-chart__label--stats strong { color: var(--text-secondary); }
   :where(:root[data-resolved-theme="dark"]) .quality-chart__track { border-color: var(--border-subtle); background: var(--surface-subtle); }
   :where(:root[data-resolved-theme="dark"]) .quality-chart__track span { background: var(--accent); }
   :where(:root[data-resolved-theme="dark"]) .quality-chart__track-fill--warning { background: #e0aa58 !important; }

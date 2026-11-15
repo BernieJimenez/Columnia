@@ -34,6 +34,16 @@ function openColumnCorrections() {
   fireEvent.click(screen.getByText("Corregir columna por columna"));
 }
 
+/** The rows of «Columnas con algo que corregir», across its groups, in order. */
+function columnFixRows(): HTMLElement[] {
+  const section = screen.getByRole("heading", { name: "Columnas con algo que corregir" }).closest("section")!;
+  return Array.from(section.querySelectorAll<HTMLElement>("li.cleaning-signals__column"));
+}
+
+function rowName(row: HTMLElement): string {
+  return row.querySelector(".cleaning-signals__column-name strong")?.textContent ?? "";
+}
+
 function openTextAndRows() {
   fireEvent.click(screen.getByText("Limpiar texto y filas"));
 }
@@ -525,31 +535,47 @@ describe("PreparePhase", () => {
     expect(screen.getByText("Corregir columna por columna").closest("details")).toHaveAttribute("open");
     expect(onQualityFocusHandled).toHaveBeenCalledOnce();
 
-    // One row per column with something to fix, in profile order; none for «nombre» or «total».
-    const list = screen.getByRole("list", { name: "Columnas con algo que corregir" });
-    const rows = within(list).getAllByRole("listitem").filter((item) => item.parentElement === list);
-    expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
-      "email", "fecha_alta", "cantidad", "empty_column", "high_null", "customer_id", "amount", "estado",
+    // One row per column with something to fix, most serious first: removals,
+    // then types, outliers and, last, the key; none for «nombre» or «total».
+    const rows = columnFixRows();
+    expect(rows.map(rowName)).toEqual([
+      "empty_column", "high_null", "estado", "email", "cantidad", "fecha_alta", "amount", "customer_id",
     ]);
-    const row = (name: string) => rows.find((item) => item.getAttribute("aria-label") === name)!;
+    // Short subtitles group the rows, in the same order.
+    const section = screen.getByRole("heading", { name: "Columnas con algo que corregir" }).closest("section")!;
+    expect(within(section).getAllByRole("heading", { level: 5 }).map((heading) => heading.textContent)).toEqual([
+      "Columnas sin datos útiles", "Tipos que no cuadran", "Valores atípicos", "Identificadores",
+    ]);
+    expect(within(section).getByRole("list", { name: "Columnas sin datos útiles" })).toBeInTheDocument();
+    const row = (name: string) => rows.find((item) => rowName(item) === name)!;
+    // The row is named by its column, and its content is still there to read.
+    expect(row("email")).toHaveAccessibleName("email");
+    expect(row("email")).not.toHaveAttribute("aria-label");
     // What happens, figures of every row, in one sentence.
     expect(row("email")).toHaveTextContent(
       "20 % nulos (1 fila) · 1 marcador «sin dato» · 1 valor incompatible con sí/no · posible correo electrónico · 2 valores con acentos mal leídos («Ã¡» en lugar de «á») · sí/no escrito de varias formas",
     );
     expect(row("high_null")).toHaveTextContent("80 % nulos (4 filas)");
-    expect(row("amount")).toHaveTextContent("1 valor fuera del rango normal (regla IQR)");
+    // The craft's words first; the rule's name only as a secondary explanation.
+    expect(row("amount")).toHaveTextContent("1 valor fuera del rango normal, lejos de la mitad central de sus datos (regla IQR)");
     expect(row("amount")).toHaveTextContent("Número");
 
-    // Exactly one visible recommendation per row: the other options are folded.
+    // At most one visible recommendation per row: the other options are folded.
     for (const item of rows) {
-      const visible = within(item).getAllByRole("button").filter((button) => !button.closest(".cleaning-signals__more"));
-      expect(visible).toHaveLength(1);
+      const visible = within(item).queryAllByRole("button").filter((button) => !button.closest(".cleaning-signals__more"));
+      expect(visible).toHaveLength(rowName(item) === "customer_id" ? 0 : 1);
     }
+    // A key is never recommended for removal: a note, and removing it only under «Otras opciones».
+    expect(row("customer_id")).toHaveTextContent("Parece un identificador: suele ser la clave de la tabla.");
+    const keyOptions = within(row("customer_id")).getByText("Otras opciones").closest("details")!;
+    expect(within(keyOptions).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Eliminar columna identificadora «customer_id»…",
+    ]);
     expect(within(row("email")).getAllByRole("button")[0]).toHaveTextContent("Dejar como nulos 1 valor incompatible de «email»…");
     const emailOptions = within(row("email")).getByText("Otras opciones").closest("details")!;
     expect(within(emailOptions).getAllByRole("button").map((button) => button.textContent)).toEqual([
       "Ocultar los valores de «email»…",
-      "Retirar columna «email»…",
+      "Eliminar columna «email»…",
       "Corregir acentos en 2 valores de «email»",
       "Unificar sí/no en «email»",
     ]);
@@ -584,7 +610,8 @@ describe("PreparePhase", () => {
     // UX-14: the three outlier actions ask first and «Cancelar» changes nothing.
     const recommendedOutlier = within(row("amount")).getByRole("button", { name: "Limitar 1 valor atípico de «amount» al rango normal…" });
     fireEvent.click(recommendedOutlier);
-    expect(screen.getByRole("alertdialog")).toHaveTextContent("regla IQR: más de 1,5 veces el rango intercuartílico");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("lejos de la mitad central de sus datos: más de 1,5 veces el ancho de esa mitad");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("(regla IQR, del rango intercuartílico)");
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancelar" }));
     expect(onCapOutliers).not.toHaveBeenCalled();
     fireEvent.click(recommendedOutlier);
@@ -603,6 +630,76 @@ describe("PreparePhase", () => {
     // The craft's words, not the engine's.
     expect(document.body).not.toHaveTextContent("UTF-8");
     expect(document.body).not.toHaveTextContent("correcciones recomendadas");
+  });
+
+  it("una columna con fechas ambiguas no ofrece «Convertir a fecha»: remite a la pregunta de la propuesta", () => {
+    const fecha = cleaningSignalsProfile.columns[1]!;
+    const profile: DatasetProfile = {
+      ...cleaningSignalsProfile, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0,
+      columns: [{ ...fecha, name: "pago", dateOrder: "ambiguous" }],
+    };
+    const onParseDates = vi.fn();
+    render(<PreparePhase
+      dataset={{ ...dataset, columns: [{ name: "pago", dataType: "String" }], columnCount: 1, rows: [["01/02/2024"]] }}
+      profileStatus={{ kind: "ready", profile }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      onCancelProfile={() => undefined}
+      onRemoveEmptyRows={() => undefined}
+      onRemoveConstantColumns={() => undefined}
+      onRemoveEmptyColumns={() => undefined}
+      onRemoveHighNullColumns={() => undefined}
+      onNormalizeBooleans={() => undefined}
+      onParseDates={onParseDates}
+      onImputeMissingValues={() => undefined}
+      onEnableRowAudit={() => undefined}
+      onApplyRecommended={() => undefined}
+      onNormalizeText={() => undefined}
+      onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
+      onUndo={() => undefined}
+      onRedo={() => undefined}
+    />);
+    openColumnCorrections();
+    const [pago] = columnFixRows();
+    expect(rowName(pago!)).toBe("pago");
+    expect(pago).toHaveTextContent("texto con fechas");
+    expect(pago).toHaveTextContent("Sus fechas se leen de dos formas (día/mes o mes/día): elige el orden en la propuesta de arriba.");
+    expect(within(pago!).queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: /Convertir .* a fecha/ })).not.toBeInTheDocument();
+    // The question it points to is there, in the proposal.
+    expect(screen.getByRole("group", { name: "¿Cómo se lee «01/02/2024»?" })).toBeInTheDocument();
+  });
+
+  it("mientras se aplica la propuesta, su botón dice el progreso y conserva su aspecto", () => {
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
+      changeStatus={{ kind: "working", action: "safe", progress: { operation: "prepare", stage: "Recortando", percent: 39.6 } }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      onCancelProfile={() => undefined}
+      onRemoveEmptyRows={() => undefined}
+      onRemoveConstantColumns={() => undefined}
+      onRemoveEmptyColumns={() => undefined}
+      onRemoveHighNullColumns={() => undefined}
+      onNormalizeBooleans={() => undefined}
+      onImputeMissingValues={() => undefined}
+      onEnableRowAudit={() => undefined}
+      onApplyRecommended={() => undefined}
+      onNormalizeText={() => undefined}
+      onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
+      onUndo={() => undefined}
+      onRedo={() => undefined}
+    />);
+    const primary = document.querySelector<HTMLElement>(".prepare-proposal__primary")!;
+    expect(primary).toHaveTextContent("Aplicando la propuesta… 40 %");
+    expect(primary).toHaveAttribute("aria-busy", "true");
+    expect(primary).toHaveAttribute("aria-disabled", "true");
   });
 
   it("nunca ofrece eliminar y rellenar la misma columna, y «Desconocido» pide confirmación sin tocar las columnas a retirar", () => {
@@ -646,8 +743,9 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
     openColumnCorrections();
-    const list = screen.getByRole("list", { name: "Columnas con algo que corregir" });
-    const row = (name: string) => within(list).getAllByRole("listitem").find((item) => item.getAttribute("aria-label") === name)!;
+    const row = (name: string) => columnFixRows().find((item) => rowName(item) === name)!;
+    // The removals come first.
+    expect(columnFixRows().map(rowName)).toEqual(["vacia", "observaciones", "comentario", "notas"]);
     // Above the removal threshold: «Eliminar», nothing to fill, not even folded.
     for (const name of ["observaciones", "vacia"]) {
       expect(within(row(name)).getAllByRole("button").map((button) => button.textContent)).toEqual([`Eliminar columna «${name}»`]);
@@ -711,13 +809,15 @@ describe("PreparePhase", () => {
     expect(summary).toHaveTextContent("La propuesta de arriba rellena 4 de ellos en ciudad, contando los marcadores que antes convierte en nulos.");
 
     openColumnCorrections();
-    const list = screen.getByRole("list", { name: "Columnas con algo que corregir" });
-    const importe = within(list).getAllByRole("listitem").find((item) => item.getAttribute("aria-label") === "importe")!;
+    const importe = columnFixRows().find((item) => rowName(item) === "importe")!;
     expect(importe).toHaveTextContent("20 % nulos (20 filas)");
     fireEvent.click(within(importe).getByRole("button", { name: "Rellenar 20 nulos de «importe» con la mediana (40)…" }));
     const dialog = screen.getByRole("alertdialog", { name: "Rellenar nulos de importe" });
     expect(dialog).toHaveTextContent("Se escribirá la mediana de la columna (40) en 20 nulos de importe.");
     expect(onApplyRecommended).not.toHaveBeenCalled();
+    // Filling can be undone: a normal primary, not a danger action.
+    expect(within(dialog).getByRole("button", { name: "Rellenar 20 nulos" })).toHaveClass("primary-action");
+    expect(within(dialog).getByRole("button", { name: "Rellenar 20 nulos" })).not.toHaveClass("danger-action");
     fireEvent.click(within(dialog).getByRole("button", { name: "Rellenar 20 nulos" }));
     expect(onApplyRecommended).toHaveBeenCalledWith({
       trimText: false,
@@ -802,14 +902,14 @@ describe("PreparePhase", () => {
     />);
 
     openColumnCorrections();
-    fireEvent.click(screen.getByRole("button", { name: "Convertir «cantidad» a número" }));
+    fireEvent.click(screen.getByRole("button", { name: "Convertir «cantidad» a número…" }));
     const dialog = screen.getByRole("alertdialog", { name: "Convertir números detectados" });
     expect(dialog).toHaveTextContent("2 celdas que no son números quedarán nulas: cantidad (2)");
     expect(onCastNumeric).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
     expect(onCastNumeric).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Convertir «cantidad» a número" }));
+    fireEvent.click(screen.getByRole("button", { name: "Convertir «cantidad» a número…" }));
     fireEvent.click(screen.getByRole("button", { name: "Convertir y dejar nulas" }));
     expect(onCastNumeric).toHaveBeenCalledOnce();
   });
@@ -837,11 +937,11 @@ describe("PreparePhase", () => {
       onRedo: () => undefined,
     };
     const view = render(<PreparePhase {...base} historyStatus={{ ...EMPTY_HISTORY, snapshotsEnabled: true }} />);
-    expect(document.body).toHaveTextContent("Podrás deshacerlo desde el historial.");
+    expect(document.body).toHaveTextContent("Podrás deshacer el cambio desde el historial.");
     expect(document.body).not.toHaveTextContent("nunca inventa");
     expect(document.body).toHaveTextContent("inventa valores");
     view.rerender(<PreparePhase {...base} historyStatus={{ ...EMPTY_HISTORY, snapshotsEnabled: false }} />);
-    expect(document.body).not.toHaveTextContent("Podrás deshacerlo desde el historial.");
+    expect(document.body).not.toHaveTextContent("Podrás deshacer el cambio desde el historial.");
     expect(document.body).toHaveTextContent("este cambio no se podrá deshacer");
   });
 
@@ -914,16 +1014,16 @@ describe("PreparePhase", () => {
     />);
 
     openColumnCorrections();
-    fireEvent.click(screen.getByRole("button", { name: "Retirar columna identificadora «customer_id»…" }));
-    const dialog = screen.getByRole("alertdialog", { name: "Retirar identificadores detectados" });
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar columna identificadora «customer_id»…" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Eliminar columnas identificadoras" });
     expect(dialog).toHaveTextContent("1 columna identificadora");
     expect(dialog).toHaveTextContent("customer_id");
     expect(dialog).not.toHaveTextContent("Ana");
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(onRemoveIdentifierColumns).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Retirar columna identificadora «customer_id»…" }));
-    fireEvent.click(screen.getByRole("button", { name: "Retirar identificadores" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar columna identificadora «customer_id»…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar 1 columna" }));
     expect(onRemoveIdentifierColumns).toHaveBeenCalledOnce();
   });
 
@@ -959,8 +1059,8 @@ describe("PreparePhase", () => {
     />);
 
     openColumnCorrections();
-    fireEvent.click(screen.getByRole("button", { name: "Retirar columna «email»…" }));
-    const dialog = screen.getByRole("alertdialog", { name: "Retirar datos personales detectados" });
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar columna «email»…" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Eliminar columnas con datos personales" });
     expect(dialog).toHaveTextContent("1 columna personal");
     expect(dialog).toHaveTextContent("correo electrónico (1)");
     expect(dialog).not.toHaveTextContent("email");
@@ -968,8 +1068,8 @@ describe("PreparePhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(onRemovePersonalColumns).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Retirar columna «email»…" }));
-    fireEvent.click(screen.getByRole("button", { name: "Retirar datos personales" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar columna «email»…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar 1 columna" }));
     expect(onRemovePersonalColumns).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole("button", { name: "Ocultar los valores de «email»…" }));
@@ -1019,14 +1119,15 @@ describe("PreparePhase", () => {
 
     openColumnCorrections();
     fireEvent.click(screen.getByRole("button", { name: "Dejar como nulos 1 valor incompatible de «email»…" }));
-    const dialog = screen.getByRole("alertdialog", { name: "Apartar valores incompatibles" });
+    const dialog = screen.getByRole("alertdialog", { name: "Dejar como nulos los valores incompatibles" });
     expect(dialog).toHaveTextContent("1 columna");
     expect(dialog).not.toHaveTextContent("Ana");
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(onNullifyInvalidTypes).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Dejar como nulos 1 valor incompatible de «email»…" }));
-    fireEvent.click(screen.getByRole("button", { name: "Apartar valores incompatibles" }));
+    // The button and the dialog use the same verb.
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Dejar como nulos 1 valor" }));
     expect(onNullifyInvalidTypes).toHaveBeenCalledOnce();
   });
 
@@ -1073,23 +1174,23 @@ describe("PreparePhase", () => {
     expect(onRemoveNearDuplicates).toHaveBeenCalledOnce();
     expect(screen.queryByRole("alertdialog", { name: "Eliminar duplicados parecidos" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Retirar columna identificadora «customer_id»…" }));
-    fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Retirar identificadores detectados" }), { key: "Escape" });
-    expect(screen.queryByRole("alertdialog", { name: "Retirar identificadores detectados" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar columna identificadora «customer_id»…" }));
+    fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Eliminar columnas identificadoras" }), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog", { name: "Eliminar columnas identificadoras" })).not.toBeInTheDocument();
     expect(onRemoveIdentifierColumns).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Retirar columna identificadora «customer_id»…" }));
-    fireEvent.click(screen.getByRole("button", { name: "Retirar identificadores" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar columna identificadora «customer_id»…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar 1 columna" }));
     expect(onRemoveIdentifierColumns).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("alertdialog", { name: "Retirar identificadores detectados" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog", { name: "Eliminar columnas identificadoras" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Retirar columna «email»…" }));
-    fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Retirar datos personales detectados" }), { key: "Escape" });
-    expect(screen.queryByRole("alertdialog", { name: "Retirar datos personales detectados" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar columna «email»…" }));
+    fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Eliminar columnas con datos personales" }), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog", { name: "Eliminar columnas con datos personales" })).not.toBeInTheDocument();
     expect(onRemovePersonalColumns).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Retirar columna «email»…" }));
-    fireEvent.click(screen.getByRole("button", { name: "Retirar datos personales" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar columna «email»…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar 1 columna" }));
     expect(onRemovePersonalColumns).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("alertdialog", { name: "Retirar datos personales detectados" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog", { name: "Eliminar columnas con datos personales" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Ocultar los valores de «email»…" }));
     fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Ocultar datos personales detectados" }), { key: "Escape" });

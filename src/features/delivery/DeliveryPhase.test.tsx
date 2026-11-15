@@ -319,7 +319,7 @@ describe("origen de una importación parcial (AUD-061)", () => {
     render(<DeliveryHarness onExport={vi.fn()} importOrigin={partial} />);
     const summary = screen.getByRole("heading", { name: "Vas a exportar" }).closest("section")!;
     expect(within(summary).getByText("Origen").nextElementSibling)
-      .toHaveTextContent(`primeras ${(100_000).toLocaleString()} filas de dbo.Ventas`);
+      .toHaveTextContent(`primeras ${(100_000).toLocaleString("es-ES")} filas de dbo.Ventas`);
     expect(within(summary).getByText("Columnas con textos recortados").nextElementSibling).toHaveTextContent("Notas");
     expect(within(summary).getByText("Columnas con caracteres sustituidos").nextElementSibling).toHaveTextContent("Texto");
   });
@@ -1082,6 +1082,11 @@ describe("DeliveryPhase", () => {
 
     expect(screen.getByText("La tabla public.ventas ya existe: se borrarán sus filas y se volverá a crear con estos datos.")).toBeInTheDocument();
     const button = screen.getByRole("button", { name: "Reemplazar public.ventas en db.local" });
+    // A destructive write is not the green primary of a safe export; server and table stay whole.
+    expect(button).toHaveClass("danger-action");
+    expect(button).not.toHaveClass("primary-action");
+    expect([...button.querySelectorAll(".export-action__name")].map((node) => node.textContent))
+      .toEqual(["public.ventas", "db.local"]);
     expect(button).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText(/^Para exportar, confirma que se borrará el contenido actual de la tabla\.$/)).toBeInTheDocument();
     fireEvent.click(button);
@@ -1147,17 +1152,19 @@ describe("DeliveryPhase", () => {
       expect(onExport).toHaveBeenCalledOnce();
 
       // The result says what happened to the table, and the button does not become «Exportar otra copia».
-      expect(screen.getByRole("heading", { name: "Tabla escrita" })).toHaveAccessibleDescription(/Se reemplazó la tabla anterior\.$/);
+      expect(screen.getByRole("heading", { name: "Tabla escrita" })).toHaveAccessibleDescription(/Se reemplazó la tabla anterior\. Se borraron las 1.?200 filas anteriores\.$/);
       expect(screen.queryByRole("button", { name: "Exportar otra copia" })).not.toBeInTheDocument();
       await waitFor(() => expect(button).toHaveAttribute("aria-disabled", "true"));
       const box = screen.getByRole("checkbox", { name: /Entiendo que se borrará el contenido actual de public\.ventas/ });
       expect(box).not.toBeChecked();
       expect(box).toBeDisabled();
+      // The reason is not the list of three requirements: the table was just written.
       expect(document.getElementById("export-blocked-reason"))
-        .toHaveTextContent("Para exportar, analiza la compatibilidad con el destino y confirma que se borrará el contenido actual de la tabla.");
-      // The old warning is not repeated in the present tense.
+        .toHaveTextContent("Ya se escribió la tabla. Para escribir de nuevo, vuelve a analizar la compatibilidad.");
+      // Neither warning (analysed nor conditional) is repeated while the result is shown.
       expect(screen.queryByText(/ya existe: se borrarán/)).not.toBeInTheDocument();
-      fireEvent.click(button);
+      expect(screen.queryByText(/ya existe, se borrarán/)).not.toBeInTheDocument();
+      expect(screen.getByText(/el análisis anterior no sirve/)).toBeInTheDocument();      fireEvent.click(button);
       expect(onExport).toHaveBeenCalledOnce();
 
       fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
@@ -1175,7 +1182,16 @@ describe("DeliveryPhase", () => {
       expect(onExport).toHaveBeenCalledOnce();
       expect(screen.getByRole("heading", { name: "Tabla escrita" })).toHaveAccessibleDescription(/Se añadieron 2 filas a la tabla existente\.$/);
       await waitFor(() => expect(button).toHaveAttribute("aria-disabled", "true"));
-      expect(document.getElementById("export-blocked-reason")).toHaveTextContent("analiza la compatibilidad con el destino");
+      expect(document.getElementById("export-blocked-reason")).toHaveTextContent("vuelve a analizar la compatibilidad");
+    });
+
+    it("Reemplazar con una tabla vacía o de recuento desconocido no inventa cuántas filas se borraron", async () => {
+      await analyseWith("replace", true);
+      fireEvent.click(screen.getByRole("checkbox", { name: "Entiendo que se borrará el contenido actual de public.ventas" }));
+      fireEvent.click(screen.getByRole("button", { name: "Reemplazar public.ventas en db.local" }));
+      const heading = screen.getByRole("heading", { name: "Tabla escrita" });
+      expect(heading).toHaveAccessibleDescription(/Se reemplazó la tabla anterior\.$/);
+      expect(heading).not.toHaveAccessibleDescription(/Se borr/);
     });
 
     it("Crear: el resultado dice que se creó la tabla", async () => {
@@ -1233,6 +1249,52 @@ describe("DeliveryPhase", () => {
     expect(title).toHaveAccessibleDescription("1 de 1 regla falló · 2 filas comprobadas");
     expect(title.closest(".quality-gate")).not.toHaveAttribute("role");
     expect(screen.getByText(localeText("1 incumplimiento entre 2 elementos evaluados (50.0%)"))).toBeInTheDocument();
+  });
+
+  it("mientras el título del contrato fallido tiene el foco, el motivo junto al botón no anuncia y luego vuelve a hacerlo", async () => {
+    vi.spyOn(bridge, "validateQualityRules").mockResolvedValue(failingNotNull);
+    render(<DeliveryHarness onExport={vi.fn()} initialContract={{
+      kind: "with_contract",
+      rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      gate: { kind: "idle" },
+    }} />);
+    const reason = document.getElementById("export-blocked-reason")!;
+    expect(reason).not.toHaveAttribute("aria-live");
+    fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
+    const title = await screen.findByRole("heading", { name: "Contrato fallido" });
+    await waitFor(() => expect(title).toHaveFocus());
+    expect(reason).toHaveAttribute("aria-live", "off");
+    expect(reason).toHaveTextContent("corrige los datos en Preparar o ajusta la regla 1");
+    // The summary beside the button says the contract failed instead of «se comprueban al exportar».
+    expect(screen.getByText("Calidad").nextElementSibling)
+      .toHaveTextContent("1 regla incumplida: corrige los datos o la regla antes de exportar");
+    fireEvent.blur(title);
+    expect(reason).not.toHaveAttribute("aria-live");
+  });
+
+  it("«Vas a exportar» dice la verdad de la calidad: sin validar aún, concordancia singular y aprobado", async () => {
+    vi.spyOn(bridge, "validateQualityRules").mockResolvedValue(passingNotNull);
+    render(<DeliveryHarness onExport={vi.fn()} initialContract={{
+      kind: "with_contract",
+      rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      gate: { kind: "idle" },
+    }} />);
+    expect(screen.getByText("Calidad").nextElementSibling).toHaveTextContent("1 regla, se comprueba al exportar");
+    fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
+    await waitFor(() => expect(screen.getByText("Calidad").nextElementSibling).toHaveTextContent("1 regla cumplida"));
+  });
+
+  it("«Validar calidad» solo dice «Recomendado» si Columnia propone comprobaciones", () => {
+    const { unmount } = render(<DeliveryHarness onExport={vi.fn()} />);
+    const label = () => screen.getByRole("radio", { name: /^Validar calidad/ }).closest("label")!;
+    expect(label()).not.toHaveTextContent("Recomendado");
+    expect(label()).toHaveTextContent("Columnia no propone comprobaciones para estos datos; añades las tuyas");
+    unmount();
+    render(<DeliveryHarness
+      onExport={vi.fn()}
+      suggestedRules={[{ column: "total", kind: "not_null", maxInvalid: 0 }]}
+    />);
+    expect(label()).toHaveTextContent("Recomendado");
   });
 
   it("deriva el motor ODBC del formato remoto seleccionado", async () => {

@@ -120,7 +120,7 @@ describe("HistoryBar resumen común (PROD-10)", () => {
         onRedo={() => undefined}
       />,
     );
-    expect(screen.getByRole("status")).toHaveTextContent("2 celdas quedaron nulas · se quitó 1 fila · puedes deshacerlo.");
+    expect(screen.getByRole("status")).toHaveTextContent("2 celdas quedaron nulas · se quitó 1 fila · puedes deshacer el cambio.");
   });
 });
 

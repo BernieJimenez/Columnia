@@ -62,7 +62,7 @@ const MAX_CATEGORY_LENGTH = 40;
 const IDENTIFIER_WORDS = new Set(["id", "code", "codigo", "cod", "no", "nro", "num", "number", "key", "clave", "uuid", "ref", "sku"]);
 
 function plural(count: number, one: string, many: string): string {
-  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
+  return `${count.toLocaleString("es-ES")} ${count === 1 ? one : many}`;
 }
 
 /**
@@ -118,6 +118,46 @@ export function isCategoryColumn(column: ColumnProfile, rowCount: number): boole
  */
 export function proposalImputeCells(item: ProposalItem): number {
   return (item.columns ?? []).reduce((sum, column) => sum + column.missing + column.sentinels, 0);
+}
+
+/** One column that «Rellenar nulos» of the proposal fills. */
+export interface ProposalImputeColumnFigures {
+  column: string;
+  /** Nulls it fills. */
+  nulls: number;
+  /** «sin dato» markers the proposal first turns into nulls, then fills. */
+  markers: number;
+  /** nulls + markers: the cells that receive a value. */
+  cells: number;
+}
+
+export interface ProposalImputeFigures {
+  columns: ProposalImputeColumnFigures[];
+  nulls: number;
+  markers: number;
+  /** The figure of the item's title before the engine's simulation. */
+  cells: number;
+}
+
+/**
+ * The figures of the proposal's «Rellenar nulos» item, per column, from the
+ * profile alone: the same columns and counts `buildPrepareProposal` uses, so
+ * Revisar and Preparar quote the same number. Empty when nothing is filled.
+ */
+export function proposalImputeFigures(profile: DatasetProfile): ProposalImputeFigures {
+  const columns = profile.columns
+    .filter((column) => isImputable(column, profile.rowCount))
+    .map((column) => {
+      const nulls = column.nullCount;
+      const markers = column.sentinelCount ?? 0;
+      return { column: column.name, nulls, markers, cells: nulls + markers };
+    });
+  return {
+    columns,
+    nulls: columns.reduce((sum, column) => sum + column.nulls, 0),
+    markers: columns.reduce((sum, column) => sum + column.markers, 0),
+    cells: columns.reduce((sum, column) => sum + column.cells, 0),
+  };
 }
 
 /**
@@ -328,10 +368,11 @@ export function buildPrepareProposal(profile: DatasetProfile, dataset: DatasetPr
 
   const imputable = columns.filter((column) => isImputable(column, profile.rowCount));
   if (imputable.length > 0) {
-    const imputeColumns = imputable.map((column) => ({
-      name: column.name,
-      missing: column.nullCount,
-      sentinels: column.sentinelCount ?? 0,
+    // The same figures Revisar quotes through proposalImputeFigures.
+    const imputeColumns = proposalImputeFigures(profile).columns.map((column) => ({
+      name: column.column,
+      missing: column.nulls,
+      sentinels: column.markers,
     }));
     const convertsSentinels = items.some((item) => item.id === "sentinels");
     const total = imputeColumns.reduce((sum, column) => sum + filledCells(column, convertsSentinels), 0);

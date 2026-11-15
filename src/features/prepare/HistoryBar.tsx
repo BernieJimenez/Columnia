@@ -92,7 +92,7 @@ export function HistoryBar({
       {status.snapshotsEnabled && visibleEntries.length > 0 && (
         <ol className="version-history__list" aria-label="Versiones del dataset">
           {hiddenCount > 0 && (
-            <li className="version-history__more">{hiddenCount === 1 ? "1 versión anterior" : `${hiddenCount.toLocaleString()} versiones anteriores`}</li>
+            <li className="version-history__more">{hiddenCount === 1 ? "1 versión anterior" : `${hiddenCount.toLocaleString("es-ES")} versiones anteriores`}</li>
           )}
           {visibleEntries.map((entry) => {
             const state = entry.isCurrent ? "current" : entry.index > status.currentIndex ? "undone" : "done";
@@ -124,10 +124,10 @@ export function HistoryBar({
           <summary>Espacio del historial</summary>
           <div role="group" aria-label="Uso y retención del historial">
             <p>
-              {status.entryCount.toLocaleString()} / {status.maxEntries.toLocaleString()} estados · {formatHistoryBytes(status.diskBytes)} / {formatHistoryBytes(status.diskBudgetBytes)} de historial local
+              {status.entryCount.toLocaleString("es-ES")} / {status.maxEntries.toLocaleString("es-ES")} estados · {formatHistoryBytes(status.diskBytes)} / {formatHistoryBytes(status.diskBudgetBytes)} de historial local
             </p>
             <p>
-              Se conservan hasta {status.maxEntries.toLocaleString()} estados o {formatHistoryBytes(status.diskBudgetBytes)} por dataset. Al llegar a un límite, se retiran primero los estados más antiguos del historial y se mantiene el actual. Si la copia de un solo estado supera el espacio disponible, ese cambio puede quedar sin historial reversible.
+              Se conservan hasta {status.maxEntries.toLocaleString("es-ES")} estados o {formatHistoryBytes(status.diskBudgetBytes)} por dataset. Al llegar a un límite, se retiran primero los estados más antiguos del historial y se mantiene el actual. Si la copia de un solo estado supera el espacio disponible, ese cambio puede quedar sin historial reversible.
             </p>
           </div>
         </details>

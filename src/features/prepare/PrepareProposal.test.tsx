@@ -69,6 +69,30 @@ describe("PrepareProposal fill preview (RV17)", () => {
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ imputeColumns: ["categoria"] }));
   });
 
+  it("while it applies, the primary says so in its own text and keeps its look (aria-busy, not a blocked outline)", () => {
+    const onApply = vi.fn();
+    const props = {
+      items, columnCount: 2, canUndo: false, result: null, onApply,
+      onUndo: vi.fn(), onDismissResult: vi.fn(),
+    };
+    const view = render(<PrepareProposal {...props} busy={false} />);
+    const apply = screen.getByRole("button", { name: "Aplicar 1 cambio" });
+    expect(apply).not.toHaveAttribute("aria-busy");
+
+    view.rerender(<PrepareProposal {...props} busy applyingLabel="Aplicando la propuesta… 40 %" />);
+    const working = screen.getByRole("button", { name: "Aplicando la propuesta… 40 %" });
+    expect(working).toBe(apply);
+    expect(working).toHaveAttribute("aria-busy", "true");
+    expect(working).toHaveAttribute("aria-disabled", "true");
+    expect(working).not.toBeDisabled();
+    fireEvent.click(working);
+    expect(onApply).not.toHaveBeenCalled();
+
+    // Busy with something else: blocked, with its usual text.
+    view.rerender(<PrepareProposal {...props} busy applyingLabel={null} />);
+    expect(screen.getByRole("button", { name: "Aplicar 1 cambio" })).not.toHaveAttribute("aria-busy");
+  });
+
   it("recomputes when another change of the chain is unchecked", async () => {
     const onPreview = vi.fn((options: SafeCorrectionOptions) => Promise.resolve({
       removedRowCount: options.removeDuplicates ? 1 : 0,

@@ -568,6 +568,7 @@ td {
 .load-brief__lead .primary-action { margin-top: 24px; }
 
 .load-brief__lead .load-brief__formats { margin-top: 16px; font-size: .8125rem; }
+.load-brief__lead .load-brief__note { margin-top: 8px; color: var(--text-secondary); font-size: .8125rem; }
 /* The error of choosing a file stays by its button. */
 .load-brief__lead .notice { margin-block: 16px; }
 
@@ -642,7 +643,7 @@ a:visited { color: #80548b; }
 /* A rule the last validation broke: text in the legend, a thicker border, not only colour. */
 .quality-rule[data-failed] { border: 2px solid var(--danger); }
 .quality-rule[data-failed] > legend { color: var(--text-primary); }
-.quality-gate__title { margin: 0; font-size: .9375rem; font-weight: 750; scroll-margin-top: calc(var(--topbar-height, 88px) + 16px); }
+.quality-gate__title { margin: 0; font-size: 1.0625rem; font-weight: 750; line-height: 1.3; scroll-margin-top: calc(var(--topbar-height, 88px) + 16px); }
 .quality-gate__action { justify-self: start; min-height: 44px; margin-top: 4px; }
 .quality-gate__next { margin: 4px 0 0; color: var(--text-primary); font-weight: 600; }
 .quality-contract__summary .secondary-action {
@@ -927,6 +928,14 @@ button:active:not(:disabled) { transform: translateY(1px); }
   cursor: not-allowed;
   opacity: 1;
 }
+/* While the proposal applies, the primary keeps its look and says so in its
+   own text (aria-busy); it is still aria-disabled, never a dashed block. */
+.workspace .prepare-proposal__primary[aria-disabled="true"][aria-busy="true"] {
+  border: 0;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: progress;
+}
 .prepare-proposal__date-order { display: grid; gap: 8px; margin: 8px 0 0; padding: 0; border: 0; }
 .prepare-proposal__date-order legend { margin-bottom: 4px; font-weight: 600; }
 .prepare-proposal__changes { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
@@ -1147,7 +1156,12 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .comparison-result { display: grid; gap: 12px; }
 .comparison-result > * { margin-top: 0; }
 .comparison-source { position: relative; overflow-wrap: anywhere; }
-.comparison-counts { margin: 0; }
+.comparison-notes { display: grid; gap: 2px; }
+.comparison-notes > p { margin: 0; }
+.comparison-counts { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0; padding: 0; }
+.comparison-counts > div { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; min-width: 0; padding: 0; border: 0; background: none; }
+.comparison-counts dt { color: var(--text-secondary); font-size: .8125rem; }
+.comparison-counts dd { margin: 0; color: var(--text-primary); font-size: .875rem; font-weight: 700; }
 .comparison-conflicts { display: grid; gap: 8px; }
 .comparison-conflicts h4 { margin: 0; color: var(--text-primary); font-size: .875rem; }
 .comparison-conflicts ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }

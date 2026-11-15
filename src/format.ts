@@ -1,5 +1,5 @@
 // Single place for user-visible number, size and type formatting. Numbers use
-// the system locale, like the existing toLocaleString() calls, so decimals and
+// the system locale, like the existing toLocaleString("es-ES") calls, so decimals and
 // thousands separators never mix within one screen.
 
 import { isDatetimeType, isDecimalType, isIntegerType } from "./dataTypes";
@@ -7,15 +7,14 @@ import { isDatetimeType, isDecimalType, isIntegerType } from "./dataTypes";
 const BINARY_UNITS = ["KiB", "MiB", "GiB", "TiB", "PiB"] as const;
 
 // AUD-042: building an Intl.NumberFormat is costly and these run per column and
-// per render, so each configuration is built once and reused. The locale is the
-// runtime default (`undefined`), which cannot change without reloading the page.
+// per render, so each configuration is built once and reused.
 const decimalFormats = new Map<number, Intl.NumberFormat>();
 const numberFormats = new Map<string, Intl.NumberFormat>();
 
 export function formatDecimal(value: number, fractionDigits = 1): string {
   let format = decimalFormats.get(fractionDigits);
   if (!format) {
-    format = new Intl.NumberFormat(undefined, {
+    format = new Intl.NumberFormat("es-ES", {
       minimumFractionDigits: fractionDigits,
       maximumFractionDigits: fractionDigits,
     });
@@ -34,7 +33,7 @@ export function formatNumber(value: number, maximumFractionDigits = 3, useGroupi
   const key = `${maximumFractionDigits}|${useGrouping}`;
   let format = numberFormats.get(key);
   if (!format) {
-    format = new Intl.NumberFormat(undefined, { maximumFractionDigits, useGrouping });
+    format = new Intl.NumberFormat("es-ES", { maximumFractionDigits, useGrouping });
     numberFormats.set(key, format);
   }
   return format.format(withoutNegativeZero(value, maximumFractionDigits));

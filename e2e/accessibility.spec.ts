@@ -4,6 +4,16 @@ import type { DatasetPreview, ProjectSummary } from "../src/bridge";
 import { installTauriMock } from "./support/tauri-mock";
 import { axeViolations } from "./support/axe";
 
+/** With a dataset loaded the source cards sit inside the «Cambiar de datos» disclosure. */
+async function chooseProjectSource(page: Page) {
+  const change = page.locator("summary", { hasText: "Cambiar de datos" });
+  if (await change.count() > 0 && !(await change.locator("..").evaluate((details) => (details as HTMLDetailsElement).open))) {
+    await change.click();
+  }
+  await page.getByRole("radio", { name: /^Proyecto/ }).check();
+}
+
+
 const dataset = {
   fileName: "ventas.csv",
   fileSizeBytes: 128,
@@ -108,7 +118,7 @@ test.describe("contratos de accesibilidad del shell", () => {
       .getByRole("navigation", { name: "Flujo de preparación de datos" })
       .getByRole("button", { name: "Cargar", exact: true })
       .click();
-    await page.getByRole("radio", { name: /^Proyecto/ }).check();
+    await chooseProjectSource(page);
     await page.getByText("Guardar y administrar proyectos", { exact: true }).click();
     await page.getByLabel("Nombre del proyecto").fill("Ventas accesible");
     await page.getByRole("button", { name: "Guardar proyecto nuevo" }).click();

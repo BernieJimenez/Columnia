@@ -3,6 +3,16 @@ import { expect, test, type Page } from "@playwright/test";
 import type { DatasetPreview, ProjectSummary } from "../src/bridge";
 import { installTauriMock, recordedCalls } from "./support/tauri-mock";
 
+/** With a dataset loaded the source cards sit inside the «Cambiar de datos» disclosure. */
+async function chooseProjectSource(page: Page) {
+  const change = page.locator("summary", { hasText: "Cambiar de datos" });
+  if (await change.count() > 0 && !(await change.locator("..").evaluate((details) => (details as HTMLDetailsElement).open))) {
+    await change.click();
+  }
+  await page.getByRole("radio", { name: /^Proyecto/ }).check();
+}
+
+
 const dataset = {
   fileName: "ventas.csv",
   fileSizeBytes: 128,
@@ -52,7 +62,7 @@ test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulad
     .getByRole("navigation", { name: "Flujo de preparación de datos" })
     .getByRole("button", { name: "Cargar", exact: true })
     .click();
-  await page.getByRole("radio", { name: /^Proyecto/ }).check();
+  await chooseProjectSource(page);
   await expect(page.getByRole("heading", { name: "Proyectos" })).toBeVisible();
   await page.getByText("Guardar y administrar proyectos", { exact: true }).click();
   await page.getByLabel("Nombre del proyecto").fill("Ventas E2E");
@@ -66,7 +76,7 @@ test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulad
   await expect(page.locator(".dataset-bar__name")).toHaveText("ventas.csv");
 
   await workflow.getByRole("button", { name: "Cargar", exact: true }).click();
-  await page.getByRole("radio", { name: /^Proyecto/ }).check();
+  await chooseProjectSource(page);
   await page.getByText("Guardar y administrar proyectos", { exact: true }).click();
   await expect(page.getByRole("list", { name: "Proyectos guardados" })).toContainText("Ventas E2E · activo");
   await page.getByRole("button", { name: "Eliminar" }).click();
@@ -81,7 +91,7 @@ test("recupera la última sesión, restaura su etapa y actualiza el mismo proyec
   await page.goto("/", { waitUntil: "commit" });
 
   const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
-  await page.getByRole("radio", { name: /^Proyecto/ }).check();
+  await chooseProjectSource(page);
   await expect(page.getByRole("button", { name: "Recuperar proyecto" })).toBeVisible();
   await page.getByRole("button", { name: "Recuperar proyecto" }).click();
 
@@ -91,7 +101,7 @@ test("recupera la última sesión, restaura su etapa y actualiza el mismo proyec
   await expect(page.locator(".dataset-bar__name")).toHaveText("ventas.csv");
 
   await workflow.getByRole("button", { name: "Cargar", exact: true }).click();
-  await page.getByRole("radio", { name: /^Proyecto/ }).check();
+  await chooseProjectSource(page);
   await page.getByText("Guardar y administrar proyectos", { exact: true }).click();
   const projects = page.getByRole("list", { name: "Proyectos guardados" });
   await expect(projects).toContainText("Ventas E2E · activo");

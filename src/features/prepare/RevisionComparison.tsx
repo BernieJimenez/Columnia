@@ -32,8 +32,8 @@ interface RevisionComparisonProps {
 
 function signedDelta(value: number | null): string {
   if (value === null) return "No disponible";
-  if (value > 0) return `+${value.toLocaleString()}`;
-  return value.toLocaleString();
+  if (value > 0) return `+${value.toLocaleString("es-ES")}`;
+  return value.toLocaleString("es-ES");
 }
 
 function metricLabel(value: boolean | null): string {
@@ -222,11 +222,11 @@ function SnapshotComparisonResultView({ result }: { result: SnapshotComparisonRe
         <strong>{result.beforeLabel}</strong> → <strong>{result.afterLabel}</strong>
       </p>
       <dl className="revision-comparison__metrics">
-        <div><dt>Filas</dt><dd>{result.before.rowCount.toLocaleString()} → {result.after.rowCount.toLocaleString()} ({signedDelta(result.deltas.rowCount)})</dd></div>
-        <div><dt>Columnas</dt><dd>{result.before.columnCount.toLocaleString()} → {result.after.columnCount.toLocaleString()} ({signedDelta(result.deltas.columnCount)})</dd></div>
-        <div><dt>Celdas nulas</dt><dd>{result.before.nullCount.toLocaleString()} → {result.after.nullCount.toLocaleString()} ({signedDelta(result.deltas.nullCount)})</dd></div>
-        <div><dt>Valores incompatibles</dt><dd>{result.before.invalidTypeCount.toLocaleString()} → {result.after.invalidTypeCount.toLocaleString()} ({signedDelta(result.deltas.invalidTypeCount)})</dd></div>
-        <div><dt>Filas duplicadas</dt><dd>{result.before.duplicateRowCount.toLocaleString()} → {result.after.duplicateRowCount.toLocaleString()} ({signedDelta(result.deltas.duplicateRowCount)})</dd></div>
+        <div><dt>Filas</dt><dd>{result.before.rowCount.toLocaleString("es-ES")} → {result.after.rowCount.toLocaleString("es-ES")} ({signedDelta(result.deltas.rowCount)})</dd></div>
+        <div><dt>Columnas</dt><dd>{result.before.columnCount.toLocaleString("es-ES")} → {result.after.columnCount.toLocaleString("es-ES")} ({signedDelta(result.deltas.columnCount)})</dd></div>
+        <div><dt>Celdas nulas</dt><dd>{result.before.nullCount.toLocaleString("es-ES")} → {result.after.nullCount.toLocaleString("es-ES")} ({signedDelta(result.deltas.nullCount)})</dd></div>
+        <div><dt>Valores incompatibles</dt><dd>{result.before.invalidTypeCount.toLocaleString("es-ES")} → {result.after.invalidTypeCount.toLocaleString("es-ES")} ({signedDelta(result.deltas.invalidTypeCount)})</dd></div>
+        <div><dt>Filas duplicadas</dt><dd>{result.before.duplicateRowCount.toLocaleString("es-ES")} → {result.after.duplicateRowCount.toLocaleString("es-ES")} ({signedDelta(result.deltas.duplicateRowCount)})</dd></div>
       </dl>
 
       <details>
@@ -236,7 +236,7 @@ function SnapshotComparisonResultView({ result }: { result: SnapshotComparisonRe
             <li key={column.name}>
               <strong>{column.name}</strong>{": "}
               {column.comparable && column.before && column.after
-                ? `${column.before.dataType} → ${column.after.dataType}; nulos ${column.before.nullCount.toLocaleString()} → ${column.after.nullCount.toLocaleString()}; incompatibles ${column.before.invalidTypeCount.toLocaleString()} → ${column.after.invalidTypeCount.toLocaleString()}`
+                ? `${column.before.dataType} → ${column.after.dataType}; nulos ${column.before.nullCount.toLocaleString("es-ES")} → ${column.after.nullCount.toLocaleString("es-ES")}; incompatibles ${column.before.invalidTypeCount.toLocaleString("es-ES")} → ${column.after.invalidTypeCount.toLocaleString("es-ES")}`
                 : column.reason ?? "No comparable"}
             </li>
           ))}
@@ -255,7 +255,7 @@ function SnapshotComparisonResultView({ result }: { result: SnapshotComparisonRe
               <li key={rule.ruleIndex}>
                 <strong>Regla {rule.ruleIndex}{rule.column ? ` · ${rule.column}` : ""}</strong>{` (${QUALITY_RULE_SUMMARY[rule.kind] ?? "regla de calidad"}): `}
                 {rule.comparable
-                  ? `${rule.beforeInvalidCount?.toLocaleString() ?? "—"} → ${rule.afterInvalidCount?.toLocaleString() ?? "—"} ${rule.afterInvalidCount === 1 ? "valor inválido" : "valores inválidos"}; tasa ${rule.beforeInvalidPercentage == null ? "—" : formatPercent(rule.beforeInvalidPercentage, 1)} → ${rule.afterInvalidPercentage == null ? "—" : formatPercent(rule.afterInvalidPercentage, 1)}; pasó ${metricLabel(rule.beforePassed)} → ${metricLabel(rule.afterPassed)}`
+                  ? `${rule.beforeInvalidCount?.toLocaleString("es-ES") ?? "—"} → ${rule.afterInvalidCount?.toLocaleString("es-ES") ?? "—"} ${rule.afterInvalidCount === 1 ? "valor inválido" : "valores inválidos"}; tasa ${rule.beforeInvalidPercentage == null ? "—" : formatPercent(rule.beforeInvalidPercentage, 1)} → ${rule.afterInvalidPercentage == null ? "—" : formatPercent(rule.afterInvalidPercentage, 1)}; pasó ${metricLabel(rule.beforePassed)} → ${metricLabel(rule.afterPassed)}`
                   : rule.reason ?? "No comparable"}
               </li>
             ))}

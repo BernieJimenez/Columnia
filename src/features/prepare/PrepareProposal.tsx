@@ -35,6 +35,11 @@ interface PrepareProposalProps {
   items: ProposalItem[];
   columnCount: number;
   busy: boolean;
+  /**
+   * While this proposal is being applied, what its primary says instead of
+   * «Aplicar…» («Aplicando la propuesta… 40 %»); null otherwise.
+   */
+  applyingLabel?: string | null;
   canUndo: boolean;
   result: ProposalResult | null;
   onApply: (options: SafeCorrectionOptions) => void;
@@ -100,6 +105,7 @@ export function PrepareProposal({
   items,
   columnCount,
   busy,
+  applyingLabel = null,
   canUndo,
   result,
   onApply,
@@ -200,7 +206,7 @@ export function PrepareProposal({
             {rows.map((row) => (
               <div key={row.label}>
                 <dt>{row.label}</dt>
-                <dd>{row.before.toLocaleString()} → <strong>{row.after.toLocaleString()}</strong></dd>
+                <dd>{row.before.toLocaleString("es-ES")} → <strong>{row.after.toLocaleString("es-ES")}</strong></dd>
               </div>
             ))}
           </dl>
@@ -313,10 +319,11 @@ export function PrepareProposal({
               type="button"
               className="prepare-proposal__primary"
               aria-disabled={applyBlocked || undefined}
+              aria-busy={applyingLabel !== null || undefined}
               aria-describedby={busyDescribedBy(disabled)}
               onClick={() => { if (!applyBlocked) onApply(proposalOptions(items, selection, normalizeNames, ambiguousDateOrder)); }}
             >
-              Aplicar
+              {applyingLabel ?? "Aplicar"}
             </button>
           ) : (
             <button type="button" className="prepare-proposal__primary" onClick={() => setStep(step + 1)}>
@@ -371,7 +378,9 @@ export function PrepareProposal({
         {items.length === 1 ? "Columnia propone 1 cambio" : `Columnia propone ${items.length} cambios`}
       </h3>
       <p className="prepare-proposal__lead">
-        {items.length === 1 ? "Revísalo y aplícalo." : "Revísalos y aplícalos."} Puedes deshacerlo después.
+        {items.length === 1
+          ? "Revísalo y aplícalo. Podrás deshacer el cambio después."
+          : "Revísalos y aplícalos. Podrás deshacerlos todos juntos después."}
       </p>
       <ul className="prepare-proposal__list" aria-describedby={uncheckedNote ? "prepare-unchecked-note" : undefined}>
         {items.map((item) => {
@@ -434,13 +443,15 @@ export function PrepareProposal({
           type="button"
           className="prepare-proposal__primary"
           aria-disabled={applyBlocked || undefined}
+          // While it applies it keeps its look and says so in its own text.
+          aria-busy={applyingLabel !== null || undefined}
           aria-describedby={busyDescribedBy(disabled)}
           // Still the action of this screen while the app is busy, the fill simulation
           // runs or a date answer is pending, so the footer never flashes as primary.
           data-waiting={count > 0 && (disabled || !fillsReady || datesPending) ? "" : undefined}
           onClick={() => { if (!applyBlocked) onApply(proposalOptions(items, selection, false, ambiguousDateOrder)); }}
         >
-          {applyLabel(count)}
+          {applyingLabel ?? applyLabel(count)}
         </button>
         <button type="button" className="secondary-action" aria-disabled={disabled || undefined} aria-describedby={busyDescribedBy(disabled)} onClick={() => { if (!disabled) { setMode("steps"); setStep(0); } }}>
           Personalizar paso a paso

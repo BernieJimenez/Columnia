@@ -31,11 +31,11 @@ describe("origen de una importación (AUD-061)", () => {
       table: "dbo.Ventas", rowsImported: 100_000, partial: true, truncatedColumns: ["Notas", "Detalle"], replacedColumns: ["Texto"],
     };
     expect(importOriginSummaryItems(origin)).toEqual([
-      { label: "Origen", value: `primeras ${(100_000).toLocaleString()} filas de dbo.Ventas` },
+      { label: "Origen", value: `primeras ${(100_000).toLocaleString("es-ES")} filas de dbo.Ventas` },
       { label: "Columnas con textos recortados", value: "Notas, Detalle" },
       { label: "Columnas con caracteres sustituidos", value: "Texto" },
     ]);
-    expect(importOriginNotice(origin)?.text).toBe(`Parte de la tabla: primeras ${(100_000).toLocaleString()} filas de dbo.Ventas`);
+    expect(importOriginNotice(origin)?.text).toBe(`Parte de la tabla: primeras ${(100_000).toLocaleString("es-ES")} filas de dbo.Ventas`);
     expect(importOriginNotice(origin)?.title).toContain("Columnas con textos recortados: Notas, Detalle");
     expect(importOriginNotice({ ...origin, partial: false })?.text).toBe("Textos modificados en la importación");
     expect(importOriginSummaryItems({ ...origin, partial: false })[0]?.label).toBe("Columnas con textos recortados");

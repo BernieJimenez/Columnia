@@ -104,13 +104,13 @@ export function changeProgressMessage(action: Extract<ChangeStatus, { kind: "wor
     constant_columns: "Eliminando columnas constantes…",
     empty_columns: "Eliminando columnas vacías…",
     high_null_columns: "Eliminando columnas con alta nulidad…",
-    identifier_columns: "Retirando columnas identificadoras…",
-    personal_columns: "Retirando datos personales detectados…",
+    identifier_columns: "Eliminando columnas identificadoras…",
+    personal_columns: "Eliminando columnas con datos personales…",
     personal_mask: "Protegiendo valores personales detectados…",
     sentinels: "Normalizando marcadores «sin dato»…",
     booleans: "Normalizando booleanos…",
     encoding: "Corrigiendo acentos mal leídos…",
-    invalid_types: "Apartando valores incompatibles…",
+    invalid_types: "Dejando como nulos los valores incompatibles…",
     impute: "Imputando nulos de forma conservadora…",
     categorical_impute: "Completando nulos textuales…",
     parse_dates: "Interpretando fechas detectadas…",
@@ -130,7 +130,7 @@ export function changeProgressMessage(action: Extract<ChangeStatus, { kind: "wor
 }
 
 function counted(count: number, one: string, many: string): string {
-  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
+  return `${count.toLocaleString("es-ES")} ${count === 1 ? one : many}`;
 }
 
 /**
@@ -180,10 +180,15 @@ export function numericConversionCandidates(profile: DatasetProfile) {
   );
 }
 
-/** Text columns that «Interpretar fechas detectadas» would consider. */
+/**
+ * Text columns that «Interpretar fechas detectadas» converts. The engine
+ * leaves alone the ones whose dates read both ways (day/month or
+ * month/day): those wait for the order chosen in the proposal.
+ */
 export function dateConversionCandidates(profile: DatasetProfile) {
   return profile.columns.filter(
-    (column) => !isRowAuditColumn(column.name) && isTextType(column.dataType) && column.suggestedType === "date",
+    (column) => !isRowAuditColumn(column.name) && isTextType(column.dataType) && column.suggestedType === "date"
+      && column.dateOrder !== "ambiguous",
   );
 }
 
@@ -199,7 +204,7 @@ export function conversionNullEstimate(profile: DatasetProfile, kind: TypeConver
 }
 
 export function cellCount(count: number): string {
-  return count === 1 ? "1 celda" : `${count.toLocaleString()} celdas`;
+  return count === 1 ? "1 celda" : `${count.toLocaleString("es-ES")} celdas`;
 }
 
 /** «2 celdas quedaron nulas (importe: 2).» or "" when nothing was emptied. */
@@ -208,7 +213,7 @@ export function nullifiedCellsSentence(columns: ChangedTextColumn[]): string {
   const total = emptied.reduce((sum, column) => sum + (column.nullifiedCellCount ?? 0), 0);
   if (total === 0) return "";
   const detail = emptied
-    .map((column) => `${column.name}: ${(column.nullifiedCellCount ?? 0).toLocaleString()}`)
+    .map((column) => `${column.name}: ${(column.nullifiedCellCount ?? 0).toLocaleString("es-ES")}`)
     .join(", ");
   return ` ${cellCount(total)} que no encajaban ${total === 1 ? "quedó nula" : "quedaron nulas"} (${detail}).`;
 }
@@ -224,6 +229,6 @@ export function formatChangeSummary(change: ChangeSummary): string {
   const removed = change.removedRowCount === 0
     ? "no se quitaron filas"
     : `${change.removedRowCount === 1 ? "se quitó" : "se quitaron"} ${plural(change.removedRowCount, "fila", "filas")}`;
-  const undo = change.reversible ? "puedes deshacerlo" : "no se puede deshacer porque el historial está desactivado";
+  const undo = change.reversible ? "puedes deshacer el cambio" : "no se puede deshacer porque el historial está desactivado";
   return `${nulled} · ${removed} · ${undo}.`;
 }

@@ -1,6 +1,7 @@
 import type { DatasetProfile } from "../../bridge";
 import { plural } from "../../plural";
 import { isRowAuditColumn } from "../../rowAudit";
+import { proposalImputeCells, type ProposalItem } from "../prepare/proposalModel";
 import { COMMA_DECIMAL_SETTING, commaDecimalColumns, nonFiniteColumns } from "./reviewModel";
 
 export type QualityActionTarget = "missingValues" | "duplicates" | "incompatibleTypes";
@@ -15,7 +16,7 @@ export type UncorrectedAction =
   | { kind: "load"; label: string };
 
 export interface UncorrectedIssue {
-  id: "nulls" | "incompatible" | "personal" | "commaDecimal" | "nonFinite";
+  id: "nulls" | "skewedNumbers" | "incompatible" | "personal" | "commaDecimal" | "nonFinite";
   /** What it is and how many cells, rows or columns, counted over every row. */
   title: string;
   /** Why it is not fixed alone, or what to do about it. */
@@ -25,16 +26,18 @@ export interface UncorrectedIssue {
 }
 
 const MAX_LISTED_COLUMNS = 3;
+/** Numbers that files typically use as «no data»: -999, 9999 and their relatives. */
+const PLACEHOLDER_NUMBERS: ReadonlySet<number> = new Set([-99999, -9999, -999, 9999, 99999, 999999]);
 
 /** «la única fila» or «las 48.213 filas»: the figures count every row. */
 export function allRows(rowCount: number): string {
-  return rowCount === 1 ? "la única fila" : `las ${rowCount.toLocaleString()} filas`;
+  return rowCount === 1 ? "la única fila" : `las ${rowCount.toLocaleString("es-ES")} filas`;
 }
 
 function columnNames(names: string[]): string {
   const shown = names.slice(0, MAX_LISTED_COLUMNS).map((name) => `«${name}»`).join(", ");
   const rest = names.length - MAX_LISTED_COLUMNS;
-  return rest > 0 ? `${shown} y ${rest.toLocaleString()} más` : shown;
+  return rest > 0 ? `${shown} y ${rest.toLocaleString("es-ES")} más` : shown;
 }
 
 /**
@@ -43,29 +46,52 @@ function columnNames(names: string[]): string {
  * type, personal data and decimal commas. Duplicates, «sin dato» markers and
  * spaces are not here: the proposal lists them.
  *
- * `filledColumns` are the columns the proposal's «Rellenar nulos» item fills
- * (the same names `buildPrepareProposal` puts in that item): their nulls are
- * not counted here, so «Rellenar 347 nulos» above and this list never show
- * two unrelated figures for the same gaps.
+ * `imputeItem` is the proposal's «Rellenar nulos» item: the nulls of its
+ * columns are not counted here, and the figure it offers comes from
+ * `proposalImputeCells` (gaps plus converted markers), so the title above and
+ * this list never show two unrelated figures for the same gaps.
  */
 export function buildUncorrectedIssues(
   profile: DatasetProfile,
-  filledColumns: ReadonlySet<string> = new Set(),
+  imputeItem?: ProposalItem,
 ): UncorrectedIssue[] {
   const issues: UncorrectedIssue[] = [];
   const columns = profile.columns.filter((column) => !isRowAuditColumn(column.name));
 
+  const filledColumns = new Set((imputeItem?.columns ?? []).map((column) => column.name));
   const nullColumns = columns.filter((column) => column.nullCount > 0 && !filledColumns.has(column.name));
   const nullCount = nullColumns.reduce((total, column) => total + column.nullCount, 0);
-  const offeredCount = columns
-    .filter((column) => column.nullCount > 0 && filledColumns.has(column.name))
-    .reduce((total, column) => total + column.nullCount, 0);
+  // The same rule as the proposal's title: gaps plus the markers it converts first.
+  const offeredCount = imputeItem ? proposalImputeCells(imputeItem) : 0;
+  const offeredMarkers = (imputeItem?.columns ?? []).reduce((total, column) => total + column.sentinels, 0);
   if (nullCount > 0) {
+    const offered = offeredCount > 0
+      ? `Son distintos de los ${offeredCount.toLocaleString("es-ES")} que la propuesta ofrece rellenar${offeredMarkers > 0 ? ` (${offeredMarkers.toLocaleString("es-ES")} de ellos ${offeredMarkers === 1 ? "es un marcador" : "son marcadores"} «sin dato»)` : ""}. `
+      : "";
     issues.push({
       id: "nulls",
       title: `${plural(nullCount, "nulo", "nulos")} en ${plural(nullColumns.length, "columna", "columnas")} que la propuesta no rellena`,
-      detail: `${offeredCount > 0 ? `Son distintos de los ${offeredCount.toLocaleString()} que la propuesta ofrece rellenar. ` : ""}Un nulo puede ser válido: revisa por qué falta antes de rellenarlo o de retirar la columna.`,
+      detail: `${offered}Un nulo puede ser válido: revisa por qué falta antes de rellenarlo o de retirar la columna.`,
       action: { kind: "prepare", label: "Ver nulos en Preparar", target: "missingValues" },
+    });
+  }
+
+  // A numeric column the proposal fills whose range ends on a typical code:
+  // the profile counts it as a number, so its mean and median may be skewed.
+  const skewed = columns.flatMap((column) => {
+    if (!filledColumns.has(column.name) || column.outlierCount === null) return [];
+    const code = [column.minimum, column.maximum].find((value) => value !== null && PLACEHOLDER_NUMBERS.has(Number(value)));
+    return code === undefined || code === null ? [] : [{ name: column.name, code: Number(code) }];
+  });
+  if (skewed.length > 0) {
+    const first = skewed[0]!;
+    issues.push({
+      id: "skewedNumbers",
+      title: skewed.length === 1
+        ? `«${first.name}» tiene valores como ${first.code} que el perfil cuenta como números`
+        : `${plural(skewed.length, "columna", "columnas")} con valores como ${first.code} que el perfil cuenta como números: ${columnNames(skewed.map(({ name }) => name))}`,
+      detail: "La media y el relleno con la mediana pueden estar sesgados. Si son marcadores de «sin dato», conviértelos antes de rellenar.",
+      action: { kind: "prepare", label: "Ver en Preparar" },
     });
   }
 

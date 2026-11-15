@@ -125,7 +125,7 @@ describe("appliedPlanChanges", () => {
   it("lists what the proposal applied, one line per kind, in singular or plural", () => {
     expect(appliedPlanChanges(options, { ...none, changedCellCount: 58, removedRowCount: 5268, typedColumnCount: 2, datedColumnCount: 0, imputedCellCount: 1 })).toEqual([
       `58 celdas limpiadas (espacios y marcadores «sin dato»)`,
-      `${(5268).toLocaleString()} filas duplicadas quitadas`,
+      `${(5268).toLocaleString("es-ES")} filas duplicadas quitadas`,
       "2 columnas convertidas a número",
       "1 nulo rellenado",
     ]);
@@ -145,10 +145,10 @@ describe("appliedPlanChanges", () => {
 describe("resumen común de un cambio (PROD-10)", () => {
   it("dice celdas nulas, filas quitadas y si se puede deshacer, con plurales 0/1/N", () => {
     expect(formatChangeSummary({ nulledCellCount: 0, removedRowCount: 0, reversible: true }))
-      .toBe("Ninguna celda quedó nula · no se quitaron filas · puedes deshacerlo.");
+      .toBe("Ninguna celda quedó nula · no se quitaron filas · puedes deshacer el cambio.");
     expect(formatChangeSummary({ nulledCellCount: 1, removedRowCount: 1, reversible: true }))
-      .toBe("1 celda quedó nula · se quitó 1 fila · puedes deshacerlo.");
+      .toBe("1 celda quedó nula · se quitó 1 fila · puedes deshacer el cambio.");
     expect(formatChangeSummary({ nulledCellCount: 1200, removedRowCount: 3, reversible: false }))
-      .toBe(`${(1200).toLocaleString()} celdas quedaron nulas · se quitaron 3 filas · no se puede deshacer porque el historial está desactivado.`);
+      .toBe(`${(1200).toLocaleString("es-ES")} celdas quedaron nulas · se quitaron 3 filas · no se puede deshacer porque el historial está desactivado.`);
   });
 });

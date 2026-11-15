@@ -52,10 +52,10 @@ function TransformAdvisor({ preview }: { preview: TransformPreview }) {
     ? "Por determinar"
     : preview.rowsDelta === 0
       ? "Sin cambio esperado"
-      : `${preview.rowsDelta > 0 ? "+" : ""}${preview.rowsDelta.toLocaleString()} ${Math.abs(preview.rowsDelta) === 1 ? "fila" : "filas"}`;
+      : `${preview.rowsDelta > 0 ? "+" : ""}${preview.rowsDelta.toLocaleString("es-ES")} ${Math.abs(preview.rowsDelta) === 1 ? "fila" : "filas"}`;
   const columnDelta = preview.columnsDelta === 0
     ? "Sin cambio"
-    : `${preview.columnsDelta > 0 ? "+" : ""}${preview.columnsDelta.toLocaleString()} ${Math.abs(preview.columnsDelta) === 1 ? "columna" : "columnas"}`;
+    : `${preview.columnsDelta > 0 ? "+" : ""}${preview.columnsDelta.toLocaleString("es-ES")} ${Math.abs(preview.columnsDelta) === 1 ? "columna" : "columnas"}`;
 
   return (
     <section className={`transform-advisor transform-advisor--${preview.risk}`} aria-labelledby="transform-advisor-title">

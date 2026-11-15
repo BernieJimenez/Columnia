@@ -522,6 +522,24 @@ html[data-columnia-zoom="2"] .app-shell .workspace h2 { font-size: 1.5rem; }
 .delivery-replace { display: grid; gap: 8px; margin: 0; }
 .delivery-replace p { margin: 0; }
 .delivery-replace .delivery-replace__hint { color: var(--text-secondary); font-size: .8125rem; }
+/* The confirmation waiting for the analysis reads as unavailable in every theme. */
+.delivery-replace .export-confirmation:has(input:disabled) { color: var(--disabled-text); cursor: not-allowed; }
+.delivery-replace .export-confirmation input:disabled { cursor: not-allowed; }
+/* «Reemplazar» is destructive: a sober danger outline, not the green primary of a safe export. */
+.export-action.danger-action { border-width: 2px; background: transparent; }
+:root:root .workspace .export-action.danger-action[aria-disabled="true"] {
+  border-width: 1px;
+  border-style: dashed;
+  border-color: var(--control-border);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+  opacity: 1;
+}
+/* Server and table names stay whole in the button; they only break when they cannot fit. */
+.export-action__name { display: inline-block; max-width: 100%; white-space: nowrap; }
+@media (max-width: 420px) {
+  .export-action__name { white-space: normal; overflow-wrap: anywhere; }
+}
 @media (max-width: 420px) {
   .delivery-summary > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }

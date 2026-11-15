@@ -8,8 +8,8 @@ export function formatFileSize(bytes: number): string {
 export function DatasetMetrics({ dataset }: { dataset: DatasetPreview }) {
   return (
     <dl className="metrics" aria-label="Resumen del dataset">
-      <div><dt>Filas</dt><dd>{dataset.rowCount.toLocaleString()}</dd></div>
-      <div><dt>Columnas</dt><dd>{dataset.columnCount.toLocaleString()}</dd></div>
+      <div><dt>Filas</dt><dd>{dataset.rowCount.toLocaleString("es-ES")}</dd></div>
+      <div><dt>Columnas</dt><dd>{dataset.columnCount.toLocaleString("es-ES")}</dd></div>
       <div><dt>Tamaño</dt><dd>{formatFileSize(dataset.fileSizeBytes)}</dd></div>
     </dl>
   );

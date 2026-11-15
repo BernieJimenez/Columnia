@@ -5,7 +5,9 @@
 .explore__clear { min-height: 44px; padding: 0 12px; border: 0; background: none; color: var(--accent); font: inherit; font-size: .85rem; text-decoration: underline; cursor: pointer; }
 .explore__clear:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .explore__filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 36px; }
-.explore__summary { margin: 0; }
+/* The text (and a «Deshacer» stuck to it) takes the spare width, so «Personalizar» stays on the right. */
+.explore__message { display: flex; flex: 1 1 14rem; flex-wrap: wrap; align-items: center; gap: 0 4px; min-width: 0; }
+.explore__summary { min-width: 0; margin: 0; }
 .explore__summary > span + span::before { content: " "; }
 .explore__hint { color: var(--text-secondary); font-size: .85rem; }
 .explore__customize { margin-left: auto; }
@@ -13,6 +15,7 @@
 .explore__custom fieldset { flex: 1 1 100%; min-width: 0; margin: 0; padding: 0; border: 0; }
 .explore__custom legend { padding: 0; color: var(--text-secondary); }
 .explore__custom > label { display: grid; gap: 4px; color: var(--text-secondary); }
+.explore__custom select { min-height: 44px; padding: 7px 9px; border: 1px solid var(--control-border); border-radius: 4px; background: var(--surface-raised); color: var(--text-primary); font: inherit; }
 .explore__choices { display: flex; flex-wrap: wrap; gap: 4px 16px; max-height: 132px; margin-top: 6px; overflow-y: auto; }
 .explore__choices label { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; color: var(--text-primary); }
 .explore__chip {

@@ -206,14 +206,14 @@ function QualitySection({
           >
             {ANALYSIS_SAMPLE_ROW_OPTIONS.map((sampleRows) => (
               <option key={sampleRows} value={sampleRows}>
-                {sampleRows.toLocaleString()} filas
+                {sampleRows.toLocaleString("es-ES")} filas
               </option>
             ))}
           </select>
         </label>
         <p>
           {analysisSampleRows >= dataset.rowCount
-            ? `Con esta muestra las correlaciones usan todas las filas (${dataset.rowCount.toLocaleString()}). `
+            ? `Con esta muestra las correlaciones usan todas las filas (${dataset.rowCount.toLocaleString("es-ES")}). `
             : ""}
           Al cambiarla, el análisis se repite con esta muestra; solo limita las correlaciones y el resto del perfil conserva su cobertura.
         </p>
@@ -514,7 +514,7 @@ export function LocalQueryPanel({
         </label>
         {columnNames.length > 0 && (
           <details className="local-query__columns">
-            <summary>Columnas del dataset ({columnNames.length.toLocaleString()})</summary>
+            <summary>Columnas del dataset ({columnNames.length.toLocaleString("es-ES")})</summary>
             <p>Pulsa una para insertarla donde está el cursor; los nombres con espacios, comas o comillas se citan solos.</p>
             <ul>
               {columnNames.map((name) => (
@@ -620,7 +620,7 @@ function LocalQueryResult({ result }: { result: DatasetQueryResult }) {
         <span className="visually-hidden"> en el resultado</span>
       </p>
       <p>
-        {result.rowCount.toLocaleString()} filas disponibles · mostrando desde {result.offset + 1}
+        {result.rowCount.toLocaleString("es-ES")} filas disponibles · mostrando desde {result.offset + 1}
         {result.truncated ? " · resultado truncado por LIMIT" : ""}
         {result.engine ? ` · calculado con ${result.engine === "duckdb" ? "DuckDB" : "Polars"}` : ""}
       </p>
@@ -674,7 +674,7 @@ export function DatasetPreviewPanel({
       {(profile || reserveProfile) && (
         // While pending the note is invisible but laid out, so the table does not drop when it appears.
         <p className={reserveProfile ? "preview-note preview-note--pending" : "preview-note"} aria-hidden={reserveProfile || undefined}>
-          Bajo cada columna: cuántas celdas tienen valor, cuántos valores distintos hay y su rango, calculados sobre {dataset.rowCount === 1 ? "la única fila" : `todas las filas (${dataset.rowCount.toLocaleString()})`}.
+          Bajo cada columna: cuántas celdas tienen valor, cuántos valores distintos hay y su rango, calculados sobre {dataset.rowCount === 1 ? "la única fila" : `todas las filas (${dataset.rowCount.toLocaleString("es-ES")})`}.
         </p>
       )}
       <div className="table-region" tabIndex={0} aria-label="Vista previa del dataset">
@@ -723,8 +723,8 @@ export function DatasetPreviewPanel({
             ? "El dataset no contiene filas."
             : dataset.rows.length === 0
               // FUN-50: a page past the end (the dataset shrank) has no range.
-              ? `Esta página no tiene filas; el dataset tiene ${dataset.rowCount.toLocaleString()}.`
-              : `Filas ${(pageOffset + 1).toLocaleString()}–${pageEnd.toLocaleString()} de ${dataset.rowCount.toLocaleString()}`}
+              ? `Esta página no tiene filas; el dataset tiene ${dataset.rowCount.toLocaleString("es-ES")}.`
+              : `Filas ${(pageOffset + 1).toLocaleString("es-ES")}–${pageEnd.toLocaleString("es-ES")} de ${dataset.rowCount.toLocaleString("es-ES")}`}
         </p>
         <div>
           <button
@@ -804,8 +804,7 @@ function QualityProfile({
   const proposalSelection = defaultProposalSelection(proposal);
   const priorityCount = proposal.length;
   // The nulls the proposal offers to fill are counted there, not again in «No se corrige solo».
-  const filledColumns = new Set(proposal.find((item) => item.id === "impute")?.columns?.map((column) => column.name));
-  const uncorrected = buildUncorrectedIssues(profile, filledColumns);
+  const uncorrected = buildUncorrectedIssues(profile, proposal.find((item) => item.id === "impute"));
   const markerCount = userColumns.reduce((total, column) => total + Math.max(0, column.sentinelCount ?? 0), 0);
   const provenance = profileProvenanceText(profile);
   return (
@@ -918,8 +917,8 @@ function QualityProfile({
                   {formatPercent(column.completenessPercentage, 1)}
                   <MarkerNote column={column} />
                 </td>
-                <td>{column.nullCount.toLocaleString()}</td>
-                <td>{column.uniqueCount.toLocaleString()}</td>
+                <td>{column.nullCount.toLocaleString("es-ES")}</td>
+                <td>{column.uniqueCount.toLocaleString("es-ES")}</td>
                 <td>{column.minimum ?? "—"}</td>
                 <td>{column.maximum ?? "—"}</td>
                 <td>
@@ -967,7 +966,7 @@ function QualityProfile({
                       <td>{formatStatistic(column.firstQuartile, grouping)}</td>
                       <td>{formatStatistic(column.median, grouping)}</td>
                       <td>{formatStatistic(column.thirdQuartile, grouping)}</td>
-                      <td>{column.outlierCount?.toLocaleString() ?? "—"}</td>
+                      <td>{column.outlierCount?.toLocaleString("es-ES") ?? "—"}</td>
                     </tr>
                   );
                 })}
@@ -1006,9 +1005,9 @@ function QualityProfile({
                 {textColumns.map((column) => (
                   <tr key={column.name}>
                     <th scope="row">{column.name}</th>
-                    <td>{column.emptyCount?.toLocaleString()}</td>
-                    <td>{column.minimumLength?.toLocaleString() ?? "—"}</td>
-                    <td>{column.maximumLength?.toLocaleString() ?? "—"}</td>
+                    <td>{column.emptyCount?.toLocaleString("es-ES")}</td>
+                    <td>{column.minimumLength?.toLocaleString("es-ES") ?? "—"}</td>
+                    <td>{column.maximumLength?.toLocaleString("es-ES") ?? "—"}</td>
                     <td>
                       {column.averageLength == null ? "—" : formatNumber(column.averageLength, 1)}
                     </td>
@@ -1018,7 +1017,7 @@ function QualityProfile({
                         ? "—"
                         : `${formatPercent(column.typeMatchPercentage, 1)}`}
                     </td>
-                    <td>{column.invalidTypeCount?.toLocaleString() ?? "—"}</td>
+                    <td>{column.invalidTypeCount?.toLocaleString("es-ES") ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>

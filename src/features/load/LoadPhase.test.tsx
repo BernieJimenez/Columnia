@@ -961,13 +961,18 @@ describe("LoadPhase: dataset cargado, errores, atajo y diálogo (crítica del 20
     fireEvent.click(toReview);
     expect(onContinue).toHaveBeenCalledOnce();
 
-    const change = screen.getByRole("heading", { name: "Cambiar de datos" });
+    // The source cards sit in a collapsed «Cambiar de datos»; the file button stays visible.
+    const change = screen.getByText("Cambiar de datos");
+    const changeDetails = change.closest("details") as HTMLDetailsElement;
+    expect(changeDetails).not.toHaveAttribute("open");
+    expect(change.closest("summary")).not.toBeNull();
     const other = screen.getByRole("button", { name: "Elegir otro archivo" });
     expect(other).toHaveClass("secondary-action");
     expect(change.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const hint = screen.getByText(/También puedes arrastrar un archivo compatible/);
     expect(hint).not.toHaveAttribute("role");
 
+    changeDetails.open = true;
     fireEvent.click(screen.getByRole("radio", { name: /^Base de datos/ }));
     expect(screen.queryByRole("button", { name: "Elegir otro archivo" })).not.toBeInTheDocument();
     expect(screen.queryByText(/También puedes arrastrar/)).not.toBeInTheDocument();
@@ -984,7 +989,15 @@ describe("LoadPhase: dataset cargado, errores, atajo y diálogo (crítica del 20
   it("sin dataset no ofrece continuar", () => {
     render(<LoadPhase {...loadPhaseProps({ onContinue: () => undefined })} />);
     expect(screen.queryByRole("button", { name: "Continuar a Revisar" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Cambiar de datos" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Cambiar de datos")).not.toBeInTheDocument();
+  });
+
+  it("con un dataset cargado, Ctrl+O abre el selector aunque «Cambiar de datos» esté cerrado", () => {
+    const onSelect = vi.fn();
+    render(<LoadPhase {...loadPhaseProps({ onSelect })} datasetStatus={loaded} />);
+    expect(screen.getByText("Cambiar de datos").closest("details")).not.toHaveAttribute("open");
+    fireEvent.keyDown(document.body, { key: "o", ctrlKey: true });
+    expect(onSelect).toHaveBeenCalledOnce();
   });
 
   it("con un dataset, el error de elegir archivo sale junto a «Elegir otro archivo»", () => {
@@ -1094,6 +1107,12 @@ describe("LoadPhase: dataset cargado, errores, atajo y diálogo (crítica del 20
     expect(hint).toHaveTextContent("«fecha_alta», «created_at». Con las fechas en «Sin definir» se cargarán como texto.");
     expect(hint).toHaveTextContent("«Interpretación de fechas y números (opcional)»");
     expect(hint).not.toHaveClass("notice");
+    // The options follow the hint and come before the column table.
+    const options = screen.getByText("Interpretación de fechas y números (opcional)").closest("details") as HTMLDetailsElement;
+    const columnsToggle = screen.getByText("Ver columnas y tipos");
+    expect(hint!.compareDocumentPosition(options) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(options.compareDocumentPosition(columnsToggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(hint).toHaveTextContent("aquí debajo");
 
     // Read by blocks, the conventions are not available: the hint points to Preparar.
     const sourceBacked = {
@@ -1141,9 +1160,19 @@ describe("LoadPhase: dataset cargado, errores, atajo y diálogo (crítica del 20
     expect(options()).toHaveAttribute("open");
   });
 
+  it("dice «Nada se carga» sin dataset y «Tu dataset actual no cambia» con uno", () => {
+    const view = render(<LoadPhase {...loadPhaseProps()} inspection={workbookInspection(workbook)} />);
+    expect(screen.getByRole("dialog")).toHaveTextContent("Nada se carga hasta que confirmes.");
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("Tu dataset actual");
+    view.rerender(<LoadPhase {...loadPhaseProps()} datasetStatus={loaded} inspection={workbookInspection(workbook)} />);
+    expect(screen.getByRole("dialog")).toHaveTextContent("Tu dataset actual no cambia hasta que confirmes.");
+  });
+
   it("dice qué formatos se leen por bloques y cómo decide el motor si cabe en memoria", () => {
     render(<LoadPhase {...loadPhaseProps()} inspection={{ kind: "resource_preflight", source: delimitedSource }} />);
-    expect(screen.getByText(/CSV · TSV · TXT · JSON · Parquet · Excel · ODS\./)).toHaveTextContent(
+    expect(screen.getByText(/CSV · TSV · TXT · JSON · Parquet · Excel · ODS\./)).not.toHaveTextContent("512 MiB");
+    expect(screen.getByText(/Los de 512 MiB o más se leen por bloques/)).toHaveClass("load-brief__note");
+    expect(screen.getByText(/Los de 512 MiB o más se leen por bloques/)).toHaveTextContent(
       "Los de 512 MiB o más se leen por bloques desde el disco. En CSV, TSV y TXT de ese tamaño, las fechas y los números no se convierten al cargar.",
     );
     expect(screen.getByRole("dialog")).toHaveTextContent("el motor comprueba la RAM libre y, si no alcanza, no la ejecuta");

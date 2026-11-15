@@ -126,7 +126,11 @@ function ScrollPlot({ count, hint, range, readings, selected, idle, children }: 
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [overflows, setOverflows] = useState(false);
-  const [active, setActive] = useState<number | null>(null);
+  // The keyboard focus and the pointer each point at a column; the focus wins while it is inside.
+  const [focused, setFocused] = useState<number | null>(null);
+  const [hovered, setHovered] = useState<number | null>(null);
+  // A click focuses its column too, but that is not keyboard navigation: it must not freeze the reading.
+  const pointerFocus = useRef(false);
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
@@ -139,21 +143,28 @@ function ScrollPlot({ count, hint, range, readings, selected, idle, children }: 
     // `count` re-measures when the columns change; the observer covers resizes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [count]);
-  function track(event: { target: EventTarget }) {
+  function indexOfColumn(event: { target: EventTarget }): number | null {
     const column = (event.target as HTMLElement).closest<HTMLElement>("button.explore__column");
-    if (!column?.parentElement) return;
-    setActive(Array.prototype.indexOf.call(column.parentElement.children, column));
+    if (!column?.parentElement) return null;
+    return Array.prototype.indexOf.call(column.parentElement.children, column);
   }
-  const shown = active ?? (selected >= 0 ? selected : null);
+  const shown = focused ?? hovered ?? (selected >= 0 ? selected : null);
   return (
     <>
       <div
         ref={ref}
         className="explore__scroll"
-        onFocus={track}
-        onPointerOver={track}
-        onBlur={() => setActive(null)}
-        onPointerLeave={() => setActive(null)}
+        onPointerDown={() => { pointerFocus.current = true; }}
+        onFocus={(event) => {
+          const viaPointer = pointerFocus.current;
+          pointerFocus.current = false;
+          setFocused(viaPointer ? null : indexOfColumn(event));
+        }}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(null);
+        }}
+        onPointerOver={(event) => setHovered(indexOfColumn(event))}
+        onPointerLeave={() => setHovered(null)}
       >
         <div className="explore__plot" style={{ "--columns": count } as CSSProperties}>{children}</div>
       </div>
@@ -286,8 +297,26 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
   function clearFilters() {
     pendingFocus.current = "customize";
     const next: ExploreFilter[] = [];
+    const before = filters;
     setFilters(next);
-    say("Filtros quitados.", next);
+    say("Filtros quitados.", next, () => {
+      pendingFocus.current = "customize";
+      setFilters(before);
+      say("Se restauraron los filtros.", before);
+    });
+  }
+  function resetToAutomatic() {
+    pendingFocus.current = "customize";
+    const before = { layout, filters };
+    const next: ExploreFilter[] = [];
+    setLayout({});
+    setFilters(next);
+    say(before.filters.length > 0 ? "Se volvió a lo automático y se quitaron los filtros." : "Se volvió a lo automático.", next, () => {
+      pendingFocus.current = "customize";
+      setLayout(before.layout);
+      setFilters(before.filters);
+      say("Se restauró lo que habías elegido.", before.filters);
+    });
   }
   // A chart that leaves the panel takes its filter with it, and says so.
   function changeLayout(next: ExploreLayout, dropped: string | null | undefined, reason: string) {
@@ -309,7 +338,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
   const noCharts = !!panel && panel.categories.length === 0 && !panel.histogram && !hasTrend;
   const filtered = filters.length > 0 && !!panel;
   const summary = filters.length === 0 || !panel
-    ? "Cada barra cuenta las filas de un valor; pulsa una para filtrar todo el panel."
+    ? "Pulsa una barra para filtrar todo el panel."
     : `${plural(panel.rowCount, "fila", "filas")} de ${formatNumber(panel.totalRowCount)} cumplen los filtros.`;
   const shownAnnouncement = announcement && announcement.filters === filters ? announcement.text : null;
   const shownUndo = announcement && announcement.filters === filters ? announcement.undo : undefined;
@@ -356,13 +385,15 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
           {(!noCharts || filters.length > 0) && (
             <div className="explore__filters">
               {/* Only this text is announced: not the buttons beside it. */}
-              <p className="explore__summary" role="status">
-                {shownAnnouncement && <span>{shownAnnouncement}</span>}
-                <span className="explore__hint">{summary}</span>
-              </p>
-              {shownUndo && (
-                <button type="button" className="explore__clear" onClick={shownUndo}>Deshacer</button>
-              )}
+              <div className="explore__message">
+                <p className="explore__summary" role="status">
+                  {shownAnnouncement && <span>{shownAnnouncement}</span>}
+                  {!shownUndo && <span className="explore__hint">{summary}</span>}
+                </p>
+                {shownUndo && (
+                  <button type="button" className="explore__clear" onClick={shownUndo}>Deshacer</button>
+                )}
+              </div>
               {filters.map((filter) => (
                 <button
                   key={filter.column}
@@ -436,7 +467,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                 </label>
               )}
               {custom && (
-                <button type="button" className="explore__clear" onClick={() => { pendingFocus.current = "customize"; setLayout({}); setFilters([]); }}>
+                <button type="button" className="explore__clear" onClick={resetToAutomatic}>
                   Volver a lo automático
                 </button>
               )}
@@ -468,6 +499,7 @@ export function ExplorePhase({ dataset, datasetRevision, profileReady, initialFi
                 <section key={chart.column} className={`explore__panel${alone ? " explore__panel--wide" : ""}`} aria-label={`Filas por ${chart.column}`}>
                   <div className="explore__heading">
                     <h4>{chart.column}</h4>
+                    <p className="explore__kind">Filas por valor</p>
                   </div>
                   <div
                     className={`explore__bars${active ? " explore__bars--dim" : ""}`}

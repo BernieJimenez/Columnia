@@ -234,7 +234,9 @@ interface DeliverySummaryInput {
   table: string | null;
   /** A direct database delivery: server, database and sign-in (`databaseConnectionSummary`). */
   connection?: readonly DeliverySummaryItem[];
-  quality: { kind: "rules"; count: number; passed: boolean } | { kind: "unvalidated" };
+  quality:
+    | { kind: "rules"; count: number; status: "passed" | "failed" | "pending"; failedCount?: number }
+    | { kind: "unvalidated" };
   privacyMode: PrivacyMode;
   personalDataColumnCount: number;
   /** AUD-061: the dataset came from part of a database table, or had texts changed. */
@@ -329,6 +331,21 @@ export function databaseConnectionSummary(connection: DatabaseConnection | null)
   ];
 }
 
+/** The «Calidad» line says the truth about the contract: met, broken or not checked yet. */
+function qualitySummaryValue(quality: DeliverySummaryInput["quality"]): string {
+  if (quality.kind === "unvalidated") return "sin validar";
+  if (quality.status === "passed") return plural(quality.count, "regla cumplida", "reglas cumplidas");
+  if (quality.status === "failed") {
+    const failed = quality.failedCount ?? quality.count;
+    return failed === 1
+      ? "1 regla incumplida: corrige los datos o la regla antes de exportar"
+      : `${plural(failed, "regla", "reglas")} incumplidas: corrige los datos o las reglas antes de exportar`;
+  }
+  return quality.count === 1
+    ? "1 regla, se comprueba al exportar"
+    : `${plural(quality.count, "regla", "reglas")}, se comprueban al exportar`;
+}
+
 /**
  * What the export will do, in a few lines beside its button (2026-11-01):
  * where the copy goes, which table, how many rows, what was validated and how
@@ -347,11 +364,7 @@ export function deliverySummary(input: DeliverySummaryInput): DeliverySummaryIte
   items.push(...importOriginSummaryItems(input.importOrigin));
   items.push({
     label: "Calidad",
-    value: input.quality.kind === "unvalidated"
-      ? "sin validar"
-      : input.quality.passed
-        ? plural(input.quality.count, "regla aprobada", "reglas aprobadas")
-        : `${plural(input.quality.count, "regla", "reglas")}, se comprueban al exportar`,
+    value: qualitySummaryValue(input.quality),
   });
   const columns = plural(input.personalDataColumnCount, "columna", "columnas");
   items.push({

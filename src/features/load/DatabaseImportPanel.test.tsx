@@ -137,7 +137,7 @@ describe("DatabaseImportPanel", () => {
 
     fireEvent.change(screen.getByLabelText("Tabla o vista"), { target: { value: "1" } });
     fireEvent.change(screen.getByLabelText("Filas como máximo"), { target: { value: "10000" } });
-    fireEvent.click(screen.getByRole("button", { name: "Traer dbo.Ventas" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leer dbo.Ventas" }));
 
     await waitFor(() => expect(importTable).toHaveBeenCalledWith(
       { kind: "sqlserver", connection }, "dbo", "Ventas", 10_000, expect.any(Function),
@@ -158,10 +158,10 @@ describe("DatabaseImportPanel", () => {
     render(<DatabaseImportPanel connected blocked={false} onImport={(run) => void run()} onImported={onImported} />);
     await fillConnection();
     fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
-    await screen.findByRole("button", { name: "Traer dbo.Ventas" });
+    await screen.findByRole("button", { name: "Leer dbo.Ventas" });
 
     importTable.mockResolvedValueOnce({ inspection, rowsImported: 10_000, moreRowsAvailable: true, truncatedColumns: ["Notas"], replacedColumns: [] });
-    fireEvent.click(screen.getByRole("button", { name: "Traer dbo.Ventas" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leer dbo.Ventas" }));
     await waitFor(() => expect(onImported).toHaveBeenCalledWith("selection-1", {
       table: "dbo.Ventas", rowsImported: 10_000, partial: true, truncatedColumns: ["Notas"], replacedColumns: [],
     }, {
@@ -170,7 +170,7 @@ describe("DatabaseImportPanel", () => {
     }));
 
     importTable.mockResolvedValueOnce({ inspection, rowsImported: 5, moreRowsAvailable: false, truncatedColumns: [], replacedColumns: [] });
-    fireEvent.click(screen.getByRole("button", { name: "Traer dbo.Ventas" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leer dbo.Ventas" }));
     await waitFor(() => expect(onImported).toHaveBeenLastCalledWith("selection-1", null, expect.objectContaining({
       rowsImported: 5, moreRowsAvailable: false,
     })));
@@ -182,7 +182,7 @@ describe("DatabaseImportPanel", () => {
     const { rerender } = render(<DatabaseImportPanel connected blocked={false} onImport={(run) => void run()} reviewingSelectionId="selection-1" />);
     await fillConnection();
     fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Traer dbo.Ventas" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Leer dbo.Ventas" }));
     expect(await screen.findByText(/Se leyeron 5 filas de dbo\.Ventas/)).toBeInTheDocument();
 
     rerender(<DatabaseImportPanel connected blocked={false} onImport={(run) => void run()} reviewingSelectionId={null} />);
@@ -198,7 +198,7 @@ describe("DatabaseImportPanel", () => {
     renderPanel(onImport);
     await fillConnection();
     fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Traer dbo.Ventas" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Leer dbo.Ventas" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("el servidor rechazó la consulta");
   });
 
@@ -254,7 +254,7 @@ describe("DatabaseImportPanel", () => {
     renderPanel();
     await fillConnection();
     fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
-    const traer = await screen.findByRole("button", { name: "Traer dbo.Ventas" });
+    const traer = await screen.findByRole("button", { name: "Leer dbo.Ventas" });
     traer.focus();
     fireEvent.click(traer);
     await waitFor(() => expect(importTable).toHaveBeenCalledTimes(1));
@@ -312,7 +312,7 @@ describe("DatabaseImportPanel", () => {
         allowUnencrypted: false,
       },
     }));
-    expect(await screen.findByRole("button", { name: "Traer public.pedidos" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Leer public.pedidos" })).toBeEnabled();
   });
 
   it("al cambiar de motor conserva servidor, base de datos y usuario, descarta la contraseña y lo dice", async () => {
@@ -396,19 +396,19 @@ describe("DatabaseImportPanel", () => {
     expect(screen.getByRole("button", { name: "Ver tablas" })).not.toHaveAttribute("aria-describedby");
   });
 
-  it("asocia el motivo de ocupado a la tabla y a «Traer» una vez listadas las tablas (AUD-059)", async () => {
+  it("asocia el motivo de ocupado a la tabla y a «Leer» una vez listadas las tablas (AUD-059)", async () => {
     vi.spyOn(bridge, "listDatabaseTables").mockResolvedValue([{ schema: "dbo", name: "Ventas", isView: false }]);
     const { rerender } = render(<DatabaseImportPanel connected blocked={false} onImport={vi.fn()} />);
     await fillConnection();
     fireEvent.click(screen.getByRole("button", { name: "Ver tablas" }));
     const table = await screen.findByLabelText("Tabla o vista");
     expect(table).not.toHaveAttribute("aria-describedby");
-    expect(screen.getByRole("button", { name: "Traer dbo.Ventas" })).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("button", { name: "Leer dbo.Ventas" })).not.toHaveAttribute("aria-describedby");
 
     rerender(<DatabaseImportPanel connected blocked onImport={vi.fn()} />);
     expect(screen.getByLabelText("Tabla o vista")).toHaveAttribute("aria-describedby", "busy-reason");
     expect(screen.getByLabelText("Filas como máximo")).toHaveAttribute("aria-describedby", "busy-reason");
-    const bring = screen.getByRole("button", { name: "Traer dbo.Ventas" });
+    const bring = screen.getByRole("button", { name: "Leer dbo.Ventas" });
     expect(bring).toHaveAttribute("aria-disabled", "true");
     expect(bring).toHaveAttribute("aria-describedby", "busy-reason");
   });

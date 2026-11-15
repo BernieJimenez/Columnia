@@ -275,7 +275,15 @@ análisis y herramientas» es un solo plegable con secciones de un nivel
 análisis); dentro solo se pliegan las tablas «Ver datos exactos». La Consulta
 SQL vive solo en la barra superior. Las columnas con marcadores «sin dato» lo
 dicen donde la completitud podría engañar («incluye N marcadores «sin dato»»),
-y una nota avisa de que el perfil numérico no reconoce marcadores como -999.
+y una nota avisa de que el perfil numérico no reconoce marcadores como -999;
+si la propuesta rellena una columna con un extremo como -999 o 9999, «No se
+corrige solo» avisa de que su media y su mediana pueden estar sesgadas. Las
+cifras de nulos usan la misma regla que la propuesta (`proposalImputeCells`).
+Las etiquetas de «Distribución numérica» envuelven: el nombre de la columna
+nunca se recorta y Q1/Mediana/Q3 bajan a su propia línea en estrecho.
+«Completitud por columna» solo dibuja las columnas incompletas. Con la
+comparación abierta, «Comparar con otro archivo» es secundaria; su resultado
+son cifras en línea y el paginador de conflictos solo aparece si no caben.
 Un error del perfil y un análisis cancelado llevan dentro «Reintentar
 análisis», y el pie no repite el botón.
 «Comparar con otro archivo» (`DatasetComparisonSection.tsx`) es un plegable en
@@ -304,7 +312,14 @@ ofrece rellenarla—, convertir o apartar tipos incompatibles, ocultar o retirar
 datos personales, atípicos, acentos y sí/no, y al final rellenar; rellenar
 siempre pide confirmación con cifra y columnas, y «Desconocido» nunca toca
 columnas vacías ni las que se ofrecen para convertir; sin análisis el plegable
-sigue y dice por qué está vacío), «Limpiar
+sigue y dice por qué está vacío; las filas van de lo más grave a lo menos bajo
+subtítulos cortos —«Columnas sin datos útiles», «Tipos que no cuadran», «Datos
+personales», «Valores atípicos», «Texto», «Huecos que rellenar» e
+«Identificadores»—; un identificador nunca se recomienda eliminar, solo se
+señala como probable clave, y las fechas que se leen de dos formas remiten a la
+pregunta de la propuesta en lugar de ofrecer convertir; el `<li>` se nombra con
+`aria-labelledby`, el texto guarda 26rem–68ch y el botón baja debajo cuando no
+cabe), «Limpiar
 texto y filas» (normalizar texto, filas vacías y `_cambios`), «Transformar
 columnas» (`TransformRecipeEditor.tsx`, el editor de receta: varias operaciones
 que se aplican juntas y se pueden guardar y cargar como archivo; se monta al
@@ -335,7 +350,9 @@ existan sus columnas clave; si no, se dice qué columna cambió.
 La columna de trabajo es un contenedor (`container: prepare-main /
 inline-size`): sus filas responden a su propio ancho con `@container`, porque
 con el historial al lado mide unos 620 px. Tras aplicar, el resultado («Listo:
-cambios aplicados») toma el foco y «Continuar a Explorar» es la primaria; tras
+cambios aplicados») toma el foco y «Continuar a Explorar» es la primaria;
+mientras se aplica, la primaria dice el progreso en su propio texto
+(«Aplicando la propuesta… 40 %») con `aria-busy` y conserva su color; tras
 «Deshacer», el foco va a «Rehacer». Los botones ocupados usan `aria-disabled`
 con su motivo, nunca `disabled`, para no perder el foco. Cada corrección
 destructiva dice cuántas y cuáles en el botón o junto a él («Eliminar 2
@@ -364,7 +381,12 @@ miden al menos 24 px; con muchas, columnas y eje se desplazan juntos y aparece
 siempre el rango completo («De 0 a 700») y una línea de lectura con las filas
 del tramo enfocado, apuntado o seleccionado. Las marcas del eje caen en bordes
 reales de tramo, la tendencia dice su periodo con más filas y cambiar la medida
-o la fecha que quita un filtro ofrece «Deshacer». Sin gráficos hay un único aviso neutro con
+o la fecha que quita un filtro ofrece «Deshacer», igual que «Quitar filtros» y
+«Volver a lo automático»; mientras hay un anuncio con «Deshacer» se oculta la
+pista y «Personalizar» no cambia de fila. Cada gráfico dice lo que cuenta en su
+encabezado («Filas por valor», «Distribución», «Filas en el tiempo»). Las marcas
+del eje usan pasos iguales y redondos (1, 2, 2,5 o 5 × 10^n), y la línea de
+lectura sigue al foco de teclado mientras está dentro del gráfico. Sin gráficos hay un único aviso neutro con
 el motivo y, si una fecha está guardada como texto, «Interpretar fechas en
 Preparar»; se ocultan «Personalizar», la pista y el pie. El valor nulo se llama
 «nulo». «Ver como tabla» tiene tope de alto con scroll. Por debajo de 760 CSS px
@@ -388,7 +410,16 @@ volver a confirmar; «Exportar otra copia» existe solo para archivos. La
 confirmación de «Reemplazar» solo se da tras el análisis, está atada a la
 tabla tal como la dejó (incluido si existe) y el aviso dice cuántas filas se
 borrarán. El resultado de una escritura dice si se reemplazó, se añadió o se
-creó la tabla. «Analizar compatibilidad» tiene ancho propio junto a su estado. «Configuraciones de entrega guardadas» va plegada antes del paso
+creó la tabla y, con «Reemplazar», cuántas filas se borraron; mientras se
+muestra, el aviso del borrado desaparece y el motivo dice «Ya se escribió la
+tabla. Para escribir de nuevo, vuelve a analizar la compatibilidad.».
+«Analizar compatibilidad» tiene ancho propio junto a su estado. Con
+«Reemplazar» el botón es una variante de peligro sobria (contorno en
+`--danger`), no el primario verde de las acciones seguras. «Vas a exportar»
+dice la verdad del contrato («N reglas, se comprueban al exportar», «N reglas
+cumplidas» o «N reglas incumplidas: corrige los datos o las reglas antes de
+exportar»), y mientras el título de un contrato fallido tiene el foco el motivo
+junto al botón no repite el anuncio. «Configuraciones de entrega guardadas» va plegada antes del paso
 1, porque rellena destino, formato, protección y tabla. El resultado aparece
 después del paso 4. «Conectar y escribir la
 tabla» propone el esquema del motor (`dbo`, `public` o la base en MySQL) y una
@@ -401,6 +432,10 @@ numerado. El término es «incumplimientos»; también «comprobación previa»,
 
 ## Estados y copy
 
+- Las cifras usan siempre el formato español de España (`es-ES`: «12.400»,
+  «50,0%»), sea cual sea el idioma del sistema, porque la interfaz solo está en
+  español. `src/format.ts` y `src/plural.ts` lo fijan y toda llamada a
+  `toLocaleString`, `Intl.NumberFormat` o `Intl.DateTimeFormat` pasa `"es-ES"`.
 - Usa lenguaje de utilidad: qué ocurrió, qué está disponible y qué acción sigue.
 - Evita promesas, slogans y texto sobre el propio diseño.
 - Loading, vacío, error, éxito y parcial deben describir lo que la persona ve y
