@@ -2063,7 +2063,18 @@ impl CurrentDataset {
             let Some(dataset) = current.as_mut() else {
                 return current;
             };
+            let was_pending = dataset.history.pending_baseline.is_some();
             if dataset.history.settle_baseline() {
+                // The profile of the original usually arrives (≈2,9 s) before
+                // its copy is registered (≈4,8 s). Nothing could change the
+                // frame meanwhile (mutations wait here), so a cached profile
+                // is the original's: keep it on entry 0, or the first undo
+                // back to the original would recompute it.
+                if was_pending {
+                    if let Some(profile) = dataset.profile.as_ref() {
+                        dataset.history.remember_profile(profile);
+                    }
+                }
                 return current;
             }
             let in_progress = dataset.history.baseline_in_progress();
@@ -2983,6 +2994,7 @@ where
             label: "Dataset original".to_owned(),
             path: path.clone(),
             bytes,
+            profile: None,
         });
         history.cursor = 0;
         history.next_id = id.wrapping_add(1);
@@ -3001,6 +3013,7 @@ where
         label: label.to_owned(),
         path: output_destination,
         bytes: output_bytes,
+        profile: None,
     });
     history.cursor = history.entries.len() - 1;
     history.next_id = output_id.wrapping_add(1);

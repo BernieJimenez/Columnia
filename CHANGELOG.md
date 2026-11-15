@@ -1504,6 +1504,13 @@ hasta el corte, y los perfiles de publicación exigen crear antes la sección
   datos se reagrupan al leerlos, lo que acelera el perfil.
 - Cada cambio de Preparar guarda su versión del historial en menos de la mitad
   de tiempo (de unos 7 s a unos 3 s con ese archivo), con la misma compresión.
+- Deshacer y rehacer ya no recalculan el perfil de calidad de una versión que
+  ya se analizó (unos 2,75 s menos cada vez con ese archivo): el perfil se
+  guarda en memoria con su versión y se suelta al retirarla del historial.
+- El presupuesto del frontend mide por separado lo que se descarga al abrir la
+  app (límite estricto, fijado en lo que pesa hoy) y el total de todas las
+  fases (límite con un 10 % de margen); antes sumaba también lo que solo se
+  carga al abrir una fase, y mover código fuera del arranque no lo bajaba.
 - El arranque ya no espera a limpiar temporales de sesiones anteriores, abre
   a la vez los catálogos de tareas y de entregas, y lanza en paralelo sus
   primeras peticiones al motor. Tres paneles secundarios se cargan al usarse.

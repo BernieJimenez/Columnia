@@ -340,6 +340,7 @@ where
             label: entry.label,
             path: destination,
             bytes: copied,
+        profile: None,
         });
     }
     if !cursor_matches {

@@ -51,8 +51,8 @@
       ]
     },
     "frontendBundle": {
-      "rawBytes": 819200,
-      "gzipBytes": 245760
+      "rawBytes": 1085440,
+      "gzipBytes": 283648
     }
   }
 }

@@ -10,6 +10,21 @@ enum ProfileWork {
     Frame(DataFrame),
 }
 
+/// Caches `profile` on the dataset and on its cursor history entry, but only
+/// if the dataset is still the one `stamp` described when the profile began.
+pub(super) fn store_profile_if_current(
+    dataset: Option<&mut LoadedDataset>,
+    stamp: &DatasetMutationStamp,
+    profile: &DatasetProfile,
+) -> bool {
+    let Some(dataset) = dataset.filter(|dataset| stamp.matches(dataset)) else {
+        return false;
+    };
+    dataset.profile = Some(profile.clone());
+    dataset.history.remember_profile(profile);
+    true
+}
+
 pub(super) async fn get_dataset_profile_impl(
     app: AppHandle,
     on_progress: Channel<OperationProgress>,
@@ -137,9 +152,7 @@ pub(super) async fn get_dataset_profile_impl(
         profile.provenance = Some(ProfileProvenance::now(mode, started.elapsed()));
 
         let mut current = state.current.lock_now();
-        if let Some(dataset) = current.as_mut().filter(|dataset| stamp.matches(dataset)) {
-            dataset.profile = Some(profile.clone());
-        }
+        store_profile_if_current(current.as_mut(), &stamp, &profile);
         Ok(profile)
     })
     .await

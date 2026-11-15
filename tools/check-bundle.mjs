@@ -5,7 +5,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 
-const FRONTEND_LIMITS = Object.freeze({
+export const FRONTEND_LIMITS = Object.freeze({
   javascript: Object.freeze({ rawBytesPerFile: 512 * 1024, gzipBytesPerFile: 160 * 1024 }),
   css: Object.freeze({ rawBytesPerFile: 128 * 1024, gzipBytesPerFile: 40 * 1024 }),
   // COD-19: fonts, images, .wasm and the page itself count too.
@@ -13,11 +13,19 @@ const FRONTEND_LIMITS = Object.freeze({
   // 2026-10-07: raw total raised from 832 to 896 KiB for the roadmap features
   // (conflict bulk actions, suggested rules); the gzip total, closer to what the
   // WebView loads, keeps its 240 KiB limit.
-  // 2026-11-11: raw total raised from 896 to 928 KiB (owner's decision) for
-  // tanda 17 of the 2026-11-05 audit (920,940 bytes; gzip 234,189). Local app:
-  // the WebView reads from disk. AUD-079 reviews what weighs in index-*.js
-  // before any further increase.
-  total: Object.freeze({ rawBytes: 928 * 1024, gzipBytes: 240 * 1024 }),
+  // Dos límites de JS+CSS, por qué:
+  // - initialLoad (estricto): lo que el navegador descarga al abrir la app
+  //   (index.html, su chunk de entrada, los estáticos de ese chunk y el CSS
+  //   enlazado). Es lo que el usuario espera al arrancar; sin import() lazy.
+  //   Crecer aquí castiga cada arranque, así que el límite va justo a lo medido.
+  // - total (holgado): todo el JS+CSS de dist, lazy incluido. Mover código a
+  //   chunks lazy no lo reduce, así que solo frena el crecimiento global: lo
+  //   medido + 10 %. Se redondea a KiB hacia arriba.
+  // Medido 2026-11-15 con el build de Windows (chrome105): carga inicial 497.530 raw /
+  // 132.287 gzip; total 986.128 raw / 257.842 gzip. Límites: carga inicial lo medido
+  // redondeado hacia arriba a KiB (486 / 130); total lo medido + 10 % a KiB (1060 / 277).
+  initialLoad: Object.freeze({ rawBytes: 486 * 1024, gzipBytes: 130 * 1024 }),
+  total: Object.freeze({ rawBytes: 1060 * 1024, gzipBytes: 277 * 1024 }),
   otherTotal: Object.freeze({ rawBytes: 512 * 1024 }),
 });
 
@@ -91,7 +99,51 @@ function writeJson(outputPath, value) {
   writeFileSync(outputPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-export function checkFrontendBudget(distPath, outputPath, markPath) {
+// Import estático (no import() dinámico) de un chunk; cubre `import x from "./a.js"`,
+// `import "./a.css"` y `export ... from "./a.js"`, con comillas simples, dobles o backtick.
+const STATIC_SPECIFIER = /\b(?:import|export)\s*(?!\s*\()(?:[^'"`;]*?\bfrom\s*)?(["'`])(\.{1,2}\/[^"'`]+)\1/g;
+
+function htmlAttribute(tag, name) {
+  return tag.match(new RegExp(`\\b${name}="([^"]+)"`))?.[1];
+}
+
+// Lista los archivos que el navegador descarga al abrir dist/index.html: los
+// <script src> y <link> de stylesheet/modulepreload de la página, y de ahí en
+// adelante los imports estáticos de cada JS. Vite no genera manifest aquí, así
+// que se analiza el propio build. Los import() dinámicos no se siguen.
+export function initialLoadFiles(distPath) {
+  const indexPath = resolve(distPath, "index.html");
+  if (!existsSync(indexPath)) {
+    throw new Error(`No hay ${indexPath}: no se puede medir la carga inicial.`);
+  }
+  const html = readFileSync(indexPath, "utf8");
+  const references = [
+    ...[...html.matchAll(/<script\b[^>]*>/g)].map((match) => htmlAttribute(match[0], "src")),
+    ...[...html.matchAll(/<link\b[^>]*>/g)]
+      .filter((match) => /\brel="(?:stylesheet|modulepreload)"/.test(match[0]))
+      .map((match) => htmlAttribute(match[0], "href")),
+  ].filter((reference) => reference !== undefined);
+
+  const loaded = new Set();
+  const queue = references.map((reference) => resolve(distPath, reference.replace(/^\/+/, "")));
+  while (queue.length > 0) {
+    const file = queue.shift();
+    if (loaded.has(file)) continue;
+    if (!existsSync(file)) {
+      throw new Error(`index.html referencia ${normalizedRelative(distPath, file)}, que no existe en el build.`);
+    }
+    loaded.add(file);
+    if (extname(file).toLowerCase() === ".js") {
+      for (const match of readFileSync(file, "utf8").matchAll(STATIC_SPECIFIER)) {
+        queue.push(resolve(dirname(file), match[2]));
+      }
+    }
+  }
+  return loaded;
+}
+
+export function checkFrontendBudget(distPath, outputPath, markPath, limits = FRONTEND_LIMITS) {
+  const initial = initialLoadFiles(distPath);
   const files = listFiles(distPath)
     .map((file) => {
       const contents = readFileSync(file);
@@ -99,15 +151,18 @@ export function checkFrontendBudget(distPath, outputPath, markPath) {
       return {
         path: normalizedRelative(distPath, file),
         kind,
+        initial: initial.has(file),
         rawBytes: contents.byteLength,
         gzipBytes: gzipSync(contents, { level: 9 }).byteLength,
       };
     });
 
-  const totals = files.filter((file) => file.kind !== "other").reduce(
+  const sumJsCss = (selected) => selected.filter((file) => file.kind !== "other").reduce(
     (sum, file) => ({ rawBytes: sum.rawBytes + file.rawBytes, gzipBytes: sum.gzipBytes + file.gzipBytes }),
     { rawBytes: 0, gzipBytes: 0 },
   );
+  const totals = sumJsCss(files);
+  const initialLoad = sumJsCss(files.filter((file) => file.initial));
   const otherRawBytes = files.filter((file) => file.kind === "other").reduce((sum, file) => sum + file.rawBytes, 0);
   const violations = [];
   for (const file of files.filter((candidate) => candidate.path.toLowerCase().endsWith(".map"))) {
@@ -128,11 +183,17 @@ export function checkFrontendBudget(distPath, outputPath, markPath) {
       violations.push(`${file.path}: ${file.gzipBytes} bytes gzip exceden ${limit.gzipBytesPerFile}.`);
     }
   }
-  if (totals.rawBytes > FRONTEND_LIMITS.total.rawBytes) {
-    violations.push(`Total raw ${totals.rawBytes} excede ${FRONTEND_LIMITS.total.rawBytes} bytes.`);
+  if (initialLoad.rawBytes > limits.initialLoad.rawBytes) {
+    violations.push(`Carga inicial raw ${initialLoad.rawBytes} excede ${limits.initialLoad.rawBytes} bytes.`);
   }
-  if (totals.gzipBytes > FRONTEND_LIMITS.total.gzipBytes) {
-    violations.push(`Total gzip ${totals.gzipBytes} excede ${FRONTEND_LIMITS.total.gzipBytes} bytes.`);
+  if (initialLoad.gzipBytes > limits.initialLoad.gzipBytes) {
+    violations.push(`Carga inicial gzip ${initialLoad.gzipBytes} excede ${limits.initialLoad.gzipBytes} bytes.`);
+  }
+  if (totals.rawBytes > limits.total.rawBytes) {
+    violations.push(`Total raw ${totals.rawBytes} excede ${limits.total.rawBytes} bytes.`);
+  }
+  if (totals.gzipBytes > limits.total.gzipBytes) {
+    violations.push(`Total gzip ${totals.gzipBytes} excede ${limits.total.gzipBytes} bytes.`);
   }
 
   const warning = buildTargetWarning(distPath, markPath);
@@ -141,17 +202,19 @@ export function checkFrontendBudget(distPath, outputPath, markPath) {
     schemaVersion: 1,
     status: violations.length === 0 ? "passed" : "failed",
     warnings: warning ? [warning] : [],
-    limits: FRONTEND_LIMITS,
+    limits,
+    initialLoad: { ...initialLoad, files: files.filter((file) => file.initial).map((file) => file.path) },
     totals,
     otherRawBytes,
     files,
     violations,
   };
   writeJson(outputPath, evidence);
+  const summary = `Carga inicial: ${initialLoad.rawBytes} bytes raw (límite ${limits.initialLoad.rawBytes}), ${initialLoad.gzipBytes} bytes gzip (límite ${limits.initialLoad.gzipBytes}). Total JS+CSS: ${totals.rawBytes} bytes raw (límite ${limits.total.rawBytes}), ${totals.gzipBytes} bytes gzip (límite ${limits.total.gzipBytes}).`;
   if (violations.length > 0) {
-    throw new Error(`Presupuesto frontend excedido. ${violations.join(" ")} Divide el bundle o revisa explícitamente los límites.`);
+    throw new Error(`Presupuesto frontend excedido. ${summary} ${violations.join(" ")} Divide el bundle o revisa explícitamente los límites.`);
   }
-  console.log(`Bundle frontend: ${files.length} archivos, ${totals.rawBytes} bytes raw, ${totals.gzipBytes} bytes gzip.`);
+  console.log(`Bundle frontend: ${files.length} archivos. ${summary}`);
 }
 
 function isDistributionArtifact(file) {

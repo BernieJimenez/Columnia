@@ -4,6 +4,7 @@
 
 use super::history::write_frame_snapshot;
 use super::page_reader::dataset_page_from_state;
+use super::profile_reader::store_profile_if_current;
 use super::*;
 use std::time::Duration;
 
@@ -295,4 +296,119 @@ fn taking_a_selection_removes_its_cached_frame() {
     assert!(cached.is_some());
     let selection = state.pending_selection.lock_recovering();
     assert!(selection.as_ref().unwrap().cached_frame.is_none());
+}
+
+// A profile kept per history version: undo and redo hand it back instead of
+// profiling the version again.
+
+fn marked_profile(frame: &DataFrame, mark: usize) -> DatasetProfile {
+    // The tampered count proves a restored profile is the stored one and not
+    // a new computation.
+    let mut profile = profile_dataset(frame).unwrap();
+    profile.duplicate_row_count = mark;
+    profile
+}
+
+fn profiled_dataset(original: &DataFrame) -> LoadedDataset {
+    loaded(original.clone(), HistoryManager::new(original).unwrap())
+}
+
+fn profile_current(dataset: &mut LoadedDataset, mark: usize) -> DatasetProfile {
+    let stamp = DatasetMutationStamp::capture(dataset);
+    let profile = marked_profile(&dataset.frame, mark);
+    assert!(store_profile_if_current(Some(dataset), &stamp, &profile));
+    profile
+}
+
+#[test]
+fn undo_and_redo_hand_back_the_profile_of_each_version_without_recomputing() {
+    let original = values(&[1, 2, 3]);
+    let mut dataset = profiled_dataset(&original);
+    let original_profile = profile_current(&mut dataset, 1001);
+
+    publish_candidate(&mut dataset, values(&[10, 20, 30]), "Multiplicar").unwrap();
+    assert!(dataset.profile.is_none());
+    let changed_profile = profile_current(&mut dataset, 2002);
+
+    undo_dataset(&mut dataset).unwrap();
+    assert_eq!(dataset.profile.as_ref(), Some(&original_profile));
+    redo_dataset(&mut dataset).unwrap();
+    assert_eq!(dataset.profile.as_ref(), Some(&changed_profile));
+    undo_dataset(&mut dataset).unwrap();
+    assert_eq!(dataset.profile.as_ref(), Some(&original_profile));
+}
+
+#[test]
+fn a_version_without_a_profile_still_restores_none() {
+    let original = values(&[1, 2, 3]);
+    let mut dataset = profiled_dataset(&original);
+    publish_candidate(&mut dataset, values(&[10, 20, 30]), "Multiplicar").unwrap();
+    profile_current(&mut dataset, 2002);
+    undo_dataset(&mut dataset).unwrap();
+    assert!(dataset.profile.is_none());
+}
+
+#[test]
+fn a_retired_entry_loses_its_profile() {
+    let original = values(&[1, 2, 3]);
+    let mut dataset = loaded(
+        original.clone(),
+        HistoryManager::with_limits(&original, 2, HISTORY_DISK_BUDGET_BYTES).unwrap(),
+    );
+    profile_current(&mut dataset, 1001);
+    publish_candidate(&mut dataset, values(&[4, 5, 6]), "Uno").unwrap();
+    publish_candidate(&mut dataset, values(&[7, 8, 9]), "Dos").unwrap();
+    // The limit retired the original, profile included.
+    assert_eq!(dataset.history.entries.len(), 2);
+    assert!(dataset.history.entries.iter().all(|entry| entry.profile.is_none()));
+    undo_dataset(&mut dataset).unwrap();
+    assert!(dataset.profile.is_none());
+
+    // A discarded redo branch drops its profiles too.
+    let mut dataset = profiled_dataset(&original);
+    publish_candidate(&mut dataset, values(&[4, 5, 6]), "Uno").unwrap();
+    profile_current(&mut dataset, 2002);
+    undo_dataset(&mut dataset).unwrap();
+    publish_candidate(&mut dataset, values(&[7, 8, 9]), "Otro").unwrap();
+    assert!(dataset.history.entries.iter().all(|entry| entry.profile.is_none()));
+}
+
+#[test]
+fn a_profile_of_an_old_revision_is_not_stored_on_the_new_entry() {
+    let original = values(&[1, 2, 3]);
+    let mut dataset = profiled_dataset(&original);
+    let stamp = DatasetMutationStamp::capture(&dataset);
+    let stale = marked_profile(&dataset.frame, 3003);
+    publish_candidate(&mut dataset, values(&[10, 20, 30]), "Multiplicar").unwrap();
+    assert!(!store_profile_if_current(Some(&mut dataset), &stamp, &stale));
+    assert!(dataset.profile.is_none());
+    assert!(dataset.history.entries.iter().all(|entry| entry.profile.is_none()));
+}
+
+#[test]
+fn a_profile_arriving_while_the_original_is_pending_goes_to_entry_0_once_registered() {
+    let original = values(&[1, 2, 3]);
+    let (history, gate) = HistoryManager::with_gated_background_baseline(
+        &original,
+        HISTORY_MAX_ENTRIES,
+        HISTORY_DISK_BUDGET_BYTES,
+    )
+    .unwrap();
+    let mut dataset = loaded(original.clone(), history);
+    let stamp = DatasetMutationStamp::capture(&dataset);
+    let profile = marked_profile(&original, 4004);
+    assert!(store_profile_if_current(Some(&mut dataset), &stamp, &profile));
+    // The dataset keeps it; entry 0 does not exist yet.
+    assert_eq!(dataset.profile.as_ref(), Some(&profile));
+    assert!(dataset.history.entries.is_empty());
+
+    // Once the copy is registered, the profile goes to entry 0, so the first
+    // undo back to the original does not recompute it.
+    let state = state_with(dataset);
+    let releaser = release_after(gate, Duration::from_millis(50));
+    let current = state.current.lock_recovering();
+    releaser.join().unwrap();
+    let dataset = current.as_ref().unwrap();
+    assert_eq!(dataset.history.entries.len(), 1);
+    assert_eq!(dataset.history.profile_at(0).as_ref(), Some(&profile));
 }

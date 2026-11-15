@@ -2,7 +2,7 @@ use super::{
     collect_lazy_frame_streaming_with_cancel, dataset_preview_from_schema_and_page,
     ensure_not_cancelled, fresh_history_entry_id, loaded_dataset_preview, parquet_row_count,
     parquet_row_group_rows, parquet_scan, read_parquet_frame_with_cancel,
-    read_parquet_schema_frame, validate_dataset_file, DatasetPreview, DatasetState, IdxSize,
+    read_parquet_schema_frame, validate_dataset_file, DatasetPreview, DatasetProfile, DatasetState, IdxSize,
     LoadedDataset, PrepareCancellation, HISTORY_DISK_BUDGET_BYTES, HISTORY_MAX_ENTRIES,
     OPERATION_CANCELLED_MESSAGE, PREVIEW_ROW_LIMIT,
 };
@@ -71,6 +71,10 @@ pub(super) struct HistoryEntry {
     pub(super) label: String,
     pub(super) path: PathBuf,
     pub(super) bytes: u64,
+    /// The profile of this version, in memory only (never saved to disk or
+    /// to the project). Undo and redo hand it back instead of profiling the
+    /// version again; it goes away with the entry.
+    pub(super) profile: Option<DatasetProfile>,
 }
 
 #[derive(Debug)]
@@ -612,6 +616,7 @@ impl HistoryManager {
                 label: ORIGINAL_LABEL.to_owned(),
                 path: destination,
                 bytes,
+                profile: None,
             });
             self.cursor = 0;
             self.next_id = id.wrapping_add(1);
@@ -646,6 +651,27 @@ impl HistoryManager {
             self.entries.len(),
             self.next_id,
         )
+    }
+
+    /// Keeps `profile` on the cursor entry, which is the version it was
+    /// computed for (the caller checked the mutation stamp). Not kept while
+    /// the initial snapshot is pending (entry 0 does not exist yet; the
+    /// dataset keeps its own copy meanwhile) nor for an unsaved current
+    /// version (it has no entry).
+    pub(super) fn remember_profile(&mut self, profile: &DatasetProfile) {
+        if self.pending_baseline.is_some() || self.unsaved_current.is_some() {
+            return;
+        }
+        if let Some(entry) = self.entries.get_mut(self.cursor) {
+            entry.profile = Some(profile.clone());
+        }
+    }
+
+    /// The profile kept for the entry at `target`, if any.
+    pub(super) fn profile_at(&self, target: usize) -> Option<DatasetProfile> {
+        self.entries
+            .get(target)
+            .and_then(|entry| entry.profile.clone())
     }
 
     /// PROD-10: the last summary while the frame is still the one it describes.
@@ -825,6 +851,7 @@ impl HistoryManager {
             label: label.to_owned(),
             path: destination,
             bytes,
+            profile: None,
         });
         self.cursor = self.entries.len() - 1;
         self.unsaved_current = None;
@@ -888,6 +915,7 @@ impl HistoryManager {
             label: label.to_owned(),
             path: destination,
             bytes,
+            profile: None,
         });
         self.cursor = self.entries.len() - 1;
         self.unsaved_current = None;
@@ -1010,6 +1038,7 @@ impl HistoryManager {
             label: label.to_owned(),
             path: destination,
             bytes,
+            profile: None,
         });
         self.cursor = self.entries.len() - 1;
         self.unsaved_current = None;
@@ -1190,6 +1219,7 @@ fn restore_source_backed_history_cursor(
     )?;
     check_cancellation()?;
 
+    let restored_profile = dataset.history.profile_at(target);
     let publish = || {
         dataset.history.cursor = target;
         dataset.history.unsaved_current = None;
@@ -1199,7 +1229,7 @@ fn restore_source_backed_history_cursor(
         dataset.row_count = row_count;
         dataset.frame = schema;
         dataset.history.touch();
-        dataset.profile = None;
+        dataset.profile = restored_profile;
         if was_source_backed {
             dataset.source_path = Some(snapshot_path);
             dataset.file_size_bytes = snapshot_size;
@@ -1277,6 +1307,7 @@ pub(super) fn undo_dataset_with_cancellation(
         cancellation.is_some_and(|token| token.is_cancelled())
     })?;
     let preview = loaded_dataset_preview(dataset, &previous)?;
+    let restored_profile = dataset.history.profile_at(target);
     let publish = || {
         dataset.row_count = previous.height();
         dataset.frame = previous;
@@ -1285,7 +1316,7 @@ pub(super) fn undo_dataset_with_cancellation(
         dataset.history.cursor = target;
         dataset.history.unsaved_current = None;
         dataset.history.degraded_reason = None;
-        dataset.profile = None;
+        dataset.profile = restored_profile;
         Ok(HistoryResult {
             dataset: preview,
             history: dataset.history.state(),
@@ -1327,13 +1358,14 @@ pub(super) fn redo_dataset_with_cancellation(
         cancellation.is_some_and(|token| token.is_cancelled())
     })?;
     let preview = loaded_dataset_preview(dataset, &next)?;
+    let restored_profile = dataset.history.profile_at(target);
     let publish = || {
         dataset.row_count = next.height();
         dataset.frame = next;
         dataset.history.touch();
         dataset.source_backed = false;
         dataset.history.cursor = target;
-        dataset.profile = None;
+        dataset.profile = restored_profile;
         Ok(HistoryResult {
             dataset: preview,
             history: dataset.history.state(),
