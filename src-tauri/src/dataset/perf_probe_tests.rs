@@ -1051,7 +1051,10 @@ fn perf_probe_load_and_history() {
     let history = timed("HistoryManager::new (sincrono)", || {
         HistoryManager::new(&frame).expect("historial")
     });
-    println!("probe   snapshot original {:.1} MiB", mib(history.entries[0].bytes));
+    println!(
+        "probe   snapshot original {:.1} MiB",
+        mib(history.entries[0].bytes)
+    );
     let prepared = timed("prepare_frame_snapshot", || {
         history
             .prepare_frame_snapshot(&frame, || false)
@@ -1078,8 +1081,13 @@ fn perf_probe_load_and_history() {
         HistoryManager::with_background_baseline(&frame).expect("historial")
     });
     let profile = timed("perfil mientras se escribe la copia", || {
-        profile_dataset_with_progress(&frame, |_, _| {}, || false, MAX_NUMERIC_CORRELATION_SAMPLE_ROWS)
-            .expect("perfil")
+        profile_dataset_with_progress(
+            &frame,
+            |_, _| {},
+            || false,
+            MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+        )
+        .expect("perfil")
     });
     drop(profile);
     if let Some(slot) = background.baseline_in_progress() {

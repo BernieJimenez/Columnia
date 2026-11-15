@@ -2,8 +2,8 @@ use super::{
     collect_lazy_frame_streaming_with_cancel, dataset_preview_from_schema_and_page,
     ensure_not_cancelled, fresh_history_entry_id, loaded_dataset_preview, parquet_row_count,
     parquet_row_group_rows, parquet_scan, read_parquet_frame_with_cancel,
-    read_parquet_schema_frame, validate_dataset_file, DatasetPreview, DatasetProfile, DatasetState, IdxSize,
-    LoadedDataset, PrepareCancellation, HISTORY_DISK_BUDGET_BYTES, HISTORY_MAX_ENTRIES,
+    read_parquet_schema_frame, validate_dataset_file, DatasetPreview, DatasetProfile, DatasetState,
+    IdxSize, LoadedDataset, PrepareCancellation, HISTORY_DISK_BUDGET_BYTES, HISTORY_MAX_ENTRIES,
     OPERATION_CANCELLED_MESSAGE, PREVIEW_ROW_LIMIT,
 };
 use crate::crash_report::LockRecovering;
@@ -646,7 +646,9 @@ impl HistoryManager {
             return (Some(path), 0, 1, self.next_id.wrapping_add(1));
         }
         (
-            self.entries.get(self.cursor).map(|entry| entry.path.clone()),
+            self.entries
+                .get(self.cursor)
+                .map(|entry| entry.path.clone()),
             self.cursor,
             self.entries.len(),
             self.next_id,

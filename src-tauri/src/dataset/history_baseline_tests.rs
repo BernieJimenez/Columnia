@@ -39,7 +39,10 @@ fn state_with(dataset: LoadedDataset) -> DatasetState {
 
 /// Lets the gated writer start after `delay`, from another thread, so the
 /// caller is already waiting when it does.
-fn release_after(gate: std::sync::mpsc::Sender<()>, delay: Duration) -> std::thread::JoinHandle<()> {
+fn release_after(
+    gate: std::sync::mpsc::Sender<()>,
+    delay: Duration,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         std::thread::sleep(delay);
         let _ = gate.send(());
@@ -180,7 +183,10 @@ fn loading_another_dataset_cancels_a_pending_original_and_removes_its_folder() {
     let previous = state.current.lock_now().replace(replacement);
     drop(previous);
     assert!(started.elapsed() < Duration::from_secs(5));
-    assert!(!directory.exists(), "la carpeta del historial anterior debe borrarse");
+    assert!(
+        !directory.exists(),
+        "la carpeta del historial anterior debe borrarse"
+    );
 
     let current = state.current.lock_recovering();
     assert!(current.as_ref().unwrap().frame.equals_missing(&next));
@@ -198,7 +204,10 @@ fn an_original_over_the_disk_budget_disables_the_history_with_its_reason() {
     let history = dataset.history.state();
     assert!(!history.snapshots_enabled);
     assert!(!history.can_undo);
-    assert!(history.degraded_reason.unwrap().contains("supera el límite"));
+    assert!(history
+        .degraded_reason
+        .unwrap()
+        .contains("supera el límite"));
     // A project still sees a consistent degraded history.
     let capture =
         capture_project_history_with_cancel(&dataset.history, &dataset.frame, || false).unwrap();
@@ -360,7 +369,11 @@ fn a_retired_entry_loses_its_profile() {
     publish_candidate(&mut dataset, values(&[7, 8, 9]), "Dos").unwrap();
     // The limit retired the original, profile included.
     assert_eq!(dataset.history.entries.len(), 2);
-    assert!(dataset.history.entries.iter().all(|entry| entry.profile.is_none()));
+    assert!(dataset
+        .history
+        .entries
+        .iter()
+        .all(|entry| entry.profile.is_none()));
     undo_dataset(&mut dataset).unwrap();
     assert!(dataset.profile.is_none());
 
@@ -370,7 +383,11 @@ fn a_retired_entry_loses_its_profile() {
     profile_current(&mut dataset, 2002);
     undo_dataset(&mut dataset).unwrap();
     publish_candidate(&mut dataset, values(&[7, 8, 9]), "Otro").unwrap();
-    assert!(dataset.history.entries.iter().all(|entry| entry.profile.is_none()));
+    assert!(dataset
+        .history
+        .entries
+        .iter()
+        .all(|entry| entry.profile.is_none()));
 }
 
 #[test]
@@ -380,9 +397,17 @@ fn a_profile_of_an_old_revision_is_not_stored_on_the_new_entry() {
     let stamp = DatasetMutationStamp::capture(&dataset);
     let stale = marked_profile(&dataset.frame, 3003);
     publish_candidate(&mut dataset, values(&[10, 20, 30]), "Multiplicar").unwrap();
-    assert!(!store_profile_if_current(Some(&mut dataset), &stamp, &stale));
+    assert!(!store_profile_if_current(
+        Some(&mut dataset),
+        &stamp,
+        &stale
+    ));
     assert!(dataset.profile.is_none());
-    assert!(dataset.history.entries.iter().all(|entry| entry.profile.is_none()));
+    assert!(dataset
+        .history
+        .entries
+        .iter()
+        .all(|entry| entry.profile.is_none()));
 }
 
 #[test]
@@ -397,7 +422,11 @@ fn a_profile_arriving_while_the_original_is_pending_goes_to_entry_0_once_registe
     let mut dataset = loaded(original.clone(), history);
     let stamp = DatasetMutationStamp::capture(&dataset);
     let profile = marked_profile(&original, 4004);
-    assert!(store_profile_if_current(Some(&mut dataset), &stamp, &profile));
+    assert!(store_profile_if_current(
+        Some(&mut dataset),
+        &stamp,
+        &profile
+    ));
     // The dataset keeps it; entry 0 does not exist yet.
     assert_eq!(dataset.profile.as_ref(), Some(&profile));
     assert!(dataset.history.entries.is_empty());

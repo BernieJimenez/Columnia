@@ -53,14 +53,17 @@ pub(super) async fn inspect_dataset_path_impl(
     // The replaced selection, with any frame its schema review kept, is
     // dropped after the locks.
     let _replaced = state.commit_load(generation, || {
-        Ok(state.pending_selection.lock_recovering().replace(PendingSelection {
-            id: selection_id.clone(),
-            generation,
-            path,
-            file_size_bytes,
-            sheets: Vec::new(),
-            cached_frame: None,
-        }))
+        Ok(state
+            .pending_selection
+            .lock_recovering()
+            .replace(PendingSelection {
+                id: selection_id.clone(),
+                generation,
+                path,
+                file_size_bytes,
+                sheets: Vec::new(),
+                cached_frame: None,
+            }))
     })?;
     Ok(DatasetSourceInspection {
         selection_id,

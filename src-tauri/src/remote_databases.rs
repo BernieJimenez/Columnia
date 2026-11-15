@@ -6696,7 +6696,10 @@ mod tests {
         assert_eq!(removed, 3);
         let left: Vec<_> = fs::read_dir(&imports).expect("carpeta").flatten().collect();
         assert_eq!(left.len(), 1, "solo la subcarpeta ajena queda");
-        assert_eq!(purge_database_imports(&directory.path().join("nada"), later), 0);
+        assert_eq!(
+            purge_database_imports(&directory.path().join("nada"), later),
+            0
+        );
     }
 
     /// AUD-103: Cancelar returns while the import thread is still blocked in the

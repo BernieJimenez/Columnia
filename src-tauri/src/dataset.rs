@@ -2093,9 +2093,7 @@ impl CurrentDataset {
 
     /// The plain mutex lock, for tests that check poisoning.
     #[cfg(test)]
-    fn lock(
-        &self,
-    ) -> std::sync::LockResult<MutexGuard<'_, Option<LoadedDataset>>> {
+    fn lock(&self) -> std::sync::LockResult<MutexGuard<'_, Option<LoadedDataset>>> {
         self.0.lock()
     }
 }
