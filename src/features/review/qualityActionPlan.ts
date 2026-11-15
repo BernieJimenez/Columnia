@@ -11,11 +11,11 @@ export function qualityActionTargetDomId(target: QualityActionTarget): string {
 }
 
 /** Where a problem Preparar does not fix on its own is dealt with. */
-export type UncorrectedAction =
+type UncorrectedAction =
   | { kind: "prepare"; label: string; target?: QualityActionTarget }
   | { kind: "load"; label: string };
 
-export interface UncorrectedIssue {
+interface UncorrectedIssue {
   id: "nulls" | "skewedNumbers" | "incompatible" | "personal" | "commaDecimal" | "nonFinite";
   /** What it is and how many cells, rows or columns, counted over every row. */
   title: string;

@@ -55,7 +55,7 @@ const DEFAULT_DATABASE_SCHEMA: Record<DatabaseTarget["kind"], string> = {
   mysql: "",
 };
 
-export function defaultDatabaseSchema(kind: DatabaseTarget["kind"]): string {
+function defaultDatabaseSchema(kind: DatabaseTarget["kind"]): string {
   return DEFAULT_DATABASE_SCHEMA[kind];
 }
 
@@ -219,7 +219,7 @@ export function destinationForFormat(format: ExportFormat): DeliveryDestination 
   return "file";
 }
 
-export interface DeliverySummaryItem {
+interface DeliverySummaryItem {
   label: string;
   value: string;
 }

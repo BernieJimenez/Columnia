@@ -45,7 +45,7 @@ export interface ColumnFill {
 export type FixAction = { kind: "shared"; id: SharedActionId } | ColumnFill;
 
 /** The groups of «Corregir columna por columna», most serious first. */
-export type ColumnFixGroup = "removal" | "types" | "personal" | "outliers" | "text" | "fill" | "identifier";
+type ColumnFixGroup = "removal" | "types" | "personal" | "outliers" | "text" | "fill" | "identifier";
 
 export const COLUMN_FIX_GROUPS: ReadonlyArray<{ id: ColumnFixGroup; title: string }> = [
   { id: "removal", title: "Columnas sin datos útiles" },
@@ -57,7 +57,7 @@ export const COLUMN_FIX_GROUPS: ReadonlyArray<{ id: ColumnFixGroup; title: strin
   { id: "identifier", title: "Identificadores" },
 ];
 
-export interface ColumnFixRow {
+interface ColumnFixRow {
   column: ColumnProfile;
   typeLabel: string;
   /** What happens to the column, figures of every row. */
@@ -69,9 +69,9 @@ export interface ColumnFixRow {
   group: ColumnFixGroup;
 }
 
-export type FixScopes = Record<SharedActionId, ColumnProfile[]>;
+type FixScopes = Record<SharedActionId, ColumnProfile[]>;
 
-export interface ColumnFixPlan {
+interface ColumnFixPlan {
   rows: ColumnFixRow[];
   scopes: FixScopes;
 }
@@ -87,7 +87,7 @@ function isPersonal(column: ColumnProfile): boolean {
   return column.privacySignal !== null && column.privacySignal in PERSONAL_LABELS;
 }
 
-export function columnTypeLabel(column: ColumnProfile): string {
+function columnTypeLabel(column: ColumnProfile): string {
   if (isTextType(column.dataType)) return "Texto";
   if (isBooleanType(column.dataType)) return "Sí/no";
   if (isDatetimeType(column.dataType)) return "Fecha y hora";
@@ -407,7 +407,7 @@ export function actionEffect(id: SharedActionId): string {
 }
 
 /** For «En varias columnas»: one entry per kind of change, its alternatives folded under it. */
-export interface SharedEntry {
+interface SharedEntry {
   primary: SharedActionId;
   alternatives: SharedActionId[];
 }

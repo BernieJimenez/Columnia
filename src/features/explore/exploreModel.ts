@@ -109,7 +109,7 @@ export function formatNumber(value: number, fractionDigits = 0, useGrouping = tr
 }
 
 /** TXT-06: whole numbers between 1000 and 2999 read as years, written as such. */
-export function looksLikeYears(lower: number, upper: number): boolean {
+function looksLikeYears(lower: number, upper: number): boolean {
   return Number.isInteger(lower) && Number.isInteger(upper) && lower >= 1000 && upper <= 2999;
 }
 

@@ -211,7 +211,7 @@ export function ComparisonSetup({
 }
 
 /** The second step: what the comparison found, read-only. */
-export function ComparisonResult({
+function ComparisonResult({
   comparison,
   onConflictPageChange,
   busy,

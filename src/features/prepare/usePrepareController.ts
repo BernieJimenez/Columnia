@@ -55,7 +55,7 @@ type RecipeResultCounts = Awaited<ReturnType<typeof applyTransformRecipe>>;
  * What a recipe did, only the figures that moved: «3 renombres y 120 filas
  * filtradas», never a list of zeros.
  */
-export function recipeResultParts(result: Omit<RecipeResultCounts, "dataset">): string {
+function recipeResultParts(result: Omit<RecipeResultCounts, "dataset">): string {
   const contacts = result.normalizedContactCellCount > 0
     ? `${plural(result.normalizedContactCellCount, "contacto normalizado", "contactos normalizados")} en ${plural(result.normalizedContactColumnCount, "columna", "columnas")}`
     : null;

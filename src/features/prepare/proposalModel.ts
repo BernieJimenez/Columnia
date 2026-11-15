@@ -121,7 +121,7 @@ export function proposalImputeCells(item: ProposalItem): number {
 }
 
 /** One column that «Rellenar nulos» of the proposal fills. */
-export interface ProposalImputeColumnFigures {
+interface ProposalImputeColumnFigures {
   column: string;
   /** Nulls it fills. */
   nulls: number;
@@ -131,7 +131,7 @@ export interface ProposalImputeColumnFigures {
   cells: number;
 }
 
-export interface ProposalImputeFigures {
+interface ProposalImputeFigures {
   columns: ProposalImputeColumnFigures[];
   nulls: number;
   markers: number;

@@ -112,7 +112,7 @@ interface ReviewControllerOptions {
 }
 
 /** What the result line of a combination names. */
-export interface CombinationDetail {
+interface CombinationDetail {
   comparedFileName: string | null;
   joinType: DatasetJoinType;
 }

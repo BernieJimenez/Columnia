@@ -55,7 +55,7 @@ export function joinTypeLabel(joinType: DatasetJoinType): string {
 }
 
 /** What a combination leaves: `rowCount` is null when repeated keys make it unknown in advance. */
-export interface CombinationEstimate {
+interface CombinationEstimate {
   rowCount: number | null;
   columnCount: number;
 }

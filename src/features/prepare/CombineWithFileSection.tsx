@@ -38,10 +38,10 @@ const MUTATION_PROGRESS: Record<ReviewMutationKind, string> = {
 };
 
 /** What every combination sets aside: it belonged to the table before. */
-export const COMBINE_DISCARDED = "El contrato de Entregar, la receta de Transformaciones, el perfil de importación, el origen de la importación, el historial de Consulta SQL y el vínculo con el proyecto guardado.";
+const COMBINE_DISCARDED = "El contrato de Entregar, la receta de Transformaciones, el perfil de importación, el origen de la importación, el historial de Consulta SQL y el vínculo con el proyecto guardado.";
 
 /** What «Deshacer» does after combining, as App restores it. */
-export function combineUndoText(snapshotsEnabled: boolean): string {
+function combineUndoText(snapshotsEnabled: boolean): string {
   return snapshotsEnabled
     ? "Cada acción queda como un paso del historial. «Deshacer» vuelve a las filas de antes y recupera lo descartado que no hayas vuelto a configurar después; el vínculo con el proyecto, si el proyecto sigue guardado."
     : "El historial está desactivado: no se podrá deshacer ni recuperar lo descartado. Guarda el proyecto antes si quieres conservar la versión actual.";
